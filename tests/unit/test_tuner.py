@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import click
 import pytest
 
-import boxmot.engine.tuner as tuner_module
+import boxmot.engine.tuning.tuner as tuner_module
 import boxmot.utils.rich.reporting as rich_reporting
 import boxmot.utils.rich.tune_reporting as tune_reporting
 import boxmot.utils.rich.ui as ui_module
@@ -188,7 +188,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
         tracker="strongsort",
-        data="mot17-ablation",
+        data="mot17-mini",
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
@@ -344,7 +344,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
         tracker="strongsort",
-        data="mot17-ablation",
+        data="mot17-mini",
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
@@ -515,7 +515,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
         tracker="strongsort",
-        data="mot17-ablation",
+        data="mot17-mini",
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
@@ -644,7 +644,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         detector=[tmp_path / "yolox_x_MOT17_ablation.pt"],
         reid=[tmp_path / "lmbn_n_duke.pt"],
         tracker="botsort",
-        data="mot17-ablation",
+        data="mot17-mini",
         maximize=("HOTA,MOTA,IDF1",),
         minimize=("IDSW_rate",),
         objectives=("HOTA",),
@@ -716,7 +716,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
                 **row,
                 "IDSW_rate": idsw / 20,
                 "_validation": {
-                    "benchmark": "mot17-ablation",
+                    "benchmark": "mot17-mini",
                     "raw": raw,
                     "summary_label": "single_class",
                     "summary": row,
@@ -866,7 +866,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
         tracker="bytetrack",
-        data="mot17-ablation",
+        data="mot17-mini",
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
@@ -891,14 +891,14 @@ def test_build_tune_workflow_fields_uses_benchmark_data() -> None:
         tracker="bytetrack",
         detector=[Path("yolov8n.pt")],
         reid=[Path("osnet_x0_25_msmt17.pt")],
-        data="mot17-ablation",
+        data="mot17-mini",
         benchmark="",
         n_trials=3,
     )
 
     fields = dict(tune_reporting.build_tune_workflow_fields(args, maximize=["HOTA"], minimize=[]))
 
-    assert fields["Dataset"] == "mot17-ablation"
+    assert fields["Dataset"] == "mot17-mini"
 
 
 def test_build_tune_workflow_fields_show_pareto_objectives() -> None:
@@ -906,8 +906,8 @@ def test_build_tune_workflow_fields_show_pareto_objectives() -> None:
         tracker="ocsort",
         detector=[Path("yolo11s-obb.pt")],
         reid=[Path("lmbn_n_duke.pt")],
-        data="dota8-mot",
-        benchmark="dota8-mot",
+        data="mmot-mini",
+        benchmark="mmot-mini",
         n_trials=10,
     )
 
@@ -927,8 +927,8 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
         tracker="ocsort",
         detector=[Path("yolo11s-obb.pt")],
         reid=[Path("lmbn_n_duke.pt")],
-        data="dota8-mot",
-        benchmark="dota8-mot",
+        data="mmot-mini",
+        benchmark="mmot-mini",
         n_trials=10,
     )
     workflow = tune_reporting.log_tune_pipeline_intro(
@@ -1002,8 +1002,8 @@ def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
     }
     args = SimpleNamespace(
         detector=[Path("yolov8n.pt")],
-        benchmark="mot17-ablation",
-        data="mot17-ablation",
+        benchmark="mot17-mini",
+        data="mot17-mini",
     )
 
     summary_path = tuner_module._generate_summary(

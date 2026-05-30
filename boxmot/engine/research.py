@@ -1,42 +1,43 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
 import difflib
 import importlib
-from importlib.metadata import PackageNotFoundError, distribution
 import json
 import os
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import traceback
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping, Sequence
 
 import yaml
 
+import boxmot.utils.rich.ui as ui
 from boxmot.configs import DEFAULT_DETECTOR, DEFAULT_REID
 from boxmot.data.dataset import _collect_seq_info
-from boxmot.utils import ROOT, logger as LOGGER
-from boxmot.utils.benchmark_config import (
+from boxmot.native._common import set_build_status_fn
+from boxmot.utils import ROOT
+from boxmot.utils import logger as LOGGER
+from boxmot.configs.benchmark import (
     apply_benchmark_config,
     resolve_required_reid_model,
     resolve_required_yolo_model,
 )
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.download import set_download_status_fn
-from boxmot.native._common import set_build_status_fn
-from boxmot.utils.misc import dataclass_slots_kwargs, resolve_model_path
-import boxmot.utils.rich.ui as ui
+from boxmot.utils.misc import resolve_model_path
 from boxmot.utils.rich.pipeline import PipelineTracker
-from boxmot.utils.rich.ui import print_text
 from boxmot.utils.rich.research_reporting import ResearchWorkflowReporter
+from boxmot.utils.rich.ui import print_text
 
 RESEARCH_EXTRA = "research"
 RESEARCH_METRICS = ("HOTA", "IDF1", "MOTA")
@@ -102,8 +103,8 @@ import traceback
 from pathlib import Path
 
 from boxmot.configs import build_mode_namespace
-from boxmot.engine.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_trackeval
-from boxmot.utils.evaluation.results import build_trackeval_feedback
+from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_trackeval
+from boxmot.engine.eval.metrics.results import build_trackeval_feedback
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 
@@ -364,7 +365,10 @@ def _normalize_editable_files(
     if editable_files:
         files = [Path(path) for path in editable_files]
     else:
-        tracker_dir = ROOT / "boxmot" / "trackers" / tracker.lower()
+        tracker_dir = ROOT / "boxmot" / "trackers" / "bbox" / tracker.lower()
+        if not tracker_dir.exists():
+            # Fallback for non-bbox trackers (e.g. hybrid)
+            tracker_dir = ROOT / "boxmot" / "trackers" / tracker.lower()
         if not tracker_dir.exists():
             raise FileNotFoundError(f"Tracker source directory not found: {tracker_dir}")
 
@@ -830,7 +834,7 @@ def _terminate_subprocess_tree(
         return proc.communicate(timeout=wait_timeout)
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class RegressionPenalties:
     idf1_penalty: float = 1.0
     mota_penalty: float = 1.0
@@ -851,7 +855,7 @@ class RegressionPenalties:
         }
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class ResearchConfig:
     tracker: str
     benchmark: str
@@ -920,7 +924,7 @@ class ResearchConfig:
         )
 
 
-@dataclass(**dataclass_slots_kwargs())
+@dataclass(slots=True)
 class ResearchResult:
     tracker: str
     benchmark: str

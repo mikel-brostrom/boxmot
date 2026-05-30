@@ -10,7 +10,8 @@ from filelock import SoftFileLock
 
 from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.utils import WEIGHTS, logger as LOGGER
+from boxmot.utils import WEIGHTS
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.misc import resolve_model_path
 
@@ -38,6 +39,7 @@ class BaseModelBackend:
             use_gpu=device,
         )
         self.checker = RequirementsChecker()
+        self._preprocess_name = preprocess
         self.preprocess_fn = get_preprocess_fn(preprocess)
         self.load_model(self.weights)
 
@@ -50,11 +52,11 @@ class BaseModelBackend:
         # Determine input shape, depending on dataset and model name
         if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
-        elif "lmbn" in self.model_name:
+        elif "lmbn" in self.model_name or "vit_tiny" in self.model_name:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)
-        else: 
+        else:
             input_shape = (256, 128)
         self.input_shape = input_shape
 
@@ -84,22 +86,27 @@ class BaseModelBackend:
 
     @staticmethod
     def _crop_obb(box: np.ndarray, img: np.ndarray) -> np.ndarray:
-        """Extract a rectified crop from an oriented box `[cx, cy, w, h, angle]`."""
+        """Extract a rectified crop from an oriented box `[cx, cy, w, h, angle]`.
+
+        Uses affine rotation (faster than perspective warp) since OBBs are
+        true rotated rectangles.
+        """
         box = np.asarray(box, dtype=np.float32).reshape(-1)
         cx, cy, bw, bh, angle = box[:5]
         bw = max(float(bw), 1.0)
         bh = max(float(bh), 1.0)
-        rect = ((float(cx), float(cy)), (bw, bh), float(np.degrees(angle)))
-        src = BaseModelBackend._order_corners(cv2.boxPoints(rect))
-        dst = np.array(
-            [[0, 0], [bw - 1, 0], [bw - 1, bh - 1], [0, bh - 1]],
-            dtype=np.float32,
-        )
-        matrix = cv2.getPerspectiveTransform(src, dst)
-        return cv2.warpPerspective(
-            img,
-            matrix,
-            (max(int(round(bw)), 1), max(int(round(bh)), 1)),
+        out_w, out_h = max(int(round(bw)), 1), max(int(round(bh)), 1)
+
+        # Rotation matrix that rotates around (cx, cy) by -angle, then translates
+        # so the box center lands at (out_w/2, out_h/2)
+        angle_deg = float(np.degrees(angle))
+        M = cv2.getRotationMatrix2D((float(cx), float(cy)), angle_deg, 1.0)
+        # Shift so center maps to output center
+        M[0, 2] += out_w / 2.0 - float(cx)
+        M[1, 2] += out_h / 2.0 - float(cy)
+
+        return cv2.warpAffine(
+            img, M, (out_w, out_h),
             flags=cv2.INTER_LINEAR,
             borderMode=cv2.BORDER_CONSTANT,
             borderValue=(0, 0, 0),
@@ -206,7 +213,7 @@ class BaseModelBackend:
             self.forward(crops)  # warmup
 
     def to_numpy(self, x):
-        return x.cpu().numpy() if isinstance(x, torch.Tensor) else x
+        return x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else x
 
     def inference_preprocess(self, x):
         if self.half:
@@ -242,7 +249,7 @@ class BaseModelBackend:
 
 
     def download_model(self, w):
-        if isinstance(w, str): 
+        if isinstance(w, str):
             w = Path(w)
         w = resolve_model_path(w)
 
@@ -252,7 +259,11 @@ class BaseModelBackend:
         w.parent.mkdir(parents=True, exist_ok=True)
 
         model_url = ReIDModelRegistry.get_model_url(w)
-        lock = SoftFileLock(str(w) + ".lock", timeout=300)  # Wait up to 5 minutes
+        # Use a temp directory for lock files to avoid "no space left" errors
+        # when the local disk is full but the model already exists.
+        import tempfile
+        lock_path = Path(tempfile.gettempdir()) / (w.name + ".lock")
+        lock = SoftFileLock(str(lock_path), timeout=300)  # Wait up to 5 minutes
 
         with lock:
             if w.exists() or "openvino" in w.name:

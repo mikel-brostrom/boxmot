@@ -57,6 +57,7 @@ struct BoxMOTOccluBoostConfig {
     float ams_threshold;
     int ams_buffer_size;
     float ams_shrink_ratio;
+    float lambda_emb_multiplier;
 
     // ReID
     const char* reid_model_path;

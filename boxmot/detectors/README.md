@@ -116,7 +116,7 @@ Example:
 
 ```bash
 boxmot track --source path/to/video.mp4 --detector models/yolo11_custom_people.pt
-boxmot eval --benchmark mot17-ablation --detector models/yolo11_custom_people.pt
+boxmot eval --benchmark mot17 --split ablation --detector models/yolo11_custom_people.pt
 ```
 
 ## Option 2: Add a brand-new detector backend family
@@ -223,7 +223,7 @@ After adding a new detector or config:
 
 ```bash
 uv run python -m boxmot.engine.cli track --source path/to/image_or_video --detector path/to/weights.pt
-uv run python -m boxmot.engine.cli eval --benchmark mot17-ablation --detector path/to/weights.pt
+uv run python -m boxmot.engine.cli eval --benchmark mot17 --split ablation --detector path/to/weights.pt
 uv run pytest tests/unit/test_base_backend.py tests/unit/test_inference.py
 ```
 

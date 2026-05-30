@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
-import boxmot.engine.evaluator as evaluator_module
-import boxmot.engine.replay as replay_module
+import boxmot.engine.eval.evaluator as evaluator_module
+import boxmot.engine.eval.replay as replay_module
 
 
 def test_worker_init_suppresses_worker_logs(monkeypatch):
@@ -88,7 +88,7 @@ def test_replay_process_backend_uses_spawn_context(tmp_path, monkeypatch):
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
             assert task_arg[2] == str(args.cache_project)
             if progress_queue is not None:
                 progress_queue.put_nowait((seq_name, 1, 1))
@@ -176,7 +176,7 @@ def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
             progress_queue.put_nowait((seq_name, 1, 1))
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 
@@ -202,7 +202,9 @@ def test_process_sequence_reports_separate_reid_and_tracker_rest_time(tmp_path, 
     created = {}
 
     class FakeTrackerRuntime:
-        def update(self, dets, img, embs):
+        tracker = None
+
+        def update(self, dets, img, embs, masks=None):
             created["timing_stats"].add_reid_time(3.0)
             return np.array([[1, 2, 10, 12, 1, 0.9, 0, 0]], dtype=np.float32), 10.0
 

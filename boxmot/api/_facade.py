@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Sequence
 
-from boxmot.configs import BOXMOT_DEFAULTS
-from boxmot.engine import cache as cache_module
-from boxmot.engine import evaluator as evaluator_module
-from boxmot.engine import export as export_module
+from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
+from boxmot.engine.eval import cache as cache_module
+from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import evaluator as reid_evaluator_module
+from boxmot.engine.reid import export as export_module
+from boxmot.engine.reid import trainer as reid_trainer_module
 from boxmot.engine import research as research_module
-from boxmot.engine import tracker as tracker_module
-from boxmot.engine import tuner as tuner_module
-from boxmot.engine import workflow_support as support
-from boxmot.engine.results import Results
-from boxmot.engine.workflow_reporting import timing_summary_from_stats
-from boxmot.engine.workflow_results import (
+from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tuning import tuner as tuner_module
+from boxmot.engine.workflows import support
+from boxmot.engine.tracking.results import Results
+from boxmot.engine.workflows.reporting import timing_summary_from_stats
+from boxmot.engine.workflows.results import (
     ExportResult,
     GenerateResult,
     TrackRunResult,
@@ -81,6 +84,9 @@ def _cache_dir_from_args(args) -> Path:
     benchmark = getattr(args, "benchmark", None)
     if benchmark:
         cache_dir = cache_dir / str(benchmark)
+    split = getattr(args, "split", None)
+    if split:
+        cache_dir = cache_dir / str(split)
     return cache_dir
 
 
@@ -459,3 +465,97 @@ class Boxmot:
             imgsz=imgsz,
         )
         return export_module.run_export(args)
+
+    def train(
+        self,
+        *,
+        model: str = BOXMOT_DEFAULTS.train.model,
+        dataset: str = BOXMOT_DEFAULTS.train.dataset,
+        data_dir: str | Path | None = BOXMOT_DEFAULTS.train.data_dir,
+        loss: str = BOXMOT_DEFAULTS.train.loss,
+        preprocess: str = BOXMOT_DEFAULTS.train.preprocess,
+        imgsz=None,
+        batch_size: int = BOXMOT_DEFAULTS.train.batch_size,
+        lr: float = BOXMOT_DEFAULTS.train.lr,
+        weight_decay: float = BOXMOT_DEFAULTS.train.weight_decay,
+        epochs: int = BOXMOT_DEFAULTS.train.epochs,
+        warmup_epochs: int = BOXMOT_DEFAULTS.train.warmup_epochs,
+        eval_interval: int = BOXMOT_DEFAULTS.train.eval_interval,
+        p_ids: int = BOXMOT_DEFAULTS.train.p_ids,
+        k_instances: int = BOXMOT_DEFAULTS.train.k_instances,
+        margin: float = BOXMOT_DEFAULTS.train.margin,
+        label_smooth: float = BOXMOT_DEFAULTS.train.label_smooth,
+        center_loss_weight: float = BOXMOT_DEFAULTS.train.center_loss_weight,
+        pretrained: bool = BOXMOT_DEFAULTS.train.pretrained,
+        device: str = BOXMOT_DEFAULTS.train.device,
+        project: str | Path | None = None,
+        name: str = BOXMOT_DEFAULTS.train.name,
+        num_workers: int = BOXMOT_DEFAULTS.train.num_workers,
+        seed: int = BOXMOT_DEFAULTS.train.seed,
+        eval_datasets: Sequence[str] = BOXMOT_DEFAULTS.train.eval_datasets,
+        ema_decay: float | None = BOXMOT_DEFAULTS.train.ema_decay,
+        gaussian_blur: bool = BOXMOT_DEFAULTS.train.gaussian_blur,
+        random_grayscale: float = BOXMOT_DEFAULTS.train.random_grayscale,
+        color_jitter: bool = BOXMOT_DEFAULTS.train.color_jitter,
+        resume: str | Path | None = None,
+    ):
+        train_project = project if project is not None else BOXMOT_DEFAULTS.train.project
+        args = build_mode_namespace(
+            "train",
+            {
+                "model": model,
+                "dataset": dataset,
+                "data_dir": None if data_dir is None else str(data_dir),
+                "loss": loss,
+                "preprocess": preprocess,
+                "imgsz": imgsz,
+                "batch_size": int(batch_size),
+                "lr": float(lr),
+                "weight_decay": float(weight_decay),
+                "epochs": int(epochs),
+                "warmup_epochs": int(warmup_epochs),
+                "eval_interval": int(eval_interval),
+                "p_ids": int(p_ids),
+                "k_instances": int(k_instances),
+                "margin": float(margin),
+                "label_smooth": float(label_smooth),
+                "center_loss_weight": float(center_loss_weight),
+                "pretrained": bool(pretrained),
+                "device": device,
+                "project": Path(train_project),
+                "name": name,
+                "num_workers": int(num_workers),
+                "seed": int(seed),
+                "eval_datasets": list(eval_datasets),
+                "ema_decay": ema_decay,
+                "gaussian_blur": bool(gaussian_blur),
+                "random_grayscale": float(random_grayscale),
+                "color_jitter": bool(color_jitter),
+                "resume": None if resume is None else str(resume),
+            },
+        )
+        return reid_trainer_module.main(args)
+
+    def eval_reid(
+        self,
+        *,
+        weights: str | Path,
+        dataset: str,
+        data_dir: str | Path,
+        model: str | None = None,
+        device: str = "cpu",
+        batch_size: int = 64,
+        num_workers: int = 4,
+        output: str | Path | None = None,
+    ) -> dict[str, Any]:
+        args = SimpleNamespace(
+            weights=str(weights),
+            model=model,
+            dataset=dataset,
+            data_dir=str(data_dir),
+            device=device,
+            batch_size=int(batch_size),
+            num_workers=int(num_workers),
+            output=None if output is None else str(output),
+        )
+        return reid_evaluator_module.main(args)

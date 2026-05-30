@@ -95,3 +95,35 @@ export:
   half: false
   include:
     - onnx
+
+train:
+  model: osnet_x0_25
+  dataset: market1501
+  data_dir: null
+  loss: triplet
+  preprocess: resize
+  imgsz:
+    - 256
+    - 128
+  batch_size: 64
+  lr: 0.00035
+  weight_decay: 0.0005
+  epochs: 120
+  warmup_epochs: 10
+  eval_interval: 10
+  p_ids: 16
+  k_instances: 4
+  margin: 0.3
+  label_smooth: 0.1
+  center_loss_weight: 0.0005
+  pretrained: true
+  device: cpu
+  project: runs/reid_train
+  name: exp
+  num_workers: 4
+  seed: 42
+  eval_datasets: []  # cross-domain eval datasets, e.g. [duke, cuhk03]
+  ema_decay: null  # EMA momentum decay, e.g. 0.999 (null to disable)
+  gaussian_blur: false  # random Gaussian blur augmentation (DynaMix-style)
+  color_jitter: false  # color jitter augmentation (auto-enabled for ViTs)
+  random_grayscale: 0.0  # probability of random grayscale conversion

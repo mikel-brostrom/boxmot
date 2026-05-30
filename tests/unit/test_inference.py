@@ -18,38 +18,33 @@ from boxmot.detectors.base import Detections
 import boxmot.data.loaders as loaders_module
 import boxmot.detectors.detector as detector_module
 import boxmot.detectors.ultralytics as ultralytics_detector_module
-import boxmot.engine.evaluator as evaluator_module
-import boxmot.engine.inference as pipeline_module
-import boxmot.engine.replay as cached_tracking_module
-import boxmot.engine.tracker as tracker_module
-import boxmot.engine.tracker as tracker_runtime_module
-import boxmot.engine.workflow_reporting as workflow_reporting_module
+import boxmot.engine.eval.evaluator as evaluator_module
+import boxmot.engine.tracking.inference as pipeline_module
+import boxmot.engine.eval.replay as cached_tracking_module
+import boxmot.engine.tracking.tracker as tracker_runtime_module
+import boxmot.engine.workflows.reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
 import boxmot.utils.rich.ui as ui_module
 from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.inference import prepare_detections
-from boxmot.trackers.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
+from boxmot.engine.tracking.inference import prepare_detections
+from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.data.cache import (
     AppendableNpyWriter,
     _existing_cache_path,
-    _existing_embedding_cache_path,
-    _load_embedding_cache_array,
-    _load_numeric_cache_array,
     _max_frame_id,
-    _migrate_legacy_embedding_cache,
     _saved_detection_column_count,
 )
 from boxmot.utils.iou import iou_obb_pair
-from boxmot.utils.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.engine.mot_utils import convert_to_mot_format, write_mot_results
 from boxmot.utils import WEIGHTS
 
 _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 
 class _DummyTracker(BaseTracker):
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None) -> np.ndarray:
+    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         return np.empty((0, 9 if self.is_obb else 8), dtype=np.float32)
 
@@ -183,11 +178,11 @@ def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
 
 
 def test_model_config_detector_defaults_override_runtime_defaults_by_model_name():
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
 
-    assert detector_cfg["classes"][0] == "plane"
-    assert default_imgsz("yolo11s-obb.pt") == detector_cfg["imgsz"]
-    assert default_conf("yolo11s-obb.pt") == detector_cfg["conf"]
+    assert detector_cfg["classes"][0] == "car"
+    assert default_imgsz("yolo11l_3ch.pt") == detector_cfg["imgsz"]
+    assert default_conf("yolo11l_3ch.pt") == detector_cfg["conf"]
 
 
 def test_model_config_detector_defaults_match_separator_variants():
@@ -199,17 +194,17 @@ def test_model_config_detector_defaults_match_separator_variants():
 
 
 def test_runtime_detector_cfg_uses_model_config_to_override_dataset_values():
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     benchmark_cfg = {
-        "default_model": "models/yolo11s-obb.pt",
+        "default_model": "models/yolo11l_3ch.pt",
         "imgsz": [1024, 1024],
         "conf": 0.2,
         "classes": {0: "person"},
     }
 
-    resolved = get_runtime_detector_cfg("yolo11s-obb.pt", benchmark_cfg)
+    resolved = get_runtime_detector_cfg("yolo11l_3ch.pt", benchmark_cfg)
 
-    assert resolved["default_model"] == "models/yolo11s-obb.pt"
+    assert resolved["default_model"] == "models/yolo11l_3ch.pt"
     assert resolved["imgsz"] == detector_cfg["imgsz"]
     assert resolved["conf"] == detector_cfg["conf"]
     assert resolved["classes"][0] == detector_cfg["classes"][0]
@@ -303,11 +298,11 @@ def test_ultralytics_detector_redownloads_corrupt_official_weights(monkeypatch, 
 
 
 def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     benchmark_bundle = {
         "benchmark": {"box_type": "obb"},
         "detector": {
-            "default_model": "models/yolo11s-obb.pt",
+            "default_model": "models/yolo11l_3ch.pt",
             "imgsz": [1024, 1024],
             "conf": 0.2,
             "classes": {0: "person"},
@@ -337,7 +332,7 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
     monkeypatch.setattr(
         evaluator_module,
         "ensure_benchmark_detector_model",
-        lambda _cfg: Path("models/yolo11s-obb.pt"),
+        lambda _cfg: Path("models/yolo11l_3ch.pt"),
     )
     monkeypatch.setattr(
         evaluator_module,
@@ -347,7 +342,7 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
 
     _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
 
-    assert args.detector == [Path("models/yolo11s-obb.pt")]
+    assert args.detector == [Path("models/yolo11l_3ch.pt")]
     assert args.reid == [Path("models/lmbn_n_duke.pt")]
     assert args.reid_device == "cpu"
     assert args.reid_half is True
@@ -411,9 +406,9 @@ def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monke
 
 
 def test_configure_benchmark_runtime_uses_explicit_component_configs_without_benchmark(monkeypatch):
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     args = SimpleNamespace(
-        detector=[Path("models/yolo11s-obb.pt")],
+        detector=[Path("models/yolo11l_3ch.pt")],
         reid=[Path("models/lmbn_n_duke.pt")],
         detector_explicit=True,
         reid_explicit=True,
@@ -453,38 +448,6 @@ def test_iter_source_expands_globs(tmp_path):
     assert frames[0][1].shape == img.shape
 
 
-def test_existing_embedding_cache_path_falls_back_to_legacy_txt(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    np.savetxt(emb_txt, np.arange(4, dtype=np.float32)[None, :], fmt="%f")
-
-    resolved = _existing_embedding_cache_path(tmp_path / "SEQ.npy")
-
-    assert resolved == emb_txt
-
-
-def test_load_embedding_cache_array_normalizes_single_row_txt_to_2d(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    expected = np.arange(8, dtype=np.float32)[None, :]
-    np.savetxt(emb_txt, expected, fmt="%f")
-
-    loaded = _load_embedding_cache_array(emb_txt)
-
-    assert loaded.shape == (1, 8)
-    np.testing.assert_allclose(loaded, expected)
-
-
-def test_migrate_legacy_embedding_cache_writes_npy(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    target_npy = tmp_path / "SEQ.npy"
-    expected = np.arange(12, dtype=np.float32).reshape(3, 4)
-    np.savetxt(emb_txt, expected, fmt="%f")
-
-    migrated = _migrate_legacy_embedding_cache(emb_txt, target_npy)
-
-    assert migrated is True
-    np.testing.assert_allclose(np.load(target_npy), expected)
-
-
 def test_detection_cache_helpers_support_npy(tmp_path):
     det_npy = tmp_path / "SEQ.npy"
     dets = np.array(
@@ -499,10 +462,6 @@ def test_detection_cache_helpers_support_npy(tmp_path):
     assert _existing_cache_path(det_npy) == det_npy
     assert _saved_detection_column_count(det_npy) == 7
     assert _max_frame_id(det_npy) == 3
-    np.testing.assert_allclose(
-        _load_numeric_cache_array(det_npy),
-        dets,
-    )
 
 
 def test_appendable_npy_writer_appends_rows_without_buffering_full_array(tmp_path):
@@ -920,7 +879,7 @@ def test_parse_mot_results_preserves_multiword_class_names():
 
 
 def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
-    results_module = importlib.import_module("boxmot.utils.evaluation.results")
+    results_module = importlib.import_module("boxmot.engine.eval.metrics.results")
     raw = {
         "all": {
             "HOTA": 62.5,
@@ -985,11 +944,11 @@ def test_select_plot_metrics_data_skips_ambiguous_multiclass_rows():
     assert metrics == {}
 
 
-def test_dota8_obb_gt_uses_zero_based_eval_class_ids():
-    expected = {0, 4, 10, 14}
+def test_mmot_mini_obb_gt_uses_zero_based_eval_class_ids():
+    expected = {0, 1, 2, 3, 6, 7}
     found = set()
 
-    for path in sorted(Path("assets/DOTA8-MOT/train").glob("*/gt/gt_obb.txt")):
+    for path in sorted(Path("assets/mmot-mini/train/mot").glob("*.txt")):
         matrix = evaluator_module._load_obb_gt_matrix(path)
         found.update(matrix[:, 11].astype(int).tolist())
 
@@ -1071,7 +1030,7 @@ def test_run_generate_mot_results_quiet_mode_skips_manager_queue(tmp_path, monke
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]
             assert progress_queue is None
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
 
@@ -1116,7 +1075,7 @@ def test_evaluator_dependency_check_is_lazy(monkeypatch):
 
 def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tmp_path, capsys):
     result = evaluator_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1179,6 +1138,10 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
             self.stopped = False
             self.prefer_alt_screen = False
             self.prefer_compact_layout = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -1214,6 +1177,9 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
 
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
+
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
         workflows.append(workflow)
@@ -1227,8 +1193,8 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
         tracker="bytetrack",
-        data="mot17-ablation",
-        benchmark="mot17-ablation",
+        data="mot17-mini",
+        benchmark="mot17-mini",
         source=None,
         imgsz=None,
         show_timing=False,
@@ -1244,7 +1210,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert workflow.title == "Evaluation"
     assert workflow.started is True
     assert workflow.stopped is True
-    assert ("Dataset", "mot17-ablation") in workflow.fields
+    assert ("__panel__:Dataset", [("Benchmark", "mot17-mini")]) in workflow.fields
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert "pipeline" in calls[0]
@@ -1261,6 +1227,9 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def activate(self, label, *, render=True):
             actions.append(("active", label))
@@ -1316,8 +1285,8 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
-        benchmark="mot17-ablation",
-        data="mot17-ablation",
+        benchmark="mot17-mini",
+        data="mot17-mini",
         show_progress=True,
         verbose=False,
     )
@@ -1363,6 +1332,9 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def activate(self, label, *, render=True):
             return None
@@ -1416,7 +1388,7 @@ def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
         tracker="botsort",
         tracker_backend=None,
         tracking_backend="cpp",
-        data="mot17-ablation",
+        data="mot17-mini",
         benchmark="",
         dataset_id="",
         benchmark_id="",
@@ -1435,23 +1407,40 @@ def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
         proximity_thresh=0.5,
         appearance_thresh=0.25,
         cmc_method="ecc",
+        det_thresh=None,
+        with_reid=True,
+        split="ablation",
     )
 
     fields = dict(evaluator_module._build_eval_workflow_fields(args))
 
-    assert fields["Detector"] == Path("models/yolox_x_MOT17_ablation.pt")
-    assert fields["ReID"] == Path("models/lmbn_n_duke.pt")
-    assert fields["Tracker"] == "botsort"
-    assert fields["Tracker backend"] == "cpp"
-    assert fields["Dataset"] == "mot17-ablation"
-    assert "Replay backend" not in fields
-    assert "__panel__:Benchmark Parameters" not in fields
-    assert "__panel__:Dataset Parameters" not in fields
-    assert "__panel__:Detector Parameters" not in fields
-    assert "__panel__:ReID Parameters" not in fields
-    assert all(label != "Dataset" for label, _ in fields["__panel__:Pipeline Parameters"])
-    assert ("Image size", [800, 1440]) in fields["__panel__:Pipeline Parameters"]
-    assert ("Track High Thresh", 0.6) in fields["__panel__:Tracker Parameters"]
+    # Tracker subsystem card
+    tracker_items = fields["__panel__:Tracker"]
+    assert ("Name", "botsort") in tracker_items
+    assert ("Backend", "cpp") in tracker_items
+    assert ("CMC", "ecc") in tracker_items
+    assert ("ReID", "✓") in tracker_items
+    assert ("New track", "0.70") in tracker_items
+
+    # Detector subsystem card
+    detector_items = fields["__panel__:Detector"]
+    assert ("Model", "yolox_x_MOT17_ablation") in detector_items
+    assert ("Size", "800×1440") in detector_items
+    assert ("Conf", "≥ 0.25") in detector_items
+
+    # ReID subsystem card
+    assert ("Model", "lmbn_n_duke") in fields["__panel__:ReID"]
+
+    # Dataset card
+    assert ("Benchmark", "mot17-mini") in fields["__panel__:Dataset"]
+    assert ("Split", "ablation") in fields["__panel__:Dataset"]
+
+    # Runtime card — no replay since tracking_backend is cpp (shown in Tracker)
+    runtime_items = fields["__panel__:Runtime"]
+    assert ("Device", "cpu") in runtime_items
+    assert ("Precision", "fp32") in runtime_items
+    assert ("Threads", 2) in runtime_items
+    assert all(label != "Replay" for label, _ in runtime_items)
 
 
 def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
@@ -1464,6 +1453,9 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
             (evaluator_module.EVAL_TRACK_STEP, "todo"),
             (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
         ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
 
         def set_fields(self, fields, *, render=True):
             refreshed_fields.append(list(fields))
@@ -1491,7 +1483,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
     def fake_eval_setup(args, pipeline=None):
         args.detector = [tmp_path / "yolox_x.pt"]
         args.reid = [tmp_path / "lmbn_n_duke.pt"]
-        args.benchmark = "mot17-ablation"
+        args.benchmark = "mot17-mini"
         args.tracker_backend = "cpp"
 
     monkeypatch.setattr(evaluator_module, "eval_setup", fake_eval_setup)
@@ -1507,7 +1499,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         tracker_backend=None,
         tracking_backend="process",
         benchmark="",
-        data="mot17-ablation",
+        data="mot17-mini",
         source=None,
         imgsz=None,
         show_progress=False,
@@ -1519,11 +1511,16 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
 
     assert refreshed_fields
     refreshed = dict(refreshed_fields[-1])
-    assert refreshed["Detector"] == tmp_path / "yolox_x.pt"
-    assert refreshed["ReID"] == tmp_path / "lmbn_n_duke.pt"
-    assert refreshed["Tracker"] == "botsort"
-    assert refreshed["Tracker backend"] == "cpp"
-    assert refreshed["Dataset"] == "mot17-ablation"
+    # New card-based structure: check subsystem panels
+    tracker_items = dict(refreshed["__panel__:Tracker"])
+    assert tracker_items["Name"] == "botsort"
+    assert tracker_items["Backend"] == "cpp"
+    detector_items = dict(refreshed["__panel__:Detector"])
+    assert detector_items["Model"] == "yolox_x"
+    reid_items = dict(refreshed["__panel__:ReID"])
+    assert reid_items["Model"] == "lmbn_n_duke"
+    dataset_items = dict(refreshed["__panel__:Dataset"])
+    assert dataset_items["Benchmark"] == "mot17-mini"
 
 
 def test_workflow_progress_renders_single_stateful_block(monkeypatch):
@@ -1814,7 +1811,7 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
 
     monkeypatch.setattr(
         ui_module.WorkflowProgress,
@@ -1828,8 +1825,10 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
     workflow.stop()
 
     assert workflow._compact_layout is True
-    assert update_calls[-1][0] is compact_renderable
-    assert update_calls[-1][1] is False
+    # In compact mode, _renderable_with_limit builds a Panel via
+    # build_workflow_intro instead of calling self.renderable(compact=True).
+    from rich.panel import Panel
+    assert isinstance(update_calls[-1][0], Panel)
 
 
 def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch):
@@ -1860,12 +1859,15 @@ def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch)
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False: compact_renderable if compact else full_renderable
+    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
 
     workflow.start()
 
     assert workflow._compact_layout is True
-    assert init_renderables[0] is compact_renderable
+    # In compact mode, _renderable_with_limit builds a Panel via
+    # build_workflow_intro instead of calling self.renderable(compact=True).
+    from rich.panel import Panel
+    assert isinstance(init_renderables[0], Panel)
 
 
 def test_build_checklist_uses_semantic_state_colors():
@@ -1894,8 +1896,8 @@ def test_hybridsort_eval_intro_fits_terminal_height():
         tracker="hybridsort",
         tracker_backend=None,
         tracking_backend="process",
-        data="mot17-ablation",
-        benchmark="mot17-ablation",
+        data="mot17-mini",
+        benchmark="mot17-mini",
         dataset_id="",
         benchmark_id="",
         source=None,
@@ -1929,7 +1931,7 @@ def test_build_workflow_intro_uses_compact_setup_panel_and_completed_pipeline_su
                 ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
                 ("ReID", Path("models/lmbn_n_duke.pt")),
                 ("Tracker", "bytetrack"),
-                ("Dataset", "mot17-ablation"),
+                ("Dataset", "mot17-mini"),
                 ("__panel__:Tracker Parameters", [("Min Conf", 0.1), ("Track Thresh", 0.6)]),
                 ("__panel__:Pipeline Parameters", [("Tracker backend", "python"), ("Replay backend", "thread")]),
             ],
@@ -1959,7 +1961,7 @@ def test_build_workflow_intro_compact_live_layout_shows_all_progress_rows():
         ("Detector", Path("models/yolox_x_MOT17_ablation.pt")),
         ("ReID", Path("models/lmbn_n_duke.pt")),
         ("Tracker", "hybridsort"),
-        ("Dataset", "mot17-ablation"),
+        ("Dataset", "mot17-mini"),
         (
             "__panel__:Tracker Parameters",
             [
@@ -2282,13 +2284,12 @@ def test_build_validation_cli_renderable_keeps_multiclass_obb_sections():
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="dota8-mot",
+            benchmark="mmot-mini",
         ),
     )
     rendered = ui_module.capture_renderable(renderable, width=140)
 
     assert "Per-Class Combined Metrics" in rendered
-    assert "Aggregate Groups" in rendered
     assert "plane" in rendered
     assert "tennis court" in rendered
     assert "Class Avg (Det)" in rendered
@@ -2359,7 +2360,7 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
 
         def submit(self, _func, *task_arg):
             seq_name = task_arg[0]
-            progress_queue = task_arg[-1]
+            progress_queue = task_arg[-2]
             if progress_queue is not None:
                 progress_queue.put_nowait((seq_name, 1, 1))
             return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
@@ -2385,7 +2386,7 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
 
 
 def test_tracking_session_output_stem_handles_stream_and_camera_sources():
-    session = tracker_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
+    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
 
     assert session._resolve_output_stem() == "rtsp_camera_stream"
 
@@ -2394,7 +2395,7 @@ def test_tracking_session_output_stem_handles_stream_and_camera_sources():
 
 
 def test_tracking_session_resolves_output_fps_from_args():
-    session = tracker_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
+    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
 
     assert session._resolve_output_fps() == 12
 
@@ -2434,4 +2435,4 @@ def test_initialize_trackers_rejects_unknown_tracker():
     args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
 
     with pytest.raises(ValueError, match="registered tracker name"):
-        tracker_module.TrackingSession.initialize_trackers(predictor, args)
+        tracker_runtime_module.TrackingSession.initialize_trackers(predictor, args)

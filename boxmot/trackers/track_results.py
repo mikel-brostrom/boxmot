@@ -19,17 +19,24 @@ class TrackResults(np.ndarray):
     OBB  columns (9): cx, cy, w, h, angle, id, conf, cls, det_ind
     """
 
-    def __new__(cls, data: np.ndarray) -> TrackResults:
+    def __new__(cls, data: np.ndarray, masks: np.ndarray = None) -> TrackResults:
         arr = np.asarray(data, dtype=np.float32)
         if arr.ndim == 1 and arr.size > 0:
             arr = arr.reshape(1, -1)
         elif arr.size == 0:
             cols = arr.shape[1] if arr.ndim == 2 else 0
             arr = arr.reshape(0, cols)
-        return arr.view(cls)
+        obj = arr.view(cls)
+        obj._masks = masks
+        return obj
 
     def __array_finalize__(self, obj):
-        pass
+        self._masks = getattr(obj, '_masks', None)
+
+    @property
+    def masks(self) -> np.ndarray | None:
+        """Segmentation masks for tracked objects, shape (M, H, W) or None."""
+        return self._masks
 
     @property
     def is_obb(self) -> bool:

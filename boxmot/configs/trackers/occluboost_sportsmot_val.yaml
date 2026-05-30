@@ -1,0 +1,229 @@
+max_age:
+  type: randint
+  default: 164
+  range: [100, 300]
+
+min_hits:
+  type: randint
+  default: 1
+  range: [1, 5]
+
+det_thresh:
+  type: uniform
+  default: 0.4409279416658491
+  range: [0.1, 0.9]
+
+iou_threshold:
+  type: uniform
+  default: 0.19645707701453807
+  range: [0.05, 0.9]
+
+use_ecc:
+  type: choice
+  default: True
+  options: [False, True]
+
+min_box_area:
+  type: randint
+  default: 47
+  range: [5, 100]
+
+aspect_ratio_thresh:
+  type: uniform
+  default: 1.8901987414138808
+  range: [0.1, 2.0]
+
+lambda_iou:
+  type: uniform
+  default: 0.4034886924169935
+  range: [0.1, 2.0]
+
+lambda_mhd:
+  type: uniform
+  default: 1.8959399729431932
+  range: [0.1, 2.0]
+
+lambda_shape:
+  type: uniform
+  default: 0.15830074159731533
+  range: [0.1, 2.0]
+
+use_dlo_boost:
+  type: choice
+  default: False
+  options: [False, True]
+
+use_duo_boost:
+  type: choice
+  default: False
+  options: [False, True]
+
+dlo_boost_coef:
+  type: uniform
+  default: 1.3591761543277532
+  range: [0.3, 2.0]
+
+s_sim_corr:
+  type: choice
+  default: True
+  options: [False, True]
+
+use_rich_s:
+  type: choice
+  default: True
+  options: [False, True]
+
+use_sb:
+  type: choice
+  default: False
+  options: [False, True]
+
+use_vt:
+  type: choice
+  default: True
+  options: [False, True]
+
+with_reid:
+  type: choice
+  default: True
+  options: [False, True]
+
+cmc_method:
+  type: choice
+  default: sof
+  options: [sof, ecc]
+
+recovery_appearance_thresh:
+  type: uniform
+  default: 0.9203818619128128
+  range: [0.2, 0.99]
+
+recovery_iou_thresh:
+  type: uniform
+  default: 0.46592451037797283
+  range: [0.0, 0.5]
+
+recovery_max_age:
+  type: randint
+  default: 10
+  range: [1, 120]
+
+feat_alpha:
+  type: uniform
+  default: 0.9900581569967848
+  range: [0.7, 1.0]
+
+track_low_thresh:
+  type: uniform
+  default: 0.15429270235240092
+  range: [0.01, 0.3]
+
+second_iou_thresh:
+  type: uniform
+  default: 0.608390684934503
+  range: [0.3, 0.8]
+
+second_appearance_thresh:
+  type: uniform
+  default: 0.8010845871775173
+  range: [0.2, 0.9]
+
+second_pass_max_age:
+  type: randint
+  default: 3
+  range: [1, 10]
+
+second_pass_min_hits:
+  type: randint
+  default: 12
+  range: [1, 20]
+
+use_second_pass:
+  type: choice
+  default: False
+  options: [False, True]
+
+new_track_thresh:
+  type: uniform
+  default: 0.8493117035662827
+  range: [0.3, 0.9]
+
+confirm_hits:
+  type: randint
+  default: 2
+  range: [1, 8]
+
+instant_confirm_thresh:
+  type: uniform
+  default: 0.7859592457817287
+  range: [0.5, 0.95]
+
+tentative_max_age:
+  type: randint
+  default: 2
+  range: [0, 5]
+
+duplicate_iou_thresh:
+  type: uniform
+  default: 0.9040640503497873
+  range: [0.5, 1.0]
+
+ams_enabled:
+  type: choice
+  default: True
+  options: [False, True]
+
+ams_alpha0:
+  type: uniform
+  default: 0.9072385698721264
+  range: [0.0, 1.0]
+
+ams_threshold:
+  type: uniform
+  default: 0.1600143404406837
+  range: [0.0, 1.0]
+
+ams_buffer_size:
+  type: randint
+  default: 10
+  range: [3, 60]
+
+ams_shrink_ratio:
+  type: uniform
+  default: 0.5130183596360176
+  range: [0.5, 1.0]
+
+lambda_emb_multiplier:
+  type: uniform
+  default: 1.5842750284013851
+  range: [0.1, 3.0]
+
+gta_enabled:
+  type: choice
+  default: True
+  options: [False, True]
+
+gta_appearance_thresh:
+  type: uniform
+  default: 0.3695291739412321
+  range: [0.3, 0.8]
+
+gta_min_track_length:
+  type: randint
+  default: 5
+  range: [2, 15]
+
+gta_smooth_tau:
+  type: uniform
+  default: 3.23810384384335
+  range: [1.0, 15.0]
+
+gta_interpolate:
+  type: choice
+  default: False
+  options: [False, True]
+
+gta_max_gap:
+  type: randint
+  default: 143
+  range: [15, 150]

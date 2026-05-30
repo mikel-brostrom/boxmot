@@ -20,7 +20,7 @@
 
 </div>
 
-BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, cached benchmark evaluation, tuning, research loops, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
+BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, cached benchmark evaluation, tuning, research loops, ReID training and evaluation, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
 
 <div align="center" markdown="1">
 
@@ -30,7 +30,7 @@ BoxMOT gives you one CLI and one Python API for running modern multi-object trac
 
 ## Why BoxMOT
 
-- One interface for `track`, `generate`, `eval`, `tune`, `research`, and `export`.
+- One interface for `track`, `generate`, `eval`, `tune`, `research`, `train`, `eval-reid`, and `export`.
 - Swappable trackers with shared detector and ReID plumbing.
 - Benchmark-oriented workflows with reusable detections and embeddings.
 - Support for both AABB and OBB tracking paths.
@@ -39,7 +39,7 @@ BoxMOT gives you one CLI and one Python API for running modern multi-object trac
 
 ## Installation
 
-BoxMOT supports Python `3.9` through `3.12`.
+BoxMOT supports Python `3.10` through `3.13`.
 
 ```bash
 pip install boxmot
@@ -48,7 +48,7 @@ boxmot --help
 
 For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
 
-## Benchmark Results (MOT17 ablation split)
+## Benchmark Results
 
 <div align="center" markdown="1">
 
@@ -56,126 +56,147 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
 <table>
   <thead>
     <tr>
-      <th rowspan="2" align="left">Tracker</th>
-      <th colspan="4" align="center">Python</th>
-      <th colspan="4" align="center">C++</th>
+      <th rowspan="2" align="left"><sub>Tracker</sub></th>
+      <th colspan="3" align="center"><sub>MOT17 ablation</sub></th>
+      <th colspan="3" align="center"><sub>SportsMOT val</sub></th>
+      <th colspan="3" align="center"><sub>MMOT test</sub></th>
+      <th rowspan="2" align="center"><sub>OBB</sub></th>
     </tr>
     <tr>
-      <th align="right">HOTA</th>
-      <th align="right">MOTA</th>
-      <th align="right">IDF1</th>
-      <th align="center">OBB</th>
-      <th align="right">HOTA</th>
-      <th align="right">MOTA</th>
-      <th align="right">IDF1</th>
-      <th align="center">OBB</th>
+      <th align="right"><sub>HOTA</sub></th>
+      <th align="right"><sub>MOTA</sub></th>
+      <th align="right"><sub>IDF1</sub></th>
+      <th align="right"><sub>HOTA</sub></th>
+      <th align="right"><sub>MOTA</sub></th>
+      <th align="right"><sub>IDF1</sub></th>
+      <th align="right"><sub>HOTA</sub></th>
+      <th align="right"><sub>MOTA</sub></th>
+      <th align="right"><sub>IDF1</sub></th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td align="left">occluboost</td>
-      <td align="right">70.47</td>
-      <td align="right">78.32</td>
-      <td align="right">84.14</td>
-      <td align="center">✅</td>
-      <td align="right">70.48</td>
-      <td align="right">78.31</td>
-      <td align="right">84.14</td>
-      <td align="center">✅</td>
+      <td align="left"><sub>occluboost</sub></td>
+      <td align="right"><sub><b>70.47</b><br>(70.48)</sub></td>
+      <td align="right"><sub><b>78.32</b><br>(78.31)</sub></td>
+      <td align="right"><sub><b>84.14</b><br>(84.14)</sub></td>
+      <td align="right"><sub><b>83.17</b></sub></td>
+      <td align="right"><sub>97.48</sub></td>
+      <td align="right"><sub><b>89.36</b></sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2206.14651">botsort</a></td>
-      <td align="right">69.44</td>
-      <td align="right">78.24</td>
-      <td align="right">81.94</td>
-      <td align="center">✅</td>
-      <td align="right">69.43</td>
-      <td align="right">78.26</td>
-      <td align="right">82.00</td>
-      <td align="center">✅</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2206.14651">botsort</a></sub></td>
+      <td align="right"><sub>69.44<br>(69.43)</sub></td>
+      <td align="right"><sub>78.24<br>(78.26)</sub></td>
+      <td align="right"><sub>81.94<br>(82.00)</sub></td>
+      <td align="right"><sub>76.93</sub></td>
+      <td align="right"><sub><b>98.11</b></sub></td>
+      <td align="right"><sub>78.30</sub></td>
+      <td align="right"><sub><b>51.79</b></sub></td>
+      <td align="right"><sub><b>46.05</b></sub></td>
+      <td align="right"><sub><b>60.85</b></sub></td>
+      <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></td>
-      <td align="right">69.25</td>
-      <td align="right">75.91</td>
-      <td align="right">83.20</td>
-      <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></sub></td>
+      <td align="right"><sub>69.25<br>(—)</sub></td>
+      <td align="right"><sub>75.91<br>(—)</sub></td>
+      <td align="right"><sub>83.20<br>(—)</sub></td>
+      <td align="right"><sub>76.32</sub></td>
+      <td align="right"><sub>97.08</sub></td>
+      <td align="right"><sub>77.82</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="center"><sub>❌</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2202.13514">strongsort</a></td>
-      <td align="right">68.05</td>
-      <td align="right">76.19</td>
-      <td align="right">80.76</td>
-      <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2202.13514">strongsort</a></sub></td>
+      <td align="right"><sub>68.05<br>(—)</sub></td>
+      <td align="right"><sub>76.19<br>(—)</sub></td>
+      <td align="right"><sub>80.76<br>(—)</sub></td>
+      <td align="right"><sub>79.80</sub></td>
+      <td align="right"><sub>97.31</sub></td>
+      <td align="right"><sub>80.27</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="center"><sub>❌</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></td>
-      <td align="right">67.95</td>
-      <td align="right">75.83</td>
-      <td align="right">80.54</td>
-      <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></sub></td>
+      <td align="right"><sub>67.95<br>(—)</sub></td>
+      <td align="right"><sub>75.83<br>(—)</sub></td>
+      <td align="right"><sub>80.54<br>(—)</sub></td>
+      <td align="right"><sub>79.51</sub></td>
+      <td align="right"><sub>97.94</sub></td>
+      <td align="right"><sub>79.59</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="center"><sub>❌</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></td>
-      <td align="right">67.68</td>
-      <td align="right">78.04</td>
-      <td align="right">79.16</td>
-      <td align="center">✅</td>
-      <td align="right">67.75</td>
-      <td align="right">78.03</td>
-      <td align="right">79.38</td>
-      <td align="center">✅</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></sub></td>
+      <td align="right"><sub>67.68<br>(67.75)</sub></td>
+      <td align="right"><sub>78.04<br>(78.03)</sub></td>
+      <td align="right"><sub>79.16<br>(79.38)</sub></td>
+      <td align="right"><sub>67.93</sub></td>
+      <td align="right"><sub>97.25</sub></td>
+      <td align="right"><sub>76.90</sub></td>
+      <td align="right"><sub>33.97</sub></td>
+      <td align="right"><sub>33.72</sub></td>
+      <td align="right"><sub>39.74</sub></td>
+      <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></td>
-      <td align="right">67.31</td>
-      <td align="right">74.09</td>
-      <td align="right">78.87</td>
-      <td align="center">❌</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="right">—</td>
-      <td align="center">—</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></sub></td>
+      <td align="right"><sub>67.31<br>(—)</sub></td>
+      <td align="right"><sub>74.09<br>(—)</sub></td>
+      <td align="right"><sub>78.87<br>(—)</sub></td>
+      <td align="right"><sub>81.14</sub></td>
+      <td align="right"><sub>98.07</sub></td>
+      <td align="right"><sub>81.88</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="right"><sub>–</sub></td>
+      <td align="center"><sub>❌</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/abs/2203.14360">ocsort</a></td>
-      <td align="right">66.44</td>
-      <td align="right">74.55</td>
-      <td align="right">77.90</td>
-      <td align="center">✅</td>
-      <td align="right">66.44</td>
-      <td align="right">74.55</td>
-      <td align="right">77.90</td>
-      <td align="center">✅</td>
+      <td align="left"><sub><a href="https://arxiv.org/abs/2203.14360">ocsort</a></sub></td>
+      <td align="right"><sub>66.44<br>(66.44)</sub></td>
+      <td align="right"><sub>74.55<br>(74.55)</sub></td>
+      <td align="right"><sub>77.90<br>(77.90)</sub></td>
+      <td align="right"><sub>76.34</sub></td>
+      <td align="right"><sub>96.60</sub></td>
+      <td align="right"><sub>75.64</sub></td>
+      <td align="right"><sub>28.57</sub></td>
+      <td align="right"><sub>26.19</sub></td>
+      <td align="right"><sub>29.95</sub></td>
+      <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
-      <td align="left"><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></td>
-      <td align="right">62.65</td>
-      <td align="right">76.87</td>
-      <td align="right">69.18</td>
-      <td align="center">✅</td>
-      <td align="right">62.66</td>
-      <td align="right">76.74</td>
-      <td align="right">69.18</td>
-      <td align="center">✅</td>
+      <td align="left"><sub><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></sub></td>
+      <td align="right"><sub>62.65<br>(62.66)</sub></td>
+      <td align="right"><sub>76.87<br>(76.74)</sub></td>
+      <td align="right"><sub>69.18<br>(69.18)</sub></td>
+      <td align="right"><sub>75.73</sub></td>
+      <td align="right"><sub>98.39</sub></td>
+      <td align="right"><sub>72.99</sub></td>
+      <td align="right"><sub>44.19</sub></td>
+      <td align="right"><sub>44.27</sub></td>
+      <td align="right"><sub>46.25</sub></td>
+      <td align="center"><sub>✅</sub></td>
     </tr>
   </tbody>
 </table>
 <!-- END TRACKER TABLE -->
 
-<sub>Evaluation was run on the second half of the MOT17 training set because the validation split is not public and the ablation detector was trained on the first half. Results used [pre-generated detections and embeddings](https://github.com/mikel-brostrom/boxmot/releases/download/v11.0.9/runs2.zip) with each tracker configured from its default repository settings. Native `cpp` cells use `--tracker-backend cpp` for the implemented replay backends.</sub>
+<sub>Py (C++); <code>—</code> unavailable. See <a href="docs/guides/benchmarks.md">Benchmark Workflows</a>.</sub>
 
 </div>
 
@@ -183,7 +204,7 @@ Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
 - [Benchmark Workflows](docs/guides/benchmarks.md)
-- [Native C++ Integration](docs/guides/native-cpp.md)
+- [Native C++ Integration](docs/native/index.md)
 
 ## Minimal Usage
 

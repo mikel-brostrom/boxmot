@@ -38,7 +38,8 @@ AssociationResult Associate(
     const Eigen::MatrixXd& emb_cost,
     double lambda_iou,
     double lambda_mhd,
-    double lambda_shape
+    double lambda_shape,
+    double lambda_emb_multiplier = 1.5
 );
 
 }  // namespace occluboost

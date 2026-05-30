@@ -31,7 +31,7 @@ python boxmot/engine/cli.py --help
 
 ## Python compatibility
 
-BoxMOT supports Python `3.9` through `3.12`. If you maintain extensions, avoid `@dataclass(..., slots=True)` on Python 3.9; use the `dataclass_slots_kwargs()` helper in `boxmot.utils.compat` instead.
+BoxMOT requires Python `3.10` or newer (up to `3.13`). Use `@dataclass(..., slots=True)` directly in all dataclass definitions.
 
 ## ReID and acceleration
 
@@ -85,6 +85,10 @@ Native backends are currently available for `botsort`, `bytetrack`, `ocsort`, `o
 ### `eval` re-runs detection every time
 
 `generate`, `eval`, `tune`, and `research` share a cache keyed by detector + ReID + dataset. If you change benchmark, dataset, detector, or ReID, the cache key changes and the run regenerates. Keep the same combination across modes to reuse cached detections and embeddings.
+
+### Replay is slow on trackers that use camera motion compensation
+
+Most replay runs skip image loading completely, but trackers that need live image data during replay still have to read frames from the dataset.
 
 ### Tuning doesn't explore parameters you expect
 

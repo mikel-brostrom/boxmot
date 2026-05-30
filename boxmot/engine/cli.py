@@ -6,7 +6,6 @@ CLI for BoxMOT: multi-step multiple object tracking pipeline.
 Provides commands to track, generate detections and embeddings, evaluate performance, tune models, research tracker changes, or run all steps.
 """
 import importlib
-
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -14,20 +13,21 @@ import click
 from click.core import ParameterSource
 
 from boxmot import __version__
+
 # Shared CLI/Python API defaults and namespace normalization live under boxmot/configs.
 from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
 )
-from boxmot.utils.benchmark_config import resolve_benchmark_cfg_path
+from boxmot.configs.benchmark import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz
-
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
 TRACK_DEFAULTS = BOXMOT_DEFAULTS.track
 TUNE_DEFAULTS = BOXMOT_DEFAULTS.tune
 RESEARCH_DEFAULTS = BOXMOT_DEFAULTS.research
 EXPORT_DEFAULTS = BOXMOT_DEFAULTS.export
+TRAIN_DEFAULTS = BOXMOT_DEFAULTS.train
 SHARED_DEFAULTS = BOXMOT_DEFAULTS.shared
 
 _TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
@@ -127,8 +127,8 @@ def core_options(func):
         click.option('--agnostic-nms', is_flag=True, default=RUNTIME_DEFAULTS.agnostic_nms,
                      help='class-agnostic NMS'),
         click.option(
-            "--postprocessing", type=click.Choice(["none", "gsi", "gbrc"], case_sensitive=False), default=RUNTIME_DEFAULTS.postprocessing,
-            help="Postprocess tracker output: none | gsi (Gaussian smoothed interpolation) | gbrc (gradient boosting smooth).",
+            "--postprocessing", type=str, default=RUNTIME_DEFAULTS.postprocessing,
+            help="Postprocess tracker output (comma-separated, applied in order): none | gsi | gbrc | gta. E.g. 'gbrc,gta'.",
         ),
         click.option('--show', is_flag=True, default=RUNTIME_DEFAULTS.show,
                      help='display tracking in a window'),
@@ -151,7 +151,17 @@ def core_options(func):
         click.option('--per-class', is_flag=True, default=RUNTIME_DEFAULTS.per_class,
                      help='track each class separately'),
         click.option('--target-id', type=int, default=RUNTIME_DEFAULTS.target_id,
-                     help='ID to highlight in green')
+                     help='ID to highlight in green'),
+        click.option('--masks-dir', type=str, default=None,
+                     help='Override directory for cached segmentation masks (.npz files)'),
+        click.option('--masks-model', type=click.Choice(['maskrcnn'], case_sensitive=False), default=None,
+                     help='Mask model to use for generation (stored under cache tree automatically)'),
+        click.option('--adaptive-kf/--no-adaptive-kf', 'adaptive_kf', default=False,
+                     help='Enable online adaptive Kalman filter process noise (Mehra 1970). '
+                     'Useful when deploying to new domains without ground truth for --tune-kf.'),
+        click.option('--interactive/--no-interactive', 'interactive', default=False,
+                     help='Show an interactive pipeline step viewer after completion. '
+                     'Navigate with arrow keys, Enter to expand/collapse step details, q to quit.'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -163,6 +173,22 @@ def source_option(default='0', help_text='file/dir/URL/glob, 0 for webcam'):
     return click.option('--source', type=str, default=default, help=help_text)
 
 
+def split_option(func):
+    """Attach a ``--split`` option to override the dataset split (train/val/test)."""
+    return click.option(
+        '--split', type=str, default=None,
+        help='Dataset split to use (e.g. train, val, test, ablation). Overrides auto-detection from source path.'
+    )(func)
+
+
+def detection_source_option(func):
+    """Attach a ``--detection-source`` option to choose public or private detections."""
+    return click.option(
+        '--detection-source', type=click.Choice(['public', 'private', 'frcnn', 'sdp', 'dpm']), default=None,
+        help='Detection source: "public" or detector name (frcnn/sdp/dpm) reads public detections, "private" (default) runs the configured detector model.'
+    )(func)
+
+
 def data_option(func):
     """Attach the benchmark-config option."""
     return click.option(
@@ -170,7 +196,7 @@ def data_option(func):
         'data',
         type=str,
         default=None,
-        help='benchmark config name or YAML file, e.g. mot17-ablation or boxmot/configs/benchmarks/mot17-ablation.yaml',
+        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/benchmarks/mot17.yaml',
     )(func)
 
 
@@ -368,7 +394,7 @@ def export_options(func):
         click.option('--optimize', is_flag=True, default=EXPORT_DEFAULTS.optimize,
                      help='Optimize TorchScript for mobile (CPU export only)'),
         click.option('--dynamic', is_flag=True, default=EXPORT_DEFAULTS.dynamic,
-                     help='Enable dynamic axes for ONNX/TF/TensorRT export'),
+                     help='Enable dynamic axes for ONNX/TensorRT export'),
         click.option('--simplify', is_flag=True, default=EXPORT_DEFAULTS.simplify,
                      help='Simplify ONNX model'),
         click.option('--opset', type=int, default=EXPORT_DEFAULTS.opset,
@@ -461,34 +487,34 @@ class CommandFirstGroup(click.Group):
     def parse_args(self, ctx, args):
         """Normalize tune metric lists before Click validates subcommand args."""
         return super().parse_args(ctx, _normalize_tune_metric_cli_args(list(args)))
-    
+
     def format_help(self, _ctx, formatter):
         """Override to show custom help with Ultralytics-style formatting."""
-        
+
         # Main heading
         formatter.write_paragraph()
         formatter.write_text(
             "BoxMOT 'boxmot' commands use the following syntax:"
         )
         formatter.write_paragraph()
-        
+
         # Command syntax
         with formatter.indentation():
             formatter.write_text("boxmot MODE [OPTIONS]")
         formatter.write_paragraph()
-        
+
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
-            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, export]")
+            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, train, export]")
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
-            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17-ablation' for benchmark-driven eval/tune/research runs.")
+            formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17 --split ablation' for benchmark-driven eval/tune/research runs.")
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")
         formatter.write_paragraph()
-        
+
         # Examples
         formatter.write_text("Examples:")
         with formatter.indentation():
@@ -496,35 +522,45 @@ class CommandFirstGroup(click.Group):
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker deepocsort --source 0 --show")
             formatter.write_paragraph()
-            
+
             formatter.write_text("2. Track a video file:")
             with formatter.indentation():
                 formatter.write_text("boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save")
             formatter.write_paragraph()
-            
+
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text("boxmot eval --benchmark mot17-ablation --tracker boosttrack")
+                formatter.write_text("boxmot eval --benchmark mot17 --split ablation --tracker boosttrack")
             formatter.write_paragraph()
-            
+
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
-                formatter.write_text("boxmot tune --benchmark mot17-ablation --tracker deepocsort --n-trials 10")
+                formatter.write_text("boxmot tune --benchmark mot17 --split ablation --tracker deepocsort --n-trials 10")
             formatter.write_paragraph()
 
             formatter.write_text("5. Research tracker code changes:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot research --benchmark mot17-ablation --tracker bytetrack "
+                    "boxmot research --benchmark mot17 --split ablation --tracker bytetrack "
                     "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
                 )
             formatter.write_paragraph()
-            
-            formatter.write_text("6. Export ReID model:")
+
+            formatter.write_text("6. Train a ReID model:")
+            with formatter.indentation():
+                formatter.write_text("boxmot train --model osnet_x0_25 --dataset market1501 --data-dir /path/to/data --epochs 120 --device 0")
+            formatter.write_paragraph()
+
+            formatter.write_text("7. Train on all person datasets jointly:")
+            with formatter.indentation():
+                formatter.write_text("boxmot train --model vit_nano --dataset market1501,duke,cuhk03,msmt17 --data-dir /path/to/data --device 0")
+            formatter.write_paragraph()
+
+            formatter.write_text("8. Export ReID model:")
             with formatter.indentation():
                 formatter.write_text("boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic")
         formatter.write_paragraph()
-        
+
         # Available modes
         formatter.write_text("Modes:")
         with formatter.indentation():
@@ -533,9 +569,10 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("tune       Optimize tracker hyperparameters")
             formatter.write_text("research   Evolve tracker code against benchmark metrics")
             formatter.write_text("generate   Generate detections and embeddings")
+            formatter.write_text("train      Train a ReID model on a person/vehicle dataset")
             formatter.write_text("export     Export ReID models to different formats")
         formatter.write_paragraph()
-        
+
         # Resources
         formatter.write_text("Docs:      https://github.com/mikel-brostrom/boxmot")
         formatter.write_text("Community: https://github.com/mikel-brostrom/boxmot/discussions")
@@ -553,16 +590,17 @@ def boxmot(ctx):
 
 @boxmot.command(help='Run tracking only')
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
+@split_option
 @tracker_backend_option
 @core_options
 @singular_model_options
 @click.pass_context
-def track(ctx, detector, reid, classes, **kwargs):
-    src, bench, split = _resolve_source_context(kwargs.pop('source'))
+def track(ctx, detector, reid, classes, split, **kwargs):
+    src, bench, auto_split = _resolve_source_context(kwargs.pop('source'))
     _dispatch_cli_workflow(
         ctx,
         "track",
-        "boxmot.engine.tracker",
+        "boxmot.engine.tracking.tracker",
         _apply_track_cli_defaults(ctx, {
             **kwargs,
             "detector": detector,
@@ -570,24 +608,26 @@ def track(ctx, detector, reid, classes, **kwargs):
             "classes": classes,
             "source": src,
             "benchmark": bench,
-            "split": split,
+            "split": split if split else auto_split,
         }),
     )
-    
+
 @boxmot.command(help='Generate detections and embeddings')
 @data_option
 @source_option(default=BOXMOT_DEFAULTS.generate.source, help_text='direct dataset root to generate dets/embs for without a benchmark config')
+@split_option
+@detection_source_option
 @core_options
 @plural_model_options
 @click.pass_context
-def generate(ctx, data, detector, reid, classes, **kwargs):
+def generate(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     src = kwargs.pop('source')
     _require_generate_input(data, src, "generate")
-    src, bench, split = _resolve_source_context(src)
+    src, bench, auto_split = _resolve_source_context(src)
     _dispatch_cli_workflow(
         ctx,
         "generate",
-        "boxmot.engine.cache",
+        "boxmot.engine.eval.cache",
         {
             **kwargs,
             "detector": list(detector),
@@ -596,24 +636,31 @@ def generate(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": src,
             "benchmark": bench,
-            "split": split,
+            "split": split if split else auto_split,
+            "detection_source": detection_source,
         },
     )
 
 
 @boxmot.command(help='Evaluate tracking performance')
 @data_option
+@split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @plural_model_options
+@click.option('--tune-kf/--no-tune-kf', 'tune_kf', default=False,
+              help='Run KF noise tuning (Q/R estimation) before tracking. '
+              'Automatically selects parameterization based on the tracker. '
+              'Requires cached dets and GT.')
 @click.pass_context
-def eval(ctx, data, detector, reid, classes, **kwargs):
+def eval(ctx, data, detector, reid, classes, split, detection_source, tune_kf, **kwargs):
     data = _require_benchmark_input(data, "eval")
     _dispatch_cli_workflow(
         ctx,
         "eval",
-        "boxmot.engine.evaluator",
+        "boxmot.engine.eval.evaluator",
         {
             **kwargs,
             "detector": list(detector),
@@ -622,25 +669,32 @@ def eval(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
+            "detection_source": detection_source,
+            "tune_kf": tune_kf,
         },
     )
 
 
 @boxmot.command(help='Tune models via evolutionary algorithms')
 @data_option
+@split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @tune_options
 @plural_model_options
+@click.option('--tune-kf/--no-tune-kf', 'tune_kf', default=False,
+              help='Run KF noise tuning (Q/R estimation) before tracker hyperparameter tuning. '
+              'Applied once, then reused for all trials.')
 @click.pass_context
-def tune(ctx, data, detector, reid, classes, **kwargs):
+def tune(ctx, data, detector, reid, classes, split, detection_source, tune_kf, **kwargs):
     data = _require_benchmark_input(data, "tune")
     _dispatch_cli_workflow(
         ctx,
         "tune",
-        "boxmot.engine.tuner",
+        "boxmot.engine.tuning.tuner",
         {
             **kwargs,
             "detector": list(detector),
@@ -649,20 +703,24 @@ def tune(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
+            "detection_source": detection_source,
+            "tune_kf": tune_kf,
         },
     )
 
 
 @boxmot.command(help='Research tracker code changes with GEPA')
 @data_option
+@split_option
+@detection_source_option
 @replay_backend_option
 @tracker_backend_option
 @core_options
 @research_options
 @plural_model_options
 @click.pass_context
-def research(ctx, data, detector, reid, classes, **kwargs):
+def research(ctx, data, detector, reid, classes, split, detection_source, **kwargs):
     data = _require_benchmark_input(data, "research")
     _dispatch_cli_workflow(
         ctx,
@@ -676,9 +734,120 @@ def research(ctx, data, detector, reid, classes, **kwargs):
             "data": data,
             "source": None,
             "benchmark": "",
-            "split": "",
+            "split": split or "",
+            "detection_source": detection_source,
         },
     )
+
+
+def train_options(func):
+    """Decorator adding ReID training options."""
+    from boxmot.reid.core.config import MODEL_TYPES
+    from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
+    from boxmot.reid.datasets import DATASET_REGISTRY
+
+    options = [
+        click.option('--model', type=click.Choice(MODEL_TYPES, case_sensitive=False),
+                     default=TRAIN_DEFAULTS.model, show_default=True,
+                     help='ReID backbone architecture'),
+        click.option('--dataset', type=str,
+                     default=TRAIN_DEFAULTS.dataset, show_default=True,
+                     help='Training dataset (comma-separated for joint training, '
+                          f'e.g. market1501,duke,cuhk03,msmt17). '
+                          f'Available: {", ".join(sorted(DATASET_REGISTRY.keys()))}'),
+        click.option('--data-dir', type=click.Path(exists=True), required=True,
+                     help='Root directory of the dataset'),
+        click.option('--loss', type=click.Choice(['softmax', 'triplet'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.loss, show_default=True,
+                     help='Training loss type'),
+        click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
+                     default=TRAIN_DEFAULTS.preprocess, show_default=True,
+                     help='Crop preprocessing method; must match inference-time preprocessing'),
+        click.option('--imgsz', callback=parse_imgsz, type=str,
+                     default=_click_imgsz_default(TRAIN_DEFAULTS.imgsz),
+                     help='Image size as H,W (e.g. 256,128)'),
+        click.option('--batch-size', type=int, default=TRAIN_DEFAULTS.batch_size, show_default=True,
+                     help='Training batch size'),
+        click.option('--lr', type=float, default=TRAIN_DEFAULTS.lr, show_default=True,
+                     help='Base learning rate'),
+        click.option('--weight-decay', type=float, default=TRAIN_DEFAULTS.weight_decay, show_default=True,
+                     help='Weight decay'),
+        click.option('--epochs', type=int, default=TRAIN_DEFAULTS.epochs, show_default=True,
+                     help='Number of training epochs'),
+        click.option('--warmup-epochs', type=int, default=TRAIN_DEFAULTS.warmup_epochs, show_default=True,
+                     help='Linear warmup epochs'),
+        click.option('--eval-interval', type=int, default=TRAIN_DEFAULTS.eval_interval, show_default=True,
+                     help='Validate every N epochs'),
+        click.option('--p-ids', type=int, default=TRAIN_DEFAULTS.p_ids, show_default=True,
+                     help='Number of identities per PK batch'),
+        click.option('--k-instances', type=int, default=TRAIN_DEFAULTS.k_instances, show_default=True,
+                     help='Number of instances per identity'),
+        click.option('--margin', type=float, default=TRAIN_DEFAULTS.margin, show_default=True,
+                     help='Triplet loss margin'),
+        click.option('--label-smooth', type=float, default=TRAIN_DEFAULTS.label_smooth, show_default=True,
+                     help='Label smoothing epsilon'),
+        click.option('--center-loss-weight', type=float, default=TRAIN_DEFAULTS.center_loss_weight, show_default=True,
+                     help='Center loss weight'),
+        click.option('--pretrained/--no-pretrained', default=TRAIN_DEFAULTS.pretrained, show_default=True,
+                     help='Use ImageNet-pretrained backbone'),
+        click.option('--device', default=TRAIN_DEFAULTS.device,
+                     help='cuda device, e.g. 0 or cpu or mps'),
+        click.option('--project', type=click.Path(), default=TRAIN_DEFAULTS.project, show_default=True,
+                     help='Save directory'),
+        click.option('--name', default=TRAIN_DEFAULTS.name, show_default=True,
+                     help='Experiment name'),
+        click.option('--num-workers', type=int, default=TRAIN_DEFAULTS.num_workers, show_default=True,
+                     help='Dataloader workers'),
+        click.option('--seed', type=int, default=TRAIN_DEFAULTS.seed, show_default=True,
+                     help='Random seed'),
+        click.option('--eval-datasets', type=str, default=','.join(TRAIN_DEFAULTS.eval_datasets) if TRAIN_DEFAULTS.eval_datasets else '',
+                     help='Comma-separated list of extra datasets for cross-domain evaluation '
+                          '(e.g. duke,cuhk03,msmt17)'),
+        click.option('--ema-decay', type=float, default=TRAIN_DEFAULTS.ema_decay,
+                     help='EMA momentum decay for model averaging (e.g. 0.999). '
+                          'Disabled by default. Inspired by DynaMix'),
+        click.option('--gaussian-blur/--no-gaussian-blur', default=TRAIN_DEFAULTS.gaussian_blur, show_default=True,
+                     help='Apply random Gaussian blur augmentation'),
+        click.option('--color-jitter/--no-color-jitter', default=TRAIN_DEFAULTS.color_jitter, show_default=True,
+                     help='Apply color jitter augmentation (auto-enabled for ViTs)'),
+        click.option('--random-grayscale', type=float, default=TRAIN_DEFAULTS.random_grayscale, show_default=True,
+                     help='Probability of random grayscale conversion (0 to disable)'),
+        click.option('--resume', type=click.Path(), default=None,
+                     help='Resume training from a checkpoint dir or last.pt file'),
+    ]
+    for opt in reversed(options):
+        func = opt(func)
+    return func
+
+
+@boxmot.command(help='Train a ReID model')
+@train_options
+@click.pass_context
+def train(ctx, **kwargs):
+    args = _build_cli_namespace(ctx, "train", kwargs)
+    _run_engine_workflow("boxmot.engine.reid.trainer", args)
+
+
+@boxmot.command(name='eval-reid', help='Evaluate a trained ReID model on query/gallery')
+@click.option('--weights', type=click.Path(exists=True), required=True,
+              help='Path to trained ReID checkpoint (.pt)')
+@click.option('--model', type=str, default=None,
+              help='Model architecture (auto-detected from checkpoint if omitted)')
+@click.option('--dataset', type=str, required=True,
+              help='Evaluation dataset (e.g. market1501, duke, msmt17)')
+@click.option('--data-dir', type=click.Path(exists=True), required=True,
+              help='Root directory of the dataset')
+@click.option('--device', default='cpu', help='Device: cpu, mps, or cuda index')
+@click.option('--batch-size', type=int, default=64, show_default=True,
+              help='Batch size for feature extraction')
+@click.option('--num-workers', type=int, default=4, show_default=True,
+              help='Dataloader workers')
+@click.option('--output', type=click.Path(), default=None,
+              help='Directory to save eval JSON (default: next to weights)')
+@click.pass_context
+def eval_reid(ctx, **kwargs):
+    args = _build_cli_namespace(ctx, "eval-reid", kwargs)
+    _run_engine_workflow("boxmot.engine.reid.evaluator", args)
 
 
 @boxmot.command(help='Export ReID models')
@@ -690,7 +859,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     args = _build_cli_namespace(ctx, "export", kwargs)
-    _run_engine_workflow("boxmot.engine.export", args)
+    _run_engine_workflow("boxmot.engine.reid.export", args)
 
 
 @boxmot.command(help='Build native (C++) tracker shared libraries')

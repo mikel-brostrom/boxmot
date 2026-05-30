@@ -5,10 +5,10 @@ from __future__ import absolute_import, division
 import warnings
 
 import torch
-
-from boxmot.utils import logger as LOGGER
 from torch import nn
 from torch.nn import functional as F
+
+from boxmot.utils import logger as LOGGER
 
 __all__ = ["osnet_ain_x1_0", "osnet_ain_x0_75", "osnet_ain_x0_5", "osnet_ain_x0_25"]
 
@@ -414,7 +414,7 @@ class OSNet(nn.Module):
         if return_featuremaps:
             return x
         v = self.global_avgpool(x)
-        v = v.view(v.size(0), -1)
+        v = v.flatten(1)
         if self.fc is not None:
             v = self.fc(v)
         if not self.training:

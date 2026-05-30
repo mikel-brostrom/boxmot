@@ -12,15 +12,17 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
-from boxmot.engine import cache as cache_module
-from boxmot.engine import evaluator as evaluator_module
-from boxmot.engine import export as export_module
+from boxmot.engine.eval import cache as cache_module
+from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import evaluator as reid_evaluator_module
+from boxmot.engine.reid import export as export_module
+from boxmot.engine.reid import trainer as reid_trainer_module
 from boxmot.engine import research as research_engine_module
-from boxmot.engine import tracker as tracker_module
-from boxmot.engine import tuner as tuner_module
-from boxmot.engine import workflow_reporting as reporting_module
-from boxmot.engine import workflow_support as workflow_support_module
-import boxmot.engine.results as results_module
+from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tuning import tuner as tuner_module
+from boxmot.engine.workflows import reporting as reporting_module
+from boxmot.engine.workflows import support as workflow_support_module
+import boxmot.engine.tracking.results as results_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
@@ -57,7 +59,7 @@ def test_boxmot_defaults_follow_shared_configs():
 def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_path):
     model = api_module.Boxmot(reid=None, project=tmp_path / "runs")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.reid == [DEFAULT_REID]
 
@@ -65,7 +67,7 @@ def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_pa
 def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
     model = api_module.Boxmot()
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.detector_explicit is False
     assert args.reid_explicit is False
@@ -79,7 +81,7 @@ def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
 def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.detector_explicit is True
     assert args.reid_explicit is True
@@ -89,14 +91,14 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
 def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
     model = api_module.Boxmot(tracker="botsort:cpp")
 
-    args = model._base_eval_args("mot17-ablation")
+    args = model._base_eval_args("mot17-mini")
 
     assert args.tracker == "botsort"
     assert args.tracker_backend == "cpp"
 
 
 def test_boxmot_eval_namespace_allows_benchmark_runtime_to_override_inherited_defaults(monkeypatch):
-    evaluator_module = importlib.import_module("boxmot.engine.evaluator")
+    evaluator_module = importlib.import_module("boxmot.engine.eval.evaluator")
     model = api_module.Boxmot()
     args = model._base_eval_args("mot17-mini")
 
@@ -947,7 +949,7 @@ def test_validation_result_formats_sequence_and_combined_report():
         },
     }
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw=raw,
         summary_label="single_class",
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
@@ -965,7 +967,7 @@ def test_validation_result_formats_sequence_and_combined_report():
 
 def test_validation_result_str_renders_cli_style_report():
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1011,7 +1013,7 @@ def test_validation_result_str_renders_cli_style_report():
 
 def test_validation_result_str_keeps_multiclass_obb_sections():
     result = api_module.ValidationResult(
-        benchmark="dota8-mot",
+        benchmark="mmot-mini",
         raw={
             "plane": {
                 "HOTA": 59.546,
@@ -1070,7 +1072,7 @@ def test_validation_result_str_keeps_multiclass_obb_sections():
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="dota8-mot",
+            benchmark="mmot-mini",
         ),
     )
 
@@ -1086,7 +1088,7 @@ def test_validation_result_str_keeps_multiclass_obb_sections():
 
 def test_tune_result_formats_best_report():
     metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1111,7 +1113,7 @@ def test_tune_result_formats_best_report():
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
     )
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="botsort",
         trials=[],
         best=api_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(69.445, 78.243, 81.937)),
@@ -1128,7 +1130,7 @@ def test_tune_result_formats_best_report():
 
 def test_tune_results_expose_validation_like_accessors():
     metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={"all": {"HOTA": 69.445}},
         summary_label="all",
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
@@ -1143,7 +1145,7 @@ def test_tune_results_expose_validation_like_accessors():
         score=(69.445, 78.243, 81.937),
     )
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[trial],
         best=trial,
@@ -1165,7 +1167,7 @@ def test_tune_results_expose_validation_like_accessors():
     assert tune.exp_dir == metrics.exp_dir
     assert tune.format_report() == tune.format_best_report()
     assert "📊 BEST TRIAL SUMMARY" in str(tune)
-    assert "TuneResult(benchmark='mot17-ablation'" in repr(tune)
+    assert "TuneResult(benchmark='mot17-mini'" in repr(tune)
     assert tune.to_dict()["summary"] == metrics.summary
     assert tune.to_dict(include_trials=True)["trials"][0]["metrics"]["summary"] == metrics.summary
 
@@ -1180,7 +1182,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
 
     baseline_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 66.0,
             "MOTA": 77.0,
@@ -1215,7 +1217,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
     best_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 67.5,
             "MOTA": 78.2,
@@ -1252,7 +1254,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     baseline_trial = api_module.TuneTrialResult(index=1, config={"track_buffer": 30}, metrics=baseline_metrics, score=(66.0,))
     best_trial = api_module.TuneTrialResult(index=2, config={"track_buffer": 40}, metrics=best_metrics, score=(67.5,))
     tune = api_module.TuneResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[baseline_trial, best_trial],
         best=best_trial,
@@ -1274,7 +1276,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
 
 def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
     baseline_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "person": {
                 "HOTA": 66.0,
@@ -1302,7 +1304,7 @@ def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
     best_metrics = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "person": {
                 "HOTA": 67.5,
@@ -1355,7 +1357,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
     monkeypatch.delenv("NO_COLOR", raising=False)
 
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1400,7 +1402,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
 
 def test_validation_result_print_report_matches_cli_style(capsys):
     result = api_module.ValidationResult(
-        benchmark="mot17-ablation",
+        benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
             "MOTA": 78.243,
@@ -1597,6 +1599,90 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert export_args.weights.name == "lmbn_n_duke.pt"
 
 
+def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
+    calls = {}
+
+    expected_train = api_module.TrainResult(
+        best_epoch=1,
+        best_mAP=0.75,
+        best_rank1=0.50,
+        weights_path=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+    )
+
+    def fake_train_main(args):
+        calls["train"] = args
+        return expected_train
+
+    def fake_eval_reid_main(args):
+        calls["eval_reid"] = args
+        return {
+            "model": "mobilenetv2_x1_0",
+            "dataset": "market1501",
+            "mAP": 0.75,
+            "rank1": 0.5,
+            "rank5": 0.0,
+            "rank10": 0.0,
+        }
+
+    monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
+    monkeypatch.setattr(reid_evaluator_module, "main", fake_eval_reid_main)
+
+    model = api_module.Boxmot(project=tmp_path / "runs")
+
+    trained = model.train(
+        model="mobilenetv2_x1_0",
+        dataset="market1501",
+        data_dir=tmp_path / "assets" / "reid-mini",
+        device="cpu",
+        epochs=1,
+        warmup_epochs=0,
+        eval_interval=1,
+        batch_size=4,
+        p_ids=2,
+        k_instances=2,
+        num_workers=0,
+        project=tmp_path / "runs" / "reid_train",
+        name="exp",
+        pretrained=False,
+    )
+
+    assert trained is expected_train
+    train_args = calls["train"]
+    assert train_args.model == "mobilenetv2_x1_0"
+    assert train_args.dataset == "market1501"
+    assert train_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert train_args.epochs == 1
+    assert train_args.warmup_epochs == 0
+    assert train_args.eval_interval == 1
+    assert train_args.batch_size == 4
+    assert train_args.p_ids == 2
+    assert train_args.k_instances == 2
+    assert train_args.pretrained is False
+    assert train_args.project == tmp_path / "runs" / "reid_train"
+    assert train_args.name == "exp"
+
+    evaluated = model.eval_reid(
+        weights=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+        model="mobilenetv2_x1_0",
+        dataset="market1501",
+        data_dir=tmp_path / "assets" / "reid-mini",
+        device="cpu",
+        batch_size=2,
+        num_workers=0,
+        output=tmp_path / "runs" / "reid_eval",
+    )
+
+    assert evaluated["mAP"] == 0.75
+    eval_args = calls["eval_reid"]
+    assert eval_args.weights == str(tmp_path / "runs" / "reid_train" / "exp" / "best.pt")
+    assert eval_args.model == "mobilenetv2_x1_0"
+    assert eval_args.dataset == "market1501"
+    assert eval_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert eval_args.batch_size == 2
+    assert eval_args.num_workers == 0
+    assert eval_args.output == str(tmp_path / "runs" / "reid_eval")
+
+
 def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp_path, capsys):
     workflows = []
 
@@ -1609,6 +1695,10 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
             self.transient = transient
             self.started = False
             self.stopped = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -1628,6 +1718,9 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
                 (step_label, "done" if step_label == label else step_state)
                 for step_label, step_state in self.steps
             ]
+
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)
@@ -1659,8 +1752,8 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
     assert workflow.title == "Evaluation"
     assert workflow.started is True
     assert workflow.stopped is True
-    assert ("Tracker", "botsort") in workflow.fields
-    assert ("Dataset", "mot17-mini") in workflow.fields
+    assert ("__panel__:Tracker", [("Name", "botsort"), ("Backend", "python")]) in workflow.fields
+    assert ("__panel__:Dataset", [("Benchmark", "mot17-mini")]) in workflow.fields
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert metrics.summary["HOTA"] == 50.0
     assert metrics.workflow_rendered is True
@@ -1678,6 +1771,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
         timing_stats.totals["reid"] = 12.0
         timing_stats.totals["total"] = 40.0
         args.benchmark = "mot17-mini"
+        args.split = "train"
         args.source = tmp_path / "datasets" / "mot17-mini" / "train"
         return timing_stats
 
@@ -1707,7 +1801,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
     generate_args = calls["generate"]
     assert generated.benchmark == "mot17-mini"
     assert generated.source == tmp_path / "datasets" / "mot17-mini" / "train"
-    assert generated.cache_dir == tmp_path / "runs" / "dets_n_embs" / "mot17-mini"
+    assert generated.cache_dir == tmp_path / "runs" / "dets_n_embs" / "mot17-mini" / "train"
     assert generated.timings["frames"] == 4
     assert generated.detectors[0].name == "yolov8n.pt"
     assert generated.reid_models[0].name == "osnet_x0_25_msmt17.pt"

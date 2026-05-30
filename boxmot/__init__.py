@@ -9,7 +9,7 @@ and ``from boxmot import Boxmot`` remain supported.
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-__version__ = "18.0.0"
+__version__ = "19.0.0"
 
 _API_EXPORTS = (
     "Boxmot",
@@ -17,6 +17,7 @@ _API_EXPORTS = (
     "GenerateResult",
     "ResearchResult",
     "TrackRunResult",
+    "TrainResult",
     "TuneResult",
     "TuneTrialResult",
     "ValidationResult",
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
         GenerateResult,
         ResearchResult,
         TrackRunResult,
+        TrainResult,
         TuneResult,
         TuneTrialResult,
         ValidationResult,

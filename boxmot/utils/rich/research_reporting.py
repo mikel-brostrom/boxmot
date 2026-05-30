@@ -8,9 +8,17 @@ import boxmot.utils.rich.ui as ui
 from boxmot.utils.rich.reporting import RichWorkflowReporter
 from boxmot.utils.rich.steps import (
     BASELINE as RESEARCH_BASELINE_STEP,
+)
+from boxmot.utils.rich.steps import (
     BEST_CANDIDATE as RESEARCH_BEST_STEP,
+)
+from boxmot.utils.rich.steps import (
     PREPARE as RESEARCH_PREPARE_STEP,
+)
+from boxmot.utils.rich.steps import (
     RESEARCH_OPTIMIZE as RESEARCH_OPTIMIZE_STEP,
+)
+from boxmot.utils.rich.steps import (
     RESEARCH_STEPS,
 )
 

@@ -1,0 +1,84 @@
+id: mot17
+
+dataset:
+  id: mot17
+  root: "boxmot/engine/eval/trackeval/data/MOT17"
+  layout: mot
+  box_type: aabb
+  splits:
+    train: "train"
+    val: "val"
+    test: "test"
+    ablation: "ablation"
+  default_split: ablation
+  no_gt_splits: [test]
+  classes:
+    1: pedestrian
+  distractors:
+    2: person_on_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
+
+download:
+  # Primary source: parquet repo with deduplicated images
+  source: parquet
+  parquet_repo: "Lekim89/mot17-parquet"
+  # Public detector for MOTChallenge detections (DPM, FRCNN, SDP)
+  # Used when --detection-source is set to a public detector name
+  public_detector: FRCNN
+  dataset:
+    train: "hf://Lekim89/mot17-parquet/images/train"
+    test: "hf://Lekim89/mot17-parquet/images/test"
+    ablation: "hf://Lekim89/mot17-parquet/images/train"
+  runs:
+    ablation:
+      url: "hf://Lekim89/runs/runs/dets_n_embs/mot17/ablation"
+      detector: yolox_x_mot17_ablation
+      reid: lmbn_n_duke
+
+# Public MOT17 detectors available on demand via --detection-source
+public_detectors:
+  frcnn:
+    id: mot17_public_frcnn
+    parquet: "data/detections/frcnn"
+    label: "FRCNN (Faster R-CNN public detections)"
+  sdp:
+    id: mot17_public_sdp
+    parquet: "data/detections/sdp"
+    label: "SDP (Deformable Parts Model v5)"
+  dpm:
+    id: mot17_public_dpm
+    parquet: "data/detections/dpm"
+    label: "DPM (Deformable Parts Model)"
+
+detector:
+  id: yolox_x_mot17_ablation
+  model: "models/yolox_x_MOT17_ablation.pt"
+  url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
+  by_split:
+    ablation:
+      id: yolox_x_mot17_ablation
+      model: "models/yolox_x_MOT17_ablation.pt"
+      url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
+    test:
+      id: yolox_x_mot17_test
+      model: "models/yolox_x_MOT17_test.pt"
+      url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_test.pt"
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize
+  by_split:
+    ablation:
+      id: lmbn_n_duke
+      model: "models/lmbn_n_duke.pt"
+      url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"

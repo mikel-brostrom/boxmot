@@ -79,7 +79,7 @@ jobs:
             fps: "-"
     timeout-minutes: 50
     env:
-      SMOKE_SOURCE: assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
+      SMOKE_SOURCE: assets/mmot-mini/train/npy/data23-1
 
     steps:
       - uses: actions/checkout@v4
@@ -100,17 +100,17 @@ jobs:
         id: cache-restore
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v4
 
       - name: Cache MOT17.zip if not already cached
         if: steps.cache-restore.outputs.cache-hit != 'true'
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/trackeval/data/MOT17-ablation.zip
+          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v4
 
-      - name: DOTA8-MOT OBB smoke tracking
+      - name: mmot-mini OBB smoke tracking
         id: obb_smoke
         run: |
           source .venv/bin/activate
@@ -135,7 +135,7 @@ jobs:
             TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
           fi
 
-          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17-ablation; then
+          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17 --split ablation; then
             STATUS="✅"
           else
             STATUS="❌"

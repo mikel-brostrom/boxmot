@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from boxmot.engine import workflow_support as workflow_support_module
-import boxmot.engine.tracker as tracker_module
+from boxmot.engine.workflows import support as workflow_support_module
+import boxmot.engine.tracking.tracker as tracker_module
 import boxmot.utils.rich.ui as ui_module
 
 
@@ -43,7 +43,7 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
 
     session = tracker_module.TrackingSession(
         SimpleNamespace(
-            source="assets/DOTA8-MOT/train/P1142__1024__0___824/img1",
+            source="assets/mmot-mini/train/npy/data23-1",
             detector="yolo11s-obb.pt",
             reid="lmbn_n_duke.pt",
             tracker="strongsort",
@@ -315,6 +315,9 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
             self.details = []
             self.renderable_details = []
             self.completed = []
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
@@ -378,6 +381,10 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             self.stopped = False
             self.prefer_alt_screen = False
             self.prefer_compact_layout = False
+            self._live = None
+            self.detail_renderable = None
+            self.detail_text = None
+            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -397,6 +404,9 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
 
         def fail(self, label=None, error=None, *, render=True):
             return None
+
+        def renderable(self, *, compact=False, include_setup=True):
+            return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
         workflow = _FakeWorkflow(title, fields, steps, stderr=stderr, transient=transient)

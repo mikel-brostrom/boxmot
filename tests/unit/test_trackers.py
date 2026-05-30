@@ -10,14 +10,14 @@ from boxmot.trackers import (
 )
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.deepocsort.deepocsort import (
+from boxmot.trackers.bbox.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
-from boxmot.trackers.botsort.botsort import BotSort
-from boxmot.trackers.botsort.botsort_track import STrack as BotSortTrack
-from boxmot.trackers.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
-from boxmot.trackers.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
-from boxmot.trackers.sfsort.sfsort import SFSORT
+from boxmot.trackers.bbox.botsort.botsort import BotSort
+from boxmot.trackers.bbox.botsort.botsort_track import STrack as BotSortTrack
+from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
+from boxmot.trackers.bbox.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.bbox.sfsort.sfsort import SFSORT
 from boxmot.reid.core import ReID
 from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
@@ -76,7 +76,7 @@ def test_tracker_output_size(tracker_type):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([[144, 212, 400, 480, 0.82, 0], [425, 281, 576, 472, 0.72, 65]])
+    det = np.array([[144, 212, 400, 480, 0.92, 0], [425, 281, 576, 472, 0.91, 65]])
 
     output = np.empty((0,))
     for _ in range(10):
@@ -564,7 +564,7 @@ def test_create_tracker_invalid_tracker_name():
 
 # ---------------- OccluBoost OBB tests ----------------
 
-from boxmot.trackers.occluboost.occluboost import (  # noqa: E402
+from boxmot.trackers.bbox.occluboost.occluboost import (  # noqa: E402
     OccluBoost,
     _xywha_to_xyxy_enclosing,
 )

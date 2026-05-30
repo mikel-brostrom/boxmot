@@ -15,10 +15,20 @@ from boxmot.native import _common
 from boxmot.native._common import (  # noqa: F401  (re-exported for backwards compat / tests)
     cached_embedding_path,
     dets_n_embs_root,
+)
+from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
+)
+from boxmot.native._common import (
     infer_onnx_output_names as _infer_onnx_output_names,
+)
+from boxmot.native._common import (
     native_onnx_cache_path as _native_onnx_cache_path,
+)
+from boxmot.native._common import (
     parse_progress_line as _parse_progress_line,
+)
+from boxmot.native._common import (
     resolve_reid_model_ref as _resolve_reid_model_ref,
 )
 from boxmot.trackers.tracker_zoo import get_tracker_config
@@ -412,7 +422,11 @@ def process_sequence_cpp(
     dataset_name: str | None = None,
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
+    split: str | None = None,
+    masks_dir: str | None = None,
+    kf_tuning: dict | None = None,
     progress_queue=None,
+    adaptive_kf: bool = False,
 ):
     if str(tracker_name).lower() != "botsort":
         raise ValueError("The native cpp replay backend currently supports tracker='botsort' only.")
@@ -421,28 +435,11 @@ def process_sequence_cpp(
     cfg = _resolve_tracker_cfg(cfg_dict)
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    # Bucket the C++ embedding cache by the runtime-aware key so distinct
-    # runtimes (ORT vs OpenCV-DNN) and Python/C++ stacks never silently
-    # share storage. See ``boxmot.data.cache.reid_cache_key``.
-    from boxmot.data.cache import legacy_reid_cache_keys as _legacy_reid_keys
     from boxmot.data.cache import reid_cache_key as _reid_cache_key
     reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
     reid_model_path = _ensure_native_reid_model_path(reid_name)
 
-    det_emb_root = dets_n_embs_root(project_root, dataset_name)
-
-    # Read-only back-compat: if the canonical cpp bucket does not exist on
-    # disk but a historical layout does, point the native binary at it so
-    # pre-existing caches keep working. Only the canonical key is written to.
-    embs_dir_new = det_emb_root / detector_key / "embs" / reid_key / (preprocess_name or "resize")
-    if not embs_dir_new.exists():
-        for legacy_key in _legacy_reid_keys(reid_name, tracker_backend="cpp"):
-            if legacy_key == reid_key:
-                continue
-            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_key / (preprocess_name or "resize")
-            if embs_dir_legacy.exists():
-                reid_key = legacy_key
-                break
+    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [

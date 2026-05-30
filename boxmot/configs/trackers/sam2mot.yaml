@@ -1,0 +1,59 @@
+tolerance_frames:
+  type: randint
+  default: 30
+  range: [20, 60]
+
+memory_window:
+  type: randint
+  default: 25
+  range: [5, 50]
+
+cost_weight:
+  type: uniform
+  default: 0.5
+  range: [0.1, 0.9]
+
+tau_r:
+  type: uniform
+  default: 0.8
+  range: [0.6, 0.95]
+
+tau_p:
+  type: uniform
+  default: 0.5
+  range: [0.3, 0.7]
+
+tau_s:
+  type: uniform
+  default: 0.3
+  range: [0.1, 0.5]
+
+density_threshold:
+  type: uniform
+  default: 0.9
+  range: [0.5, 1.5]
+
+second_stage_iou_threshold:
+  type: uniform
+  default: 0.3
+  range: [0.1, 0.5]
+
+frame_out_d_thre:
+  type: uniform
+  default: 0.6
+  range: [0.3, 0.9]
+
+miou_threshold:
+  type: uniform
+  default: 0.8
+  range: [0.5, 0.95]
+
+untracked_ratio_threshold:
+  type: uniform
+  default: 0.5
+  range: [0.3, 0.8]
+
+new_track_thresh:
+  type: uniform
+  default: 0.5
+  range: [0.4, 0.7]

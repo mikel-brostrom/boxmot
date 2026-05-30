@@ -7,8 +7,9 @@ from typing import Callable, Optional
 import numpy as np
 
 from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
-from boxmot.utils import TRACKEVAL, logger as LOGGER
-from boxmot.utils.benchmark_config import (
+from boxmot.utils import TRACKEVAL
+from boxmot.utils import logger as LOGGER
+from boxmot.configs.benchmark import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
     ensure_benchmark_detector_model,
@@ -24,7 +25,6 @@ from boxmot.utils.benchmark_config import (
 )
 from boxmot.utils.download import download_trackeval
 from boxmot.utils.misc import resolve_model_path
-
 
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -224,7 +224,7 @@ def configure_benchmark_runtime(
     runtime_reid_cfg = (
         get_benchmark_reid_cfg(benchmark_bundle)
         if use_benchmark_reid
-        else load_runtime_reid_component_cfg(args.reid[0])
+        else (load_runtime_reid_component_cfg(args.reid[0]) if args.reid else {})
     )
     apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
 

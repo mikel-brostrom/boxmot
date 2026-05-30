@@ -23,7 +23,32 @@ tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 print(tuned)
 ```
 
-The same facade also exposes `research(...)` for GEPA-backed benchmark optimization and `export(...)` for ReID conversion workflows.
+ReID lifecycle workflows are available from the same facade:
+
+```python
+from boxmot import Boxmot
+
+api = Boxmot()
+train_result = api.train(
+    model="mobilenetv2_x1_0",
+    dataset="market1501",
+    data_dir="assets/reid-mini",
+    device="cpu",
+    epochs=5,
+    batch_size=16,
+)
+
+metrics = api.eval_reid(
+    weights=train_result.weights_path,
+    model="mobilenetv2_x1_0",
+    dataset="market1501",
+    data_dir="assets/reid-mini",
+    device="cpu",
+)
+print(metrics)
+```
+
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization, `train(...)` and `eval_reid(...)` for ReID model lifecycle workflows, and `export(...)` for ReID conversion workflows.
 
 Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
 
@@ -38,7 +63,7 @@ native_track = Boxmot(detector="yolov8n", tracker="bytetrack:cpp")
 run = native_track.track(source="video.mp4")
 
 native_eval = Boxmot(tracker="ocsort")
-metrics = native_eval.val(benchmark="mot17-ablation", tracker_backend="cpp")
+metrics = native_eval.val(benchmark="mot17", split="ablation", tracker_backend="cpp")
 ```
 
 Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.

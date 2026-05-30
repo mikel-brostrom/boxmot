@@ -3,8 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from boxmot.utils.misc import dataclass_slots_kwargs
-
 TRACKER_BACKENDS = frozenset({"python", "cpp"})
 _TRACKER_BACKEND_ALIASES = {
     "py": "python",
@@ -15,7 +13,7 @@ _TRACKER_BACKEND_ALIASES = {
 }
 
 
-@dataclass(frozen=True, **dataclass_slots_kwargs())
+@dataclass(frozen=True, slots=True)
 class TrackerSpec:
     """Normalized tracker selection.
 

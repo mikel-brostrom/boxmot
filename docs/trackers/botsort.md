@@ -30,7 +30,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker botsort --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
@@ -40,4 +40,4 @@ When `--tracker-backend cpp` is set, embeddings generated for the cached replay 
 
 For OBB replay, the native runner consumes 8-column OBB caches and writes MMOT-style corner outputs so the native replay stage matches the existing OBB evaluation pipeline.
 
-::: boxmot.trackers.botsort.botsort.BotSort
+::: boxmot.trackers.bbox.botsort.botsort.BotSort

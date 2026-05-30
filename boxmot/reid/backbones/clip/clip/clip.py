@@ -8,8 +8,7 @@ from typing import List, Union
 
 import torch
 from PIL import Image
-from torchvision.transforms import (CenterCrop, Compose, Normalize, Resize,
-                                    ToTensor)
+from torchvision.transforms import CenterCrop, Compose, Normalize, Resize, ToTensor
 from tqdm import tqdm
 
 from .model import build_model

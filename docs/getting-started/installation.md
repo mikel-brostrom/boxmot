@@ -2,7 +2,7 @@
 
 ## Requirements
 
-BoxMOT supports Python `3.9` through `3.12`.
+BoxMOT supports Python `3.10` through `3.13`.
 
 ## Basic install
 
@@ -20,6 +20,7 @@ BoxMOT keeps heavier workflow dependencies optional. Install the extras that mat
 | Workflow | PyPI install | Source checkout with `uv` | Notes |
 | --- | --- | --- | --- |
 | `track`, `generate`, `eval` with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra yolo` | Preinstalls Ultralytics and YOLOX. If you skip this, BoxMOT can install some detector packages on first use. |
+| `train` and `eval-reid` | `pip install boxmot` | `uv sync` | Uses the built-in ReID training and evaluation stack. You still need to place the chosen ReID dataset under your `--data-dir`. |
 | `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra research` | Installs GEPA for the code-evolution loop. |
 | `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra onnx` | The default export path uses ONNX. |
@@ -37,7 +38,7 @@ pip install "boxmot[yolo,evolve,research]"
 
 ## Native C++ backends
 
-Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, and `sfsort`.
+Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
 
 Install the native build tools before using them:
 
@@ -50,7 +51,7 @@ Example:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 ```
 
 The generated build files are kept under `build/native/<tracker>/`.
@@ -82,5 +83,5 @@ The generated build files are kept under `build/native/<tracker>/`.
 ## Next steps
 
 - Use [Quickstart](../index.md) for a minimal path.
-- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, and `export`.
+- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, `train`, `eval-reid`, and `export`.
 - Use the workflow table above to add the extras your workflow needs.

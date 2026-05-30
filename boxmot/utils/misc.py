@@ -6,12 +6,8 @@ from pathlib import Path
 
 import click
 
-from boxmot.utils import WEIGHTS, logger as LOGGER
-
-
-def dataclass_slots_kwargs() -> dict[str, bool]:
-    """Return dataclass keyword arguments supported by the running Python version."""
-    return {"slots": True} if sys.version_info >= (3, 10) else {}
+from boxmot.utils import WEIGHTS
+from boxmot.utils import logger as LOGGER
 
 
 def parse_imgsz(ctx, param, value):
@@ -41,7 +37,7 @@ def parse_imgsz(ctx, param, value):
             return (int(parts[0]), int(parts[1]))
     except ValueError:
         pass
-    
+
     raise click.BadParameter(f"Invalid --imgsz: {value}")
 
 
@@ -95,7 +91,7 @@ def increment_path(path, exist_ok=False, sep="", mkdir=False):
     path = Path(path)  # ensures OS compatibility
     if path.exists() and not exist_ok:
         base, suffix = (path.with_suffix(""), path.suffix) if path.is_file() else (path, "")
-        
+
         # Increment path until a non-existing one is found
         for n in range(2, 9999):
             new_path = f"{base}{sep}{n}{suffix}"

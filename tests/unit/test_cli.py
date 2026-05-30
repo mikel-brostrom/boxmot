@@ -13,9 +13,9 @@ def test_eval_requires_benchmark():
 
 
 def test_eval_rejects_source_option():
-    result = CliRunner().invoke(boxmot, ["eval", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"])
+    result = CliRunner().invoke(boxmot, ["eval", "--source", "boxmot/engine/eval/trackeval/data/MOT17-mini/train"])
     assert result.exit_code != 0
-    assert "No such option: --source" in result.output
+    assert "No such option" in result.output and "--source" in result.output
 
 
 def test_eval_passes_benchmark_config_via_benchmark(monkeypatch):
@@ -24,11 +24,11 @@ def test_eval_passes_benchmark_config_via_benchmark(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-mini"])
     assert result.exit_code == 0, result.output
-    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].data == "mot17-mini"
     assert captured["args"].source is None
     assert captured["args"].tracker == "bytetrack"
 
@@ -39,9 +39,9 @@ def test_eval_accepts_tracker_option(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--tracker", "boosttrack"])
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-mini", "--tracker", "boosttrack"])
     assert result.exit_code == 0, result.output
     assert captured["args"].tracker == "boosttrack"
 
@@ -52,11 +52,11 @@ def test_eval_accepts_tracker_backend_option(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--benchmark", "mot17-ablation", "--tracker", "botsort", "--tracker-backend", "cpp"],
+        ["eval", "--benchmark", "mot17-mini", "--tracker", "botsort", "--tracker-backend", "cpp"],
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].tracker == "botsort"
@@ -69,7 +69,7 @@ def test_track_accepts_inline_tracker_backend(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tracker", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.tracker", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["track", "--source", "0", "--tracker", "botsort:cpp"])
     assert result.exit_code == 0, result.output
@@ -84,7 +84,7 @@ def test_track_live_source_keeps_show_false_when_save_is_explicit(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tracker", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.tracker", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["track", "--source", "0", "--tracker", "botsort", "--save"])
     assert result.exit_code == 0, result.output
@@ -98,15 +98,15 @@ def test_eval_passes_show_timing_flag(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.evaluator", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--show-timing"])
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-mini", "--show-timing"])
     assert result.exit_code == 0, result.output
     assert captured["args"].show_timing is True
 
 
 def test_eval_rejects_positional_tracker_shim():
-    result = CliRunner().invoke(boxmot, ["eval", "boosttrack", "--benchmark", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["eval", "boosttrack", "--benchmark", "mot17-mini"])
     assert result.exit_code != 0
     assert "Got unexpected extra argument (boosttrack)" in result.output
 
@@ -120,7 +120,7 @@ def test_generate_requires_data_or_source():
 def test_generate_rejects_data_and_source_together():
     result = CliRunner().invoke(
         boxmot,
-        ["generate", "--benchmark", "mot17-ablation", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"],
+        ["generate", "--benchmark", "mot17-mini", "--source", "boxmot/engine/eval/trackeval/data/MOT17-mini/train"],
     )
     assert result.exit_code != 0
     assert "accepts either --benchmark <benchmark.yaml> or --source <dataset-path>, not both" in result.output
@@ -134,18 +134,18 @@ def test_generate_passes_benchmark_config_via_benchmark(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.cache",
+        "boxmot.engine.eval.cache",
         SimpleNamespace(main=fake_generate),
     )
 
-    result = CliRunner().invoke(boxmot, ["generate", "--benchmark", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["generate", "--benchmark", "mot17-mini"])
     assert result.exit_code == 0, result.output
-    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].data == "mot17-mini"
     assert captured["args"].source is None
 
 
 def test_tune_rejects_positional_tracker_shim():
-    result = CliRunner().invoke(boxmot, ["tune", "boosttrack", "--benchmark", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["tune", "boosttrack", "--benchmark", "mot17-mini"])
     assert result.exit_code != 0
     assert "Got unexpected extra argument (boosttrack)" in result.output
 
@@ -157,9 +157,9 @@ def test_tune_requires_benchmark():
 
 
 def test_tune_rejects_source_option():
-    result = CliRunner().invoke(boxmot, ["tune", "--source", "boxmot/engine/trackeval/data/MOT17-ablation/train"])
+    result = CliRunner().invoke(boxmot, ["tune", "--source", "boxmot/engine/eval/trackeval/data/MOT17-mini/train"])
     assert result.exit_code != 0
-    assert "No such option: --source" in result.output
+    assert "No such option" in result.output and "--source" in result.output
 
 
 def test_tune_accepts_space_separated_metric_lists(monkeypatch):
@@ -168,14 +168,14 @@ def test_tune_accepts_space_separated_metric_lists(monkeypatch):
     def fake_tune(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuner", SimpleNamespace(main=fake_tune))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.tuner", SimpleNamespace(main=fake_tune))
 
     result = CliRunner().invoke(
         boxmot,
         [
             "tune",
             "--benchmark",
-            "mot17-ablation",
+            "mot17-mini",
             "--tracker",
             "botsort",
             "--n-trials",
@@ -217,7 +217,7 @@ def test_research_passes_benchmark_config_via_flags(monkeypatch):
         [
             "research",
             "--benchmark",
-            "mot17-ablation",
+            "mot17-mini",
             "--tracker",
             "boosttrack",
             "--proposal-model",
@@ -235,7 +235,7 @@ def test_research_passes_benchmark_config_via_flags(monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].tracker == "boosttrack"
-    assert captured["args"].data == "mot17-ablation"
+    assert captured["args"].data == "mot17-mini"
     assert captured["args"].proposal_model == "openai/gpt-5.4"
     assert captured["args"].proposal_api_key == "sk-test"
     assert captured["args"].proposal_api_key_env == "OPENAI_API_KEY"
@@ -254,19 +254,19 @@ def test_research_help_shows_proposal_model_examples():
 
 
 def test_research_rejects_positional_tracker_shim():
-    result = CliRunner().invoke(boxmot, ["research", "boosttrack", "--benchmark", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["research", "boosttrack", "--benchmark", "mot17-mini"])
     assert result.exit_code != 0
     assert "Got unexpected extra argument (boosttrack)" in result.output
 
 
 def test_eval_rejects_legacy_data_alias():
-    result = CliRunner().invoke(boxmot, ["eval", "--data", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["eval", "--data", "mot17-mini"])
     assert result.exit_code != 0
-    assert "No such option: --data" in result.output
+    assert "No such option" in result.output and "--data" in result.output
 
 
 def test_generate_rejects_benchmark_names_passed_through_source():
-    result = CliRunner().invoke(boxmot, ["generate", "--source", "mot17-ablation"])
+    result = CliRunner().invoke(boxmot, ["generate", "--source", "mot17-mini"])
     assert result.exit_code != 0
     assert "uses --benchmark <benchmark.yaml> for benchmark configs" in result.output
 
@@ -279,7 +279,7 @@ def test_generate_accepts_component_flags_with_source(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.cache",
+        "boxmot.engine.eval.cache",
         SimpleNamespace(main=fake_generate),
     )
 
@@ -303,30 +303,30 @@ def test_track_keeps_source_literal(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tracker", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.tracker", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["track", "--source", "MOT17-ablation"])
+    result = CliRunner().invoke(boxmot, ["track", "--source", "mot17-mini"])
     assert result.exit_code == 0, result.output
-    assert captured["args"].source == "MOT17-ablation"
+    assert captured["args"].source == "mot17-mini"
     assert captured["args"].benchmark == ""
 
 
 def test_track_rejects_legacy_detector_alias():
     result = CliRunner().invoke(boxmot, ["track", "--yolo-model", "yolov8n.pt"])
     assert result.exit_code != 0
-    assert "No such option: --yolo-model" in result.output
+    assert "No such option" in result.output and "--yolo-model" in result.output
 
 
 def test_track_rejects_legacy_reid_alias():
     result = CliRunner().invoke(boxmot, ["track", "--reid-model", "osnet_x0_25_msmt17.pt"])
     assert result.exit_code != 0
-    assert "No such option: --reid-model" in result.output
+    assert "No such option" in result.output and "--reid-model" in result.output
 
 
 def test_eval_rejects_legacy_tracking_method_alias():
-    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-ablation", "--tracking-method", "boosttrack"])
+    result = CliRunner().invoke(boxmot, ["eval", "--benchmark", "mot17-mini", "--tracking-method", "boosttrack"])
     assert result.exit_code != 0
-    assert "No such option: --tracking-method" in result.output
+    assert "No such option" in result.output and "--tracking-method" in result.output
 
 
 def test_track_help_lists_current_component_options():
@@ -348,7 +348,7 @@ def test_root_help_lists_research_mode():
     result = CliRunner().invoke(boxmot, ["--help"])
     assert result.exit_code == 0, result.output
     assert "research" in result.output
-    assert "boxmot research --benchmark mot17-ablation --tracker bytetrack --proposal-model openai/gpt-5.4" in result.output
+    assert "boxmot research --benchmark mot17 --split ablation --tracker bytetrack --proposal-model openai/gpt-5.4" in result.output
 
 
 def test_export_builds_shared_namespace(monkeypatch):
@@ -357,7 +357,7 @@ def test_export_builds_shared_namespace(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.engine.export", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.export", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,

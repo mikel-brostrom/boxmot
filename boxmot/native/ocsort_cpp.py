@@ -14,7 +14,11 @@ import yaml
 from boxmot.native import _common
 from boxmot.native._common import (  # noqa: F401
     dets_n_embs_root,
+)
+from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
+)
+from boxmot.native._common import (
     parse_progress_line as _parse_progress_line,
 )
 from boxmot.trackers.tracker_zoo import get_tracker_config
@@ -316,7 +320,11 @@ def process_sequence_cpp(
     dataset_name: str | None = None,
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
+    split: str | None = None,
+    masks_dir: str | None = None,
+    kf_tuning: dict | None = None,
     progress_queue=None,
+    adaptive_kf: bool = False,
 ):
     del reid_name, preprocess_name
     if str(tracker_name).lower() != "ocsort":
@@ -327,7 +335,7 @@ def process_sequence_cpp(
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
 
-    det_emb_root = dets_n_embs_root(project_root, dataset_name)
+    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [

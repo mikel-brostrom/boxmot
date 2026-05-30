@@ -11,7 +11,11 @@ from boxmot.trackers.tracker_zoo import get_tracker_config
 from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label, primary_model_ref
 from boxmot.utils.rich.steps import (
     SETUP as TRACK_SETUP_STEP,
+)
+from boxmot.utils.rich.steps import (
     TRACK as TRACK_RUN_STEP,
+)
+from boxmot.utils.rich.steps import (
     TRACK_STEPS,
 )
 

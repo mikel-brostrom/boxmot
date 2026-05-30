@@ -2,7 +2,7 @@
 
 OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It keeps BoostTrack's multi-cue association (IoU + Mahalanobis + shape similarity, optional ReID) and DLO confidence boosting, then layers on a BotSort-inspired confirmation state, a ReID-only recovery pass, a safe low-confidence second pass, and an OccluTrack-style **Abnormal Motion Suppression (AMS)** Kalman filter that protects tracks during partial occlusion.
 
-On MOT17-ablation (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats BotSort on 5/6 metrics with the locked defaults: HOTA **70.47**, MOTA **78.32**, IDF1 **84.14**, IDSW **135**, AssA **74.73** (only DetA −0.27 vs BotSort).
+On the MOT17 ablation split (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats BotSort on 5/6 metrics with the locked defaults: HOTA **70.47**, MOTA **78.32**, IDF1 **84.14**, IDSW **135**, AssA **74.73** (only DetA −0.27 vs BotSort).
 
 ## What's layered on top of BoostTrack
 
@@ -18,7 +18,7 @@ On MOT17-ablation (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoost beats B
 ## What BoxMOT Needs For OccluBoost
 
 - A detector and a ReID model (the recovery pass and second-pass appearance gate both rely on embeddings).
-- AABB or OBB detections. OBB inputs are routed through a dedicated OBB code path that uses oriented IoU for association and a 9-column output schema (`[cx, cy, w, h, angle, id, conf, cls, det_ind]`); AMS, DLO/DUO confidence boosting, and Mahalanobis association are skipped in OBB mode (they are tied to the AABB xyhr representation).
+- AABB or OBB detections. OBB inputs are routed through a dedicated OBB code path that uses oriented IoU for association and a 9-column output schema (`[cx, cy, w, h, angle, id, conf, cls, det_ind]`); the OBB association path replaces the AABB-specific confidence-boosting and Mahalanobis matching logic.
 - Best for crowded / partial-occlusion scenes where identity preservation matters.
 
 ## Native C++ Backend
@@ -41,7 +41,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker occluboost --tracker-backend cpp \
+boxmot eval --benchmark mot17 --split ablation --tracker occluboost --tracker-backend cpp \
   --detector yolox_x_MOT17_ablation.pt --reid models/lmbn_n_duke.onnx
 boxmot track --tracker occluboost --tracker-backend cpp \
   --reid models/lmbn_n_duke.pt --source 0
@@ -51,7 +51,7 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 
 ## Tuning notes
 
-- **AMS knobs** (locked on MOT17-ablation but worth retuning per dataset):
+- **AMS knobs** (locked on the MOT17 ablation split but worth retuning per dataset):
     - `ams_alpha0` (default 0.4): how strongly to suppress the gain when both gates fire. Lower = stronger suppression. 0.3 over-protects and inflates IDSW; 0.5+ recovers IDSW but loses HOTA.
     - `ams_threshold` (default 0.5): relative speed-spike trigger. Lower fires more often.
     - `ams_shrink_ratio` (default 0.75): only suppress when the new bbox shrinks below this fraction of the buffered mean area. Disable AMS entirely with `ams_enabled: false`.
@@ -62,4 +62,34 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 - `new_track_thresh` is decoupled from `det_thresh` so weakly-confident detections can update existing tracks without spawning new ones.
 - Keep `max_age >= nr_classes` (default 120 vs 80 COCO classes) so per-class tracking survives the per-class predict loop.
 
-::: boxmot.trackers.occluboost.occluboost.OccluBoost
+### Adaptive Kalman Filter (`adaptive_kf`)
+
+When `adaptive_kf: true` is set in the tracker config, the process noise covariance **Q** is estimated online from innovation statistics (Mehra 1970) rather than kept constant. A sliding window (30 frames, warmup 15) accumulates the outer products of the Kalman innovations, and once warmed up the estimated Q is blended (α = 0.7) with the default static Q.
+
+**When to use it:**
+
+- Deploying to a new domain where you have no ground truth to run `--tune-kf`.
+- Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
+- Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
+
+**When NOT to use it:**
+
+- You already have a tuned static Q from `boxmot eval --tune-kf` on representative data — the static solution is cheaper and deterministic.
+- Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
+
+Enable it from the CLI:
+
+```bash
+boxmot track --tracker occluboost --adaptive-kf
+boxmot eval  --tracker occluboost --adaptive-kf
+```
+
+Or in the tracker config YAML:
+
+```yaml
+adaptive_kf: true
+```
+
+The tuner will also explore it automatically since it's registered as a `choice` parameter in the search space.
+
+::: boxmot.trackers.bbox.occluboost.occluboost.OccluBoost

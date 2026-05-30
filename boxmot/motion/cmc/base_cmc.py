@@ -8,7 +8,6 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
-
 Scale = Union[float, Tuple[int, int], None]
 
 

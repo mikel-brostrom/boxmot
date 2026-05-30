@@ -27,10 +27,10 @@ exclude = [".tox", "*.egg", "build", "temp"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I"]
-ignore = ["E731", "F405", "E402", "W504", "W605", "E741"]
+ignore = ["E731", "F405", "E402", "E741"]
 
 [tool.pytest.ini_options]
-norecursedirs = ["boxmot/engine/trackeval/tests", "runs"]
+norecursedirs = ["boxmot/engine/eval/trackeval/tests", "runs"]
 
 ##############
 # Build System #
@@ -49,7 +49,7 @@ name            = "boxmot"
 version         = "19.0.0"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
-requires-python = ">=3.9,<3.13"
+requires-python = ">=3.10,<3.14"
 license         = { text = "AGPL-3.0" }
 
 authors = [
@@ -63,10 +63,10 @@ classifiers = [
   "Intended Audience :: Science/Research",
   "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Software Development",
   "Topic :: Scientific/Engineering",
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -93,7 +93,7 @@ dependencies = [
   "gdown<6.0.0,>=5.1.0",
   # Fast LAP/Hungarian solver for data association
   "lapx<1.0.0,>=0.5.5",
-  "numpy",
+  "numpy>=2.2.0",
   "regex>=2024.0.0",
   "scikit-learn<2.0.0,>=1.3.0",
   "pandas<3.0.0,>=2.0.0",
@@ -140,22 +140,20 @@ yolo = [
 ]
 
 evolve = [
-  "ray[tune]==2.49.2",
+  "ray[tune]==2.52.1",
   "plotly==5.19.0",
   "bayesian-optimization==2.0.4",
   "optuna==3.5.0",
-  "pydantic>=2.12.5,<3.0.0"
+  "pydantic>=2.5.0,<2.12.0"
 ]
 
 research = [
-  "gepa[full]>=0.1.1 ; python_version >= '3.10'",
+  "gepa[full]>=0.1.1",
 ]
 
 onnx = [
-  "onnx==1.17.0 ; python_version < '3.10'",
-  "onnx==1.20.1 ; python_version >= '3.10'",
-  "onnxruntime==1.18.1 ; python_version < '3.10'",
-  "onnxruntime==1.24.3 ; python_version >= '3.10'",
+  "onnx==1.20.1",
+  "onnxruntime==1.24.3",
   "onnxslim>=0.1.67",
   "onnxscript>=0.1.0"
 ]
@@ -163,28 +161,9 @@ onnx = [
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
-  # onnx2tf flatbuffer_direct stack: only on linux/win, and only on py3.12
-  "onnx2tf>=2.3.3,<3.0.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  "onnx==1.20.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxruntime==1.24.3 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxsim-prebuilt==0.4.39.post2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxoptimizer==0.4.2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "sne4onnx>=2.0.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "sng4onnx>=2.0.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  "tensorflow==2.19.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "tf-keras==2.19.0 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "h5py==3.12.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  "psutil==5.9.5 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "ml-dtypes==0.5.1 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "flatbuffers==25.12.19 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-  "onnxslim>=0.1.31 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
-
-  "ai-edge-litert==2.1.2 ; python_version >= '3.12' and python_version < '3.13' and (sys_platform == 'linux' or sys_platform == 'win32')",
+  "litert-torch==0.9.1",
 ]
 
 rtdetr = [
-  "transformers>=5.0.0 ; python_version >= '3.10'",
+  "transformers>=5.0.0",
 ]

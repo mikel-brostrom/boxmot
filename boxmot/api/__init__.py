@@ -3,7 +3,7 @@
 """Public BoxMOT Python API."""
 
 from boxmot.engine.research import ResearchResult
-from boxmot.engine.workflow_results import (
+from boxmot.engine.workflows.results import (
     ExportResult,
     GenerateResult,
     TrackRunResult,
@@ -11,6 +11,7 @@ from boxmot.engine.workflow_results import (
     TuneTrialResult,
     ValidationResult,
 )
+from boxmot.reid.training.trainer import TrainResult
 
 from ._facade import Boxmot, evaluate, track
 
@@ -20,6 +21,7 @@ __all__ = (
     "GenerateResult",
     "ResearchResult",
     "TrackRunResult",
+    "TrainResult",
     "TuneResult",
     "TuneTrialResult",
     "ValidationResult",

@@ -22,7 +22,7 @@ Tracker-specific code should stay in its own directory even when two trackers lo
 Prefer the dedicated tracker implementation selector:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker botsort --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 ```
 
 `--tracking-backend cpp` is still accepted as a compatibility alias for existing replay commands, but the canonical distinction is now:

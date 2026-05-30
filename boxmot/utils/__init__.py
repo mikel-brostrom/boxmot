@@ -8,7 +8,6 @@ import threading
 from pathlib import Path
 
 import numpy as np
-
 from rich.logging import RichHandler
 
 from boxmot.utils.rich.ui import get_console
@@ -29,13 +28,10 @@ BOXMOT     = ROOT / "boxmot"
 CONFIGS    = BOXMOT / "configs"
 TRACKER_CONFIGS   = CONFIGS / "trackers"
 BENCHMARK_CONFIGS = CONFIGS / "benchmarks"
-DATASET_CONFIGS   = CONFIGS / "datasets"
-DETECTOR_CONFIGS  = CONFIGS / "detectors"
-REID_CONFIGS      = CONFIGS / "reid"
 
 ENGINE   = BOXMOT / "engine"
 WEIGHTS  = ROOT / "models"
-TRACKEVAL  = ENGINE / "trackeval"
+TRACKEVAL  = ENGINE / "eval" / "trackeval"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
 

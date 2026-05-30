@@ -11,7 +11,7 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
         Benchmark-driven cache generation:
 
         ```bash
-        boxmot generate --benchmark mot17-ablation
+        boxmot generate --benchmark mot17 --split ablation
         ```
 
         Direct-source cache generation:
@@ -28,7 +28,7 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
         ```python
         from boxmot import Boxmot
 
-        benchmark_cache = Boxmot().generate(benchmark="mot17-ablation")
+        benchmark_cache = Boxmot().generate(benchmark="mot17", split="ablation")
         print(benchmark_cache.cache_dir)
 
         direct_cache = Boxmot(
@@ -51,6 +51,20 @@ Cache generation removes repeated detector and ReID work from later benchmark ru
 - before repeated `eval` runs on the same benchmark
 - before `tune`, which evaluates many tracker parameter sets
 - before `research`, which may evaluate many candidate code variants
+
+## Public detections
+
+Use `--detection-source` to cache public MOTChallenge detections instead of running a detector:
+
+```bash
+boxmot generate --benchmark mot17 --split ablation --detection-source frcnn
+```
+
+This downloads the public detection files from the benchmark config and generates ReID embeddings for them. Later `eval` and `tune` runs with the same `--detection-source` reuse this cache.
+
+Available sources for MOT17: `frcnn`, `sdp`, `dpm`, or `public` (uses the default defined in the benchmark YAML).
+
+See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading behavior.
 
 ## CLI Arguments
 

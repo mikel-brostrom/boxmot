@@ -28,10 +28,10 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker ocsort --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker ocsort --tracker-backend cpp
 boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 
 The native backend currently supports `asso_func=iou`. Use the Python backend if you need the other OCSORT association functions from `boxmot/configs/trackers/ocsort.yaml`.
 
-::: boxmot.trackers.ocsort.ocsort.OcSort
+::: boxmot.trackers.bbox.ocsort.ocsort.OcSort

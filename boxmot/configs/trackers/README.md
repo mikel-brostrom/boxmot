@@ -48,7 +48,7 @@ frame_rate:
 Use a tracker config by selecting the tracker:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker bytetrack
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack
 ```
 
 There is no separate `--tracker-config` flag at the moment. The tracker name is

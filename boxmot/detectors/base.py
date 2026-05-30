@@ -21,12 +21,15 @@ class Detections:
         orig_img: Original BGR image as numpy array.
         path:     Source image/video path (empty string when unavailable).
         names:    Class name mapping {class_id: name}.
+        masks:    Optional segmentation masks, shape (N, H, W) uint8.
+                  None when the model does not produce masks.
     """
 
     dets: np.ndarray
     orig_img: np.ndarray
     path: str = ""
     names: dict = field(default_factory=dict)
+    masks: np.ndarray | None = None
 
     @property
     def is_obb(self) -> bool:

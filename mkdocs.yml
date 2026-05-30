@@ -79,6 +79,8 @@ nav:
       - Evaluate: modes/eval.md
       - Tune: modes/tune.md
       - Research: modes/research.md
+      - Train ReID: modes/train.md
+      - Evaluate ReID: modes/eval-reid.md
       - Export: modes/export.md
   - Configuration:
       - Config System Overview: config/index.md
@@ -104,6 +106,7 @@ nav:
       - Detection Layouts: concepts/index.md
       - Tracking Pipeline: concepts/tracking-pipeline.md
   - Guides:
+      - Benchmark Workflows: guides/benchmarks.md
       - Evaluation and Postprocessing: guides/evaluation.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
   - Native C++: native/index.md

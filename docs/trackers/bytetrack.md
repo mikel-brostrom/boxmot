@@ -29,10 +29,10 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17-ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 ```
 
 `--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
 
-::: boxmot.trackers.bytetrack.bytetrack.ByteTrack
+::: boxmot.trackers.bbox.bytetrack.bytetrack.ByteTrack

@@ -1,5 +1,37 @@
 id: mot17-mini
 
-dataset: mot17-mini
-detector: yolox_x_mot17_ablation
-reid: lmbn_n_duke
+dataset:
+  id: mot17-mini
+  root: "assets/MOT17-mini"
+  layout: mot
+  box_type: aabb
+  splits:
+    train: "train"
+  default_split: train
+  classes:
+    1: pedestrian
+  distractors:
+    2: person_on_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
+
+download:
+  runs: ""
+
+detector:
+  id: yolox_x_mot17_ablation
+  model: "models/yolox_x_MOT17_ablation.pt"
+  url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize

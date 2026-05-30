@@ -572,7 +572,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         emb_cost,
         config_.lambda_iou,
         config_.lambda_mhd,
-        config_.lambda_shape
+        config_.lambda_shape,
+        config_.lambda_emb_multiplier
     );
 
     // dets_alpha for ReID EMA on matched pairs.

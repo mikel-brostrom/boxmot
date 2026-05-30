@@ -52,9 +52,9 @@ def test_ensure_not_local_gepa_path_accepts_site_packages():
 
 def test_normalize_editable_files_defaults_to_primary_tracker_source():
     files = research_module._normalize_editable_files("strongsort", None)
-    assert "boxmot/trackers/strongsort/strongsort.py" in files
-    assert "boxmot/trackers/strongsort/__init__.py" not in files
-    assert "boxmot/trackers/strongsort/strongsort_kf.py" not in files
+    assert "boxmot/trackers/bbox/strongsort/strongsort.py" in files
+    assert "boxmot/trackers/bbox/strongsort/__init__.py" not in files
+    assert "boxmot/trackers/bbox/strongsort/strongsort_kf.py" not in files
     assert "boxmot/configs/trackers/strongsort.yaml" not in files
     assert all(not Path(path).is_absolute() for path in files)
 
@@ -86,7 +86,7 @@ def test_research_config_from_namespace_uses_data_when_benchmark_field_is_empty(
         SimpleNamespace(
             tracker="bytetrack",
             benchmark="",
-            data="mot17-ablation",
+            data="mot17-mini",
             source=None,
             detector=[Path("yolov8n.pt")],
             reid=[Path("osnet_x0_25_msmt17.pt")],
@@ -94,7 +94,7 @@ def test_research_config_from_namespace_uses_data_when_benchmark_field_is_empty(
             reid_explicit=False,
         )
     )
-    assert config.benchmark == "mot17-ablation"
+    assert config.benchmark == "mot17-mini"
     assert config.progress_bar is True
     assert config.detector is None
     assert config.reid is None
@@ -104,7 +104,7 @@ def test_research_config_from_namespace_preserves_explicit_model_overrides():
     config = research_module.ResearchConfig.from_namespace(
         SimpleNamespace(
             tracker="bytetrack",
-            benchmark="mot17-ablation",
+            benchmark="mot17-mini",
             data="",
             source=None,
             detector=[Path("custom_detector.pt")],
@@ -122,7 +122,7 @@ def test_research_config_from_namespace_captures_proposal_api_key_settings():
     config = research_module.ResearchConfig.from_namespace(
         SimpleNamespace(
             tracker="bytetrack",
-            benchmark="mot17-ablation",
+            benchmark="mot17-mini",
             data="",
             source=None,
             detector=[Path("yolov8n.pt")],
@@ -149,7 +149,7 @@ def test_resolve_benchmark_runtime_normalizes_models_to_absolute_paths(monkeypat
 
     def fake_apply_benchmark_config(probe):
         probe.source = source_dir
-        probe.benchmark_id = "mot17-ablation"
+        probe.benchmark_id = "mot17-mini"
         return {"benchmark": {}}
 
     monkeypatch.chdir(tmp_path)
@@ -158,10 +158,10 @@ def test_resolve_benchmark_runtime_normalizes_models_to_absolute_paths(monkeypat
     monkeypatch.setattr(research_module, "resolve_required_reid_model", lambda _cfg: Path("models/lmbn_n_duke.pt"))
     monkeypatch.setattr(research_module, "resolve_model_path", lambda path: Path(path))
 
-    source_root, benchmark_id, detector_path, reid_path, cfg = research_module._resolve_benchmark_runtime("mot17-ablation")
+    source_root, benchmark_id, detector_path, reid_path, cfg = research_module._resolve_benchmark_runtime("mot17-mini")
 
     assert source_root == source_dir.resolve()
-    assert benchmark_id == "mot17-ablation"
+    assert benchmark_id == "mot17-mini"
     assert detector_path == (tmp_path / "models" / "yolox_x_MOT17_ablation.pt").resolve()
     assert reid_path == (tmp_path / "models" / "lmbn_n_duke.pt").resolve()
     assert cfg == {"benchmark": {}}
@@ -341,7 +341,7 @@ def test_run_eval_subprocess_streams_stderr_when_progress_bar_enabled(monkeypatc
 
 def test_build_eval_payload_uses_shared_cache_project():
     researcher = research_module.TrackerResearcher.__new__(research_module.TrackerResearcher)
-    researcher.benchmark_id = "mot17-ablation"
+    researcher.benchmark_id = "mot17-mini"
     researcher.config = SimpleNamespace(tracker="bytetrack")
     researcher.detector_path = Path("/tmp/yolo.pt")
     researcher.reid_path = Path("/tmp/reid.pt")

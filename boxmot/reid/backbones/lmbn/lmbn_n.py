@@ -5,11 +5,10 @@ import copy
 import torch
 from torch import nn
 
-from boxmot.utils import logger as LOGGER
-
 from boxmot.reid.backbones.lmbn.attention import BatchFeatureErase_Top
 from boxmot.reid.backbones.lmbn.bnneck import BNNeck, BNNeck3
 from boxmot.reid.backbones.osnet import OSBlock, osnet_x1_0
+from boxmot.utils import logger as LOGGER
 
 
 class LMBN_n(nn.Module):

@@ -1,6 +1,6 @@
 import numpy as np
 
-from boxmot.utils.mot_utils import convert_to_mmot_obb_format, xywha_to_corners
+from boxmot.engine.mot_utils import convert_to_mmot_obb_format, xywha_to_corners
 
 
 def test_xywha_to_corners_canonicalizes_equivalent_obb_forms():

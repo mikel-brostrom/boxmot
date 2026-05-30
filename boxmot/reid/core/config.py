@@ -14,6 +14,12 @@ MODEL_TYPES = [
     "lmbn_ain_n",
     "lmbn_n",
     "clip",
+    "vit_nano",
+    "vit_nano_ain",
+    "vit_nano_ain_os",
+    "vit_tiny",
+    "vit_tiny_parts",
+    "vit_tiny_parts3",
 ]
 
 TRAINED_URLS = {
@@ -69,6 +75,9 @@ TRAINED_URLS = {
 NR_CLASSES_DICT = {
     "market1501": 751,
     "duke": 702,
+    "cuhk03": 767,
+    "msmt17": 1041,
+    "msmt17_merged": 4101,
     "veri": 576,
     "vehicleid": 576,
 }
