@@ -1,0 +1,47 @@
+id: mmot-mini
+
+dataset:
+  id: mmot-mini
+  root: "assets/mmot-mini"
+  layout: mot
+  box_type: obb
+  splits:
+    train: "train/npy"
+  default_split: train
+  classes:
+    1: car
+    2: bike
+    3: pedestrian
+    4: van
+    5: truck
+    6: bus
+    7: tricycle
+    8: awning-bike
+
+download:
+  runs: ""
+
+detector:
+  id: yolo11l_3ch
+  model: "models/yolo11l_3ch.pt"
+  url: "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
+  box_type: obb
+  imgsz: [1280, 1280]
+  conf: 0.2
+  classes:
+    0: car
+    1: bike
+    2: pedestrian
+    3: van
+    4: truck
+    5: bus
+    6: tricycle
+    7: awning-bike
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize

@@ -1,7 +1,7 @@
-id: mmot-obb
+id: mmot
 
 dataset:
-  id: mmot-obb
+  id: mmot
   root: "boxmot/engine/eval/trackeval/data/MMOT-OBB"
   layout: mot
   box_type: obb

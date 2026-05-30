@@ -11,10 +11,8 @@ dataset:
     test: "test"
     ablation:
       path: "ablation"
-      seq_pattern: "*-FRCNN"
     ablation-seg:
-      path: "ablation-seg"
-      seq_pattern: "*-FRCNN"
+      path: "ablation"
   default_split: ablation
   classes:
     1: pedestrian
