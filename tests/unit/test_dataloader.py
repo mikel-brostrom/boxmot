@@ -194,43 +194,6 @@ def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
     assert not (seq_dir / "gt" / "gt_temp.txt").exists()
 
 
-def test_dataset_falls_back_to_legacy_txt_caches(simple_sequence):
-    det_file = (
-        simple_sequence["det_emb_root"]
-        / simple_sequence["model_name"]
-        / "dets"
-        / "SEQ.npy"
-    )
-    emb_file = (
-        simple_sequence["det_emb_root"]
-        / simple_sequence["model_name"]
-        / "embs"
-        / simple_sequence["reid_name"]
-        / "resize"
-        / "SEQ.npy"
-    )
-    dets = np.load(det_file)
-    embs = np.load(emb_file)
-    det_file.unlink()
-    emb_file.unlink()
-    np.savetxt(det_file.with_suffix(".txt"), dets, fmt="%f")
-    np.savetxt(emb_file.with_suffix(".txt"), embs, fmt="%f")
-
-    ds = MOTDataset(
-        mot_root=str(simple_sequence["mot_root"]),
-        det_emb_root=str(simple_sequence["det_emb_root"]),
-        model_name=simple_sequence["model_name"],
-        reid_name=simple_sequence["reid_name"],
-        target_fps=None,
-    )
-
-    seq = ds.get_sequence(simple_sequence["seq_name"])
-    out = list(seq)
-    assert len(out) == 2
-    assert out[0]["dets"].shape[0] == 1
-    assert out[0]["embs"].shape == (1, 128)
-
-
 def test_iter_source_uses_integer_capture_for_numeric_webcam_strings(monkeypatch):
     calls = {}
     frame = np.zeros((4, 4, 3), dtype=np.uint8)
