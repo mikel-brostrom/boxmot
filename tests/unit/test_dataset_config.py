@@ -259,33 +259,35 @@ def test_apply_benchmark_config_resolves_split_specific_runs_url(monkeypatch):
         calls.update(kwargs)
 
     monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    monkeypatch.setattr("boxmot.utils.mot17_parquet.setup_mot17_from_parquet", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
 
     apply_benchmark_config(args)
 
     assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/mot17/ablation"
-    assert calls["dataset_url"] == "hf://Lekim89/MOT17/ablation"
+    assert calls["dataset_url"] == ""
     assert calls["runs_check_path"] == Path("runs/dets_n_embs/mot17/ablation")
 
 
 def test_apply_benchmark_config_resolves_mot17_test_dataset_url(monkeypatch):
-    calls = {}
+    parquet_calls = {}
 
-    def _capture_download(**kwargs):
-        calls.update(kwargs)
+    def _capture_parquet(**kwargs):
+        parquet_calls.update(kwargs)
 
-    monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    monkeypatch.setattr("boxmot.utils.mot17_parquet.setup_mot17_from_parquet", _capture_parquet)
     args = SimpleNamespace(data="mot17", source=None, split="test", split_explicit=True)
 
     apply_benchmark_config(args)
 
-    assert calls["dataset_url"] == "hf://Lekim89/MOT17/test"
-    assert calls["runs_url"] == ""
-    assert calls["runs_check_path"] == Path("runs/dets_n_embs/mot17/test")
+    assert parquet_calls["split"] == "test"
+    assert parquet_calls["detector"] == "FRCNN"
 
 
 def test_apply_benchmark_config_applies_ablation_component_overrides(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    monkeypatch.setattr("boxmot.utils.mot17_parquet.setup_mot17_from_parquet", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
 
     cfg = apply_benchmark_config(args)
@@ -298,6 +300,7 @@ def test_apply_benchmark_config_applies_ablation_component_overrides(monkeypatch
 
 def test_apply_benchmark_config_applies_ablation_seg_detector_override(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    monkeypatch.setattr("boxmot.utils.mot17_parquet.setup_mot17_from_parquet", lambda **kwargs: None)
     args = SimpleNamespace(data="mot17", source=None, split="ablation-seg", split_explicit=True)
 
     cfg = apply_benchmark_config(args)
