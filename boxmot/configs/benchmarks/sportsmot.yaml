@@ -13,7 +13,10 @@ dataset:
     1: player
 
 download:
-  dataset: "hf://MCG-NJU/SportsMOT/dataset"
+  dataset:
+    train: "hf://Lekim89/sportsmot/train"
+    val: "hf://Lekim89/sportsmot/val"
+    test: "hf://Lekim89/sportsmot/test"
   runs:
     val: "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/val"
     test: "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/test"

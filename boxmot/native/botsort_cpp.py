@@ -432,28 +432,11 @@ def process_sequence_cpp(
     cfg = _resolve_tracker_cfg(cfg_dict)
 
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    # Bucket the C++ embedding cache by the runtime-aware key so distinct
-    # runtimes (ORT vs OpenCV-DNN) and Python/C++ stacks never silently
-    # share storage. See ``boxmot.data.cache.reid_cache_key``.
-    from boxmot.data.cache import legacy_reid_cache_keys as _legacy_reid_keys
     from boxmot.data.cache import reid_cache_key as _reid_cache_key
     reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
     reid_model_path = _ensure_native_reid_model_path(reid_name)
 
     det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
-
-    # Read-only back-compat: if the canonical cpp bucket does not exist on
-    # disk but a historical layout does, point the native binary at it so
-    # pre-existing caches keep working. Only the canonical key is written to.
-    embs_dir_new = det_emb_root / detector_key / "embs" / reid_key / (preprocess_name or "resize")
-    if not embs_dir_new.exists():
-        for legacy_key in _legacy_reid_keys(reid_name, tracker_backend="cpp"):
-            if legacy_key == reid_key:
-                continue
-            embs_dir_legacy = det_emb_root / detector_key / "embs" / legacy_key / (preprocess_name or "resize")
-            if embs_dir_legacy.exists():
-                reid_key = legacy_key
-                break
 
     output_path = Path(exp_folder) / f"{seq_name}.txt"
     cmd = [

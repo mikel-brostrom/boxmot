@@ -52,6 +52,18 @@ Cache generation removes repeated detector and ReID work from later benchmark ru
 - before `tune`, which evaluates many tracker parameter sets
 - before `research`, which may evaluate many candidate code variants
 
+## Public detections
+
+Use `--detection-source` to cache public MOTChallenge detections instead of running a detector:
+
+```bash
+boxmot generate --benchmark mot17 --split ablation --detection-source frcnn
+```
+
+This downloads the public detection files from the benchmark config and generates ReID embeddings for them. Later `eval` and `tune` runs with the same `--detection-source` reuse this cache.
+
+Available sources for MOT17: `frcnn`, `sdp`, `dpm`, or `public` (uses the default defined in the benchmark YAML).
+
 See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading behavior.
 
 ## CLI Arguments

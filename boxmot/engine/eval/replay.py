@@ -233,10 +233,12 @@ def process_sequence(
     adaptive_kf: bool = False,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
+    from boxmot.data.cache import reid_cache_key
+
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
     if reid_name:
         reid_weights = Path(reid_name)
-        reid_key = reid_weights.name if reid_weights.suffix else str(reid_weights)
+        reid_key = reid_cache_key(reid_name, tracker_backend=None)
         if not reid_weights.suffix:
             reid_weights = reid_weights.with_suffix(".pt")
     else:
@@ -764,7 +766,7 @@ def run_generate_mot_results(
         elif pp_step == "gta":
             if verbose:
                 LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
-            from boxmot.data.cache import legacy_reid_cache_keys, reid_cache_key
+            from boxmot.data.cache import reid_cache_key
             from boxmot.postprocessing.gta import gta as gta_postprocess
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
 
@@ -782,23 +784,15 @@ def run_generate_mot_results(
                 embs_root = det_emb_root / detector_key / "embs"
                 tracker_backend = getattr(args, "tracker_backend", None)
 
-                # Try canonical cache key first, then legacy keys
-                candidates = [
-                    reid_cache_key(args.reid[0], tracker_backend=tracker_backend),
-                    *legacy_reid_cache_keys(args.reid[0], tracker_backend=tracker_backend),
-                    args.reid[0].name if args.reid[0].suffix else str(args.reid[0]),
-                    args.reid[0].stem,
-                ]
-                for key in candidates:
-                    candidate_dir = embs_root / key / preprocess_name
-                    if candidate_dir.exists():
-                        embs_dir = candidate_dir
-                        break
+                key = reid_cache_key(args.reid[0], tracker_backend=tracker_backend)
+                candidate_dir = embs_root / key / preprocess_name
+                if candidate_dir.exists():
+                    embs_dir = candidate_dir
 
                 if embs_dir is None:
                     LOGGER.warning(
                         f"GTA: Could not find embedding cache under {embs_root}. "
-                        f"Tried keys: {candidates[:3]}"
+                        f"Tried key: {key}"
                     )
             else:
                 tracker_name = getattr(args, "tracker", "this tracker")

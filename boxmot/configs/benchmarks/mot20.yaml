@@ -10,6 +10,7 @@ dataset:
     test: "test"
     ablation: "ablation"
   default_split: ablation
+  no_gt_splits: [test]
   classes:
     1: pedestrian
   distractors:
@@ -20,7 +21,10 @@ dataset:
     12: reflection
 
 download:
-  dataset: "hf://Lekim89/MOT20"
+  dataset:
+    train: "hf://Lekim89/MOT20/train"
+    test: "hf://Lekim89/MOT20/test"
+    ablation: "hf://Lekim89/MOT20/ablation"
   runs: ""
 
 detector:

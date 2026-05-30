@@ -36,10 +36,30 @@ reid:
   id: lmbn_n_duke
   model: "models/lmbn_n_duke.pt"
 
+# Public detections for --detection-source
+public_detectors:
+  frcnn:
+    id: mot17_public_frcnn
+    parquet: "data/detections/frcnn"
+    label: "FRCNN (Faster R-CNN public detections)"
+  sdp:
+    id: mot17_public_sdp
+    parquet: "data/detections/sdp"
+    label: "SDP (Deformable Parts Model v5)"
+  dpm:
+    id: mot17_public_dpm
+    parquet: "data/detections/dpm"
+    label: "DPM (Deformable Parts Model)"
+
 download:
-  dataset: "hf://Lekim89/MOT17"
+  source: parquet
+  parquet_repo: "Lekim89/mot17-parquet"
+  public_detector: FRCNN
   runs:
-    ablation: "https://github.com/mikel-brostrom/boxmot/releases/download/v18.0.0/runs.zip"
+    ablation:
+      url: "hf://Lekim89/runs/runs/dets_n_embs/mot17/ablation"
+      detector: yolox_x_mot17_ablation
+      reid: lmbn_n_duke
 ```
 
 ## Use from the CLI
@@ -51,6 +71,9 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 # Override split
 boxmot eval --benchmark sportsmot --split test --tracker boosttrack
 
+# Use public detections instead of the configured detector
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-source frcnn
+
 # MMOT benchmark config (OBB-backed)
 boxmot eval --benchmark mmot --split test --tracker botsort
 
@@ -60,3 +83,13 @@ boxmot eval --benchmark mmot-mini --split train --tracker botsort
 
 That benchmark name selects the corresponding YAML and all linked profiles.
 The `--split` flag overrides the default split defined in the config.
+
+## Public detectors block
+
+The optional `public_detectors` section maps `--detection-source` values to parquet paths in the benchmark's HuggingFace repository. Each entry has:
+
+- `id` – cache key for the public detection bucket
+- `parquet` – relative path within the parquet repo to the detection files
+- `label` – human-readable description
+
+When `--detection-source public` is used, the default is resolved from `download.public_detector`.

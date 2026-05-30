@@ -18,10 +18,7 @@ from boxmot.data.cache import (
     _clear_device_cache,
     _count_embedding_rows,
     _existing_cache_path,
-    _existing_embedding_cache_path,
     _max_frame_id,
-    _migrate_legacy_embedding_cache,
-    _migrate_legacy_numeric_cache,
     _read_image_cv2,
     _saved_detection_column_count,
     _serialize_eval_detections,
@@ -322,10 +319,44 @@ def _run_embeddings_only_fill(
                     pass
 
 
+def _ensure_public_detector_setup(args: argparse.Namespace, detector: str) -> None:
+    """Ensure MOT17 parquet setup has been run for the requested public detector.
+
+    If the source directory already has det/det.txt files, this is a no-op.
+    Otherwise triggers the parquet setup to create the MOTChallenge layout
+    with the requested detector's detections.
+    """
+    source_root = Path(args.source)
+    # Quick check: if sequences already have det/det.txt, nothing to do
+    if source_root.is_dir():
+        for seq_dir in source_root.iterdir():
+            if seq_dir.is_dir() and (seq_dir / "det" / "det.txt").exists():
+                return
+
+    # Run parquet setup
+    try:
+        from boxmot.utils.mot17_parquet import setup_mot17_from_parquet
+
+        benchmark = getattr(args, "benchmark", None) or "mot17"
+        split = getattr(args, "split", None) or "ablation"
+        # Resolve the dataset dest from the source path
+        # source is usually <root>/<split>, so dest is <root>
+        dest = source_root.parent if source_root.name == split else source_root
+
+        setup_mot17_from_parquet(
+            dest=dest,
+            split=split,
+            detector=detector,
+        )
+    except Exception as e:
+        LOGGER.warning(f"Could not set up public detector '{detector}': {e}")
+
+
 @torch.inference_mode()
 def _generate_public_dets_cache(
     args: argparse.Namespace,
     source_root: Path,
+    det_key: str = "public",
     progress_callback: Callable[[str], None] | None = None,
 ) -> None:
     """Generate detection cache from public det/det.txt files (MOT format).
@@ -349,8 +380,7 @@ def _generate_public_dets_cache(
         dets_base = dets_base / benchmark
     if split:
         dets_base = dets_base / split
-    # For public detections, use "public" as the detector name in cache path
-    dets_folder = dets_base / "public" / "dets"
+    dets_folder = dets_base / det_key / "dets"
     dets_folder.mkdir(parents=True, exist_ok=True)
 
     mot_folder_paths = sorted([p for p in source_root.iterdir() if p.is_dir()])
@@ -481,25 +511,7 @@ def generate_dets_embs_batched(
             key = reid_cache_key(reid_model, tracker_backend=tracker_backend)
             emb_path = embs_root / key / preprocess_name / f"{seq_name}.npy"
             emb_paths[key] = emb_path
-            cached_emb_path = _existing_embedding_cache_path(emb_path)
-            # Fall back to the legacy stem-only cache directory so that
-            # existing on-disk caches generated before the suffix was added
-            # to the key can still be resumed instead of regenerated.
-            #
-            # The legacy cache predates the per-format suffix split, when
-            # ``.pt`` was the only supported runtime. Only trust it when the
-            # currently requested weights are also ``.pt`` AND the active
-            # tracker backend is the Python one — otherwise a ``.onnx`` (or
-            # other-format) request, or any C++ ReID request, would silently
-            # consume ``.pt``-generated PyTorch embeddings.
-            if (
-                cached_emb_path is None
-                and reid_model.stem != key
-                and reid_model.suffix.lower() == ".pt"
-                and (tracker_backend or "python").lower() != "cpp"
-            ):
-                legacy_path = embs_root / reid_model.stem / preprocess_name / f"{seq_name}.npy"
-                cached_emb_path = _existing_embedding_cache_path(legacy_path)
+            cached_emb_path = _existing_cache_path(emb_path)
             cached_emb_paths[key] = cached_emb_path
             if cached_emb_path is not None:
                 any_emb_cached = True
@@ -599,14 +611,6 @@ def generate_dets_embs_batched(
                                         path.unlink()
                                     except FileNotFoundError:
                                         pass
-                        # Migrate legacy txt dets to the canonical npy path.
-                        try:
-                            if cached_dets_path.suffix == ".txt" and _migrate_legacy_numeric_cache(
-                                cached_dets_path, dets_path, comments="#"
-                            ):
-                                cached_dets_path = dets_path
-                        except Exception as exc:  # noqa: BLE001
-                            LOGGER.warning(f"Failed to migrate detections for {seq_name}: {exc}")
                         embed_only_states[seq_name] = {
                             "frames": frames,
                             "img_dir": img_dir,
@@ -657,29 +661,8 @@ def generate_dets_embs_batched(
             and cached_dets_path is not None
             and all(cached_emb_path is not None for cached_emb_path in cached_emb_paths.values())
         ):
-            try:
-                if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
-                    if verbose:
-                        LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
-                    cached_dets_path = dets_path
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning(f"Failed to migrate detections for {seq_name}: {exc}")
-            for stem, cached_emb_path in cached_emb_paths.items():
-                if cached_emb_path is None:
-                    continue
-                try:
-                    if _migrate_legacy_embedding_cache(cached_emb_path, emb_paths[stem]):
-                        if verbose:
-                            LOGGER.info(f"Migrated legacy embedding cache to {emb_paths[stem].name}")
-                        cached_emb_paths[stem] = emb_paths[stem]
-                except Exception as exc:  # noqa: BLE001
-                    LOGGER.warning(f"Failed to migrate embeddings for {seq_name}/{stem}: {exc}")
-            if expected_files and rows_match and det_rows:
-                if verbose:
-                    LOGGER.info(f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames).")
-            else:
-                if verbose:
-                    LOGGER.info(f"Skipping {seq_name} (resume: already complete).")
+            if verbose:
+                LOGGER.info(f"Skipping {seq_name} (cached complete; {processed}/{len(frames)} frames).")
             initial_done += len(frames)
             cached_seq_names.append(seq_name)
             continue
@@ -694,14 +677,6 @@ def generate_dets_embs_batched(
                 continue
 
         dets_path.parent.mkdir(parents=True, exist_ok=True)
-        if resume and cached_dets_path is not None and cached_dets_path.suffix == ".txt":
-            try:
-                if _migrate_legacy_numeric_cache(cached_dets_path, dets_path, comments="#"):
-                    if verbose:
-                        LOGGER.info(f"Migrated legacy detection cache to {dets_path.name}")
-                    cached_dets_path = dets_path
-            except Exception:
-                pass
         det_writers[seq_name] = AppendableNpyWriter(
             dets_path,
             dtype=np.float32,
@@ -713,15 +688,6 @@ def generate_dets_embs_batched(
             key = reid_cache_key(reid_model, tracker_backend=tracker_backend)
             emb_path = emb_paths[key]
             emb_path.parent.mkdir(parents=True, exist_ok=True)
-            cached_emb_path = cached_emb_paths[key]
-            if resume and cached_emb_path is not None and cached_emb_path.suffix == ".txt":
-                try:
-                    if _migrate_legacy_embedding_cache(cached_emb_path, emb_path):
-                        if verbose:
-                            LOGGER.info(f"Migrated legacy embedding cache to {emb_path.name}")
-                        cached_emb_path = emb_path
-                except Exception:
-                    pass
             emb_writers[key][seq_name] = AppendableNpyWriter(
                 emb_path,
                 dtype=np.float32,
@@ -1169,11 +1135,80 @@ def run_generate_dets_embs(
         args.resume = True
 
     # Public detections: read from det/det.txt instead of running a detector model
+    # Supports "public" (generic) or specific detector names (frcnn, sdp, dpm)
     detection_source = getattr(args, "detection_source", None)
-    if detection_source == "public":
-        _generate_public_dets_cache(args, source_root, progress_callback=progress_callback)
-        # Override detector stem for downstream cache lookups
-        args.detector = [Path("public")]
+    _public_detector_names = {"public", "frcnn", "sdp", "dpm"}
+    if detection_source and detection_source.lower() in _public_detector_names:
+        # If a specific public detector is requested, ensure parquet setup ran
+        # and sequences have the correct det/det.txt files
+        if detection_source.lower() in ("frcnn", "sdp", "dpm"):
+            _ensure_public_detector_setup(args, detection_source.upper())
+        # Compute det_key early so caches go to the right folder
+        det_key = f"mot17_public_{detection_source.lower()}" if detection_source.lower() != "public" else "public"
+        _generate_public_dets_cache(args, source_root, det_key=det_key, progress_callback=progress_callback)
+        args.detector = [Path(det_key)]
+
+        # Run ReID embeddings fill for the cached public detections
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+        _preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+        _tracker_backend = getattr(args, "tracker_backend", None)
+        _benchmark = getattr(args, "benchmark", None)
+        _split = getattr(args, "split", None)
+        _cache_project = Path(getattr(args, "cache_project", args.project))
+        _dets_base = _cache_project / "dets_n_embs"
+        if _benchmark:
+            _dets_base = _dets_base / _benchmark
+        if _split:
+            _dets_base = _dets_base / _split
+        _dets_folder = _dets_base / det_key / "dets"
+        _embs_root = _dets_base / det_key / "embs"
+
+        # Build embed_only_states for sequences that need ReID embeddings
+        _mot_folder_paths = sorted([p for p in source_root.iterdir() if p.is_dir()])
+        _seq_pattern = getattr(args, "seq_pattern", None)
+        if _seq_pattern:
+            from fnmatch import fnmatch
+            _mot_folder_paths = [p for p in _mot_folder_paths if fnmatch(p.name, _seq_pattern)]
+
+        _embed_only_states: dict[str, dict] = {}
+        for _seq_dir in _mot_folder_paths:
+            _img_dir = _sequence_img_dir(_seq_dir)
+            _frames = _list_sequence_frames(_img_dir)
+            if not _frames:
+                continue
+            _seq_name = _sequence_name_from_img_dir(_img_dir)
+            _dets_path = _dets_folder / f"{_seq_name}.npy"
+            if not _dets_path.exists():
+                continue
+            # Check which ReID keys are missing
+            _missing_keys: list[str] = []
+            _emb_paths: dict[str, Path] = {}
+            for _reid_model in args.reid:
+                _key = reid_cache_key(_reid_model, tracker_backend=_tracker_backend)
+                _emb_path = _embs_root / _key / _preprocess_name / f"{_seq_name}.npy"
+                _emb_paths[_key] = _emb_path
+                if not _emb_path.exists():
+                    _missing_keys.append(_key)
+            if _missing_keys:
+                _embed_only_states[_seq_name] = {
+                    "frames": _frames,
+                    "dets_path": _dets_path,
+                    "missing_keys": _missing_keys,
+                    "emb_paths": {k: _emb_paths[k] for k in _missing_keys},
+                }
+
+        if _embed_only_states:
+            _run_embeddings_only_fill(
+                args,
+                _embed_only_states,
+                expected_det_cols=7,
+                preprocess_name=_preprocess_name,
+                tracker_backend=_tracker_backend,
+                progress_callback=progress_callback,
+                show_progress=bool(getattr(args, "show_progress", True)),
+                own_terminal_progress=(progress_callback is None),
+                verbose=verbose,
+            )
         return
 
     for detector in args.detector:

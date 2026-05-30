@@ -281,7 +281,7 @@ def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType |
             pass
     if det_cfg_ref:
         try:
-            path = resolve_detector_cfg_path(str(det_cfg_ref))
+            path = resolve_detector_cfg_path(str(det_cfg_ref), benchmark=str(benchmark) if benchmark else None)
             lines.append(_config_link("Detector", path))
         except Exception:
             pass
@@ -297,7 +297,7 @@ def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType |
             pass
     if reid_cfg_ref:
         try:
-            path = resolve_reid_cfg_path(str(reid_cfg_ref))
+            path = resolve_reid_cfg_path(str(reid_cfg_ref), benchmark=str(benchmark) if benchmark else None)
             lines.append(_config_link("ReID", path))
         except Exception:
             pass

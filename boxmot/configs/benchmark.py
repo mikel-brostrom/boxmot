@@ -87,6 +87,30 @@ def _resolve_split_download_entry(value: Any, split_name: str | None) -> str | d
     return str(entry or "")
 
 
+def _scope_hf_url_to_split(url: str, cfg: dict[str, Any], split_name: str) -> str:
+    """Append the split's directory name to a bare HF repo URL.
+
+    When a benchmark config specifies ``download.dataset: hf://owner/repo``
+    without a subfolder, we scope the download to only the active split's
+    subfolder (e.g. ``hf://owner/repo/ablation``) to avoid downloading the
+    entire repository.
+    """
+    if not url or not url.startswith("hf://"):
+        return url
+    parts = url[len("hf://"):].split("/")
+    # Only modify bare repo URLs (exactly 2 path parts: owner/repo)
+    if len(parts) != 2:
+        return url
+    # Look up the split's directory name from the splits mapping
+    splits = cfg.get("splits") or {}
+    split_dir = splits.get(split_name)
+    if isinstance(split_dir, dict):
+        split_dir = split_dir.get("path") or split_name
+    if not split_dir:
+        split_dir = split_name
+    return f"{url}/{split_dir}"
+
+
 def _normalize_profile_key(value: Any) -> str:
     if value in (None, ""):
         return ""
@@ -220,9 +244,17 @@ def resolve_benchmark_cfg_path(name: str | Path) -> Path:
     return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
 
 
-def resolve_detector_cfg_path(name: str | Path) -> Path:
+def resolve_detector_cfg_path(name: str | Path, *, benchmark: str | None = None) -> Path:
     """Resolve a detector profile id from inline benchmark detector blocks."""
     target = str(name)
+    # Prefer the current benchmark's YAML when multiple benchmarks share the same id
+    if benchmark:
+        preferred = BENCHMARK_CONFIGS / f"{benchmark}.yaml"
+        if preferred.exists():
+            raw = _load_yaml_cfg(preferred)
+            det = raw.get("detector")
+            if isinstance(det, dict) and str(det.get("id") or "") == target:
+                return preferred
     for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
         raw_cfg = _load_yaml_cfg(cfg_path)
         detector_cfg = raw_cfg.get("detector")
@@ -231,9 +263,17 @@ def resolve_detector_cfg_path(name: str | Path) -> Path:
     raise FileNotFoundError(f"Detector config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
-def resolve_reid_cfg_path(name: str | Path) -> Path:
+def resolve_reid_cfg_path(name: str | Path, *, benchmark: str | None = None) -> Path:
     """Resolve a ReID profile id from inline benchmark ReID blocks."""
     target = str(name)
+    # Prefer the current benchmark's YAML when multiple benchmarks share the same id
+    if benchmark:
+        preferred = BENCHMARK_CONFIGS / f"{benchmark}.yaml"
+        if preferred.exists():
+            raw = _load_yaml_cfg(preferred)
+            reid = raw.get("reid")
+            if isinstance(reid, dict) and str(reid.get("id") or "") == target:
+                return preferred
     for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
         raw_cfg = _load_yaml_cfg(cfg_path)
         reid_cfg = raw_cfg.get("reid")
@@ -253,6 +293,10 @@ def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
     dataset_dest = download_cfg.get("dataset_dest")
     if dataset_dest:
         normalized["dataset_dest"] = dataset_dest
+    # Preserve additional download options (source, parquet_repo, public_detector, etc.)
+    for key in ("source", "parquet_repo", "public_detector"):
+        if key in download_cfg:
+            normalized[key] = download_cfg[key]
     return normalized
 
 
@@ -354,6 +398,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "distractors", "class_map", "download", "dataset_config",
         "detector_config", "reid_config", "seq_pattern",
         "trackeval", "storage", "evaluation", "benchmark", "defaults",
+        "no_gt_splits",
     }
     for key, value in cfg.items():
         if key not in _KNOWN_KEYS and isinstance(value, (str, dict)) and value:
@@ -396,6 +441,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "detector_config": str(detector_ref) if detector_ref else None,
         "reid_config": str(reid_ref) if reid_ref else None,
         "seq_pattern": cfg.get("seq_pattern"),
+        "no_gt_splits": list(cfg.get("no_gt_splits") or []),
     }
 
     normalized["storage"] = {
@@ -447,6 +493,10 @@ def _merge_download_cfg(base_download: dict[str, Any], overlay_download: dict[st
 
     if overlay_download.get("dataset_dest"):
         merged["dataset_dest"] = overlay_download["dataset_dest"]
+    # Preserve additional download options from the overlay
+    for key in ("source", "parquet_repo", "public_detector"):
+        if key in overlay_download:
+            merged[key] = overlay_download[key]
     return merged
 
 
@@ -920,15 +970,54 @@ def _apply_benchmark_config_ref(
 
     benchmark_dest = _resolve_benchmark_dest(cfg, benchmark_name, source_root)
 
+    # Resolve the dataset download URL, scoping bare HF repo URLs to the
+    # active split's subfolder so we don't download the entire repository.
+    dataset_url = _resolve_split_download_value(download_cfg.get("dataset"), cfg_split)
+    dataset_url = _scope_hf_url_to_split(dataset_url, cfg, cfg_split)
+
     runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name / cfg_split
-    download_eval_data(
-        runs_url=_resolve_runs_download_url(args, cfg, cfg_split),
-        dataset_url=_resolve_split_download_value(download_cfg.get("dataset"), cfg_split),
-        dataset_dest=benchmark_dest,
-        overwrite=overwrite,
-        runs_check_path=runs_check_path,
-        status_fn=status_fn,
-    )
+
+    # Parquet-based dataset setup (e.g. MOT17 with deduplicated images)
+    download_source = download_cfg.get("source", "").lower()
+    if download_source == "parquet":
+        from boxmot.utils.mot17_parquet import setup_mot17_from_parquet
+
+        # Determine public detector: CLI --detection-source overrides config
+        cli_det_source = getattr(args, "detection_source", None)
+        public_det = (
+            cli_det_source.upper()
+            if cli_det_source and cli_det_source.upper() in ("DPM", "FRCNN", "SDP")
+            else download_cfg.get("public_detector", "FRCNN")
+        )
+
+        setup_mot17_from_parquet(
+            dest=benchmark_dest,
+            split=cfg_split,
+            detector=public_det,
+            overwrite=overwrite,
+            status_fn=status_fn,
+        )
+
+        # Still download pre-computed YOLOX dets/embs if available (for default eval)
+        runs_url = _resolve_runs_download_url(args, cfg, cfg_split)
+        if runs_url:
+            download_eval_data(
+                runs_url=runs_url,
+                dataset_url="",
+                dataset_dest=benchmark_dest,
+                overwrite=overwrite,
+                runs_check_path=runs_check_path,
+                status_fn=status_fn,
+            )
+    else:
+        download_eval_data(
+            runs_url=_resolve_runs_download_url(args, cfg, cfg_split),
+            dataset_url=dataset_url,
+            dataset_dest=benchmark_dest,
+            overwrite=overwrite,
+            runs_check_path=runs_check_path,
+            status_fn=status_fn,
+        )
 
     args.benchmark_id = cfg.get("id", benchmark_name)
     args.dataset_id = args.benchmark_id
@@ -1047,9 +1136,12 @@ def ensure_dataset_source_available(
     dataset_dest = _resolve_benchmark_dest(cfg, dataset_name, source_root)
     split_name = getattr(args, "split", None) or cfg.get("split")
 
+    dataset_url = _resolve_split_download_value(download_cfg.get("dataset"), split_name)
+    dataset_url = _scope_hf_url_to_split(dataset_url, cfg, split_name) if split_name else dataset_url
+
     download_eval_data(
         runs_url=_resolve_runs_download_url(args, cfg, split_name),
-        dataset_url=_resolve_split_download_value(download_cfg.get("dataset"), split_name),
+        dataset_url=dataset_url,
         dataset_dest=dataset_dest,
         overwrite=overwrite,
         runs_check_path=None,

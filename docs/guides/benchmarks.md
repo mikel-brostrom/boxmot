@@ -27,7 +27,27 @@ boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 
 - Keep the same benchmark, split, detector, and ReID settings when you want later runs to reuse an existing cache.
 - Changing any of those inputs creates a different cache bucket and forces regeneration.
+- `--detection-source` also affects the cache key — public detection caches are stored separately from private detector caches.
 - Native `--tracker-backend cpp` replay can still reuse the same detection cache, but trackers with native ReID write embeddings to a separate `__cpp` cache bucket.
+
+## Public detections
+
+Some benchmarks ship with public detections from the original challenge (e.g., MOT17 includes FRCNN, SDP, and DPM). Use `--detection-source` to generate and evaluate with these instead of the configured detector:
+
+```bash
+# Generate cache with public FRCNN detections
+boxmot generate --benchmark mot17 --split ablation --detection-source frcnn
+
+# Evaluate using the same public detections
+boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-source frcnn
+
+# Tune against public detections
+boxmot tune --benchmark mot17 --split ablation --tracker ocsort --detection-source frcnn --n-trials 10
+```
+
+Public detectors are defined in the benchmark YAML under `public_detectors`. The detection files are downloaded from the parquet repository and cached. ReID embeddings are generated automatically for the public detections.
+
+`--detection-source public` uses the default public detector specified in the benchmark config's `download.public_detector` field.
 
 ## Replay image loading
 

@@ -35,6 +35,16 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 ```
 
+These modes share several workflow flags:
+
+- `--benchmark` selects the benchmark YAML config (e.g., `mot17`, `sportsmot`, `mmot`).
+- `--split` overrides the dataset split (e.g., `train`, `val`, `test`, `ablation`).
+- `--detection-source` switches between the configured detector (`private`) and public MOTChallenge detections (`frcnn`, `sdp`, `dpm`).
+- `--postprocessing` applies post-tracking processing steps such as `gsi`, `gbrc`, or `gta`, chained with commas.
+- `--tune-kf` estimates Kalman filter noise (Q/R) from ground truth before tracking (`eval` and `tune` only).
+
+See [Evaluation and Postprocessing](../guides/evaluation.md) and [Benchmark Workflows](../guides/benchmarks.md) for details.
+
 ### ReID model lifecycle
 
 Use `train`, `eval-reid`, and `export` when you are working on the appearance model itself rather than the full tracking loop.

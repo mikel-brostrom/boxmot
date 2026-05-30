@@ -184,8 +184,8 @@ def split_option(func):
 def detection_source_option(func):
     """Attach a ``--detection-source`` option to choose public or private detections."""
     return click.option(
-        '--detection-source', type=click.Choice(['public', 'private']), default=None,
-        help='Detection source: "public" reads det/det.txt from sequences, "private" (default) runs the configured detector model.'
+        '--detection-source', type=click.Choice(['public', 'private', 'frcnn', 'sdp', 'dpm']), default=None,
+        help='Detection source: "public" or detector name (frcnn/sdp/dpm) reads public detections, "private" (default) runs the configured detector model.'
     )(func)
 
 

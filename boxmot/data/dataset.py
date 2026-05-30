@@ -160,16 +160,6 @@ def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.n
     return np.isin(frames.astype(int), list(wanted))
 
 
-def _load_text_matrix(path: Path, *, delimiter: str | None = None, comments: str | None = "#") -> np.ndarray:
-    """Load a numeric text file into a 2D array."""
-    data = np.loadtxt(path, delimiter=delimiter, comments=comments)
-    if data.size == 0:
-        return np.empty((0, 0), dtype=np.float32)
-    if data.ndim == 1:
-        data = data.reshape(1, -1)
-    return np.asarray(data, dtype=np.float32)
-
-
 class MOTDataset:
     """Dataset class for MOT-format sequences with optional detection and embedding data."""
 
@@ -197,55 +187,6 @@ class MOTDataset:
             if reid_name:
                 embs_root = base / "embs"
                 self.embs_dir = embs_root / reid_name / preprocess_name
-                # Back-compat: if the (suffix-included) directory does not exist
-                # but the legacy stem-only directory does, prefer the legacy one
-                # so existing on-disk caches keep working.
-                #
-                # Restricted to ``.pt`` requests because the legacy layout was
-                # only ever populated by the PyTorch runtime; reusing it for
-                # ``.onnx`` (or other formats) would silently consume PyTorch
-                # embeddings as if they belonged to a different model.
-                if not self.embs_dir.exists():
-                    from pathlib import Path as _Path
-                    _name_path = _Path(reid_name)
-                    stem = _name_path.stem if _name_path.suffix else str(reid_name)
-                    if (
-                        stem
-                        and stem != reid_name
-                        and _name_path.suffix.lower() == ".pt"
-                    ):
-                        legacy_dir = embs_root / stem / preprocess_name
-                        if legacy_dir.exists():
-                            self.embs_dir = legacy_dir
-                # Modern back-compat: caches written by ``boxmot.engine.eval.cache``
-                # are bucketed under ``reid_cache_key`` (e.g.
-                # ``lmbn_n_duke_pt_pytorch_py``). When neither the raw
-                # ``<reid_name>`` nor the legacy stem directory is on disk, fall
-                # back to the canonical cache key so eval can find embeddings
-                # written by a previous generate phase.
-                if not self.embs_dir.exists():
-                    try:
-                        from boxmot.data.cache import legacy_reid_cache_keys, reid_cache_key
-                    except ImportError:
-                        pass
-                    else:
-                        candidates: list[str] = []
-                        for backend in ("py", "cpp"):
-                            candidates.append(
-                                reid_cache_key(reid_name, tracker_backend=backend)
-                            )
-                            candidates.extend(
-                                legacy_reid_cache_keys(reid_name, tracker_backend=backend)
-                            )
-                        seen: set[str] = set()
-                        for key in candidates:
-                            if key in seen:
-                                continue
-                            seen.add(key)
-                            candidate_dir = embs_root / key / preprocess_name
-                            if candidate_dir.exists():
-                                self.embs_dir = candidate_dir
-                                break
             else:
                 self.embs_dir = None
         else:
@@ -288,37 +229,22 @@ class MOTDataset:
 
             if self.dets_dir:
                 npy_path = self.dets_dir / f"{name}.npy"
-                txt_path = self.dets_dir / f"{name}.txt"
-                if npy_path.exists():
-                    det_path = npy_path
-                elif txt_path.exists():
-                    det_path = txt_path
-                else:
-                    det_path = None
+                det_path = npy_path if npy_path.exists() else None
             else:
                 det_path = None
 
             if self.embs_dir:
                 npy_path = self.embs_dir / f"{name}.npy"
-                txt_path = self.embs_dir / f"{name}.txt"
-                if npy_path.exists():
-                    emb_path = npy_path
-                elif txt_path.exists():
-                    emb_path = txt_path
-                else:
-                    emb_path = None
+                emb_path = npy_path if npy_path.exists() else None
             else:
                 emb_path = None
 
-            # Mask cache path: prefer .npy (same row order as dets), fall back to legacy .npz
+            # Mask cache path (.npy, same row order as dets)
             mask_path = None
             if self.masks_dir:
                 npy_path = self.masks_dir / f"{name}.npy"
-                npz_path = self.masks_dir / f"{name}.npz"
                 if npy_path.exists():
                     mask_path = npy_path
-                elif npz_path.exists():
-                    mask_path = npz_path
 
             self.seqs[name] = {
                 "seq_dir": seq_dir,
@@ -389,17 +315,11 @@ class MOTSequence:
         self._det_index: Optional[Dict[int, tuple]] = None
         if self.meta["det_path"]:
             det_path = Path(self.meta["det_path"])
-            if det_path.suffix == ".npy":
-                self.dets = np.load(det_path, mmap_mode="r")
-            else:
-                self.dets = _load_text_matrix(det_path, comments="#")
+            self.dets = np.load(det_path, mmap_mode="r")
 
             if self.meta["emb_path"]:
                 emb_path = Path(self.meta["emb_path"])
-                if emb_path.suffix == ".npy":
-                    self.embs = np.load(emb_path, mmap_mode="r")
-                else:
-                    self.embs = _load_text_matrix(emb_path, comments="#")
+                self.embs = np.load(emb_path, mmap_mode="r")
 
                 if self.dets.shape[0] != self.embs.shape[0]:
                     raise ValueError(f"Row mismatch in {self.name}")
@@ -428,20 +348,11 @@ class MOTSequence:
         # Load mask cache
         if self.meta.get("mask_path"):
             mask_path = Path(self.meta["mask_path"])
-            if mask_path.suffix == ".npy":
-                # Bit-packed format: (total_dets, H, W_packed) uint8, same row order as dets/embs
-                masks_arr = np.load(str(mask_path), mmap_mode="r")
-                if hasattr(self, "_fps_mask"):
-                    masks_arr = masks_arr[self._fps_mask]
-                self._masks_flat = masks_arr
-            else:
-                # Legacy .npz format: keyed by frame id
-                mask_npz = np.load(str(mask_path), allow_pickle=False)
-                self.masks_data = {}
-                for key in mask_npz.files:
-                    fid = int(key.split("_")[1])
-                    self.masks_data[fid] = mask_npz[key]
-                mask_npz.close()
+            # Bit-packed format: (total_dets, H, W_packed) uint8, same row order as dets/embs
+            masks_arr = np.load(str(mask_path), mmap_mode="r")
+            if hasattr(self, "_fps_mask"):
+                masks_arr = masks_arr[self._fps_mask]
+            self._masks_flat = masks_arr
 
     def _build_det_index(self) -> Dict[int, tuple]:
         """Build a mapping from frame_id to (start, end) row indices in self.dets."""

@@ -22,12 +22,7 @@ from boxmot.data.cache import (
     AppendableNpyWriter,
     _collect_seq_info,
     _existing_cache_path,
-    _existing_embedding_cache_path,
-    _load_embedding_cache_array,
-    _load_numeric_cache_array,
     _max_frame_id,
-    _migrate_legacy_embedding_cache,
-    _migrate_legacy_numeric_cache,
     _saved_detection_column_count,
 )
 from boxmot.detectors import get_runtime_detector_cfg
@@ -82,14 +77,9 @@ __all__ = [
     "_configure_benchmark_runtime",
     "_ensure_eval_dependencies",
     "_existing_cache_path",
-    "_existing_embedding_cache_path",
     "_load_benchmark_cfg",
-    "_load_embedding_cache_array",
-    "_load_numeric_cache_array",
     "_load_obb_gt_matrix",
     "_max_frame_id",
-    "_migrate_legacy_embedding_cache",
-    "_migrate_legacy_numeric_cache",
     "_ordered_benchmark_eval_class_names",
     "_saved_detection_column_count",
     "_select_plot_metrics_data",
@@ -414,7 +404,25 @@ def run_eval(
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --
-    raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
+    # Skip evaluation for splits without ground truth (e.g. test)
+    _skip_eval = False
+    _bench_cfg = _load_benchmark_cfg(args)
+    _no_gt_splits = (_bench_cfg.get("no_gt_splits") or [])
+    _current_split = getattr(args, "split", None)
+    if _current_split and _current_split in _no_gt_splits:
+        _skip_eval = True
+        LOGGER.info(
+            f"Skipping evaluation: split '{_current_split}' has no ground truth."
+        )
+
+    if _skip_eval:
+        raw_results = {}
+        if pipeline is not None:
+            pipeline.store_step_info(
+                text=f"Skipped: no ground truth for split '{_current_split}'"
+            )
+    else:
+        raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
