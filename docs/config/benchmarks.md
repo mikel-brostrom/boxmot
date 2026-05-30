@@ -11,7 +11,7 @@ Each benchmark YAML is a self-contained benchmark definition that includes:
 - default ReID profile
 - optional cache download URLs
 
-Built-in examples include `mot17`, `sportsmot`, and `mmot-obb`.
+Built-in examples include `mot17`, `sportsmot`, `mmot`, and `mmot-mini`.
 
 ## Example
 
@@ -52,7 +52,10 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
 boxmot eval --benchmark sportsmot --split test --tracker boosttrack
 
 # MMOT benchmark config (OBB-backed)
-boxmot eval --benchmark mmot-obb --split test --tracker botsort
+boxmot eval --benchmark mmot --split test --tracker botsort
+
+# MMOT mini benchmark config rooted at assets/mmot-mini
+boxmot eval --benchmark mmot-mini --split train --tracker botsort
 ```
 
 That benchmark name selects the corresponding YAML and all linked profiles.

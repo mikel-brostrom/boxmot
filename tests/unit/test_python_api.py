@@ -1013,7 +1013,7 @@ def test_validation_result_str_renders_cli_style_report():
 
 def test_validation_result_str_keeps_multiclass_obb_sections():
     result = api_module.ValidationResult(
-        benchmark="dota8-mot",
+        benchmark="mmot-mini",
         raw={
             "plane": {
                 "HOTA": 59.546,
@@ -1072,7 +1072,7 @@ def test_validation_result_str_keeps_multiclass_obb_sections():
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="dota8-mot",
+            benchmark="mmot-mini",
         ),
     )
 

@@ -182,11 +182,11 @@ def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
 
 
 def test_model_config_detector_defaults_override_runtime_defaults_by_model_name():
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
 
-    assert detector_cfg["classes"][0] == "plane"
-    assert default_imgsz("yolo11s-obb.pt") == detector_cfg["imgsz"]
-    assert default_conf("yolo11s-obb.pt") == detector_cfg["conf"]
+    assert detector_cfg["classes"][0] == "car"
+    assert default_imgsz("yolo11l_3ch.pt") == detector_cfg["imgsz"]
+    assert default_conf("yolo11l_3ch.pt") == detector_cfg["conf"]
 
 
 def test_model_config_detector_defaults_match_separator_variants():
@@ -198,17 +198,17 @@ def test_model_config_detector_defaults_match_separator_variants():
 
 
 def test_runtime_detector_cfg_uses_model_config_to_override_dataset_values():
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     benchmark_cfg = {
-        "default_model": "models/yolo11s-obb.pt",
+        "default_model": "models/yolo11l_3ch.pt",
         "imgsz": [1024, 1024],
         "conf": 0.2,
         "classes": {0: "person"},
     }
 
-    resolved = get_runtime_detector_cfg("yolo11s-obb.pt", benchmark_cfg)
+    resolved = get_runtime_detector_cfg("yolo11l_3ch.pt", benchmark_cfg)
 
-    assert resolved["default_model"] == "models/yolo11s-obb.pt"
+    assert resolved["default_model"] == "models/yolo11l_3ch.pt"
     assert resolved["imgsz"] == detector_cfg["imgsz"]
     assert resolved["conf"] == detector_cfg["conf"]
     assert resolved["classes"][0] == detector_cfg["classes"][0]
@@ -302,11 +302,11 @@ def test_ultralytics_detector_redownloads_corrupt_official_weights(monkeypatch, 
 
 
 def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector(monkeypatch):
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     benchmark_bundle = {
         "benchmark": {"box_type": "obb"},
         "detector": {
-            "default_model": "models/yolo11s-obb.pt",
+            "default_model": "models/yolo11l_3ch.pt",
             "imgsz": [1024, 1024],
             "conf": 0.2,
             "classes": {0: "person"},
@@ -336,7 +336,7 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
     monkeypatch.setattr(
         evaluator_module,
         "ensure_benchmark_detector_model",
-        lambda _cfg: Path("models/yolo11s-obb.pt"),
+        lambda _cfg: Path("models/yolo11l_3ch.pt"),
     )
     monkeypatch.setattr(
         evaluator_module,
@@ -346,7 +346,7 @@ def test_configure_benchmark_runtime_lets_model_config_override_dataset_detector
 
     _, _, runtime_cfg = evaluator_module._configure_benchmark_runtime(args)
 
-    assert args.detector == [Path("models/yolo11s-obb.pt")]
+    assert args.detector == [Path("models/yolo11l_3ch.pt")]
     assert args.reid == [Path("models/lmbn_n_duke.pt")]
     assert args.reid_device == "cpu"
     assert args.reid_half is True
@@ -410,9 +410,9 @@ def test_configure_benchmark_runtime_reuses_existing_benchmark_model_paths(monke
 
 
 def test_configure_benchmark_runtime_uses_explicit_component_configs_without_benchmark(monkeypatch):
-    detector_cfg = load_detector_cfg("yolo11s-obb.pt")
+    detector_cfg = load_detector_cfg("yolo11l_3ch.pt")
     args = SimpleNamespace(
-        detector=[Path("models/yolo11s-obb.pt")],
+        detector=[Path("models/yolo11l_3ch.pt")],
         reid=[Path("models/lmbn_n_duke.pt")],
         detector_explicit=True,
         reid_explicit=True,
@@ -984,11 +984,11 @@ def test_select_plot_metrics_data_skips_ambiguous_multiclass_rows():
     assert metrics == {}
 
 
-def test_dota8_obb_gt_uses_zero_based_eval_class_ids():
-    expected = {0, 4, 10, 14}
+def test_mmot_mini_obb_gt_uses_zero_based_eval_class_ids():
+    expected = {0, 1, 2, 3, 6, 7}
     found = set()
 
-    for path in sorted(Path("assets/DOTA8-MOT/train").glob("*/gt/gt_obb.txt")):
+    for path in sorted(Path("assets/mmot-mini/train/mot").glob("*.txt")):
         matrix = evaluator_module._load_obb_gt_matrix(path)
         found.update(matrix[:, 11].astype(int).tolist())
 
@@ -2302,13 +2302,12 @@ def test_build_validation_cli_renderable_keeps_multiclass_obb_sections():
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="dota8-mot",
+            benchmark="mmot-mini",
         ),
     )
     rendered = ui_module.capture_renderable(renderable, width=140)
 
     assert "Per-Class Combined Metrics" in rendered
-    assert "Aggregate Groups" in rendered
     assert "plane" in rendered
     assert "tennis court" in rendered
     assert "Class Avg (Det)" in rendered

@@ -50,7 +50,7 @@ def test_trackeval_enables_parallel_and_suppresses_resource_tracker_stderr(monke
     args = Namespace(
         exp_dir=tmp_path / "runs" / "exp",
         split="train",
-        benchmark="MOT17",
+        benchmark="mot17",
         remapped_class_ids=None,
         remapped_class_names=None,
         classes=None,
@@ -87,7 +87,7 @@ def test_trackeval_reports_non_resource_tracker_stderr(monkeypatch, tmp_path):
     args = Namespace(
         exp_dir=tmp_path / "runs" / "exp",
         split="train",
-        benchmark="MOT17",
+        benchmark="mot17",
         remapped_class_ids=None,
         remapped_class_names=None,
         classes=None,

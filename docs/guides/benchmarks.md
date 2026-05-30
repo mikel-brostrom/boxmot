@@ -16,9 +16,10 @@ boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
 
 - `mot17` for MOT17 and the ablation split workflow
 - `sportsmot` for SportsMOT
-- `mmot-obb` for the MMOT benchmark config backed by OBB `.npy` frames
+- `mmot` for the MMOT benchmark config backed by OBB `.npy` frames
+- `mmot-mini` for a local MMOT-style OBB benchmark rooted at `assets/mmot-mini`
 
-`mmot-obb` is still the CLI benchmark id even when the surrounding docs and result tables refer to the benchmark as MMOT.
+`mmot` is the CLI benchmark id for MMOT.
 
 ## Cache reuse
 

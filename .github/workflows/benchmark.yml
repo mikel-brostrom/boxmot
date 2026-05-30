@@ -79,7 +79,7 @@ jobs:
             fps: "-"
     timeout-minutes: 50
     env:
-      SMOKE_SOURCE: assets/DOTA8-MOT/train/P0861__1024__0___1648/img1
+      SMOKE_SOURCE: assets/mmot-mini/train/npy/data23-1
 
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +110,7 @@ jobs:
           path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
           key: mot17-ablation-dataset-cache-v4
 
-      - name: DOTA8-MOT OBB smoke tracking
+      - name: mmot-mini OBB smoke tracking
         id: obb_smoke
         run: |
           source .venv/bin/activate

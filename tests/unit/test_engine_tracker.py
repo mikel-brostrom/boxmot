@@ -43,7 +43,7 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
 
     session = tracker_module.TrackingSession(
         SimpleNamespace(
-            source="assets/DOTA8-MOT/train/P1142__1024__0___824/img1",
+            source="assets/mmot-mini/train/npy/data23-1",
             detector="yolo11s-obb.pt",
             reid="lmbn_n_duke.pt",
             tracker="strongsort",

@@ -906,8 +906,8 @@ def test_build_tune_workflow_fields_show_pareto_objectives() -> None:
         tracker="ocsort",
         detector=[Path("yolo11s-obb.pt")],
         reid=[Path("lmbn_n_duke.pt")],
-        data="dota8-mot",
-        benchmark="dota8-mot",
+        data="mmot-mini",
+        benchmark="mmot-mini",
         n_trials=10,
     )
 
@@ -927,8 +927,8 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
         tracker="ocsort",
         detector=[Path("yolo11s-obb.pt")],
         reid=[Path("lmbn_n_duke.pt")],
-        data="dota8-mot",
-        benchmark="dota8-mot",
+        data="mmot-mini",
+        benchmark="mmot-mini",
         n_trials=10,
     )
     workflow = tune_reporting.log_tune_pipeline_intro(

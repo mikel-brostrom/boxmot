@@ -305,9 +305,9 @@ def test_track_keeps_source_literal(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.tracker", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["track", "--source", "MOT17-mini"])
+    result = CliRunner().invoke(boxmot, ["track", "--source", "mot17-mini"])
     assert result.exit_code == 0, result.output
-    assert captured["args"].source == "MOT17-mini"
+    assert captured["args"].source == "mot17-mini"
     assert captured["args"].benchmark == ""
 
 

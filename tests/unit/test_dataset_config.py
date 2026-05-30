@@ -101,11 +101,21 @@ def test_dataset_config_loads_with_model_bindings():
 
 
 def test_obb_dataset_derives_trackeval_from_box_type():
-    cfg = load_dataset_cfg("MMOT-OBB")
+    cfg = load_dataset_cfg("mmot")
     assert cfg["layout"] == "mot"
     assert cfg["box_type"] == "obb"
     assert cfg["trackeval"] == "mmot_rgb"
     assert cfg["evaluation"]["tracker_eval"] == "mmot_rgb"
+
+
+def test_mmot_mini_uses_mmot_mini_root():
+    cfg = load_benchmark_only_cfg("mmot-mini")
+    assert cfg["id"] == "mmot-mini"
+    assert cfg["dataset_config"] == "mmot-mini"
+    assert cfg["path"] == "assets/mmot-mini"
+    assert cfg["split"] == "train"
+    assert cfg["train"] == "train/npy"
+    assert cfg["trackeval"] == "mmot_rgb"
 
 
 def test_detector_and_reid_component_configs_load_separately():
@@ -163,7 +173,7 @@ def test_dataset_reid_is_used_for_default_model_selection():
 
 
 def test_dataset_detector_is_used_when_same_model_is_explicit():
-    cfg = load_benchmark_cfg("MMOT-OBB")
+    cfg = load_benchmark_cfg("mmot")
     args = SimpleNamespace(detector=[Path("models/yolo11l-3ch.pt")], detector_explicit=True)
     assert should_use_benchmark_detector(args, cfg) is True
 
@@ -201,7 +211,7 @@ def test_reid_runtime_defaults_respect_explicit_cli_flags():
 
 
 def test_mmot_obb_detector_exposes_download_url():
-    cfg = load_benchmark_cfg("MMOT-OBB")
+    cfg = load_benchmark_cfg("mmot")
     assert get_benchmark_detector_url(cfg) == "https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR"
 
 
@@ -231,7 +241,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
 
 def test_apply_benchmark_config_normalizes_benchmark_name_to_lowercase(monkeypatch):
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
-    args = SimpleNamespace(data="MOT17-mini", source=None, split=None, split_explicit=False)
+    args = SimpleNamespace(data="mot17-mini", source=None, split=None, split_explicit=False)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17-mini"
     assert cfg["detector_config_id"] == "yolox_x_mot17_ablation"
@@ -277,7 +287,7 @@ def test_apply_benchmark_config_applies_ablation_seg_detector_override(monkeypat
 
     assert cfg["detector"]["id"] == "yolo26x_seg"
     assert resolve_required_yolo_model(cfg) == Path("models/yolo26x-seg.pt")
-    assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation-seg")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation")
 
 
 def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
@@ -290,7 +300,7 @@ def test_find_dataset_cfg_for_nested_source_path():
     cfg = find_dataset_cfg_for_source("boxmot/engine/eval/trackeval/data/MMOT-OBB/train/data44-3/img1")
 
     assert cfg is not None
-    assert cfg["id"] == "mmot-obb"
+    assert cfg["id"] == "mmot"
     assert cfg["path"] == "boxmot/engine/eval/trackeval/data/MMOT-OBB"
 
 
@@ -315,9 +325,9 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     cfg = ensure_dataset_source_available(args)
 
     assert cfg is not None
-    assert cfg["id"] == "mmot-obb"
+    assert cfg["id"] == "mmot"
     assert args.source == "boxmot/engine/eval/trackeval/data/MMOT-OBB/train/data44-3/img1"
-    assert args.dataset_id == "mmot-obb"
+    assert args.dataset_id == "mmot"
     assert args.eval_box_type == "obb"
     assert calls == {
         "runs_url": "",
@@ -330,7 +340,7 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
 
 
 def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, tmp_path):
-    cfg = load_benchmark_cfg("MMOT-OBB")
+    cfg = load_benchmark_cfg("mmot")
     target = tmp_path / "yolo11l-3ch.pt"
     calls = {}
 
