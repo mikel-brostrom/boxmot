@@ -125,6 +125,110 @@ results = track("video.mp4", detector, reid, tracker, verbose=False)
 print(results.summary())
 ```
 
+## Importing trackers directly
+
+Every tracker class is exported from `boxmot.trackers`, so you can import any of them into your own project:
+
+```python
+from boxmot.trackers import (
+    BoostTrack,
+    BotSort,
+    ByteTrack,
+    DeepOcSort,
+    HybridSort,
+    OccluBoost,
+    OcSort,
+    SFSORT,
+    StrongSort,
+)
+```
+
+### Using the tracker factory
+
+The `create_tracker` factory builds a tracker from its string name and loads its default YAML config automatically:
+
+```python
+from boxmot.trackers.tracker_zoo import create_tracker
+
+# Motion-only tracker (no ReID model needed)
+tracker = create_tracker("bytetrack")
+
+# ReID-aware tracker — pass weights so the factory builds the ReID backend
+tracker = create_tracker(
+    "botsort",
+    reid_weights="osnet_x0_25_msmt17.pt",
+    device="cpu",
+    half=False,
+)
+```
+
+### Instantiating a tracker class directly
+
+Import the class and pass parameters yourself for full control:
+
+```python
+import numpy as np
+from boxmot.trackers import ByteTrack
+
+tracker = ByteTrack(
+    track_high_thresh=0.6,
+    track_low_thresh=0.1,
+    track_buffer=30,
+)
+
+# Feed detections frame-by-frame
+# dets: (N, 6) array with columns [x1, y1, x2, y2, conf, cls]
+# img:  the current frame as a numpy array (H, W, 3)
+tracks = tracker.update(dets, img)
+```
+
+For ReID-aware trackers, supply a ReID model:
+
+```python
+from boxmot.trackers import OccluBoost
+from boxmot.reid.core import ReID
+
+reid = ReID(weights="osnet_x0_25_msmt17.pt", device="cpu", half=False)
+
+tracker = OccluBoost(reid_model=reid.model)
+
+tracks = tracker.update(dets, img)
+
+# tracks is a TrackResults array (M, 8) with columns:
+# [x1, y1, x2, y2, id, conf, cls, det_ind]
+print(tracks.id)    # track IDs
+print(tracks.xyxy)  # bounding boxes
+print(tracks.conf)  # confidences
+```
+
+### Available trackers
+
+| Import name | String key | Uses ReID |
+| --- | --- | --- |
+| `ByteTrack` | `bytetrack` | No |
+| `BotSort` | `botsort` | Yes |
+| `StrongSort` | `strongsort` | Yes |
+| `OcSort` | `ocsort` | No |
+| `DeepOcSort` | `deepocsort` | Yes |
+| `HybridSort` | `hybridsort` | Yes |
+| `BoostTrack` | `boosttrack` | Yes |
+| `OccluBoost` | `occluboost` | Yes |
+| `SFSORT` | `sfsort` | No |
+
+!!! tip "Custom config overrides"
+    Pass `tracker_config` to `create_tracker` to load a non-default YAML, or
+    pass `evolve_param_dict` with a plain dict of parameters to skip YAML
+    entirely:
+
+    ```python
+    from boxmot.trackers.tracker_zoo import create_tracker
+
+    tracker = create_tracker(
+        "ocsort",
+        evolve_param_dict={"det_thresh": 0.3, "iou_thresh": 0.2, "max_age": 50},
+    )
+    ```
+
 ## Reference pages
 
 - [High-level API](high-level.md) — `Boxmot` facade, `track(...)`, `evaluate(...)`, and result objects
