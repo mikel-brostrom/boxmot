@@ -53,6 +53,7 @@ struct Config {
     float ams_threshold = 0.5F;
     int ams_buffer_size = 30;
     float ams_shrink_ratio = 0.75F;
+    float lambda_emb_multiplier = 1.5F;
 
     // ReID
     std::string reid_model_path;

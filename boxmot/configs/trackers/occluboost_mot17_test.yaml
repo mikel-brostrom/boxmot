@@ -195,7 +195,7 @@ ams_shrink_ratio:
 
 lambda_emb_multiplier:
   type: uniform
-  default: 2.827028940282541
+  default: 1.5
   range: [0.1, 3.0]
 
 gta_enabled:

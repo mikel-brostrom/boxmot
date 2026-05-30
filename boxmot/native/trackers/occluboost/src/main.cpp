@@ -96,6 +96,7 @@ ReplayOptions ParseArgs(const int argc, char** argv) {
     t.ams_threshold = Get(args, "ams-threshold", t.ams_threshold);
     t.ams_buffer_size = GetI(args, "ams-buffer-size", t.ams_buffer_size);
     t.ams_shrink_ratio = Get(args, "ams-shrink-ratio", t.ams_shrink_ratio);
+    t.lambda_emb_multiplier = Get(args, "lambda-emb-multiplier", t.lambda_emb_multiplier);
 
     t.reid_model_path = options.reid_model_path.string();
     t.reid_preprocess = options.reid_preprocess;

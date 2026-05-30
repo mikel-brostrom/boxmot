@@ -208,7 +208,8 @@ AssociationResult Associate(
     const Eigen::MatrixXd& emb_cost,
     const double lambda_iou,
     const double lambda_mhd,
-    const double lambda_shape
+    const double lambda_shape,
+    const double lambda_emb_multiplier
 ) {
     AssociationResult result;
     const int nd = static_cast<int>(detections.rows());
@@ -258,7 +259,7 @@ AssociationResult Associate(
     }
 
     if (emb_cost.size() > 0) {
-        const double lambda_emb = (1.0 + lambda_iou + lambda_shape + lambda_mhd) * 1.5;
+        const double lambda_emb = (1.0 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier;
         cost_matrix += lambda_emb * emb_cost;
     }
 

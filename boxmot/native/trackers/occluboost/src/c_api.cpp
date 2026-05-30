@@ -59,6 +59,7 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.ams_threshold = config.ams_threshold;
     c.ams_buffer_size = config.ams_buffer_size;
     c.ams_shrink_ratio = config.ams_shrink_ratio;
+    c.lambda_emb_multiplier = config.lambda_emb_multiplier;
 
     c.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
     c.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);

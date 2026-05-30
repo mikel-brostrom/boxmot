@@ -146,6 +146,7 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("ams_threshold", ctypes.c_float),
         ("ams_buffer_size", ctypes.c_int),
         ("ams_shrink_ratio", ctypes.c_float),
+        ("lambda_emb_multiplier", ctypes.c_float),
         ("reid_model_path", ctypes.c_char_p),
         ("reid_preprocess", ctypes.c_char_p),
         ("reid_device", ctypes.c_char_p),
@@ -193,6 +194,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_threshold=float(cfg["ams_threshold"]),
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
+        lambda_emb_multiplier=float(cfg.get("lambda_emb_multiplier", 1.5)),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
         reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
         reid_device=str(cfg.get("reid_device", "auto")).encode("utf-8"),
@@ -564,6 +566,7 @@ def process_sequence_cpp(
         "--ams-threshold", str(float(cfg["ams_threshold"])),
         "--ams-buffer-size", str(int(cfg["ams_buffer_size"])),
         "--ams-shrink-ratio", str(float(cfg["ams_shrink_ratio"])),
+        "--lambda-emb-multiplier", str(float(cfg.get("lambda_emb_multiplier", 1.5))),
     ]
 
     # When the eval pipeline runs N sequences in parallel via a process pool,
