@@ -1,0 +1,34 @@
+id: sportsmot
+
+dataset:
+  id: sportsmot
+  root: "boxmot/engine/eval/trackeval/data/SportsMOT"
+  layout: mot
+  box_type: aabb
+  splits:
+    train: "train"
+    test: "test"
+  default_split: val
+  classes:
+    1: player
+
+download:
+  dataset: "hf://MCG-NJU/SportsMOT/dataset"
+  runs: ""
+
+detector:
+  id: yolox_x_sportsmot
+  model: "models/yolox_x_sportsmot.pt"
+  url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_sportsmot.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize

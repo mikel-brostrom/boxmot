@@ -1,10 +1,10 @@
 # Benchmarks
 
-Benchmark configs live under `boxmot/configs/datasets`.
+Benchmark configs live under `boxmot/configs/benchmarks`.
 
 ## Role
 
-Each dataset YAML is a self-contained benchmark definition that includes:
+Each benchmark YAML is a self-contained benchmark definition that includes:
 
 - dataset path, split, and class definitions
 - default detector profile
@@ -18,18 +18,28 @@ Built-in examples include `mot17`, `sportsmot`, and `mmot-obb`.
 ```yaml
 id: mot17
 
-path: "boxmot/engine/eval/trackeval/data/MOT17-mini"
-split: "train"
-train: "train"
+dataset:
+  id: mot17
+  root: "boxmot/engine/eval/trackeval/data/MOT17"
+  splits:
+    train: "train"
+    val: "val"
+    test: "test"
+    ablation: "ablation"
+  default_split: ablation
 
-layout: mot
-box_type: aabb
+detector:
+  id: yolox_x_mot17_ablation
+  model: "models/yolox_x_MOT17_ablation.pt"
 
-detector: yolox_x_mot17_ablation
-reid: lmbn_n_duke
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
 
-names:
-  1: pedestrian
+download:
+  dataset: "hf://Lekim89/MOT17"
+  runs:
+    ablation: "https://github.com/mikel-brostrom/boxmot/releases/download/v18.0.0/runs.zip"
 ```
 
 ## Use from the CLI

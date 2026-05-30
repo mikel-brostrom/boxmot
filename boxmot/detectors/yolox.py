@@ -12,7 +12,7 @@ from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
 from boxmot.detectors.base import BaseDetectorBackend, Detections
-from boxmot.utils import DETECTOR_CONFIGS
+from boxmot.utils import BENCHMARK_CONFIGS
 from boxmot.utils import logger as LOGGER
 
 # default model weights for generic YOLOX model names
@@ -27,21 +27,32 @@ YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
 
 
 def _find_benchmark_model_url(model: Path) -> Optional[str]:
-    """Look up a detector download URL from detector configs by filename."""
+    """Look up a detector download URL from benchmark configs by filename."""
     lowered_name = model.name.lower()
-    for cfg_path in sorted(DETECTOR_CONFIGS.glob("**/*.yaml")):
-        try:
-            with open(cfg_path, "r") as f:
-                cfg = yaml.safe_load(f) or {}
-        except Exception:
-            continue
 
+    def _match_cfg(cfg: dict) -> Optional[str]:
         default_model = cfg.get("default_model") or cfg.get("model")
         model_url = cfg.get("model_url") or cfg.get("url")
         if not default_model or not model_url:
-            continue
+            return None
         if Path(default_model).name.lower() == lowered_name:
             return str(model_url)
+        return None
+
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        try:
+            with open(cfg_path, "r") as f:
+                benchmark_cfg = yaml.safe_load(f) or {}
+        except Exception:
+            continue
+
+        detector_cfg = benchmark_cfg.get("detector")
+        if not isinstance(detector_cfg, dict):
+            continue
+        matched = _match_cfg(detector_cfg)
+        if matched:
+            return matched
+
     return None
 
 

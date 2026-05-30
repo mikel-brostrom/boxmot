@@ -1,6 +1,0 @@
-id: vit_tiny_market1501
-model: "models/vit_tiny_market1501.pt"
-url: ""
-device: ""
-half: true
-preprocess: resize_pad

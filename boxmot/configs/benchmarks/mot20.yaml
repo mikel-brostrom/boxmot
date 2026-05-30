@@ -1,0 +1,51 @@
+id: mot20
+
+dataset:
+  id: mot20
+  root: "boxmot/engine/eval/trackeval/data/MOT20"
+  layout: mot
+  box_type: aabb
+  splits:
+    train: "train"
+    test: "test"
+    ablation: "ablation"
+  default_split: ablation
+  classes:
+    1: pedestrian
+  distractors:
+    2: person_on_vehicle
+    6: non_mot_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
+
+download:
+  dataset: "hf://Lekim89/MOT20"
+  runs: ""
+
+detector:
+  id: yolox_x_mot20_ablation
+  model: "models/yolox_x_MOT20_ablation.pt"
+  url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT20_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
+  by_split:
+    ablation:
+      id: yolox_x_mot20_ablation
+      model: "models/yolox_x_MOT20_ablation.pt"
+      url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT20_ablation.pt"
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize
+  by_split:
+    ablation:
+      id: lmbn_n_duke
+      model: "models/lmbn_n_duke.pt"
+      url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"

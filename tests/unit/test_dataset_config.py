@@ -72,16 +72,24 @@ def test_mot17_mini_uses_its_own_benchmark_id():
     }
 
 
+def test_benchmark_yaml_supports_inline_dataset_detector_reid_blocks():
+    cfg = load_benchmark_cfg("mot17-mini")
+
+    assert cfg["dataset_config"] == "mot17-mini"
+    assert cfg["detector"]["id"] == "yolox_x_mot17_ablation"
+    assert cfg["reid"]["id"] == "lmbn_n_duke"
+
+
 def test_dataset_path_stays_dataset_yaml():
-    cfg_path = resolve_dataset_cfg_path("boxmot/configs/datasets/mot17-mini.yaml")
+    cfg_path = resolve_dataset_cfg_path("mot17-mini")
     assert cfg_path.name == "mot17-mini.yaml"
-    assert cfg_path.parent.name == "datasets"
+    assert cfg_path.parent.name == "benchmarks"
 
 
 def test_benchmark_path_stays_dataset_yaml():
-    cfg_path = resolve_benchmark_cfg_path("boxmot/configs/datasets/mot17-mini.yaml")
+    cfg_path = resolve_benchmark_cfg_path("mot17-mini")
     assert cfg_path.name == "mot17-mini.yaml"
-    assert cfg_path.parent.name == "datasets"
+    assert cfg_path.parent.name == "benchmarks"
 
 
 def test_dataset_config_loads_with_model_bindings():
@@ -232,6 +240,44 @@ def test_apply_benchmark_config_normalizes_benchmark_name_to_lowercase(monkeypat
     assert args.dataset_id == "mot17-mini"
     assert args.benchmark == "mot17-mini"
     assert args.source == Path("assets/MOT17-mini/train")
+
+
+def test_apply_benchmark_config_resolves_split_specific_runs_url(monkeypatch):
+    calls = {}
+
+    def _capture_download(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
+
+    apply_benchmark_config(args)
+
+    assert calls["runs_url"] == "https://github.com/mikel-brostrom/boxmot/releases/download/v18.0.0/runs.zip"
+    assert calls["runs_check_path"] == Path("runs/dets_n_embs/mot17/ablation")
+
+
+def test_apply_benchmark_config_applies_ablation_component_overrides(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(data="mot17", source=None, split="ablation", split_explicit=True)
+
+    cfg = apply_benchmark_config(args)
+
+    assert cfg["detector"]["id"] == "yolox_x_mot17_ablation"
+    assert cfg["reid"]["id"] == "lmbn_n_duke"
+    assert resolve_required_yolo_model(cfg) == Path("models/yolox_x_MOT17_ablation.pt")
+    assert resolve_required_reid_model(cfg) == Path("models/lmbn_n_duke.pt")
+
+
+def test_apply_benchmark_config_applies_ablation_seg_detector_override(monkeypatch):
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    args = SimpleNamespace(data="mot17", source=None, split="ablation-seg", split_explicit=True)
+
+    cfg = apply_benchmark_config(args)
+
+    assert cfg["detector"]["id"] == "yolo26x_seg"
+    assert resolve_required_yolo_model(cfg) == Path("models/yolo26x-seg.pt")
+    assert args.source == Path("boxmot/engine/eval/trackeval/data/MOT17/ablation-seg")
 
 
 def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):

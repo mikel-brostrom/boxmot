@@ -1,24 +1,26 @@
 # Detectors
 
-Detector configs live under `boxmot/configs/detectors`.
+Detector settings are defined inline in benchmark YAMLs under `boxmot/configs/benchmarks`.
 
 ## Organization
 
-Detector profiles are grouped by family, for example:
+Each benchmark includes a detector block, for example:
 
 ```text
-detectors/
-  ultralytics/
-    default.yaml
-    yolo11s_obb.yaml
-  yolox/
-    yolox_x_mot17_ablation.yaml
+detector:
+  id: yolox_x_mot17_ablation
+  model: models/yolox_x_MOT17_ablation.pt
+  url: https://...
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
 ```
 
 ## Resolution order
 
-1. exact match by model filename against a YAML `model` field
-2. family default such as `ultralytics/default.yaml`
+1. benchmark-selected detector block for the active benchmark
+2. model filename lookup across benchmark detector blocks
 
 ## Typical fields
 
@@ -33,4 +35,4 @@ classes:
   0: person
 ```
 
-Use detector configs directly through `--detector` or indirectly through `--benchmark`.
+Use detector defaults through `--benchmark`, or override with `--detector`.

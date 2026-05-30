@@ -9,9 +9,6 @@ import yaml
 
 from boxmot.utils import (
     BENCHMARK_CONFIGS,
-    DATASET_CONFIGS,
-    DETECTOR_CONFIGS,
-    REID_CONFIGS,
     TRACKEVAL,
     WEIGHTS,
 )
@@ -44,45 +41,214 @@ def _load_yaml_cfg(cfg_path: Path) -> dict[str, Any]:
         return yaml.safe_load(f) or {}
 
 
+def _normalize_download_value(value: Any) -> str | dict[str, Any]:
+    if isinstance(value, dict):
+        normalized: dict[str, Any] = {}
+        for key, item in value.items():
+            if item in (None, ""):
+                continue
+            if isinstance(item, dict):
+                normalized[str(key)] = {
+                    str(nested_key): str(nested_value)
+                    for nested_key, nested_value in item.items()
+                    if nested_value not in (None, "")
+                }
+            else:
+                normalized[str(key)] = str(item)
+        return normalized
+    return str(value) if value not in (None, "") else ""
+
+
+def _resolve_split_download_value(value: Any, split_name: str | None) -> str:
+    normalized = _normalize_download_value(value)
+    if isinstance(normalized, dict):
+        split_key = str(split_name or "").strip()
+        entry = normalized.get(split_key) if split_key else None
+        if entry is None:
+            entry = normalized.get("default") or normalized.get("*")
+        if isinstance(entry, dict):
+            return str(entry.get("url") or "")
+        return str(entry or "")
+    return normalized
+
+
+def _resolve_split_download_entry(value: Any, split_name: str | None) -> str | dict[str, str]:
+    normalized = _normalize_download_value(value)
+    if not isinstance(normalized, dict):
+        return str(normalized or "")
+
+    split_key = str(split_name or "").strip()
+    entry = normalized.get(split_key) if split_key else None
+    if entry is None:
+        entry = normalized.get("default") or normalized.get("*")
+
+    if isinstance(entry, dict):
+        return {str(k): str(v) for k, v in entry.items()}
+    return str(entry or "")
+
+
+def _normalize_profile_key(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    return Path(str(value)).stem.lower().replace("-", "").replace("_", "")
+
+
+def _profile_selector_matches(selector: str | None, candidates: list[Any]) -> bool:
+    if not selector:
+        return True
+    selector_key = _normalize_profile_key(selector)
+    if not selector_key:
+        return True
+    for candidate in candidates:
+        if _normalize_profile_key(candidate) == selector_key:
+            return True
+    return False
+
+
+def _primary_arg_model(value: Any) -> Any:
+    if isinstance(value, (list, tuple)):
+        return value[0] if value else None
+    return value
+
+
+def _resolve_runs_download_url(args: Any, cfg: dict[str, Any], split_name: str | None) -> str:
+    runs_entry = _resolve_split_download_entry((cfg.get("download") or {}).get("runs"), split_name)
+    if isinstance(runs_entry, str):
+        return runs_entry
+
+    url = str(runs_entry.get("url") or "")
+    if not url:
+        return ""
+
+    detector_selector = runs_entry.get("detector")
+    reid_selector = runs_entry.get("reid")
+
+    detector_explicit = bool(getattr(args, "detector_explicit", False))
+    if detector_explicit:
+        detector_candidates = [_primary_arg_model(getattr(args, "detector", None))]
+    else:
+        detector_cfg = get_benchmark_detector_cfg(cfg)
+        detector_candidates = [
+            detector_cfg.get("id"),
+            detector_cfg.get("model"),
+            detector_cfg.get("default_model"),
+        ]
+
+    reid_explicit = bool(getattr(args, "reid_explicit", False))
+    if reid_explicit:
+        reid_candidates = [_primary_arg_model(getattr(args, "reid", None))]
+    else:
+        reid_cfg = get_benchmark_reid_cfg(cfg)
+        reid_candidates = [
+            reid_cfg.get("id"),
+            reid_cfg.get("model"),
+            reid_cfg.get("default_model"),
+        ]
+
+    if not _profile_selector_matches(detector_selector, detector_candidates):
+        return ""
+    if not _profile_selector_matches(reid_selector, reid_candidates):
+        return ""
+
+    return url
+
+
+def _apply_split_component_overrides(cfg: dict[str, Any], split_name: str, cfg_path: Path) -> None:
+    """Apply split-specific detector/ReID overrides from ``by_split`` blocks."""
+    for component_name in ("detector", "reid"):
+        component_cfg = cfg.get(component_name)
+        if not isinstance(component_cfg, dict):
+            continue
+
+        split_overrides = component_cfg.get("by_split")
+        if not isinstance(split_overrides, dict):
+            continue
+
+        override = split_overrides.get(split_name)
+        if override is None:
+            override = split_overrides.get("default") or split_overrides.get("*")
+        if not isinstance(override, dict):
+            continue
+
+        base_cfg = {k: v for k, v in component_cfg.items() if k != "by_split"}
+        merged_cfg = {**base_cfg, **override}
+        # If the override updates one side of a mirrored key pair, drop the
+        # stale counterpart so normalization can rebuild it from the override.
+        if "model" in override and "default_model" not in override:
+            merged_cfg.pop("default_model", None)
+        if "default_model" in override and "model" not in override:
+            merged_cfg.pop("model", None)
+        if "url" in override and "model_url" not in override:
+            merged_cfg.pop("model_url", None)
+        if "model_url" in override and "url" not in override:
+            merged_cfg.pop("url", None)
+
+        fallback_id = str(merged_cfg.get("id") or f"{cfg.get('id', cfg_path.stem)}_{component_name}")
+
+        cfg[component_name] = _normalize_inline_component_cfg(merged_cfg, cfg_path, fallback_id=fallback_id)
+        cfg[f"{component_name}_config_id"] = cfg[component_name].get("id")
+
+
+def _component_ref_name(value: Any) -> str | None:
+    if isinstance(value, dict):
+        ref = value.get("id") or value.get("name")
+        return str(ref) if ref else None
+    if value in (None, ""):
+        return None
+    return str(value)
+
+
 def resolve_dataset_cfg_path(name: str | Path) -> Path:
-    """Resolve a dataset config by stem or YAML filename."""
+    """Resolve a dataset config by benchmark name or dataset id in benchmark YAMLs."""
     path = Path(name)
     if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
         return path.resolve()
-    return _resolve_yaml_path(DATASET_CONFIGS, name)
+
+    benchmark_path = _resolve_yaml_path(BENCHMARK_CONFIGS, name)
+    raw_cfg = _load_yaml_cfg(benchmark_path)
+    dataset_cfg = raw_cfg.get("dataset")
+    if isinstance(dataset_cfg, dict):
+        return benchmark_path
+    raise FileNotFoundError(f"Dataset config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
 def resolve_benchmark_cfg_path(name: str | Path) -> Path:
-    """Resolve a benchmark config by stem or YAML filename.
-
-    Searches the benchmarks directory first, then falls back to datasets.
-    """
+    """Resolve a benchmark config by stem or YAML filename."""
     path = Path(name)
     if path.suffix.lower() in {".yaml", ".yml"} and path.exists():
         return path.resolve()
-    try:
-        return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
-    except FileNotFoundError:
-        return _resolve_yaml_path(DATASET_CONFIGS, name)
+    return _resolve_yaml_path(BENCHMARK_CONFIGS, name)
 
 
 def resolve_detector_cfg_path(name: str | Path) -> Path:
-    """Resolve a detector config by stem or YAML filename."""
-    return _resolve_yaml_path(DETECTOR_CONFIGS, name)
+    """Resolve a detector profile id from inline benchmark detector blocks."""
+    target = str(name)
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        raw_cfg = _load_yaml_cfg(cfg_path)
+        detector_cfg = raw_cfg.get("detector")
+        if isinstance(detector_cfg, dict) and str(detector_cfg.get("id") or "") == target:
+            return cfg_path
+    raise FileNotFoundError(f"Detector config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
 def resolve_reid_cfg_path(name: str | Path) -> Path:
-    """Resolve a ReID config by stem or YAML filename."""
-    return _resolve_yaml_path(REID_CONFIGS, name)
+    """Resolve a ReID profile id from inline benchmark ReID blocks."""
+    target = str(name)
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        raw_cfg = _load_yaml_cfg(cfg_path)
+        reid_cfg = raw_cfg.get("reid")
+        if isinstance(reid_cfg, dict) and str(reid_cfg.get("id") or "") == target:
+            return cfg_path
+    raise FileNotFoundError(f"ReID config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
 def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
     download_cfg = dict(cfg.get("download") or {})
-    dataset_url = download_cfg.get("dataset") or ""
-    runs_url = download_cfg.get("runs") or ""
+    dataset_url = _normalize_download_value(download_cfg.get("dataset"))
+    runs_url = _normalize_download_value(download_cfg.get("runs"))
     normalized = {
-        "dataset": str(dataset_url) if dataset_url else "",
-        "runs": str(runs_url) if runs_url else "",
+        "dataset": dataset_url,
+        "runs": runs_url,
     }
     dataset_dest = download_cfg.get("dataset_dest")
     if dataset_dest:
@@ -208,8 +374,8 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
 
     # Support new schema: ``defaults.detector`` / ``defaults.reid``
     defaults_block = cfg.get("defaults") or {}
-    detector_ref = cfg.get("detector") or defaults_block.get("detector")
-    reid_ref = cfg.get("reid") or defaults_block.get("reid")
+    detector_ref = _component_ref_name(cfg.get("detector")) or _component_ref_name(defaults_block.get("detector"))
+    reid_ref = _component_ref_name(cfg.get("reid")) or _component_ref_name(defaults_block.get("reid"))
 
     normalized = {
         "id": cfg["id"],
@@ -261,10 +427,24 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
 
 def _merge_download_cfg(base_download: dict[str, Any], overlay_download: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base_download or {})
-    if overlay_download.get("dataset"):
-        merged["dataset"] = overlay_download["dataset"]
-    if overlay_download.get("runs"):
-        merged["runs"] = overlay_download["runs"]
+    base_dataset = _normalize_download_value(merged.get("dataset"))
+    overlay_dataset = _normalize_download_value(overlay_download.get("dataset"))
+    if isinstance(base_dataset, dict) and isinstance(overlay_dataset, dict):
+        merged["dataset"] = {**base_dataset, **overlay_dataset}
+    elif overlay_dataset:
+        merged["dataset"] = overlay_dataset
+    elif "dataset" in merged:
+        merged["dataset"] = base_dataset
+
+    base_runs = _normalize_download_value(merged.get("runs"))
+    overlay_runs = _normalize_download_value(overlay_download.get("runs"))
+    if isinstance(base_runs, dict) and isinstance(overlay_runs, dict):
+        merged["runs"] = {**base_runs, **overlay_runs}
+    elif overlay_runs:
+        merged["runs"] = overlay_runs
+    elif "runs" in merged:
+        merged["runs"] = base_runs
+
     if overlay_download.get("dataset_dest"):
         merged["dataset_dest"] = overlay_download["dataset_dest"]
     return merged
@@ -281,6 +461,8 @@ def _merge_benchmark_bundle_cfg(
 
     payload["id"] = str(cfg.get("id") or cfg_path.stem.lower())
     dataset_ref = cfg.get("dataset") or dataset_cfg.get("id")
+    if isinstance(dataset_ref, dict):
+        dataset_ref = dataset_ref.get("id") or dataset_cfg.get("id")
     if dataset_ref:
         payload["dataset_config"] = str(dataset_ref)
 
@@ -292,8 +474,8 @@ def _merge_benchmark_bundle_cfg(
     if seq_pattern_ref:
         payload["seq_pattern"] = str(seq_pattern_ref)
 
-    detector_ref = cfg.get("detector") or dataset_cfg.get("detector_config")
-    reid_ref = cfg.get("reid") or dataset_cfg.get("reid_config")
+    detector_ref = _component_ref_name(cfg.get("detector")) or dataset_cfg.get("detector_config")
+    reid_ref = _component_ref_name(cfg.get("reid")) or dataset_cfg.get("reid_config")
     if detector_ref:
         payload["detector"] = str(detector_ref)
     if reid_ref:
@@ -324,46 +506,87 @@ def _normalize_component_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     return cfg
 
 
+def _normalize_inline_component_cfg(raw_cfg: dict[str, Any], cfg_path: Path, fallback_id: str) -> dict[str, Any]:
+    cfg = dict(raw_cfg or {})
+    cfg.setdefault("id", fallback_id)
+    inline_path = cfg_path.with_name(f"{cfg['id']}.yaml")
+    return _normalize_component_cfg(cfg, inline_path)
+
+
 def load_dataset_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a dataset config YAML."""
+    """Load the inline dataset block from a benchmark YAML."""
     cfg_path = resolve_dataset_cfg_path(name)
     raw_cfg = _load_yaml_cfg(cfg_path)
-    return _normalize_benchmark_cfg(raw_cfg, cfg_path)
+    dataset_cfg = raw_cfg.get("dataset")
+    if not isinstance(dataset_cfg, dict):
+        raise ValueError(f"Benchmark config '{cfg_path}' must define an inline 'dataset' mapping.")
+    normalized_dataset = _normalize_benchmark_cfg(dataset_cfg, cfg_path)
+    return _merge_benchmark_bundle_cfg(raw_cfg, normalized_dataset, cfg_path)
 
 
 def load_benchmark_only_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a benchmark bundle and merge in its referenced dataset config."""
+    """Load a canonical benchmark bundle with an inline dataset mapping."""
     cfg_path = resolve_benchmark_cfg_path(name)
     raw_cfg = _load_yaml_cfg(cfg_path)
     dataset_ref = raw_cfg.get("dataset")
-    if not dataset_ref:
-        return _normalize_benchmark_cfg(raw_cfg, cfg_path)
-    dataset_cfg = load_dataset_cfg(dataset_ref)
+    if not isinstance(dataset_ref, dict):
+        raise ValueError(f"Benchmark config '{cfg_path}' must define an inline 'dataset' mapping.")
+    dataset_cfg = _normalize_benchmark_cfg(dataset_ref, cfg_path)
     return _merge_benchmark_bundle_cfg(raw_cfg, dataset_cfg, cfg_path)
 
 
 def load_detector_component_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a detector component config YAML."""
-    cfg_path = resolve_detector_cfg_path(name)
-    raw_cfg = _load_yaml_cfg(cfg_path)
-    return _normalize_component_cfg(raw_cfg, cfg_path)
+    """Load a detector component from inline benchmark detector blocks."""
+    target = str(name)
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        raw_cfg = _load_yaml_cfg(cfg_path)
+        detector_cfg = raw_cfg.get("detector")
+        if not isinstance(detector_cfg, dict):
+            continue
+        if str(detector_cfg.get("id") or "") != target:
+            continue
+        return _normalize_inline_component_cfg(detector_cfg, cfg_path, fallback_id=target)
+    raise FileNotFoundError(f"Detector config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
 def load_reid_component_cfg(name: str | Path) -> dict[str, Any]:
-    """Load a ReID component config YAML."""
-    cfg_path = resolve_reid_cfg_path(name)
-    raw_cfg = _load_yaml_cfg(cfg_path)
-    return _normalize_component_cfg(raw_cfg, cfg_path)
+    """Load a ReID component from inline benchmark ReID blocks."""
+    target = str(name)
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        raw_cfg = _load_yaml_cfg(cfg_path)
+        reid_cfg = raw_cfg.get("reid")
+        if not isinstance(reid_cfg, dict):
+            continue
+        if str(reid_cfg.get("id") or "") != target:
+            continue
+        return _normalize_inline_component_cfg(reid_cfg, cfg_path, fallback_id=target)
+    raise FileNotFoundError(f"ReID config not found for '{name}' in {BENCHMARK_CONFIGS}")
 
 
 def load_runtime_reid_component_cfg(name: str | Path | None) -> dict[str, Any]:
     """Load a ReID component config by model/config reference, returning ``{}`` when unmatched."""
     if name in (None, ""):
         return {}
+    target = str(name)
+    # First match by explicit config id.
     try:
-        return load_reid_component_cfg(name)
+        return load_reid_component_cfg(target)
     except FileNotFoundError:
-        return {}
+        pass
+
+    # Then match by model filename across canonical benchmark files.
+    target_name = Path(target).name.lower()
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        raw_cfg = _load_yaml_cfg(cfg_path)
+        reid_cfg = raw_cfg.get("reid")
+        if not isinstance(reid_cfg, dict):
+            continue
+        model_ref = reid_cfg.get("model") or reid_cfg.get("default_model")
+        if model_ref and Path(str(model_ref)).name.lower() == target_name:
+            fallback_id = str(reid_cfg.get("id") or cfg_path.stem)
+            return _normalize_inline_component_cfg(reid_cfg, cfg_path, fallback_id=fallback_id)
+
+    return {}
 
 
 def _combine_benchmark_and_component_cfg(
@@ -383,22 +606,31 @@ def _combine_benchmark_and_component_cfg(
 
 def load_benchmark_cfg(name: str | Path) -> dict[str, Any]:
     """Load a benchmark config and merge in its detector/ReID defaults."""
+    cfg_path = resolve_benchmark_cfg_path(name)
+    raw_cfg = _load_yaml_cfg(cfg_path)
     benchmark_cfg = load_benchmark_only_cfg(name)
 
+    detector_value = raw_cfg.get("detector")
+    reid_value = raw_cfg.get("reid")
     detector_ref = benchmark_cfg.get("detector_config")
     reid_ref = benchmark_cfg.get("reid_config")
-    if detector_ref or reid_ref:
-        try:
-            detector_cfg = load_detector_component_cfg(detector_ref) if detector_ref else {}
-        except FileNotFoundError:
-            detector_cfg = {}
-        try:
-            reid_cfg = load_reid_component_cfg(reid_ref) if reid_ref else {}
-        except FileNotFoundError:
-            reid_cfg = {}
-        return _combine_benchmark_and_component_cfg(benchmark_cfg, detector_cfg=detector_cfg, reid_cfg=reid_cfg)
 
-    return _combine_benchmark_and_component_cfg(benchmark_cfg, {}, {})
+    if not isinstance(detector_value, dict):
+        raise ValueError(f"Benchmark config '{cfg_path}' must define an inline 'detector' mapping.")
+    if not isinstance(reid_value, dict):
+        raise ValueError(f"Benchmark config '{cfg_path}' must define an inline 'reid' mapping.")
+
+    detector_cfg = _normalize_inline_component_cfg(
+        detector_value,
+        cfg_path,
+        fallback_id=str(detector_ref or f"{benchmark_cfg['id']}_detector"),
+    )
+    reid_cfg = _normalize_inline_component_cfg(
+        reid_value,
+        cfg_path,
+        fallback_id=str(reid_ref or f"{benchmark_cfg['id']}_reid"),
+    )
+    return _combine_benchmark_and_component_cfg(benchmark_cfg, detector_cfg=detector_cfg, reid_cfg=reid_cfg)
 
 
 def get_benchmark_detector_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -624,7 +856,7 @@ def _resolve_benchmark_dest(cfg: dict[str, Any], benchmark_name: str, source_roo
     if dataset_dest:
         return Path(dataset_dest)
 
-    dataset_url = download_cfg.get("dataset") or ""
+    dataset_url = _resolve_split_download_value(download_cfg.get("dataset"), cfg.get("split"))
     if source_root is not None:
         if str(dataset_url).startswith("hf://"):
             return source_root
@@ -677,12 +909,21 @@ def _apply_benchmark_config_ref(
     path_str = str(cfg.get("path") or "")
     source_root = Path(path_str) if path_str else None
     benchmark_name = _resolve_runtime_benchmark_name(cfg, source_root, cfg_path)
+    # Respect explicit --split from CLI; otherwise use config default
+    cli_split = getattr(args, "split", None)
+    if cli_split and getattr(args, "split_explicit", False):
+        cfg_split = cli_split
+    else:
+        cfg_split = str(cfg.get("split") or "train")
+
+    _apply_split_component_overrides(cfg, cfg_split, cfg_path)
+
     benchmark_dest = _resolve_benchmark_dest(cfg, benchmark_name, source_root)
 
-    runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name / str(cfg.get("split") or "train")
+    runs_check_path = Path("runs") / "dets_n_embs" / benchmark_name / cfg_split
     download_eval_data(
-        runs_url=download_cfg.get("runs", ""),
-        dataset_url=download_cfg.get("dataset", ""),
+        runs_url=_resolve_runs_download_url(args, cfg, cfg_split),
+        dataset_url=_resolve_split_download_value(download_cfg.get("dataset"), cfg_split),
         dataset_dest=benchmark_dest,
         overwrite=overwrite,
         runs_check_path=runs_check_path,
@@ -693,12 +934,6 @@ def _apply_benchmark_config_ref(
     args.dataset_id = args.benchmark_id
     args.benchmark = benchmark_name
 
-    # Respect explicit --split from CLI; otherwise use config default
-    cli_split = getattr(args, "split", None)
-    if cli_split and getattr(args, "split_explicit", False):
-        cfg_split = cli_split
-    else:
-        cfg_split = str(cfg.get("split") or "train")
     args.split = cfg_split
 
     # Resolve source path using the active split (check splits dict first)
@@ -765,9 +1000,13 @@ def find_dataset_cfg_for_source(source: str | Path | None) -> dict[str, Any] | N
     best_match = None
     best_len = -1
 
-    for cfg_path in sorted(DATASET_CONFIGS.glob("*.yaml")):
+    config_candidates = [
+        (cfg_path, load_benchmark_only_cfg) for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml"))
+    ]
+
+    for cfg_path, loader in config_candidates:
         try:
-            cfg = load_dataset_cfg(cfg_path)
+            cfg = loader(cfg_path)
         except Exception:
             continue
 
@@ -806,10 +1045,11 @@ def ensure_dataset_source_available(
     source_root = Path(str(cfg.get("path") or "")) if cfg.get("path") else None
     dataset_name = str(cfg.get("id") or (source_root.name if source_root is not None else "dataset"))
     dataset_dest = _resolve_benchmark_dest(cfg, dataset_name, source_root)
+    split_name = getattr(args, "split", None) or cfg.get("split")
 
     download_eval_data(
-        runs_url=download_cfg.get("runs", ""),
-        dataset_url=download_cfg.get("dataset", ""),
+        runs_url=_resolve_runs_download_url(args, cfg, split_name),
+        dataset_url=_resolve_split_download_value(download_cfg.get("dataset"), split_name),
         dataset_dest=dataset_dest,
         overwrite=overwrite,
         runs_check_path=None,

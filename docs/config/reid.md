@@ -1,10 +1,10 @@
 # ReID Profiles
 
-ReID configs live under `boxmot/configs/reid`.
+ReID settings are defined inline in benchmark YAMLs under `boxmot/configs/benchmarks`.
 
 ## Role
 
-Each file defines a reusable ReID profile with fields such as:
+Each benchmark includes a ReID block with fields such as:
 
 - `id`
 - `model`
@@ -15,11 +15,13 @@ Each file defines a reusable ReID profile with fields such as:
 ## Example
 
 ```yaml
-id: lmbn_n_duke
-model: models/lmbn_n_duke.pt
-url: https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth
-device: ""
-half: false
+reid:
+	id: lmbn_n_duke
+	model: models/lmbn_n_duke.pt
+	url: https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth
+	device: ""
+	half: true
+	preprocess: resize
 ```
 
-These profiles are referenced by benchmark configs and can also be selected explicitly from the CLI.
+The benchmark ReID block provides defaults and can be overridden explicitly from the CLI.

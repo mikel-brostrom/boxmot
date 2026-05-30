@@ -1,8 +1,65 @@
 id: mot17
 
-dataset: mot17
-detector: yolox_x_mot17_ablation
-reid: lmbn_n_duke
+dataset:
+  id: mot17
+  root: "boxmot/engine/eval/trackeval/data/MOT17"
+  layout: mot
+  box_type: aabb
+  splits:
+    train: "train"
+    val: "val"
+    test: "test"
+    ablation:
+      path: "ablation"
+      seq_pattern: "*-FRCNN"
+    ablation-seg:
+      path: "ablation"
+      seq_pattern: "*-FRCNN"
+  default_split: ablation
+  classes:
+    1: pedestrian
+  distractors:
+    2: person_on_vehicle
+    7: static_person
+    8: distractor
+    12: reflection
 
 download:
-  runs: ""
+  dataset: "hf://Lekim89/MOT17"
+  runs:
+    ablation:
+      url: "https://github.com/mikel-brostrom/boxmot/releases/download/v18.0.0/runs.zip"
+      detector: yolox_x_mot17_ablation
+      reid: lmbn_n_duke
+
+detector:
+  id: yolox_x_mot17_ablation
+  model: "models/yolox_x_MOT17_ablation.pt"
+  url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
+  imgsz: [800, 1440]
+  conf: 0.01
+  classes:
+    0: person
+  by_split:
+    ablation:
+      id: yolox_x_mot17_ablation
+      model: "models/yolox_x_MOT17_ablation.pt"
+      url: "https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT17_ablation.pt"
+    ablation-seg:
+      id: yolo26x_seg
+      model: "models/yolo26x-seg.pt"
+      imgsz: [640, 640]
+      conf: 0.25
+
+reid:
+  id: lmbn_n_duke
+  model: "models/lmbn_n_duke.pt"
+  url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+  device: ""
+  half: true
+  preprocess: resize
+  by_split:
+    ablation:
+      id: lmbn_n_duke
+      model: "models/lmbn_n_duke.pt"
+      url: "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"

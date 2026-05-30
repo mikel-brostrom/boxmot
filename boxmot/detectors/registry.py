@@ -4,7 +4,7 @@ from pathlib import Path
 
 import yaml
 
-from boxmot.utils import DETECTOR_CONFIGS
+from boxmot.utils import BENCHMARK_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
@@ -50,58 +50,28 @@ def is_rtdetr_model(yolo_name):
     return _check_model(yolo_name, RTDETR_MODELS)
 
 
-_DEFAULT_DETECTOR_MAP = {
-    "ultralytics": "ultralytics/default.yaml",
-    "yolox": None,
-}
-
-
-def _model_family(name: str) -> str | None:
-    """Return the detector family key for default config lookup."""
-    stem = Path(str(name)).stem.lower()
-    if any(marker in stem for marker in ULTRALYTICS_MODELS):
-        return "ultralytics"
-    if any(marker in stem for marker in YOLOX_MODELS):
-        return "yolox"
-    if any(marker in stem for marker in RTDETR_MODELS):
-        return "rtdetr"
-    return None
-
-
 def resolve_detector_cfg_path(yolo_name):
     """Return the detector-config YAML path whose detector model matches ``yolo_name``."""
     model_key = _detector_name_key(yolo_name)
-    if not model_key or not DETECTOR_CONFIGS.exists():
+    if not model_key:
         return None
 
     matches: list[Path] = []
-    for pattern in ("**/*.yaml", "**/*.yml"):
-        for cfg_path in sorted(DETECTOR_CONFIGS.glob(pattern)):
-            try:
-                with open(cfg_path, "r") as handle:
-                    cfg = yaml.safe_load(handle) or {}
-            except Exception:
-                continue
+    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+        try:
+            with open(cfg_path, "r") as handle:
+                cfg = yaml.safe_load(handle) or {}
+        except Exception:
+            continue
+        detector_cfg = cfg.get("detector")
+        if not isinstance(detector_cfg, dict):
+            continue
+        detector_model = detector_cfg.get("model") or detector_cfg.get("default_model")
+        if detector_model and _detector_name_key(detector_model) == model_key:
+            matches.append(cfg_path)
 
-            detector_model = cfg.get("model") or cfg.get("default_model")
-            if detector_model and _detector_name_key(detector_model) == model_key:
-                matches.append(cfg_path)
-
-    if len(matches) > 1:
-        raise RuntimeError(
-            f"Multiple detector configs match '{yolo_name}': "
-            + ", ".join(str(path) for path in matches)
-        )
     if matches:
         return matches[0]
-
-    family = _model_family(yolo_name)
-    if family:
-        default_rel = _DEFAULT_DETECTOR_MAP.get(family)
-        if default_rel:
-            default_path = DETECTOR_CONFIGS / default_rel
-            if default_path.exists():
-                return default_path
 
     return None
 
@@ -114,7 +84,15 @@ def load_detector_cfg(yolo_name):
 
     with open(cfg_path, "r") as handle:
         cfg = yaml.safe_load(handle) or {}
-    return dict(cfg) if isinstance(cfg, dict) else {}
+    if not isinstance(cfg, dict):
+        return {}
+
+    if isinstance(cfg.get("detector"), dict):
+        detector_cfg = dict(cfg["detector"])
+        detector_cfg.setdefault("id", detector_cfg.get("id") or f"{Path(cfg_path).stem}_detector")
+        return detector_cfg
+
+    return dict(cfg)
 
 
 def get_detector_url(yolo_name):

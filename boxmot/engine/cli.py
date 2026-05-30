@@ -196,7 +196,7 @@ def data_option(func):
         'data',
         type=str,
         default=None,
-        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/datasets/mot17.yaml',
+        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/benchmarks/mot17.yaml',
     )(func)
 
 

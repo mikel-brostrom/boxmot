@@ -4,7 +4,7 @@ Use this guide when you want to run the benchmark-driven modes: `generate`, `eva
 
 ## Core idea
 
-Benchmark workflows resolve the dataset, detector, and ReID defaults from the YAMLs under `boxmot/configs/datasets/`. The first run generates detections and embeddings, and later runs reuse that cache.
+Benchmark workflows resolve the dataset, detector, and ReID defaults from self-contained YAMLs under `boxmot/configs/benchmarks/`. The first run generates detections and embeddings, and later runs reuse that cache.
 
 ```bash
 boxmot generate --benchmark mot17 --split ablation
