@@ -61,6 +61,44 @@ def _existing_cache_path(path: Path) -> Optional[Path]:
     return None
 
 
+def _existing_embedding_cache_path(path: Path) -> Optional[Path]:
+    """Return *path* if it exists, else fall back to a legacy .txt sibling."""
+    if path.exists():
+        return path
+    legacy = path.with_suffix(".txt")
+    if legacy.exists():
+        return legacy
+    return None
+
+
+def _load_embedding_cache_array(path: Path) -> np.ndarray:
+    """Load an embedding cache file (.npy or .txt) and ensure 2-D shape."""
+    if path.suffix == ".npy":
+        arr = np.load(path)
+    else:
+        arr = np.loadtxt(path, dtype=np.float32)
+    if arr.ndim == 1:
+        arr = arr[None, :]
+    return arr
+
+
+def _load_numeric_cache_array(path: Path) -> np.ndarray:
+    """Load a numeric .npy cache file."""
+    return np.load(path)
+
+
+def _migrate_legacy_embedding_cache(txt_path: Path, npy_path: Path) -> bool:
+    """Convert a legacy .txt embedding cache to .npy. Returns True on success."""
+    try:
+        arr = np.loadtxt(txt_path, dtype=np.float32)
+        if arr.ndim == 1:
+            arr = arr[None, :]
+        np.save(npy_path, arr)
+        return True
+    except Exception:
+        return False
+
+
 # Tokens accepted by ``BOXMOT_REID_BACKEND`` (matches the C++ runtime selector).
 _OPENCV_RUNTIME_TOKENS = {"opencv", "cv", "dnn", "opencv_dnn"}
 

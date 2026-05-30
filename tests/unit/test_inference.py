@@ -33,11 +33,7 @@ from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.data.cache import (
     AppendableNpyWriter,
     _existing_cache_path,
-    _existing_embedding_cache_path,
-    _load_embedding_cache_array,
-    _load_numeric_cache_array,
     _max_frame_id,
-    _migrate_legacy_embedding_cache,
     _saved_detection_column_count,
 )
 from boxmot.utils.iou import iou_obb_pair
@@ -452,38 +448,6 @@ def test_iter_source_expands_globs(tmp_path):
     assert frames[0][1].shape == img.shape
 
 
-def test_existing_embedding_cache_path_falls_back_to_legacy_txt(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    np.savetxt(emb_txt, np.arange(4, dtype=np.float32)[None, :], fmt="%f")
-
-    resolved = _existing_embedding_cache_path(tmp_path / "SEQ.npy")
-
-    assert resolved == emb_txt
-
-
-def test_load_embedding_cache_array_normalizes_single_row_txt_to_2d(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    expected = np.arange(8, dtype=np.float32)[None, :]
-    np.savetxt(emb_txt, expected, fmt="%f")
-
-    loaded = _load_embedding_cache_array(emb_txt)
-
-    assert loaded.shape == (1, 8)
-    np.testing.assert_allclose(loaded, expected)
-
-
-def test_migrate_legacy_embedding_cache_writes_npy(tmp_path):
-    emb_txt = tmp_path / "SEQ.txt"
-    target_npy = tmp_path / "SEQ.npy"
-    expected = np.arange(12, dtype=np.float32).reshape(3, 4)
-    np.savetxt(emb_txt, expected, fmt="%f")
-
-    migrated = _migrate_legacy_embedding_cache(emb_txt, target_npy)
-
-    assert migrated is True
-    np.testing.assert_allclose(np.load(target_npy), expected)
-
-
 def test_detection_cache_helpers_support_npy(tmp_path):
     det_npy = tmp_path / "SEQ.npy"
     dets = np.array(
@@ -498,10 +462,6 @@ def test_detection_cache_helpers_support_npy(tmp_path):
     assert _existing_cache_path(det_npy) == det_npy
     assert _saved_detection_column_count(det_npy) == 7
     assert _max_frame_id(det_npy) == 3
-    np.testing.assert_allclose(
-        _load_numeric_cache_array(det_npy),
-        dets,
-    )
 
 
 def test_appendable_npy_writer_appends_rows_without_buffering_full_array(tmp_path):
