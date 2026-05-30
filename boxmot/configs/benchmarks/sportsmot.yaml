@@ -14,7 +14,9 @@ dataset:
 
 download:
   dataset: "hf://MCG-NJU/SportsMOT/dataset"
-  runs: ""
+  runs:
+    val: "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/val"
+    test: "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/test"
 
 detector:
   id: yolox_x_sportsmot

@@ -186,21 +186,55 @@ class WorkflowDetailCallback:
         _REFRESH_INTERVAL = 0.25  # cap visual refreshes at ~4 FPS
 
         class _RichTqdm:
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
+            _lock = None
+
+            @classmethod
+            def get_lock(cls):
+                """Match tqdm's lock API used by tqdm.contrib.concurrent."""
+                if cls._lock is None:
+                    from threading import RLock
+                    cls._lock = RLock()
+                return cls._lock
+
+            @classmethod
+            def set_lock(cls, lock):
+                """Match tqdm's lock API used by tqdm.contrib.concurrent."""
+                cls._lock = lock
+
+            def __init__(self, iterable=None, *args: Any, **kwargs: Any) -> None:
                 total = kwargs.get("total")
                 initial = kwargs.get("initial", 0) or 0
                 desc = kwargs.get("desc") or description
+                self._iterable = iterable
+                self.total = int(total) if total else 0
+                self.n = int(initial)
                 self._task_id = progress.add_task(
                     str(desc), total=int(total) if total else None, completed=int(initial)
                 )
 
-            def update(self, n: int = 1) -> None:
-                progress.update(self._task_id, advance=int(n))
+            def update(self, n=1) -> None:
+                if n is None:
+                    return
+                n = int(n)
+                self.n += n
+                progress.update(self._task_id, advance=n)
                 if callback.render:
                     now = _time.monotonic()
                     if (now - _last_refresh[0]) >= _REFRESH_INTERVAL:
                         callback.workflow._update_live(render=True, force=True)
                         _last_refresh[0] = now
+
+            def __iter__(self):
+                if self._iterable is None:
+                    return self
+                for item in self._iterable:
+                    yield item
+                    self.update(1)
+
+            def __len__(self):
+                if hasattr(self._iterable, "__len__"):
+                    return len(self._iterable)
+                raise TypeError
 
             def set_description(self, desc: str, refresh: bool = True) -> None:
                 progress.update(self._task_id, description=str(desc))
@@ -310,10 +344,28 @@ class _ParallelTaskCallback:
         render = self._render
 
         class _RichTqdm:
-            def __init__(self, *args: Any, **kwargs: Any) -> None:
+            _lock = None
+
+            @classmethod
+            def get_lock(cls):
+                """Match tqdm's lock API used by tqdm.contrib.concurrent."""
+                if cls._lock is None:
+                    from threading import RLock
+                    cls._lock = RLock()
+                return cls._lock
+
+            @classmethod
+            def set_lock(cls, lock):
+                """Match tqdm's lock API used by tqdm.contrib.concurrent."""
+                cls._lock = lock
+
+            def __init__(self, iterable=None, *args: Any, **kwargs: Any) -> None:
+                self._iterable = iterable
                 total = kwargs.get("total")
                 initial = kwargs.get("initial", 0) or 0
                 desc = kwargs.get("desc")
+                self.total = int(total) if total else 0
+                self.n = int(initial)
                 if total is not None:
                     progress.update(task_id, total=int(total))
                 if initial:
@@ -321,7 +373,20 @@ class _ParallelTaskCallback:
                 if desc:
                     progress.update(task_id, description=str(desc))
 
+            def __iter__(self):
+                if self._iterable is None:
+                    return self
+                for item in self._iterable:
+                    yield item
+                    self.update(1)
+
+            def __len__(self):
+                if hasattr(self._iterable, "__len__"):
+                    return len(self._iterable)
+                raise TypeError
+
             def update(self, n: int = 1) -> None:
+                self.n += int(n)
                 progress.update(task_id, advance=int(n))
                 render()
 

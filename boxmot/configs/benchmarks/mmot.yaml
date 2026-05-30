@@ -21,7 +21,8 @@ dataset:
 
 download:
   dataset: "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip"
-  runs: ""
+  runs:
+      test: "hf://Lekim89/runs/runs/dets_n_embs/mmot/test"
 
 detector:
   id: yolo11l_3ch

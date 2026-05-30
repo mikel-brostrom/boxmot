@@ -11,8 +11,9 @@ current_dir = Path(__file__).resolve().parent
 # current_dir = boxmot/engine/eval/metrics
 # repo root is 4 levels up: metrics → eval → engine → boxmot(pkg) → boxmot(repo)
 repo_root = current_dir.parents[3]
-# Vendored trackeval lives at boxmot/engine/trackeval (sibling of eval/)
-trackeval_dir = current_dir.parents[1] / "trackeval"
+# Vendored TrackEval repo lives at boxmot/engine/eval/trackeval/trackeval,
+# and the importable package is under that repo root as ./trackeval.
+trackeval_dir = current_dir.parent / "trackeval" / "trackeval"
 
 sys.path.insert(0, str(repo_root))
 sys.path.insert(0, str(trackeval_dir))

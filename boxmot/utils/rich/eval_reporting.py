@@ -117,6 +117,11 @@ def _build_eval_pipeline_parameter_fields(
 
 
 def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
+    """Build workflow fields as subsystem summary cards.
+
+    Instead of dumping every tracker parameter, each subsystem gets a
+    compact one-line summary with only the most relevant settings.
+    """
     dataset = (
         getattr(args, "data", None)
         or getattr(args, "benchmark", None)
@@ -127,41 +132,96 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
 
     fields: list[tuple[str, object]] = []
 
-    detector = getattr(args, "detector", None)
-    if detector:
-        fields.append(("Detector", detector[0]))
-
-    reid = getattr(args, "reid", None)
-    if reid:
-        fields.append(("ReID", reid[0]))
-
+    # ── Tracker card ──────────────────────────────────────────────
     tracker = getattr(args, "tracker", None)
-    if tracker not in {None, ""}:
-        fields.append(("Tracker", tracker))
-
     tracker_backend = _effective_eval_tracker_backend(args)
+    with_reid = getattr(args, "with_reid", None)
+    cmc_method = getattr(args, "cmc_method", None)
+
+    tracker_items: list[tuple[str, object]] = []
+    if tracker:
+        tracker_items.append(("Name", tracker))
     if tracker_backend:
-        fields.append(("Tracker backend", tracker_backend))
+        tracker_items.append(("Backend", tracker_backend))
+    if with_reid is not None:
+        tracker_items.append(("ReID", "✓" if with_reid else "✗"))
+    if cmc_method not in {None, "", "none"}:
+        tracker_items.append(("CMC", cmc_method))
+    # Key thresholds only
+    det_thresh = getattr(args, "det_thresh", None)
+    if det_thresh is not None:
+        tracker_items.append(("Det thresh", f"{det_thresh:.2f}"))
+    new_track = getattr(args, "new_track_thresh", None)
+    if new_track is not None:
+        tracker_items.append(("New track", f"{new_track:.2f}"))
+    if tracker_items:
+        fields.append(("__panel__:Tracker", tracker_items))
 
-    replay_backend = str(getattr(args, "tracking_backend", "") or "").strip().lower()
-    if replay_backend not in {"", "cpp", "process"}:
-        fields.append(("Replay backend", replay_backend))
-
-    fields.append(("Dataset", dataset))
-
+    # ── Detector card ─────────────────────────────────────────────
+    detector = getattr(args, "detector", None)
+    detector_items: list[tuple[str, object]] = []
+    if detector:
+        import os as _os
+        det_name = _os.path.basename(str(detector[0]).replace("\\", "/"))
+        # strip .pt/.onnx extension for cleaner display
+        for ext in (".pt", ".onnx", ".engine", ".torchscript"):
+            if det_name.endswith(ext):
+                det_name = det_name[: -len(ext)]
+                break
+        detector_items.append(("Model", det_name))
     imgsz = getattr(args, "imgsz", None)
     if imgsz is not None:
-        fields.append(("Image size", imgsz))
+        if isinstance(imgsz, (list, tuple)):
+            detector_items.append(("Size", f"{imgsz[0]}×{imgsz[1]}"))
+        else:
+            detector_items.append(("Size", str(imgsz)))
+    conf = getattr(args, "conf", None)
+    if conf is not None:
+        detector_items.append(("Conf", f"≥ {conf}"))
+    if detector_items:
+        fields.append(("__panel__:Detector", detector_items))
 
-    tracker_params = _build_eval_tracker_parameter_fields(args)
-    if tracker_params:
-        fields.append(("__panel__:Tracker Parameters", tracker_params))
+    # ── ReID card ─────────────────────────────────────────────────
+    reid = getattr(args, "reid", None)
+    reid_items: list[tuple[str, object]] = []
+    if reid:
+        import os as _os
+        reid_name = _os.path.basename(str(reid[0]).replace("\\", "/"))
+        for ext in (".pt", ".onnx", ".engine", ".torchscript"):
+            if reid_name.endswith(ext):
+                reid_name = reid_name[: -len(ext)]
+                break
+        reid_items.append(("Model", reid_name))
+    if reid_items:
+        fields.append(("__panel__:ReID", reid_items))
 
-    pipeline_params = _build_eval_pipeline_parameter_fields(
-        args, tracker_backend=tracker_backend, replay_backend=replay_backend
-    )
-    if pipeline_params:
-        fields.append(("__panel__:Pipeline Parameters", pipeline_params))
+    # ── Dataset card ──────────────────────────────────────────────
+    dataset_items: list[tuple[str, object]] = []
+    if dataset:
+        dataset_items.append(("Benchmark", dataset))
+    split = getattr(args, "split", None)
+    if split:
+        dataset_items.append(("Split", split))
+    if dataset_items:
+        fields.append(("__panel__:Dataset", dataset_items))
+
+    # ── Runtime card ──────────────────────────────────────────────
+    replay_backend = str(getattr(args, "tracking_backend", "") or "").strip().lower()
+    runtime_items: list[tuple[str, object]] = []
+    device = getattr(args, "device", None)
+    if device not in {None, ""}:
+        runtime_items.append(("Device", device))
+    runtime_items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
+    n_threads = getattr(args, "n_threads", None)
+    if n_threads is not None:
+        runtime_items.append(("Threads", n_threads))
+    if replay_backend not in {"", None, "cpp"}:
+        runtime_items.append(("Replay", replay_backend))
+    postprocessing = getattr(args, "postprocessing", None)
+    if postprocessing not in {None, "", "none"}:
+        runtime_items.append(("Postproc", postprocessing))
+    if runtime_items:
+        fields.append(("__panel__:Runtime", runtime_items))
 
     return fields
 

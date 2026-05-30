@@ -44,10 +44,21 @@ def get_download_status_fn() -> Any:
     return getattr(_download_status_state, "status_fn", None)
 
 
+def _resolve_trackeval_package_root(dest: Path) -> Path | None:
+    """Return the importable TrackEval package root inside *dest*, if present."""
+    repo_root = dest / "trackeval"
+    nested_pkg = repo_root / "trackeval"
+    if (nested_pkg / "__init__.py").exists():
+        return nested_pkg
+    if (repo_root / "__init__.py").exists():
+        return repo_root
+    return None
+
+
 def _patch_trackeval_numpy_aliases(dest: Path) -> None:
     """Patch deprecated NumPy builtin aliases in a downloaded TrackEval tree."""
-    package_root = dest / "trackeval"
-    if not package_root.exists():
+    package_root = _resolve_trackeval_package_root(dest)
+    if package_root is None or not package_root.exists():
         return
 
     replacements = (
@@ -479,10 +490,14 @@ def _sync_trackeval_dataset_overlays(dest: Path) -> None:
     """Overlay the vendored TrackEval OBB dataset adapters with the tracked copies."""
     _patch_trackeval_numpy_aliases(dest)
 
+    package_root = _resolve_trackeval_package_root(dest)
+    if package_root is None:
+        return
+
     source_dir = Path(__file__).resolve().parent.parent / "engine" / "eval" / "metrics"
     overlays = [
-        (source_dir / "custom_mot_challenge_obb.py", dest / "trackeval" / "datasets" / "mmot_rgb.py"),
-        (source_dir / "trackeval_datasets_init.py", dest / "trackeval" / "datasets" / "__init__.py"),
+        (source_dir / "custom_mot_challenge_obb.py", package_root / "datasets" / "mmot_rgb.py"),
+        (source_dir / "trackeval_datasets_init.py", package_root / "datasets" / "__init__.py"),
     ]
     for src, dst in overlays:
         if not src.exists():
@@ -502,16 +517,19 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
         branch (str): Git branch to download (default "master")
         overwrite (bool): if True, force re-download even if dest already exists
     """
-    # If already exists and we're not overwriting, skip
-    if dest.exists() and not overwrite:
+    package_root = dest / "trackeval"
+
+    # If TrackEval package already exists and we're not overwriting, skip.
+    # Note: ``dest`` may exist with only ``data/``; that should NOT skip.
+    if package_root.exists() and not overwrite:
         _sync_trackeval_dataset_overlays(dest)
         LOGGER.debug("TrackEval already present")
         return
 
-    LOGGER.info("Downloading TrackEval...")
+    LOGGER.info("Downloading TrackEval (evaluation metrics library)...")
     repo_url = "https://github.com/Annzstbl/MMOT"
     zip_url = f"{repo_url}/archive/refs/heads/{branch}.zip"
-    zip_file = dest.parent / f"MMOT-{branch}.zip"
+    zip_file = dest.parent / f"trackeval-{branch}.zip"
 
     # Download the archive
     zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
@@ -533,9 +551,10 @@ def download_trackeval(dest: Path, branch: str = "main", overwrite: bool = False
         if not trackeval_src.exists():
             LOGGER.warning("Couldn't locate TrackEval inside extracted MMOT archive")
         else:
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.move(str(trackeval_src), str(dest))
+            dest.mkdir(parents=True, exist_ok=True)
+            if package_root.exists():
+                shutil.rmtree(package_root)
+            shutil.move(str(trackeval_src), str(package_root))
         if extracted.exists():
             shutil.rmtree(extracted)
 
@@ -679,6 +698,182 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, statu
     LOGGER.debug(f"HF dataset ready at {dest}")
 
 
+def download_hf_dataset_subfolder(
+    repo_id: str,
+    subfolder: str,
+    dest_root: Path,
+    overwrite: bool = False,
+    status_fn: Any = None,
+) -> None:
+    """Download a specific subfolder from a Hugging Face dataset repo."""
+    subfolder = str(subfolder).strip("/")
+    if not subfolder:
+        return
+
+    target = dest_root / subfolder
+    marker = target / ".hf_download_complete"
+    if not overwrite and marker.exists():
+        LOGGER.debug(f"HF dataset subfolder already present at {target}")
+        return
+
+    try:
+        from huggingface_hub import HfApi, snapshot_download
+    except ImportError:
+        LOGGER.info("Installing huggingface_hub ...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
+        from huggingface_hub import HfApi, snapshot_download
+
+    message = f"Downloading {repo_id}/{subfolder} ..."
+    if status_fn is not None:
+        status_fn(message)
+    else:
+        print_text(message, stderr=True)
+
+    snapshot_kwargs = {
+        "repo_id": repo_id,
+        "repo_type": "dataset",
+        "local_dir": str(dest_root),
+        "allow_patterns": [f"{subfolder}/**"],
+    }
+
+    # Compute totals up front so Hugging Face bars are determinate inside Rich.
+    num_files = 0
+    total_size = 0
+    try:
+        from huggingface_hub.hf_api import RepoFile
+
+        api = HfApi()
+        files = [
+            f for f in api.list_repo_tree(
+                repo_id=repo_id,
+                repo_type="dataset",
+                path_in_repo=subfolder,
+                recursive=True,
+            )
+            if isinstance(f, RepoFile)
+        ]
+        num_files = len(files)
+        total_size = sum(f.size or (f.lfs.size if f.lfs else 0) for f in files)
+    except Exception:
+        # Progress still works without totals; it just becomes indeterminate.
+        num_files = 0
+        total_size = 0
+
+    # Keep HF's tqdm-driven progress updates inside the active Rich workflow
+    # panel instead of writing raw progress lines to stderr.
+    if status_fn is not None and callable(getattr(status_fn, "tqdm_proxy", None)):
+        with status_fn.tqdm_proxy(f"Downloading {repo_id}/{subfolder}", unit="B") as rich_tqdm:
+            # HF creates one tqdm per file download.  We aggregate all of them
+            # into two shared Rich progress tasks: one for bytes downloaded and
+            # one for files fetched.
+            _shared_download_task = [None]  # created on first "Downloading" instance
+            _shared_fetch_task = [None]     # created on first "Fetching" instance
+
+            class _TqdmAggregated(rich_tqdm):
+                """Tqdm shim that collapses HF hub's multiple progress bars into
+                a single Rich task showing file-count progress."""
+
+                _lock = None
+
+                @classmethod
+                def get_lock(cls):
+                    if cls._lock is None:
+                        from threading import RLock
+                        cls._lock = RLock()
+                    return cls._lock
+
+                @classmethod
+                def set_lock(cls, lock):
+                    cls._lock = lock
+
+                def __init__(self, iterable=None, *args: Any, **kwargs: Any) -> None:
+                    # Strip kwargs our Rich proxy doesn't understand.
+                    kwargs.pop("name", None)
+                    kwargs.pop("disable", None)
+                    kwargs.pop("unit_scale", None)
+                    desc = str(kwargs.get("desc", ""))
+                    self._iterable = iterable
+                    self._total = 0
+                    self.n = 0
+
+                    if desc.startswith("Downloading"):
+                        # HF creates a single "bytes_progress" instance.
+                        # We suppress its visual — file-count bar is enough.
+                        if _shared_download_task[0] is None:
+                            _shared_download_task[0] = True  # mark as seen
+                        self._task_id = None
+                    elif desc.startswith("Fetching") and num_files > 0:
+                        # File-count bar driven by thread_map iterator.
+                        if _shared_fetch_task[0] is None:
+                            kwargs["total"] = num_files
+                            kwargs["desc"] = (
+                                f"Downloading {num_files} files"
+                                if total_size > 0
+                                else f"Fetching {num_files} files"
+                            )
+                            super().__init__(iterable, *args, **kwargs)
+                            _shared_fetch_task[0] = self._task_id
+                        else:
+                            self._task_id = _shared_fetch_task[0]
+                    else:
+                        super().__init__(iterable, *args, **kwargs)
+
+                @property
+                def total(self):
+                    return self._total
+
+                @total.setter
+                def total(self, value):
+                    self._total = int(value) if value else 0
+
+                def update(self, n=1) -> None:
+                    if n is None:
+                        return
+                    n = int(n)
+                    if n == 0:
+                        return
+                    if self._task_id is not None:
+                        super().update(n)
+                    else:
+                        self.n += n
+
+                def refresh(self) -> None:
+                    pass
+
+                def set_description(self, desc: str, refresh: bool = True) -> None:
+                    pass
+
+                def close(self) -> None:
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *exc: Any):
+                    pass
+
+                def __iter__(self):
+                    if self._iterable is None:
+                        return self
+                    for item in self._iterable:
+                        yield item
+                        self.update(1)
+
+                def __len__(self):
+                    if hasattr(self._iterable, "__len__"):
+                        return len(self._iterable)
+                    raise TypeError
+
+            snapshot_download(tqdm_class=_TqdmAggregated, **snapshot_kwargs)
+    else:
+        snapshot_download(**snapshot_kwargs)
+
+    # Mark download as complete so subsequent runs skip it
+    target.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    LOGGER.debug(f"HF dataset subfolder ready at {target}")
+
+
 def download_eval_data(
     *,
     runs_url: Optional[str] = None,
@@ -702,7 +897,22 @@ def download_eval_data(
 
     # Optional runs data — skip if user already has their own dets/embs
     if runs_url:
-        if runs_check_path is not None and Path(runs_check_path).exists():
+        if runs_url.startswith("hf://"):
+            parts = runs_url[len("hf://"):].split("/")
+            repo_id = "/".join(parts[:2])
+            subfolder = "/".join(parts[2:])
+            if subfolder:
+                download_hf_dataset_subfolder(
+                    repo_id,
+                    subfolder,
+                    Path("."),
+                    overwrite=overwrite,
+                    status_fn=status_fn,
+                )
+            else:
+                download_hf_dataset(repo_id, Path("."), overwrite=overwrite, status_fn=status_fn)
+        elif runs_check_path is not None and Path(runs_check_path).exists():
+            # Legacy ZIP workflow: skip if the expected directory already exists
             LOGGER.debug(f"Skipping runs.zip download: {runs_check_path} already exists.")
         else:
             runs_zip = download_file(
@@ -713,24 +923,35 @@ def download_eval_data(
     if not dataset_url:
         return
 
-    # HuggingFace dataset (hf://owner/repo/subfolder)
+    # HuggingFace dataset (hf://owner/repo[/subfolder])
     if dataset_url.startswith("hf://"):
         parts = dataset_url[len("hf://"):].split("/")
-        repo_id = "/".join(parts[:2])        # e.g. "Fleyderer/FastTracker-Benchmark-MOT"
-        download_hf_dataset(repo_id, dataset_dest, overwrite=overwrite, status_fn=status_fn)
+        repo_id = "/".join(parts[:2])
+        subfolder = "/".join(parts[2:])
+        if subfolder:
+            download_hf_dataset_subfolder(
+                repo_id,
+                subfolder,
+                dataset_dest,
+                overwrite=overwrite,
+                status_fn=status_fn,
+            )
+        else:
+            download_hf_dataset(repo_id, dataset_dest, overwrite=overwrite, status_fn=status_fn)
 
         # Extract any tar archives found after HF download (e.g. SportsMOT)
-        tar_files = list(dataset_dest.rglob("*.tar")) + list(dataset_dest.rglob("*.tar.gz"))
+        tar_search_root = dataset_dest / subfolder if subfolder else dataset_dest
+        tar_files = list(tar_search_root.rglob("*.tar")) + list(tar_search_root.rglob("*.tar.gz"))
         for tar_file in sorted(tar_files):
             # Quick check: skip tar if its stem directory already exists and is non-empty
             stem = tar_file.stem
             if stem.endswith(".tar"):
                 stem = stem[:-4]  # handle .tar.gz
-            extracted_dir = dataset_dest / stem
+            extracted_dir = tar_file.parent / stem
             if not overwrite and extracted_dir.is_dir() and any(extracted_dir.iterdir()):
                 LOGGER.debug(f"Cached: {tar_file.name} (directory already exists)")
                 continue
-            extract_tar(tar_file, dataset_dest, overwrite=overwrite, status_fn=status_fn)
+            extract_tar(tar_file, tar_file.parent, overwrite=overwrite, status_fn=status_fn)
         return
 
     # benchmark ZIP

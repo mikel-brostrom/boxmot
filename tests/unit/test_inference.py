@@ -1250,7 +1250,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert workflow.title == "Evaluation"
     assert workflow.started is True
     assert workflow.stopped is True
-    assert ("Dataset", "mot17-mini") in workflow.fields
+    assert ("__panel__:Dataset", [("Benchmark", "mot17-mini")]) in workflow.fields
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert "pipeline" in calls[0]
@@ -1447,23 +1447,40 @@ def test_build_eval_workflow_fields_reports_effective_cpp_backend(tmp_path):
         proximity_thresh=0.5,
         appearance_thresh=0.25,
         cmc_method="ecc",
+        det_thresh=None,
+        with_reid=True,
+        split="ablation",
     )
 
     fields = dict(evaluator_module._build_eval_workflow_fields(args))
 
-    assert fields["Detector"] == Path("models/yolox_x_MOT17_ablation.pt")
-    assert fields["ReID"] == Path("models/lmbn_n_duke.pt")
-    assert fields["Tracker"] == "botsort"
-    assert fields["Tracker backend"] == "cpp"
-    assert fields["Dataset"] == "mot17-mini"
-    assert "Replay backend" not in fields
-    assert "__panel__:Benchmark Parameters" not in fields
-    assert "__panel__:Dataset Parameters" not in fields
-    assert "__panel__:Detector Parameters" not in fields
-    assert "__panel__:ReID Parameters" not in fields
-    assert all(label != "Dataset" for label, _ in fields["__panel__:Pipeline Parameters"])
-    assert ("Image size", [800, 1440]) in fields["__panel__:Pipeline Parameters"]
-    assert ("Track High Thresh", 0.6) in fields["__panel__:Tracker Parameters"]
+    # Tracker subsystem card
+    tracker_items = fields["__panel__:Tracker"]
+    assert ("Name", "botsort") in tracker_items
+    assert ("Backend", "cpp") in tracker_items
+    assert ("CMC", "ecc") in tracker_items
+    assert ("ReID", "✓") in tracker_items
+    assert ("New track", "0.70") in tracker_items
+
+    # Detector subsystem card
+    detector_items = fields["__panel__:Detector"]
+    assert ("Model", "yolox_x_MOT17_ablation") in detector_items
+    assert ("Size", "800×1440") in detector_items
+    assert ("Conf", "≥ 0.25") in detector_items
+
+    # ReID subsystem card
+    assert ("Model", "lmbn_n_duke") in fields["__panel__:ReID"]
+
+    # Dataset card
+    assert ("Benchmark", "mot17-mini") in fields["__panel__:Dataset"]
+    assert ("Split", "ablation") in fields["__panel__:Dataset"]
+
+    # Runtime card — no replay since tracking_backend is cpp (shown in Tracker)
+    runtime_items = fields["__panel__:Runtime"]
+    assert ("Device", "cpu") in runtime_items
+    assert ("Precision", "fp32") in runtime_items
+    assert ("Threads", 2) in runtime_items
+    assert all(label != "Replay" for label, _ in runtime_items)
 
 
 def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
@@ -1534,11 +1551,16 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
 
     assert refreshed_fields
     refreshed = dict(refreshed_fields[-1])
-    assert refreshed["Detector"] == tmp_path / "yolox_x.pt"
-    assert refreshed["ReID"] == tmp_path / "lmbn_n_duke.pt"
-    assert refreshed["Tracker"] == "botsort"
-    assert refreshed["Tracker backend"] == "cpp"
-    assert refreshed["Dataset"] == "mot17-mini"
+    # New card-based structure: check subsystem panels
+    tracker_items = dict(refreshed["__panel__:Tracker"])
+    assert tracker_items["Name"] == "botsort"
+    assert tracker_items["Backend"] == "cpp"
+    detector_items = dict(refreshed["__panel__:Detector"])
+    assert detector_items["Model"] == "yolox_x"
+    reid_items = dict(refreshed["__panel__:ReID"])
+    assert reid_items["Model"] == "lmbn_n_duke"
+    dataset_items = dict(refreshed["__panel__:Dataset"])
+    assert dataset_items["Benchmark"] == "mot17-mini"
 
 
 def test_workflow_progress_renders_single_stateful_block(monkeypatch):

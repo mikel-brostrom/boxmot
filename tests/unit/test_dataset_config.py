@@ -263,8 +263,25 @@ def test_apply_benchmark_config_resolves_split_specific_runs_url(monkeypatch):
 
     apply_benchmark_config(args)
 
-    assert calls["runs_url"] == "https://github.com/mikel-brostrom/boxmot/releases/download/v18.0.0/runs.zip"
+    assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/mot17/ablation"
+    assert calls["dataset_url"] == "hf://Lekim89/MOT17/ablation"
     assert calls["runs_check_path"] == Path("runs/dets_n_embs/mot17/ablation")
+
+
+def test_apply_benchmark_config_resolves_mot17_test_dataset_url(monkeypatch):
+    calls = {}
+
+    def _capture_download(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    args = SimpleNamespace(data="mot17", source=None, split="test", split_explicit=True)
+
+    apply_benchmark_config(args)
+
+    assert calls["dataset_url"] == "hf://Lekim89/MOT17/test"
+    assert calls["runs_url"] == ""
+    assert calls["runs_check_path"] == Path("runs/dets_n_embs/mot17/test")
 
 
 def test_apply_benchmark_config_applies_ablation_component_overrides(monkeypatch):
@@ -339,6 +356,21 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     }
 
 
+def test_apply_benchmark_config_resolves_mmot_test_runs_url(monkeypatch):
+    calls = {}
+
+    def _capture_download(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    args = SimpleNamespace(data="mmot", source=None, split="test", split_explicit=True)
+
+    apply_benchmark_config(args)
+
+    assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/mmot/test"
+    assert calls["runs_check_path"] == Path("runs/dets_n_embs/mmot/test")
+
+
 def test_ensure_benchmark_detector_model_downloads_missing_weight(monkeypatch, tmp_path):
     cfg = load_benchmark_cfg("mmot")
     target = tmp_path / "yolo11l-3ch.pt"
@@ -404,13 +436,31 @@ def test_sportsmot_full_benchmark_loads_detector_and_reid():
 
 
 def test_apply_benchmark_config_resolves_sportsmot(monkeypatch):
-    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: None)
+    calls = {}
+    monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
     args = SimpleNamespace(data="sportsmot", source=None, split=None, split_explicit=False)
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "sportsmot"
     assert args.benchmark_id == "sportsmot"
     assert args.dataset_id == "sportsmot"
     assert args.source == Path("boxmot/engine/eval/trackeval/data/SportsMOT/val")
+    assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/val"
+    assert calls["runs_check_path"] == Path("runs/dets_n_embs/sportsmot/val")
+
+
+def test_apply_benchmark_config_resolves_sportsmot_test_runs_url(monkeypatch):
+    calls = {}
+
+    def _capture_download(**kwargs):
+        calls.update(kwargs)
+
+    monkeypatch.setattr(benchmark_config, "download_eval_data", _capture_download)
+    args = SimpleNamespace(data="sportsmot", source=None, split="test", split_explicit=True)
+
+    apply_benchmark_config(args)
+
+    assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/test"
+    assert calls["runs_check_path"] == Path("runs/dets_n_embs/sportsmot/test")
 
 
 def test_find_dataset_cfg_for_sportsmot_source():

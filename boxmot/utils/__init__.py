@@ -31,7 +31,7 @@ BENCHMARK_CONFIGS = CONFIGS / "benchmarks"
 
 ENGINE   = BOXMOT / "engine"
 WEIGHTS  = ROOT / "models"
-TRACKEVAL  = ENGINE / "trackeval"
+TRACKEVAL  = ENGINE / "eval" / "trackeval"
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
 

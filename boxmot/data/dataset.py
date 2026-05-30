@@ -93,16 +93,52 @@ def _sequence_name_from_img_dir(img_dir: Path) -> str:
     return img_dir.parent.name if img_dir.name == "img1" else img_dir.name
 
 
+def _infer_sequence_length(seq_dir: Path) -> int:
+    """Infer sequence length when frame files are not present locally."""
+    seqinfo = seq_dir / "seqinfo.ini"
+    if seqinfo.exists():
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(seqinfo)
+            seq_len = cfg.getint("Sequence", "seqLength")
+            if seq_len > 0:
+                return seq_len
+        except Exception:
+            pass
+
+    def _max_frame_from_csv(path: Path) -> int:
+        if not path.exists():
+            return 0
+        try:
+            data = np.loadtxt(path, delimiter=",")
+            if data.size == 0:
+                return 0
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+            return int(np.max(data[:, 0]))
+        except Exception:
+            return 0
+
+    gt_len = _max_frame_from_csv(seq_dir / "gt" / "gt.txt")
+    det_len = _max_frame_from_csv(seq_dir / "det" / "det.txt")
+    return max(gt_len, det_len)
+
+
 def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
     seq_paths: list[Path] = []
     seq_info: dict[str, int] = {}
     for seq_dir in sorted(path for path in source.iterdir() if path.is_dir()):
         img_dir = _sequence_img_dir(seq_dir)
         frame_files = _list_sequence_frames(img_dir)
-        if not frame_files:
+        if frame_files:
+            seq_paths.append(img_dir)
+            seq_info[seq_dir.name] = len(frame_files)
             continue
-        seq_paths.append(img_dir)
-        seq_info[seq_dir.name] = len(frame_files)
+
+        inferred_len = _infer_sequence_length(seq_dir)
+        if inferred_len > 0:
+            seq_paths.append(img_dir)
+            seq_info[seq_dir.name] = inferred_len
     return seq_paths, seq_info
 
 
@@ -242,9 +278,13 @@ class MOTDataset:
                     continue
             img_dir = _sequence_img_dir(seq_dir)
             imgs = _list_sequence_frames(img_dir)
-            if not imgs:
-                continue
-            frame_ids = [int(path.stem) for path in imgs]
+            if imgs:
+                frame_ids = [int(path.stem) for path in imgs]
+            else:
+                inferred_len = _infer_sequence_length(seq_dir)
+                if inferred_len <= 0:
+                    continue
+                frame_ids = list(range(1, inferred_len + 1))
 
             if self.dets_dir:
                 npy_path = self.dets_dir / f"{name}.npy"
@@ -424,14 +464,37 @@ class MOTSequence:
     def __len__(self) -> int:
         return len(self.frame_ids)
 
+    def _stub_image_shape(self) -> tuple[int, int]:
+        seqinfo = self.meta["seq_dir"] / "seqinfo.ini"
+        if seqinfo.exists():
+            try:
+                cfg = configparser.ConfigParser()
+                cfg.read(seqinfo)
+                h = cfg.getint("Sequence", "imHeight")
+                w = cfg.getint("Sequence", "imWidth")
+                if h > 0 and w > 0:
+                    return h, w
+            except Exception:
+                pass
+        return 720, 1280
+
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """Yield frame dictionaries one by one."""
         total = len(self.frame_ids)
         progress_queue = self.progress_queue
         _img_stub: Optional[np.ndarray] = None
+
+        has_frame_files = len(self.frame_paths) > 0
+        if not has_frame_files and total > 0:
+            h, w = self._stub_image_shape()
+            _img_stub = np.empty((h, w, 3), dtype=np.uint8)
+            iter_pairs = ((int(fid), None) for fid in self.frame_ids)
+        else:
+            iter_pairs = zip(self.frame_ids, self.frame_paths)
+
         for index, (fid, img_path) in enumerate(
             tqdm(
-                zip(self.frame_ids, self.frame_paths),
+                iter_pairs,
                 total=total,
                 desc=f"Frames {self.name}",
                 disable=not self.show_progress,
@@ -445,7 +508,9 @@ class MOTSequence:
 
             # After the first frame, reuse a small stub image when caller
             # only needs shape (e.g. tracking replay with cached embeddings).
-            if self.skip_image_load and _img_stub is not None:
+            if img_path is None and _img_stub is not None:
+                img = _img_stub
+            elif self.skip_image_load and _img_stub is not None:
                 img = _img_stub
             elif self._frame_cache is not None:
                 img = self._frame_cache.read_image(img_path)

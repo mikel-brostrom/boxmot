@@ -373,7 +373,7 @@ def _build_setup_section_table(
     # columns line up vertically. The last value column gets ``ratio=1`` so
     # any leftover width flows there instead of stretching every column
     # unevenly.
-    table.add_column(style=STYLE_ACCENT, no_wrap=True, width=8, overflow="ellipsis")
+    table.add_column(style=STYLE_ACCENT, no_wrap=True, width=9, overflow="ellipsis")
     for offset in range(pair_count):
         label_kwargs = {"style": STYLE_MUTED, "no_wrap": True}
         if min_label_width is not None:
@@ -431,15 +431,17 @@ def _build_setup_panel(
     if not sections:
         return None
 
-    # In compact mode, share a single pairs-per-row count *and* per-column
-    # min-widths across the parameter sections (everything after
-    # Configuration) so their columns line up vertically. The Configuration
-    # section keeps its own count because its values are typically file
-    # paths much longer than tracker/pipeline knobs.
+    # When a "Configuration" section exists (with long file paths), it keeps
+    # its own layout while the remaining subsystem sections share widths.
+    # When all sections are subsystem cards, each section computes its own
+    # pair count for the most compact per-section layout.
+    has_config_section = sections and sections[0][0] == "Configuration"
+
     shared_pair_count: int | None = None
     shared_min_label: int | None = None
     shared_min_value: int | None = None
-    if compact and len(sections) > 1:
+
+    if compact and has_config_section and len(sections) > 1:
         combined: list[tuple[str, object]] = []
         for _, fields in sections[1:]:
             combined.extend(fields)
@@ -454,7 +456,7 @@ def _build_setup_panel(
 
     section_tables = []
     for index, (title, fields) in enumerate(sections):
-        if compact and index > 0:
+        if compact and has_config_section and index > 0:
             section_tables.append(
                 _build_setup_section_table(
                     title,

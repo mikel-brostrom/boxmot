@@ -267,6 +267,10 @@ def process_sequence(
     tracker_obj = tracker_runtime.tracker
     needs_images = hasattr(tracker_obj, "cmc") and tracker_obj.cmc is not None
 
+    # Detect whether real frame files are available for this sequence
+    _seq_img_dir = Path(mot_root) / seq_name / "img1"
+    _has_real_frames = _seq_img_dir.is_dir() and any(_seq_img_dir.iterdir())
+
     det_emb_root = Path(project_root) / "dets_n_embs"
     if dataset_name:
         det_emb_root = det_emb_root / dataset_name
@@ -325,6 +329,11 @@ def process_sequence(
                 raise ValueError(message)
 
             embs_arg = embs if embs.size else None
+            # When running on metadata-only sequences (no real frame files),
+            # never pass None embeddings — that would trigger live ReID on
+            # blank stub images, which is extremely slow and meaningless.
+            if embs_arg is None and not _has_real_frames:
+                embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
             masks_arg = masks if (masks is not None and masks.size) else None
             tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
             frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
@@ -668,6 +677,14 @@ def run_generate_mot_results(
         progress_callback=progress_callback,
     )
     args.seq_frame_nums = seq_frame_nums
+
+    # TrackEval expects a per-sequence tracker txt file. When a sequence has
+    # no emitted rows (e.g. no usable cached inputs), keep an empty placeholder
+    # so evaluation can proceed instead of failing hard on missing files.
+    for seq_name in sequence_names:
+        seq_result = exp_dir / f"{seq_name}.txt"
+        if not seq_result.exists():
+            seq_result.touch()
 
     if timing_stats is not None:
         timing_stats.metadata["detector_from_cache"] = True
