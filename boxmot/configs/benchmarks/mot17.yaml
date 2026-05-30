@@ -13,7 +13,7 @@ dataset:
       path: "ablation"
       seq_pattern: "*-FRCNN"
     ablation-seg:
-      path: "ablation"
+      path: "ablation-seg"
       seq_pattern: "*-FRCNN"
   default_split: ablation
   classes:
