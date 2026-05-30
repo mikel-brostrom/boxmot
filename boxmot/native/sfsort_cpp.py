@@ -324,7 +324,10 @@ def process_sequence_cpp(
     conf_threshold: float = 0.0,
     preprocess_name: str | None = None,
     split: str | None = None,
+    masks_dir: str | None = None,
+    kf_tuning: dict | None = None,
     progress_queue=None,
+    adaptive_kf: bool = False,
 ):
     del reid_name, preprocess_name
     if str(tracker_name).lower() != "sfsort":
