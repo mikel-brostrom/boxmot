@@ -72,6 +72,7 @@ from typing import Dict, Generator, List, Optional, Union
 import cv2
 import numpy as np
 
+from boxmot.data.frame_cache import FrameCache
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.progress import RichTqdm as tqdm
 
@@ -323,6 +324,7 @@ class MOTSequence:
         show_progress: bool = True,
         progress_queue=None,
         skip_image_load: bool = False,
+        n_cache_peers: int = 1,
     ):
         self.name = name
         self.meta = meta
@@ -330,12 +332,16 @@ class MOTSequence:
         self.show_progress = show_progress
         self.progress_queue = progress_queue
         self.skip_image_load = skip_image_load
+        self.n_cache_peers = n_cache_peers
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
         self.masks_data: Optional[Dict[int, np.ndarray]] = None
         self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
         self.frame_paths: List[Path] = meta["frame_paths"]
+        self._frame_cache: Optional[FrameCache] = None
+        if not self.skip_image_load:
+            self._frame_cache = FrameCache(self.frame_paths, n_cache_peers=self.n_cache_peers)
         self._prepare()
 
     def _prepare(self) -> None:
@@ -441,6 +447,8 @@ class MOTSequence:
             # only needs shape (e.g. tracking replay with cached embeddings).
             if self.skip_image_load and _img_stub is not None:
                 img = _img_stub
+            elif self._frame_cache is not None:
+                img = self._frame_cache.read_image(img_path)
             elif img_path.suffix == ".npy":
                 img = np.load(str(img_path))
                 # Convert multi-channel arrays to 3-channel BGR for tracker compatibility
