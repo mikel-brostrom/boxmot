@@ -44,19 +44,28 @@ def _is_live_source(source: Any) -> bool:
     return False
 
 
-def Boxmot(*args, **kwargs):
-    """Lazy compatibility loader for the public Boxmot facade."""
-    from boxmot import Boxmot as PublicBoxmot
-
-    return PublicBoxmot(*args, **kwargs)
-
-
 class TrackerRuntime:
     """Wrap one tracker instance with timing and formatting helpers."""
 
     def __init__(self, tracker: Any, timing_stats: TimingStats | None = None) -> None:
         self.tracker = tracker
         self.timing_stats = timing_stats
+        # Pre-check whether the tracker's update() accepts embs/masks kwargs
+        # so we don't need a broad TypeError catch at runtime.
+        import inspect
+        try:
+            sig = inspect.signature(tracker.update)
+            params = sig.parameters
+            self._accepts_embs = "embs" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+            self._accepts_masks = "masks" in params or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+            )
+        except (ValueError, TypeError):
+            # Fallback: assume it accepts both (will fail loudly if wrong)
+            self._accepts_embs = True
+            self._accepts_masks = True
 
     @classmethod
     def create(
@@ -133,17 +142,13 @@ class TrackerRuntime:
 
         try:
             kwargs = {}
-            if embs is not None:
+            if embs is not None and self._accepts_embs:
                 kwargs["embs"] = embs
-            if masks is not None:
+            if masks is not None and self._accepts_masks:
                 kwargs["masks"] = masks
 
             if kwargs:
-                try:
-                    tracks = self.tracker.update(dets, img, **kwargs)
-                except TypeError:
-                    # Fallback: tracker doesn't accept these kwargs
-                    tracks = self.tracker.update(dets, img)
+                tracks = self.tracker.update(dets, img, **kwargs)
             else:
                 tracks = self.tracker.update(dets, img)
         finally:
@@ -191,7 +196,7 @@ def _consume_run(result: TrackRunResult) -> None:
 
 
 class TrackingSession:
-    """Compatibility wrapper around the public Python API tracking facade."""
+    """Argparse-namespace–driven tracking session for CLI and tests."""
 
     def __init__(self, args):
         self.args = args
@@ -241,14 +246,16 @@ class TrackingSession:
         return predictor.trackers
 
     def run(self):
-        boxmot = Boxmot(
+        from boxmot import Boxmot as _Boxmot
+
+        api = _Boxmot(
             detector=_primary_model_ref(getattr(self.args, "detector", None)),
             reid=_primary_model_ref(getattr(self.args, "reid", None)),
             tracker=getattr(self.args, "tracker", get_mode_default("track", "tracker")),
             classes=getattr(self.args, "classes", None),
             project=getattr(self.args, "project", get_mode_default("track", "project")),
         )
-        result = boxmot.track(
+        result = api.track(
             source=getattr(self.args, "source", get_mode_default("track", "source")),
             imgsz=getattr(self.args, "imgsz", None),
             conf=getattr(self.args, "conf", None),
@@ -283,7 +290,7 @@ def _build_detector(args, detector_spec: Any, classes: list[int] | None):
 def _build_tracker(args, tracker_spec: Any):
     spec = tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker"))
     reid_weights = reid_path_from_spec(_primary_model_ref(getattr(args, "reid", None)), required=False)
-    tracker = build_tracker_from_spec(
+    return build_tracker_from_spec(
         spec,
         device=getattr(args, "device", get_mode_default("track", "device")),
         half=bool(getattr(args, "half", get_mode_default("track", "half"))),
@@ -291,9 +298,6 @@ def _build_tracker(args, tracker_spec: Any):
         reid_weights=reid_weights,
         reid_preprocess=getattr(args, "reid_preprocess", None),
     )
-    if getattr(args, "adaptive_kf", False) and hasattr(tracker, "adaptive_kf"):
-        tracker.adaptive_kf = True
-    return tracker
 
 
 def _build_reid(args, tracker: Any, reid_spec: Any, tracker_spec: Any):
@@ -401,15 +405,11 @@ def run_track(
         _consume_run(result)
     if pipeline is not None:
         result.refresh()
-        pipeline.store_step_info(
-            renderable=result.renderable() if int(result.summary.get("frames", 0)) > 0 else None,
-            text="No frames processed." if int(result.summary.get("frames", 0)) == 0 else None,
-        )
-        pipeline.finish(
-            result.renderable() if int(result.summary.get("frames", 0)) > 0 else None,
-            title="Summary",
-            interactive=bool(getattr(args, "interactive", False)),
-        )
+        pipeline.complete_step()
+        if int(result.summary.get("frames", 0)) > 0:
+            pipeline.set_detail_renderable("Summary", result.renderable())
+        else:
+            pipeline.update("No frames processed.")
     return result
 
 

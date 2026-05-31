@@ -75,10 +75,6 @@ def resolve_track_output_dir(project: Path, source: Any) -> Path:
     return increment_path(base, mkdir=True)
 
 
-# Backward-compat re-exports for symbols moved to their natural homes.
-from boxmot.utils.misc import suppress_boxmot_logs  # noqa: F401
-
-
 def TrackerReIDAdapter(backend: Any):
     """Reuse a tracker-owned ReID backend through the standard ReID stage hooks.
 
@@ -384,7 +380,6 @@ __all__ = (
     "resolve_output_stem",
     "resolve_track_output_dir",
     "save_video",
-    "suppress_boxmot_logs",
     "tracker_backend_from_spec",
     "tracker_config_from_spec",
     "tracker_name_from_spec",

@@ -18,11 +18,6 @@ _DETECTOR_PHASE_KEYS = {
     "process": "detector_process",
     "postprocess": "detector_postprocess",
 }
-_LEGACY_DETECTOR_KEYS = {
-    "preprocess": "preprocess",
-    "process": "inference",
-    "postprocess": "postprocess",
-}
 _REID_PHASE_KEYS = {
     "preprocess": "reid_preprocess",
     "process": "reid_process",
@@ -95,9 +90,6 @@ def derive_timing_breakdown(
     normalized = {
         key: float(totals.get(key, 0.0) or 0.0)
         for key in (
-            "preprocess",
-            "inference",
-            "postprocess",
             "det",
             "reid",
             "track",
@@ -113,15 +105,10 @@ def derive_timing_breakdown(
     }
 
     detector_has_split = any(normalized[_DETECTOR_PHASE_KEYS[phase]] > 0.0 for phase in DETECTOR_PHASES)
-    detector_has_legacy = any(normalized[key] > 0.0 for key in ("preprocess", "inference", "postprocess"))
     if detector_has_split:
         detector_preprocess_total = normalized["detector_preprocess"]
         detector_process_total = normalized["detector_process"]
         detector_postprocess_total = normalized["detector_postprocess"]
-    elif detector_has_legacy:
-        detector_preprocess_total = normalized["preprocess"]
-        detector_process_total = normalized["inference"]
-        detector_postprocess_total = normalized["postprocess"]
     else:
         detector_preprocess_total = 0.0
         detector_process_total = normalized["det"]
@@ -215,18 +202,18 @@ def build_timing_display_rows(
 
     detector_rows: list[dict[str, object]] = [{"kind": "group", "label": "Detector"}]
     if detector_cached:
-        detector_rows.append(_note("  detections loaded from cache"))
+        detector_rows.append(_note("  detections loaded from cache (0 ms)"))
     else:
         detector_rows.extend([
             _row("  preprocess", float(breakdown["detector_preprocess_total"])),
             _row("  process", float(breakdown["detector_process_total"])),
             _row("  postprocess", float(breakdown["detector_postprocess_total"])),
+            _row("  Detector total", float(breakdown["det_total"]), strong=True),
         ])
-    detector_rows.append(_row("  Detector total", float(breakdown["det_total"]), strong=True))
 
     tracker_rows: list[dict[str, object]] = [{"kind": "group", "label": "Tracker"}]
     if reid_cached:
-        tracker_rows.append(_note("  embeddings loaded from cache"))
+        tracker_rows.append(_note("  embeddings loaded from cache (0 ms)"))
     else:
         tracker_rows.extend([
             _row("  ReID preprocess", float(breakdown["reid_preprocess_total"])),
@@ -259,9 +246,6 @@ class TimingStats:
 
     def reset(self):
         self.totals = {
-            'preprocess': 0.0,
-            'inference': 0.0,
-            'postprocess': 0.0,
             'detector_preprocess': 0.0,
             'detector_process': 0.0,
             'detector_postprocess': 0.0,
@@ -324,13 +308,11 @@ class TimingStats:
         self._last_reid_time = getattr(self, '_last_reid_time', 0) + time_ms
 
     def add_detector_phase_time(self, phase: str, time_ms: float) -> None:
-        """Record detector phase timing while keeping legacy aggregate buckets updated."""
+        """Record detector phase timing."""
         phase_key = str(phase).strip().lower()
         specific_key = _DETECTOR_PHASE_KEYS[phase_key]
-        legacy_key = _LEGACY_DETECTOR_KEYS[phase_key]
         elapsed_ms = float(time_ms or 0.0)
         self.totals[specific_key] += elapsed_ms
-        self.totals[legacy_key] += elapsed_ms
 
     def add_reid_phase_time(self, phase: str, time_ms: float) -> None:
         """Record ReID phase timing and total per-frame ReID time."""

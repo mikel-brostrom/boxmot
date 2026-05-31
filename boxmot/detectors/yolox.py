@@ -138,10 +138,8 @@ class YoloXDetector(BaseDetectorBackend):
         79: "toothbrush",
     }
 
-    def __init__(self, model, device, args=None, imgsz=None):
-        # args: accepted for backward compatibility but not stored
-        # imgsz: explicit image size override; falls back to args.imgsz or 640
-        raw = imgsz or (getattr(args, 'imgsz', None) if args is not None else None) or 640
+    def __init__(self, model, device, imgsz=None):
+        raw = imgsz or 640
         vals = raw if isinstance(raw, (list, tuple)) else (raw,)
         w, h = (vals * 2)[:2]
         self.imgsz = [w, h]

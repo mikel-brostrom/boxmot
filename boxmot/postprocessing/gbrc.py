@@ -120,7 +120,15 @@ def process_file(
     seq_name = file_path.stem if progress_queue is not None else None
     if progress_queue is not None:
         progress_queue.put((seq_name, -1, 0))  # mark as processing
-    tracking_results = np.loadtxt(file_path, delimiter=",")
+    try:
+        tracking_results = np.loadtxt(file_path, delimiter=",")
+    except (ValueError, OSError) as exc:
+        LOGGER.warning(f"GBRC: could not load {file_path}: {exc}. Skipping...")
+        if progress_queue is not None:
+            progress_queue.put((seq_name, 1, 1))
+        return
+    if tracking_results.ndim == 1 and tracking_results.size > 0:
+        tracking_results = tracking_results.reshape(1, -1)
 
     if tracking_results.size == 0:
         LOGGER.warning(f"No tracking results in {file_path}. Skipping...")
@@ -183,10 +191,15 @@ def gbrc(
     total_files = len(tracking_files)
     LOGGER.debug(f"GBRC: Found {total_files} file(s) to process.")
 
+    if total_files == 0:
+        LOGGER.warning("GBRC: No .txt files found in results folder. Nothing to process.")
+        return
+
     progress_callback = safe_seq_progress_callback(progress_callback)
     use_queue = progress_callback is not None
     spawn_ctx = mp.get_context("spawn")
     manager_ctx = spawn_ctx.Manager() if use_queue else nullcontext()
+    failed_files: list[str] = []
 
     with manager_ctx as manager:
         progress_queue = manager.Queue() if use_queue else None
@@ -222,6 +235,7 @@ def gbrc(
                             future.result()
                         except Exception as e:
                             LOGGER.error(f"Error processing file {file_path}: {e}")
+                            failed_files.append(str(file_path))
                         seq_progress[file_path.stem] = (1, 1)  # mark complete
 
                     # Drain queue and emit latest state
@@ -241,6 +255,13 @@ def gbrc(
                         future.result()
                     except Exception as e:
                         LOGGER.error(f"Error processing file {file_path}: {e}")
+                        failed_files.append(str(file_path))
+
+    if failed_files and len(failed_files) == total_files:
+        raise RuntimeError(
+            f"GBRC postprocessing failed for all {total_files} file(s). "
+            f"Check logs for details."
+        )
 
 
 def main():

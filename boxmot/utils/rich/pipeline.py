@@ -399,14 +399,21 @@ class PipelineTracker:
         )
 
         # Always use transient live + clean reprint for the final panel
-        if exc_val is None and self._workflow._live is not None:
+        if self._workflow._live is not None:
             self._workflow._live.transient = True
 
         self._workflow.stop()
         if self._wire_status_fns:
             _set_status_fns(None)
 
-        if exc_val is None:
+        if exc_val is not None:
+            # On crash, print the full untruncated panel so no traceback
+            # lines are hidden by the live-view terminal height limit.
+            ui.print_renderable(
+                self._workflow.renderable(compact=False, include_setup=False),
+                stderr=self._workflow.stderr,
+            )
+        else:
             if want_interactive:
                 self.show_interactive()
             # Print the clean final panel (no Setup, consistent with interactive)

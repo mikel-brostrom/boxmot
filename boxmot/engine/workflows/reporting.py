@@ -446,24 +446,6 @@ def print_validation_cli_report(
             print_fn(report)
 
 
-# ── Backward-compat re-exports for tune formatting (moved to tune_reporting) ──
-# Lazy to avoid circular import (tune_reporting → workflow_reporting → tune_reporting).
-_TUNE_REEXPORTS = {
-    "estimate_tune_remaining",
-    "format_named_progress",
-    "format_progress_bar",
-    "format_remaining_time",
-    "format_tune_progress",
-}
-
-
-def __getattr__(name: str):
-    if name in _TUNE_REEXPORTS:
-        from boxmot.utils.rich import tune_reporting
-        return getattr(tune_reporting, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 __all__ = (
     "CLI_RESULTS_SUMMARY_TITLE",
     "CLI_TUNE_BEST_SUMMARY_TITLE",
@@ -472,13 +454,8 @@ __all__ = (
     "DEFAULT_VALIDATION_REPORT_TITLE",
     "SUMMARY_COLUMNS",
     "core_summary_metrics",
-    "estimate_tune_remaining",
     "extract_summary",
     "format_core_summary",
-    "format_named_progress",
-    "format_progress_bar",
-    "format_remaining_time",
-    "format_tune_progress",
     "format_validation_report",
     "print_validation_cli_report",
     "render_validation_cli_report",

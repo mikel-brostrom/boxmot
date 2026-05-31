@@ -22,6 +22,9 @@ from boxmot.data.cache import (
     AppendableNpyWriter,
     _collect_seq_info,
     _existing_cache_path,
+    _existing_embedding_cache_path,
+    _load_embedding_cache_array,
+    _load_numeric_cache_array,
     _max_frame_id,
     _saved_detection_column_count,
 )
@@ -77,7 +80,10 @@ __all__ = [
     "_configure_benchmark_runtime",
     "_ensure_eval_dependencies",
     "_existing_cache_path",
+    "_existing_embedding_cache_path",
     "_load_benchmark_cfg",
+    "_load_embedding_cache_array",
+    "_load_numeric_cache_array",
     "_load_obb_gt_matrix",
     "_max_frame_id",
     "_ordered_benchmark_eval_class_names",
@@ -151,8 +157,8 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
                             max_frame = frame_id
                     if max_frame:
                         seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
-            except Exception:
-                LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference")
+            except (ValueError, OSError) as exc:
+                LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference: {exc}")
 
     if getattr(args, "benchmark", None):
         save_dir = Path(args.project) / args.benchmark / args.name
@@ -260,7 +266,8 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     if benchmark_id:
         try:
             bench_cfg = (load_benchmark_cfg(benchmark_id) or {}).get("benchmark", {})
-        except Exception:
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            LOGGER.debug(f"Could not load benchmark config for class remap: {exc}")
             pass
 
     if str(bench_cfg.get("box_type", "")).lower() == "obb":
@@ -291,15 +298,6 @@ def log_eval_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
     return EvalWorkflowReporter(args).create()
 
 
-# KF tuning helpers — delegated to boxmot.engine.tuning.kf_tuning
-from boxmot.engine.tuning.kf_tuning import (  # noqa: E402
-    _TRACKER_KF_MAP,
-    resolve_kf_train_root as _resolve_kf_train_root,
-    run_kf_tuning as _run_kf_tuning,
-    tracker_kf_type as _tracker_kf_type,
-)
-
-
 def run_eval(
     args: argparse.Namespace,
     *,
@@ -327,9 +325,6 @@ def run_eval(
         eval_setup(args, pipeline=pipeline)
         if pipeline is not None:
             pipeline.refresh_fields(_build_eval_workflow_fields(args))
-            from boxmot.utils.rich.eval_reporting import build_setup_configs_renderable
-            configs_renderable = build_setup_configs_renderable(args)
-            pipeline.store_step_info(renderable=configs_renderable)
 
     # -- Generate detections & embeddings --
     if prepare_cache:
@@ -345,52 +340,10 @@ def run_eval(
                 timing_stats=timing_stats,
                 progress_callback=pipeline.callback() if pipeline and show_progress else None,
             )
-
-    # -- KF Tuning (optional) --
-    tune_kf = getattr(args, "tune_kf", False)
-    if tune_kf:
-        if pipeline is not None:
-            pipeline.advance("Tuning KF noise...")
-        kf_type = _tracker_kf_type(str(getattr(args, "tracker", "")))
-        if kf_type:
-            want_capture = pipeline is not None
-            kf_result, kf_log = _run_kf_tuning(
-                args, kf_type=kf_type, verbose=verbose, capture=want_capture,
-            )
-            if kf_result:
-                args.kf_tuning = kf_result
-                if pipeline is not None:
-                    pipeline.store_step_info(
-                        text=kf_log or f"KF type: {kf_type}, tuned Q/R from GT tracks",
-                    )
-        else:
-            LOGGER.warning(
-                f"KF tuning skipped: tracker '{args.tracker}' does not use a supported KF."
-            )
-            if pipeline is not None:
-                pipeline.store_step_info(text="Skipped: unsupported KF type")
-
     if pipeline is not None:
         pipeline.advance("Starting tracker...")
 
-    # -- Track + Postprocess --
-    pp_raw = getattr(args, "postprocessing", "none")
-    has_postprocess = pp_raw.strip().lower() not in ("none", "")
-
-    # Build a postprocess callback that advances the pipeline on first call
-    pp_callback = None
-    if has_postprocess and pipeline is not None:
-        _pp_advanced = False
-
-        def _pp_cb(msg: str) -> None:
-            nonlocal _pp_advanced
-            if not _pp_advanced:
-                pipeline.advance("Postprocessing tracks...")
-                _pp_advanced = True
-            pipeline.callback()(msg)
-
-        pp_callback = _pp_cb
-
+    # -- Track --
     with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(
             args,
@@ -398,31 +351,12 @@ def run_eval(
             timing_stats=timing_stats,
             quiet=not bool(show_progress),
             progress_callback=pipeline.callback() if pipeline and show_progress else None,
-            postprocess_callback=pp_callback,
         )
     if pipeline is not None:
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --
-    # Skip evaluation for splits without ground truth (e.g. test)
-    _skip_eval = False
-    _bench_cfg = _load_benchmark_cfg(args)
-    _no_gt_splits = (_bench_cfg.get("no_gt_splits") or [])
-    _current_split = getattr(args, "split", None)
-    if _current_split and _current_split in _no_gt_splits:
-        _skip_eval = True
-        LOGGER.info(
-            f"Skipping evaluation: split '{_current_split}' has no ground truth."
-        )
-
-    if _skip_eval:
-        raw_results = {}
-        if pipeline is not None:
-            pipeline.store_step_info(
-                text=f"Skipped: no ground truth for split '{_current_split}'"
-            )
-    else:
-        raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
+    raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
@@ -436,14 +370,10 @@ def run_eval(
     )
     if pipeline is not None:
         include_timings = bool(getattr(args, "show_timing", False))
-        pipeline.store_step_info(
-            renderable=result.renderable(include_timings=include_timings),
-        )
-        pipeline.finish(
+        pipeline.complete_step()
+        pipeline.set_detail_renderable(
+            pipeline.current_step,
             result.renderable(include_timings=include_timings),
-            include_steps=True,
-            exp_dir=result.exp_dir,
-            interactive=bool(getattr(args, "interactive", False)),
         )
 
     return result
@@ -452,7 +382,6 @@ def run_eval(
 def main(args):
     _normalize_eval_models(args)
     pipeline = EvalWorkflowReporter(args).pipeline()
-    pipeline._workflow.include_setup = False
     with pipeline:
         result = run_eval(args, verbose=False, pipeline=pipeline)
 
