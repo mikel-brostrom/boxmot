@@ -517,9 +517,8 @@ def _build_detail_panel(
             lines = [f"  \u25b2 {hidden} more lines above"] + lines[-max_lines:]
             text = "\n".join(lines)
         if failed:
-            # Errors must ALWAYS be shown in full — fold long lines instead
-            # of silently truncating them.  This applies globally to every
-            # pipeline (track, eval, tune) via this single code path.
+            # Errors are ALWAYS shown in full — fold long lines so
+            # tracebacks are never silently clipped.
             rendered = Text.from_ansi(text)
             rendered.no_wrap = False
             rendered.overflow = "fold"
@@ -660,10 +659,12 @@ class WorkflowProgress:
         renderable = self._live_renderable()
         if self._live is not None:
             self._live.update(renderable, refresh=True)
-            # Rich LiveRender.position_cursor() only erases lines it moves UP
-            # through.  When the renderable shrinks (e.g. KF output → progress
-            # bar), stale lines remain below.  Emit "erase in display from
-            # cursor to end" to clear them.
+            # WORKAROUND: Rich LiveRender.position_cursor() only erases lines
+            # it moves UP through.  When the renderable shrinks (e.g. KF output
+            # → progress bar), stale lines remain below.  Rich provides no
+            # public API for "erase in display from cursor to end" (ED 0), so
+            # we emit the ANSI escape directly.  This bypasses Rich's pipeline
+            # intentionally; revisit if Rich adds a clear-below helper.
             if not self._uses_alt_screen:
                 console = get_console(stderr=self.stderr)
                 console.file.write("\x1b[J")

@@ -8,6 +8,8 @@ import io
 from pathlib import Path
 
 from boxmot.configs.benchmark import load_benchmark_cfg
+from rich.markup import escape as _escape_markup
+
 from boxmot.utils import logger as LOGGER
 
 # Mapping from tracker name to KF parameterization type
@@ -152,7 +154,7 @@ def run_kf_tuning(
         return None, ""
 
     if not capture:
-        LOGGER.info(f"[bold]KF Tuning[/bold] ({kf_type}): GT={gt_root}, dets={dets_root}")
+        LOGGER.info(f"[bold]KF Tuning[/bold] ({_escape_markup(str(kf_type))}): GT={_escape_markup(str(gt_root))}, dets={_escape_markup(str(dets_root))}")
     buf = io.StringIO() if capture else None
     cm = contextlib.redirect_stdout(buf) if buf is not None else contextlib.nullcontext()
 

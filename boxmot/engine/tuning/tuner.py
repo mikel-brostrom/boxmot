@@ -35,6 +35,8 @@ from boxmot.engine.workflows.reporting import (
     SUMMARY_COLUMNS,
 )
 from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
+from rich.markup import escape as _escape_markup
+
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path, suppress_boxmot_logs
@@ -604,7 +606,7 @@ def _save_all_results(
     try:
         _save_results_csv(csv_path, trial_data)
         if emit_logs:
-            LOGGER.info(f"[bold]Results CSV:[/bold] [cyan]{csv_path}[/cyan]")
+            LOGGER.info(f"[bold]Results CSV:[/bold] [cyan]{_escape_markup(str(csv_path))}[/cyan]")
     except OSError as exc:
         LOGGER.warning(f"Failed to write results CSV: {exc}")
         csv_path = None
