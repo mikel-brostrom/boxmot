@@ -43,9 +43,9 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_HUB_ENABLE_HF_TRANSFER: "1"
+          HF_XET_HIGH_PERFORMANCE: "1"
         run: |
-          pip install huggingface_hub hf_transfer
+          pip install huggingface_hub
           python -c "
           from huggingface_hub import snapshot_download
           snapshot_download(
