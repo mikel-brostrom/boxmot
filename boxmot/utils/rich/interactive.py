@@ -124,7 +124,6 @@ def _read_key() -> str:
 
 def _build_interactive_pipeline_section(
     labels: list[str],
-    records: dict[str, StepRecord],
     cursor: int,
     active_step: int | None,
 ) -> Group:
@@ -209,7 +208,7 @@ def _build_full_interactive_panel(
 
     # Interactive Pipeline section (horizontal bar)
     renderables.append(
-        _build_interactive_pipeline_section(labels, records, cursor, active_step)
+        _build_interactive_pipeline_section(labels, cursor, active_step)
     )
 
     total_lines = 0

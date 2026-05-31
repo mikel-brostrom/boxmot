@@ -23,7 +23,7 @@ from boxmot.utils.rich.steps import (
     SETUP as TUNE_SETUP_STEP,
 )
 from boxmot.utils.rich.steps import (
-    tune_steps,
+    TUNE_STEPS,
 )
 
 
@@ -97,6 +97,7 @@ class TuneWorkflowProgress(ui.WorkflowProgress):
             detail_title=self.detail_title,
             detail_text=self.detail_text,
             detail_renderable=self.detail_renderable,
+            include_setup=include_setup,
             compact=compact,
         )
 
@@ -104,13 +105,16 @@ class TuneWorkflowProgress(ui.WorkflowProgress):
 class TuneWorkflowReporter(RichWorkflowReporter):
     title = "Tuning"
     prefer_compact_layout = True
+    SETUP = 0
+    GENERATE = 1
+    OPTIMIZE = 2
+    steps = TUNE_STEPS
     start_on_create = False
 
     def __init__(self, args: Any, *, maximize: list[str], minimize: list[str]) -> None:
         super().__init__(args)
         self.maximize = maximize
         self.minimize = minimize
-        self.steps = tune_steps(tune_kf=bool(getattr(args, "tune_kf", False)))
 
     def fields(self) -> list[tuple[str, object]]:
         return build_tune_workflow_fields(self.args, maximize=self.maximize, minimize=self.minimize)

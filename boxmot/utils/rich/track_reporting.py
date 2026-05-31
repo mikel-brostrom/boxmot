@@ -20,7 +20,7 @@ from boxmot.utils.rich.steps import (
 )
 
 
-def _tracker_name_from_spec_safe(spec):
+def _tracker_name_from_spec_safe(spec: Any) -> str | None:
     """Best-effort tracker name extraction without importing engine internals."""
     from boxmot.trackers.specs import parse_tracker_spec
 
@@ -30,10 +30,7 @@ def _tracker_name_from_spec_safe(spec):
         return None
 
 
-# Use shared format_param_label from reporting module
-
-
-def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
+def _build_track_tracker_parameter_fields(args: Any) -> list[tuple[str, object]]:
     tracker_name = _tracker_name_from_spec_safe(getattr(args, "tracker", None))
     if tracker_name is None:
         return []
@@ -53,7 +50,7 @@ def _build_track_tracker_parameter_fields(args) -> list[tuple[str, object]]:
     return params
 
 
-def _build_track_pipeline_parameter_fields(args) -> list[tuple[str, object]]:
+def _build_track_pipeline_parameter_fields(args: Any) -> list[tuple[str, object]]:
     items: list[tuple[str, object]] = []
     device = getattr(args, "device", None)
     if device not in {None, ""}:
@@ -84,7 +81,7 @@ def _build_track_pipeline_parameter_fields(args) -> list[tuple[str, object]]:
     return items
 
 
-def _build_track_workflow_fields(args) -> list[tuple[str, object]]:
+def _build_track_workflow_fields(args: Any) -> list[tuple[str, object]]:
     fields: list[tuple[str, object]] = []
 
     detector = primary_model_ref(getattr(args, "detector", None))

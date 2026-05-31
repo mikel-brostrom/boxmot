@@ -130,7 +130,7 @@ class RichTqdm:
 
     def __iter__(self) -> Iterator[Any]:
         if self._iterable is None:
-            return
+            return iter(())
         try:
             for item in self._iterable:
                 yield item

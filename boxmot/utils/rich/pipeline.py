@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Group, RenderableType
-from rich.panel import Panel
 from rich.text import Text
 from rich.tree import Tree
 
@@ -358,8 +357,6 @@ class PipelineTracker:
         if parts:
             combined = Group(*parts) if len(parts) > 1 else parts[0]
             self._workflow.set_detail_renderable(title, combined, render=False)
-        elif renderable is not None:
-            self._workflow.set_detail_renderable(title, renderable, render=False)
 
         self._interactive_on_exit = interactive
 

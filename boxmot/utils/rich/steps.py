@@ -48,6 +48,7 @@ def compose(*labels: str) -> tuple[tuple[str, StepState], ...]:
 TRACK_STEPS    = compose(SETUP, TRACK)
 GENERATE_STEPS = compose(SETUP, GENERATE)
 EXPORT_STEPS   = compose(SETUP, EXPORT)
+TUNE_STEPS     = compose(SETUP, GENERATE, OPTIMIZE)
 RESEARCH_STEPS = compose(PREPARE, BASELINE, RESEARCH_OPTIMIZE, BEST_CANDIDATE)
 
 
