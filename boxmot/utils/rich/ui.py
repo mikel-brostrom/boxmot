@@ -516,7 +516,16 @@ def _build_detail_panel(
             hidden = len(lines) - max_lines
             lines = [f"  \u25b2 {hidden} more lines above"] + lines[-max_lines:]
             text = "\n".join(lines)
-        content = _decode_ansi(text)
+        if failed:
+            # Errors must ALWAYS be shown in full — fold long lines instead
+            # of silently truncating them.  This applies globally to every
+            # pipeline (track, eval, tune) via this single code path.
+            rendered = Text.from_ansi(text)
+            rendered.no_wrap = False
+            rendered.overflow = "fold"
+            content = rendered
+        else:
+            content = _decode_ansi(text)
 
     title_style = STYLE_STATUS_FAILED if failed else STYLE_TITLE
     title = Text(detail_title or "Live Detail", style=title_style)
