@@ -1022,7 +1022,7 @@ def _execute_tune_search(
             if time_budget is not None:
                 tune_config_kwargs["time_budget_s"] = float(time_budget)
 
-            tuner = tne.Tuner(
+            tuner = tune.Tuner(
                 trainable,
                 param_space=search_space,
                 tune_config=tune.TuneConfig(**tune_config_kwargs),
