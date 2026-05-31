@@ -16,6 +16,9 @@ from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
 )
 from boxmot.native._common import (
+    dets_n_embs_root,
+)
+from boxmot.native._common import (
     infer_onnx_output_names as _infer_onnx_output_names,
 )
 from boxmot.native._common import (

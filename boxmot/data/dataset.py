@@ -99,6 +99,15 @@ def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
         img_dir = _sequence_img_dir(seq_dir)
         frame_files = _list_sequence_frames(img_dir)
         if not frame_files:
+            # Fall back to seqinfo.ini for frame count (e.g. pre-generated cache)
+            seqinfo_file = seq_dir / "seqinfo.ini"
+            if seqinfo_file.exists():
+                cfg = configparser.ConfigParser()
+                cfg.read(seqinfo_file)
+                seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
+                if seq_length > 0:
+                    seq_paths.append(img_dir)
+                    seq_info[seq_dir.name] = seq_length
             continue
         seq_paths.append(img_dir)
         seq_info[seq_dir.name] = len(frame_files)
@@ -198,6 +207,22 @@ class MOTDataset:
             img_dir = _sequence_img_dir(seq_dir)
             imgs = _list_sequence_frames(img_dir)
             if not imgs:
+                # Fall back to seqinfo.ini for frame count
+                seqinfo_file = seq_dir / "seqinfo.ini"
+                if seqinfo_file.exists():
+                    cfg = configparser.ConfigParser()
+                    cfg.read(seqinfo_file)
+                    seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
+                    if seq_length > 0:
+                        frame_ids = list(range(1, seq_length + 1))
+                        self.seqs[name] = {
+                            "seq_dir": seq_dir,
+                            "frame_ids": np.array(frame_ids, dtype=int),
+                            "frame_paths": [],
+                            "det_path": None,
+                            "emb_path": None,
+                            "mask_path": None,
+                        }
                 continue
             frame_ids = [int(path.stem) for path in imgs]
 
@@ -263,6 +288,7 @@ class MOTSequence:
         show_progress: bool = True,
         progress_queue=None,
         skip_image_load: bool = False,
+        n_cache_peers: int = 0,
     ):
         self.name = name
         self.meta = meta
@@ -270,6 +296,7 @@ class MOTSequence:
         self.show_progress = show_progress
         self.progress_queue = progress_queue
         self.skip_image_load = skip_image_load
+        self._frame_cache = None
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
         self._masks_flat: Optional[np.ndarray] = None

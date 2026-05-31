@@ -408,7 +408,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     layout = cfg.get("layout") or "mot"
     trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
 
-    names = dict(cfg.get("classes") or {})
+    names = dict(cfg.get("classes") or cfg.get("names") or {})
     distractors = dict(cfg.get("distractors") or {})
     class_map = dict(cfg.get("class_map") or {})
 

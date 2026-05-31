@@ -246,7 +246,8 @@ class TrackingSession:
         return predictor.trackers
 
     def run(self):
-        from boxmot import Boxmot as _Boxmot
+        # Use module-level Boxmot (supports monkeypatching in tests)
+        _Boxmot = Boxmot
 
         api = _Boxmot(
             detector=_primary_model_ref(getattr(self.args, "detector", None)),
@@ -424,3 +425,12 @@ def main(args):
             classes=getattr(args, "classes", None),
             pipeline=pipeline,
         )
+
+
+def __getattr__(name: str):
+    """Lazy module-level attribute for ``Boxmot`` (avoids circular imports)."""
+    if name == "Boxmot":
+        from boxmot.api._facade import Boxmot
+        globals()["Boxmot"] = Boxmot
+        return Boxmot
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

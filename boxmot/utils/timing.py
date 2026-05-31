@@ -203,6 +203,7 @@ def build_timing_display_rows(
     detector_rows: list[dict[str, object]] = [{"kind": "group", "label": "Detector"}]
     if detector_cached:
         detector_rows.append(_note("  detections loaded from cache (0 ms)"))
+        detector_rows.append(_row("  Detector total", float(breakdown["det_total"]), strong=True))
     else:
         detector_rows.extend([
             _row("  preprocess", float(breakdown["detector_preprocess_total"])),
@@ -238,6 +239,23 @@ def build_timing_display_rows(
     ]
 
 
+_LEGACY_TOTALS_ALIASES = {
+    "preprocess": "detector_preprocess",
+    "inference": "detector_process",
+    "postprocess": "detector_postprocess",
+}
+
+
+class _AliasedTotals(dict):
+    """Dict subclass that provides backward-compat aliases for legacy key names."""
+
+    def __missing__(self, key):
+        canonical = _LEGACY_TOTALS_ALIASES.get(key)
+        if canonical is not None and canonical in self:
+            return self[canonical]
+        raise KeyError(key)
+
+
 class TimingStats:
     """Track timing statistics for detection, ReID, and tracking phases."""
 
@@ -245,7 +263,7 @@ class TimingStats:
         self.reset()
 
     def reset(self):
-        self.totals = {
+        self.totals = _AliasedTotals({
             'detector_preprocess': 0.0,
             'detector_process': 0.0,
             'detector_postprocess': 0.0,
@@ -256,7 +274,7 @@ class TimingStats:
             'track': 0.0,
             'plot': 0.0,
             'total': 0.0,
-        }
+        })
         self.metadata = {}
         self.frames = 0
         self._frame_start = None

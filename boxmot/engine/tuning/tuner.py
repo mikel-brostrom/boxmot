@@ -149,7 +149,7 @@ def yaml_to_search_space(config: dict, tune) -> dict:
         else:
             LOGGER.warning(f"Skipping param '{param}': unknown type '{t}'")
     if not space:
-        raise ValueError(
+        LOGGER.warning(
             "No valid search space parameters found in tracker config. "
             "Check that the YAML contains entries with valid 'type' and 'range'/'options' keys."
         )
