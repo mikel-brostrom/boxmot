@@ -132,7 +132,7 @@ docs = [
 
 [project.optional-dependencies]
 yolo = [
-  "ultralytics>=3.8.200",
+  "ultralytics>=8.4.58",
   "yolox==0.3.0",
   # yolox 0.3.0 imports loguru in its dist utilities but does not declare it
   # in the metadata uv reads, so pull it in explicitly here.

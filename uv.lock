@@ -458,7 +458,7 @@ requires-dist = [
     { name = "torch", specifier = ">=2.2.1,<3.0.0" },
     { name = "torchvision", specifier = ">=0.17.1,<1.0.0" },
     { name = "transformers", marker = "extra == 'rtdetr'", specifier = ">=5.0.0" },
-    { name = "ultralytics", marker = "extra == 'yolo'", specifier = ">=3.8.200" },
+    { name = "ultralytics", marker = "extra == 'yolo'", specifier = ">=8.4.58" },
     { name = "yacs", specifier = ">=0.1.8,<1.0.0" },
     { name = "yolox", marker = "extra == 'yolo'", specifier = "==0.3.0" },
 ]
@@ -5898,7 +5898,7 @@ wheels = [
 
 [[package]]
 name = "ultralytics"
-version = "8.4.36"
+version = "8.4.58"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "matplotlib" },
@@ -5916,9 +5916,9 @@ dependencies = [
     { name = "torchvision" },
     { name = "ultralytics-thop" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/58/55/431fc69618281f8c8568f2d635bb0f42593f0134bedf2a6a4e631eadabee/ultralytics-8.4.36.tar.gz", hash = "sha256:cd973a7bdd9e427379e0f14240e34d9ff34db8f277189ac53385a376d1da3656", size = 1032735, upload-time = "2026-04-08T16:55:35.806Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7f/ad/0ea2862daf4ea446a3d703b88e18609e91261e4baf73c9c64f768f071c52/ultralytics-8.4.58.tar.gz", hash = "sha256:5fcfeb6015104bc82148f868e9967ff65d92a14d97b0aa106751814355aa3b9b", size = 1070796, upload-time = "2026-05-31T11:25:16.851Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/55/bc/34b54f39068953449e3dbd0a94751a39fb71a6ca067b28912aa9260d735c/ultralytics-8.4.36-py3-none-any.whl", hash = "sha256:d814f238ec6367569a0312d7b6706d438e943dfa86721054bba90308840a315d", size = 1223688, upload-time = "2026-04-08T16:55:31.891Z" },
+    { url = "https://files.pythonhosted.org/packages/58/89/0aa5355bf0f48719ff10c16df5953e8c1c9f3768b16f7eb80977f4342ffd/ultralytics-8.4.58-py3-none-any.whl", hash = "sha256:5b7b33094956f208ed0ec6d95a111e827a25b7559c162e2e0ac1d3078f762911", size = 1270785, upload-time = "2026-05-31T11:25:12.826Z" },
 ]
 
 [[package]]
