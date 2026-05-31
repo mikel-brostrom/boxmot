@@ -11,6 +11,7 @@ on:
 env:
   UV_TORCH_BACKEND: cpu
   UV_INDEX_STRATEGY: unsafe-best-match
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 permissions:
   contents: write
@@ -96,34 +97,12 @@ jobs:
           sudo apt-get install -y jq curl unzip cmake g++ libopencv-dev libeigen3-dev
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
 
-      - name: Restore MOT17 dataset cache
-        id: cache-restore
+      - name: Restore HF dataset cache
         uses: actions/cache@v4
         with:
-          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v4
-
-      - name: Cache MOT17.zip if not already cached
-        if: steps.cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        with:
-          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v4
-
-      - name: mmot-mini OBB smoke tracking
-        id: obb_smoke
-        run: |
-          source .venv/bin/activate
-          TRACKER_BACKEND_ARGS=()
-          if [ "${{ matrix.backend }}" = "cpp" ]; then
-            TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
-          fi
-
-          if boxmot track --detector yolo11n-obb.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }}_${{ matrix.backend }} --exist-ok; then
-            echo "obb_status=✅" >> $GITHUB_OUTPUT
-          else
-            echo "obb_status=❌" >> $GITHUB_OUTPUT
-          fi
+          path: |
+            ~/.cache/huggingface/hub
+          key: hf-mot17-parquet-cache-v1
 
       - name: Evaluation and summarize MOT metrics
         run: |
