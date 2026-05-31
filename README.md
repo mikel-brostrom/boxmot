@@ -224,7 +224,7 @@ Related guides:
 CLI:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker occluboost
+boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost --source 0 --save --show
 ```
 
 Python:
