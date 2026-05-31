@@ -11,3 +11,8 @@
 [data-md-color-scheme="default"] .md-header__button.md-logo svg {
   filter: invert(1);
 }
+
+.md-header__button.md-logo img {
+  height: 2.5rem;  /* default is ~1.2rem; increase as desired */
+  width: auto;
+}
