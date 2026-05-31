@@ -46,8 +46,8 @@ jobs:
           HF_XET_HIGH_PERFORMANCE: "1"
         run: |
           pip install huggingface_hub
-          hf download Lekim89/mot17-parquet --repo-type dataset --include "images/train/*" "data/*"
-          hf download Lekim89/runs --repo-type dataset --include "runs/dets_n_embs/mot17/ablation/*"
+          hf download Lekim89/mot17-parquet --repo-type dataset --include "images/train/**" --include "data/**"
+          hf download Lekim89/runs --repo-type dataset --include "runs/dets_n_embs/mot17/ablation/**"
 
   mot-metrics-benchmark:
     runs-on: ubuntu-latest
