@@ -224,19 +224,24 @@ Related guides:
 CLI:
 
 ```bash
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
+boxmot eval --benchmark mot17 --split ablation --tracker occluboost
 ```
 
 Python:
 
 ```python
-from boxmot import Boxmot
+import numpy as np
+from boxmot.trackers import OccluBoost
 
-run = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort").track(
-    source="video.mp4",
-    save=True,
-)
-print(run)
+tracker = OccluBoost()
+
+# dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
+dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
+img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
+
+# tracks: (M, 8) array with [x1, y1, x2, y2, id, conf, cls, det_ind] per track
+tracks = tracker.update(dets, img)
+print(tracks)
 ```
 
 ## Contributing
