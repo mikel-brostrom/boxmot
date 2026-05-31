@@ -43,8 +43,9 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_HUB_ENABLE_HF_TRANSFER: "1"
         run: |
-          pip install huggingface_hub
+          pip install huggingface_hub hf_transfer
           python -c "
           from huggingface_hub import snapshot_download
           snapshot_download(
@@ -135,7 +136,7 @@ jobs:
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
 
       - name: Restore HF dataset cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             ~/.cache/huggingface/hub
