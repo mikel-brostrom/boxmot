@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import yaml
-
 import boxmot.utils.rich.ui as ui
-from boxmot.trackers.tracker_zoo import get_tracker_config
-from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label, primary_model_ref
+from boxmot.utils.rich.reporting import RichWorkflowReporter
 from boxmot.utils.rich.steps import (
     SETUP as TRACK_SETUP_STEP,
 )
@@ -30,83 +27,87 @@ def _tracker_name_from_spec_safe(spec: Any) -> str | None:
         return None
 
 
-def _build_track_tracker_parameter_fields(args: Any) -> list[tuple[str, object]]:
-    tracker_name = _tracker_name_from_spec_safe(getattr(args, "tracker", None))
-    if tracker_name is None:
-        return []
-
-    try:
-        with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    except Exception:
-        return []
-
-    params: list[tuple[str, object]] = []
-    for param_name, details in raw.items():
-        value = getattr(args, param_name, details.get("default"))
-        if value is None:
-            value = details.get("default")
-        params.append((format_param_label(param_name), value))
-    return params
-
-
-def _build_track_pipeline_parameter_fields(args: Any) -> list[tuple[str, object]]:
-    items: list[tuple[str, object]] = []
-    device = getattr(args, "device", None)
-    if device not in {None, ""}:
-        items.append(("Device", device))
-
-    items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
-
-    tracker_backend = getattr(args, "tracker_backend", None)
-    if tracker_backend not in {None, ""}:
-        items.append(("Tracker backend", tracker_backend))
-
-    imgsz = getattr(args, "imgsz", None)
-    if imgsz is not None:
-        items.append(("Image size", imgsz))
-
-    conf = getattr(args, "conf", None)
-    if conf is not None:
-        items.append(("Confidence", conf))
-
-    iou = getattr(args, "iou", None)
-    if iou is not None:
-        items.append(("IoU", iou))
-
-    items.append(("Show", bool(getattr(args, "show", False))))
-    items.append(("Save video", bool(getattr(args, "save", False))))
-    items.append(("Save txt", bool(getattr(args, "save_txt", False))))
-
-    return items
-
-
 def _build_track_workflow_fields(args: Any) -> list[tuple[str, object]]:
+    """Build workflow fields as compact subsystem cards (like eval view)."""
+    import os as _os
+
     fields: list[tuple[str, object]] = []
 
-    detector = primary_model_ref(getattr(args, "detector", None))
-    if detector is not None:
-        fields.append(("Detector", detector))
-
-    reid = primary_model_ref(getattr(args, "reid", None))
-    if reid is not None:
-        fields.append(("ReID", reid))
-
+    # ── Tracker card ──────────────────────────────────────────────
     tracker = getattr(args, "tracker", None)
-    if tracker not in {None, ""}:
-        fields.append(("Tracker", _tracker_name_from_spec_safe(tracker) or tracker))
+    tracker_backend = getattr(args, "tracker_backend", None)
+    with_reid = getattr(args, "with_reid", None)
+    cmc_method = getattr(args, "cmc_method", None)
 
+    tracker_items: list[tuple[str, object]] = []
+    if tracker:
+        tracker_items.append(("Name", _tracker_name_from_spec_safe(tracker) or tracker))
+    if tracker_backend not in {None, ""}:
+        tracker_items.append(("Backend", tracker_backend))
+    if with_reid is not None:
+        tracker_items.append(("ReID", "✓" if with_reid else "✗"))
+    if cmc_method not in {None, "", "none"}:
+        tracker_items.append(("CMC", cmc_method))
+    if tracker_items:
+        fields.append(("__panel__:Tracker", tracker_items))
+
+    # ── Detector card ─────────────────────────────────────────────
+    detector = getattr(args, "detector", None)
+    detector_items: list[tuple[str, object]] = []
+    if detector:
+        det_name = _os.path.basename(str(detector[0] if isinstance(detector, (list, tuple)) else detector).replace("\\", "/"))
+        for ext in (".pt", ".onnx", ".engine", ".torchscript"):
+            if det_name.endswith(ext):
+                det_name = det_name[: -len(ext)]
+                break
+        detector_items.append(("Model", det_name))
+    imgsz = getattr(args, "imgsz", None)
+    if imgsz is not None:
+        if isinstance(imgsz, (list, tuple)):
+            detector_items.append(("Size", f"{imgsz[0]}×{imgsz[1]}"))
+        else:
+            detector_items.append(("Size", str(imgsz)))
+    conf = getattr(args, "conf", None)
+    if conf is not None:
+        detector_items.append(("Conf", f"≥ {conf}"))
+    if detector_items:
+        fields.append(("__panel__:Detector", detector_items))
+
+    # ── ReID card ─────────────────────────────────────────────────
+    reid = getattr(args, "reid", None)
+    reid_items: list[tuple[str, object]] = []
+    if reid:
+        reid_name = _os.path.basename(str(reid[0] if isinstance(reid, (list, tuple)) else reid).replace("\\", "/"))
+        for ext in (".pt", ".onnx", ".engine", ".torchscript"):
+            if reid_name.endswith(ext):
+                reid_name = reid_name[: -len(ext)]
+                break
+        reid_items.append(("Model", reid_name))
+    if reid_items:
+        fields.append(("__panel__:ReID", reid_items))
+
+    # ── Source card ───────────────────────────────────────────────
     source = getattr(args, "source", None)
+    source_items: list[tuple[str, object]] = []
     if source not in {None, ""}:
-        fields.append(("Source", source))
+        source_items.append(("Input", source))
+    if source_items:
+        fields.append(("__panel__:Source", source_items))
 
-    tracker_params = _build_track_tracker_parameter_fields(args)
-    if tracker_params:
-        fields.append(("__panel__:Tracker Parameters", tracker_params))
-
-    pipeline_params = _build_track_pipeline_parameter_fields(args)
-    if pipeline_params:
-        fields.append(("__panel__:Pipeline Parameters", pipeline_params))
+    # ── Runtime card ──────────────────────────────────────────────
+    runtime_items: list[tuple[str, object]] = []
+    device = getattr(args, "device", None)
+    if device not in {None, ""}:
+        runtime_items.append(("Device", device))
+    runtime_items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
+    iou = getattr(args, "iou", None)
+    if iou is not None:
+        runtime_items.append(("IoU", iou))
+    runtime_items.append(("Show", bool(getattr(args, "show", False))))
+    runtime_items.append(("Save video", bool(getattr(args, "save", False))))
+    runtime_items.append(("Save txt", bool(getattr(args, "save_txt", False))))
+    if runtime_items:
+        fields.append(("__panel__:Runtime", runtime_items))
 
     return fields
 
