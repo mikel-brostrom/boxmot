@@ -361,7 +361,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
-    path_value = cfg.get("root") or ""
+    path_value = cfg.get("root") or cfg.get("path") or ""
 
     split_name = str(cfg.get("default_split") or cfg.get("split") or "")
 
