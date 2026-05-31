@@ -186,7 +186,7 @@ jobs:
           results_file, readme_file = sys.argv[1], sys.argv[2]
 
           # --- Parse CI results ---
-          py_data = {}   # tracker -> {hota, mota, idf1}
+          py_data = {}   # tracker -> {status, hota, mota, idf1}
           cpp_data = {}  # tracker -> {hota, mota, idf1}
 
           with open(results_file) as f:
@@ -195,13 +195,13 @@ jobs:
                       continue
                   sort_key, tracker, backend, status, obb, hota, mota, idf1, fps = row[:9]
                   if backend == "py":
-                      py_data[tracker] = {"hota": hota, "mota": mota, "idf1": idf1}
+                      py_data[tracker] = {"status": status, "hota": hota, "mota": mota, "idf1": idf1}
                   elif backend == "cpp":
                       cpp_data[tracker] = {"hota": hota, "mota": mota, "idf1": idf1}
 
           def fmt(val):
-              if not val or val in ("-", "—"):
-                  return "—"
+              if not val or val in ("-", "\u2014"):
+                  return "\u2014"
               try:
                   return f"{float(val):.2f}"
               except ValueError:
@@ -224,17 +224,17 @@ jobs:
 
           table_section = readme[start_idx:end_idx + len(end_marker)]
 
-          # --- Update each tracker row (only MOT17 cells) ---
-          # Each row has 11 <td> cells:
-          #   0: Tracker name, 1-3: MOT17 (HOTA,MOTA,IDF1),
-          #   4-6: SportsMOT, 7-9: MMOT, 10: OBB
-          row_pattern = re.compile(r"(<tr>\s*\n(?:\s*<td[^>]*>.*?</td>\s*\n){11}\s*</tr>)", re.DOTALL)
+          # --- Update each tracker row (Status + MOT17 cells) ---
+          # Each row has 12 <td> cells:
+          #   0: Tracker name, 1: Status, 2-4: MOT17 (HOTA,MOTA,IDF1),
+          #   5-7: SportsMOT, 8-10: MMOT, 11: OBB
+          row_pattern = re.compile(r"(<tr>\s*\n(?:\s*<td[^>]*>.*?</td>\s*\n){12}\s*</tr>)", re.DOTALL)
           td_pattern = re.compile(r"(<td[^>]*><sub>)(.*?)(</sub></td>)")
 
           def update_row(match):
               row_html = match.group(0)
               cells = td_pattern.findall(row_html)
-              if len(cells) < 11:
+              if len(cells) < 12:
                   return row_html
 
               # Identify tracker from cell 0 content
@@ -247,12 +247,13 @@ jobs:
               py = py_data[tracker_name]
               cpp = cpp_data.get(tracker_name, {})
 
+              new_status = py["status"]
               new_hota = mot17_cell(py["hota"], cpp.get("hota", ""))
               new_mota = mot17_cell(py["mota"], cpp.get("mota", ""))
               new_idf1 = mot17_cell(py["idf1"], cpp.get("idf1", ""))
 
-              # Replace cells 1-3 (MOT17 columns) only
-              replacements = {1: new_hota, 2: new_mota, 3: new_idf1}
+              # Replace cells 1 (Status) and 2-4 (MOT17)
+              replacements = {1: new_status, 2: new_hota, 3: new_mota, 4: new_idf1}
               cell_idx = [0]
 
               def replace_td(m):
@@ -270,7 +271,7 @@ jobs:
           with open(readme_file, "w") as f:
               f.write(new_readme)
 
-          print(f"Updated MOT17 results for: {', '.join(py_data.keys())}")
+          print(f"Updated Status + MOT17 results for: {', '.join(py_data.keys())}")
           SCRIPT
 
       - name: Check for changes in benchmark docs
