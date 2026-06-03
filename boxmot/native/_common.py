@@ -371,7 +371,7 @@ def cached_embedding_path(
     """Return the expected path of a cached embedding ``.npy`` for a sequence.
 
     The canonical bucket name comes from :func:`boxmot.data.cache.reid_cache_key`
-    (e.g. ``lmbn_n_duke_onnx_ort_cpp``).
+    (e.g. ``lmbn_n_duke_onnx_ort``).
     """
     from boxmot.data.cache import reid_cache_key
 

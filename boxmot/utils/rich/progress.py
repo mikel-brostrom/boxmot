@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Iterator
 
-from rich.errors import LiveError
 from rich.progress import (
     BarColumn,
     DownloadColumn,
@@ -80,18 +79,24 @@ class RichTqdm:
                 columns.append(TextColumn(unit))
         columns.append(TimeRemainingColumn())
 
-        self._progress = Progress(
-            *columns,
-            console=get_console(stderr=True),
-            transient=not leave,
-        )
-        try:
-            self._progress.start()
-        except LiveError:
-            # Another Rich Live display is already active (e.g. workflow panel)
+        console = get_console(stderr=True)
+
+        # Rich 15+ supports nested Live displays (no LiveError raised), so
+        # we explicitly check for an active Live on the console.  When a
+        # workflow panel already owns the terminal, RichTqdm should silently
+        # disable itself — callers should use WorkflowDetailCallback.bar()
+        # instead to host progress inside the existing Live region.
+        if console._live_stack:
             self._progress = None
             self._task_id = None
             return
+
+        self._progress = Progress(
+            *columns,
+            console=console,
+            transient=not leave,
+        )
+        self._progress.start()
         self._task_id = self._progress.add_task(
             self._desc,
             total=total,
@@ -125,7 +130,7 @@ class RichTqdm:
 
     def __iter__(self) -> Iterator[Any]:
         if self._iterable is None:
-            return
+            return iter(())
         try:
             for item in self._iterable:
                 yield item

@@ -337,7 +337,13 @@ def process_sequence(
             if embs_arg is None and not _has_real_frames:
                 embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
             masks_arg = masks if (masks is not None and masks.size) else None
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
+            try:
+                tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
+            except Exception as exc:
+                LOGGER.warning(
+                    f"Tracker update failed on {seq_name} frame {frame_id}: {exc}"
+                )
+                continue
             frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
             total_reid_time_ms += frame_reid_time_ms
             total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
@@ -349,8 +355,6 @@ def process_sequence(
     tracker_obj = tracker_runtime.tracker
     if hasattr(tracker_obj, "flush_gta"):
         gta_entries = tracker_obj.flush_gta()
-        if isinstance(gta_entries, tuple):
-            gta_entries = gta_entries[0]  # legacy compat
         if gta_entries.size:
             all_tracks.append(gta_entries)
 

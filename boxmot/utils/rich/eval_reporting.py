@@ -6,15 +6,13 @@ import argparse
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from rich.console import Group, RenderableType
 from rich.text import Text
 
 import boxmot.utils.rich.ui as ui
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import get_tracker_config
-from boxmot.utils.rich.reporting import RichWorkflowReporter, format_param_label
+from boxmot.utils.rich.reporting import RichWorkflowReporter
 from boxmot.utils.rich.steps import (
     eval_steps,
 )
@@ -42,78 +40,6 @@ def _effective_eval_tracker_backend(args: argparse.Namespace) -> str | None:
         return None
 
     return normalize_tracker_backend(raw_tracker_backend, default="python")
-
-
-# Use shared format_param_label from reporting module
-
-
-def _read_yaml_mapping(cfg_path: Path | None) -> dict[str, object]:
-    if cfg_path is None:
-        return {}
-    try:
-        with open(cfg_path, "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    except Exception:
-        return {}
-    return raw if isinstance(raw, dict) else {}
-
-
-def _build_eval_tracker_parameter_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
-    try:
-        tracker_name = parse_tracker_spec(getattr(args, "tracker", "")).name
-    except Exception:
-        return []
-
-    try:
-        with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-            raw = yaml.safe_load(handle) or {}
-    except Exception:
-        return []
-
-    params: list[tuple[str, object]] = []
-    for param_name, details in raw.items():
-        value = getattr(args, param_name, details.get("default"))
-        if value is None:
-            value = details.get("default")
-        params.append((format_param_label(param_name), value))
-    return params
-
-
-def _build_eval_pipeline_parameter_fields(
-    args: argparse.Namespace,
-    *,
-    tracker_backend: str | None,
-    replay_backend: str,
-) -> list[tuple[str, object]]:
-    items: list[tuple[str, object]] = []
-    if tracker_backend:
-        items.append(("Tracker backend", tracker_backend))
-    if replay_backend not in {"", None}:
-        items.append(("Replay backend", replay_backend))
-
-    device = getattr(args, "device", None)
-    if device not in {None, ""}:
-        items.append(("Device", device))
-
-    items.append(("Precision", "fp16" if bool(getattr(args, "half", False)) else "fp32"))
-
-    imgsz = getattr(args, "imgsz", None)
-    if imgsz is not None:
-        items.append(("Image size", imgsz))
-
-    conf = getattr(args, "conf", None)
-    if conf is not None:
-        items.append(("Confidence", conf))
-
-    n_threads = getattr(args, "n_threads", None)
-    if n_threads is not None:
-        items.append(("Threads", n_threads))
-
-    postprocessing = getattr(args, "postprocessing", None)
-    if postprocessing not in {None, ""}:
-        items.append(("Postprocessing", postprocessing))
-
-    return items
 
 
 def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, object]]:
@@ -224,14 +150,6 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
         fields.append(("__panel__:Runtime", runtime_items))
 
     return fields
-
-
-def _read_yaml_text(path: Path) -> str | None:
-    """Read a YAML file and return its text, or None on failure."""
-    try:
-        return path.read_text(encoding="utf-8").rstrip()
-    except Exception:
-        return None
 
 
 def _config_link(label: str, path: Path) -> Text:

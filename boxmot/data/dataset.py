@@ -72,7 +72,6 @@ from typing import Dict, Generator, List, Optional, Union
 import cv2
 import numpy as np
 
-from boxmot.data.frame_cache import FrameCache
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.progress import RichTqdm as tqdm
 
@@ -93,52 +92,25 @@ def _sequence_name_from_img_dir(img_dir: Path) -> str:
     return img_dir.parent.name if img_dir.name == "img1" else img_dir.name
 
 
-def _infer_sequence_length(seq_dir: Path) -> int:
-    """Infer sequence length when frame files are not present locally."""
-    seqinfo = seq_dir / "seqinfo.ini"
-    if seqinfo.exists():
-        try:
-            cfg = configparser.ConfigParser()
-            cfg.read(seqinfo)
-            seq_len = cfg.getint("Sequence", "seqLength")
-            if seq_len > 0:
-                return seq_len
-        except Exception:
-            pass
-
-    def _max_frame_from_csv(path: Path) -> int:
-        if not path.exists():
-            return 0
-        try:
-            data = np.loadtxt(path, delimiter=",")
-            if data.size == 0:
-                return 0
-            if data.ndim == 1:
-                data = data.reshape(1, -1)
-            return int(np.max(data[:, 0]))
-        except Exception:
-            return 0
-
-    gt_len = _max_frame_from_csv(seq_dir / "gt" / "gt.txt")
-    det_len = _max_frame_from_csv(seq_dir / "det" / "det.txt")
-    return max(gt_len, det_len)
-
-
 def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
     seq_paths: list[Path] = []
     seq_info: dict[str, int] = {}
     for seq_dir in sorted(path for path in source.iterdir() if path.is_dir()):
         img_dir = _sequence_img_dir(seq_dir)
         frame_files = _list_sequence_frames(img_dir)
-        if frame_files:
-            seq_paths.append(img_dir)
-            seq_info[seq_dir.name] = len(frame_files)
+        if not frame_files:
+            # Fall back to seqinfo.ini for frame count (e.g. pre-generated cache)
+            seqinfo_file = seq_dir / "seqinfo.ini"
+            if seqinfo_file.exists():
+                cfg = configparser.ConfigParser()
+                cfg.read(seqinfo_file)
+                seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
+                if seq_length > 0:
+                    seq_paths.append(img_dir)
+                    seq_info[seq_dir.name] = seq_length
             continue
-
-        inferred_len = _infer_sequence_length(seq_dir)
-        if inferred_len > 0:
-            seq_paths.append(img_dir)
-            seq_info[seq_dir.name] = inferred_len
+        seq_paths.append(img_dir)
+        seq_info[seq_dir.name] = len(frame_files)
     return seq_paths, seq_info
 
 
@@ -187,6 +159,21 @@ class MOTDataset:
             if reid_name:
                 embs_root = base / "embs"
                 self.embs_dir = embs_root / reid_name / preprocess_name
+                # If the raw reid_name directory does not exist, try the
+                # canonical cache key used by ``boxmot.engine.eval.cache``
+                # (e.g. ``lmbn_n_duke_pt_pytorch_py``).
+                if not self.embs_dir.exists():
+                    try:
+                        from boxmot.data.cache import reid_cache_key
+                    except ImportError:
+                        pass
+                    else:
+                        for backend in ("py", "cpp"):
+                            key = reid_cache_key(reid_name, tracker_backend=backend)
+                            candidate_dir = embs_root / key / preprocess_name
+                            if candidate_dir.exists():
+                                self.embs_dir = candidate_dir
+                                break
             else:
                 self.embs_dir = None
         else:
@@ -198,9 +185,9 @@ class MOTDataset:
         if self.masks_dir is None and det_emb_root and model_name:
             masks_base = Path(det_emb_root) / model_name / "masks"
             if masks_base.is_dir():
-                # Use the first subdirectory that contains mask files (.npy or legacy .npz)
+                # Use the first subdirectory that contains .npy mask files
                 for sub in sorted(masks_base.iterdir()):
-                    if sub.is_dir() and (any(sub.glob("*.npy")) or any(sub.glob("*.npz"))):
+                    if sub.is_dir() and any(sub.glob("*.npy")):
                         self.masks_dir = sub
                         break
 
@@ -219,13 +206,25 @@ class MOTDataset:
                     continue
             img_dir = _sequence_img_dir(seq_dir)
             imgs = _list_sequence_frames(img_dir)
-            if imgs:
-                frame_ids = [int(path.stem) for path in imgs]
-            else:
-                inferred_len = _infer_sequence_length(seq_dir)
-                if inferred_len <= 0:
-                    continue
-                frame_ids = list(range(1, inferred_len + 1))
+            if not imgs:
+                # Fall back to seqinfo.ini for frame count
+                seqinfo_file = seq_dir / "seqinfo.ini"
+                if seqinfo_file.exists():
+                    cfg = configparser.ConfigParser()
+                    cfg.read(seqinfo_file)
+                    seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
+                    if seq_length > 0:
+                        frame_ids = list(range(1, seq_length + 1))
+                        self.seqs[name] = {
+                            "seq_dir": seq_dir,
+                            "frame_ids": np.array(frame_ids, dtype=int),
+                            "frame_paths": [],
+                            "det_path": None,
+                            "emb_path": None,
+                            "mask_path": None,
+                        }
+                continue
+            frame_ids = [int(path.stem) for path in imgs]
 
             if self.dets_dir:
                 npy_path = self.dets_dir / f"{name}.npy"
@@ -239,7 +238,6 @@ class MOTDataset:
             else:
                 emb_path = None
 
-            # Mask cache path (.npy, same row order as dets)
             mask_path = None
             if self.masks_dir:
                 npy_path = self.masks_dir / f"{name}.npy"
@@ -290,7 +288,7 @@ class MOTSequence:
         show_progress: bool = True,
         progress_queue=None,
         skip_image_load: bool = False,
-        n_cache_peers: int = 1,
+        n_cache_peers: int = 0,
     ):
         self.name = name
         self.meta = meta
@@ -298,16 +296,12 @@ class MOTSequence:
         self.show_progress = show_progress
         self.progress_queue = progress_queue
         self.skip_image_load = skip_image_load
-        self.n_cache_peers = n_cache_peers
+        self._frame_cache = None
         self.dets: Optional[np.ndarray] = None
         self.embs: Optional[np.ndarray] = None
-        self.masks_data: Optional[Dict[int, np.ndarray]] = None
         self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
         self.frame_paths: List[Path] = meta["frame_paths"]
-        self._frame_cache: Optional[FrameCache] = None
-        if not self.skip_image_load:
-            self._frame_cache = FrameCache(self.frame_paths, n_cache_peers=self.n_cache_peers)
         self._prepare()
 
     def _prepare(self) -> None:
@@ -348,11 +342,12 @@ class MOTSequence:
         # Load mask cache
         if self.meta.get("mask_path"):
             mask_path = Path(self.meta["mask_path"])
-            # Bit-packed format: (total_dets, H, W_packed) uint8, same row order as dets/embs
-            masks_arr = np.load(str(mask_path), mmap_mode="r")
-            if hasattr(self, "_fps_mask"):
-                masks_arr = masks_arr[self._fps_mask]
-            self._masks_flat = masks_arr
+            if mask_path.suffix == ".npy":
+                # Bit-packed format: (total_dets, H, W_packed) uint8, same row order as dets/embs
+                masks_arr = np.load(str(mask_path), mmap_mode="r")
+                if hasattr(self, "_fps_mask"):
+                    masks_arr = masks_arr[self._fps_mask]
+                self._masks_flat = masks_arr
 
     def _build_det_index(self) -> Dict[int, tuple]:
         """Build a mapping from frame_id to (start, end) row indices in self.dets."""
@@ -375,37 +370,14 @@ class MOTSequence:
     def __len__(self) -> int:
         return len(self.frame_ids)
 
-    def _stub_image_shape(self) -> tuple[int, int]:
-        seqinfo = self.meta["seq_dir"] / "seqinfo.ini"
-        if seqinfo.exists():
-            try:
-                cfg = configparser.ConfigParser()
-                cfg.read(seqinfo)
-                h = cfg.getint("Sequence", "imHeight")
-                w = cfg.getint("Sequence", "imWidth")
-                if h > 0 and w > 0:
-                    return h, w
-            except Exception:
-                pass
-        return 720, 1280
-
     def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
         """Yield frame dictionaries one by one."""
         total = len(self.frame_ids)
         progress_queue = self.progress_queue
         _img_stub: Optional[np.ndarray] = None
-
-        has_frame_files = len(self.frame_paths) > 0
-        if not has_frame_files and total > 0:
-            h, w = self._stub_image_shape()
-            _img_stub = np.empty((h, w, 3), dtype=np.uint8)
-            iter_pairs = ((int(fid), None) for fid in self.frame_ids)
-        else:
-            iter_pairs = zip(self.frame_ids, self.frame_paths)
-
         for index, (fid, img_path) in enumerate(
             tqdm(
-                iter_pairs,
+                zip(self.frame_ids, self.frame_paths),
                 total=total,
                 desc=f"Frames {self.name}",
                 disable=not self.show_progress,
@@ -419,12 +391,8 @@ class MOTSequence:
 
             # After the first frame, reuse a small stub image when caller
             # only needs shape (e.g. tracking replay with cached embeddings).
-            if img_path is None and _img_stub is not None:
+            if self.skip_image_load and _img_stub is not None:
                 img = _img_stub
-            elif self.skip_image_load and _img_stub is not None:
-                img = _img_stub
-            elif self._frame_cache is not None:
-                img = self._frame_cache.read_image(img_path)
             elif img_path.suffix == ".npy":
                 img = np.load(str(img_path))
                 # Convert multi-channel arrays to 3-channel BGR for tracker compatibility
@@ -471,13 +439,6 @@ class MOTSequence:
                 dets_f = np.zeros((0, 5))
                 embs_f = np.zeros((0, 128))
                 masks_f = None
-
-            # Legacy .npz masks fallback (keyed by frame id)
-            if masks_f is None and self.masks_data is not None:
-                masks_f = self.masks_data.get(fid)
-                # Align masks to detection count
-                if masks_f is not None and masks_f.shape[0] != dets_f.shape[0]:
-                    masks_f = None
 
             yield {
                 "frame_id": fid,

@@ -102,7 +102,7 @@ dependencies = [
   "torchvision>=0.17.1,<1.0.0",
   "click>=8.1.8",
   # Rich console + logging UI used across the CLI workflows.
-  "rich>=13.0.0",
+  "rich>=15.0.0",
   # clip reid needs
   "ftfy<7.0.0,>=6.1.3",
   "yacs<1.0.0,>=0.1.8",
@@ -132,7 +132,7 @@ docs = [
 
 [project.optional-dependencies]
 yolo = [
-  "ultralytics>=3.8.200",
+  "ultralytics>=8.4.58",
   "yolox==0.3.0",
   # yolox 0.3.0 imports loguru in its dist utilities but does not declare it
   # in the metadata uv reads, so pull it in explicitly here.

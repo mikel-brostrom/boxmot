@@ -43,7 +43,7 @@ def test_tracking_session_consumes_finite_track_runs_without_show_or_save(monkey
 
     session = tracker_module.TrackingSession(
         SimpleNamespace(
-            source="assets/mmot-mini/train/npy/data23-1",
+            source="assets/DOTA8-MOT/train/P1142__1024__0___824/img1",
             detector="yolo11s-obb.pt",
             reid="lmbn_n_duke.pt",
             tracker="strongsort",
@@ -317,7 +317,6 @@ def test_run_track_routes_progress_into_workflow(monkeypatch, tmp_path):
             self.completed = []
             self.detail_renderable = None
             self.detail_text = None
-            self.detail_title = None
 
         def set_detail(self, title, text, *, render=True):
             self.details.append((title, text, render))
@@ -382,9 +381,6 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             self.prefer_alt_screen = False
             self.prefer_compact_layout = False
             self._live = None
-            self.detail_renderable = None
-            self.detail_text = None
-            self.detail_title = None
 
         def start(self):
             self.started = True
@@ -405,7 +401,7 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
         def fail(self, label=None, error=None, *, render=True):
             return None
 
-        def renderable(self, *, compact=False, include_setup=True):
+        def renderable(self, **kwargs):
             return ""
 
     def fake_create_workflow_progress(title, fields, *, steps=(), stderr=False, transient=False):
@@ -418,6 +414,7 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
         return "track-result"
 
     monkeypatch.setattr(tracker_module.ui, "create_workflow_progress", fake_create_workflow_progress)
+    monkeypatch.setattr(tracker_module.ui, "print_renderable", lambda *a, **kw: None)
     monkeypatch.setattr(tracker_module, "run_track", fake_run_track)
 
     result = tracker_module.main(
@@ -444,8 +441,13 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
     assert workflow.title == "Tracking"
     assert workflow.started is True
     assert workflow.stopped is True
-    assert ("Tracker", "botsort") in workflow.fields
-    assert ("Source", "0") in workflow.fields
+    # Cards are now subsystem-based (like eval view)
+    tracker_card = dict(workflow.fields).get("__panel__:Tracker")
+    assert tracker_card is not None
+    assert ("Name", "botsort") in tracker_card
+    source_card = dict(workflow.fields).get("__panel__:Source")
+    assert source_card is not None
+    assert ("Input", "0") in source_card
     assert (tracker_module.TRACK_SETUP_STEP, "active") in workflow.steps
     assert (tracker_module.TRACK_RUN_STEP, "todo") in workflow.steps
     assert calls == [

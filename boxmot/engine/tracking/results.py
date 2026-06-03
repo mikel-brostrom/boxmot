@@ -89,6 +89,7 @@ class FrameResult:
         get_drawer: Callable[[], Drawer | None],
         stop_session: Callable[[str | None], None] | None = None,
         embeddings: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
     ) -> None:
         self.frame_idx = int(frame_idx)
         self.frame = frame
@@ -100,6 +101,7 @@ class FrameResult:
         # Reorder detections and embeddings to align with tracks via det_ind
         raw_dets = None if detections is None else self._as_2d_array(detections)
         self.detections, self.embeddings = self._align_to_tracks(raw_dets, embeddings)
+        self.masks = self._align_masks(masks)
 
     @staticmethod
     def _as_2d_array(values: Any) -> np.ndarray:
@@ -141,6 +143,17 @@ class FrameResult:
 
         return aligned_dets, aligned_embs
 
+    def _align_masks(self, masks: np.ndarray | None) -> np.ndarray | None:
+        """Reorder masks to align 1-to-1 with tracks via det_ind."""
+        if masks is None or self.tracks.size == 0:
+            return None
+        det_inds = self.tracks.det_ind
+        valid = det_inds >= 0
+        h, w = masks.shape[1], masks.shape[2]
+        aligned = np.zeros((len(self.tracks), h, w), dtype=masks.dtype)
+        aligned[valid] = masks[det_inds[valid]]
+        return aligned
+
     # ------------------------------------------------------------------
     # Convenience
     # ------------------------------------------------------------------
@@ -161,6 +174,24 @@ class FrameResult:
         drawn = frame.copy()
         if self.tracks.size == 0:
             return drawn
+
+        # Draw mask overlays first (beneath boxes)
+        if self.masks is not None:
+            h_frame, w_frame = drawn.shape[:2]
+            for i in range(len(self.tracks)):
+                mask = self.masks[i]
+                if mask.sum() == 0:
+                    continue
+                track_id = int(self.tracks.id[i])
+                color = _track_color(track_id)
+                # Resize mask to frame dimensions if needed
+                h_mask, w_mask = mask.shape[:2]
+                if (h_mask, w_mask) != (h_frame, w_frame):
+                    mask = cv2.resize(mask, (w_frame, h_frame), interpolation=cv2.INTER_NEAREST)
+                colored = np.zeros_like(drawn)
+                colored[:] = color
+                mask_bool = mask.astype(bool)
+                drawn[mask_bool] = cv2.addWeighted(drawn, 0.6, colored, 0.4, 0)[mask_bool]
 
         for i in range(len(self.tracks)):
             track_id = int(self.tracks.id[i])
@@ -409,6 +440,16 @@ class Results:
             return np.empty((0, 6), dtype=np.float32)
         return Results._as_2d_array(output, empty_cols=6)
 
+    @staticmethod
+    def _extract_masks(output: Any) -> np.ndarray | None:
+        if isinstance(output, (list, tuple)) and len(output) == 1:
+            output = output[0]
+        if isinstance(output, Detections) and output.masks is not None:
+            return output.masks
+        if hasattr(output, "masks"):
+            return getattr(output, "masks")
+        return None
+
     def _iter_frames(self):
         source = self.source
         if isinstance(source, (str, Path)):
@@ -477,7 +518,7 @@ class Results:
         self.totals[phase_key] += elapsed_ms
         self.totals["reid"] += elapsed_ms
 
-    def _run_detector_timed(self, frame: np.ndarray) -> tuple[np.ndarray, float]:
+    def _run_detector_timed(self, frame: np.ndarray) -> tuple[np.ndarray, np.ndarray | None, float]:
         if all(hasattr(self.detector, attr) for attr in ("preprocess", "process", "postprocess")):
             try:
                 preprocess_started = time.perf_counter()
@@ -496,7 +537,8 @@ class Results:
                 self._add_detector_phase_time("postprocess", postprocess_ms)
 
                 dets = self._extract_detections(detector_output)
-                return dets, preprocess_ms + process_ms + postprocess_ms
+                masks = self._extract_masks(detector_output)
+                return dets, masks, preprocess_ms + process_ms + postprocess_ms
             except NotImplementedError:
                 pass
 
@@ -505,7 +547,8 @@ class Results:
         det_ms = (time.perf_counter() - det_started) * 1000
         self._add_detector_phase_time("process", det_ms)
         dets = self._extract_detections(detector_output)
-        return dets, det_ms
+        masks = self._extract_masks(detector_output)
+        return dets, masks, det_ms
 
     def _run_reid_timed(self, frame: np.ndarray, dets: np.ndarray) -> tuple[np.ndarray | None, float]:
         if self.reid is None:
@@ -546,14 +589,26 @@ class Results:
         self._add_reid_phase_time("process", reid_ms)
         return features, reid_ms
 
-    def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None) -> TrackResults:
-        if features is None:
-            result = self.tracker.update(dets, frame)
-        else:
+    def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None, masks: np.ndarray | None = None) -> TrackResults:
+        kwargs: dict[str, Any] = {}
+        if features is not None:
+            kwargs["embs"] = features
+        if masks is not None:
+            kwargs["masks"] = masks
+        if kwargs:
             try:
-                result = self.tracker.update(dets, frame, features)
+                result = self.tracker.update(dets, frame, **kwargs)
             except TypeError:
-                result = self.tracker.update(dets, frame)
+                # Tracker doesn't accept these kwargs; fall back
+                if features is not None:
+                    try:
+                        result = self.tracker.update(dets, frame, features)
+                    except TypeError:
+                        result = self.tracker.update(dets, frame)
+                else:
+                    result = self.tracker.update(dets, frame)
+        else:
+            result = self.tracker.update(dets, frame)
         if isinstance(result, TrackResults):
             return result
         return TrackResults(result)
@@ -656,11 +711,11 @@ class Results:
 
         try:
             for frame_idx, (path, frame) in enumerate(self._iter_frames(), start=1):
-                dets, det_ms = self._run_detector_timed(frame)
+                dets, masks, det_ms = self._run_detector_timed(frame)
                 features, reid_ms = self._run_reid_timed(frame, dets)
 
                 track_started = time.perf_counter()
-                tracks = self._run_tracker(dets, frame, features)
+                tracks = self._run_tracker(dets, frame, features, masks)
                 track_ms = (time.perf_counter() - track_started) * 1000
                 if self.reid is None:
                     tracker_reid_ms = min(self._tracker_reid_time_ms(), track_ms)
@@ -696,6 +751,7 @@ class Results:
                     get_drawer=lambda: self.drawer,
                     stop_session=self.stop,
                     embeddings=features,
+                    masks=masks,
                 )
         except KeyboardInterrupt:
             self._interrupted = True

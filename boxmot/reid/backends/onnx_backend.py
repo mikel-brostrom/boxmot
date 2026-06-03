@@ -219,10 +219,6 @@ class ONNXBackend(BaseModelBackend):
         self._output_name = base.get_outputs()[0].name
         np_dtype_name = self._ORT_TYPE_TO_NUMPY.get(input_meta.type, "float32")
         self._input_np_dtype = np.dtype(np_dtype_name)
-        self.session = base  # back-compat alias
-
-        # Compatibility shim: tests still introspect `_fixed_batch_size`.
-        self._fixed_batch_size = buckets[0] if len(buckets) == 1 else None
         self._buckets: tuple[int, ...] = buckets
 
         # Pre-allocate pad buffers per bucket so we don't reallocate per call.
@@ -328,7 +324,6 @@ class ONNXBackend(BaseModelBackend):
         self._buckets = ()
         self._fixed_batch_size = None
         self.providers = ["OpenCVDnn"]
-        self.session = net  # back-compat alias
 
         LOGGER.info(
             f"OpenCV-DNN ReID model={os.path.basename(str(w))} "

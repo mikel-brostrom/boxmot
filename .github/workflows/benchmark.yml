@@ -11,19 +11,50 @@ on:
 env:
   UV_TORCH_BACKEND: cpu
   UV_INDEX_STRATEGY: unsafe-best-match
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
 
 permissions:
   contents: write
   pull-requests: write
 
 jobs:
+  download-dataset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Restore HF dataset cache
+        id: cache-restore
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface/hub
+          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/benchmarks/mot17.yaml') }}
+          restore-keys: |
+            hf-mot17-parquet-
+
+      - name: Download MOT17 dataset
+        if: steps.cache-restore.outputs.cache-hit != 'true'
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_XET_HIGH_PERFORMANCE: "1"
+        run: |
+          pip install huggingface_hub
+          hf download Lekim89/mot17-parquet --repo-type dataset --include "images/train/**" --include "data/**"
+          hf download Lekim89/runs --repo-type dataset --include "runs/dets_n_embs/mot17/ablation/**"
+
   mot-metrics-benchmark:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    needs: download-dataset
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        python-version: ['3.12']
         include:
           - tracker: botsort
             backend: py
@@ -78,8 +109,6 @@ jobs:
             sort_key: 81
             fps: "-"
     timeout-minutes: 50
-    env:
-      SMOKE_SOURCE: assets/mmot-mini/train/npy/data23-1
 
     steps:
       - uses: actions/checkout@v4
@@ -87,8 +116,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
+          python-version: '3.12'
 
       - name: Install requirements
         run: |
@@ -96,40 +124,19 @@ jobs:
           sudo apt-get install -y jq curl unzip cmake g++ libopencv-dev libeigen3-dev
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
 
-      - name: Restore MOT17 dataset cache
-        id: cache-restore
-        uses: actions/cache@v4
+      - name: Restore HF dataset cache
+        uses: actions/cache/restore@v4
         with:
-          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v4
+          path: |
+            ~/.cache/huggingface/hub
+          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/benchmarks/mot17.yaml') }}
+          restore-keys: |
+            hf-mot17-parquet-
 
-      - name: Cache MOT17.zip if not already cached
-        if: steps.cache-restore.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
-        with:
-          path: boxmot/engine/eval/trackeval/data/MOT17-ablation.zip
-          key: mot17-ablation-dataset-cache-v4
-
-      - name: mmot-mini OBB smoke tracking
-        id: obb_smoke
-        run: |
-          source .venv/bin/activate
-          TRACKER_BACKEND_ARGS=()
-          if [ "${{ matrix.backend }}" = "cpp" ]; then
-            TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
-          fi
-
-          if boxmot track --detector yolo11n-obb.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --source "$SMOKE_SOURCE" --project runs/benchmark_ci --name ${{ matrix.tracker }}_${{ matrix.backend }} --exist-ok; then
-            echo "obb_status=✅" >> $GITHUB_OUTPUT
-          else
-            echo "obb_status=❌" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Evaluation and summarize MOT metrics
+      - name: Evaluate and summarize MOT metrics
         run: |
           source .venv/bin/activate
 
-          OBB_STATUS="${{ steps.obb_smoke.outputs.obb_status }}"
           TRACKER_BACKEND_ARGS=()
           if [ "${{ matrix.backend }}" = "cpp" ]; then
             TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
@@ -152,7 +159,6 @@ jobs:
           fi
 
           mkdir -p results
-          TRACKER_NAME=$(echo "${{ matrix.tracker }}" | awk '{print tolower($0)}')
 
           if [ "$STATUS" = "❌" ]; then
             fps=""
@@ -160,7 +166,7 @@ jobs:
             fps="${{ matrix.fps }}"
           fi
 
-          echo "${{ matrix.sort_key }},$TRACKER_NAME,${{ matrix.backend }},$STATUS,$OBB_STATUS,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
+          echo "${{ matrix.sort_key }},${{ matrix.tracker }},${{ matrix.backend }},$STATUS,,$HOTA,$MOTA,$IDF1,$fps" > results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
 
       - name: Show Results
         run: cat results/${{ matrix.tracker }}_${{ matrix.backend }}.txt
@@ -208,140 +214,99 @@ jobs:
 
       - name: Update README with tracker results
         run: |
-          RESULTS_FILE="sorted_results.csv"
-          README_FILE="README.md"
-          cp "$README_FILE" "${README_FILE}.bak"
+          python3 - sorted_results.csv README.md << 'SCRIPT'
+          import csv, re, sys
 
-          declare -A paper_links
-          paper_links["boosttrack"]="https://arxiv.org/abs/2408.13003"
-          paper_links["occluboost"]=""
-          paper_links["deepocsort"]="https://arxiv.org/abs/2302.11813"
-          paper_links["bytetrack"]="https://arxiv.org/abs/2110.06864"
-          paper_links["ocsort"]="https://arxiv.org/abs/2203.14360"
-          paper_links["strongsort"]="https://arxiv.org/abs/2202.13514"
-          paper_links["botsort"]="https://arxiv.org/abs/2206.14651"
-          paper_links["hybridsort"]="https://arxiv.org/abs/2308.00783"
-          paper_links["sfsort"]="https://arxiv.org/pdf/2404.07553"
+          results_file, readme_file = sys.argv[1], sys.argv[2]
 
-          declare -A seen_tracker
-          declare -A py_obb
-          declare -A cpp_obb
-          declare -A py_hota
-          declare -A py_mota
-          declare -A py_idf1
-          declare -A py_fps
-          declare -A py_status
-          declare -A cpp_hota
-          declare -A cpp_mota
-          declare -A cpp_idf1
-          declare -A cpp_fps
-          declare -A cpp_status
-          trackers=()
+          # --- Parse CI results ---
+          py_data = {}   # tracker -> {status, hota, mota, idf1}
+          cpp_data = {}  # tracker -> {hota, mota, idf1}
 
-          fmt_metric() {
-            local value="$1"
-            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
-              printf -- "—"
-              return
-            fi
-            # Round to 2 decimals when numeric, otherwise pass through.
-            if printf "%f" "$value" >/dev/null 2>&1; then
-              printf "%.2f" "$value"
-            else
-              printf -- "%s" "$value"
-            fi
-          }
+          with open(results_file) as f:
+              for row in csv.reader(f):
+                  if len(row) < 9:
+                      continue
+                  sort_key, tracker, backend, status, obb, hota, mota, idf1, fps = row[:9]
+                  if backend == "py":
+                      py_data[tracker] = {"status": status, "hota": hota, "mota": mota, "idf1": idf1}
+                  elif backend == "cpp":
+                      cpp_data[tracker] = {"hota": hota, "mota": mota, "idf1": idf1}
 
-          fmt_fps() {
-            local value="$1"
-            if [ -z "$value" ] || [ "$value" = "-" ] || [ "$value" = "—" ]; then
-              printf -- "—"
-              return
-            fi
-            printf -- "%s" "$value"
-          }
+          def fmt(val):
+              if not val or val in ("-", "\u2014"):
+                  return "\u2014"
+              try:
+                  return f"{float(val):.2f}"
+              except ValueError:
+                  return val
 
-          while IFS=, read -r sort_key tracker backend status obb hota mota idf1 fps; do
-            if [ -z "${seen_tracker[$tracker]}" ]; then
-              trackers+=("$tracker")
-              seen_tracker[$tracker]=1
-            fi
-            if [ "$backend" = "py" ]; then
-              py_obb[$tracker]="$obb"
-              py_status[$tracker]="$status"
-              py_hota[$tracker]="$hota"
-              py_mota[$tracker]="$mota"
-              py_idf1[$tracker]="$idf1"
-              py_fps[$tracker]="$fps"
-            elif [ "$backend" = "cpp" ]; then
-              cpp_obb[$tracker]="$obb"
-              cpp_status[$tracker]="$status"
-              cpp_hota[$tracker]="$hota"
-              cpp_mota[$tracker]="$mota"
-              cpp_idf1[$tracker]="$idf1"
-              cpp_fps[$tracker]="$fps"
-            fi
-          done < "$RESULTS_FILE"
+          def mot17_cell(py_val, cpp_val):
+              return f"{fmt(py_val)}<br>({fmt(cpp_val)})"
 
-          new_table="<table>\n"
-          new_table+="  <thead>\n"
-          new_table+="    <tr>\n"
-          new_table+="      <th rowspan=\"2\" align=\"left\">Tracker</th>\n"
-          new_table+="      <th colspan=\"4\" align=\"center\">Python</th>\n"
-          new_table+="      <th colspan=\"4\" align=\"center\">C++</th>\n"
-          new_table+="    </tr>\n"
-          new_table+="    <tr>\n"
-          new_table+="      <th align=\"right\">HOTA</th>\n"
-          new_table+="      <th align=\"right\">MOTA</th>\n"
-          new_table+="      <th align=\"right\">IDF1</th>\n"
-          new_table+="      <th align=\"center\">OBB</th>\n"
-          new_table+="      <th align=\"right\">HOTA</th>\n"
-          new_table+="      <th align=\"right\">MOTA</th>\n"
-          new_table+="      <th align=\"right\">IDF1</th>\n"
-          new_table+="      <th align=\"center\">OBB</th>\n"
-          new_table+="    </tr>\n"
-          new_table+="  </thead>\n"
-          new_table+="  <tbody>\n"
+          # --- Read README and locate table ---
+          with open(readme_file) as f:
+              readme = f.read()
 
-          for tracker in "${trackers[@]}"; do
-            paper_url=${paper_links[$tracker]:-#}
+          start_marker = "<!-- START TRACKER TABLE -->"
+          end_marker = "<!-- END TRACKER TABLE -->"
+          start_idx = readme.find(start_marker)
+          end_idx = readme.find(end_marker)
+          if start_idx == -1 or end_idx == -1:
+              print("ERROR: table markers not found", file=sys.stderr)
+              sys.exit(1)
 
-            py_h=$(fmt_metric "${py_hota[$tracker]}")
-            py_m=$(fmt_metric "${py_mota[$tracker]}")
-            py_i=$(fmt_metric "${py_idf1[$tracker]}")
-            py_o=${py_obb[$tracker]:-—}
+          table_section = readme[start_idx:end_idx + len(end_marker)]
 
-            cpp_h=$(fmt_metric "${cpp_hota[$tracker]}")
-            cpp_m=$(fmt_metric "${cpp_mota[$tracker]}")
-            cpp_i=$(fmt_metric "${cpp_idf1[$tracker]}")
-            cpp_o=${cpp_obb[$tracker]:-—}
+          # --- Update each tracker row (Status + MOT17 cells) ---
+          # Each row has 12 <td> cells:
+          #   0: Tracker name, 1: Status, 2-4: MOT17 (HOTA,MOTA,IDF1),
+          #   5-7: SportsMOT, 8-10: MMOT, 11: OBB
+          row_pattern = re.compile(r"(<tr>\s*\n(?:\s*<td[^>]*>.*?</td>\s*\n){12}\s*</tr>)", re.DOTALL)
+          td_pattern = re.compile(r"(<td[^>]*><sub>)(.*?)(</sub></td>)")
 
-            new_table+="    <tr>\n"
-            new_table+="      <td align=\"left\"><a href=\"$paper_url\">$tracker</a></td>\n"
-            new_table+="      <td align=\"right\">$py_h</td>\n"
-            new_table+="      <td align=\"right\">$py_m</td>\n"
-            new_table+="      <td align=\"right\">$py_i</td>\n"
-            new_table+="      <td align=\"center\">$py_o</td>\n"
-            new_table+="      <td align=\"right\">$cpp_h</td>\n"
-            new_table+="      <td align=\"right\">$cpp_m</td>\n"
-            new_table+="      <td align=\"right\">$cpp_i</td>\n"
-            new_table+="      <td align=\"center\">$cpp_o</td>\n"
-            new_table+="    </tr>\n"
-          done
+          def update_row(match):
+              row_html = match.group(0)
+              cells = td_pattern.findall(row_html)
+              if len(cells) < 12:
+                  return row_html
 
-          new_table+="  </tbody>\n"
-          new_table+="</table>"
+              # Identify tracker from cell 0 content
+              tracker_cell = cells[0][1]
+              tracker_name = re.sub(r"<[^>]+>", "", tracker_cell).strip()
 
-          start_marker="<!-- START TRACKER TABLE -->"
-          end_marker="<!-- END TRACKER TABLE -->"
+              if tracker_name not in py_data:
+                  return row_html
 
-          awk -v start_marker="$start_marker" -v end_marker="$end_marker" -v new_table="$new_table" '
-              $0 == start_marker { print $0; print new_table; in_table=1; next }
-              $0 == end_marker { in_table=0; print $0; next }
-              !in_table
-          ' "$README_FILE" > temp_readme.md
+              py = py_data[tracker_name]
+              cpp = cpp_data.get(tracker_name, {})
 
-          mv temp_readme.md "$README_FILE"
+              new_status = py["status"]
+              new_hota = mot17_cell(py["hota"], cpp.get("hota", ""))
+              new_mota = mot17_cell(py["mota"], cpp.get("mota", ""))
+              new_idf1 = mot17_cell(py["idf1"], cpp.get("idf1", ""))
+
+              # Replace cells 1 (Status) and 2-4 (MOT17)
+              replacements = {1: new_status, 2: new_hota, 3: new_mota, 4: new_idf1}
+              cell_idx = [0]
+
+              def replace_td(m):
+                  idx = cell_idx[0]
+                  cell_idx[0] += 1
+                  if idx in replacements:
+                      return f"{m.group(1)}{replacements[idx]}{m.group(3)}"
+                  return m.group(0)
+
+              return td_pattern.sub(replace_td, row_html)
+
+          new_table_section = row_pattern.sub(update_row, table_section)
+          new_readme = readme[:start_idx] + new_table_section + readme[end_idx + len(end_marker):]
+
+          with open(readme_file, "w") as f:
+              f.write(new_readme)
+
+          print(f"Updated Status + MOT17 results for: {', '.join(py_data.keys())}")
+          SCRIPT
 
       - name: Check for changes in benchmark docs
         id: check_changes

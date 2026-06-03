@@ -353,16 +353,6 @@ class BaseTracker(VisualizationMixin):
     def empty_output(self, dtype=float) -> np.ndarray:
         return self.detection_layout.empty_output(dtype=dtype)
 
-    @staticmethod
-    def setup_decorator(method):
-        """Deprecated: kept for backward compatibility. Returns method unchanged."""
-        return method
-
-    @staticmethod
-    def per_class_decorator(method):
-        """Deprecated: kept for backward compatibility. Returns method unchanged."""
-        return method
-
     def check_inputs(self, dets, img, embs=None):
         assert isinstance(dets, np.ndarray), (
             f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"

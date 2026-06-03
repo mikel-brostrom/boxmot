@@ -1139,7 +1139,11 @@ def gta(
         LOGGER.info(f"GTA postprocessing: {seq_name}")
 
         # Load MOT results: [frame, id, l, t, w, h, conf, cls, det_ind]
-        mot_data = np.loadtxt(result_file, delimiter=",")
+        try:
+            mot_data = np.loadtxt(result_file, delimiter=",")
+        except (ValueError, OSError) as exc:
+            LOGGER.warning(f"GTA: could not load {result_file}: {exc}. Skipping {seq_name}...")
+            continue
         if mot_data.size == 0:
             continue
         if mot_data.ndim == 1:

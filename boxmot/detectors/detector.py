@@ -222,15 +222,23 @@ class Detector:
         if as_detections:
             return results
         if isinstance(results, Detections):
+            if results.masks is not None:
+                return results
             return results.dets
         if hasattr(results, "dets"):
+            if getattr(results, "masks", None) is not None:
+                return results
             return results.dets
         if isinstance(results, list) and all(isinstance(result, Detections) for result in results):
             if len(results) == 1:
+                if results[0].masks is not None:
+                    return results[0]
                 return results[0].dets
-            return [result.dets for result in results]
+            return results
         if isinstance(results, list) and all(hasattr(result, "dets") for result in results):
             if len(results) == 1:
+                if getattr(results[0], "masks", None) is not None:
+                    return results[0]
                 return results[0].dets
             return [result.dets for result in results]
         return results

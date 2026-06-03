@@ -12,12 +12,11 @@ import numpy as np
 import yaml
 
 from boxmot.native import _common
-from boxmot.native._common import (  # noqa: F401  (re-exported for backwards compat / tests)
-    cached_embedding_path,
-    dets_n_embs_root,
-)
 from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
+)
+from boxmot.native._common import (
+    dets_n_embs_root,
 )
 from boxmot.native._common import (
     infer_onnx_output_names as _infer_onnx_output_names,

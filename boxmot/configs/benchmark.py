@@ -361,10 +361,8 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     cfg = dict(raw_cfg or {})
     cfg.setdefault("id", cfg_path.stem.lower())
 
-    # Support new schema: ``root`` is the preferred key, ``path`` is legacy
     path_value = cfg.get("root") or cfg.get("path") or ""
 
-    # Support new schema: ``default_split`` takes precedence over ``split``
     split_name = str(cfg.get("default_split") or cfg.get("split") or "")
 
     train_value = cfg.get("train")
@@ -410,7 +408,6 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     layout = cfg.get("layout") or "mot"
     trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
 
-    # Support new schema: ``classes`` is the preferred key, ``names`` is legacy
     names = dict(cfg.get("classes") or cfg.get("names") or {})
     distractors = dict(cfg.get("distractors") or {})
     class_map = dict(cfg.get("class_map") or {})

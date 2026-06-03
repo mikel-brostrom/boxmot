@@ -156,12 +156,6 @@ def core_options(func):
                      help='Override directory for cached segmentation masks (.npz files)'),
         click.option('--masks-model', type=click.Choice(['maskrcnn'], case_sensitive=False), default=None,
                      help='Mask model to use for generation (stored under cache tree automatically)'),
-        click.option('--adaptive-kf/--no-adaptive-kf', 'adaptive_kf', default=False,
-                     help='Enable online adaptive Kalman filter process noise (Mehra 1970). '
-                     'Useful when deploying to new domains without ground truth for --tune-kf.'),
-        click.option('--interactive/--no-interactive', 'interactive', default=False,
-                     help='Show an interactive pipeline step viewer after completion. '
-                     'Navigate with arrow keys, Enter to expand/collapse step details, q to quit.'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -184,8 +178,8 @@ def split_option(func):
 def detection_source_option(func):
     """Attach a ``--detection-source`` option to choose public or private detections."""
     return click.option(
-        '--detection-source', type=click.Choice(['public', 'private', 'frcnn', 'sdp', 'dpm']), default=None,
-        help='Detection source: "public" or detector name (frcnn/sdp/dpm) reads public detections, "private" (default) runs the configured detector model.'
+        '--detection-source', type=click.Choice(['public', 'private']), default=None,
+        help='Detection source: "public" reads det/det.txt from sequences, "private" (default) runs the configured detector model.'
     )(func)
 
 
@@ -196,7 +190,7 @@ def data_option(func):
         'data',
         type=str,
         default=None,
-        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/benchmarks/mot17.yaml',
+        help='benchmark config name or YAML file, e.g. mot17 or boxmot/configs/datasets/mot17.yaml',
     )(func)
 
 
@@ -334,7 +328,13 @@ def _run_engine_workflow(module_name: str, args) -> None:
     Otherwise the exception propagates normally so the user sees what went
     wrong.
     """
-    module = importlib.import_module(module_name)
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise click.ClickException(
+            f"Failed to import engine module '{module_name}': {exc}\n"
+            f"Try running: uv sync --all-extras --all-groups"
+        ) from exc
     main_fn = getattr(module, "main", None)
     if main_fn is None:
         raise AttributeError(f"{module_name} does not expose main")

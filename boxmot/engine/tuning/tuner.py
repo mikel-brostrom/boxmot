@@ -11,6 +11,7 @@ Supports single-objective (default) and multi-objective Pareto search:
 """
 
 import csv
+import inspect
 import logging
 import os
 import warnings
@@ -29,12 +30,13 @@ import numpy as np
 import yaml
 
 from boxmot.engine.eval.evaluator import eval_setup, run_eval, run_generate_dets_embs
-from boxmot.engine.tuning.kf_tuning import run_kf_tuning as _run_kf_tuning, tracker_kf_type as _tracker_kf_type
 from boxmot.engine.workflows.reporting import (
     CLI_TUNE_BEST_SUMMARY_TITLE,
     SUMMARY_COLUMNS,
 )
 from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
+from rich.markup import escape as _escape_markup
+
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path, suppress_boxmot_logs
@@ -81,26 +83,76 @@ def score_summary(
 
 def load_yaml_config(tracker_name: str) -> dict:
     config_path = TRACKER_CONFIGS / f"{tracker_name}.yaml"
-    with open(config_path, "r") as file:
-        return yaml.safe_load(file)
+    if not config_path.exists():
+        available = sorted(p.stem for p in TRACKER_CONFIGS.glob("*.yaml"))
+        raise FileNotFoundError(
+            f"Tracker config not found: {config_path}\n"
+            f"Available trackers: {', '.join(available) or '(none)'}"
+        )
+    try:
+        with open(config_path, "r") as file:
+            cfg = yaml.safe_load(file)
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"Failed to parse tracker config {config_path}: {exc}"
+        ) from exc
+    if not isinstance(cfg, dict) or not cfg:
+        raise ValueError(
+            f"Tracker config {config_path} is empty or not a valid YAML mapping."
+        )
+    return cfg
 
 
 def yaml_to_search_space(config: dict, tune) -> dict:
     space = {}
     for param, details in config.items():
+        if not isinstance(details, dict):
+            LOGGER.warning(f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}")
+            continue
         t = details.get("type")
         if t == "uniform":
-            space[param] = tune.uniform(*details["range"])
+            rng = details.get("range")
+            if not rng or len(rng) < 2:
+                LOGGER.warning(f"Skipping param '{param}': 'uniform' requires a range with 2 values")
+                continue
+            space[param] = tune.uniform(*rng)
         elif t == "randint":
-            space[param] = tune.randint(*details["range"])
+            rng = details.get("range")
+            if not rng or len(rng) < 2:
+                LOGGER.warning(f"Skipping param '{param}': 'randint' requires a range with 2 values")
+                continue
+            space[param] = tune.randint(*rng)
         elif t == "qrandint":
-            space[param] = tune.qrandint(*details["range"])
+            rng = details.get("range")
+            if not rng or len(rng) < 2:
+                LOGGER.warning(f"Skipping param '{param}': 'qrandint' requires a range with 2 values")
+                continue
+            space[param] = tune.qrandint(*rng)
         elif t == "choice":
-            space[param] = tune.choice(details.get("options"))
+            opts = details.get("options")
+            if not opts:
+                LOGGER.warning(f"Skipping param '{param}': 'choice' requires a non-empty 'options' list")
+                continue
+            space[param] = tune.choice(opts)
         elif t == "grid_search":
-            space[param] = tune.choice(details["values"])
+            vals = details.get("values")
+            if not vals:
+                LOGGER.warning(f"Skipping param '{param}': 'grid_search' requires a 'values' list")
+                continue
+            space[param] = tune.choice(vals)
         elif t == "loguniform":
-            space[param] = tune.loguniform(*details["range"])
+            rng = details.get("range")
+            if not rng or len(rng) < 2:
+                LOGGER.warning(f"Skipping param '{param}': 'loguniform' requires a range with 2 values")
+                continue
+            space[param] = tune.loguniform(*rng)
+        else:
+            LOGGER.warning(f"Skipping param '{param}': unknown type '{t}'")
+    if not space:
+        LOGGER.warning(
+            "No valid search space parameters found in tracker config. "
+            "Check that the YAML contains entries with valid 'type' and 'range'/'options' keys."
+        )
     return space
 
 
@@ -268,19 +320,30 @@ def _find_pareto_front(rows: list, maximize: list, minimize: list) -> list:
 
 def _collect_trial_data(results) -> list:
     """Extract trial_id, config, metrics from Ray Tune ResultGrid."""
+    if results is None:
+        return []
     trial_data = []
-    for result in results:
-        if result.error or not result.metrics:
+    try:
+        results_iter = iter(results)
+    except TypeError:
+        LOGGER.warning("Tune results object is not iterable; cannot collect trial data.")
+        return []
+    for result in results_iter:
+        try:
+            if result.error or not result.metrics:
+                continue
+            trial_id = result.metrics.get("trial_id", "unknown")
+            validation = result.metrics.get("_validation", {})
+            trial_data.append({
+                "trial_id": trial_id,
+                "trial_dir": Path(result.path),
+                "config": result.config,
+                "metrics": {k: result.metrics.get(k, 0.0) for k in ALL_TUNE_METRICS},
+                "validation": validation if isinstance(validation, dict) else {},
+            })
+        except Exception as exc:
+            LOGGER.debug(f"Skipping malformed trial result: {exc}")
             continue
-        trial_id = result.metrics.get("trial_id", "unknown")
-        validation = result.metrics.get("_validation", {})
-        trial_data.append({
-            "trial_id": trial_id,
-            "trial_dir": Path(result.path),
-            "config": result.config,
-            "metrics": {k: result.metrics.get(k, 0.0) for k in ALL_TUNE_METRICS},
-            "validation": validation if isinstance(validation, dict) else {},
-        })
     return trial_data
 
 
@@ -525,41 +588,59 @@ def _save_all_results(
         LOGGER.warning("No successful trials found.")
         return None
 
+    # Ensure output directory exists
+    tune_dir.mkdir(parents=True, exist_ok=True)
+
     # 1. Per-trial YAML configs
     for td in trial_data:
         trial_dir = td["trial_dir"]
         if trial_dir.exists():
-            yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
-            _write_trial_yaml(yaml_cfg, td["config"], yaml_path)
+            try:
+                yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
+                _write_trial_yaml(yaml_cfg, td["config"], yaml_path)
+            except OSError as exc:
+                LOGGER.debug(f"Failed to write trial YAML for {td['trial_id']}: {exc}")
 
     # 2. results.csv
     csv_path = tune_dir / "results.csv"
-    _save_results_csv(csv_path, trial_data)
-    if emit_logs:
-        LOGGER.info(f"[bold]Results CSV:[/bold] [cyan]{csv_path}[/cyan]")
+    try:
+        _save_results_csv(csv_path, trial_data)
+        if emit_logs:
+            LOGGER.info(f"[bold]Results CSV:[/bold] [cyan]{_escape_markup(str(csv_path))}[/cyan]")
+    except OSError as exc:
+        LOGGER.warning(f"Failed to write results CSV: {exc}")
+        csv_path = None
 
     # 3. Best config → tune root
     best = _best_trial_data(trial_data, maximize=maximize, minimize=minimize)
     if best is None:
         return None
     best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
-    _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
-    if emit_logs:
-        LOGGER.info(
-            f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]"
-        )
+    try:
+        _write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
+        if emit_logs:
+            LOGGER.info(
+                f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]"
+            )
+    except OSError as exc:
+        LOGGER.warning(f"Failed to write best config YAML: {exc}")
+        best_yaml_path = None
 
     # 4. summary.md
-    summary_path = _generate_summary(
-        tune_dir,
-        trial_data,
-        yaml_cfg,
-        tracker_name,
-        maximize,
-        minimize,
-        args,
-        emit_logs=emit_logs,
-    )
+    summary_path = None
+    try:
+        summary_path = _generate_summary(
+            tune_dir,
+            trial_data,
+            yaml_cfg,
+            tracker_name,
+            maximize,
+            minimize,
+            args,
+            emit_logs=emit_logs,
+        )
+    except Exception as exc:
+        LOGGER.warning(f"Failed to generate summary: {exc}")
 
     # 5. Analysis plots
     try:
@@ -586,15 +667,21 @@ class TrackerObjective:
         self.opt = opt
 
     def objective_function(self, config: dict) -> dict:
-        with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
-            result = run_eval(
-                self.opt,
-                evolve_config=config,
-                setup=False,
-                prepare_cache=False,
-                verbose=False,
-                show_progress=False,
-            )
+        try:
+            with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
+                result = run_eval(
+                    self.opt,
+                    evolve_config=config,
+                    setup=False,
+                    prepare_cache=False,
+                    verbose=False,
+                    show_progress=False,
+                )
+        except KeyboardInterrupt:
+            raise  # let Ray handle Ctrl+C
+        except Exception as exc:
+            LOGGER.debug(f"Trial failed with {type(exc).__name__}: {exc}")
+            return {k: 0.0 for k in ALL_TUNE_METRICS}
 
         if not result.raw:
             return {k: 0.0 for k in ALL_TUNE_METRICS}
@@ -690,81 +777,6 @@ def _ray_safe_namespace(args: Any) -> SimpleNamespace:
     return SimpleNamespace(**safe_values)
 
 
-def _count_completed_trials(tune_dir: Path) -> int:
-    """Count how many trials in *tune_dir* have finished successfully."""
-    # Count trial_* subdirectories that contain a result.json.
-    # This is more reliable than ExperimentAnalysis which may reflect
-    # a stale experiment_state after a corrupted resume.
-    try:
-        return sum(
-            1 for d in tune_dir.iterdir()
-            if d.is_dir() and d.name.startswith("trial_") and (d / "result.json").exists()
-        )
-    except Exception:
-        return 0
-
-
-def _patch_search_gen_state(tune_dir: Path, n_trials: int) -> None:
-    """Patch the SearchGenerator checkpoint on disk so resume targets *n_trials*.
-
-    During resume, Ray's ``SearchGenerator.restore_from_dir`` loads the newest
-    ``search_gen_state-*.json`` (cloudpickle) and calls ``set_state()``, which
-    overwrites ``_total_samples`` with the persisted value.  If that value is <=
-    the current counter, the generator immediately reports ``is_finished=True``
-    and no new trials are created.
-
-    This helper rewrites the newest checkpoint to set ``total_samples`` to
-    *n_trials* and ``finished`` to False, ensuring the generator will produce
-    trials until *n_trials* is reached.
-    """
-    import glob
-    import ray.cloudpickle as cloudpickle
-
-    pattern = str(tune_dir / "search_gen_state-*.json")
-    files = glob.glob(pattern)
-    if not files:
-        return
-    newest = max(files)
-    try:
-        with open(newest, "rb") as f:
-            state = cloudpickle.load(f)
-    except Exception:
-        return  # Corrupted file; fit() will handle the fallback
-
-    if not isinstance(state, dict) or "total_samples" not in state:
-        return
-
-    # Set counter to the number of already-completed trials so the generator
-    # produces exactly (n_trials - completed) new suggestions.
-    completed = _count_completed_trials(tune_dir)
-    state["counter"] = completed
-    state["total_samples"] = n_trials
-    state["finished"] = False
-    with open(newest, "wb") as f:
-        cloudpickle.dump(state, f)
-
-
-def _patch_restored_tuner(tuner, *, n_trials: int, callback, reporter) -> None:
-    """Apply overrides to a restored Ray Tuner.
-
-    Ray's ``_fit_resume`` omits ``num_samples`` (defaults to 1) and uses stale
-    callbacks from the serialised RunConfig.  This helper injects the correct
-    values before ``.fit()`` is called.
-    """
-    from ray.tune import FailureConfig
-
-    internal = tuner._local_tuner
-    # num_samples must travel via _tuner_kwargs because _fit_resume spreads
-    # these kwargs last into tune.run(), overriding the default of 1.
-    internal._tuner_kwargs["num_samples"] = n_trials
-    internal._run_config.callbacks = [callback]
-    internal._run_config.verbose = 0
-    internal._run_config.progress_reporter = reporter
-    # Ensure trial-level fault tolerance even if the original run lacked it.
-    if internal._run_config.failure_config is None:
-        internal._run_config.failure_config = FailureConfig(max_failures=3)
-
-
 def _resolve_tune_dir(args, *, resume: str | None = None) -> Path:
     results_dir = Path(args.project).resolve() / "ray"
     if resume:
@@ -802,8 +814,6 @@ def _ensure_ray_initialized(*, verbose: bool) -> None:
     else:
         init_kwargs["logging_level"] = logging.WARNING
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
-    # Prevent C++ core worker from writing metrics connection errors to fd 2
-    os.environ.setdefault("RAY_ENABLE_METRICS_COLLECTION", "0")
 
     ray.init(**init_kwargs)
 
@@ -834,12 +844,10 @@ def _execute_tune_search(
     except Exception:
         pass
 
-    # -- Prepare args for eval/tune pipeline --
     args.detector = [Path(y).resolve() for y in args.detector]
     args.reid = [Path(r).resolve() for r in args.reid]
     args.show_progress = False
     resume_tune = getattr(args, "resume_tune", None) or None
-
     _ensure_ray_initialized(verbose=bool(getattr(args, "verbose", False)))
     opt_metrics = maximize + minimize
     opt_modes   = ["max"] * len(maximize) + ["min"] * len(minimize)
@@ -891,10 +899,14 @@ def _execute_tune_search(
         tune_dir = _resolve_tune_dir(args, resume=resume_tune)
         tune_name = tune_dir.name
 
-        # When resuming from an external disk the cache lives under
-        # <tune_dir>/../.. (e.g. /Volumes/LaCie/runs), not the default project.
+        # When resuming from an absolute path, infer project from the tune dir
+        # so that cache lookups (dets_n_embs) resolve to the same disk/location
+        # where the original run stored them (<project>/ray/<experiment>).
         if resume_tune and tune_dir.parent.name == "ray":
-            args.project = str(tune_dir.parent.parent)
+            inferred_project = tune_dir.parent.parent
+            current_project = Path(args.project).resolve()
+            if inferred_project != current_project:
+                args.project = str(inferred_project)
 
         pipeline.advance("Preparing benchmark cache...")
         pipeline.start()
@@ -905,27 +917,13 @@ def _execute_tune_search(
         results_dir_str = str(results_dir)
 
         with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-            run_generate_dets_embs(args)
-
-        # Run KF tuning once (uses cached dets + GT) and attach to args
-        # so all trials benefit without re-computing per trial.
-        if getattr(args, "tune_kf", False):
-            pipeline.advance("Tuning KF noise...")
-            kf_type = _tracker_kf_type(str(getattr(args, "tracker", "")))
-            if kf_type:
-                kf_result, kf_log = _run_kf_tuning(
-                    args, kf_type=kf_type, verbose=True, capture=True,
-                )
-                if kf_result:
-                    args.kf_tuning = kf_result
-                    if kf_log:
-                        pipeline.callback()(kf_log)
-            else:
-                pipeline.callback()(
-                    f"KF tuning skipped: tracker '{args.tracker}' does not use a supported KF."
-                )
-            # Disable flag so Ray workers don't re-run tuning each trial
-            args.tune_kf = False
+            try:
+                run_generate_dets_embs(args)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to prepare detection/embedding cache for tuning: {exc}\n"
+                    f"Ensure the benchmark data exists at: {getattr(args, 'source', 'N/A')}"
+                ) from exc
         pipeline.advance(
             format_initial_tune_progress(int(args.n_trials)),
         )
@@ -937,26 +935,50 @@ def _execute_tune_search(
 
         trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
 
+        restored = False
         if resume_tune is not None and tune.Tuner.can_restore(restore_path_str):
-            # Patch the on-disk SearchGenerator state BEFORE restore so that
-            # when fit() calls restore_from_dir(), it picks up the new target.
-            _patch_search_gen_state(restore_path, n_trials=int(args.n_trials))
-            tuner = tune.Tuner.restore(
-                restore_path_str,
-                trainable=trainable,
-                param_space=search_space,
-                resume_unfinished=True,
-                resume_errored=True,
-            )
-            completed_previously = _count_completed_trials(restore_path)
+            try:
+                tuner = tune.Tuner.restore(
+                    restore_path_str,
+                    trainable=trainable,
+                    resume_errored=True,
+                )
+                restored = True
+            except Exception as exc:
+                LOGGER.warning(
+                    f"Failed to restore tuner from {restore_path_str}: {exc}. "
+                    f"Starting fresh experiment instead."
+                )
+
+        if restored:
+            # Pre-seed the callback with previously completed trials so the
+            # progress bar reflects the true offset instead of starting at 0.
+            completed_previously = 0
+            try:
+                from ray.tune import ExperimentAnalysis
+                analysis = ExperimentAnalysis(restore_path_str)
+                df = analysis.dataframe()
+                completed_previously = len(df)
+            except Exception:
+                pass
+            if completed_previously == 0:
+                # Fallback: count trial_* subdirectories with a result.json
+                try:
+                    trial_dirs = [
+                        d for d in restore_path.iterdir()
+                        if d.is_dir() and d.name.startswith("trial_")
+                        and (d / "result.json").exists()
+                    ]
+                    completed_previously = len(trial_dirs)
+                except Exception:
+                    pass
             tune_callback.completed = completed_previously
             tune_callback._trial_index_offset = completed_previously
-            _patch_restored_tuner(
-                tuner,
-                n_trials=int(args.n_trials),
-                callback=tune_callback,
-                reporter=TuneSilentReporter(),
-            )
+            # Inject our callback into the restored tuner's RunConfig
+            # (the deserialized one starts with stale state).
+            tuner._local_tuner._run_config.callbacks = [tune_callback]
+            tuner._local_tuner._run_config.verbose = 0
+            tuner._local_tuner._run_config.progress_reporter = TuneSilentReporter()
             # Update the progress display to reflect completed trials immediately
             pipeline.advance(
                 format_tune_progress(
@@ -966,10 +988,32 @@ def _execute_tune_search(
                 ),
             )
         else:
-            from ray.tune import CheckpointConfig, FailureConfig
+            run_config_kwargs = {
+                "storage_path": results_dir_str,
+                "name": tune_name,
+            }
+            run_config_signature = inspect.signature(RunConfig)
+            if "callbacks" in run_config_signature.parameters:
+                run_config_kwargs["callbacks"] = [tune_callback]
+            if "verbose" in run_config_signature.parameters:
+                run_config_kwargs["verbose"] = 0
+            if "progress_reporter" in run_config_signature.parameters:
+                run_config_kwargs["progress_reporter"] = TuneSilentReporter()
 
+            # FailureConfig: tolerate individual trial failures without
+            # aborting the entire experiment (best practice for robustness).
+            from ray.tune import CheckpointConfig, FailureConfig
+            run_config_kwargs["failure_config"] = FailureConfig(
+                max_failures=3,
+            )
+            # CheckpointConfig: limit stored checkpoints to save disk space.
+            run_config_kwargs["checkpoint_config"] = CheckpointConfig(
+                num_to_keep=1,
+            )
+
+            # TuneConfig: set max_concurrent_trials and optional time_budget_s
             tune_config_kwargs = {
-                "num_samples": int(args.n_trials),
+                "num_samples": args.n_trials,
                 "search_alg": search_alg,
                 "max_concurrent_trials": max_concurrent,
                 "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
@@ -982,57 +1026,92 @@ def _execute_tune_search(
                 trainable,
                 param_space=search_space,
                 tune_config=tune.TuneConfig(**tune_config_kwargs),
-                run_config=RunConfig(
-                    storage_path=results_dir_str,
-                    name=tune_name,
-                    callbacks=[tune_callback],
-                    verbose=0,
-                    progress_reporter=TuneSilentReporter(),
-                    failure_config=FailureConfig(max_failures=3),
-                    checkpoint_config=CheckpointConfig(num_to_keep=1),
-                ),
+                run_config=RunConfig(**run_config_kwargs),
             )
 
-        result_grid = tuner.fit()
-        if result_grid is None and hasattr(tuner, "get_results"):
-            result_grid = tuner.get_results()
+        result_grid = None
+        interrupted = False
+        try:
+            result_grid = tuner.fit()
+        except KeyboardInterrupt:
+            interrupted = True
+            LOGGER.info(
+                "Tuning interrupted by user (Ctrl+C). Saving partial results..."
+            )
+            # Attempt to retrieve partial results from Ray
+            try:
+                if hasattr(tuner, "get_results"):
+                    result_grid = tuner.get_results()
+            except Exception:
+                pass
+        except Exception as exc:
+            LOGGER.warning(f"tuner.fit() failed: {type(exc).__name__}: {exc}")
+            # Attempt to retrieve any completed results
+            try:
+                if hasattr(tuner, "get_results"):
+                    result_grid = tuner.get_results()
+            except Exception:
+                pass
 
-        saved_artifacts = _save_all_results(
-            tune_dir,
-            result_grid,
-            yaml_cfg,
-            args.tracker,
-            maximize,
-            minimize,
-            args,
-            emit_logs=False,
-        )
+        if result_grid is None and hasattr(tuner, "get_results"):
+            try:
+                result_grid = tuner.get_results()
+            except Exception:
+                pass
+
+        # Save results (even partial ones from interruption)
+        saved_artifacts = None
+        try:
+            saved_artifacts = _save_all_results(
+                tune_dir,
+                result_grid,
+                yaml_cfg,
+                args.tracker,
+                maximize,
+                minimize,
+                args,
+                emit_logs=False,
+            )
+        except Exception as exc:
+            LOGGER.warning(f"Failed to save tune results: {type(exc).__name__}: {exc}")
 
         # Build the final results renderable
         final_renderable = None
-        artifacts_renderable = build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
-        baseline_raw = None
-        compare_to_first_trial = bool(getattr(args, "compare_to_first_trial", False))
-        if (baseline_config is not None or compare_to_first_trial) and saved_artifacts and saved_artifacts.get("trial_data"):
-            baseline_raw = (saved_artifacts["trial_data"][0].get("validation") or {}).get("raw")
-        if saved_artifacts and saved_artifacts.get("trial_data"):
-            best_trial = _best_trial_data(saved_artifacts["trial_data"], maximize=maximize, minimize=minimize)
-            if best_trial is not None:
-                best_metrics = _validation_result_from_trial(best_trial, args)
-                best_renderable = best_metrics.renderable(
-                    title=CLI_TUNE_BEST_SUMMARY_TITLE,
-                    compare_raw=baseline_raw,
-                    compare_args=args if baseline_raw else None,
-                )
-                final_renderable = combine_tune_result_renderables(best_renderable, artifacts_renderable)
-            else:
+        try:
+            artifacts_renderable = build_tune_artifacts_renderable(saved_artifacts) if saved_artifacts else None
+            baseline_raw = None
+            compare_to_first_trial = bool(getattr(args, "compare_to_first_trial", False))
+            if (baseline_config is not None or compare_to_first_trial) and saved_artifacts and saved_artifacts.get("trial_data"):
+                baseline_raw = (saved_artifacts["trial_data"][0].get("validation") or {}).get("raw")
+            if saved_artifacts and saved_artifacts.get("trial_data"):
+                best_trial = _best_trial_data(saved_artifacts["trial_data"], maximize=maximize, minimize=minimize)
+                if best_trial is not None:
+                    best_metrics = _validation_result_from_trial(best_trial, args)
+                    best_renderable = best_metrics.renderable(
+                        title=CLI_TUNE_BEST_SUMMARY_TITLE,
+                        compare_raw=baseline_raw,
+                        compare_args=args if baseline_raw else None,
+                    )
+                    final_renderable = combine_tune_result_renderables(best_renderable, artifacts_renderable)
+                else:
+                    final_renderable = artifacts_renderable
+            elif artifacts_renderable is not None:
                 final_renderable = artifacts_renderable
-        elif artifacts_renderable is not None:
-            final_renderable = artifacts_renderable
+        except Exception as exc:
+            LOGGER.debug(f"Failed to build results renderable: {exc}")
 
-        if final_renderable is not None:
-            pipeline.finish(final_renderable, title="Results",
-                           interactive=bool(getattr(args, "interactive", False)))
+        if interrupted:
+            status_msg = "Tuning interrupted. Partial results saved."
+            if saved_artifacts:
+                n_saved = len(saved_artifacts.get("trial_data", []))
+                status_msg = f"Tuning interrupted after {n_saved} trial(s). Partial results saved to {tune_dir}"
+            if final_renderable is not None:
+                pipeline.finish(final_renderable, title="Interrupted — Partial Results")
+            else:
+                pipeline.complete_step()
+                pipeline.update(status_msg)
+        elif final_renderable is not None:
+            pipeline.finish(final_renderable, title="Results")
         else:
             pipeline.complete_step()
             pipeline.update("No successful trials were produced.")
