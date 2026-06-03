@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from typing import Any
 
 import numpy as np
@@ -75,7 +76,7 @@ class BotSort(BaseTracker):
         super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
 
         self.lost_stracks = []  # type: list[STrack]
-        self.removed_stracks = []  # type: list[STrack]
+        self.removed_stracks = deque(maxlen=100)  # type: deque[STrack]
         BaseTrack.clear_count()
 
         self.track_high_thresh = track_high_thresh
