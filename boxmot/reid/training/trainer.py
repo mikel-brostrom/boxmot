@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import gc
 import json
 import math
 import time
@@ -27,7 +28,7 @@ from boxmot.reid.training.evaluator import (
     extract_features,
     re_ranking,
 )
-from boxmot.reid.training.losses import CenterLoss, CrossEntropyLabelSmooth, TripletLoss
+from boxmot.reid.training.losses import CenterLoss, CrossEntropyLabelSmooth, METRIC_LOSS_REGISTRY, TripletLoss
 from boxmot.utils import logger as LOGGER
 
 
@@ -93,6 +94,7 @@ class ReIDTrainer:
         margin: float = 0.3,
         label_smooth: float = 0.1,
         center_loss_weight: float = 5e-4,
+        eta_min: float = 1e-7,
         pretrained: bool = True,
         device: str = "cpu",
         project: str = "runs/reid_train",
@@ -104,6 +106,7 @@ class ReIDTrainer:
         gaussian_blur: bool = False,
         random_grayscale: float = 0.0,
         color_jitter: bool = False,
+        random_erasing: float = 0.5,
         resume: Optional[str] = None,
     ):
         self.model_name = model_name
@@ -123,6 +126,7 @@ class ReIDTrainer:
         self.margin = margin
         self.label_smooth = label_smooth
         self.center_loss_weight = center_loss_weight
+        self.eta_min = eta_min
         self.pretrained = pretrained
         self.device = torch.device(device)
         self.project = Path(project)
@@ -134,7 +138,16 @@ class ReIDTrainer:
         self.gaussian_blur = gaussian_blur
         self.random_grayscale = random_grayscale
         self.color_jitter = color_jitter
+        self.random_erasing = random_erasing
         self.resume = resume
+
+    def _empty_cache(self):
+        """Release unused memory held by the MPS/CUDA allocator."""
+        gc.collect()
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
+        elif self.device.type == "mps":
+            torch.mps.empty_cache()
 
     def run(self) -> TrainResult:
         """Execute the full training pipeline."""
@@ -168,10 +181,17 @@ class ReIDTrainer:
         query_loader, gallery_loader = self._build_test_loaders(dataset)
 
         # 2b. Build cross-domain eval loaders
+        # For combined datasets, the first component provides default query/gallery;
+        # for single datasets, it's the training dataset itself.
+        if "," in self.dataset_name:
+            default_eval_name = self.dataset_name.split(",")[0].strip().lower()
+        else:
+            default_eval_name = self.dataset_name.lower()
+
         xdomain_loaders: Dict[str, Tuple[DataLoader, DataLoader]] = {}
         for eval_ds_name in self.eval_datasets:
-            if eval_ds_name.lower() == self.dataset_name.lower():
-                continue  # skip the training dataset itself
+            if eval_ds_name.strip().lower() == default_eval_name:
+                continue  # already covered by default query/gallery
             try:
                 xds = build_dataset(eval_ds_name, self.data_dir)
                 q_loader, g_loader = self._build_test_loaders(xds)
@@ -182,7 +202,7 @@ class ReIDTrainer:
 
         # 3b. Build EMA (momentum) model if requested
         ema_model: Optional[nn.Module] = None
-        if self.ema_decay is not None:
+        if self.ema_decay:
             ema_model = copy.deepcopy(model)
             for p in ema_model.parameters():
                 p.requires_grad_(False)
@@ -201,9 +221,22 @@ class ReIDTrainer:
                 f"(was {self.label_smooth})"
             )
         criterion_id = CrossEntropyLabelSmooth(num_classes, epsilon=label_smooth)
-        # ViTs benefit from soft-margin triplet (smoother gradients than hard margin)
+        # Build metric loss (triplet, ms, or none for softmax-only)
         soft_margin = is_vit
-        criterion_triplet = TripletLoss(margin=self.margin, soft_margin=soft_margin) if self.loss_type == "triplet" else None
+        criterion_metric = None
+        if self.loss_type in METRIC_LOSS_REGISTRY:
+            MetricLossClass = METRIC_LOSS_REGISTRY[self.loss_type]
+            if self.loss_type == "triplet":
+                criterion_metric = MetricLossClass(margin=self.margin, soft_margin=soft_margin)
+            else:
+                criterion_metric = MetricLossClass()
+            LOGGER.info(f"Metric loss: {MetricLossClass.__name__}")
+
+        # MS loss handles positive cluster tightness internally via its
+        # positive pair weighting — center loss is redundant and can interfere.
+        if self.loss_type == "ms" and self.center_loss_weight > 0:
+            LOGGER.info("MS loss active: disabling center loss (redundant)")
+            self.center_loss_weight = 0
 
         # Determine feature dim for center loss by a dummy forward pass
         feat_dim = self._probe_feat_dim(model)
@@ -225,23 +258,20 @@ class ReIDTrainer:
             # ViTs need stronger center loss to tighten positive clusters.
             # CLS-token pooling has higher intra-class variance than CNN GAP;
             # 10× weight compensates (TransReID uses 5e-3 to 1e-2).
-            if self.center_loss_weight <= 5e-4:
+            # Skip if using MS loss (handles cluster tightness internally).
+            if self.loss_type != "ms" and self.center_loss_weight <= 5e-4:
                 self.center_loss_weight = 5e-3
-            # ViTs benefit from EMA and color jitter out of the box
+            # ViTs benefit from EMA and color jitter out of the box.
+            # Only auto-enable if the user didn't explicitly configure them
+            # (None = not set by user, False/0 = explicitly disabled).
             if self.ema_decay is None:
                 self.ema_decay = 0.999
                 LOGGER.info("ViT detected: enabling EMA (decay=0.999)")
-            if not self.color_jitter:
-                self.color_jitter = True
-                LOGGER.info("ViT detected: enabling color jitter augmentation")
-            # Grayscale + blur force camera-invariant features,
-            # tightening the positive clusters (pos std 0.137 → target <0.10).
-            if self.random_grayscale <= 0:
-                self.random_grayscale = 0.1
-                LOGGER.info("ViT detected: enabling random grayscale (p=0.1)")
-            if not self.gaussian_blur:
-                self.gaussian_blur = True
-                LOGGER.info("ViT detected: enabling Gaussian blur augmentation")
+            # NOTE: augmentation auto-scaling removed — augmentations should be
+            # controlled explicitly via CLI flags.  The default recipe already
+            # enables color_jitter, gaussian_blur, random_grayscale, and
+            # random_erasing; auto-overriding breaks ablation experiments that
+            # intentionally disable them.
             param_groups = self._build_vit_param_groups(model)
             optimizer = torch.optim.AdamW(param_groups, lr=self.lr, weight_decay=self.weight_decay)
             LOGGER.info(
@@ -256,7 +286,7 @@ class ReIDTrainer:
         # 6. LR scheduler — must be created BEFORE warmup LR reduction
         # so CosineAnnealingLR captures the full base LR as its _initial_lr.
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer, T_max=self.epochs - self.warmup_epochs, eta_min=1e-7
+            optimizer, T_max=self.epochs - self.warmup_epochs, eta_min=self.eta_min
         )
 
         # Store base LR per param group for warmup (preserves layer-decay scaling)
@@ -298,11 +328,11 @@ class ReIDTrainer:
             cosine_epoch = max(resumed_epoch - self.warmup_epochs, 0)
             new_T_max = self.epochs - self.warmup_epochs
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=new_T_max, eta_min=1e-7
+                optimizer, T_max=new_T_max, eta_min=self.eta_min
             )
             scheduler.last_epoch = cosine_epoch
             for group, base_lr in zip(optimizer.param_groups, scheduler.base_lrs):
-                group["lr"] = 1e-7 + (base_lr - 1e-7) * (
+                group["lr"] = self.eta_min + (base_lr - self.eta_min) * (
                     1 + math.cos(math.pi * cosine_epoch / new_T_max)
                 ) / 2
             if ema_model is not None and "ema_state_dict" in ckpt:
@@ -327,6 +357,7 @@ class ReIDTrainer:
         hparams = {
             "model_name": self.model_name,
             "dataset": self.dataset_name,
+            "data_dir": str(self.data_dir),
             "img_size": list(self.img_size),
             "preprocess": self.preprocess,
             "loss_type": self.loss_type,
@@ -337,6 +368,7 @@ class ReIDTrainer:
             "weight_decay": self.weight_decay,
             "optimizer": "AdamW" if is_vit else "Adam",
             "scheduler": "CosineAnnealingLR",
+            "eta_min": self.eta_min,
             "warmup_epochs": self.warmup_epochs,
             "label_smooth": label_smooth,
             "margin": self.margin,
@@ -349,6 +381,7 @@ class ReIDTrainer:
             "color_jitter": self.color_jitter,
             "gaussian_blur": self.gaussian_blur,
             "random_grayscale": self.random_grayscale,
+            "random_erasing": self.random_erasing,
             "ema_decay": self.ema_decay,
             "soft_margin_triplet": soft_margin,
             "flip_tta": is_vit,
@@ -386,12 +419,27 @@ class ReIDTrainer:
                             ))
                     for v in prev.get("val", []):
                         if v["epoch"] < start_epoch:
-                            val_history.append(ValMetrics(
-                                epoch=v["epoch"], mAP=v["mAP"],
-                                rank1=v["rank1"], rank5=v.get("rank5", 0.0),
-                                rank10=v.get("rank10", 0.0),
-                                dataset=v.get("dataset", ""),
-                            ))
+                            # Support grouped format: {epoch, ds1: {...}, ds2: {...}}
+                            if "mAP" in v:
+                                # Old flat format
+                                val_history.append(ValMetrics(
+                                    epoch=v["epoch"], mAP=v["mAP"],
+                                    rank1=v["rank1"], rank5=v.get("rank5", 0.0),
+                                    rank10=v.get("rank10", 0.0),
+                                    dataset=v.get("dataset", ""),
+                                ))
+                            else:
+                                # New grouped format
+                                for key, metrics in v.items():
+                                    if key == "epoch":
+                                        continue
+                                    val_history.append(ValMetrics(
+                                        epoch=v["epoch"], mAP=metrics["mAP"],
+                                        rank1=metrics["rank1"],
+                                        rank5=metrics.get("rank5", 0.0),
+                                        rank10=metrics.get("rank10", 0.0),
+                                        dataset=key,
+                                    ))
                     LOGGER.info(
                         f"Restored {len(history)} train and {len(val_history)} "
                         f"val entries from prior metrics.json"
@@ -406,12 +454,13 @@ class ReIDTrainer:
         for epoch in epoch_bar:
             metrics = self._train_epoch(
                 epoch, model, train_loader,
-                criterion_id, criterion_triplet, criterion_center,
+                criterion_id, criterion_metric, criterion_center,
                 optimizer, optimizer_center, scheduler,
                 ema_model=ema_model,
                 grad_clip=1.0 if is_vit else 0.0,
             )
             history.append(metrics)
+            self._empty_cache()
             epoch_bar.set_postfix(
                 loss=f"{metrics.loss:.4f}",
                 id=f"{metrics.id_loss:.4f}",
@@ -421,8 +470,12 @@ class ReIDTrainer:
 
             # Validation
             if epoch % self.eval_interval == 0 or epoch == self.epochs:
+                # Calibrate EMA model's BN stats before evaluation
+                if ema_model is not None:
+                    self._calibrate_bn(val_model, train_loader)
                 val = self._validate(epoch, val_model, query_loader, gallery_loader)
-                val.dataset = self.dataset_name
+                # For combined datasets, default query/gallery comes from the first component
+                val.dataset = default_eval_name if "," in self.dataset_name else self.dataset_name
                 val_history.append(val)
                 epoch_bar.set_postfix(
                     loss=f"{metrics.loss:.4f}",
@@ -445,6 +498,12 @@ class ReIDTrainer:
                     tqdm.write(
                         f"  → {xds_name}: mAP={xval.mAP:.2%}  R1={xval.rank1:.2%}  R5={xval.rank5:.2%}"
                     )
+
+                # Restore train mode so EMA buffer counts stay aligned
+                val_model.train()
+
+                # Free MPS/CUDA memory accumulated during evaluation
+                self._empty_cache()
 
             # Save last.pt every 10 epochs (full state for resume)
             if epoch % 10 == 0 or epoch == self.epochs:
@@ -491,27 +550,33 @@ class ReIDTrainer:
             color_jitter=self.color_jitter,
             gaussian_blur=self.gaussian_blur,
             random_grayscale=self.random_grayscale,
+            random_erasing=self.random_erasing,
         )
         torch_ds = ReIDImageDataset(dataset.train.samples, transform=transform)
         sampler = PKSampler(dataset.train.samples, p=self.p, k=self.k)
+        # On MPS (unified memory) persistent workers compete with GPU for RAM;
+        # keep them only on CUDA where host→device overlap justifies the cost.
+        use_persistent = self.num_workers > 0 and self.device.type == "cuda"
         return DataLoader(
             torch_ds,
             batch_size=self.p * self.k,
             sampler=sampler,
             num_workers=self.num_workers,
-            pin_memory=True,
+            pin_memory=self.device.type == "cuda",
             drop_last=True,
-            persistent_workers=self.num_workers > 0,
+            persistent_workers=use_persistent,
         )
 
     def _build_test_loaders(self, dataset) -> Tuple[DataLoader, DataLoader]:
         transform = build_test_transforms(self.img_size, preprocess=self.preprocess)
         query_ds = ReIDImageDataset(dataset.query.samples, transform=transform)
         gallery_ds = ReIDImageDataset(dataset.gallery.samples, transform=transform)
+        # Fewer workers on MPS to reduce unified-memory pressure
+        nw = min(self.num_workers, 2) if self.device.type == "mps" else self.num_workers
         loader_kwargs = dict(
             batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=True,
+            num_workers=nw,
+            pin_memory=self.device.type == "cuda",
             shuffle=False,
             persistent_workers=False,
         )
@@ -558,10 +623,12 @@ class ReIDTrainer:
         depth = getattr(model, "depth", len(model.blocks))
         layer_decay = 0.95
 
-        # Identify parameters that should not have weight decay
+        # Identify parameters that should not have weight decay.
+        # "bn" covers BatchNorm gamma in hybrid CNN-Transformer models
+        # (e.g. CSL-TinyViT's Conv2d_BN and BNNeck3 modules).
         no_wd_keywords = {
             "bias", "cls_token", "pos_embed",
-            "norm", "ln", "in_norm", "gate",
+            "norm", "ln", "bn", "in_norm", "gate",
         }
 
         def _no_wd(name: str) -> bool:
@@ -571,11 +638,12 @@ class ReIDTrainer:
             """Map parameter name to layer index (0=patch_embed, 1..depth=blocks, depth+1=head)."""
             if name.startswith("patch_embed") or name.startswith("cls_token") or name.startswith("pos_embed"):
                 return 0
-            if name.startswith("blocks."):
-                # blocks.<idx>.xxx
+            # "blocks." is the standard ViT naming; "layers." is used by
+            # CSL-TinyViT (self.layers registered first, self.blocks alias).
+            if name.startswith("blocks.") or name.startswith("layers."):
                 block_idx = int(name.split(".")[1])
                 return block_idx + 1
-            # head / classifier / norm / omni_scale layers
+            # head / classifier / neck / omni_scale layers
             return depth + 1
 
         param_groups: dict[str, dict] = {}
@@ -603,7 +671,7 @@ class ReIDTrainer:
         return list(param_groups.values())
 
     def _train_epoch(
-        self, epoch, model, loader, criterion_id, criterion_triplet, criterion_center,
+        self, epoch, model, loader, criterion_id, criterion_metric, criterion_center,
         optimizer, optimizer_center, scheduler, *, ema_model=None, grad_clip: float = 0.0,
     ) -> TrainMetrics:
         from tqdm import tqdm
@@ -633,7 +701,7 @@ class ReIDTrainer:
             with torch.amp.autocast("cuda", enabled=use_amp):
                 output = model(imgs)
 
-                if self.loss_type == "triplet" and isinstance(output, tuple):
+                if isinstance(output, tuple):
                     logits, features = output
                 else:
                     logits = output
@@ -649,14 +717,14 @@ class ReIDTrainer:
                 # Triplet loss — L2-normalize features so Euclidean distance in
                 # triplet loss aligns with cosine distance used at evaluation.
                 loss_tri = torch.tensor(0.0, device=self.device)
-                if criterion_triplet is not None and features is not None:
+                if criterion_metric is not None and features is not None:
                     features_norm = F.normalize(features, p=2, dim=1)
-                    loss_tri = criterion_triplet(features_norm, pids)
+                    loss_tri = criterion_metric(features_norm, pids)
                     loss = loss + loss_tri
 
                 # Center loss — only on embeddings, never on logits
                 loss_cen = torch.tensor(0.0, device=self.device)
-                if features is not None:
+                if features is not None and self.center_loss_weight > 0:
                     loss_cen = criterion_center(features, pids) * self.center_loss_weight
                     loss = loss + loss_cen
 
@@ -672,7 +740,7 @@ class ReIDTrainer:
             scaler.step(optimizer)
 
             # Center loss has its own optimizer with special LR
-            if features is not None:
+            if features is not None and self.center_loss_weight > 0:
                 scaler.unscale_(optimizer_center)
                 for param in criterion_center.parameters():
                     if param.grad is not None:
@@ -681,13 +749,19 @@ class ReIDTrainer:
 
             scaler.update()
 
-            # EMA update (parameters AND buffers — BN running_mean/var are buffers)
+            # EMA update (parameters + buffers)
+            # Float buffers (BN running_mean/var) are EMA'd so their
+            # statistics match the EMA model's feature distribution.
+            # Integer buffers (num_batches_tracked, index tensors) are copied.
             if ema_model is not None:
                 decay = self.ema_decay
                 for ema_p, model_p in zip(ema_model.parameters(), model.parameters()):
                     ema_p.data.mul_(decay).add_(model_p.data, alpha=1.0 - decay)
                 for ema_b, model_b in zip(ema_model.buffers(), model.buffers()):
-                    ema_b.data.copy_(model_b.data)
+                    if ema_b.is_floating_point():
+                        ema_b.data.mul_(decay).add_(model_b.data, alpha=1.0 - decay)
+                    else:
+                        ema_b.data.copy_(model_b.data)
 
             total_loss += loss.item()
             total_id += loss_id.item()
@@ -718,6 +792,18 @@ class ReIDTrainer:
         )
 
     @torch.no_grad()
+    def _calibrate_bn(self, model, data_loader, num_batches: int = 50):
+        """Run forward passes to calibrate BN running stats for the EMA model."""
+        model.train()
+        with torch.no_grad():
+            for i, (imgs, _, _) in enumerate(data_loader):
+                if i >= num_batches:
+                    break
+                imgs = imgs.to(self.device)
+                model(imgs)
+        model.eval()
+        self._empty_cache()
+
     def _validate(self, epoch, model, query_loader, gallery_loader) -> ValMetrics:
         use_flip = self._is_vit(model)
         q_feats, q_pids, q_camids = extract_features(model, query_loader, self.device, desc="Query", flip_tta=use_flip)
@@ -734,6 +820,17 @@ class ReIDTrainer:
             rank10=float(cmc[9]) if len(cmc) > 9 else 0.0,
         )
 
+    @staticmethod
+    def _get_num_classes(model) -> int:
+        """Infer num_classes from model's classifier layer."""
+        if hasattr(model, "classifier"):
+            return model.classifier.out_features
+        # Multi-branch models (e.g. CSLTinyViT with BNNeck3 head)
+        for name, module in model.named_modules():
+            if name.endswith("classifier") and hasattr(module, "out_features"):
+                return module.out_features
+        return -1
+
     def _save_checkpoint(
         self, model, path: Path, epoch: int, val: Optional[ValMetrics],
         optimizer=None, optimizer_center=None,
@@ -745,7 +842,7 @@ class ReIDTrainer:
             "epoch": epoch,
             "model_name": self.model_name,
             "dataset": self.dataset_name,
-            "num_classes": model.classifier.out_features if hasattr(model, "classifier") else -1,
+            "num_classes": self._get_num_classes(model),
             "preprocess": self.preprocess,
             "best_mAP": best_mAP,
         }
@@ -767,6 +864,17 @@ class ReIDTrainer:
         best_epoch: int, best_mAP: float, best_rank1: float,
     ):
         """Persist full training & validation history to metrics.json."""
+        # Group val entries by epoch
+        from collections import OrderedDict
+        val_by_epoch: OrderedDict[int, dict] = OrderedDict()
+        for v in val_history:
+            if v.epoch not in val_by_epoch:
+                val_by_epoch[v.epoch] = {"epoch": v.epoch}
+            val_by_epoch[v.epoch][v.dataset] = {
+                "mAP": round(v.mAP, 4), "rank1": round(v.rank1, 4),
+                "rank5": round(v.rank5, 4), "rank10": round(v.rank10, 4),
+            }
+
         data = {
             "model": self.model_name,
             "dataset": self.dataset_name,
@@ -784,14 +892,7 @@ class ReIDTrainer:
                 }
                 for m in history
             ],
-            "val": [
-                {
-                    "epoch": v.epoch, "dataset": v.dataset,
-                    "mAP": round(v.mAP, 4), "rank1": round(v.rank1, 4),
-                    "rank5": round(v.rank5, 4), "rank10": round(v.rank10, 4),
-                }
-                for v in val_history
-            ],
+            "val": list(val_by_epoch.values()),
         }
         path = save_dir / "metrics.json"
         path.write_text(json.dumps(data, indent=2))

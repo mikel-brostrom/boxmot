@@ -571,7 +571,7 @@ from boxmot.trackers.bbox.occluboost.occluboost import (  # noqa: E402
 
 
 def test_occluboost_supports_obb_without_reid():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
@@ -590,7 +590,7 @@ def test_occluboost_supports_obb_without_reid():
 
 
 def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     dets = np.array(
         [
@@ -610,7 +610,7 @@ def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
 
 def test_occluboost_obb_aabb_path_unchanged():
     """The AABB path must remain 8-column and produce stable IDs."""
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     dets = np.array([[80, 80, 130, 130, 0.9, 0]], dtype=np.float32)
     out1 = tracker.update(dets, rgb)
@@ -644,7 +644,7 @@ def test_xywha_to_xyxy_enclosing_45deg_grows_bounds():
 
 
 def test_occluboost_obb_history_follows_smoothly_under_rotation():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
 
     angles = np.linspace(0.0, 1.5, 12, dtype=np.float32)

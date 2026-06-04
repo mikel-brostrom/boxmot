@@ -408,8 +408,10 @@ class Boxmot:
         max_metric_calls: int = BOXMOT_DEFAULTS.research.max_metric_calls,
         eval_timeout: float = BOXMOT_DEFAULTS.research.eval_timeout,
         keep_workspace: bool = BOXMOT_DEFAULTS.research.keep_workspace,
+        hota_penalty: float = BOXMOT_DEFAULTS.research.hota_penalty,
         idf1_penalty: float = BOXMOT_DEFAULTS.research.idf1_penalty,
         mota_penalty: float = BOXMOT_DEFAULTS.research.mota_penalty,
+        hota_tolerance: float = BOXMOT_DEFAULTS.research.hota_tolerance,
         idf1_tolerance: float = BOXMOT_DEFAULTS.research.idf1_tolerance,
         mota_tolerance: float = BOXMOT_DEFAULTS.research.mota_tolerance,
         tracker_backend: str | None = None,
@@ -426,8 +428,10 @@ class Boxmot:
             max_metric_calls=max_metric_calls,
             eval_timeout=eval_timeout,
             keep_workspace=keep_workspace,
+            hota_penalty=hota_penalty,
             idf1_penalty=idf1_penalty,
             mota_penalty=mota_penalty,
+            hota_tolerance=hota_tolerance,
             idf1_tolerance=idf1_tolerance,
             mota_tolerance=mota_tolerance,
             tracker_backend=tracker_backend,
@@ -497,6 +501,7 @@ class Boxmot:
         gaussian_blur: bool = BOXMOT_DEFAULTS.train.gaussian_blur,
         random_grayscale: float = BOXMOT_DEFAULTS.train.random_grayscale,
         color_jitter: bool = BOXMOT_DEFAULTS.train.color_jitter,
+        random_erasing: float = BOXMOT_DEFAULTS.train.random_erasing,
         resume: str | Path | None = None,
     ):
         train_project = project if project is not None else BOXMOT_DEFAULTS.train.project
@@ -531,6 +536,7 @@ class Boxmot:
                 "gaussian_blur": bool(gaussian_blur),
                 "random_grayscale": float(random_grayscale),
                 "color_jitter": bool(color_jitter),
+                "random_erasing": float(random_erasing),
                 "resume": None if resume is None else str(resume),
             },
         )

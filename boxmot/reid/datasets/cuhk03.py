@@ -48,19 +48,30 @@ class CUHK03(BaseReIDDataset):
 
     def _resolve_root(self, root: str):
         p = Path(root)
-        # Direct detected/labeled dir with bounding_box_train
-        if (p / "bounding_box_train").is_dir():
-            return p
-        # Check for variant subdir (detected/ or labeled/)
+        # 1. Check for variant subdir (detected/ or labeled/) directly under root
         if (p / self._variant / "bounding_box_train").is_dir():
             return p / self._variant
-        # Check standard dataset root names
+        # 2. Named subdirectories under root
         for sub in self._SUBDIRS:
             candidate = p / sub
             if (candidate / self._variant / "bounding_box_train").is_dir():
                 return candidate / self._variant
             if (candidate / "bounding_box_train").is_dir():
                 return candidate
+        # 3. Named subdirectories under parent (cross-dataset support)
+        for sub in self._SUBDIRS:
+            candidate = p.parent / sub
+            if (candidate / self._variant / "bounding_box_train").is_dir():
+                return candidate / self._variant
+            if (candidate / "bounding_box_train").is_dir():
+                return candidate
+        # 4. Bare root only if its folder name matches a known alias
+        #    (prevents silently loading Market/Duke data as CUHK03)
+        if (p / "bounding_box_train").is_dir():
+            norm = p.name.lower().replace("-", "").replace("_", "")
+            known = {s.lower().replace("-", "").replace("_", "") for s in self._SUBDIRS}
+            if norm in known:
+                return p
         raise FileNotFoundError(
             f"Cannot find CUHK03 dataset under {root}. "
             f"Expected cuhk03-np/{self._variant}/bounding_box_train/ directory. "

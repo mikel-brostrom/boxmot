@@ -1,6 +1,6 @@
 max_age:
   type: randint
-  default: 65
+  default: 88
   range: [15, 200]
 
 min_hits:
@@ -10,58 +10,63 @@ min_hits:
 
 det_thresh:
   type: uniform
-  default: 0.6295282294443445
+  default: 0.6191281742510143
   range: [0.1, 0.9]
 
 iou_threshold:
   type: uniform
-  default: 0.11933319989647659
-  range: [0.05, 0.9]
+  default: 0.08854815430240996
+  range: [0.05, 0.99]
 
-use_ecc:
+use_cmc:
   type: choice
   default: True
   options: [False, True]
+  activates:
+    cmc_method:
+      type: choice
+      default: sof
+      options: [sof, ecc]
 
 min_box_area:
   type: randint
-  default: 48
+  default: 75
   range: [5, 100]
 
 aspect_ratio_thresh:
   type: uniform
-  default: 1.8040205976911894
+  default: 1.7492471866426091
   range: [0.1, 2.0]
 
 lambda_iou:
   type: uniform
-  default: 0.15613792266280685
+  default: 1.7168380902528035
   range: [0.1, 2.0]
 
 lambda_mhd:
   type: uniform
-  default: 0.33877768968670485
+  default: 0.18124834268378442
   range: [0.1, 2.0]
 
 lambda_shape:
   type: uniform
-  default: 1.8625777972860829
+  default: 1.6204253839815765
   range: [0.1, 2.0]
 
 use_dlo_boost:
   type: choice
   default: True
   options: [False, True]
+  activates:
+    dlo_boost_coef:
+      type: uniform
+      default: 1.592685421502537
+      range: [0.3, 2.0]
 
 use_duo_boost:
   type: choice
   default: False
   options: [False, True]
-
-dlo_boost_coef:
-  type: uniform
-  default: 1.6196815762394277
-  range: [0.3, 2.0]
 
 s_sim_corr:
   type: choice
@@ -70,12 +75,12 @@ s_sim_corr:
 
 use_rich_s:
   type: choice
-  default: True
+  default: False
   options: [False, True]
 
 use_sb:
   type: choice
-  default: True
+  default: False
   options: [False, True]
 
 use_vt:
@@ -87,146 +92,128 @@ with_reid:
   type: choice
   default: True
   options: [False, True]
-
-cmc_method:
-  type: choice
-  default: ecc
-  options: [sof, ecc]
-
-recovery_appearance_thresh:
-  type: uniform
-  default: 0.2603427872945116
-  range: [0.2, 0.99]
-
-recovery_iou_thresh:
-  type: uniform
-  default: 0.24295993725829346
-  range: [0.0, 0.5]
-
-recovery_max_age:
-  type: randint
-  default: 117
-  range: [1, 120]
-
-feat_alpha:
-  type: uniform
-  default: 0.8519269708419616
-  range: [0.7, 1.0]
+  activates:
+    recovery_appearance_thresh:
+      type: uniform
+      default: 0.8284819362418853
+      range: [0.2, 0.99]
+    recovery_iou_thresh:
+      type: uniform
+      default: 0.253970578980223
+      range: [0.0, 0.5]
+    recovery_max_age:
+      type: randint
+      default: 9
+      range: [1, 120]
+    feat_alpha:
+      type: uniform
+      default: 0.8474299033397772
+      range: [0.7, 1.0]
 
 track_low_thresh:
   type: uniform
-  default: 0.2302795606458811
-  range: [0.05, 0.3]
-
-second_iou_thresh:
-  type: uniform
-  default: 0.6923567512085443
-  range: [0.3, 0.8]
-
-second_appearance_thresh:
-  type: uniform
-  default: 0.3259114145715589
-  range: [0.2, 0.9]
-
-second_pass_max_age:
-  type: randint
-  default: 1
-  range: [1, 10]
-
-second_pass_min_hits:
-  type: randint
-  default: 19
-  range: [1, 20]
+  default: 0.050002145016990886
+  range: [0.01, 0.3]
 
 use_second_pass:
   type: choice
-  default: False
+  default: True
   options: [False, True]
+  activates:
+    second_iou_thresh:
+      type: uniform
+      default: 0.784088852127146
+      range: [0.3, 0.9]
+    second_appearance_thresh:
+      type: uniform
+      default: 0.5884305667909087
+      range: [0.2, 0.9]
+    second_pass_max_age:
+      type: randint
+      default: 2
+      range: [1, 10]
+    second_pass_min_hits:
+      type: randint
+      default: 7
+      range: [1, 20]
 
 new_track_thresh:
   type: uniform
-  default: 0.4983593164418755
+  default: 0.7006691095625072
   range: [0.3, 0.9]
 
 confirm_hits:
   type: randint
-  default: 4
+  default: 1
   range: [1, 8]
 
 instant_confirm_thresh:
   type: uniform
-  default: 0.5761648208954941
+  default: 0.8257187606072911
   range: [0.5, 0.95]
 
 tentative_max_age:
   type: randint
-  default: 3
+  default: 4
   range: [0, 5]
 
 duplicate_iou_thresh:
   type: uniform
-  default: 0.9471027310173333
+  default: 0.9256184820651551
   range: [0.5, 1.0]
 
 ams_enabled:
   type: choice
   default: True
   options: [False, True]
-
-ams_alpha0:
-  type: uniform
-  default: 0.36633627626741466
-  range: [0.0, 1.0]
-
-ams_threshold:
-  type: uniform
-  default: 0.4635757582108918
-  range: [0.0, 1.0]
-
-ams_buffer_size:
-  type: randint
-  default: 7
-  range: [3, 60]
-
-ams_shrink_ratio:
-  type: uniform
-  default: 0.5468183661386358
-  range: [0.5, 1.0]
+  activates:
+    ams_alpha0:
+      type: uniform
+      default: 0.9383280226652425
+      range: [0.0, 1.0]
+    ams_threshold:
+      type: uniform
+      default: 0.8664176316686335
+      range: [0.0, 1.0]
+    ams_buffer_size:
+      type: randint
+      default: 34
+      range: [3, 60]
+    ams_shrink_ratio:
+      type: uniform
+      default: 0.9080813534161316
+      range: [0.5, 1.0]
 
 lambda_emb_multiplier:
   type: uniform
-  default: 2.827028940282541
-  range: [0.1, 3.0]
+  default: 2.998169378915523
+  range: [0.1, 8.0]
 
 gta_enabled:
   type: choice
   default: False
   options: [False, True]
-
-gta_appearance_thresh:
-  type: uniform
-  default: 0.7125445489563044
-  range: [0.3, 0.8]
-
-gta_min_track_length:
-  type: randint
-  default: 7
-  range: [2, 15]
-
-gta_smooth_tau:
-  type: uniform
-  default: 14.757519908748044
-  range: [1.0, 15.0]
-
-gta_interpolate:
-  type: choice
-  default: False
-  options: [False, True]
-
-gta_max_gap:
-  type: randint
-  default: 40
-  range: [15, 150]
+  activates:
+    gta_appearance_thresh:
+      type: uniform
+      default: 0.7125445489563044
+      range: [0.3, 0.8]
+    gta_min_track_length:
+      type: randint
+      default: 7
+      range: [2, 15]
+    gta_smooth_tau:
+      type: uniform
+      default: 14.757519908748044
+      range: [1.0, 20.0]
+    gta_interpolate:
+      type: choice
+      default: False
+      options: [False, True]
+    gta_max_gap:
+      type: randint
+      default: 40
+      range: [15, 150]
 
 adaptive_kf:
   type: choice

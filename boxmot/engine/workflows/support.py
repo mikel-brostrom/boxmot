@@ -11,6 +11,7 @@ import yaml
 from boxmot.configs import BOXMOT_DEFAULTS
 from boxmot.data import VIDEO_EXTS
 from boxmot.detectors import Detector as PublicDetector
+from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.engine.tracking.results import Results
 from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
@@ -158,9 +159,10 @@ def tracker_config_from_spec(spec: Any) -> dict[str, Any] | None:
 
     with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle) or {}
+    flat_config = flatten_yaml_config(config)
 
     resolved: dict[str, Any] = {}
-    for key, details in config.items():
+    for key, details in flat_config.items():
         if hasattr(spec, key):
             resolved[key] = getattr(spec, key)
         else:
@@ -179,9 +181,10 @@ def default_tracker_config(tracker_spec: Any) -> dict[str, Any]:
     if existing is not None:
         return existing
     search_space = load_tracker_search_space(tracker_spec)
+    flat_search_space = flatten_yaml_config(search_space)
     return {
         key: details.get("default")
-        for key, details in search_space.items()
+        for key, details in flat_search_space.items()
     }
 
 

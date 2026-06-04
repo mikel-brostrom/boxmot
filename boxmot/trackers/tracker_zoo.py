@@ -4,6 +4,7 @@ import importlib
 
 import yaml
 
+from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.reid.core import ReID
 from boxmot.utils import TRACKER_CONFIGS
 
@@ -87,8 +88,9 @@ def create_tracker(
         elif tracker_config is not None:
             with open(tracker_config, "r", encoding="utf-8") as f:
                 yaml_config = yaml.safe_load(f) or {}
+                flat_config = flatten_yaml_config(yaml_config)
                 cfg_dict = {
-                    param: details["default"] for param, details in yaml_config.items()
+                    param: details["default"] for param, details in flat_config.items()
                 }
         # Native live constructors take ``(cfg_dict, reid_weights=...)``; only
         # ReID-aware trackers consume ``reid_weights``. Passing ``reid_weights``
@@ -111,9 +113,10 @@ def create_tracker(
             # Load default tracker config
             tracker_config = get_tracker_config(tracker_type)
         with open(tracker_config, "r") as f:
-            yaml_config = yaml.safe_load(f)
+            yaml_config = yaml.safe_load(f) or {}
+            flat_config = flatten_yaml_config(yaml_config)
             tracker_args = {
-                param: details["default"] for param, details in yaml_config.items()
+                param: details["default"] for param, details in flat_config.items()
             }
     else:
         tracker_args = evolve_param_dict.copy()

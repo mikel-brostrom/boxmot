@@ -40,15 +40,27 @@ class DukeMTMCreID(BaseReIDDataset):
     def _resolve_root(self, root: str):
         from pathlib import Path
         p = Path(root)
-        if (p / "bounding_box_train").is_dir():
-            return p
+        # 1. Named subdirectories under root (most specific match)
         for sub in self._SUBDIRS:
             candidate = p / sub
             if (candidate / "bounding_box_train").is_dir():
                 return candidate
+        # 2. Named subdirectories under parent (cross-dataset support)
+        for sub in self._SUBDIRS:
+            candidate = p.parent / sub
+            if (candidate / "bounding_box_train").is_dir():
+                return candidate
+        # 3. Bare root only if its folder name matches a known alias
+        #    (prevents silently loading Market/CUHK03 data as Duke)
+        if (p / "bounding_box_train").is_dir():
+            norm = p.name.lower().replace("-", "").replace("_", "")
+            known = {s.lower().replace("-", "").replace("_", "") for s in self._SUBDIRS}
+            if norm in known:
+                return p
         raise FileNotFoundError(
             f"Cannot find DukeMTMC-reID dataset under {root}. "
-            f"Expected bounding_box_train/ directory."
+            f"Expected one of {self._SUBDIRS} as a subdirectory or the dataset "
+            f"root itself containing bounding_box_train/."
         )
 
     def _load_split(self, split: str) -> List[ReIDSample]:

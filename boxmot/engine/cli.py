@@ -18,6 +18,7 @@ from boxmot import __version__
 from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
+    list_training_recipes,
 )
 from boxmot.configs.benchmark import resolve_benchmark_cfg_path
 from boxmot.utils.misc import parse_imgsz
@@ -440,6 +441,12 @@ def tune_options(func):
         click.option('--minimize', type=str, multiple=True, default=TUNE_DEFAULTS.minimize,
                      help='metrics to minimize for Pareto search; accepts repeated, comma-separated, or space-separated values (e.g. IDSW_rate); '
                           'triggers multi-objective mode when set'),
+        click.option('--search-alg', 'search_alg', type=click.Choice(['optuna', 'hyperopt', 'random'], case_sensitive=False),
+                     default='optuna',
+                     help='search algorithm backend for hyperparameter optimization; '
+                          'optuna (default) uses TPE with conditional search spaces, '
+                          'hyperopt uses Tree-structured Parzen Estimators via HyperOpt, '
+                          'random uses uniform random sampling'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -466,10 +473,14 @@ def research_options(func):
                      help='hard timeout in seconds for each benchmark evaluation'),
         click.option('--keep-workspace/--no-keep-workspace', default=RESEARCH_DEFAULTS.keep_workspace, show_default=True,
                      help='preserve the temporary research workspace after the run'),
+        click.option('--hota-penalty', type=float, default=RESEARCH_DEFAULTS.hota_penalty, show_default=True,
+                     help='penalty multiplier for combined HOTA regression versus baseline'),
         click.option('--idf1-penalty', type=float, default=RESEARCH_DEFAULTS.idf1_penalty, show_default=True,
                      help='penalty multiplier for combined IDF1 regression versus baseline'),
         click.option('--mota-penalty', type=float, default=RESEARCH_DEFAULTS.mota_penalty, show_default=True,
                      help='penalty multiplier for combined MOTA regression versus baseline'),
+        click.option('--hota-tolerance', type=float, default=RESEARCH_DEFAULTS.hota_tolerance, show_default=True,
+                     help='allowed combined HOTA drop before penalties apply'),
         click.option('--idf1-tolerance', type=float, default=RESEARCH_DEFAULTS.idf1_tolerance, show_default=True,
                      help='allowed combined IDF1 drop before penalties apply'),
         click.option('--mota-tolerance', type=float, default=RESEARCH_DEFAULTS.mota_tolerance, show_default=True,
@@ -747,6 +758,10 @@ def train_options(func):
     from boxmot.reid.datasets import DATASET_REGISTRY
 
     options = [
+        click.option('--recipe', type=click.Choice(list_training_recipes(), case_sensitive=False),
+                     default=None,
+                     help='Training recipe preset (overrides defaults; CLI flags still take priority). '
+                          f'Available: {", ".join(list_training_recipes()) or "(none)"}'),
         click.option('--model', type=click.Choice(MODEL_TYPES, case_sensitive=False),
                      default=TRAIN_DEFAULTS.model, show_default=True,
                      help='ReID backbone architecture'),
@@ -755,11 +770,11 @@ def train_options(func):
                      help='Training dataset (comma-separated for joint training, '
                           f'e.g. market1501,duke,cuhk03,msmt17). '
                           f'Available: {", ".join(sorted(DATASET_REGISTRY.keys()))}'),
-        click.option('--data-dir', type=click.Path(exists=True), required=True,
-                     help='Root directory of the dataset'),
-        click.option('--loss', type=click.Choice(['softmax', 'triplet'], case_sensitive=False),
+        click.option('--data-dir', type=click.Path(exists=True), required=False, default=None,
+                     help='Root directory of the dataset (inferred from hparams.json when --resume is used)'),
+        click.option('--loss', type=click.Choice(['softmax', 'triplet', 'ms'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.loss, show_default=True,
-                     help='Training loss type'),
+                     help='Metric loss type (triplet=hard-mining triplet, ms=multi-similarity, softmax=CE only)'),
         click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
                      default=TRAIN_DEFAULTS.preprocess, show_default=True,
                      help='Crop preprocessing method; must match inference-time preprocessing'),
@@ -788,6 +803,8 @@ def train_options(func):
                      help='Label smoothing epsilon'),
         click.option('--center-loss-weight', type=float, default=TRAIN_DEFAULTS.center_loss_weight, show_default=True,
                      help='Center loss weight'),
+        click.option('--eta-min', type=float, default=TRAIN_DEFAULTS.eta_min, show_default=True,
+                     help='Minimum learning rate for cosine annealing schedule'),
         click.option('--pretrained/--no-pretrained', default=TRAIN_DEFAULTS.pretrained, show_default=True,
                      help='Use ImageNet-pretrained backbone'),
         click.option('--device', default=TRAIN_DEFAULTS.device,
@@ -812,6 +829,8 @@ def train_options(func):
                      help='Apply color jitter augmentation (auto-enabled for ViTs)'),
         click.option('--random-grayscale', type=float, default=TRAIN_DEFAULTS.random_grayscale, show_default=True,
                      help='Probability of random grayscale conversion (0 to disable)'),
+        click.option('--random-erasing', type=float, default=TRAIN_DEFAULTS.random_erasing, show_default=True,
+                     help='Probability of random erasing augmentation (0 to disable)'),
         click.option('--resume', type=click.Path(), default=None,
                      help='Resume training from a checkpoint dir or last.pt file'),
     ]
@@ -824,6 +843,9 @@ def train_options(func):
 @train_options
 @click.pass_context
 def train(ctx, **kwargs):
+    # --data-dir is required unless --resume is provided
+    if not kwargs.get('resume') and not kwargs.get('data_dir'):
+        raise click.MissingParameter(param_hint="'--data-dir'", param_type='option')
     args = _build_cli_namespace(ctx, "train", kwargs)
     _run_engine_workflow("boxmot.engine.reid.trainer", args)
 

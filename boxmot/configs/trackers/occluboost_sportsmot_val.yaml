@@ -18,10 +18,15 @@ iou_threshold:
   default: 0.19645707701453807
   range: [0.05, 0.9]
 
-use_ecc:
+use_cmc:
   type: choice
   default: True
   options: [False, True]
+  activates:
+    cmc_method:
+      type: choice
+      default: sof
+      options: [sof, ecc]
 
 min_box_area:
   type: randint
@@ -87,11 +92,6 @@ with_reid:
   type: choice
   default: True
   options: [False, True]
-
-cmc_method:
-  type: choice
-  default: sof
-  options: [sof, ecc]
 
 recovery_appearance_thresh:
   type: uniform

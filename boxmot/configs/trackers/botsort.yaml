@@ -23,17 +23,55 @@ match_thresh:
   default: 0.8  # from the default parameters
   range: [0.1, 0.9]
 
-proximity_thresh:
+use_cmc:
+  type: choice
+  default: True  # from the default parameters
+  options: [False, True]
+  activates:
+    cmc_method:
+      type: choice
+      default: ecc  # from the default parameters
+      options: [sof, ecc]
+
+frame_rate:
+  type: choice
+  default: 30  # from the default parameters
+  options: [25, 30]
+
+fuse_first_associate:
+  type: choice
+  default: False  # from the default parameters
+  options: [False, True]
+
+with_reid:
+  type: choice
+  default: True  # from the default parameters
+  options: [False, True]
+  activates:
+    proximity_thresh:
+      type: uniform
+      default: 0.5  # from the default parameters
+      range: [0.25, 0.75]
+    appearance_thresh:
+      type: uniform
+      default: 0.25  # from the default parameters
+      range: [0.1, 0.8]
+    unconfirmed_emb_scale:
+      type: uniform
+      default: 2.0  # from the default parameters
+      range: [1.0, 4.0]
+
+second_match_thresh:
   type: uniform
   default: 0.5  # from the default parameters
-  range: [0.25, 0.75]
+  range: [0.1, 0.9]
 
-appearance_thresh:
+unconfirmed_match_thresh:
   type: uniform
-  default: 0.25  # from the default parameters
-  range: [0.1, 0.8]
+  default: 0.7  # from the default parameters
+  range: [0.1, 0.9]
 
-cmc_method:
-  type: choice
-  default: ecc  # from the default parameters
-  options: [sof, ecc]
+removed_stracks_buffer:
+  type: randint
+  default: 100  # from the default parameters
+  range: [50, 501]

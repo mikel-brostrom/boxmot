@@ -18,10 +18,15 @@ iou_threshold:
   default: 0.3
   range: [0.1, 0.9]
 
-use_ecc:
+use_cmc:
   type: choice
   default: True
   options: [False, True]
+  activates:
+    cmc_method:
+      type: choice
+      default: ecc
+      options: [sof, ecc]
 
 min_box_area:
   type: randint

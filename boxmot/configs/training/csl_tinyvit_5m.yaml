@@ -1,0 +1,32 @@
+# Training recipe for CSL-TinyViT 5M ReID backbone
+#
+# Reproduces the v2 baseline run that achieved:
+#   best_mAP=83.0%, best_R1=93.62% @ epoch 200 on Market-1501
+#
+# Key differences from the generic `vit.yaml` recipe:
+#   - lr: 0.0007 (the ViT auto-tuned value, vs 0.0005)
+#   - epochs: 250 (v2 peaked at epoch 200/400; tighter schedule curbs overfitting)
+#   - ema_decay: 0 (disabled; multi-branch BN neck causes EMA stat mismatch)
+#
+# Usage:
+#   uv run python -m boxmot.engine.cli train \
+#     --recipe csl_tinyvit_5m \
+#     --data-dir ./Market-1501-v15.09.15 \
+#     --device mps
+
+model: csl_tinyvit_5m
+loss: triplet
+epochs: 250
+lr: 0.0007
+weight_decay: 0.05
+batch_size: 64
+imgsz: [384, 128]
+warmup_epochs: 10
+margin: 0.3
+label_smooth: 0.05
+center_loss_weight: 0.005
+ema_decay: 0
+color_jitter: true
+gaussian_blur: true
+random_grayscale: 0.1
+preprocess: resize

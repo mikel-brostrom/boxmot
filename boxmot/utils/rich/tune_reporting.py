@@ -24,6 +24,7 @@ from boxmot.utils.rich.steps import (
 )
 from boxmot.utils.rich.steps import (
     TUNE_STEPS,
+    tune_steps,
 )
 
 
@@ -115,6 +116,7 @@ class TuneWorkflowReporter(RichWorkflowReporter):
         super().__init__(args)
         self.maximize = maximize
         self.minimize = minimize
+        self.steps = tune_steps(tune_kf=bool(getattr(args, "tune_kf", False)))
 
     def fields(self) -> list[tuple[str, object]]:
         return build_tune_workflow_fields(self.args, maximize=self.maximize, minimize=self.minimize)

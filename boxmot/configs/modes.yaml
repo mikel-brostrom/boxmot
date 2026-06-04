@@ -75,8 +75,10 @@ research:
   max_metric_calls: 24
   eval_timeout: 900.0
   keep_workspace: false
+  hota_penalty: 0.0
   idf1_penalty: 1.0
   mota_penalty: 1.0
+  hota_tolerance: 0.0
   idf1_tolerance: 0.0
   mota_tolerance: 0.0
 

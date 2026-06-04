@@ -836,20 +836,24 @@ def _terminate_subprocess_tree(
 
 @dataclass(frozen=True, slots=True)
 class RegressionPenalties:
+    hota_penalty: float = 2
     idf1_penalty: float = 1.0
     mota_penalty: float = 1.0
+    hota_tolerance: float = 0.0
     idf1_tolerance: float = 0.0
     mota_tolerance: float = 0.0
 
     def __post_init__(self) -> None:
-        for field_name in ("idf1_penalty", "mota_penalty", "idf1_tolerance", "mota_tolerance"):
+        for field_name in ("hota_penalty", "idf1_penalty", "mota_penalty", "hota_tolerance", "idf1_tolerance", "mota_tolerance"):
             if float(getattr(self, field_name)) < 0.0:
                 raise ValueError(f"{field_name} must be non-negative")
 
     def to_dict(self) -> dict[str, float]:
         return {
+            "hota_penalty": float(self.hota_penalty),
             "idf1_penalty": float(self.idf1_penalty),
             "mota_penalty": float(self.mota_penalty),
+            "hota_tolerance": float(self.hota_tolerance),
             "idf1_tolerance": float(self.idf1_tolerance),
             "mota_tolerance": float(self.mota_tolerance),
         }
@@ -910,8 +914,10 @@ class ResearchConfig:
             proposal_model=str(getattr(args, "proposal_model", DEFAULT_PROPOSAL_MODEL)),
             proposal_model_kwargs=proposal_model_kwargs,
             penalties=RegressionPenalties(
+                hota_penalty=float(getattr(args, "hota_penalty", 0.0)),
                 idf1_penalty=float(getattr(args, "idf1_penalty", 1.0)),
                 mota_penalty=float(getattr(args, "mota_penalty", 1.0)),
+                hota_tolerance=float(getattr(args, "hota_tolerance", 0.0)),
                 idf1_tolerance=float(getattr(args, "idf1_tolerance", 0.0)),
                 mota_tolerance=float(getattr(args, "mota_tolerance", 0.0)),
             ),
@@ -1099,27 +1105,34 @@ class TrackerResearcher:
             raise RuntimeError("Baseline summary is not available for candidate scoring")
 
         hota = float(metrics.get("HOTA", 0.0))
+        baseline_hota = float(self.baseline_summary.get("HOTA", 0.0))
         baseline_idf1 = float(self.baseline_summary.get("IDF1", 0.0))
         baseline_mota = float(self.baseline_summary.get("MOTA", 0.0))
         idf1 = float(metrics.get("IDF1", 0.0))
         mota = float(metrics.get("MOTA", 0.0))
 
+        hota_regression = max(0.0, baseline_hota - hota - float(self.penalties.hota_tolerance))
         idf1_regression = max(0.0, baseline_idf1 - idf1 - float(self.penalties.idf1_tolerance))
         mota_regression = max(0.0, baseline_mota - mota - float(self.penalties.mota_tolerance))
         total_penalty = (
-            idf1_regression * float(self.penalties.idf1_penalty)
+            hota_regression * float(self.penalties.hota_penalty)
+            + idf1_regression * float(self.penalties.idf1_penalty)
             + mota_regression * float(self.penalties.mota_penalty)
         )
         score = hota - total_penalty
 
         return score, {
             "HOTA": hota,
+            "baseline_HOTA": baseline_hota,
             "baseline_IDF1": baseline_idf1,
             "baseline_MOTA": baseline_mota,
+            "hota_regression": hota_regression,
             "idf1_regression": idf1_regression,
             "mota_regression": mota_regression,
+            "hota_tolerance": float(self.penalties.hota_tolerance),
             "idf1_tolerance": float(self.penalties.idf1_tolerance),
             "mota_tolerance": float(self.penalties.mota_tolerance),
+            "hota_penalty": float(self.penalties.hota_penalty),
             "idf1_penalty": float(self.penalties.idf1_penalty),
             "mota_penalty": float(self.penalties.mota_penalty),
             "total_penalty": total_penalty,
