@@ -9,10 +9,8 @@ import click
 from boxmot.engine.tuning.backends.base import BaseTuneBackend
 from boxmot.engine.tuning.search_space import (
     conditional_yaml_tree,
-    default_tune_config,
     flatten_yaml_config,
     is_valid_search_param,
-    yaml_to_tune_space,
 )
 from boxmot.utils import logger as LOGGER
 
@@ -51,6 +49,43 @@ def _hyperopt_param(hp, param: str, details: dict):
     return None
 
 
+def _hyperopt_conditional_param(hp, param: str, details: dict, parents_with_children: dict):
+    if not is_valid_search_param(param, details):
+        return None
+
+    t = details.get("type")
+    opts = details.get("options") or details.get("values")
+    if t not in ("choice", "grid_search") or not opts:
+        raise ValueError(
+            f"HyperOpt conditional parent '{param}' must be a choice/grid_search "
+            "parameter with boolean-like options."
+        )
+
+    branches = []
+    for parent_value in list(opts):
+        branch = {param: parent_value}
+        if bool(parent_value):
+            for child_name, child_details in parents_with_children.get(param, {}).items():
+                if not isinstance(child_details, dict):
+                    continue
+                if child_name in parents_with_children:
+                    child_value = _hyperopt_conditional_param(
+                        hp,
+                        child_name,
+                        child_details,
+                        parents_with_children,
+                    )
+                else:
+                    child_value = _hyperopt_param(hp, child_name, child_details)
+                if child_value is not None:
+                    branch[child_name] = child_value
+        branches.append(branch)
+
+    if not branches:
+        raise ValueError(f"Conditional parent '{param}' has no valid branches")
+    return hp.choice(param, branches)
+
+
 def yaml_to_hyperopt_space(config: dict) -> dict:
     """Build a native HyperOpt search space from a tracker YAML config.
 
@@ -76,28 +111,7 @@ def yaml_to_hyperopt_space(config: dict) -> dict:
                 space[param] = value
             continue
 
-        t = details.get("type")
-        opts = details.get("options") or details.get("values")
-        if t not in ("choice", "grid_search") or not opts:
-            raise ValueError(
-                f"HyperOpt conditional parent '{param}' must be a choice/grid_search "
-                "parameter with boolean-like options."
-            )
-
-        branches = []
-        for parent_value in list(opts):
-            branch = {param: parent_value}
-            if bool(parent_value):
-                for child_name, child_details in parents_with_children[param].items():
-                    if isinstance(child_details, dict):
-                        child_value = _hyperopt_param(hp, child_name, child_details)
-                        if child_value is not None:
-                            branch[child_name] = child_value
-            branches.append(branch)
-
-        if not branches:
-            raise ValueError(f"Conditional parent '{param}' has no valid branches")
-        space[param] = hp.choice(param, branches)
+        space[param] = _hyperopt_conditional_param(hp, param, details, parents_with_children)
 
     if not space:
         LOGGER.warning(

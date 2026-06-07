@@ -184,6 +184,7 @@ def build_mode_namespace(
         if isinstance(ed, str):
             ed = [s.strip() for s in ed.split(",") if s.strip()]
         values["eval_datasets"] = list(ed)
+        values.setdefault("train_explicit_keys", tuple(sorted(explicit)))
 
     return SimpleNamespace(**values)
 
@@ -390,7 +391,9 @@ class ResearchModeDefaults(RuntimeModeDefaults):
             benchmark=str(values.get("benchmark", "")),
             split=str(values.get("split", "")),
             proposal_model=str(values.get("proposal_model", "openai/gpt-5.4")),
-            proposal_api_key=None if values.get("proposal_api_key") in {None, ""} else str(values.get("proposal_api_key")),
+            proposal_api_key=(
+                None if values.get("proposal_api_key") in {None, ""} else str(values.get("proposal_api_key"))
+            ),
             proposal_api_key_env=(
                 None if values.get("proposal_api_key_env") in {None, ""} else str(values.get("proposal_api_key_env"))
             ),
@@ -456,6 +459,7 @@ class TrainModeDefaults:
     margin: float
     label_smooth: float
     center_loss_weight: float
+    metric_feature: str
     eta_min: float
     pretrained: bool
     device: str
@@ -495,6 +499,7 @@ class TrainModeDefaults:
             margin=float(values.get("margin", 0.3)),
             label_smooth=float(values.get("label_smooth", 0.1)),
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
+            metric_feature=str(values.get("metric_feature", "auto")),
             eta_min=float(values.get("eta_min", 1e-7)),
             pretrained=bool(values.get("pretrained", True)),
             device=str(values.get("device", "cpu")),

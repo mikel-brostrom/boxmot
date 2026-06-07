@@ -82,26 +82,40 @@ def _format_yaml_value(v):
         return str(v)
     if isinstance(v, list):
         return "[" + ", ".join(_format_yaml_value(x) for x in v) + "]"
+    if v == "":
+        return '""'
     return str(v)
 
 
 def write_trial_yaml(yaml_cfg: dict, config: dict, path: Path):
     """Write a YAML config with ``default`` values replaced by trial values."""
     known_keys = ("type", "default", "range", "options", "choices", "values")
-    flat = flatten_yaml_config(yaml_cfg)
-    lines = []
-    for param, details in flat.items():
-        if not isinstance(details, dict):
-            continue
-        lines.append(f"{param}:")
-        for key in known_keys:
-            if key not in details:
+
+    def _append_entries(entries: dict, lines: list[str], *, indent: int) -> None:
+        prefix = " " * indent
+        child_prefix = " " * (indent + 2)
+        for param, details in entries.items():
+            if not isinstance(details, dict):
+                lines.append(f"{prefix}{param}: {_format_yaml_value(details)}")
                 continue
-            value = details[key]
-            if key == "default" and param in config:
-                value = config[param]
-            lines.append(f"  {key}: {_format_yaml_value(value)}")
-        lines.append("")
+
+            lines.append(f"{prefix}{param}:")
+            for key in known_keys:
+                if key not in details:
+                    continue
+                value = config[param] if key == "default" and param in config else details[key]
+                lines.append(f"{child_prefix}{key}: {_format_yaml_value(value)}")
+
+            children = details.get("activates")
+            if isinstance(children, dict):
+                lines.append(f"{child_prefix}activates:")
+                _append_entries(children, lines, indent=indent + 4)
+
+            if indent == 0:
+                lines.append("")
+
+    lines: list[str] = []
+    _append_entries(yaml_cfg, lines, indent=0)
     path.write_text("\n".join(lines))
 
 

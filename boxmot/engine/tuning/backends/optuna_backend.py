@@ -31,6 +31,18 @@ def _suggest_param(trial, param: str, details: dict):
     return None
 
 
+def _is_suggestable(details: dict) -> bool:
+    t = details.get("type")
+    rng = details.get("range")
+    opts = details.get("options") or details.get("values")
+
+    if t in ("uniform", "randint", "qrandint", "loguniform"):
+        return bool(rng and len(rng) >= 2)
+    if t in ("choice", "grid_search"):
+        return bool(opts)
+    return False
+
+
 class _OptunaDefineSpace:
     """Picklable callable for Optuna define-by-run search space.
 
@@ -43,33 +55,27 @@ class _OptunaDefineSpace:
         self.parents_with_children = parents_with_children
         self.child_params = child_params
 
+    def _suggest_children(self, trial, parent: str) -> None:
+        for child_name, child_details in self.parents_with_children.get(parent, {}).items():
+            if not isinstance(child_details, dict) or not _is_suggestable(child_details):
+                continue
+            _suggest_param(trial, child_name, child_details)
+            if child_name in self.parents_with_children and trial.params.get(child_name):
+                self._suggest_children(trial, child_name)
+
     def __call__(self, trial):
         for param, details in self.flat.items():
             if not isinstance(details, dict):
                 continue
             if param in self.child_params:
                 continue
-            t = details.get("type")
-            rng = details.get("range")
-            opts = details.get("options") or details.get("values")
-
-            if t in ("uniform", "randint", "qrandint", "loguniform"):
-                if not rng or len(rng) < 2:
-                    continue
-            elif t in ("choice", "grid_search"):
-                if not opts:
-                    continue
-            else:
+            if not _is_suggestable(details):
                 continue
 
             _suggest_param(trial, param, details)
 
-            if param in self.parents_with_children:
-                parent_value = trial.params[param]
-                if parent_value:
-                    for child_name, child_details in self.parents_with_children[param].items():
-                        if isinstance(child_details, dict):
-                            _suggest_param(trial, child_name, child_details)
+            if param in self.parents_with_children and trial.params.get(param):
+                self._suggest_children(trial, param)
 
 
 def yaml_to_optuna_define_space(config: dict) -> _OptunaDefineSpace:

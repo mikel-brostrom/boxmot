@@ -97,6 +97,7 @@ Copyright 2014-2018 Roger R Labbe Jr.
 from __future__ import absolute_import, division
 
 import sys
+from collections import deque
 from copy import deepcopy
 from math import exp, log, sqrt
 
@@ -281,7 +282,7 @@ class KalmanFilterNew_score_new(object):
        https://github.com/rlabbe/Kalman-and-Bayesian-Filters-in-Python
     """
 
-    def __init__(self, dim_x, dim_z, dim_u=0, args=None):
+    def __init__(self, dim_x, dim_z, dim_u=0, args=None, max_obs=None):
         if dim_x < 1:
             raise ValueError('dim_x must be 1 or greater')
         if dim_z < 1:
@@ -328,8 +329,12 @@ class KalmanFilterNew_score_new(object):
         self._likelihood = sys.float_info.min
         self._mahalanobis = None
 
-        # keep all observations
-        self.history_obs = []
+        self.max_obs = None if max_obs is None else max(1, int(max_obs))
+        self.history_obs = (
+            deque([], maxlen=self.max_obs)
+            if self.max_obs is not None
+            else []
+        )
 
         self.inv = np.linalg.inv
 
@@ -391,10 +396,15 @@ class KalmanFilterNew_score_new(object):
 
     def unfreeze(self):
         if self.attr_saved is not None:
-            new_history = deepcopy(self.history_obs)
+            new_history = list(deepcopy(self.history_obs))
             self.__dict__ = self.attr_saved
             # self.history_obs = new_history
-            self.history_obs = self.history_obs[:-1]
+            retained_history = list(self.history_obs)[:-1]
+            self.history_obs = (
+                deque(retained_history, maxlen=self.max_obs)
+                if self.max_obs is not None
+                else retained_history
+            )
             occur = [int(d is None) for d in new_history]
             indices = np.where(np.array(occur)==0)[0]
             if len(indices) < 2:

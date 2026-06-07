@@ -116,6 +116,7 @@ class KalmanBoxTracker(object):
         delta_t: int = 3,
         use_custom_kf: bool = True,
         longterm_bank_length: int = 30,
+        max_obs: int = 50,
         alpha: float = 0.9,
         adapfs: bool = False,
         track_thresh: float = 0.5,
@@ -124,7 +125,7 @@ class KalmanBoxTracker(object):
     ):
         if use_custom_kf:
             from .kalmanfilter_score_new import KalmanFilterNew_score_new as KalmanFilter_score_new
-            self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5)
+            self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5, max_obs=max_obs)
             self.kf.F = np.array(
                 [
                     [1, 0, 0, 0, 0, 1, 0, 0, 0],
@@ -185,7 +186,8 @@ class KalmanBoxTracker(object):
         self.time_since_update = 0
         self.id = KalmanBoxTracker.count
         KalmanBoxTracker.count += 1
-        self.history: List[np.ndarray] = []
+        self.max_obs = max(1, int(max_obs))
+        self.history = deque([], maxlen=self.max_obs)
         self.hits = 0
         self.hit_streak = 0
         self.age = 0
@@ -194,7 +196,7 @@ class KalmanBoxTracker(object):
         self.last_observation = np.array([-1, -1, -1, -1, -1])
         self.last_observation_save = np.array([-1, -1, -1, -1, -1])
         self.observations = dict()
-        self.history_observations: List[np.ndarray] = []
+        self.history_observations = deque([], maxlen=self.max_obs)
 
         # velocity aids
         self.velocity_lt = None
@@ -220,6 +222,12 @@ class KalmanBoxTracker(object):
 
         # first feature update
         self.update_features(temp_feat)
+
+    def _prune_observations(self) -> None:
+        cutoff = self.age - self.max_obs + 1
+        for obs_age in list(self.observations):
+            if obs_age < cutoff:
+                self.observations.pop(obs_age, None)
 
     def update_features(self, feat, score: float = -1.0):
         feat = feat.astype(np.float32)
@@ -297,10 +305,11 @@ class KalmanBoxTracker(object):
             self.last_observation = bbox
             self.last_observation_save = bbox
             self.observations[self.age] = bbox
+            self._prune_observations()
             self.history_observations.append(bbox)
 
             self.time_since_update = 0
-            self.history = []
+            self.history.clear()
             self.hits += 1
             self.hit_streak += 1
             self.kf.update(convert_bbox_to_z(bbox))
@@ -588,7 +597,7 @@ class HybridSort(BaseTracker):
         k_observations = np.array([k_previous_obs(t.observations, t.age, self.delta_t) for t in self.active_tracks])
 
         # ===== First association (optionally embedding-guided)
-        if self.EG_weight_high_score > 0 and self.TCM_first_step and len(dets_first) and len(trks):
+        if self.with_reid and self.EG_weight_high_score > 0 and self.TCM_first_step and len(dets_first) and len(trks):
             track_features = np.asarray([t.smooth_feat for t in self.active_tracks], dtype=float)
             emb_dists = embedding_distance(track_features, id_feature_keep).T
 
@@ -725,6 +734,7 @@ class HybridSort(BaseTracker):
                 delta_t=self.delta_t,
                 use_custom_kf=self.use_custom_kf,
                 longterm_bank_length=self.longterm_bank_length,
+                max_obs=self.max_obs,
                 alpha=self.alpha,
                 adapfs=self.adapfs,
                 track_thresh=self.track_thresh,
@@ -759,3 +769,24 @@ class HybridSort(BaseTracker):
                 self.active_tracks.pop(i)
 
         return np.asarray(outputs) if len(outputs) else np.zeros((0, 8), dtype=float)
+
+    def reset(self):
+        self.active_tracks = []
+        if self.per_class_active_tracks is not None:
+            for cls_id in range(self.nr_classes):
+                self.per_class_active_tracks[cls_id] = []
+                self.per_class_trackers[cls_id] = []
+
+        self.frame_count = 0
+        self._first_frame_processed = False
+        self._first_dets_processed = False
+        self._removed_first_seen.clear()
+        self._removed_expired.clear()
+        self._plot_frame_idx = -1
+        KalmanBoxTracker.count = 0
+
+        if hasattr(self.cmc, "reset"):
+            self.cmc.reset()
+        for attr_name in ("prev_img", "prev_img_aligned", "prev_keypoints", "prev_descriptors"):
+            if hasattr(self.cmc, attr_name):
+                setattr(self.cmc, attr_name, None)

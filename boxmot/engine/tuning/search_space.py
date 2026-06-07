@@ -1,15 +1,13 @@
 """YAML config parsing and search-space helpers shared across all backends."""
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import numpy as np
+import yaml
 
 from boxmot.utils import TRACKER_CONFIGS
 from boxmot.utils import logger as LOGGER
-
-import yaml
 
 
 # ---------------------------------------------------------------------------
@@ -45,22 +43,22 @@ def load_yaml_config(tracker_name: str) -> dict:
 def flatten_yaml_config(yaml_cfg: dict) -> dict:
     """Flatten a nested YAML config into a single-level dict.
 
-    Entries with an ``activates`` block have their children promoted to the
-    top level. The parent entry itself is preserved (without the ``activates``
-    key in the flattened copy).
+    Entries with an ``activates`` block have all descendants promoted to the
+    top level. Parent entries are preserved without their ``activates`` blocks.
     """
     flat: dict = {}
-    for param, details in yaml_cfg.items():
-        if not isinstance(details, dict):
-            flat[param] = details
-            continue
-        parent_copy = {k: v for k, v in details.items() if k != "activates"}
-        flat[param] = parent_copy
-        children = details.get("activates")
-        if isinstance(children, dict):
-            for child_param, child_details in children.items():
-                if isinstance(child_details, dict):
-                    flat[child_param] = child_details
+
+    def _visit(entries: dict) -> None:
+        for param, details in entries.items():
+            if not isinstance(details, dict):
+                flat[param] = details
+                continue
+            flat[param] = {k: v for k, v in details.items() if k != "activates"}
+            children = details.get("activates")
+            if isinstance(children, dict):
+                _visit(children)
+
+    _visit(yaml_cfg)
     return flat
 
 
@@ -70,22 +68,26 @@ def conditional_yaml_tree(config: dict) -> tuple[dict[str, dict], set[str], dict
     child_params: set[str] = set()
     child_to_parent: dict[str, str] = {}
 
-    for param, details in config.items():
-        if not isinstance(details, dict):
-            continue
-        children = details.get("activates")
-        if not isinstance(children, dict):
-            continue
+    def _visit(entries: dict) -> None:
+        for param, details in entries.items():
+            if not isinstance(details, dict):
+                continue
+            children = details.get("activates")
+            if not isinstance(children, dict):
+                continue
 
-        parents_with_children[param] = children
-        for child_name in children:
-            if child_name in child_to_parent and child_to_parent[child_name] != param:
-                LOGGER.warning(
-                    f"Conditional parameter '{child_name}' is activated by both "
-                    f"'{child_to_parent[child_name]}' and '{param}'. Using '{param}'."
-                )
-            child_params.add(child_name)
-            child_to_parent[child_name] = param
+            parents_with_children[param] = children
+            for child_name in children:
+                if child_name in child_to_parent and child_to_parent[child_name] != param:
+                    LOGGER.warning(
+                        f"Conditional parameter '{child_name}' is activated by both "
+                        f"'{child_to_parent[child_name]}' and '{param}'. Using '{param}'."
+                    )
+                child_params.add(child_name)
+                child_to_parent[child_name] = param
+            _visit(children)
+
+    _visit(config)
 
     return parents_with_children, child_params, child_to_parent
 
@@ -206,18 +208,28 @@ def default_tune_config(
     parents_with_children, child_params, child_to_parent = conditional_yaml_tree(yaml_cfg)
     keys = list(search_space) if search_space is not None else list(flat)
 
+    def _active_by_default(param: str) -> bool:
+        parent = child_to_parent.get(param)
+        while parent is not None:
+            parent_details = flat.get(parent, {})
+            parent_default = (
+                parent_details.get("default")
+                if isinstance(parent_details, dict)
+                else None
+            )
+            if not bool(parent_default):
+                return False
+            parent = child_to_parent.get(parent)
+        return True
+
     defaults: dict[str, Any] = {}
     for param in keys:
         details = flat.get(param)
         if not isinstance(details, dict) or "default" not in details:
             continue
 
-        if not unconditional and param in child_params:
-            parent = child_to_parent.get(param)
-            parent_details = flat.get(parent, {})
-            parent_default = parent_details.get("default") if isinstance(parent_details, dict) else None
-            if not bool(parent_default):
-                continue
+        if not unconditional and param in child_params and not _active_by_default(param):
+            continue
 
         defaults[param] = details["default"]
 

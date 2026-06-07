@@ -39,7 +39,6 @@ import torch.utils.checkpoint as checkpoint
 from boxmot.reid.backbones.lmbn.bnneck import BNNeck3
 from boxmot.utils import logger as LOGGER
 
-
 # ---------------------------------------------------------------------------
 # Utilities (no timm dependency)
 # ---------------------------------------------------------------------------
@@ -416,6 +415,22 @@ class LayerNorm2d(nn.Module):
 # ---------------------------------------------------------------------------
 
 
+class GeM(nn.Module):
+    """Generalized mean pooling with optional spatial output size."""
+
+    def __init__(self, output_size: tuple[int, int], p: float = 3.0, eps: float = 1e-6):
+        super().__init__()
+        self.output_size = output_size
+        self.p = nn.Parameter(torch.ones(1) * p)
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        p = self.p.clamp(min=self.eps)
+        x = x.clamp(min=self.eps).pow(p)
+        x = F.adaptive_avg_pool2d(x, self.output_size)
+        return x.pow(1.0 / p)
+
+
 class MultiBranchHead(nn.Module):
     """Multi-granularity feature head: global + 2× horizontal parts.
 
@@ -424,14 +439,38 @@ class MultiBranchHead(nn.Module):
       - Inference: (B, feat_dim × 3) concatenated features
     """
 
-    def __init__(self, in_ch, feat_dim, num_classes):
+    def __init__(
+        self,
+        in_ch,
+        feat_dim,
+        num_classes,
+        metric_feature: str = "raw_mean",
+        head_pool: str = "avg",
+        branch_metric: bool = False,
+    ):
         super().__init__()
-        self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.partial_pool = nn.AdaptiveAvgPool2d((2, 1))
+        self.metric_feature = metric_feature
+        self.branch_metric = branch_metric
+        self.set_pooling(head_pool)
 
         self.bn_global = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
         self.bn_part0 = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
         self.bn_part1 = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
+
+    def set_pooling(self, head_pool: str) -> None:
+        head_pool = str(head_pool).lower()
+        if head_pool == "avg":
+            self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
+            self.partial_pool = nn.AdaptiveAvgPool2d((2, 1))
+        elif head_pool == "gem":
+            self.global_pool = GeM((1, 1))
+            self.partial_pool = GeM((2, 1))
+        else:
+            raise ValueError(f"Unsupported CSL-TinyViT head_pool: {head_pool}")
+        self.head_pool = head_pool
+
+    def set_branch_metric(self, branch_metric: bool) -> None:
+        self.branch_metric = bool(branch_metric)
 
     def forward(self, x):
         # x: (B, C, H, W)
@@ -444,12 +483,25 @@ class MultiBranchHead(nn.Module):
         f_p0 = self.bn_part0(p0)
         f_p1 = self.bn_part1(p1)
 
+        bn_features = torch.stack([f_glo[0], f_p0[0], f_p1[0]], dim=2).flatten(1, 2)
+
         if not self.training:
-            features = torch.stack([f_glo[0], f_p0[0], f_p1[0]], dim=2)
-            return features.flatten(1, 2)
+            return bn_features
 
         cls_scores = [f_glo[1], f_p0[1], f_p1[1]]
-        feats = torch.stack([f_glo[2], f_p0[2], f_p1[2]], dim=0).mean(dim=0)
+        raw_features = {
+            "global": f_glo[2],
+            "part0": f_p0[2],
+            "part1": f_p1[2],
+            "raw_mean": torch.stack([f_glo[2], f_p0[2], f_p1[2]], dim=0).mean(dim=0),
+            "concat_bn": bn_features,
+        }
+        if self.branch_metric:
+            feats = raw_features
+        elif self.metric_feature == "concat_bn":
+            feats = bn_features
+        else:
+            feats = raw_features["raw_mean"]
         return cls_scores, feats
 
 
@@ -490,6 +542,8 @@ class CSLTinyViT(nn.Module):
         local_conv_size: int = 3,
         feat_dim: int = 512,
         neck_dim: int = 256,
+        head_pool: str = "avg",
+        branch_metric: bool = False,
     ):
         super().__init__()
         if embed_dims is None:
@@ -557,8 +611,17 @@ class CSLTinyViT(nn.Module):
             LayerNorm2d(neck_dim),
         )
 
-        # Multi-branch ReID head
-        self.head = MultiBranchHead(neck_dim, feat_dim=feat_dim, num_classes=num_classes)
+        # Multi-branch ReID head. MS loss optimizes cosine pair similarities, so
+        # train it on the same concatenated BN embedding used at inference.
+        metric_feature = "concat_bn" if loss == "ms" else "raw_mean"
+        self.head = MultiBranchHead(
+            neck_dim,
+            feat_dim=feat_dim,
+            num_classes=num_classes,
+            metric_feature=metric_feature,
+            head_pool=head_pool,
+            branch_metric=branch_metric,
+        )
 
         # Initialize weights
         self.apply(self._init_weights)

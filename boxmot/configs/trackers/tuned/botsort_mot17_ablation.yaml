@@ -30,7 +30,7 @@ use_cmc:
   activates:
     cmc_method:
       type: choice
-      default: sof
+      default: ecc
       options: [sof, ecc]
 
 frame_rate:

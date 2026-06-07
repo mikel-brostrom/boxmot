@@ -158,7 +158,7 @@ class WorkflowDetailCallback:
         progress = _make_progress(unit=unit)
         task_id = progress.add_task(description, total=total)
         _last_refresh = 0.0
-        _REFRESH_INTERVAL = 0.25  # cap visual refreshes at ~4 FPS
+        _REFRESH_INTERVAL = 0.08  # cap visual refreshes at ~12 FPS
 
         def _advance(n: int = 1) -> None:
             nonlocal _last_refresh

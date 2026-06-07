@@ -46,6 +46,25 @@ class ReIDModelRegistry:
         return None
 
     @staticmethod
+    def get_checkpoint_model_kwargs(weight_path) -> dict:
+        """Return optional architecture kwargs stored in a checkpoint."""
+        try:
+            checkpoint = torch.load(
+                weight_path,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+            if isinstance(checkpoint, dict):
+                values = {}
+                if checkpoint.get("head_pool") is not None:
+                    values["head_pool"] = checkpoint["head_pool"]
+                return values
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
     def load_pretrained_weights(model, weight_path):
         """
         Loads pretrained weights into a model.
@@ -100,7 +119,15 @@ class ReIDModelRegistry:
         return NR_CLASSES_DICT.get(dataset_key, 1)
 
     @staticmethod
-    def build_model(name, weights, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+    def build_model(
+        name,
+        weights,
+        num_classes,
+        loss="softmax",
+        pretrained=True,
+        use_gpu=True,
+        **model_kwargs,
+    ):
         if name not in MODEL_FACTORY:
             available = list(MODEL_FACTORY.keys())
             raise KeyError(f"Unknown model '{name}'. Must be one of {available}")
@@ -117,6 +144,10 @@ class ReIDModelRegistry:
                 cfg, num_class=num_classes, camera_num=2, view_num=1
             )
 
+        if not str(name).startswith("csl_tinyvit"):
+            model_kwargs = {}
+
         return MODEL_FACTORY[name](
             num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
+            , **model_kwargs
         )

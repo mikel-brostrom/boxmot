@@ -31,13 +31,18 @@ def main(args) -> TrainResult:
     Returns:
         TrainResult with best epoch, metrics, and saved weights path.
     """
+    explicit_keys = set(getattr(args, "train_explicit_keys", ()))
+
     # When resuming, load saved hparams and use them as defaults for any
     # parameters the user didn't explicitly override on the CLI.
     resume = getattr(args, "resume", None)
     if resume:
         hparams = _load_hparams_from_resume(resume)
         if hparams:
-            LOGGER.info(f"Loaded hparams from resume dir: model={hparams.get('model_name')}, dataset={hparams.get('dataset')}")
+            LOGGER.info(
+                f"Loaded hparams from resume dir: "
+                f"model={hparams.get('model_name')}, dataset={hparams.get('dataset')}"
+            )
             # Map hparams.json keys → args attribute names
             _HPARAM_TO_ARG = {
                 "model_name": "model",
@@ -56,6 +61,7 @@ def main(args) -> TrainResult:
                 "label_smooth": "label_smooth",
                 "margin": "margin",
                 "center_loss_weight": "center_loss_weight",
+                "metric_feature": "metric_feature",
                 "p": "p_ids",
                 "k": "k_instances",
                 "seed": "seed",
@@ -69,7 +75,7 @@ def main(args) -> TrainResult:
                 "eval_interval": "eval_interval",
             }
             for hp_key, arg_key in _HPARAM_TO_ARG.items():
-                if hp_key in hparams:
+                if hp_key in hparams and arg_key not in explicit_keys:
                     setattr(args, arg_key, hparams[hp_key])
 
     img_size = getattr(args, "imgsz", (256, 128))
@@ -100,6 +106,7 @@ def main(args) -> TrainResult:
         margin=getattr(args, "margin", 0.3),
         label_smooth=getattr(args, "label_smooth", 0.1),
         center_loss_weight=getattr(args, "center_loss_weight", 5e-4),
+        metric_feature=getattr(args, "metric_feature", "auto"),
         eta_min=getattr(args, "eta_min", 1e-7),
         pretrained=getattr(args, "pretrained", True),
         device=getattr(args, "device", "cpu"),
@@ -114,6 +121,7 @@ def main(args) -> TrainResult:
         color_jitter=getattr(args, "color_jitter", False),
         random_erasing=getattr(args, "random_erasing", 0.5),
         resume=getattr(args, "resume", None),
+        explicit_hparams=explicit_keys,
     )
 
     result = trainer.run()

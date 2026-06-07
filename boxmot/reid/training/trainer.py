@@ -9,14 +9,13 @@ import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
-from boxmot.reid.core.factory import MODEL_FACTORY
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.datasets import build_combined_dataset, build_dataset
 from boxmot.reid.datasets.sampler import PKSampler
@@ -26,9 +25,8 @@ from boxmot.reid.training.evaluator import (
     compute_distance_matrix,
     evaluate_ranking,
     extract_features,
-    re_ranking,
 )
-from boxmot.reid.training.losses import CenterLoss, CrossEntropyLabelSmooth, METRIC_LOSS_REGISTRY, TripletLoss
+from boxmot.reid.training.losses import METRIC_LOSS_REGISTRY, CenterLoss, CrossEntropyLabelSmooth
 from boxmot.utils import logger as LOGGER
 
 
@@ -108,6 +106,13 @@ class ReIDTrainer:
         color_jitter: bool = False,
         random_erasing: float = 0.5,
         resume: Optional[str] = None,
+        metric_feature: str = "auto",
+        branch_aware_metric: bool = False,
+        branch_metric_part_weight: float = 0.5,
+        head_pool: str = "avg",
+        head_warmup_epochs: int = 0,
+        head_warmup_lr_mult: float = 2.0,
+        explicit_hparams: Iterable[str] | None = None,
     ):
         self.model_name = model_name
         self.dataset_name = dataset_name
@@ -140,6 +145,13 @@ class ReIDTrainer:
         self.color_jitter = color_jitter
         self.random_erasing = random_erasing
         self.resume = resume
+        self.metric_feature = metric_feature
+        self.branch_aware_metric = branch_aware_metric
+        self.branch_metric_part_weight = branch_metric_part_weight
+        self.head_pool = head_pool
+        self.head_warmup_epochs = head_warmup_epochs
+        self.head_warmup_lr_mult = head_warmup_lr_mult
+        self.explicit_hparams = set(explicit_hparams or ())
 
     def _empty_cache(self):
         """Release unused memory held by the MPS/CUDA allocator."""
@@ -196,7 +208,10 @@ class ReIDTrainer:
                 xds = build_dataset(eval_ds_name, self.data_dir)
                 q_loader, g_loader = self._build_test_loaders(xds)
                 xdomain_loaders[eval_ds_name] = (q_loader, g_loader)
-                LOGGER.info(f"Cross-domain eval: loaded '{eval_ds_name}' ({xds.query.num_imgs}q / {xds.gallery.num_imgs}g)")
+                LOGGER.info(
+                    f"Cross-domain eval: loaded '{eval_ds_name}' "
+                    f"({xds.query.num_imgs}q / {xds.gallery.num_imgs}g)"
+                )
             except Exception as e:
                 LOGGER.warning(f"Skipping cross-domain eval dataset '{eval_ds_name}': {e}")
 
@@ -245,22 +260,7 @@ class ReIDTrainer:
 
         # 5. Build optimizer — ViTs need AdamW + proper param groups
         if is_vit:
-            # AdamW uses decoupled weight decay: effective WD = lr × wd.
-            # The default wd=5e-4 (calibrated for Adam L2-reg) gives
-            # negligible regularization with AdamW.  Scale to 0.05.
-            if self.weight_decay < 0.01:
-                self.weight_decay = 0.05
-            # ViTs with AdamW need ~2× higher LR than CNNs with Adam.
-            # The CNN default (3.5e-4) undertains ViTs; 7e-4 is the
-            # sweet spot for DeiT-Tiny fine-tuning.
-            if self.lr <= 3.5e-4:
-                self.lr = 7e-4
-            # ViTs need stronger center loss to tighten positive clusters.
-            # CLS-token pooling has higher intra-class variance than CNN GAP;
-            # 10× weight compensates (TransReID uses 5e-3 to 1e-2).
-            # Skip if using MS loss (handles cluster tightness internally).
-            if self.loss_type != "ms" and self.center_loss_weight <= 5e-4:
-                self.center_loss_weight = 5e-3
+            self._apply_vit_training_defaults()
             # ViTs benefit from EMA and color jitter out of the box.
             # Only auto-enable if the user didn't explicitly configure them
             # (None = not set by user, False/0 = explicitly disabled).
@@ -373,6 +373,7 @@ class ReIDTrainer:
             "label_smooth": label_smooth,
             "margin": self.margin,
             "center_loss_weight": self.center_loss_weight,
+            "metric_feature": self._effective_metric_feature(),
             "p": self.p,
             "k": self.k,
             "seed": self.seed,
@@ -534,14 +535,23 @@ class ReIDTrainer:
         )
 
     def _build_model(self, num_classes: int) -> nn.Module:
-        return ReIDModelRegistry.build_model(
+        model = ReIDModelRegistry.build_model(
             name=self.model_name,
             weights=Path(f"{self.model_name}_{self.dataset_name}.pt"),
             num_classes=num_classes,
             loss=self.loss_type,
             pretrained=self.pretrained,
             use_gpu=self.device.type != "cpu",
+            head_pool=self.head_pool,
+            branch_metric=self.branch_aware_metric,
         )
+        if hasattr(model, "head") and hasattr(model.head, "metric_feature"):
+            model.head.metric_feature = self._effective_metric_feature()
+        if hasattr(model, "head") and hasattr(model.head, "set_pooling"):
+            model.head.set_pooling(self.head_pool)
+        if hasattr(model, "head") and hasattr(model.head, "set_branch_metric"):
+            model.head.set_branch_metric(self.branch_aware_metric)
+        return model
 
     def _build_train_loader(self, dataset) -> DataLoader:
         transform = build_train_transforms(
@@ -592,6 +602,8 @@ class ReIDTrainer:
         if not was_training:
             model.eval()
         if isinstance(out, tuple):
+            if isinstance(out[1], dict):
+                return out[1]["global"].shape[1]
             return out[1].shape[1]  # triplet: (logits, features)
         if isinstance(out, list):
             return out[0].shape[1]  # multi-branch softmax: list of logits
@@ -605,6 +617,35 @@ class ReIDTrainer:
     def _is_vit(model: nn.Module) -> bool:
         """Check if the model is a ViT variant (has transformer blocks + patch embed)."""
         return hasattr(model, "blocks") and hasattr(model, "patch_embed")
+
+    def _effective_metric_feature(self) -> str:
+        """Resolve the metric feature mode for multi-branch models."""
+        if self.metric_feature != "auto":
+            return self.metric_feature
+        return "concat_bn" if self.loss_type == "ms" else "raw_mean"
+
+    def _apply_vit_training_defaults(self) -> None:
+        """Apply ViT training conveniences unless the caller set values explicitly."""
+        # AdamW uses decoupled weight decay: effective WD = lr x wd.
+        # The default wd=5e-4 (calibrated for Adam L2-reg) gives negligible
+        # regularization with AdamW, so use the ViT recipe default unless the
+        # caller intentionally passed a lower value for an ablation.
+        if "weight_decay" not in self.explicit_hparams and self.weight_decay < 0.01:
+            self.weight_decay = 0.05
+
+        # ViTs with AdamW need ~2x higher LR than CNNs with Adam. Preserve
+        # explicit lower LRs so LR sweeps test the requested value.
+        if "lr" not in self.explicit_hparams and self.lr <= 3.5e-4:
+            self.lr = 7e-4
+
+        # ViTs need stronger center loss to tighten positive clusters. Preserve
+        # explicit zero so loss ablations can remove center loss.
+        if (
+            "center_loss_weight" not in self.explicit_hparams
+            and self.loss_type != "ms"
+            and self.center_loss_weight <= 5e-4
+        ):
+            self.center_loss_weight = 5e-3
 
     def _build_vit_param_groups(self, model: nn.Module) -> list:
         """Build parameter groups with layer-decay LR and no-WD filtering.
@@ -807,7 +848,9 @@ class ReIDTrainer:
     def _validate(self, epoch, model, query_loader, gallery_loader) -> ValMetrics:
         use_flip = self._is_vit(model)
         q_feats, q_pids, q_camids = extract_features(model, query_loader, self.device, desc="Query", flip_tta=use_flip)
-        g_feats, g_pids, g_camids = extract_features(model, gallery_loader, self.device, desc="Gallery", flip_tta=use_flip)
+        g_feats, g_pids, g_camids = extract_features(
+            model, gallery_loader, self.device, desc="Gallery", flip_tta=use_flip
+        )
         distmat = compute_distance_matrix(q_feats, g_feats)
         del q_feats, g_feats
         cmc, mAP = evaluate_ranking(distmat, q_pids, g_pids, q_camids, g_camids)

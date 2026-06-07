@@ -1,11 +1,16 @@
-# Training recipe for CSL-TinyViT 5M ReID backbone
+# Training recipe for the optimized CSL-TinyViT ReID backbone
 #
-# Reproduces the v2 baseline run that achieved:
-#   best_mAP=83.0%, best_R1=93.62% @ epoch 200 on Market-1501
+# Applies the top three positive changes from the Market-1501 ablation:
+#   1. 11M backbone: 86.71% mAP (+3.51 vs 5M baseline)
+#   2. weight_decay=0.1: 83.55% mAP (+0.35)
+#   3. warmup_epochs=20: 83.50% mAP (+0.30)
 #
 # Key differences from the generic `vit.yaml` recipe:
 #   - lr: 0.0007 (the ViT auto-tuned value, vs 0.0005)
-#   - epochs: 250 (v2 peaked at epoch 200/400; tighter schedule curbs overfitting)
+#   - model: csl_tinyvit_11m (loads TinyViT-21M pretrained backbone weights)
+#   - weight_decay: 0.1
+#   - warmup_epochs: 20
+#   - epochs: 250 (ablation winners still peaked near epoch 200/200)
 #   - ema_decay: 0 (disabled; multi-branch BN neck causes EMA stat mismatch)
 #
 # Usage:
@@ -14,14 +19,14 @@
 #     --data-dir ./Market-1501-v15.09.15 \
 #     --device mps
 
-model: csl_tinyvit_5m
+model: csl_tinyvit_11m
 loss: triplet
 epochs: 250
 lr: 0.0007
-weight_decay: 0.05
+weight_decay: 0.1
 batch_size: 64
 imgsz: [384, 128]
-warmup_epochs: 10
+warmup_epochs: 20
 margin: 0.3
 label_smooth: 0.05
 center_loss_weight: 0.005

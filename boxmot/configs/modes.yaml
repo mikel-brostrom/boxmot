@@ -118,6 +118,7 @@ train:
   margin: 0.3
   label_smooth: 0.1
   center_loss_weight: 0.0005
+  metric_feature: auto
   pretrained: true
   device: cpu
   project: runs/reid_train

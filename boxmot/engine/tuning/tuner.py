@@ -43,7 +43,7 @@ from boxmot.engine.workflows.reporting import (
 )
 from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.misc import increment_path, suppress_boxmot_logs
+from boxmot.utils.misc import suppress_boxmot_logs
 from boxmot.utils.rich.tune_reporting import (
     TuneSilentReporter,
     TuneWorkflowCallback,
@@ -260,8 +260,11 @@ class Tuner:
             tune_name = tune_dir.name
             resume_tune = getattr(args, "resume_tune", None) or None
 
-            if resume_tune and tune_dir.parent.name == "ray":
-                inferred_project = tune_dir.parent.parent
+            ray_dir = tune_dir.parent
+            if ray_dir.name != "ray" and ray_dir.parent.name == "ray":
+                ray_dir = ray_dir.parent
+            if resume_tune and ray_dir.name == "ray":
+                inferred_project = ray_dir.parent
                 if inferred_project != Path(args.project).resolve():
                     args.project = str(inferred_project)
 
@@ -499,6 +502,7 @@ class Tuner:
         args = self.args
         resume = getattr(args, "resume_tune", None) or None
         results_dir = Path(args.project).resolve() / "ray"
+        dataset_dir = results_dir / self._ray_dataset_name(args)
         if resume:
             resume_path = Path(resume)
             if resume_path.is_absolute():
@@ -506,12 +510,35 @@ class Tuner:
             cwd_candidate = Path(resume).resolve()
             if cwd_candidate.exists():
                 return cwd_candidate
-            candidate = results_dir / resume_path.name
-            if candidate.exists():
-                return candidate
-            return (results_dir / resume_path).resolve()
-        base_dir = results_dir / f"{args.tracker}_tune"
-        return increment_path(base_dir, sep="_", exist_ok=False)
+            if len(resume_path.parts) > 1:
+                return (results_dir / resume_path).resolve()
+            return (dataset_dir / resume_path.name).resolve()
+
+        tracker_name = self._path_slug(getattr(args, "tracker", "tracker"), fallback="tracker")
+        for index in range(1, 10000):
+            tune_dir = dataset_dir / f"{tracker_name}_{index}"
+            if not tune_dir.exists():
+                return tune_dir.resolve()
+        raise RuntimeError(f"Could not allocate tune directory under {dataset_dir}")
+
+    @classmethod
+    def _ray_dataset_name(cls, args) -> str:
+        for attr in ("benchmark_id", "dataset_id", "benchmark", "data"):
+            value = getattr(args, attr, None)
+            if value:
+                return cls._path_slug(value, fallback="dataset")
+        return "dataset"
+
+    @staticmethod
+    def _path_slug(value: Any, *, fallback: str) -> str:
+        raw = str(value).strip()
+        if not raw:
+            return fallback
+        path = Path(raw)
+        if path.suffix.lower() in {".yaml", ".yml"} or path.parent != Path("."):
+            raw = path.stem
+        slug = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in raw)
+        return slug.strip("._-") or fallback
 
     def _make_safe_namespace(self) -> SimpleNamespace:
         try:

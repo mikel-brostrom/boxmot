@@ -5,18 +5,122 @@ from types import SimpleNamespace
 
 import click
 import pytest
+import yaml
 
 import boxmot.engine.tuning.tuner as tuner_module
 import boxmot.utils.rich.reporting as rich_reporting
 import boxmot.utils.rich.tune_reporting as tune_reporting
 import boxmot.utils.rich.ui as ui_module
+from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
+from boxmot.engine.tuning.postprocessing import write_trial_yaml
+from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_config
+
+
+def test_nested_activates_flatten_defaults_and_optuna_children():
+    yaml_cfg = {
+        "parent": {
+            "type": "choice",
+            "default": True,
+            "options": [False, True],
+            "activates": {
+                "child": {
+                    "type": "choice",
+                    "default": True,
+                    "options": [False, True],
+                    "activates": {
+                        "leaf": {
+                            "type": "uniform",
+                            "default": 0.5,
+                            "range": [0.1, 0.9],
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+    class _FakeTrial:
+        def __init__(self):
+            self.params = {}
+
+        def suggest_categorical(self, param, options):
+            value = True if True in options else options[0]
+            self.params[param] = value
+            return value
+
+        def suggest_float(self, param, low, high, **kwargs):
+            self.params[param] = low
+            return low
+
+        def suggest_int(self, param, low, high, **kwargs):
+            self.params[param] = low
+            return low
+
+    flat = flatten_yaml_config(yaml_cfg)
+    assert set(flat) == {"parent", "child", "leaf"}
+    assert default_tune_config(yaml_cfg) == {
+        "parent": True,
+        "child": True,
+        "leaf": 0.5,
+    }
+
+    trial = _FakeTrial()
+    yaml_to_optuna_define_space(yaml_cfg)(trial)
+    assert trial.params == {"parent": True, "child": True, "leaf": 0.1}
+
+
+def test_write_trial_yaml_preserves_nested_activates(tmp_path):
+    yaml_cfg = {
+        "parent": {
+            "type": "choice",
+            "default": True,
+            "options": [False, True],
+            "activates": {
+                "child": {
+                    "type": "choice",
+                    "default": True,
+                    "options": [False, True],
+                    "activates": {
+                        "leaf": {
+                            "type": "uniform",
+                            "default": 0.5,
+                            "range": [0.1, 0.9],
+                        }
+                    },
+                }
+            },
+        },
+        "plain": {
+            "type": "uniform",
+            "default": 1.0,
+            "range": [0.0, 2.0],
+        },
+    }
+    output_path = tmp_path / "best_tracker.yaml"
+
+    write_trial_yaml(
+        yaml_cfg,
+        {"parent": True, "child": False, "leaf": 0.7, "plain": 1.5},
+        output_path,
+    )
+
+    saved = yaml.safe_load(output_path.read_text())
+
+    assert list(saved) == ["parent", "plain"]
+    assert saved["parent"]["default"] is True
+    assert saved["parent"]["activates"]["child"]["default"] is False
+    assert (
+        saved["parent"]["activates"]["child"]["activates"]["leaf"]["default"]
+        == 0.7
+    )
+    assert saved["plain"]["default"] == 1.5
 
 
 def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     captured = {}
     workflow_state = {"stopped": False}
     detail_updates: list[tuple[str | None, str | None]] = []
-    (tmp_path / "runs" / "ray" / "strongsort_tune").mkdir(parents=True)
+    (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
 
     class _FakeRequirementsChecker:
         def sync_extra(self, extra, verbose=True):
@@ -100,9 +204,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
-        def __init__(self, metric, mode):
-            self.metric = metric
-            self.mode = mode
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
 
     class _FakeRunConfig:
         def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
@@ -200,11 +303,10 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
 
     tuner_module.main(args)
 
-    assert captured["extra"] == "evolve"
     assert "restore_path" not in captured
     assert Path(captured["storage_path"]).is_absolute()
-    assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray").resolve()
-    assert captured["run_name"] == "strongsort_tune_2"
+    assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini").resolve()
+    assert captured["run_name"] == "strongsort_2"
     assert Path(captured["intro_detector"]).name == "yolox_x_mot17_ablation.pt"
     assert Path(captured["intro_reid"]).name == "lmbn_n_duke.pt"
     assert captured["verbose"] == 0
@@ -262,9 +364,8 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
-        def __init__(self, metric, mode):
-            self.metric = metric
-            self.mode = mode
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
 
     class _FakeRunConfig:
         def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
@@ -443,9 +544,8 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
-        def __init__(self, metric, mode):
-            self.metric = metric
-            self.mode = mode
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
 
     class _FakeRunConfig:
         def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
@@ -523,15 +623,14 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         n_trials=3,
         project=Path("runs"),
         verbose=False,
-        resume_tune="strongsort_tune",
+        resume_tune="strongsort_1",
     )
 
     tuner_module.main(args)
 
-    assert captured["extra"] == "evolve"
     assert Path(captured["restore_path"]).is_absolute()
-    assert Path(captured["restore_path"]) == (tmp_path / "runs" / "ray" / "strongsort_tune").resolve()
-    assert captured["run_name"] == "strongsort_tune"
+    assert Path(captured["restore_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").resolve()
+    assert captured["run_name"] == "strongsort_1"
 
 
 def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path):
