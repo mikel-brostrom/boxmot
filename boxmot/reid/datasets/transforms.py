@@ -17,11 +17,11 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 
-from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS, IMAGENET_MEAN_RGB
 
 
 class ResizePad:
-    """Resize preserving aspect ratio with zero-padding (PIL version).
+    """Resize preserving aspect ratio with ImageNet-mean padding (PIL version).
 
     Mirrors ``boxmot.reid.core.preprocessing.resize_pad`` but operates on PIL
     images so it can be used inside a ``torchvision.transforms.Compose`` chain.
@@ -36,7 +36,7 @@ class ResizePad:
         scale = min(self.target_w / w, self.target_h / h)
         new_w, new_h = int(w * scale), int(h * scale)
         img = img.resize((new_w, new_h), Image.BILINEAR)
-        padded = Image.new("RGB", (self.target_w, self.target_h), (0, 0, 0))
+        padded = Image.new("RGB", (self.target_w, self.target_h), IMAGENET_MEAN_RGB)
         pad_left = (self.target_w - new_w) // 2
         pad_top = (self.target_h - new_h) // 2
         padded.paste(img, (pad_left, pad_top))

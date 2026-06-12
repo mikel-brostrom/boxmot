@@ -1,13 +1,13 @@
 import json
 
-from tools.ablation_summary import load_experiments
+from tools.ablation_summary import load_eval_results, load_experiments
 
 
 def _write_run(root, name, *, hparams, last_epoch=200, epochs=200):
     run_dir = root / name
     run_dir.mkdir(parents=True)
     metrics = {
-        "model": "csl_tinyvit_5m",
+        "model": "csl_tinyvit_7m",
         "dataset": "market1501",
         "epochs": epochs,
         "best_epoch": last_epoch,
@@ -18,6 +18,33 @@ def _write_run(root, name, *, hparams, last_epoch=200, epochs=200):
     }
     (run_dir / "metrics.json").write_text(json.dumps(metrics))
     (run_dir / "hparams.json").write_text(json.dumps(hparams))
+
+
+def _optimized_23m_hparams(**overrides):
+    hparams = {
+        "model_name": "csl_tinyvit_23m",
+        "loss_type": "triplet",
+        "lr": 7e-4,
+        "weight_decay": 0.1,
+        "warmup_epochs": 20,
+        "center_loss_weight": 5e-3,
+        "metric_feature": "raw_mean",
+        "inference_feature": "concat_bn",
+        "feat_dim": 512,
+        "neck_dim": 512,
+        "head_pool": "gem",
+        "branch_aware_metric": False,
+        "head_warmup_epochs": 0,
+        "ema_decay": 0,
+        "color_jitter": True,
+        "gaussian_blur": True,
+        "random_grayscale": 0.1,
+        "random_erasing": 0.5,
+        "preprocess": "resize",
+        "img_size": [384, 128],
+    }
+    hparams.update(overrides)
+    return hparams
 
 
 def test_load_experiments_flags_incomplete_and_hparam_mismatched_runs(tmp_path):
@@ -57,3 +84,54 @@ def test_load_experiments_flags_incomplete_and_hparam_mismatched_runs(tmp_path):
     assert "metric_feature" in results["1_loss/f_multisimilarity_concat_bn"]["issues"][0]
     assert results["3_reg/c_no_aug"]["valid"] is False
     assert results["3_reg/c_no_aug"]["issues"] == ["incomplete 110/200"]
+
+
+def test_load_experiments_validates_scientific_23m_opt_runs(tmp_path):
+    _write_run(
+        tmp_path,
+        "0_control/a_concat_512",
+        hparams=_optimized_23m_hparams(),
+    )
+    _write_run(
+        tmp_path,
+        "2_output/a_global_512",
+        hparams=_optimized_23m_hparams(inference_feature="global"),
+    )
+    _write_run(
+        tmp_path,
+        "3_width/b_concat_1024",
+        hparams=_optimized_23m_hparams(),
+    )
+
+    results = {result["name"]: result for result in load_experiments(tmp_path)}
+
+    assert results["0_control/a_concat_512"]["valid"] is True
+    assert results["2_output/a_global_512"]["valid"] is False
+    assert "eval-only" in results["2_output/a_global_512"]["issues"][0]
+    assert results["3_width/b_concat_1024"]["valid"] is False
+    assert "feat_dim" in "; ".join(results["3_width/b_concat_1024"]["issues"])
+
+
+def test_load_eval_results_reads_same_checkpoint_feature_jsons(tmp_path):
+    eval_dir = tmp_path / "2_output" / "from_0_control_a_concat_512"
+    eval_dir.mkdir(parents=True)
+    (eval_dir / "eval_csl_tinyvit_23m_market1501_concat_bn.json").write_text(
+        json.dumps(
+            {
+                "inference_feature": "concat_bn",
+                "feature_dim": 1536,
+                "preprocess": "resize",
+                "img_size": [384, 128],
+                "flip_tta": True,
+                "mAP": 0.8879,
+                "rank1": 0.9531,
+            }
+        )
+    )
+
+    results = load_eval_results(tmp_path)
+
+    assert len(results) == 1
+    assert results[0]["experiment"] == "2_output/from_0_control_a_concat_512"
+    assert results[0]["inference_feature"] == "concat_bn"
+    assert results[0]["feature_dim"] == 1536

@@ -3,6 +3,7 @@ import pytest
 
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
+from boxmot.motion.kalman_filters.xyscr import KalmanFilterXYSCR
 from boxmot.motion.kalman_filters.xysr import KalmanFilterXYSR
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 
@@ -218,6 +219,37 @@ def test_xysr_unfreeze_insufficient_history():
 
     state = kf.x.flatten()
     assert np.all(np.isfinite(state)), f"State contains non-finite values: {state}"
+
+
+def test_xyscr_supports_score_state_and_missing_observation_replay():
+    kf = KalmanFilterXYSCR(max_obs=4)
+    init_measurement = np.array([[100.0], [80.0], [800.0], [0.8], [2.0]])
+    mean, covariance = kf.initiate(init_measurement)
+    kf.x = mean.copy()
+    kf.P = covariance.copy()
+
+    assert kf.x.shape == (9, 1)
+    assert kf.P.shape == (9, 9)
+    assert kf.F[3, 8] == 1.0
+    assert np.all(kf.F[4, 5:] == 0.0)
+
+    kf.update(init_measurement)
+    kf.predict()
+    kf.update(None)
+    kf.predict()
+    kf.update(None)
+
+    update_measurement = np.array([[106.0], [83.0], [900.0], [0.9], [1.8]])
+    kf.predict()
+    kf.update(update_measurement)
+
+    assert kf.x.shape == (9, 1)
+    assert kf.P.shape == (9, 9)
+    assert kf.x[2, 0] > 0 and kf.x[4, 0] > 0
+    assert 0.0 < float(kf.x[3, 0]) < 1.5
+    assert np.isfinite(float(kf.x[8, 0]))
+    assert len(kf.history_obs) <= kf.max_obs
+    assert np.isfinite(kf.md_for_measurement(update_measurement))
 
 
 def test_xyhr_supports_aabb_mode_and_column_measurement():

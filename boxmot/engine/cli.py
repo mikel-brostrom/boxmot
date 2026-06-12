@@ -21,6 +21,7 @@ from boxmot.configs import (
     list_training_recipes,
 )
 from boxmot.configs.benchmark import resolve_benchmark_cfg_path
+from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
 from boxmot.utils.misc import parse_imgsz
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
@@ -39,6 +40,24 @@ def _click_imgsz_default(value):
     if isinstance(value, (list, tuple)):
         return ",".join(str(part) for part in value)
     return value
+
+
+def _parse_head_parts(ctx, param, value):
+    """Parse CSL-TinyViT head part granularities, e.g. ``1,2,4``."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        parts = tuple(int(part) for part in value)
+    else:
+        tokens = [token for token in str(value).replace(";", ",").split(",") if token.strip()]
+        parts = tuple(int(token) for token in tokens)
+    if not parts:
+        raise click.BadParameter("must contain at least one part granularity")
+    if any(part < 1 for part in parts):
+        raise click.BadParameter("part granularities must be positive integers")
+    if 1 not in parts:
+        raise click.BadParameter("must include 1 for the global branch")
+    return tuple(dict.fromkeys(parts))
 
 
 def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
@@ -806,6 +825,31 @@ def train_options(func):
         click.option('--metric-feature', type=click.Choice(['auto', 'raw_mean', 'concat_bn'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.metric_feature, show_default=True,
                      help='Feature representation used for metric losses when the model supports multiple branches'),
+        click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.inference_feature, show_default=True,
+                     help='Feature representation emitted by CSL-TinyViT at validation/inference time'),
+        click.option('--feat-dim', type=int, default=TRAIN_DEFAULTS.feat_dim, show_default=True,
+                     help='Per-branch embedding dimension for ReID heads that support projection'),
+        click.option('--neck-dim', type=int, default=TRAIN_DEFAULTS.neck_dim, show_default=True,
+                     help='Neck channel dimension for ReID backbones that support a feature neck'),
+        click.option('--head-pool', type=click.Choice(['avg', 'gem'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.head_pool, show_default=True,
+                     help='Pooling layer used by CSL-TinyViT multi-branch heads'),
+        click.option('--head-parts', callback=_parse_head_parts, type=str,
+                     default=_click_imgsz_default(TRAIN_DEFAULTS.head_parts), show_default=True,
+                     help='CSL-TinyViT head granularities, e.g. 1,2 for global+2 parts or 1,2,4 for MGN'),
+        click.option('--branch-aware-metric/--no-branch-aware-metric',
+                     default=TRAIN_DEFAULTS.branch_aware_metric, show_default=True,
+                     help='Apply metric loss separately to CSL-TinyViT global and part branches'),
+        click.option('--branch-metric-part-weight', type=float,
+                     default=TRAIN_DEFAULTS.branch_metric_part_weight, show_default=True,
+                     help='Weight for each part branch metric loss when branch-aware metric is enabled'),
+        click.option('--head-warmup-epochs', type=int,
+                     default=TRAIN_DEFAULTS.head_warmup_epochs, show_default=True,
+                     help='Train only CSL-TinyViT neck/head for the first N epochs'),
+        click.option('--head-warmup-lr-mult', type=float,
+                     default=TRAIN_DEFAULTS.head_warmup_lr_mult, show_default=True,
+                     help='LR multiplier for neck/head parameter groups during head warmup'),
         click.option('--eta-min', type=float, default=TRAIN_DEFAULTS.eta_min, show_default=True,
                      help='Minimum learning rate for cosine annealing schedule'),
         click.option('--pretrained/--no-pretrained', default=TRAIN_DEFAULTS.pretrained, show_default=True,
@@ -862,6 +906,16 @@ def train(ctx, **kwargs):
               help='Evaluation dataset (e.g. market1501, duke, msmt17)')
 @click.option('--data-dir', type=click.Path(exists=True), required=True,
               help='Root directory of the dataset')
+@click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
+              default=None,
+              help='Crop preprocessing method (default: checkpoint/hparams value)')
+@click.option('--imgsz', callback=parse_imgsz, type=str, default=None,
+              help='Image size as H,W (default: hparams value, fallback 256,128)')
+@click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+              default=None,
+              help='Override CSL-TinyViT eval embedding without retraining')
+@click.option('--flip-tta/--no-flip-tta', default=None,
+              help='Use horizontal flip test-time augmentation (default: hparams value)')
 @click.option('--device', default='cpu', help='Device: cpu, mps, or cuda index')
 @click.option('--batch-size', type=int, default=64, show_default=True,
               help='Batch size for feature extraction')

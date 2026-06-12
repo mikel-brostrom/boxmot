@@ -99,26 +99,35 @@ export:
     - onnx
 
 train:
-  model: osnet_x0_25
+  model: csl_tinyvit_11m
   dataset: market1501
   data_dir: null
   loss: triplet
   preprocess: resize
   imgsz:
-    - 256
+    - 384
     - 128
   batch_size: 64
-  lr: 0.00035
-  weight_decay: 0.0005
-  epochs: 120
-  warmup_epochs: 10
+  lr: 0.0007
+  weight_decay: 0.1
+  epochs: 250
+  warmup_epochs: 20
   eval_interval: 10
   p_ids: 16
   k_instances: 4
   margin: 0.3
-  label_smooth: 0.1
-  center_loss_weight: 0.0005
+  label_smooth: 0.05
+  center_loss_weight: 0.005
   metric_feature: auto
+  inference_feature: concat_bn
+  feat_dim: 512
+  neck_dim: 512
+  head_pool: gem
+  head_parts: [1, 2]
+  branch_aware_metric: false
+  branch_metric_part_weight: 0.5
+  head_warmup_epochs: 0
+  head_warmup_lr_mult: 2.0
   pretrained: true
   device: cpu
   project: runs/reid_train
@@ -126,7 +135,8 @@ train:
   num_workers: 4
   seed: 42
   eval_datasets: []  # cross-domain eval datasets, e.g. [duke, cuhk03]
-  ema_decay: null  # EMA momentum decay, e.g. 0.999 (null to disable)
-  gaussian_blur: false  # random Gaussian blur augmentation (DynaMix-style)
-  color_jitter: false  # color jitter augmentation (auto-enabled for ViTs)
-  random_grayscale: 0.0  # probability of random grayscale conversion
+  ema_decay: 0  # EMA momentum decay, e.g. 0.999 (null to disable)
+  gaussian_blur: true  # random Gaussian blur augmentation (DynaMix-style)
+  color_jitter: true  # color jitter augmentation (auto-enabled for ViTs)
+  random_grayscale: 0.1  # probability of random grayscale conversion
+  random_erasing: 0.5  # probability of random erasing augmentation

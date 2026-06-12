@@ -13,12 +13,13 @@ Architecture overview:
   PatchEmbed (stride-4 conv stem)
   → Stage 0: ConvLayer (MBConv blocks)          → 64ch
   → Stage 1: BasicLayer (windowed attention)     → 128ch
-  → Stage 2: BasicLayer (windowed attention) ×6  → 160ch
-  → Stage 3: BasicLayer (windowed attention)     → 320ch
-  → Neck (1×1 + LN + 3×3 + LN → 256ch)
+  → Stage 2: BasicLayer (windowed attention) ×6  → variant channels
+  → Stage 3: BasicLayer (windowed attention)     → variant channels
+  → Neck (1×1 + LN + 3×3 + LN → 512ch)
   → Multi-Branch Head (global + 2× partial)      → 3×512 = 1536-d
 
-Parameters: ~5.4M  |  Input: 384×128 (H×W, same as LMBN/CSPReID)
+The model family follows TinyViT-5M/11M/21M width scaling with fixed
+depths=[2, 2, 6, 2]. Input: 384×128 (H×W, same as LMBN/CSPReID).
 
 Follows the BoxMOT ReID backbone contract:
   * training + softmax  → class logits list
@@ -432,11 +433,11 @@ class GeM(nn.Module):
 
 
 class MultiBranchHead(nn.Module):
-    """Multi-granularity feature head: global + 2× horizontal parts.
+    """Multi-granularity feature head with configurable horizontal stripes.
 
     Produces:
       - Training: (cls_scores_list, features_tensor)
-      - Inference: (B, feat_dim × 3) concatenated features
+      - Inference: (B, feat_dim × num_branches) concatenated features
     """
 
     def __init__(
@@ -445,28 +446,80 @@ class MultiBranchHead(nn.Module):
         feat_dim,
         num_classes,
         metric_feature: str = "raw_mean",
+        inference_feature: str = "concat_bn",
         head_pool: str = "avg",
         branch_metric: bool = False,
+        head_parts: tuple[int, ...] = (1, 2),
     ):
         super().__init__()
         self.metric_feature = metric_feature
+        self.inference_feature = inference_feature
         self.branch_metric = branch_metric
+        self.head_parts = self._normalize_head_parts(head_parts)
+        self.branch_specs = self._build_branch_specs(self.head_parts)
+        self.part_keys = [key for key, granularity, _ in self.branch_specs if granularity > 1]
         self.set_pooling(head_pool)
 
-        self.bn_global = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
-        self.bn_part0 = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
-        self.bn_part1 = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
+        for key, _, _ in self.branch_specs:
+            setattr(self, self._bn_attr(key), BNNeck3(in_ch, num_classes, feat_dim, return_f=True))
+
+    @staticmethod
+    def _normalize_head_parts(head_parts) -> tuple[int, ...]:
+        if isinstance(head_parts, str):
+            values = [part for part in head_parts.replace(";", ",").split(",") if part.strip()]
+        elif isinstance(head_parts, int):
+            values = [head_parts]
+        else:
+            values = list(head_parts or (1, 2))
+        normalized = tuple(dict.fromkeys(int(part) for part in values))
+        if not normalized:
+            raise ValueError("CSL-TinyViT head_parts must not be empty")
+        if any(part < 1 for part in normalized):
+            raise ValueError(f"CSL-TinyViT head_parts must be positive, got {normalized}")
+        if 1 not in normalized:
+            raise ValueError(f"CSL-TinyViT head_parts must include 1 for the global branch, got {normalized}")
+        return normalized
+
+    @staticmethod
+    def _build_branch_specs(head_parts: tuple[int, ...]) -> list[tuple[str, int, int]]:
+        specs = [("global", 1, 0)]
+        part_index = 0
+        for granularity in head_parts:
+            if granularity == 1:
+                continue
+            for stripe_index in range(granularity):
+                specs.append((f"part{part_index}", granularity, stripe_index))
+                part_index += 1
+        return specs
+
+    @staticmethod
+    def _bn_attr(key: str) -> str:
+        return "bn_global" if key == "global" else f"bn_{key}"
+
+    @staticmethod
+    def _pool_attr(granularity: int) -> str:
+        if granularity == 1:
+            return "global_pool"
+        if granularity == 2:
+            return "partial_pool"
+        return f"part_pool_{granularity}"
+
+    @staticmethod
+    def _make_pool(head_pool: str, output_size: tuple[int, int]) -> nn.Module:
+        if head_pool == "avg":
+            return nn.AdaptiveAvgPool2d(output_size)
+        if head_pool == "gem":
+            return GeM(output_size)
+        raise ValueError(f"Unsupported CSL-TinyViT head_pool: {head_pool}")
 
     def set_pooling(self, head_pool: str) -> None:
         head_pool = str(head_pool).lower()
-        if head_pool == "avg":
-            self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
-            self.partial_pool = nn.AdaptiveAvgPool2d((2, 1))
-        elif head_pool == "gem":
-            self.global_pool = GeM((1, 1))
-            self.partial_pool = GeM((2, 1))
-        else:
-            raise ValueError(f"Unsupported CSL-TinyViT head_pool: {head_pool}")
+        for granularity in self.head_parts:
+            setattr(
+                self,
+                self._pool_attr(granularity),
+                self._make_pool(head_pool, (granularity, 1)),
+            )
         self.head_pool = head_pool
 
     def set_branch_metric(self, branch_metric: bool) -> None:
@@ -474,28 +527,40 @@ class MultiBranchHead(nn.Module):
 
     def forward(self, x):
         # x: (B, C, H, W)
-        g = self.global_pool(x)
-        f_glo = self.bn_global(g)
+        pooled_by_granularity = {
+            granularity: getattr(self, self._pool_attr(granularity))(x)
+            for granularity in self.head_parts
+        }
 
-        p = self.partial_pool(x)
-        p0 = p[:, :, 0:1, :]
-        p1 = p[:, :, 1:2, :]
-        f_p0 = self.bn_part0(p0)
-        f_p1 = self.bn_part1(p1)
+        branch_outputs = {}
+        bn_features_list = []
+        raw_features_list = []
+        cls_scores = []
+        raw_features = {}
+        for key, granularity, stripe_index in self.branch_specs:
+            pooled = pooled_by_granularity[granularity]
+            if granularity > 1:
+                pooled = pooled[:, :, stripe_index:stripe_index + 1, :]
+            branch_output = getattr(self, self._bn_attr(key))(pooled)
+            branch_outputs[key] = branch_output
+            bn_features_list.append(branch_output[0])
+            cls_scores.append(branch_output[1])
+            raw_features_list.append(branch_output[2])
+            raw_features[key] = branch_output[2]
 
-        bn_features = torch.stack([f_glo[0], f_p0[0], f_p1[0]], dim=2).flatten(1, 2)
+        bn_features = torch.stack(bn_features_list, dim=2).flatten(1, 2)
+        raw_features["raw_mean"] = torch.stack(raw_features_list, dim=0).mean(dim=0)
+        raw_features["concat_bn"] = bn_features
 
         if not self.training:
-            return bn_features
+            if self.inference_feature == "concat_bn":
+                return bn_features
+            if self.inference_feature == "global":
+                return branch_outputs["global"][0]
+            if self.inference_feature == "raw_mean":
+                return raw_features["raw_mean"]
+            raise ValueError(f"Unsupported CSL-TinyViT inference_feature: {self.inference_feature}")
 
-        cls_scores = [f_glo[1], f_p0[1], f_p1[1]]
-        raw_features = {
-            "global": f_glo[2],
-            "part0": f_p0[2],
-            "part1": f_p1[2],
-            "raw_mean": torch.stack([f_glo[2], f_p0[2], f_p1[2]], dim=0).mean(dim=0),
-            "concat_bn": bn_features,
-        }
         if self.branch_metric:
             feats = raw_features
         elif self.metric_feature == "concat_bn":
@@ -518,8 +583,8 @@ class CSLTinyViT(nn.Module):
 
     Input: 3×384×128 (H×W)
     Output:
-      - Inference: 1536-d feature vector (3 × 512)
-      - Training: ([cls_score_global, cls_score_p0, cls_score_p1], features)
+      - Inference: num_branches × feat_dim feature vector
+      - Training: (cls_scores_per_branch, features)
     """
 
     def __init__(
@@ -541,8 +606,10 @@ class CSLTinyViT(nn.Module):
         mbconv_expand_ratio: float = 4.0,
         local_conv_size: int = 3,
         feat_dim: int = 512,
-        neck_dim: int = 256,
+        neck_dim: int = 512,
+        inference_feature: str = "concat_bn",
         head_pool: str = "avg",
+        head_parts: tuple[int, ...] = (1, 2),
         branch_metric: bool = False,
     ):
         super().__init__()
@@ -619,7 +686,9 @@ class CSLTinyViT(nn.Module):
             feat_dim=feat_dim,
             num_classes=num_classes,
             metric_feature=metric_feature,
+            inference_feature=inference_feature,
             head_pool=head_pool,
+            head_parts=head_parts,
             branch_metric=branch_metric,
         )
 
@@ -666,6 +735,12 @@ class CSLTinyViT(nn.Module):
 _TINYVIT_5M_URL = (
     "https://github.com/wkcn/TinyViT-model-zoo/releases/download/checkpoints/"
     "tiny_vit_5m_22kto1k_distill.pth"
+)
+
+# TinyViT-11M (ImageNet-1k, distilled from 22k): embed_dims=[64,128,256,448]
+_TINYVIT_11M_URL = (
+    "https://github.com/wkcn/TinyViT-model-zoo/releases/download/checkpoints/"
+    "tiny_vit_11m_22kto1k_distill.pth"
 )
 
 # TinyViT-21M (ImageNet-1k, distilled from 22k): embed_dims=[96,192,384,576]
@@ -737,39 +812,65 @@ def _load_pretrained_tinyvit(model: CSLTinyViT, url: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def csl_tinyvit_5m(
-    num_classes: int = 1000,
-    loss: str = "softmax",
-    pretrained: bool = False,
-    use_gpu: bool = True,
+def _build_csl_tinyvit_variant(
+    *,
+    num_classes: int,
+    loss: str,
+    pretrained: bool,
+    use_gpu: bool,
+    embed_dims: list[int],
+    num_heads: list[int],
+    drop_path_rate: float,
+    pretrained_url: str,
     **kwargs,
 ) -> CSLTinyViT:
-    """CSL-TinyViT 5M: lightweight hybrid ReID backbone.
-
-    ~5.4M params | embed_dims=[64, 128, 160, 320] | depths=[2, 2, 6, 2]
-    Input: 384×128 (H×W) | Output: 1536-d (3×512)
-    """
+    """Build one CSL-TinyViT size variant with shared ReID head defaults."""
     model = CSLTinyViT(
         num_classes=num_classes,
         loss=loss,
         pretrained=pretrained,
         use_gpu=use_gpu,
         img_size=kwargs.pop("img_size", (384, 128)),
-        embed_dims=[64, 128, 160, 320],
+        embed_dims=embed_dims,
         depths=[2, 2, 6, 2],
-        num_heads=[2, 4, 5, 10],
+        num_heads=num_heads,
         window_sizes=[7, 7, 14, 7],
         drop_rate=0.0,
-        drop_path_rate=0.0,
+        drop_path_rate=drop_path_rate,
         mbconv_expand_ratio=4.0,
         local_conv_size=3,
         feat_dim=kwargs.pop("feat_dim", 512),
-        neck_dim=kwargs.pop("neck_dim", 256),
+        neck_dim=kwargs.pop("neck_dim", 512),
         **kwargs,
     )
     if pretrained:
-        _load_pretrained_tinyvit(model, _TINYVIT_5M_URL)
+        _load_pretrained_tinyvit(model, pretrained_url)
     return model
+
+
+def csl_tinyvit_7m(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """CSL-TinyViT 7M/small: lightweight hybrid ReID backbone.
+
+    TinyViT-5M-style backbone | embed_dims=[64, 128, 160, 320] | depths=[2, 2, 6, 2]
+    Input: 384×128 (H×W) | Output: 1536-d (3×512)
+    """
+    return _build_csl_tinyvit_variant(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        embed_dims=[64, 128, 160, 320],
+        num_heads=[2, 4, 5, 10],
+        drop_path_rate=0.0,
+        pretrained_url=_TINYVIT_5M_URL,
+        **kwargs,
+    )
 
 
 def csl_tinyvit_11m(
@@ -779,32 +880,98 @@ def csl_tinyvit_11m(
     use_gpu: bool = True,
     **kwargs,
 ) -> CSLTinyViT:
-    """CSL-TinyViT 11M: medium hybrid ReID backbone.
+    """CSL-TinyViT 11M/normal: standard mid-size hybrid ReID backbone.
 
-    ~11M params | embed_dims=[96, 192, 384, 576] | depths=[2, 2, 6, 2]
+    TinyViT-11M-style backbone | embed_dims=[64, 128, 256, 448] | depths=[2, 2, 6, 2]
     Input: 384×128 (H×W) | Output: 1536-d (3×512)
     """
-    model = CSLTinyViT(
+    return _build_csl_tinyvit_variant(
         num_classes=num_classes,
         loss=loss,
         pretrained=pretrained,
         use_gpu=use_gpu,
-        img_size=kwargs.pop("img_size", (384, 128)),
-        embed_dims=[96, 192, 384, 576],
-        depths=[2, 2, 6, 2],
-        num_heads=[3, 6, 12, 18],
-        window_sizes=[7, 7, 14, 7],
-        drop_rate=0.0,
-        drop_path_rate=0.2,
-        mbconv_expand_ratio=4.0,
-        local_conv_size=3,
-        feat_dim=kwargs.pop("feat_dim", 512),
-        neck_dim=kwargs.pop("neck_dim", 256),
+        embed_dims=[64, 128, 256, 448],
+        num_heads=[2, 4, 8, 14],
+        drop_path_rate=0.1,
+        pretrained_url=_TINYVIT_11M_URL,
         **kwargs,
     )
-    if pretrained:
-        _load_pretrained_tinyvit(model, _TINYVIT_21M_URL)
-    return model
+
+
+def csl_tinyvit_23m(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """CSL-TinyViT 23M/large: high-capacity hybrid ReID backbone.
+
+    TinyViT-21M-style backbone | embed_dims=[96, 192, 384, 576] | depths=[2, 2, 6, 2]
+    Input: 384×128 (H×W) | Output: 1536-d (3×512)
+    """
+    return _build_csl_tinyvit_variant(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        embed_dims=[96, 192, 384, 576],
+        num_heads=[3, 6, 12, 18],
+        drop_path_rate=0.2,
+        pretrained_url=_TINYVIT_21M_URL,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_small(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """Alias for the small CSL-TinyViT 7M variant."""
+    return csl_tinyvit_7m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_normal(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """Alias for the normal CSL-TinyViT 11M variant."""
+    return csl_tinyvit_11m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_large(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """Alias for the large CSL-TinyViT 23M variant."""
+    return csl_tinyvit_23m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
 
 
 if __name__ == "__main__":

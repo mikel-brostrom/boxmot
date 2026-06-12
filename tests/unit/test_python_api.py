@@ -1666,6 +1666,10 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
         model="mobilenetv2_x1_0",
         dataset="market1501",
         data_dir=tmp_path / "assets" / "reid-mini",
+        preprocess="resize",
+        imgsz=(384, 128),
+        inference_feature="raw_mean",
+        flip_tta=True,
         device="cpu",
         batch_size=2,
         num_workers=0,
@@ -1678,6 +1682,10 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     assert eval_args.model == "mobilenetv2_x1_0"
     assert eval_args.dataset == "market1501"
     assert eval_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert eval_args.preprocess == "resize"
+    assert eval_args.imgsz == (384, 128)
+    assert eval_args.inference_feature == "raw_mean"
+    assert eval_args.flip_tta is True
     assert eval_args.batch_size == 2
     assert eval_args.num_workers == 0
     assert eval_args.output == str(tmp_path / "runs" / "reid_eval")

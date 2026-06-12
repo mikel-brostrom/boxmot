@@ -82,6 +82,13 @@ class Market1501(BaseReIDDataset):
         return _parse_market_dir(split_dir, is_train=(split == "train"))
 
 
+class MOT17Market1501(Market1501):
+    """MOT17 person crops stored in Market1501-style ReID folders."""
+
+    name = "mot17_1501"
+    _SUBDIRS = ("MOT17-1501-fixed", "mot17-1501-fixed", "mot17_1501_fixed", "MOT17-1501", "mot17-1501", "mot17_1501")
+
+
 def _parse_market_dir(directory, *, is_train: bool) -> List[ReIDSample]:
     img_paths = sorted(glob.glob(str(directory / "*.jpg")))
     samples = []

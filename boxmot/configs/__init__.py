@@ -91,6 +91,17 @@ def _normalize_model_list(values: Any, *, multiple: bool) -> Any:
     return ensure_model_extension(values)
 
 
+def _normalize_int_tuple(values: Any) -> tuple[int, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        parts = [part for part in values.replace(";", ",").split(",") if part.strip()]
+        return tuple(int(part) for part in parts)
+    if isinstance(values, int):
+        return (int(values),)
+    return tuple(int(value) for value in values)
+
+
 def ensure_model_extension(model_path: str | Path, default_dir: Path = WEIGHTS) -> Path:
     """Preserve explicit paths and resolve bare model names into the shared weights directory."""
     path = Path(model_path)
@@ -179,6 +190,7 @@ def build_mode_namespace(
             values["imgsz"] = tuple(imgsz)
         elif isinstance(imgsz, int):
             values["imgsz"] = (imgsz, imgsz // 2)
+        values["head_parts"] = _normalize_int_tuple(values.get("head_parts", (1, 2)))
         # Parse eval_datasets: accept comma-separated string or list
         ed = values.get("eval_datasets", ())
         if isinstance(ed, str):
@@ -460,6 +472,15 @@ class TrainModeDefaults:
     label_smooth: float
     center_loss_weight: float
     metric_feature: str
+    inference_feature: str
+    feat_dim: int
+    neck_dim: int
+    head_pool: str
+    head_parts: tuple[int, ...]
+    branch_aware_metric: bool
+    branch_metric_part_weight: float
+    head_warmup_epochs: int
+    head_warmup_lr_mult: float
     eta_min: float
     pretrained: bool
     device: str
@@ -500,6 +521,15 @@ class TrainModeDefaults:
             label_smooth=float(values.get("label_smooth", 0.1)),
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
             metric_feature=str(values.get("metric_feature", "auto")),
+            inference_feature=str(values.get("inference_feature", "concat_bn")),
+            feat_dim=int(values.get("feat_dim", 512)),
+            neck_dim=int(values.get("neck_dim", 512)),
+            head_pool=str(values.get("head_pool", "avg")),
+            head_parts=_normalize_int_tuple(values.get("head_parts", (1, 2))),
+            branch_aware_metric=bool(values.get("branch_aware_metric", False)),
+            branch_metric_part_weight=float(values.get("branch_metric_part_weight", 0.5)),
+            head_warmup_epochs=int(values.get("head_warmup_epochs", 0)),
+            head_warmup_lr_mult=float(values.get("head_warmup_lr_mult", 2.0)),
             eta_min=float(values.get("eta_min", 1e-7)),
             pretrained=bool(values.get("pretrained", True)),
             device=str(values.get("device", "cpu")),

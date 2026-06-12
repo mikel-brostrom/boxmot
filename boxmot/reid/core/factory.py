@@ -1,5 +1,12 @@
 from boxmot.reid.backbones.clip.make_model import make_model
-from boxmot.reid.backbones.csl_tinyvit import csl_tinyvit_5m, csl_tinyvit_11m
+from boxmot.reid.backbones.csl_tinyvit import (
+    csl_tinyvit_7m,
+    csl_tinyvit_11m,
+    csl_tinyvit_23m,
+    csl_tinyvit_large,
+    csl_tinyvit_normal,
+    csl_tinyvit_small,
+)
 from boxmot.reid.backbones.cspreid_n import cspreid_n
 from boxmot.reid.backbones.hacnn import HACNN
 from boxmot.reid.backbones.lmbn.lmbn_ain_n import LMBN_ain_n
@@ -39,6 +46,10 @@ MODEL_FACTORY = {
     "vit_tiny": vit_tiny,
     "vit_tiny_parts": vit_tiny_parts,
     "vit_tiny_parts3": vit_tiny_parts3,
-    "csl_tinyvit_5m": csl_tinyvit_5m,
+    "csl_tinyvit_7m": csl_tinyvit_7m,
     "csl_tinyvit_11m": csl_tinyvit_11m,
+    "csl_tinyvit_23m": csl_tinyvit_23m,
+    "csl_tinyvit_small": csl_tinyvit_small,
+    "csl_tinyvit_normal": csl_tinyvit_normal,
+    "csl_tinyvit_large": csl_tinyvit_large,
 }

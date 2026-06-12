@@ -1,7 +1,8 @@
 # Training recipe for ViT-family ReID models
 #
 # Covers: vit_nano, vit_nano_ain, vit_nano_ain_os, vit_tiny,
-#         vit_tiny_parts, vit_tiny_parts3, csl_tinyvit_5m, csl_tinyvit_11m
+#         vit_tiny_parts, vit_tiny_parts3, csl_tinyvit_7m,
+#         csl_tinyvit_11m, csl_tinyvit_23m
 #
 # The trainer auto-tunes several settings when it detects a ViT backbone
 # (AdamW, layer-decay LR, soft-margin triplet, grad clip).  This recipe
@@ -11,7 +12,7 @@
 # Usage:
 #   uv run python -m boxmot.engine.cli train \
 #     --recipe vit \
-#     --model csl_tinyvit_5m \
+#     --model csl_tinyvit_7m \
 #     --data-dir ./Market-1501-v15.09.15 \
 #     --device mps
 

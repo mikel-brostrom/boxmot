@@ -28,6 +28,11 @@ asso_func:
   default: diou
   options: [iou, giou, diou, ciou, hmiou, ct_dist]
 
+dataset:
+  type: choice
+  default: ""
+  options: [""]
+
 cmc_method:
   type: choice
   default: ecc
@@ -66,11 +71,6 @@ TCM_first_step:
       type: uniform
       default: 0.07385224556640951
       range: [0.001, 0.2]
-
-use_custom_kf:
-  type: choice
-  default: True
-  options: [False, True]
 
 track_thresh:
   type: uniform

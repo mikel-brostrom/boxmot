@@ -107,9 +107,13 @@ class ReIDTrainer:
         random_erasing: float = 0.5,
         resume: Optional[str] = None,
         metric_feature: str = "auto",
+        inference_feature: str = "concat_bn",
+        feat_dim: int = 512,
+        neck_dim: int = 512,
         branch_aware_metric: bool = False,
         branch_metric_part_weight: float = 0.5,
         head_pool: str = "avg",
+        head_parts: tuple[int, ...] = (1, 2),
         head_warmup_epochs: int = 0,
         head_warmup_lr_mult: float = 2.0,
         explicit_hparams: Iterable[str] | None = None,
@@ -146,9 +150,13 @@ class ReIDTrainer:
         self.random_erasing = random_erasing
         self.resume = resume
         self.metric_feature = metric_feature
+        self.inference_feature = inference_feature
+        self.feat_dim = feat_dim
+        self.neck_dim = neck_dim
         self.branch_aware_metric = branch_aware_metric
         self.branch_metric_part_weight = branch_metric_part_weight
         self.head_pool = head_pool
+        self.head_parts = self._normalize_head_parts(head_parts)
         self.head_warmup_epochs = head_warmup_epochs
         self.head_warmup_lr_mult = head_warmup_lr_mult
         self.explicit_hparams = set(explicit_hparams or ())
@@ -160,6 +168,16 @@ class ReIDTrainer:
             torch.cuda.empty_cache()
         elif self.device.type == "mps":
             torch.mps.empty_cache()
+
+    @staticmethod
+    def _normalize_head_parts(head_parts) -> tuple[int, ...]:
+        """Normalize CSL-TinyViT head part granularities from CLI/API inputs."""
+        if isinstance(head_parts, str):
+            parts = [part for part in head_parts.replace(";", ",").split(",") if part.strip()]
+            return tuple(int(part) for part in parts)
+        if isinstance(head_parts, int):
+            return (int(head_parts),)
+        return tuple(int(part) for part in head_parts)
 
     def run(self) -> TrainResult:
         """Execute the full training pipeline."""
@@ -253,20 +271,19 @@ class ReIDTrainer:
             LOGGER.info("MS loss active: disabling center loss (redundant)")
             self.center_loss_weight = 0
 
-        # Determine feature dim for center loss by a dummy forward pass
-        feat_dim = self._probe_feat_dim(model)
-        criterion_center = CenterLoss(num_classes, feat_dim)
+        # Determine metric feature dim for center loss by a dummy forward pass.
+        metric_dim = self._probe_feat_dim(model)
+        criterion_center = CenterLoss(num_classes, metric_dim)
         criterion_center = criterion_center.to(self.device)
 
         # 5. Build optimizer — ViTs need AdamW + proper param groups
         if is_vit:
             self._apply_vit_training_defaults()
-            # ViTs benefit from EMA and color jitter out of the box.
-            # Only auto-enable if the user didn't explicitly configure them
-            # (None = not set by user, False/0 = explicitly disabled).
+            # Keep EMA disabled by default for CSL-TinyViT. The selected
+            # recipes use explicit augmentation instead of EMA smoothing.
             if self.ema_decay is None:
-                self.ema_decay = 0.999
-                LOGGER.info("ViT detected: enabling EMA (decay=0.999)")
+                self.ema_decay = 0
+                LOGGER.info("ViT detected: leaving EMA disabled by default")
             # NOTE: augmentation auto-scaling removed — augmentations should be
             # controlled explicitly via CLI flags.  The default recipe already
             # enables color_jitter, gaussian_blur, random_grayscale, and
@@ -374,6 +391,15 @@ class ReIDTrainer:
             "margin": self.margin,
             "center_loss_weight": self.center_loss_weight,
             "metric_feature": self._effective_metric_feature(),
+            "inference_feature": self.inference_feature,
+            "feat_dim": self.feat_dim,
+            "neck_dim": self.neck_dim,
+            "head_pool": self.head_pool,
+            "head_parts": list(self.head_parts),
+            "branch_aware_metric": self.branch_aware_metric,
+            "branch_metric_part_weight": self.branch_metric_part_weight,
+            "head_warmup_epochs": self.head_warmup_epochs,
+            "head_warmup_lr_mult": self.head_warmup_lr_mult,
             "p": self.p,
             "k": self.k,
             "seed": self.seed,
@@ -391,7 +417,7 @@ class ReIDTrainer:
             "is_vit": is_vit,
             "grad_clip": 1.0 if is_vit else 0.0,
             "num_classes": num_classes,
-            "feat_dim": feat_dim,
+            "metric_dim": metric_dim,
             "n_params": sum(p.numel() for p in model.parameters()),
         }
         if is_vit:
@@ -542,7 +568,11 @@ class ReIDTrainer:
             loss=self.loss_type,
             pretrained=self.pretrained,
             use_gpu=self.device.type != "cpu",
+            inference_feature=self.inference_feature,
+            feat_dim=self.feat_dim,
+            neck_dim=self.neck_dim,
             head_pool=self.head_pool,
+            head_parts=self.head_parts,
             branch_metric=self.branch_aware_metric,
         )
         if hasattr(model, "head") and hasattr(model.head, "metric_feature"):
@@ -631,7 +661,10 @@ class ReIDTrainer:
         # regularization with AdamW, so use the ViT recipe default unless the
         # caller intentionally passed a lower value for an ablation.
         if "weight_decay" not in self.explicit_hparams and self.weight_decay < 0.01:
-            self.weight_decay = 0.05
+            self.weight_decay = 0.1
+
+        if "warmup_epochs" not in self.explicit_hparams and self.warmup_epochs <= 10:
+            self.warmup_epochs = 20
 
         # ViTs with AdamW need ~2x higher LR than CNNs with Adam. Preserve
         # explicit lower LRs so LR sweeps test the requested value.
@@ -702,6 +735,7 @@ class ReIDTrainer:
                     "params": [],
                     "lr": self.lr * lr_scale,
                     "weight_decay": wd,
+                    "is_head": layer_id == depth + 1,
                 }
             param_groups[group_key]["params"].append(param)
 
@@ -711,11 +745,90 @@ class ReIDTrainer:
         )
         return list(param_groups.values())
 
+    def _head_warmup_active(self, epoch: int) -> bool:
+        """Return whether this epoch should train only neck/head parameters."""
+        return self.head_warmup_epochs > 0 and epoch <= self.head_warmup_epochs
+
+    @staticmethod
+    def _is_head_or_neck_param(name: str) -> bool:
+        return name.startswith("head.") or name.startswith("neck.")
+
+    def _set_head_warmup_trainability(self, model: nn.Module, enabled: bool) -> None:
+        """Freeze/unfreeze backbone parameters for head-only warmup."""
+        for name, param in model.named_parameters():
+            param.requires_grad_(not enabled or self._is_head_or_neck_param(name))
+
+    def _apply_head_warmup_lrs(self, optimizer) -> None:
+        """Use zero LR for backbone groups and a boosted LR for head groups."""
+        for group in optimizer.param_groups:
+            base_lr = group.get("_base_lr", group.get("lr", self.lr))
+            group["lr"] = base_lr * self.head_warmup_lr_mult if group.get("is_head", False) else 0.0
+
+    def _metric_loss_for_features(self, criterion_metric, features, pids: torch.Tensor) -> torch.Tensor:
+        """Compute metric loss for a tensor feature or branch feature dict."""
+        if isinstance(features, dict):
+            if not self.branch_aware_metric:
+                key = self._effective_metric_feature()
+                selected = features.get(key, features["raw_mean"])
+                return criterion_metric(F.normalize(selected, p=2, dim=1), pids)
+
+            weighted_losses = []
+            total_weight = 0.0
+            branch_weights = [("global", 1.0)] + [
+                (key, self.branch_metric_part_weight)
+                for key in self._sorted_part_feature_keys(features)
+            ]
+            for key, weight in branch_weights:
+                if key in features and weight > 0:
+                    branch_features = F.normalize(features[key], p=2, dim=1)
+                    weighted_losses.append(criterion_metric(branch_features, pids) * weight)
+                    total_weight += weight
+            if weighted_losses and total_weight > 0:
+                return sum(weighted_losses) / total_weight
+            return torch.zeros((), device=self.device, requires_grad=True)
+
+        return criterion_metric(F.normalize(features, p=2, dim=1), pids)
+
+    @staticmethod
+    def _sorted_part_feature_keys(features: dict) -> list[str]:
+        """Return part feature keys sorted by numeric suffix: part0, part1, ..."""
+        def part_index(key: str) -> int:
+            try:
+                return int(key[4:])
+            except ValueError:
+                return 10**9
+
+        return sorted(
+            (key for key in features if key.startswith("part") and key[4:].isdigit()),
+            key=part_index,
+        )
+
+    @staticmethod
+    def _center_features(features):
+        """Use the global raw branch for center loss when branch metrics are enabled."""
+        if isinstance(features, dict):
+            return features.get("global", features.get("raw_mean"))
+        return features
+
     def _train_epoch(
         self, epoch, model, loader, criterion_id, criterion_metric, criterion_center,
         optimizer, optimizer_center, scheduler, *, ema_model=None, grad_clip: float = 0.0,
     ) -> TrainMetrics:
         from tqdm import tqdm
+
+        requested_head_warmup = self._head_warmup_active(epoch)
+        head_warmup_supported = any(group.get("is_head", False) for group in optimizer.param_groups)
+        head_warmup_active = requested_head_warmup and head_warmup_supported
+        if requested_head_warmup and not head_warmup_supported and epoch == 1:
+            LOGGER.warning("Head warmup requested, but optimizer has no separate head parameter group; ignoring")
+        self._set_head_warmup_trainability(model, head_warmup_active)
+        if head_warmup_active:
+            self._apply_head_warmup_lrs(optimizer)
+            if epoch == 1:
+                LOGGER.info(
+                    f"Head warmup enabled for {self.head_warmup_epochs} epochs "
+                    f"(head_lr_mult={self.head_warmup_lr_mult:g})"
+                )
 
         model.train()
         total_loss = 0.0
@@ -759,14 +872,14 @@ class ReIDTrainer:
                 # triplet loss aligns with cosine distance used at evaluation.
                 loss_tri = torch.tensor(0.0, device=self.device)
                 if criterion_metric is not None and features is not None:
-                    features_norm = F.normalize(features, p=2, dim=1)
-                    loss_tri = criterion_metric(features_norm, pids)
+                    loss_tri = self._metric_loss_for_features(criterion_metric, features, pids)
                     loss = loss + loss_tri
 
                 # Center loss — only on embeddings, never on logits
+                center_features = self._center_features(features)
                 loss_cen = torch.tensor(0.0, device=self.device)
-                if features is not None and self.center_loss_weight > 0:
-                    loss_cen = criterion_center(features, pids) * self.center_loss_weight
+                if center_features is not None and self.center_loss_weight > 0 and not head_warmup_active:
+                    loss_cen = criterion_center(center_features, pids) * self.center_loss_weight
                     loss = loss + loss_cen
 
             optimizer.zero_grad()
@@ -781,7 +894,7 @@ class ReIDTrainer:
             scaler.step(optimizer)
 
             # Center loss has its own optimizer with special LR
-            if features is not None and self.center_loss_weight > 0:
+            if center_features is not None and self.center_loss_weight > 0 and not head_warmup_active:
                 scaler.unscale_(optimizer_center)
                 for param in criterion_center.parameters():
                     if param.grad is not None:
@@ -814,7 +927,7 @@ class ReIDTrainer:
         # Scheduler step
         if epoch > self.warmup_epochs:
             scheduler.step()
-        else:
+        elif self.warmup_epochs > 0:
             # Linear warmup — respect per-group base LR (layer-decay)
             warmup_factor = epoch / self.warmup_epochs
             for pg in optimizer.param_groups:
@@ -888,6 +1001,15 @@ class ReIDTrainer:
             "num_classes": self._get_num_classes(model),
             "preprocess": self.preprocess,
             "best_mAP": best_mAP,
+            "inference_feature": self.inference_feature,
+            "feat_dim": self.feat_dim,
+            "neck_dim": self.neck_dim,
+            "head_pool": self.head_pool,
+            "head_parts": list(self.head_parts),
+            "branch_aware_metric": self.branch_aware_metric,
+            "branch_metric_part_weight": self.branch_metric_part_weight,
+            "head_warmup_epochs": self.head_warmup_epochs,
+            "head_warmup_lr_mult": self.head_warmup_lr_mult,
         }
         if val is not None:
             state["mAP"] = val.mAP

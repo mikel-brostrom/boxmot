@@ -57,8 +57,22 @@ class ReIDModelRegistry:
             )
             if isinstance(checkpoint, dict):
                 values = {}
+                if checkpoint.get("feat_dim") is not None:
+                    values["feat_dim"] = int(checkpoint["feat_dim"])
+                if checkpoint.get("neck_dim") is not None:
+                    values["neck_dim"] = int(checkpoint["neck_dim"])
                 if checkpoint.get("head_pool") is not None:
                     values["head_pool"] = checkpoint["head_pool"]
+                if checkpoint.get("head_parts") is not None:
+                    values["head_parts"] = tuple(int(part) for part in checkpoint["head_parts"])
+                if checkpoint.get("inference_feature") is not None:
+                    values["inference_feature"] = checkpoint["inference_feature"]
+                state_dict = checkpoint.get("state_dict", checkpoint)
+                if isinstance(state_dict, dict):
+                    if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
+                        values["feat_dim"] = int(state_dict["head.bn_global.reduction.weight"].shape[0])
+                    if "neck_dim" not in values and "neck.0.weight" in state_dict:
+                        values["neck_dim"] = int(state_dict["neck.0.weight"].shape[0])
                 return values
         except Exception:
             pass
@@ -148,6 +162,9 @@ class ReIDModelRegistry:
             model_kwargs = {}
 
         return MODEL_FACTORY[name](
-            num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
-            , **model_kwargs
+            num_classes=num_classes,
+            loss=loss,
+            pretrained=pretrained,
+            use_gpu=use_gpu,
+            **model_kwargs,
         )

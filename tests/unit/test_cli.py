@@ -120,7 +120,7 @@ def test_train_preserves_explicit_hparam_keys(monkeypatch):
             "--data-dir",
             ".",
             "--model",
-            "csl_tinyvit_5m",
+            "csl_tinyvit_7m",
             "--lr",
             "3.5e-4",
             "--center-loss-weight",
@@ -132,6 +132,56 @@ def test_train_preserves_explicit_hparam_keys(monkeypatch):
     assert captured["args"].lr == 3.5e-4
     assert captured["args"].center_loss_weight == 0.0
     assert set(captured["args"].train_explicit_keys) >= {"data_dir", "model", "lr", "center_loss_weight"}
+
+
+def test_train_accepts_head_and_branch_toggles(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--inference-feature",
+            "raw_mean",
+            "--head-pool",
+            "gem",
+            "--head-parts",
+            "1,2,4",
+            "--branch-aware-metric",
+            "--branch-metric-part-weight",
+            "0.25",
+            "--head-warmup-epochs",
+            "5",
+            "--head-warmup-lr-mult",
+            "3",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.inference_feature == "raw_mean"
+    assert args.head_pool == "gem"
+    assert args.head_parts == (1, 2, 4)
+    assert args.branch_aware_metric is True
+    assert args.branch_metric_part_weight == 0.25
+    assert args.head_warmup_epochs == 5
+    assert args.head_warmup_lr_mult == 3.0
+    assert {
+        "inference_feature",
+        "head_pool",
+        "head_parts",
+        "branch_aware_metric",
+        "branch_metric_part_weight",
+        "head_warmup_epochs",
+        "head_warmup_lr_mult",
+    } <= set(args.train_explicit_keys)
 
 
 def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
@@ -147,7 +197,7 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
         [
             "train",
             "--recipe",
-            "csl_tinyvit_5m",
+            "csl_tinyvit_23m",
             "--data-dir",
             ".",
             "--epochs",
@@ -158,6 +208,10 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
             "0",
             "--metric-feature",
             "raw_mean",
+            "--feat-dim",
+            "384",
+            "--neck-dim",
+            "384",
             "--no-color-jitter",
             "--random-erasing",
             "0",
@@ -166,10 +220,19 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
-    assert args.model == "csl_tinyvit_11m"
+    assert args.model == "csl_tinyvit_23m"
     assert args.weight_decay == 0.1
     assert args.imgsz == (384, 128)
     assert args.warmup_epochs == 20
+    assert args.head_pool == "gem"
+    assert args.head_parts == (1, 2)
+    assert args.inference_feature == "concat_bn"
+    assert args.feat_dim == 384
+    assert args.neck_dim == 384
+    assert args.branch_aware_metric is False
+    assert args.branch_metric_part_weight == 0.5
+    assert args.head_warmup_epochs == 0
+    assert args.head_warmup_lr_mult == 2.0
     assert args.label_smooth == 0.05
     assert args.batch_size == 64
     assert args.p_ids == 16
@@ -190,14 +253,132 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
         "lr",
         "center_loss_weight",
         "metric_feature",
+        "feat_dim",
+        "neck_dim",
         "color_jitter",
         "random_erasing",
     } <= explicit
     assert "weight_decay" not in explicit
     assert "imgsz" not in explicit
     assert "warmup_epochs" not in explicit
+    assert "head_pool" not in explicit
+    assert "head_parts" not in explicit
+    assert "inference_feature" not in explicit
+    assert "feat_dim" in explicit
+    assert "neck_dim" in explicit
+    assert "branch_aware_metric" not in explicit
+    assert "branch_metric_part_weight" not in explicit
+    assert "head_warmup_epochs" not in explicit
+    assert "head_warmup_lr_mult" not in explicit
     assert "label_smooth" not in explicit
     assert "random_grayscale" not in explicit
+
+
+def test_train_csl_tinyvit_7m_recipe_keeps_small_model(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_7m", "--data-dir", "."])
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.model == "csl_tinyvit_7m"
+    assert args.weight_decay == 0.1
+    assert args.warmup_epochs == 20
+    assert args.feat_dim == 512
+    assert args.neck_dim == 512
+    assert args.head_pool == "gem"
+    assert args.head_parts == (1, 2)
+    assert args.inference_feature == "concat_bn"
+    assert args.branch_aware_metric is False
+    assert args.head_warmup_epochs == 0
+
+
+def test_train_default_model_is_csl_tinyvit_11m(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["train", "--data-dir", "."])
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.model == "csl_tinyvit_11m"
+    assert args.imgsz == (384, 128)
+    assert args.weight_decay == 0.1
+    assert args.warmup_epochs == 20
+    assert args.feat_dim == 512
+    assert args.neck_dim == 512
+    assert args.head_pool == "gem"
+    assert args.head_parts == (1, 2)
+    assert args.inference_feature == "concat_bn"
+
+
+def test_train_csl_tinyvit_11m_recipe_is_normal_model(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_11m", "--data-dir", "."])
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.model == "csl_tinyvit_11m"
+    assert args.head_pool == "gem"
+    assert args.head_parts == (1, 2)
+    assert args.inference_feature == "concat_bn"
+    assert args.branch_aware_metric is False
+    assert args.head_warmup_epochs == 0
+
+
+def test_eval_reid_accepts_scientific_feature_override_options(monkeypatch, tmp_path):
+    captured = {}
+    weights = tmp_path / "best.pt"
+    data_dir = tmp_path / "market1501"
+    weights.write_bytes(b"checkpoint")
+    data_dir.mkdir()
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "eval-reid",
+            "--weights",
+            str(weights),
+            "--dataset",
+            "market1501",
+            "--data-dir",
+            str(data_dir),
+            "--preprocess",
+            "resize",
+            "--imgsz",
+            "384,128",
+            "--inference-feature",
+            "raw_mean",
+            "--flip-tta",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.preprocess == "resize"
+    assert args.imgsz == (384, 128)
+    assert args.inference_feature == "raw_mean"
+    assert args.flip_tta is True
 
 
 def test_eval_rejects_positional_tracker_shim():

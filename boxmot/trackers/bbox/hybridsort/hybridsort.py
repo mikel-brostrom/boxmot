@@ -13,6 +13,7 @@ from typing import Any, List, Optional
 import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
+from boxmot.motion.kalman_filters.xyscr import KalmanFilterXYSCR
 from boxmot.trackers.basetracker import BaseTracker
 
 # Keep your original association functions:
@@ -114,7 +115,6 @@ class KalmanBoxTracker(object):
         temp_feat,
         *,
         delta_t: int = 3,
-        use_custom_kf: bool = True,
         longterm_bank_length: int = 30,
         max_obs: int = 50,
         alpha: float = 0.9,
@@ -123,64 +123,14 @@ class KalmanBoxTracker(object):
         cls: int = 0,
         det_ind: int = -1,
     ):
-        if use_custom_kf:
-            from .kalmanfilter_score_new import KalmanFilterNew_score_new as KalmanFilter_score_new
-            self.kf = KalmanFilter_score_new(dim_x=9, dim_z=5, max_obs=max_obs)
-            self.kf.F = np.array(
-                [
-                    [1, 0, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 0, 1],
-                    [0, 0, 0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 1, 0, 0, 0, 0],
-                ]
-            )
-            self.kf.R[2:, 2:] *= 10.0
-            self.kf.P[5:, 5:] *= 1000.0
-            self.kf.P *= 10.0
-            self.kf.Q[-1, -1] *= 0.01
-            self.kf.Q[-2, -2] *= 0.01
-            self.kf.Q[5:, 5:] *= 0.01
-            self.kf.x[:5] = convert_bbox_to_z(bbox)
-        else:
-            from filterpy.kalman import KalmanFilter
-            self.kf = KalmanFilter(dim_x=7, dim_z=4)
-            self.kf.F = np.array(
-                [
-                    [1, 0, 0, 0, 0, 1, 0],
-                    [0, 1, 0, 0, 0, 0, 1],
-                    [0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0],
-                    [0, 0, 0, 0, 1, 0, 0],
-                    [0, 0, 0, 0, 0, 1, 0],
-                    [0, 0, 0, 0, 0, 0, 1],
-                ]
-            )
-            self.kf.H = np.array(
-                [
-                    [1, 0, 0, 0, 0, 0, 0],
-                    [0, 1, 0, 0, 0, 0, 0],
-                    [0, 0, 1, 0, 0, 0, 0],
-                    [0, 0, 0, 1, 0, 0, 0],
-                ]
-            )
-            self.kf.R[2:, 2:] *= 10.0
-            self.kf.P[4:, 4:] *= 1000.0
-            self.kf.P *= 10.0
-            self.kf.x[:4] = convert_bbox_to_z(bbox)
+        self.kf = KalmanFilterXYSCR(max_obs=max_obs)
+        self.kf.R[2:, 2:] *= 10.0
+        self.kf.P[5:, 5:] *= 1000.0
+        self.kf.P *= 10.0
+        self.kf.Q[-1, -1] *= 0.01
+        self.kf.Q[-2, -2] *= 0.01
+        self.kf.Q[5:, 5:] *= 0.01
+        self.kf.x[:5] = convert_bbox_to_z(bbox)
 
         # tracker state
         self.time_since_update = 0
@@ -380,8 +330,6 @@ class HybridSort(BaseTracker):
         delta_t (int): Time window used for motion estimation.
         inertia (float): Motion-consistency weight.
         use_byte (bool): Whether to enable ByteTrack-style second association.
-        use_custom_kf (bool): Whether to use the HybridSort custom Kalman
-            filter.
         longterm_bank_length (int): Number of appearance features to keep in
             the long-term bank.
         alpha (float): Feature update coefficient.
@@ -428,7 +376,6 @@ class HybridSort(BaseTracker):
         use_byte: bool = True,
 
         # KF / ReID
-        use_custom_kf: bool = True,
         longterm_bank_length: int = 30,
         alpha: float = 0.9,
         adapfs: bool = False,
@@ -465,7 +412,6 @@ class HybridSort(BaseTracker):
         self.inertia = float(inertia)
         self.use_byte = bool(use_byte)
 
-        self.use_custom_kf = bool(use_custom_kf)
         self.longterm_bank_length = int(longterm_bank_length)
         self.alpha = float(alpha)
         self.adapfs = bool(adapfs)
@@ -732,7 +678,6 @@ class HybridSort(BaseTracker):
                 dets_first[i, :],
                 id_feature_keep[i, :],
                 delta_t=self.delta_t,
-                use_custom_kf=self.use_custom_kf,
                 longterm_bank_length=self.longterm_bank_length,
                 max_obs=self.max_obs,
                 alpha=self.alpha,
