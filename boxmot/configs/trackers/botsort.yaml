@@ -1,39 +1,77 @@
 track_high_thresh:
   type: uniform
-  default: 0.6  # from the default parameters
+  default: 0.6296854875023994
   range: [0.3, 0.7]
 
 track_low_thresh:
   type: uniform
-  default: 0.1  # from the default parameters
+  default: 0.1014392537025336
   range: [0.1, 0.3]
 
 new_track_thresh:
   type: uniform
-  default: 0.7  # from the default parameters
+  default: 0.6246494191492591
   range: [0.1, 0.8]
 
 track_buffer:
   type: randint
-  default: 30  # from the default parameters
+  default: 40
   range: [20, 81]
 
 match_thresh:
   type: uniform
-  default: 0.8  # from the default parameters
+  default: 0.7722224024589055
   range: [0.1, 0.9]
 
-proximity_thresh:
-  type: uniform
-  default: 0.5  # from the default parameters
-  range: [0.25, 0.75]
-
-appearance_thresh:
-  type: uniform
-  default: 0.25  # from the default parameters
-  range: [0.1, 0.8]
-
-cmc_method:
+use_cmc:
   type: choice
-  default: ecc  # from the default parameters
-  options: [sof, ecc]
+  default: True
+  options: [False, True]
+  activates:
+    cmc_method:
+      type: choice
+      default: sof
+      options: [sof, ecc]
+
+frame_rate:
+  type: choice
+  default: 30
+  options: [25, 30]
+
+fuse_first_associate:
+  type: choice
+  default: True
+  options: [False, True]
+
+with_reid:
+  type: choice
+  default: True
+  options: [False, True]
+  activates:
+    proximity_thresh:
+      type: uniform
+      default: 0.6084297894561342
+      range: [0.25, 0.75]
+    appearance_thresh:
+      type: uniform
+      default: 0.6188818853936099
+      range: [0.1, 0.8]
+    unconfirmed_emb_scale:
+      type: uniform
+      default: 2.5445206391993294
+      range: [1.0, 4.0]
+
+second_match_thresh:
+  type: uniform
+  default: 0.28795081514328974
+  range: [0.1, 0.9]
+
+unconfirmed_match_thresh:
+  type: uniform
+  default: 0.41148010638233784
+  range: [0.1, 0.9]
+
+removed_stracks_buffer:
+  type: randint
+  default: 329
+  range: [50, 501]

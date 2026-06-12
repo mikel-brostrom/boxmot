@@ -46,6 +46,39 @@ class ReIDModelRegistry:
         return None
 
     @staticmethod
+    def get_checkpoint_model_kwargs(weight_path) -> dict:
+        """Return optional architecture kwargs stored in a checkpoint."""
+        try:
+            checkpoint = torch.load(
+                weight_path,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+            if isinstance(checkpoint, dict):
+                values = {}
+                if checkpoint.get("feat_dim") is not None:
+                    values["feat_dim"] = int(checkpoint["feat_dim"])
+                if checkpoint.get("neck_dim") is not None:
+                    values["neck_dim"] = int(checkpoint["neck_dim"])
+                if checkpoint.get("head_pool") is not None:
+                    values["head_pool"] = checkpoint["head_pool"]
+                if checkpoint.get("head_parts") is not None:
+                    values["head_parts"] = tuple(int(part) for part in checkpoint["head_parts"])
+                if checkpoint.get("inference_feature") is not None:
+                    values["inference_feature"] = checkpoint["inference_feature"]
+                state_dict = checkpoint.get("state_dict", checkpoint)
+                if isinstance(state_dict, dict):
+                    if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
+                        values["feat_dim"] = int(state_dict["head.bn_global.reduction.weight"].shape[0])
+                    if "neck_dim" not in values and "neck.0.weight" in state_dict:
+                        values["neck_dim"] = int(state_dict["neck.0.weight"].shape[0])
+                return values
+        except Exception:
+            pass
+        return {}
+
+    @staticmethod
     def load_pretrained_weights(model, weight_path):
         """
         Loads pretrained weights into a model.
@@ -100,7 +133,15 @@ class ReIDModelRegistry:
         return NR_CLASSES_DICT.get(dataset_key, 1)
 
     @staticmethod
-    def build_model(name, weights, num_classes, loss="softmax", pretrained=True, use_gpu=True):
+    def build_model(
+        name,
+        weights,
+        num_classes,
+        loss="softmax",
+        pretrained=True,
+        use_gpu=True,
+        **model_kwargs,
+    ):
         if name not in MODEL_FACTORY:
             available = list(MODEL_FACTORY.keys())
             raise KeyError(f"Unknown model '{name}'. Must be one of {available}")
@@ -117,6 +158,13 @@ class ReIDModelRegistry:
                 cfg, num_class=num_classes, camera_num=2, view_num=1
             )
 
+        if not str(name).startswith("csl_tinyvit"):
+            model_kwargs = {}
+
         return MODEL_FACTORY[name](
-            num_classes=num_classes, loss=loss, pretrained=pretrained, use_gpu=use_gpu
+            num_classes=num_classes,
+            loss=loss,
+            pretrained=pretrained,
+            use_gpu=use_gpu,
+            **model_kwargs,
         )

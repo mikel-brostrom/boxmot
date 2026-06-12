@@ -20,9 +20,18 @@ class SOF(BaseCMC):
       - estimateAffinePartial2D (RANSAC) for robust motion estimation
     """
 
-    def __init__(self, scale: float = 0.15) -> None:
+    def __init__(
+        self,
+        scale: float = 0.15,
+        min_inliers: int = 8,
+        min_inlier_ratio: float = 0.2,
+        ransac_reproj_threshold: float = 3.0,
+    ) -> None:
         self.scale = float(scale)
         self.grayscale = True
+        self.min_inliers = int(min_inliers)
+        self.min_inlier_ratio = float(min_inlier_ratio)
+        self.ransac_reproj_threshold = float(ransac_reproj_threshold)
 
         self.feature_params = dict(
             maxCorners=1000,
@@ -49,7 +58,7 @@ class SOF(BaseCMC):
 
         # First frame init
         if not self.initialized or self.prev_frame is None or self.prev_keypoints is None:
-            kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+            kps = self._detect_keypoints(frame_gray, dets)
             if kps is None or len(kps) < 4:
                 # can't initialize reliably; keep trying on next frame
                 self.prev_frame = frame_gray.copy()
@@ -72,7 +81,7 @@ class SOF(BaseCMC):
         )
 
         if next_kps is None or status is None:
-            self._reset(frame_gray)
+            self._reset(frame_gray, dets)
             return H
 
         status = status.reshape(-1)
@@ -81,12 +90,23 @@ class SOF(BaseCMC):
 
         if prev_valid is None or next_valid is None or len(prev_valid) < 4:
             # not enough matches -> re-detect
-            self._reset(frame_gray)
+            self._reset(frame_gray, dets)
             return H
 
         # estimate transform
-        H_est, inliers = cv2.estimateAffinePartial2D(prev_valid, next_valid, method=cv2.RANSAC)
-        if H_est is None:
+        H_est, inliers = cv2.estimateAffinePartial2D(
+            prev_valid,
+            next_valid,
+            method=cv2.RANSAC,
+            ransacReprojThreshold=self.ransac_reproj_threshold,
+        )
+        if H_est is None or not self._has_enough_inliers(inliers, len(prev_valid)):
+            if H_est is not None:
+                LOGGER.debug(
+                    "SOF rejected weak affine estimate: "
+                    f"inliers={0 if inliers is None else int(np.count_nonzero(inliers))}/"
+                    f"{len(prev_valid)}"
+                )
             H_est = H
         else:
             H_est = H_est.astype(np.float32, copy=False)
@@ -96,7 +116,7 @@ class SOF(BaseCMC):
                 H_est[1, 2] /= self.scale
 
         # refresh keypoints each frame (more stable long-term than purely tracking)
-        new_kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+        new_kps = self._detect_keypoints(frame_gray, dets)
         if new_kps is None or len(new_kps) < 4:
             # fallback: keep tracked points
             new_kps = next_valid
@@ -107,8 +127,21 @@ class SOF(BaseCMC):
 
         return H_est
 
-    def _reset(self, frame_gray: np.ndarray) -> None:
-        kps = cv2.goodFeaturesToTrack(frame_gray, mask=None, **self.feature_params)
+    def _detect_keypoints(self, frame_gray: np.ndarray, dets: Optional[np.ndarray]) -> Optional[np.ndarray]:
+        mask = self.generate_mask(frame_gray, dets, self.scale)
+        return cv2.goodFeaturesToTrack(frame_gray, mask=mask, **self.feature_params)
+
+    def _has_enough_inliers(self, inliers: Optional[np.ndarray], match_count: int) -> bool:
+        if inliers is None or match_count <= 0:
+            return False
+        inlier_count = int(np.count_nonzero(inliers))
+        return (
+            inlier_count >= self.min_inliers
+            and inlier_count / match_count >= self.min_inlier_ratio
+        )
+
+    def _reset(self, frame_gray: np.ndarray, dets: Optional[np.ndarray] = None) -> None:
+        kps = self._detect_keypoints(frame_gray, dets)
         self.prev_frame = frame_gray.copy()
         self.prev_keypoints = kps
         self.initialized = kps is not None and len(kps) >= 4

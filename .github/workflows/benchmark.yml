@@ -43,11 +43,21 @@ jobs:
         if: steps.cache-restore.outputs.cache-hit != 'true'
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_XET_HIGH_PERFORMANCE: "1"
         run: |
-          pip install huggingface_hub
-          hf download Lekim89/mot17-parquet --repo-type dataset --include "images/train/**" --include "data/**"
-          hf download Lekim89/runs --repo-type dataset --include "runs/dets_n_embs/mot17/ablation/**"
+          pip install 'huggingface_hub<1.17'
+          python -c "
+          from huggingface_hub import snapshot_download
+          snapshot_download(
+              repo_id='Lekim89/mot17-parquet',
+              repo_type='dataset',
+              allow_patterns=['images/train/**', 'data/**'],
+          )
+          snapshot_download(
+              repo_id='Lekim89/runs',
+              repo_type='dataset',
+              allow_patterns=['runs/dets_n_embs/mot17/ablation/**'],
+          )
+          "
 
   mot-metrics-benchmark:
     runs-on: ubuntu-latest

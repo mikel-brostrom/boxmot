@@ -5,6 +5,9 @@ from typing import Callable, Dict, Optional, Tuple
 import cv2
 import numpy as np
 
+IMAGENET_MEAN_RGB = (124, 116, 104)
+IMAGENET_MEAN_BGR = (IMAGENET_MEAN_RGB[2], IMAGENET_MEAN_RGB[1], IMAGENET_MEAN_RGB[0])
+
 
 def resize(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
     """Simple resize to target (H, W). Default preprocessing."""
@@ -16,7 +19,11 @@ def resize(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
 
 
 def resize_pad(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
-    """Resize preserving aspect ratio with padding."""
+    """Resize preserving aspect ratio with ImageNet-mean padding.
+
+    The OpenCV inference path passes crops in BGR order and converts to RGB
+    after preprocessing, so the constant border uses the BGR ImageNet mean.
+    """
     target_h, target_w = target_shape
     h, w = crop.shape[:2]
 
@@ -33,7 +40,7 @@ def resize_pad(crop: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
 
     padded = cv2.copyMakeBorder(
         resized, pad_top, pad_bottom, pad_left, pad_right,
-        cv2.BORDER_CONSTANT, value=(0, 0, 0),
+        cv2.BORDER_CONSTANT, value=IMAGENET_MEAN_BGR,
     )
     return padded
 

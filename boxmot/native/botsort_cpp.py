@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import yaml
 
+from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.native import _common
 from boxmot.native._common import (
     drain_native_stderr as _drain_native_stderr,
@@ -51,6 +52,7 @@ _TRACKER_NAME = "botsort"
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     with open(get_tracker_config("botsort"), "r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
+    raw = flatten_yaml_config(raw)
     resolved = {name: spec["default"] for name, spec in raw.items()}
     if cfg_dict is not None:
         resolved.update(cfg_dict)
@@ -58,6 +60,7 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved.setdefault("fuse_first_associate", False)
     resolved.setdefault("with_reid", True)
     resolved.setdefault("frame_rate", 30)
+    resolved.setdefault("use_cmc", True)
     return resolved
 
 
@@ -182,6 +185,7 @@ class _BotSortLiveLibrary:
         return raw.decode("utf-8", errors="replace") or "Unknown native BoTSORT error."
 
     def create(self, cfg: dict[str, Any]):
+        cmc_method = str(cfg.get("cmc_method", "ecc")) if bool(cfg.get("use_cmc", True)) else "none"
         c_cfg = _BotSortCConfig(
             track_high_thresh=float(cfg["track_high_thresh"]),
             track_low_thresh=float(cfg["track_low_thresh"]),
@@ -190,7 +194,7 @@ class _BotSortLiveLibrary:
             match_thresh=float(cfg["match_thresh"]),
             proximity_thresh=float(cfg["proximity_thresh"]),
             appearance_thresh=float(cfg["appearance_thresh"]),
-            cmc_method=str(cfg.get("cmc_method", "ecc")).encode("utf-8"),
+            cmc_method=cmc_method.encode("utf-8"),
             frame_rate=int(cfg.get("frame_rate", 30)),
             fuse_first_associate=int(bool(cfg.get("fuse_first_associate", False))),
             with_reid=int(bool(cfg.get("with_reid", True))),
@@ -478,7 +482,7 @@ def process_sequence_cpp(
         "--appearance-thresh",
         str(float(cfg["appearance_thresh"])),
         "--cmc-method",
-        str(cfg.get("cmc_method", "ecc")),
+        str(cfg.get("cmc_method", "ecc")) if bool(cfg.get("use_cmc", True)) else "none",
         "--frame-rate",
         str(int(cfg.get("frame_rate", 30))),
         "--fuse-first-associate",

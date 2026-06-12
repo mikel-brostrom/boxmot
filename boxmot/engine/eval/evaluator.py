@@ -343,6 +343,28 @@ def run_eval(
     if pipeline is not None:
         pipeline.advance("Starting tracker...")
 
+    # -- KF calibration --
+    if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
+        from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
+
+        kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
+        if kf_type:
+            if pipeline is not None:
+                pipeline.advance("Calibrating Kalman filter...")
+            kf_result, _ = run_kf_tuning(args, kf_type, capture=True)
+            if kf_result is not None:
+                kf_result["kf_type"] = kf_type
+                args.kf_tuning = kf_result
+                LOGGER.info(
+                    f"KF calibration ({kf_type}): "
+                    f"std_weight_position={kf_result['std_weight_position']:.6f}, "
+                    f"std_weight_velocity={kf_result['std_weight_velocity']:.6f}"
+                )
+            else:
+                LOGGER.warning("KF calibration produced no result; using default noise weights.")
+        else:
+            LOGGER.debug(f"Tracker '{args.tracker}' has no KF parameterization; skipping --tune-kf.")
+
     # -- Track --
     with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(

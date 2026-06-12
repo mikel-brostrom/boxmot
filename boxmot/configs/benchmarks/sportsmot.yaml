@@ -7,12 +7,21 @@ dataset:
   box_type: aabb
   splits:
     train: "train"
+    val: "val"
     test: "test"
   default_split: val
+  no_gt_splits: [test]
   classes:
     1: player
 
 download:
+  # SportsMOT official split contents:
+  #   train: has images + seqinfo.ini + gt/gt.txt
+  #          usable for training and local TrackEval evaluation
+  #   val:   has images + seqinfo.ini + gt/gt.txt
+  #          usable for validation/local TrackEval evaluation
+  #   test:  has images + seqinfo.ini only
+  #          no public GT; use for inference/submission generation only
   dataset:
     train: "hf://Lekim89/sportsmot/train"
     val: "hf://Lekim89/sportsmot/val"

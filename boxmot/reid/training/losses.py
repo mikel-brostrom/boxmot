@@ -71,6 +71,89 @@ class TripletLoss(nn.Module):
         return self.ranking_loss(dist_an, dist_ap, y)
 
 
+class MultiSimilarityLoss(nn.Module):
+    """Multi-Similarity loss for metric learning.
+
+    Reference:
+        Wang et al. "Multi-Similarity Loss with General Pair Weighting
+        for Deep Metric Learning." CVPR 2019.
+
+    Exploits self-similarity and relative similarity via soft pair weighting,
+    combining the strengths of contrastive, triplet, and lifted-structure losses.
+
+    Args:
+        alpha: Scale for positive pair weighting (higher → focus on harder positives).
+        beta: Scale for negative pair weighting (higher → focus on harder negatives).
+        thresh: Threshold (lambda) in the exp weighting formula.
+        mining_margin: Margin epsilon for informative pair mining.
+    """
+
+    def __init__(
+        self,
+        alpha: float = 2.0,
+        beta: float = 50.0,
+        thresh: float = 0.5,
+        mining_margin: float = 0.1,
+    ):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.thresh = thresh
+        self.mining_margin = mining_margin
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        # inputs: L2-normalized embeddings (N, D)
+        batch_size = inputs.size(0)
+        # Cosine similarity matrix
+        sim = inputs @ inputs.t()
+
+        epsilon = 1e-5
+        loss = []
+
+        for i in range(batch_size):
+            # Positive similarities (excluding self, which has sim ≈ 1)
+            pos_sim = sim[i][targets == targets[i]]
+            pos_sim = pos_sim[pos_sim < 1 - epsilon]
+
+            # Negative similarities
+            neg_sim = sim[i][targets != targets[i]]
+
+            if pos_sim.numel() == 0 or neg_sim.numel() == 0:
+                continue
+
+            # Multi-Similarity mining: select informative pairs
+            # Negatives closer than the easiest positive (with margin)
+            neg_pairs = neg_sim[neg_sim + self.mining_margin > pos_sim.min()]
+            # Positives farther than the closest negative (with margin)
+            pos_pairs = pos_sim[pos_sim - self.mining_margin < neg_sim.max()]
+
+            if neg_pairs.numel() < 1 or pos_pairs.numel() < 1:
+                continue
+
+            # Positive term: (1/alpha) * log[1 + sum exp(-alpha * (s_p - thresh))]
+            pos_term = (1.0 / self.alpha) * torch.log(
+                1.0 + torch.exp(-self.alpha * (pos_pairs - self.thresh)).sum()
+            )
+            # Negative term: (1/beta) * log[1 + sum exp(beta * (s_n - thresh))]
+            neg_term = (1.0 / self.beta) * torch.log(
+                1.0 + torch.exp(self.beta * (neg_pairs - self.thresh)).sum()
+            )
+
+            loss.append(pos_term + neg_term)
+
+        if len(loss) == 0:
+            return torch.zeros([], device=inputs.device, requires_grad=True)
+
+        return sum(loss) / batch_size
+
+
+# Registry of metric losses (beyond CE).  Maps name → (class, default kwargs).
+METRIC_LOSS_REGISTRY: dict[str, type] = {
+    "triplet": TripletLoss,
+    "ms": MultiSimilarityLoss,
+}
+
+
 class CenterLoss(nn.Module):
     """Center loss for discriminative feature learning.
 

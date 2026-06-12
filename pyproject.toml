@@ -141,9 +141,13 @@ yolo = [
 
 evolve = [
   "ray[tune]==2.52.1",
+  "matplotlib>=3.8.0,<4.0.0",
+  "seaborn>=0.13.0,<1.0.0",
+  "scipy>=1.11.0,<2.0.0",
   "plotly==5.19.0",
   "bayesian-optimization==2.0.4",
   "optuna==3.5.0",
+  "hyperopt>=0.2.7",
   "pydantic>=2.5.0,<2.12.0"
 ]
 

@@ -738,7 +738,6 @@ def download_hf_dataset_subfolder(
 
     # Compute totals up front so Hugging Face bars are determinate inside Rich.
     num_files = 0
-    total_size = 0
     try:
         from huggingface_hub.hf_api import RepoFile
 
@@ -753,19 +752,16 @@ def download_hf_dataset_subfolder(
             if isinstance(f, RepoFile)
         ]
         num_files = len(files)
-        total_size = sum(f.size or (f.lfs.size if f.lfs else 0) for f in files)
     except Exception:
         # Progress still works without totals; it just becomes indeterminate.
         num_files = 0
-        total_size = 0
 
     # Keep HF's tqdm-driven progress updates inside the active Rich workflow
     # panel instead of writing raw progress lines to stderr.
     if status_fn is not None and callable(getattr(status_fn, "tqdm_proxy", None)):
-        with status_fn.tqdm_proxy(f"Downloading {repo_id}/{subfolder}", unit="B") as rich_tqdm:
-            # HF creates one tqdm per file download.  We aggregate all of them
-            # into two shared Rich progress tasks: one for bytes downloaded and
-            # one for files fetched.
+        with status_fn.tqdm_proxy(f"Downloading {repo_id}/{subfolder}", unit="files") as rich_tqdm:
+            # HF creates a byte tqdm and a file-fetch tqdm.  The workflow panel
+            # surfaces the file-fetch task so its count is displayed as files.
             _shared_download_task = [None]  # created on first "Downloading" instance
             _shared_fetch_task = [None]     # created on first "Fetching" instance
 
@@ -806,11 +802,7 @@ def download_hf_dataset_subfolder(
                         # File-count bar driven by thread_map iterator.
                         if _shared_fetch_task[0] is None:
                             kwargs["total"] = num_files
-                            kwargs["desc"] = (
-                                f"Downloading {num_files} files"
-                                if total_size > 0
-                                else f"Fetching {num_files} files"
-                            )
+                            kwargs["desc"] = f"Fetching {num_files} files"
                             super().__init__(iterable, *args, **kwargs)
                             _shared_fetch_task[0] = self._task_id
                         else:

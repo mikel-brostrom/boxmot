@@ -17,11 +17,11 @@ import torch
 import torchvision.transforms as T
 from PIL import Image
 
-from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS, IMAGENET_MEAN_RGB
 
 
 class ResizePad:
-    """Resize preserving aspect ratio with zero-padding (PIL version).
+    """Resize preserving aspect ratio with ImageNet-mean padding (PIL version).
 
     Mirrors ``boxmot.reid.core.preprocessing.resize_pad`` but operates on PIL
     images so it can be used inside a ``torchvision.transforms.Compose`` chain.
@@ -36,7 +36,7 @@ class ResizePad:
         scale = min(self.target_w / w, self.target_h / h)
         new_w, new_h = int(w * scale), int(h * scale)
         img = img.resize((new_w, new_h), Image.BILINEAR)
-        padded = Image.new("RGB", (self.target_w, self.target_h), (0, 0, 0))
+        padded = Image.new("RGB", (self.target_w, self.target_h), IMAGENET_MEAN_RGB)
         pad_left = (self.target_w - new_w) // 2
         pad_top = (self.target_h - new_h) // 2
         padded.paste(img, (pad_left, pad_top))
@@ -189,7 +189,7 @@ class RandomPatch:
         return f"{self.__class__.__name__}(p={self.prob_happen}, pool={self.patchpool.maxlen})"
 
 
-IMAGENET_MEAN = [0.4914, 0.4822, 0.4465]
+IMAGENET_MEAN = [0.485, 0.456, 0.406]
 
 
 def build_train_transforms(
@@ -228,8 +228,12 @@ def build_train_transforms(
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     if random_erasing > 0:
-        # torchreid uses channel-mean fill instead of random
-        ops.append(T.RandomErasing(p=random_erasing, value=IMAGENET_MEAN))
+        # Zhong et al. "Random Erasing Data Augmentation" §5.3.1:
+        # p=0.5, scale=(0.02, 0.2), ratio=(0.3, 3.33), fill=ImageNet mean
+        ops.append(T.RandomErasing(
+            p=random_erasing, scale=(0.02, 0.2), ratio=(0.3, 3.33),
+            value=IMAGENET_MEAN,
+        ))
     return T.Compose(ops)
 
 

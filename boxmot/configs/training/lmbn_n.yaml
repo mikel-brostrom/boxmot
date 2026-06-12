@@ -1,0 +1,29 @@
+# Training recipe for LightMBN-Nano (lmbn_n)
+#
+# LightMBN is a lightweight multi-branch network with global, partial, and
+# channel branches plus BatchFeatureErase attention.  Taller crops (384×128)
+# give the partial branch more spatial resolution.  EMA and moderate
+# augmentation stabilise multi-branch training without overfitting.
+#
+# Usage:
+#   uv run python -m boxmot.engine.cli train \
+#     --recipe lmbn_n \
+#     --data-dir ./Market-1501-v15.09.15 \
+#     --device mps
+
+model: lmbn_n
+loss: triplet
+epochs: 150
+lr: 0.00035
+weight_decay: 0.0005
+batch_size: 64
+imgsz: [384, 128]
+warmup_epochs: 10
+margin: 0.3
+label_smooth: 0.1
+center_loss_weight: 0.0005
+ema_decay: 0.999
+color_jitter: true
+gaussian_blur: true
+random_grayscale: 0.1
+preprocess: resize

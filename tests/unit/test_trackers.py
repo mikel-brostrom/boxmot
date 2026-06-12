@@ -1,8 +1,11 @@
+import inspect
 from pathlib import Path
 
 import numpy as np
 import pytest
+import yaml
 
+from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.trackers import (
     DeepOcSort,
     OcSort,
@@ -16,6 +19,7 @@ from boxmot.trackers.bbox.deepocsort.deepocsort import (
 from boxmot.trackers.bbox.botsort.botsort import BotSort
 from boxmot.trackers.bbox.botsort.botsort_track import STrack as BotSortTrack
 from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
+from boxmot.trackers.bbox.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.bbox.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.bbox.sfsort.sfsort import SFSORT
 from boxmot.reid.core import ReID
@@ -91,6 +95,88 @@ def test_dynamic_max_obs_based_on_max_age():
     max_age = 400
     ocsort = OcSort(max_age=max_age)
     assert ocsort.max_obs == (max_age + 5)
+
+
+def test_hybridsort_config_covers_constructor_params_and_conditionals():
+    config_path = Path("boxmot/configs/trackers/hybridsort.yaml")
+    yaml_config = yaml.safe_load(config_path.read_text())
+    flat_config = flatten_yaml_config(yaml_config)
+
+    constructor_params = set(inspect.signature(HybridSort.__init__).parameters)
+    expected_params = constructor_params - {"self", "reid_model", "kwargs"}
+    expected_params.update(
+        {
+            "det_thresh",
+            "max_age",
+            "max_obs",
+            "min_hits",
+            "iou_threshold",
+            "asso_func",
+        }
+    )
+
+    assert expected_params <= set(flat_config)
+    assert set(yaml_config["use_byte"]["activates"]) == {
+        "low_thresh",
+        "TCM_byte_step",
+    }
+    assert set(
+        yaml_config["use_byte"]["activates"]["TCM_byte_step"]["activates"]
+    ) == {"TCM_byte_step_weight"}
+    assert set(yaml_config["TCM_first_step"]["activates"]) == {"inertia"}
+    with_reid_children = yaml_config["with_reid"]["activates"]
+    assert set(with_reid_children) == {
+        "longterm_bank_length",
+        "alpha",
+        "adapfs",
+        "EG_weight_high_score",
+        "EG_weight_low_score",
+        "high_score_matching_thresh",
+        "with_longterm_reid",
+        "with_longterm_reid_correction",
+    }
+    assert set(with_reid_children["with_longterm_reid"]["activates"]) == {
+        "longterm_reid_weight"
+    }
+    assert set(with_reid_children["with_longterm_reid_correction"]["activates"]) == {
+        "longterm_reid_correction_thresh",
+        "longterm_reid_correction_thresh_low",
+    }
+
+
+def test_hybridsort_track_histories_are_bounded_and_resettable():
+    tracker = HybridSort(
+        with_reid=False,
+        min_hits=1,
+        max_age=2,
+        max_obs=3,
+        iou_threshold=0.1,
+    )
+    tracker.cmc = DummyCMC()
+
+    rgb = np.zeros((128, 128, 3), dtype=np.uint8)
+    embs = np.ones((1, 4), dtype=np.float32)
+
+    for frame_idx in range(10):
+        det = np.array(
+            [[10 + frame_idx, 10, 30 + frame_idx, 30, 0.9, 0]],
+            dtype=np.float32,
+        )
+        tracker.update(det, rgb, embs)
+
+    assert len(tracker.active_tracks) == 1
+    track = tracker.active_tracks[0]
+    assert len(track.history_observations) == tracker.max_obs == 3
+    assert len(track.observations) == tracker.max_obs
+    assert len(track.kf.history_obs) <= tracker.max_obs
+    assert sorted(track.observations) == [7, 8, 9]
+
+    tracker.reset()
+
+    assert tracker.active_tracks == []
+    assert tracker.frame_count == 0
+    assert tracker._first_frame_processed is False
+    assert tracker._first_dets_processed is False
 
 
 def create_kalman_box_tracker_ocsort(bbox, cls, det_ind, tracker):
@@ -571,7 +657,7 @@ from boxmot.trackers.bbox.occluboost.occluboost import (  # noqa: E402
 
 
 def test_occluboost_supports_obb_without_reid():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
@@ -590,7 +676,7 @@ def test_occluboost_supports_obb_without_reid():
 
 
 def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     dets = np.array(
         [
@@ -610,7 +696,7 @@ def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
 
 def test_occluboost_obb_aabb_path_unchanged():
     """The AABB path must remain 8-column and produce stable IDs."""
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     dets = np.array([[80, 80, 130, 130, 0.9, 0]], dtype=np.float32)
     out1 = tracker.update(dets, rgb)
@@ -644,7 +730,7 @@ def test_xywha_to_xyxy_enclosing_45deg_grows_bounds():
 
 
 def test_occluboost_obb_history_follows_smoothly_under_rotation():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_ecc=False, min_hits=1)
+    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
 
     angles = np.linspace(0.0, 1.5, 12, dtype=np.float32)

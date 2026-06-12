@@ -15,11 +15,32 @@ from boxmot.utils.misc import resolve_model_path
 
 RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune", "research"})
 MODE_DEFAULTS_PATH = Path(__file__).resolve().parent / "modes.yaml"
+TRAINING_RECIPES_DIR = Path(__file__).resolve().parent / "training"
 
 
 def _load_mode_defaults() -> dict[str, Any]:
     with open(MODE_DEFAULTS_PATH, "r", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
+
+
+def load_training_recipe(name: str) -> dict[str, Any]:
+    """Load a training recipe YAML by name (e.g. ``'lmbn_n'``)."""
+    recipe_path = TRAINING_RECIPES_DIR / f"{name}.yaml"
+    if not recipe_path.exists():
+        available = list_training_recipes()
+        raise FileNotFoundError(
+            f"Training recipe '{name}' not found at {recipe_path}. "
+            f"Available recipes: {', '.join(available) or '(none)'}"
+        )
+    with open(recipe_path, "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
+
+
+def list_training_recipes() -> list[str]:
+    """Return sorted names of available training recipes."""
+    if not TRAINING_RECIPES_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in TRAINING_RECIPES_DIR.glob("*.yaml"))
 
 
 def _merged_mode_defaults(mode: str) -> dict[str, Any]:
@@ -68,6 +89,17 @@ def _normalize_model_list(values: Any, *, multiple: bool) -> Any:
     if values is None:
         return None
     return ensure_model_extension(values)
+
+
+def _normalize_int_tuple(values: Any) -> tuple[int, ...]:
+    if values is None:
+        return ()
+    if isinstance(values, str):
+        parts = [part for part in values.replace(";", ",").split(",") if part.strip()]
+        return tuple(int(part) for part in parts)
+    if isinstance(values, int):
+        return (int(values),)
+    return tuple(int(value) for value in values)
 
 
 def ensure_model_extension(model_path: str | Path, default_dir: Path = WEIGHTS) -> Path:
@@ -143,6 +175,13 @@ def build_mode_namespace(
         if project is not None:
             values["project"] = Path(project)
     elif normalized_mode == "train":
+        # Apply training recipe if specified (between defaults and CLI overrides)
+        recipe_name = values.pop("recipe", None)
+        if recipe_name is not None:
+            recipe_values = load_training_recipe(recipe_name)
+            for key, val in recipe_values.items():
+                if key not in explicit:
+                    values[key] = val
         project = values.get("project")
         if project is not None:
             values["project"] = Path(project)
@@ -151,11 +190,13 @@ def build_mode_namespace(
             values["imgsz"] = tuple(imgsz)
         elif isinstance(imgsz, int):
             values["imgsz"] = (imgsz, imgsz // 2)
+        values["head_parts"] = _normalize_int_tuple(values.get("head_parts", (1, 2)))
         # Parse eval_datasets: accept comma-separated string or list
         ed = values.get("eval_datasets", ())
         if isinstance(ed, str):
             ed = [s.strip() for s in ed.split(",") if s.strip()]
         values["eval_datasets"] = list(ed)
+        values.setdefault("train_explicit_keys", tuple(sorted(explicit)))
 
     return SimpleNamespace(**values)
 
@@ -344,8 +385,10 @@ class ResearchModeDefaults(RuntimeModeDefaults):
     max_metric_calls: int
     eval_timeout: float
     keep_workspace: bool
+    hota_penalty: float
     idf1_penalty: float
     mota_penalty: float
+    hota_tolerance: float
     idf1_tolerance: float
     mota_tolerance: float
 
@@ -360,15 +403,19 @@ class ResearchModeDefaults(RuntimeModeDefaults):
             benchmark=str(values.get("benchmark", "")),
             split=str(values.get("split", "")),
             proposal_model=str(values.get("proposal_model", "openai/gpt-5.4")),
-            proposal_api_key=None if values.get("proposal_api_key") in {None, ""} else str(values.get("proposal_api_key")),
+            proposal_api_key=(
+                None if values.get("proposal_api_key") in {None, ""} else str(values.get("proposal_api_key"))
+            ),
             proposal_api_key_env=(
                 None if values.get("proposal_api_key_env") in {None, ""} else str(values.get("proposal_api_key_env"))
             ),
             max_metric_calls=int(values.get("max_metric_calls", 24)),
             eval_timeout=float(values.get("eval_timeout", 900.0)),
             keep_workspace=bool(values.get("keep_workspace", False)),
+            hota_penalty=float(values.get("hota_penalty", 0.0)),
             idf1_penalty=float(values.get("idf1_penalty", 1.0)),
             mota_penalty=float(values.get("mota_penalty", 1.0)),
+            hota_tolerance=float(values.get("hota_tolerance", 0.0)),
             idf1_tolerance=float(values.get("idf1_tolerance", 0.0)),
             mota_tolerance=float(values.get("mota_tolerance", 0.0)),
         )
@@ -424,6 +471,17 @@ class TrainModeDefaults:
     margin: float
     label_smooth: float
     center_loss_weight: float
+    metric_feature: str
+    inference_feature: str
+    feat_dim: int
+    neck_dim: int
+    head_pool: str
+    head_parts: tuple[int, ...]
+    branch_aware_metric: bool
+    branch_metric_part_weight: float
+    head_warmup_epochs: int
+    head_warmup_lr_mult: float
+    eta_min: float
     pretrained: bool
     device: str
     project: str
@@ -435,6 +493,7 @@ class TrainModeDefaults:
     gaussian_blur: bool
     color_jitter: bool
     random_grayscale: float
+    random_erasing: float
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "TrainModeDefaults":
@@ -461,6 +520,17 @@ class TrainModeDefaults:
             margin=float(values.get("margin", 0.3)),
             label_smooth=float(values.get("label_smooth", 0.1)),
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
+            metric_feature=str(values.get("metric_feature", "auto")),
+            inference_feature=str(values.get("inference_feature", "concat_bn")),
+            feat_dim=int(values.get("feat_dim", 512)),
+            neck_dim=int(values.get("neck_dim", 512)),
+            head_pool=str(values.get("head_pool", "avg")),
+            head_parts=_normalize_int_tuple(values.get("head_parts", (1, 2))),
+            branch_aware_metric=bool(values.get("branch_aware_metric", False)),
+            branch_metric_part_weight=float(values.get("branch_metric_part_weight", 0.5)),
+            head_warmup_epochs=int(values.get("head_warmup_epochs", 0)),
+            head_warmup_lr_mult=float(values.get("head_warmup_lr_mult", 2.0)),
+            eta_min=float(values.get("eta_min", 1e-7)),
             pretrained=bool(values.get("pretrained", True)),
             device=str(values.get("device", "cpu")),
             project=str(values.get("project", "runs/reid_train")),
@@ -472,6 +542,7 @@ class TrainModeDefaults:
             gaussian_blur=bool(values.get("gaussian_blur", False)),
             color_jitter=bool(values.get("color_jitter", False)),
             random_grayscale=float(values.get("random_grayscale", 0.0)),
+            random_erasing=float(values.get("random_erasing", 0.5)),
         )
 
 
@@ -517,4 +588,6 @@ __all__ = (
     "ensure_model_extension",
     "get_mode_default",
     "get_mode_defaults",
+    "list_training_recipes",
+    "load_training_recipe",
 )

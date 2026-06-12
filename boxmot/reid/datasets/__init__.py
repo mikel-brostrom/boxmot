@@ -7,12 +7,13 @@ from typing import Any, Dict, List, Type
 from boxmot.reid.datasets.base import BaseReIDDataset, CombinedReIDDataset
 from boxmot.reid.datasets.cuhk03 import CUHK03
 from boxmot.reid.datasets.dukemtmcreid import DukeMTMCreID
-from boxmot.reid.datasets.market1501 import Market1501
+from boxmot.reid.datasets.market1501 import MOT17Market1501, Market1501
 from boxmot.reid.datasets.msmt17 import MSMT17
 from boxmot.reid.datasets.veri776 import VeRi776
 
 DATASET_REGISTRY: Dict[str, Type[BaseReIDDataset]] = {
     "market1501": Market1501,
+    "mot171501": MOT17Market1501,
     "cuhk03": CUHK03,
     "duke": DukeMTMCreID,
     "dukemtmcreid": DukeMTMCreID,
@@ -32,6 +33,8 @@ def build_dataset(name: str, root: str, **kwargs: Any) -> BaseReIDDataset:
     # Normalize common aliases
     if key in ("dukemtmcreid", "dukemtmc", "duke"):
         key = "duke"
+    if key in ("mot171501", "mot17market1501"):
+        key = "mot171501"
     if key in ("veri776", "veri"):
         key = "veri"
     if key in ("cuhk03", "cuhk03np"):
@@ -59,6 +62,7 @@ __all__ = (
     "CUHK03",
     "DukeMTMCreID",
     "Market1501",
+    "MOT17Market1501",
     "MSMT17",
     "VeRi776",
     "build_dataset",

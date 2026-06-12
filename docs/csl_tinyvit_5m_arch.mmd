@@ -1,0 +1,74 @@
+%%{ init: { "theme": "base", "themeVariables": { "fontSize": "14px" } } }%%
+graph TD
+    classDef input fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef conv fill:#FFF3E0,stroke:#E65100,color:#BF360C
+    classDef attn fill:#F3E5F5,stroke:#6A1B9A,color:#4A148C
+    classDef neck fill:#E8F5E9,stroke:#2E7D32,color:#1B5E20
+    classDef head fill:#FCE4EC,stroke:#AD1457,color:#880E4F
+    classDef output fill:#FFFDE7,stroke:#F9A825,color:#F57F17
+    classDef merge fill:#ECEFF1,stroke:#546E7A,color:#37474F
+
+    INPUT["🖼️ <b>Input</b><br/><i>3 × 384 × 128</i>"]:::input
+
+    subgraph PE ["① Patch Embedding"]
+        direction TB
+        PE1["Conv 3×3, stride 2<br/><i>3 → 32ch, 192×64</i>"]:::conv
+        PE2["GELU"]:::conv
+        PE3["Conv 3×3, stride 2<br/><i>32 → 64ch, 96×32</i>"]:::conv
+    end
+
+    subgraph S0 ["② Stage 0 · ConvLayer"]
+        direction TB
+        S0A["MBConv ×2<br/><i>64ch, expand=4×</i><br/><i>DW 3×3 + residual</i>"]:::conv
+        S0D["PatchMerging<br/><i>64 → 128ch, 48×16</i>"]:::merge
+    end
+
+    subgraph S1 ["③ Stage 1 · BasicLayer"]
+        direction TB
+        S1A["TinyViTBlock ×2<br/><i>128ch, 4 heads</i><br/><i>window=7, DW conv</i>"]:::attn
+        S1D["PatchMerging<br/><i>128 → 160ch, 24×8</i>"]:::merge
+    end
+
+    subgraph S2 ["④ Stage 2 · BasicLayer"]
+        direction TB
+        S2A["TinyViTBlock ×6<br/><i>160ch, 5 heads</i><br/><i>window=14, DW conv</i>"]:::attn
+        S2D["PatchMerging<br/><i>160 → 320ch, 24×8</i>"]:::merge
+    end
+
+    subgraph S3 ["⑤ Stage 3 · BasicLayer"]
+        direction TB
+        S3A["TinyViTBlock ×2<br/><i>320ch, 10 heads</i><br/><i>window=7, DW conv</i>"]:::attn
+    end
+
+    subgraph NK ["⑥ Feature Neck"]
+        direction TB
+        NK1["Conv 1×1<br/><i>320 → 256ch</i>"]:::neck
+        NK2["LayerNorm2d"]:::neck
+        NK3["Conv 3×3, pad=1<br/><i>256 → 256ch</i>"]:::neck
+        NK4["LayerNorm2d"]:::neck
+    end
+
+    subgraph HD ["⑦ Multi-Branch Head"]
+        direction LR
+        subgraph GL ["Global"]
+            GL1["AdaptiveAvgPool<br/><i>(1,1)</i>"]:::head
+            GL2["BNNeck3<br/><i>256→512-d</i>"]:::head
+        end
+        subgraph PT ["Partial ×2"]
+            PT1["AdaptiveAvgPool<br/><i>(2,1)</i>"]:::head
+            PT2["BNNeck3 × 2<br/><i>256→512-d each</i>"]:::head
+        end
+    end
+
+    OUT["📐 <b>Output</b><br/><i>1536-d feature</i><br/><i>(3 × 512 concat)</i>"]:::output
+
+    INPUT --> PE1 --> PE2 --> PE3
+    PE3 --> S0A --> S0D
+    S0D --> S1A --> S1D
+    S1D --> S2A --> S2D
+    S2D --> S3A
+    S3A --> NK1 --> NK2 --> NK3 --> NK4
+    NK4 --> GL1 --> GL2
+    NK4 --> PT1 --> PT2
+    GL2 --> OUT
+    PT2 --> OUT

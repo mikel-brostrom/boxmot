@@ -13,6 +13,7 @@ MODEL_TYPES = [
     "osnet_ain_x1_0",
     "lmbn_ain_n",
     "lmbn_n",
+    "cspreid_n",
     "clip",
     "vit_nano",
     "vit_nano_ain",
@@ -20,6 +21,12 @@ MODEL_TYPES = [
     "vit_tiny",
     "vit_tiny_parts",
     "vit_tiny_parts3",
+    "csl_tinyvit_7m",
+    "csl_tinyvit_11m",
+    "csl_tinyvit_23m",
+    "csl_tinyvit_small",
+    "csl_tinyvit_normal",
+    "csl_tinyvit_large",
 ]
 
 TRAINED_URLS = {

@@ -18,8 +18,10 @@ from boxmot import __version__
 from boxmot.configs import (
     BOXMOT_DEFAULTS,
     build_mode_namespace,
+    list_training_recipes,
 )
 from boxmot.configs.benchmark import resolve_benchmark_cfg_path
+from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
 from boxmot.utils.misc import parse_imgsz
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
@@ -38,6 +40,24 @@ def _click_imgsz_default(value):
     if isinstance(value, (list, tuple)):
         return ",".join(str(part) for part in value)
     return value
+
+
+def _parse_head_parts(ctx, param, value):
+    """Parse CSL-TinyViT head part granularities, e.g. ``1,2,4``."""
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)):
+        parts = tuple(int(part) for part in value)
+    else:
+        tokens = [token for token in str(value).replace(";", ",").split(",") if token.strip()]
+        parts = tuple(int(token) for token in tokens)
+    if not parts:
+        raise click.BadParameter("must contain at least one part granularity")
+    if any(part < 1 for part in parts):
+        raise click.BadParameter("part granularities must be positive integers")
+    if 1 not in parts:
+        raise click.BadParameter("must include 1 for the global branch")
+    return tuple(dict.fromkeys(parts))
 
 
 def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
@@ -440,6 +460,12 @@ def tune_options(func):
         click.option('--minimize', type=str, multiple=True, default=TUNE_DEFAULTS.minimize,
                      help='metrics to minimize for Pareto search; accepts repeated, comma-separated, or space-separated values (e.g. IDSW_rate); '
                           'triggers multi-objective mode when set'),
+        click.option('--search-alg', 'search_alg', type=click.Choice(['optuna', 'hyperopt', 'random'], case_sensitive=False),
+                     default='optuna',
+                     help='search algorithm backend for hyperparameter optimization; '
+                          'optuna (default) uses TPE with conditional search spaces, '
+                          'hyperopt uses Tree-structured Parzen Estimators via HyperOpt, '
+                          'random uses uniform random sampling'),
     ]
     for opt in reversed(options):
         func = opt(func)
@@ -466,10 +492,14 @@ def research_options(func):
                      help='hard timeout in seconds for each benchmark evaluation'),
         click.option('--keep-workspace/--no-keep-workspace', default=RESEARCH_DEFAULTS.keep_workspace, show_default=True,
                      help='preserve the temporary research workspace after the run'),
+        click.option('--hota-penalty', type=float, default=RESEARCH_DEFAULTS.hota_penalty, show_default=True,
+                     help='penalty multiplier for combined HOTA regression versus baseline'),
         click.option('--idf1-penalty', type=float, default=RESEARCH_DEFAULTS.idf1_penalty, show_default=True,
                      help='penalty multiplier for combined IDF1 regression versus baseline'),
         click.option('--mota-penalty', type=float, default=RESEARCH_DEFAULTS.mota_penalty, show_default=True,
                      help='penalty multiplier for combined MOTA regression versus baseline'),
+        click.option('--hota-tolerance', type=float, default=RESEARCH_DEFAULTS.hota_tolerance, show_default=True,
+                     help='allowed combined HOTA drop before penalties apply'),
         click.option('--idf1-tolerance', type=float, default=RESEARCH_DEFAULTS.idf1_tolerance, show_default=True,
                      help='allowed combined IDF1 drop before penalties apply'),
         click.option('--mota-tolerance', type=float, default=RESEARCH_DEFAULTS.mota_tolerance, show_default=True,
@@ -747,6 +777,10 @@ def train_options(func):
     from boxmot.reid.datasets import DATASET_REGISTRY
 
     options = [
+        click.option('--recipe', type=click.Choice(list_training_recipes(), case_sensitive=False),
+                     default=None,
+                     help='Training recipe preset (overrides defaults; CLI flags still take priority). '
+                          f'Available: {", ".join(list_training_recipes()) or "(none)"}'),
         click.option('--model', type=click.Choice(MODEL_TYPES, case_sensitive=False),
                      default=TRAIN_DEFAULTS.model, show_default=True,
                      help='ReID backbone architecture'),
@@ -755,11 +789,11 @@ def train_options(func):
                      help='Training dataset (comma-separated for joint training, '
                           f'e.g. market1501,duke,cuhk03,msmt17). '
                           f'Available: {", ".join(sorted(DATASET_REGISTRY.keys()))}'),
-        click.option('--data-dir', type=click.Path(exists=True), required=True,
-                     help='Root directory of the dataset'),
-        click.option('--loss', type=click.Choice(['softmax', 'triplet'], case_sensitive=False),
+        click.option('--data-dir', type=click.Path(exists=True), required=False, default=None,
+                     help='Root directory of the dataset (inferred from hparams.json when --resume is used)'),
+        click.option('--loss', type=click.Choice(['softmax', 'triplet', 'ms'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.loss, show_default=True,
-                     help='Training loss type'),
+                     help='Metric loss type (triplet=hard-mining triplet, ms=multi-similarity, softmax=CE only)'),
         click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
                      default=TRAIN_DEFAULTS.preprocess, show_default=True,
                      help='Crop preprocessing method; must match inference-time preprocessing'),
@@ -788,6 +822,36 @@ def train_options(func):
                      help='Label smoothing epsilon'),
         click.option('--center-loss-weight', type=float, default=TRAIN_DEFAULTS.center_loss_weight, show_default=True,
                      help='Center loss weight'),
+        click.option('--metric-feature', type=click.Choice(['auto', 'raw_mean', 'concat_bn'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.metric_feature, show_default=True,
+                     help='Feature representation used for metric losses when the model supports multiple branches'),
+        click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.inference_feature, show_default=True,
+                     help='Feature representation emitted by CSL-TinyViT at validation/inference time'),
+        click.option('--feat-dim', type=int, default=TRAIN_DEFAULTS.feat_dim, show_default=True,
+                     help='Per-branch embedding dimension for ReID heads that support projection'),
+        click.option('--neck-dim', type=int, default=TRAIN_DEFAULTS.neck_dim, show_default=True,
+                     help='Neck channel dimension for ReID backbones that support a feature neck'),
+        click.option('--head-pool', type=click.Choice(['avg', 'gem'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.head_pool, show_default=True,
+                     help='Pooling layer used by CSL-TinyViT multi-branch heads'),
+        click.option('--head-parts', callback=_parse_head_parts, type=str,
+                     default=_click_imgsz_default(TRAIN_DEFAULTS.head_parts), show_default=True,
+                     help='CSL-TinyViT head granularities, e.g. 1,2 for global+2 parts or 1,2,4 for MGN'),
+        click.option('--branch-aware-metric/--no-branch-aware-metric',
+                     default=TRAIN_DEFAULTS.branch_aware_metric, show_default=True,
+                     help='Apply metric loss separately to CSL-TinyViT global and part branches'),
+        click.option('--branch-metric-part-weight', type=float,
+                     default=TRAIN_DEFAULTS.branch_metric_part_weight, show_default=True,
+                     help='Weight for each part branch metric loss when branch-aware metric is enabled'),
+        click.option('--head-warmup-epochs', type=int,
+                     default=TRAIN_DEFAULTS.head_warmup_epochs, show_default=True,
+                     help='Train only CSL-TinyViT neck/head for the first N epochs'),
+        click.option('--head-warmup-lr-mult', type=float,
+                     default=TRAIN_DEFAULTS.head_warmup_lr_mult, show_default=True,
+                     help='LR multiplier for neck/head parameter groups during head warmup'),
+        click.option('--eta-min', type=float, default=TRAIN_DEFAULTS.eta_min, show_default=True,
+                     help='Minimum learning rate for cosine annealing schedule'),
         click.option('--pretrained/--no-pretrained', default=TRAIN_DEFAULTS.pretrained, show_default=True,
                      help='Use ImageNet-pretrained backbone'),
         click.option('--device', default=TRAIN_DEFAULTS.device,
@@ -812,6 +876,8 @@ def train_options(func):
                      help='Apply color jitter augmentation (auto-enabled for ViTs)'),
         click.option('--random-grayscale', type=float, default=TRAIN_DEFAULTS.random_grayscale, show_default=True,
                      help='Probability of random grayscale conversion (0 to disable)'),
+        click.option('--random-erasing', type=float, default=TRAIN_DEFAULTS.random_erasing, show_default=True,
+                     help='Probability of random erasing augmentation (0 to disable)'),
         click.option('--resume', type=click.Path(), default=None,
                      help='Resume training from a checkpoint dir or last.pt file'),
     ]
@@ -824,6 +890,9 @@ def train_options(func):
 @train_options
 @click.pass_context
 def train(ctx, **kwargs):
+    # --data-dir is required unless --resume is provided
+    if not kwargs.get('resume') and not kwargs.get('data_dir'):
+        raise click.MissingParameter(param_hint="'--data-dir'", param_type='option')
     args = _build_cli_namespace(ctx, "train", kwargs)
     _run_engine_workflow("boxmot.engine.reid.trainer", args)
 
@@ -837,6 +906,16 @@ def train(ctx, **kwargs):
               help='Evaluation dataset (e.g. market1501, duke, msmt17)')
 @click.option('--data-dir', type=click.Path(exists=True), required=True,
               help='Root directory of the dataset')
+@click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
+              default=None,
+              help='Crop preprocessing method (default: checkpoint/hparams value)')
+@click.option('--imgsz', callback=parse_imgsz, type=str, default=None,
+              help='Image size as H,W (default: hparams value, fallback 256,128)')
+@click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+              default=None,
+              help='Override CSL-TinyViT eval embedding without retraining')
+@click.option('--flip-tta/--no-flip-tta', default=None,
+              help='Use horizontal flip test-time augmentation (default: hparams value)')
 @click.option('--device', default='cpu', help='Device: cpu, mps, or cuda index')
 @click.option('--batch-size', type=int, default=64, show_default=True,
               help='Batch size for feature extraction')

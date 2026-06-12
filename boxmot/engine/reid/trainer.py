@@ -5,8 +5,21 @@ Invoked by the CLI ``train`` subcommand via ``main(args)``.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from boxmot.reid.training.trainer import ReIDTrainer, TrainResult
 from boxmot.utils import logger as LOGGER
+
+
+def _load_hparams_from_resume(resume_path: str | Path) -> dict:
+    """Load hparams.json from a resume directory or checkpoint file path."""
+    p = Path(resume_path)
+    hparams_file = p / "hparams.json" if p.is_dir() else p.parent / "hparams.json"
+    if hparams_file.exists():
+        with open(hparams_file) as f:
+            return json.load(f)
+    return {}
 
 
 def main(args) -> TrainResult:
@@ -18,16 +31,76 @@ def main(args) -> TrainResult:
     Returns:
         TrainResult with best epoch, metrics, and saved weights path.
     """
+    explicit_keys = set(getattr(args, "train_explicit_keys", ()))
+
+    # When resuming, load saved hparams and use them as defaults for any
+    # parameters the user didn't explicitly override on the CLI.
+    resume = getattr(args, "resume", None)
+    if resume:
+        hparams = _load_hparams_from_resume(resume)
+        if hparams:
+            LOGGER.info(
+                f"Loaded hparams from resume dir: "
+                f"model={hparams.get('model_name')}, dataset={hparams.get('dataset')}"
+            )
+            # Map hparams.json keys → args attribute names
+            _HPARAM_TO_ARG = {
+                "model_name": "model",
+                "dataset": "dataset",
+                "data_dir": "data_dir",
+                "img_size": "imgsz",
+                "preprocess": "preprocess",
+                "loss_type": "loss",
+                "pretrained": "pretrained",
+                "epochs": "epochs",
+                "batch_size": "batch_size",
+                "lr": "lr",
+                "weight_decay": "weight_decay",
+                "eta_min": "eta_min",
+                "warmup_epochs": "warmup_epochs",
+                "label_smooth": "label_smooth",
+                "margin": "margin",
+                "center_loss_weight": "center_loss_weight",
+                "metric_feature": "metric_feature",
+                "inference_feature": "inference_feature",
+                "feat_dim": "feat_dim",
+                "neck_dim": "neck_dim",
+                "head_pool": "head_pool",
+                "head_parts": "head_parts",
+                "branch_aware_metric": "branch_aware_metric",
+                "branch_metric_part_weight": "branch_metric_part_weight",
+                "head_warmup_epochs": "head_warmup_epochs",
+                "head_warmup_lr_mult": "head_warmup_lr_mult",
+                "p": "p_ids",
+                "k": "k_instances",
+                "seed": "seed",
+                "device": "device",
+                "num_workers": "num_workers",
+                "ema_decay": "ema_decay",
+                "gaussian_blur": "gaussian_blur",
+                "random_grayscale": "random_grayscale",
+                "color_jitter": "color_jitter",
+                "random_erasing": "random_erasing",
+                "eval_interval": "eval_interval",
+            }
+            for hp_key, arg_key in _HPARAM_TO_ARG.items():
+                if hp_key in hparams and arg_key not in explicit_keys:
+                    setattr(args, arg_key, hparams[hp_key])
+
     img_size = getattr(args, "imgsz", (256, 128))
     if isinstance(img_size, int):
         img_size = (img_size, img_size // 2)
     elif isinstance(img_size, (list, tuple)) and len(img_size) == 1:
         img_size = (img_size[0], img_size[0] // 2)
 
+    data_dir = getattr(args, "data_dir", None)
+    if not data_dir:
+        raise ValueError("--data-dir is required (not found in hparams.json either)")
+
     trainer = ReIDTrainer(
         model_name=args.model,
         dataset_name=args.dataset,
-        data_dir=args.data_dir,
+        data_dir=data_dir,
         loss_type=getattr(args, "loss", "triplet"),
         preprocess=getattr(args, "preprocess", "resize"),
         img_size=tuple(img_size),
@@ -42,6 +115,17 @@ def main(args) -> TrainResult:
         margin=getattr(args, "margin", 0.3),
         label_smooth=getattr(args, "label_smooth", 0.1),
         center_loss_weight=getattr(args, "center_loss_weight", 5e-4),
+        metric_feature=getattr(args, "metric_feature", "auto"),
+        inference_feature=getattr(args, "inference_feature", "concat_bn"),
+        feat_dim=getattr(args, "feat_dim", 512),
+        neck_dim=getattr(args, "neck_dim", 512),
+        head_pool=getattr(args, "head_pool", "avg"),
+        head_parts=getattr(args, "head_parts", (1, 2)),
+        branch_aware_metric=getattr(args, "branch_aware_metric", False),
+        branch_metric_part_weight=getattr(args, "branch_metric_part_weight", 0.5),
+        head_warmup_epochs=getattr(args, "head_warmup_epochs", 0),
+        head_warmup_lr_mult=getattr(args, "head_warmup_lr_mult", 2.0),
+        eta_min=getattr(args, "eta_min", 1e-7),
         pretrained=getattr(args, "pretrained", True),
         device=getattr(args, "device", "cpu"),
         project=str(getattr(args, "project", "runs/reid_train")),
@@ -53,7 +137,9 @@ def main(args) -> TrainResult:
         gaussian_blur=getattr(args, "gaussian_blur", False),
         random_grayscale=getattr(args, "random_grayscale", 0.0),
         color_jitter=getattr(args, "color_jitter", False),
+        random_erasing=getattr(args, "random_erasing", 0.5),
         resume=getattr(args, "resume", None),
+        explicit_hparams=explicit_keys,
     )
 
     result = trainer.run()

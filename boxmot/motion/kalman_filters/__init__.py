@@ -3,6 +3,7 @@
 from .base import BaseKalmanFilter
 from .xyah import KalmanFilterXYAH
 from .xyhr import KalmanFilterXYHR
+from .xyscr import KalmanFilterXYSCR
 from .xysr import KalmanFilterXYSR
 from .xywh import KalmanFilterXYWH
 
@@ -11,5 +12,6 @@ __all__ = [
     "KalmanFilterXYWH",
     "KalmanFilterXYAH",
     "KalmanFilterXYHR",
+    "KalmanFilterXYSCR",
     "KalmanFilterXYSR",
 ]
