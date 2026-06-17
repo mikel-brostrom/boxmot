@@ -46,6 +46,13 @@ _NATIVE_DISPLAY_NAME = "OccluBoost"
 _TRACKER_NAME = "occluboost"
 
 
+def _default_native_reid_device() -> str:
+    """Prefer the stable CPU ReID path on macOS GitHub runners."""
+    if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        return "cpu"
+    return "auto"
+
+
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     with open(get_tracker_config("occluboost"), "r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
@@ -55,6 +62,7 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved.setdefault("with_reid", True)
     resolved.setdefault("cmc_method", "ecc")
     resolved.setdefault("max_obs", 50)
+    resolved.setdefault("reid_device", _default_native_reid_device())
     return resolved
 
 
@@ -202,6 +210,7 @@ class _OccluBoostLiveLibrary:
         self.library_path = Path(library_path)
         if sys.platform == "darwin":
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+            os.environ.setdefault("BOXMOT_REID_DEVICE", _default_native_reid_device())
         self._library = ctypes.CDLL(str(self.library_path))
         self._configure_functions()
 
@@ -378,7 +387,7 @@ class NativeOccluBoostTracker:
         self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         self.cfg["reid_model_path"] = self.reid_model_path
         self.cfg["reid_preprocess"] = self.reid_preprocess
-        self.cfg["reid_device"] = str(reid_device or "auto")
+        self.cfg["reid_device"] = str(reid_device or self.cfg.get("reid_device") or _default_native_reid_device())
         self.with_reid = bool(self.cfg.get("with_reid", True))
         self.provides_reid = bool(self.reid_model_path and Path(self.reid_model_path).suffix.lower() == ".onnx")
         self._library = library if library is not None else _get_live_occluboost_library()
