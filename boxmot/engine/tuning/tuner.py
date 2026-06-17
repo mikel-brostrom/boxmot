@@ -29,6 +29,7 @@ from boxmot.engine.tuning.postprocessing import (
     aggregate_results,
     best_trial_data,
     collect_trial_data,
+    generate_summary,
     save_all_results,
     score_summary,
 )
@@ -159,6 +160,7 @@ class Tuner:
 
     def fit(self):
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
+        _sync_tuning_requirements(verbose=bool(getattr(self.args, "verbose", False)))
         self._resolve_metrics()
         self._setup_ray()
         return self._run()
@@ -447,7 +449,7 @@ class Tuner:
 
     def _post_process(self, result_grid, tune_dir, yaml_cfg, maximize, minimize):
         try:
-            return save_all_results(
+            return _save_all_results(
                 tune_dir, result_grid, yaml_cfg, self.args.tracker,
                 maximize, minimize, self.args, emit_logs=False,
             )
@@ -499,27 +501,7 @@ class Tuner:
     # ------------------------------------------------------------------
 
     def _resolve_tune_dir(self) -> Path:
-        args = self.args
-        resume = getattr(args, "resume_tune", None) or None
-        results_dir = Path(args.project).resolve() / "ray"
-        dataset_dir = results_dir / self._ray_dataset_name(args)
-        if resume:
-            resume_path = Path(resume)
-            if resume_path.is_absolute():
-                return resume_path
-            cwd_candidate = Path(resume).resolve()
-            if cwd_candidate.exists():
-                return cwd_candidate
-            if len(resume_path.parts) > 1:
-                return (results_dir / resume_path).resolve()
-            return (dataset_dir / resume_path.name).resolve()
-
-        tracker_name = self._path_slug(getattr(args, "tracker", "tracker"), fallback="tracker")
-        for index in range(1, 10000):
-            tune_dir = dataset_dir / f"{tracker_name}_{index}"
-            if not tune_dir.exists():
-                return tune_dir.resolve()
-        raise RuntimeError(f"Could not allocate tune directory under {dataset_dir}")
+        return _resolve_tune_dir(self.args)
 
     @classmethod
     def _ray_dataset_name(cls, args) -> str:
@@ -636,6 +618,83 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
         exp_dir=Path(validation_payload["exp_dir"]) if validation_payload.get("exp_dir") else None,
         timings=dict(validation_payload.get("timings", {})),
         args=args,
+    )
+
+
+def _sync_tuning_requirements(*, verbose: bool) -> None:
+    """Ensure tuning extras are available before running evolve/tune."""
+    try:
+        from boxmot.utils.checks import RequirementsChecker
+
+        RequirementsChecker().sync_extra("evolve", verbose=verbose)
+    except Exception as exc:
+        LOGGER.debug(f"Could not sync evolve requirements: {exc}")
+
+
+def _is_ray_pickle_safe(value: Any) -> bool:
+    """Return True if *value* is serializable with Ray's cloudpickle."""
+    try:
+        from ray import cloudpickle
+
+        cloudpickle.dumps(value)
+        return True
+    except Exception:
+        try:
+            import cloudpickle  # type: ignore
+
+            cloudpickle.dumps(value)
+            return True
+        except Exception:
+            return False
+
+
+def _resolve_tune_dir(args, resume: bool = False) -> Path:
+    """Backward-compatible module helper to resolve the tune directory."""
+    explicit_resume = getattr(args, "resume_tune", None)
+    resume_value = explicit_resume if explicit_resume else (resume if isinstance(resume, (str, Path)) else None)
+
+    results_dir = Path(args.project).resolve() / "ray"
+    dataset_dir = results_dir / Tuner._ray_dataset_name(args)
+    if resume_value:
+        resume_path = Path(resume_value)
+        if resume_path.is_absolute():
+            return resume_path
+        cwd_candidate = Path(resume_value).resolve()
+        if cwd_candidate.exists():
+            return cwd_candidate
+        if len(resume_path.parts) > 1:
+            return (results_dir / resume_path).resolve()
+        return (dataset_dir / resume_path.name).resolve()
+
+    tracker_name = Tuner._path_slug(getattr(args, "tracker", "tracker"), fallback="tracker")
+    for index in range(1, 10000):
+        tune_dir = dataset_dir / f"{tracker_name}_{index}"
+        if not tune_dir.exists():
+            return tune_dir.resolve()
+    raise RuntimeError(f"Could not allocate tune directory under {dataset_dir}")
+
+
+def _generate_summary(
+    tune_dir: Path,
+    trial_data: list,
+    yaml_cfg: dict,
+    tracker_name: str,
+    maximize: list,
+    minimize: list,
+    args,
+    *,
+    emit_logs: bool = True,
+) -> Path:
+    """Backward-compatible alias for summary.md generation."""
+    return generate_summary(
+        tune_dir,
+        trial_data,
+        yaml_cfg,
+        tracker_name,
+        maximize,
+        minimize,
+        args,
+        emit_logs=emit_logs,
     )
 
 
