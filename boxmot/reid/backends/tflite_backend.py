@@ -87,9 +87,11 @@ class TFLiteBackend(BaseModelBackend):
             if not self._try_resize(batch_size):
                 return self._forward_chunked(im_batch)
 
+        im_batch = self._quantize_input(im_batch, self.input_details[0])
         self.interpreter.set_tensor(self.input_details[0]["index"], im_batch)
         self.interpreter.invoke()
-        return self.interpreter.get_tensor(self.output_details[0]["index"])
+        output = self.interpreter.get_tensor(self.output_details[0]["index"])
+        return self._dequantize_output(output, self.output_details[0])
 
     def _try_resize(self, batch_size: int) -> bool:
         """Attempt to resize the interpreter to *batch_size*. Returns True on success."""
@@ -129,8 +131,36 @@ class TFLiteBackend(BaseModelBackend):
                     (alloc_bs - actual, *chunk.shape[1:]), dtype=chunk.dtype
                 )
                 chunk = np.concatenate([chunk, pad], axis=0)
+            chunk = self._quantize_input(chunk, self.input_details[0])
             self.interpreter.set_tensor(self.input_details[0]["index"], chunk)
             self.interpreter.invoke()
             out = self.interpreter.get_tensor(self.output_details[0]["index"])
+            out = self._dequantize_output(out, self.output_details[0])
             outputs.append(out[:actual])
         return np.concatenate(outputs, axis=0)
+
+    @staticmethod
+    def _quantize_input(array: np.ndarray, input_detail: dict[str, Any]) -> np.ndarray:
+        """Convert float model inputs to the tensor dtype expected by LiteRT."""
+        dtype = np.dtype(input_detail.get("dtype", array.dtype))
+        if np.issubdtype(dtype, np.integer):
+            scale, zero_point = input_detail.get("quantization", (0.0, 0))
+            scale = float(scale)
+            if scale <= 0:
+                raise RuntimeError("Quantized TFLite input is missing a valid scale.")
+            info = np.iinfo(dtype)
+            array = np.round(array / scale + int(zero_point))
+            return np.clip(array, info.min, info.max).astype(dtype)
+        return array.astype(dtype, copy=False)
+
+    @staticmethod
+    def _dequantize_output(array: np.ndarray, output_detail: dict[str, Any]) -> np.ndarray:
+        """Convert quantized LiteRT outputs back to float embeddings."""
+        dtype = np.dtype(output_detail.get("dtype", array.dtype))
+        if np.issubdtype(dtype, np.integer):
+            scale, zero_point = output_detail.get("quantization", (0.0, 0))
+            scale = float(scale)
+            if scale <= 0:
+                raise RuntimeError("Quantized TFLite output is missing a valid scale.")
+            return (array.astype(np.float32) - int(zero_point)) * scale
+        return array

@@ -35,6 +35,28 @@ def _load_hparams(weights_path: Path) -> dict:
         return {}
 
 
+def _hparams_value(hparams: dict, key: str, default=None):
+    """Return hparams key from flat or nested layouts."""
+    if key in hparams:
+        return hparams[key]
+
+    nested_paths = {
+        "img_size": ("data", "img_size"),
+        "preprocess": ("data", "preprocess"),
+        "flip_tta": ("evaluation", "flip_tta"),
+    }
+    path = nested_paths.get(key)
+    if not path:
+        return default
+
+    cur = hparams
+    for part in path:
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
+
+
 def _eval_json_name(model_name: str, dataset_name: str, inference_feature: str | None) -> str:
     """Return a stable eval result filename without overwriting feature-mode sweeps."""
     if inference_feature:
@@ -72,8 +94,12 @@ def main(args) -> dict:
         )
 
     num_classes = checkpoint.get("num_classes", -1)
-    preprocess = getattr(args, "preprocess", None) or checkpoint.get("preprocess") or hparams.get("preprocess", "resize")
-    flip_tta = bool(hparams.get("flip_tta", False)) if flip_tta_arg is None else bool(flip_tta_arg)
+    preprocess = (
+        getattr(args, "preprocess", None)
+        or checkpoint.get("preprocess")
+        or _hparams_value(hparams, "preprocess", "resize")
+    )
+    flip_tta = bool(_hparams_value(hparams, "flip_tta", False)) if flip_tta_arg is None else bool(flip_tta_arg)
     model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(weights_path)
     inference_feature_override = getattr(args, "inference_feature", None)
     if inference_feature_override:
@@ -107,7 +133,7 @@ def main(args) -> dict:
     model.eval()
 
     # 4. Build test loaders
-    img_size = getattr(args, "imgsz", None) or hparams.get("img_size") or (256, 128)
+    img_size = getattr(args, "imgsz", None) or _hparams_value(hparams, "img_size") or (256, 128)
     if isinstance(img_size, int):
         img_size = (img_size, img_size // 2)
     elif isinstance(img_size, list):

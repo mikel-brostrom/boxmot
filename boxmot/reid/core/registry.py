@@ -20,6 +20,18 @@ class ReIDModelRegistry:
 
     @staticmethod
     def get_model_name(model):
+        if hasattr(model, "is_file") and model.is_file():
+            try:
+                checkpoint = torch.load(
+                    model,
+                    map_location="cpu",
+                    weights_only=False,
+                    encoding="latin1",
+                )
+                if isinstance(checkpoint, dict) and checkpoint.get("model_name"):
+                    return checkpoint["model_name"]
+            except Exception:
+                pass
         for name in MODEL_TYPES:
             if name in model.name:
                 return name
@@ -67,6 +79,8 @@ class ReIDModelRegistry:
                     values["head_parts"] = tuple(int(part) for part in checkpoint["head_parts"])
                 if checkpoint.get("inference_feature") is not None:
                     values["inference_feature"] = checkpoint["inference_feature"]
+                if checkpoint.get("feature_fusion") is not None:
+                    values["feature_fusion"] = checkpoint["feature_fusion"]
                 state_dict = checkpoint.get("state_dict", checkpoint)
                 if isinstance(state_dict, dict):
                     if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
@@ -101,6 +115,7 @@ class ReIDModelRegistry:
             for k, v in state_dict.items():
                 # Remove 'module.' prefix if present
                 key = k[7:] if k.startswith("module.") else k
+                key = ReIDModelRegistry._normalize_checkpoint_key(model, key)
                 if key in model_dict and model_dict[key].size() == v.size():
                     new_state_dict[key] = v
                     matched_layers.append(key)
@@ -122,14 +137,46 @@ class ReIDModelRegistry:
                 )
 
     @staticmethod
+    def _normalize_checkpoint_key(model, key: str) -> str:
+        """Map legacy checkpoint parameter names onto the current model."""
+        if hasattr(model, "feature_fusion_module"):
+            if key.startswith("fusion_projections."):
+                return key.replace(
+                    "fusion_projections.",
+                    "feature_fusion_module.projections.",
+                    1,
+                )
+            if key.startswith("fusion_scales."):
+                return key.replace(
+                    "fusion_scales.",
+                    "feature_fusion_module.residual_scales.",
+                    1,
+                )
+            if key == "fusion_weights":
+                return "feature_fusion_module.fusion_weights"
+        return key
+
+    @staticmethod
     def show_available_models():
         LOGGER.info("Available models:")
         LOGGER.info(list(MODEL_FACTORY.keys()))
 
     @staticmethod
     def get_nr_classes(weights):
+        try:
+            checkpoint = torch.load(
+                weights,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+            if isinstance(checkpoint, dict) and checkpoint.get("num_classes") is not None:
+                return int(checkpoint["num_classes"])
+        except Exception:
+            pass
         # Extract dataset name from weights name, then look up in the class dictionary
-        dataset_key = weights.name.split("_")[1]
+        parts = weights.name.split("_")
+        dataset_key = parts[1] if len(parts) > 1 else ""
         return NR_CLASSES_DICT.get(dataset_key, 1)
 
     @staticmethod

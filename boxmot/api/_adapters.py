@@ -314,6 +314,13 @@ def build_export_args(
     verbose: bool = False,
     batch_size: int = BOXMOT_DEFAULTS.export.batch_size,
     imgsz=None,
+    tflite_quantize: str = BOXMOT_DEFAULTS.export.tflite_quantize,
+    tflite_calibration_data=None,
+    tflite_calibration_samples: int = BOXMOT_DEFAULTS.export.tflite_calibration_samples,
+    tflite_calibration_preprocess: str = BOXMOT_DEFAULTS.export.tflite_calibration_preprocess,
+    tflite_calibration_seed: int = BOXMOT_DEFAULTS.export.tflite_calibration_seed,
+    tflite_calibration_update: str = BOXMOT_DEFAULTS.export.tflite_calibration_update,
+    tflite_static_activation_bits: int = BOXMOT_DEFAULTS.export.tflite_static_activation_bits,
 ):
     return build_mode_namespace(
         "export",
@@ -330,6 +337,13 @@ def build_export_args(
             "verbose": bool(verbose),
             "batch_size": int(batch_size),
             "imgsz": imgsz,
+            "tflite_quantize": tflite_quantize,
+            "tflite_calibration_data": tflite_calibration_data,
+            "tflite_calibration_samples": int(tflite_calibration_samples),
+            "tflite_calibration_preprocess": tflite_calibration_preprocess,
+            "tflite_calibration_seed": int(tflite_calibration_seed),
+            "tflite_calibration_update": tflite_calibration_update,
+            "tflite_static_activation_bits": int(tflite_static_activation_bits),
         },
         explicit_keys={
             "weights",
@@ -343,6 +357,13 @@ def build_export_args(
             "batch_size",
             "imgsz",
             "include",
+            "tflite_quantize",
+            "tflite_calibration_data",
+            "tflite_calibration_samples",
+            "tflite_calibration_preprocess",
+            "tflite_calibration_seed",
+            "tflite_calibration_update",
+            "tflite_static_activation_bits",
         },
     )
 

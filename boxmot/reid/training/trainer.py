@@ -26,7 +26,13 @@ from boxmot.reid.training.evaluator import (
     evaluate_ranking,
     extract_features,
 )
-from boxmot.reid.training.losses import METRIC_LOSS_REGISTRY, CenterLoss, CrossEntropyLabelSmooth
+from boxmot.reid.training.losses import (
+    METRIC_LOSS_REGISTRY,
+    ArcFaceLoss,
+    CenterLoss,
+    CosFaceLoss,
+    CrossEntropyLabelSmooth,
+)
 from boxmot.utils import logger as LOGGER
 
 
@@ -91,7 +97,16 @@ class ReIDTrainer:
         k: int = 4,
         margin: float = 0.3,
         label_smooth: float = 0.1,
+        classifier_loss: str = "ce",
+        triplet_soft_margin: Optional[bool] = None,
+        arcface_scale: float = 30.0,
+        arcface_margin: float = 0.5,
+        cosface_scale: float = 30.0,
+        cosface_margin: float = 0.35,
         center_loss_weight: float = 5e-4,
+        id_loss_weight: float = 1.0,
+        metric_loss_weight: float = 1.0,
+        branch_loss_agg: str = "mean",
         eta_min: float = 1e-7,
         pretrained: bool = True,
         device: str = "cpu",
@@ -105,9 +120,13 @@ class ReIDTrainer:
         random_grayscale: float = 0.0,
         color_jitter: bool = False,
         random_erasing: float = 0.5,
+        random_patch: bool = True,
+        color_augmentation: bool = True,
+        flip_tta: Optional[bool] = None,
         resume: Optional[str] = None,
         metric_feature: str = "auto",
         inference_feature: str = "concat_bn",
+        feature_fusion: str = "last3",
         feat_dim: int = 512,
         neck_dim: int = 512,
         branch_aware_metric: bool = False,
@@ -121,7 +140,7 @@ class ReIDTrainer:
         self.model_name = model_name
         self.dataset_name = dataset_name
         self.data_dir = data_dir
-        self.loss_type = loss_type
+        self.loss_type = loss_type.lower()
         self.preprocess = preprocess
         self.img_size = img_size
         self.batch_size = batch_size
@@ -134,7 +153,18 @@ class ReIDTrainer:
         self.k = k
         self.margin = margin
         self.label_smooth = label_smooth
+        self.classifier_loss = classifier_loss.lower()
+        self.triplet_soft_margin = triplet_soft_margin
+        self.arcface_scale = arcface_scale
+        self.arcface_margin = arcface_margin
+        self.cosface_scale = cosface_scale
+        self.cosface_margin = cosface_margin
         self.center_loss_weight = center_loss_weight
+        self.id_loss_weight = id_loss_weight
+        self.metric_loss_weight = metric_loss_weight
+        self.branch_loss_agg = branch_loss_agg.lower()
+        if self.branch_loss_agg not in {"mean", "sum"}:
+            raise ValueError("branch_loss_agg must be 'mean' or 'sum'")
         self.eta_min = eta_min
         self.pretrained = pretrained
         self.device = torch.device(device)
@@ -148,9 +178,13 @@ class ReIDTrainer:
         self.random_grayscale = random_grayscale
         self.color_jitter = color_jitter
         self.random_erasing = random_erasing
+        self.random_patch = random_patch
+        self.color_augmentation = color_augmentation
+        self.flip_tta = flip_tta
         self.resume = resume
         self.metric_feature = metric_feature
         self.inference_feature = inference_feature
+        self.feature_fusion = feature_fusion
         self.feat_dim = feat_dim
         self.neck_dim = neck_dim
         self.branch_aware_metric = branch_aware_metric
@@ -181,6 +215,10 @@ class ReIDTrainer:
 
     def run(self) -> TrainResult:
         """Execute the full training pipeline."""
+        run_started_at = time.monotonic()
+        epoch_durations_s: list[float] = []
+        eval_durations_s: list[float] = []
+
         torch.manual_seed(self.seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(self.seed)
@@ -246,16 +284,16 @@ class ReIDTrainer:
         # 4. Build losses
         is_vit = self._is_vit(model)
         label_smooth = self.label_smooth
-        if is_vit and label_smooth > 0:
+        if is_vit and label_smooth > 0 and "label_smooth" not in self.explicit_hparams:
             # Mild smoothing (0.05) works well with soft-margin triplet + center loss
             label_smooth = 0.05
             LOGGER.info(
                 f"ViT detected: reducing label smoothing to {label_smooth} "
                 f"(was {self.label_smooth})"
             )
-        criterion_id = CrossEntropyLabelSmooth(num_classes, epsilon=label_smooth)
-        # Build metric loss (triplet, ms, or none for softmax-only)
-        soft_margin = is_vit
+
+        # Build metric loss (triplet, circle, ms, or none for classifier-only).
+        soft_margin = self._use_soft_margin_triplet(is_vit)
         criterion_metric = None
         if self.loss_type in METRIC_LOSS_REGISTRY:
             MetricLossClass = METRIC_LOSS_REGISTRY[self.loss_type]
@@ -273,8 +311,12 @@ class ReIDTrainer:
 
         # Determine metric feature dim for center loss by a dummy forward pass.
         metric_dim = self._probe_feat_dim(model)
+        classifier_dim = self._probe_classifier_feat_dim(model) if self.classifier_loss != "ce" else metric_dim
+        criterion_id = self._build_classifier_loss(num_classes, classifier_dim, label_smooth)
+        criterion_id = criterion_id.to(self.device)
         criterion_center = CenterLoss(num_classes, metric_dim)
         criterion_center = criterion_center.to(self.device)
+        classifier_params = list(criterion_id.parameters()) if self.classifier_loss != "ce" else []
 
         # 5. Build optimizer — ViTs need AdamW + proper param groups
         if is_vit:
@@ -290,6 +332,13 @@ class ReIDTrainer:
             # random_erasing; auto-overriding breaks ablation experiments that
             # intentionally disable them.
             param_groups = self._build_vit_param_groups(model)
+            if classifier_params:
+                param_groups.append({
+                    "params": classifier_params,
+                    "lr": self.lr,
+                    "weight_decay": 0.0,
+                    "is_head": True,
+                })
             optimizer = torch.optim.AdamW(param_groups, lr=self.lr, weight_decay=self.weight_decay)
             LOGGER.info(
                 f"ViT training: AdamW (lr={self.lr:.1e}, wd={self.weight_decay}), "
@@ -297,6 +346,8 @@ class ReIDTrainer:
             )
         else:
             params = [{"params": model.parameters()}]
+            if classifier_params:
+                params.append({"params": classifier_params})
             optimizer = torch.optim.Adam(params, lr=self.lr, weight_decay=self.weight_decay)
         optimizer_center = torch.optim.SGD(criterion_center.parameters(), lr=0.5)
 
@@ -333,25 +384,14 @@ class ReIDTrainer:
                 raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
             ckpt = torch.load(resume_path, map_location=self.device, weights_only=False)
             model.load_state_dict(ckpt["state_dict"])
+            self._restore_center_loss_state(ckpt, criterion_center, model, train_loader, resume_path)
+            self._restore_classifier_loss_state(ckpt, criterion_id, resume_path)
             if "optimizer" in ckpt:
                 optimizer.load_state_dict(ckpt["optimizer"])
             if "optimizer_center" in ckpt:
                 optimizer_center.load_state_dict(ckpt["optimizer_center"])
-            # Re-create scheduler for the (possibly changed) T_max.
-            # PyTorch's last_epoch param has off-by-one issues with the
-            # incremental get_lr() formula, so we set last_epoch and LR
-            # via closed-form cosine directly.
             resumed_epoch = ckpt.get("epoch", 0)
-            cosine_epoch = max(resumed_epoch - self.warmup_epochs, 0)
-            new_T_max = self.epochs - self.warmup_epochs
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-                optimizer, T_max=new_T_max, eta_min=self.eta_min
-            )
-            scheduler.last_epoch = cosine_epoch
-            for group, base_lr in zip(optimizer.param_groups, scheduler.base_lrs):
-                group["lr"] = self.eta_min + (base_lr - self.eta_min) * (
-                    1 + math.cos(math.pi * cosine_epoch / new_T_max)
-                ) / 2
+            scheduler = self._build_resume_scheduler(optimizer, resumed_epoch, resume_path, ckpt)
             if ema_model is not None and "ema_state_dict" in ckpt:
                 ema_model.load_state_dict(ckpt["ema_state_dict"])
             start_epoch = ckpt.get("epoch", 0) + 1
@@ -371,58 +411,112 @@ class ReIDTrainer:
         LOGGER.info(f"Saving results to {save_dir}")
 
         # 7b. Persist hyperparameters (effective values after auto-scaling)
-        hparams = {
-            "model_name": self.model_name,
-            "dataset": self.dataset_name,
-            "data_dir": str(self.data_dir),
-            "img_size": list(self.img_size),
-            "preprocess": self.preprocess,
+        losses_hparams = {
             "loss_type": self.loss_type,
-            "pretrained": self.pretrained,
-            "epochs": self.epochs,
-            "batch_size": self.batch_size,
-            "lr": self.lr,
-            "weight_decay": self.weight_decay,
-            "optimizer": "AdamW" if is_vit else "Adam",
-            "scheduler": "CosineAnnealingLR",
-            "eta_min": self.eta_min,
-            "warmup_epochs": self.warmup_epochs,
-            "label_smooth": label_smooth,
-            "margin": self.margin,
-            "center_loss_weight": self.center_loss_weight,
-            "metric_feature": self._effective_metric_feature(),
-            "inference_feature": self.inference_feature,
-            "feat_dim": self.feat_dim,
-            "neck_dim": self.neck_dim,
-            "head_pool": self.head_pool,
-            "head_parts": list(self.head_parts),
-            "branch_aware_metric": self.branch_aware_metric,
-            "branch_metric_part_weight": self.branch_metric_part_weight,
-            "head_warmup_epochs": self.head_warmup_epochs,
-            "head_warmup_lr_mult": self.head_warmup_lr_mult,
-            "p": self.p,
-            "k": self.k,
-            "seed": self.seed,
-            "device": str(self.device),
-            "num_workers": self.num_workers,
-            "color_jitter": self.color_jitter,
-            "gaussian_blur": self.gaussian_blur,
-            "random_grayscale": self.random_grayscale,
-            "random_erasing": self.random_erasing,
-            "ema_decay": self.ema_decay,
-            "soft_margin_triplet": soft_margin,
-            "flip_tta": is_vit,
-            "eval_interval": self.eval_interval,
-            "eval_datasets": self.eval_datasets,
-            "is_vit": is_vit,
-            "grad_clip": 1.0 if is_vit else 0.0,
-            "num_classes": num_classes,
-            "metric_dim": metric_dim,
-            "n_params": sum(p.numel() for p in model.parameters()),
+            "classifier_loss": self.classifier_loss,
+            "weights": {
+                "id_loss_weight": self.id_loss_weight,
+            },
         }
-        if is_vit:
-            hparams["layer_decay"] = 0.95
-            hparams["drop_path_rate"] = 0.1
+        if self.classifier_loss == "ce":
+            losses_hparams["label_smooth"] = label_smooth
+        if self.loss_type == "triplet":
+            losses_hparams["triplet"] = {
+                "margin": self.margin,
+                "soft_margin": soft_margin,
+            }
+        if self.classifier_loss == "arcface":
+            losses_hparams["arcface"] = {
+                "scale": self.arcface_scale,
+                "margin": self.arcface_margin,
+            }
+        if self.classifier_loss == "cosface":
+            losses_hparams["cosface"] = {
+                "scale": self.cosface_scale,
+                "margin": self.cosface_margin,
+            }
+        if criterion_metric is not None:
+            losses_hparams["weights"]["metric_loss_weight"] = self.metric_loss_weight
+        if self.center_loss_weight > 0 and self.loss_type != "ms":
+            losses_hparams["weights"]["center_loss_weight"] = self.center_loss_weight
+
+        hparams = {
+            "run": {
+                "model_name": self.model_name,
+                "seed": self.seed,
+                "pretrained": self.pretrained,
+            },
+            "data": {
+                "dataset": self.dataset_name,
+                "data_dir": str(self.data_dir),
+                "img_size": list(self.img_size),
+                "preprocess": self.preprocess,
+                "num_classes": num_classes,
+                "batch_size": self.batch_size,
+                "sampler": {"p": self.p, "k": self.k},
+                "num_workers": self.num_workers,
+            },
+            "model": {
+                "is_vit": is_vit,
+                "feature_fusion": self.feature_fusion,
+                "feat_dim": self.feat_dim,
+                "neck_dim": self.neck_dim,
+                "head": {
+                    "pool": self.head_pool,
+                    "parts": list(self.head_parts),
+                    "warmup_epochs": self.head_warmup_epochs,
+                    "warmup_lr_mult": self.head_warmup_lr_mult,
+                },
+                "feature_selection": {
+                    "metric_feature": self._effective_metric_feature(),
+                    "inference_feature": self.inference_feature,
+                },
+                "branch": {
+                    "aware_metric": self.branch_aware_metric,
+                    "metric_part_weight": self.branch_metric_part_weight,
+                    "loss_agg": self.branch_loss_agg,
+                },
+                "regularization": {
+                    "drop_path_rate": 0.1 if is_vit else 0.0,
+                },
+            },
+            "optimization": {
+                "epochs": self.epochs,
+                "optimizer": "AdamW" if is_vit else "Adam",
+                "lr": self.lr,
+                "weight_decay": self.weight_decay,
+                "grad_clip": 1.0 if is_vit else 0.0,
+                "layer_decay": 0.95 if is_vit else 1.0,
+                "scheduler": {
+                    "name": "CosineAnnealingLR",
+                    "eta_min": self.eta_min,
+                    "warmup_epochs": self.warmup_epochs,
+                },
+                "ema_decay": self.ema_decay,
+            },
+            "losses": losses_hparams,
+            "augmentation": {
+                "color_jitter": self.color_jitter,
+                "gaussian_blur": self.gaussian_blur,
+                "random_grayscale": self.random_grayscale,
+                "random_erasing": self.random_erasing,
+                "random_patch": self.random_patch,
+                "color_augmentation": self.color_augmentation,
+            },
+            "evaluation": {
+                "eval_interval": self.eval_interval,
+                "eval_datasets": self.eval_datasets,
+                "flip_tta": self.flip_tta if self.flip_tta is not None else is_vit,
+            },
+            "system": {
+                "device": str(self.device),
+            },
+            "derived": {
+                "metric_dim": metric_dim,
+                "classifier_dim": classifier_dim,
+                "n_params": sum(p.numel() for p in model.parameters()),
+            },
+        }
         (save_dir / "hparams.json").write_text(json.dumps(hparams, indent=2))
         LOGGER.info(f"Saved hyperparameters to {save_dir / 'hparams.json'}")
 
@@ -487,6 +581,7 @@ class ReIDTrainer:
                 grad_clip=1.0 if is_vit else 0.0,
             )
             history.append(metrics)
+            epoch_durations_s.append(metrics.elapsed_s)
             self._empty_cache()
             epoch_bar.set_postfix(
                 loss=f"{metrics.loss:.4f}",
@@ -500,7 +595,9 @@ class ReIDTrainer:
                 # Calibrate EMA model's BN stats before evaluation
                 if ema_model is not None:
                     self._calibrate_bn(val_model, train_loader)
+                eval_started_at = time.monotonic()
                 val = self._validate(epoch, val_model, query_loader, gallery_loader)
+                eval_durations_s.append(time.monotonic() - eval_started_at)
                 # For combined datasets, default query/gallery comes from the first component
                 val.dataset = default_eval_name if "," in self.dataset_name else self.dataset_name
                 val_history.append(val)
@@ -514,12 +611,18 @@ class ReIDTrainer:
                     best_mAP = val.mAP
                     best_rank1 = val.rank1
                     best_epoch = epoch
-                    self._save_checkpoint(val_model, best_weights, epoch, val)
+                    self._save_checkpoint(
+                        val_model, best_weights, epoch, val,
+                        criterion_center=criterion_center,
+                        criterion_classifier=criterion_id,
+                    )
                     tqdm.write(f"  ✓ New best model (mAP={val.mAP:.2%}, R1={val.rank1:.2%}) -> {best_weights}")
 
                 # Cross-domain evaluation
                 for xds_name, (xq_loader, xg_loader) in xdomain_loaders.items():
+                    x_eval_started_at = time.monotonic()
                     xval = self._validate(epoch, val_model, xq_loader, xg_loader)
+                    eval_durations_s.append(time.monotonic() - x_eval_started_at)
                     xval.dataset = xds_name
                     val_history.append(xval)
                     tqdm.write(
@@ -539,13 +642,36 @@ class ReIDTrainer:
                     val_model, last_weights, epoch,
                     val_history[-1] if val_history else None,
                     optimizer=optimizer, optimizer_center=optimizer_center,
+                    criterion_center=criterion_center,
+                    criterion_classifier=criterion_id,
                     ema_model=ema_model, best_mAP=best_mAP,
                 )
                 # Persist metrics so far (survives interruptions)
-                self._save_metrics(save_dir, history, val_history, best_epoch, best_mAP, best_rank1)
+                self._save_metrics(
+                    save_dir,
+                    history,
+                    val_history,
+                    best_epoch,
+                    best_mAP,
+                    best_rank1,
+                    average_epoch_time_s=sum(epoch_durations_s) / len(epoch_durations_s) if epoch_durations_s else 0.0,
+                    average_eval_time_s=sum(eval_durations_s) / len(eval_durations_s) if eval_durations_s else 0.0,
+                    total_end_to_end_time_s=time.monotonic() - run_started_at,
+                )
 
         # Final metrics save
-        self._save_metrics(save_dir, history, val_history, best_epoch, best_mAP, best_rank1)
+        self._save_metrics(
+            save_dir,
+            history,
+            val_history,
+            best_epoch,
+            best_mAP,
+            best_rank1,
+            average_epoch_time_s=sum(epoch_durations_s) / len(epoch_durations_s) if epoch_durations_s else 0.0,
+            average_eval_time_s=sum(eval_durations_s) / len(eval_durations_s) if eval_durations_s else 0.0,
+            total_end_to_end_time_s=time.monotonic() - run_started_at,
+        )
+        self._save_training_plots(save_dir, history, val_history)
 
         LOGGER.info(
             f"Training complete. Best epoch={best_epoch}  "
@@ -565,10 +691,11 @@ class ReIDTrainer:
             name=self.model_name,
             weights=Path(f"{self.model_name}_{self.dataset_name}.pt"),
             num_classes=num_classes,
-            loss=self.loss_type,
+            loss=self._model_loss_type(),
             pretrained=self.pretrained,
             use_gpu=self.device.type != "cpu",
             inference_feature=self.inference_feature,
+            feature_fusion=self.feature_fusion,
             feat_dim=self.feat_dim,
             neck_dim=self.neck_dim,
             head_pool=self.head_pool,
@@ -583,6 +710,77 @@ class ReIDTrainer:
             model.head.set_branch_metric(self.branch_aware_metric)
         return model
 
+    def _resume_target_epochs(self, resume_path: Path, ckpt: dict) -> Optional[int]:
+        """Return the epoch target saved by the run being resumed."""
+        if ckpt.get("epochs") is not None:
+            return int(ckpt["epochs"])
+
+        run_dir = resume_path if resume_path.is_dir() else resume_path.parent
+        for filename in ("hparams.json", "metrics.json"):
+            path = run_dir / filename
+            if not path.exists():
+                continue
+            try:
+                raw = json.loads(path.read_text())
+                epochs = raw.get("epochs")
+                if epochs is None and isinstance(raw.get("optimization"), dict):
+                    epochs = raw["optimization"].get("epochs")
+            except Exception:
+                continue
+            if epochs is not None:
+                return int(epochs)
+        return None
+
+    def _build_resume_scheduler(
+        self,
+        optimizer: torch.optim.Optimizer,
+        resumed_epoch: int,
+        resume_path: Path,
+        ckpt: dict,
+    ) -> torch.optim.lr_scheduler.CosineAnnealingLR:
+        """Build a resume scheduler without increasing LR when extending a run."""
+        previous_epochs = self._resume_target_epochs(resume_path, ckpt)
+        extending_run = (
+            previous_epochs is not None
+            and self.epochs > previous_epochs
+            and resumed_epoch >= self.warmup_epochs
+            and "optimizer" in ckpt
+        )
+        if extending_run:
+            remaining_epochs = max(self.epochs - resumed_epoch, 1)
+            for group in optimizer.param_groups:
+                current_lr = float(group["lr"])
+                group["initial_lr"] = current_lr
+                group["_base_lr"] = current_lr
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=remaining_epochs,
+                eta_min=self.eta_min,
+            )
+            LOGGER.info(
+                f"Extending cosine LR from epoch {resumed_epoch}/{previous_epochs} "
+                f"to {self.epochs}: continuing from checkpoint LR over "
+                f"{remaining_epochs} epochs"
+            )
+            return scheduler
+
+        # Normal resume within the active cosine schedule. PyTorch's
+        # last_epoch param has off-by-one issues with the incremental get_lr()
+        # formula, so set last_epoch and LR via the closed-form cosine.
+        cosine_epoch = max(resumed_epoch - self.warmup_epochs, 0)
+        new_T_max = max(self.epochs - self.warmup_epochs, 1)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=new_T_max,
+            eta_min=self.eta_min,
+        )
+        scheduler.last_epoch = cosine_epoch
+        for group, base_lr in zip(optimizer.param_groups, scheduler.base_lrs):
+            group["lr"] = self.eta_min + (base_lr - self.eta_min) * (
+                1 + math.cos(math.pi * cosine_epoch / new_T_max)
+            ) / 2
+        return scheduler
+
     def _build_train_loader(self, dataset) -> DataLoader:
         transform = build_train_transforms(
             self.img_size,
@@ -591,6 +789,8 @@ class ReIDTrainer:
             gaussian_blur=self.gaussian_blur,
             random_grayscale=self.random_grayscale,
             random_erasing=self.random_erasing,
+            random_patch=self.random_patch,
+            color_augmentation=self.color_augmentation,
         )
         torch_ds = ReIDImageDataset(dataset.train.samples, transform=transform)
         sampler = PKSampler(dataset.train.samples, p=self.p, k=self.k)
@@ -631,13 +831,40 @@ class ReIDTrainer:
             out = model(dummy)
         if not was_training:
             model.eval()
-        if isinstance(out, tuple):
-            if isinstance(out[1], dict):
-                return out[1]["global"].shape[1]
-            return out[1].shape[1]  # triplet: (logits, features)
-        if isinstance(out, list):
+        _, features = self._split_model_output(out)
+        if isinstance(features, dict):
+            return features["global"].shape[1]
+        if isinstance(features, (list, tuple)) and len(features) > 0:
+            return features[0].shape[1]
+        if isinstance(features, torch.Tensor):
+            return features.shape[1]
+        if isinstance(out, list) and len(out) > 0 and isinstance(out[0], torch.Tensor):
             return out[0].shape[1]  # multi-branch softmax: list of logits
         return out.shape[1]
+
+    def _probe_classifier_feat_dim(self, model: nn.Module) -> int:
+        """Run a dummy forward to determine the margin-classifier feature dimension."""
+        was_training = model.training
+        model.train()
+        dummy = torch.randn(2, 3, *self.img_size, device=self.device)
+        with torch.no_grad():
+            out = model(dummy)
+        if not was_training:
+            model.eval()
+        _, features = self._split_model_output(out)
+        classifier_features = self._classification_features(features)
+        if classifier_features is None:
+            raise RuntimeError(f"classifier_loss={self.classifier_loss} requires embedding features")
+        return classifier_features.shape[1]
+
+    @staticmethod
+    def _split_model_output(output):
+        """Unpack training output into (logits, features) across backbone contracts."""
+        if isinstance(output, tuple) and len(output) >= 2:
+            return output[0], output[1]
+        if isinstance(output, list) and len(output) == 2:
+            return output[0], output[1]
+        return output, None
 
     # ------------------------------------------------------------------
     # ViT-specific training helpers
@@ -647,6 +874,40 @@ class ReIDTrainer:
     def _is_vit(model: nn.Module) -> bool:
         """Check if the model is a ViT variant (has transformer blocks + patch embed)."""
         return hasattr(model, "blocks") and hasattr(model, "patch_embed")
+
+    def _model_loss_type(self) -> str:
+        """Choose the backbone output contract needed by the configured losses."""
+        if self.loss_type == "softmax" and self.classifier_loss == "ce":
+            return "softmax"
+        if self.loss_type == "ms":
+            return "ms"
+        return "triplet"
+
+    def _use_soft_margin_triplet(self, is_vit: bool) -> bool:
+        """Resolve hard-margin vs softplus batch-hard triplet behavior."""
+        if self.triplet_soft_margin is not None:
+            return bool(self.triplet_soft_margin)
+        return is_vit
+
+    def _build_classifier_loss(self, num_classes: int, feat_dim: int, label_smooth: float) -> nn.Module:
+        """Build the ID-classification criterion."""
+        if self.classifier_loss == "ce":
+            return CrossEntropyLabelSmooth(num_classes, epsilon=label_smooth)
+        if self.classifier_loss == "arcface":
+            return ArcFaceLoss(
+                feat_dim=feat_dim,
+                num_classes=num_classes,
+                scale=self.arcface_scale,
+                margin=self.arcface_margin,
+            )
+        if self.classifier_loss == "cosface":
+            return CosFaceLoss(
+                feat_dim=feat_dim,
+                num_classes=num_classes,
+                scale=self.cosface_scale,
+                margin=self.cosface_margin,
+            )
+        raise ValueError(f"Unsupported classifier_loss: {self.classifier_loss}")
 
     def _effective_metric_feature(self) -> str:
         """Resolve the metric feature mode for multi-branch models."""
@@ -787,7 +1048,22 @@ class ReIDTrainer:
                 return sum(weighted_losses) / total_weight
             return torch.zeros((), device=self.device, requires_grad=True)
 
+        if isinstance(features, (list, tuple)):
+            valid_features = [feat for feat in features if isinstance(feat, torch.Tensor)]
+            if not valid_features:
+                return torch.zeros((), device=self.device, requires_grad=True)
+            losses = [criterion_metric(F.normalize(feat, p=2, dim=1), pids) for feat in valid_features]
+            return self._reduce_branch_losses(losses)
+
         return criterion_metric(F.normalize(features, p=2, dim=1), pids)
+
+    def _reduce_branch_losses(self, losses: list[torch.Tensor]) -> torch.Tensor:
+        """Aggregate branch losses using mean (default) or sum."""
+        if not losses:
+            return torch.zeros((), device=self.device, requires_grad=True)
+        if self.branch_loss_agg == "sum":
+            return sum(losses)
+        return sum(losses) / len(losses)
 
     @staticmethod
     def _sorted_part_feature_keys(features: dict) -> list[str]:
@@ -808,7 +1084,119 @@ class ReIDTrainer:
         """Use the global raw branch for center loss when branch metrics are enabled."""
         if isinstance(features, dict):
             return features.get("global", features.get("raw_mean"))
+        if isinstance(features, (list, tuple)):
+            return features[0] if len(features) > 0 else None
         return features
+
+    def _classification_features(self, features):
+        """Select embeddings for margin-based classifier losses."""
+        if isinstance(features, dict):
+            key = self._effective_metric_feature()
+            return features.get(key, features.get("raw_mean", features.get("global")))
+        if isinstance(features, (list, tuple)):
+            return features[0] if len(features) > 0 else None
+        return features
+
+    def _restore_classifier_loss_state(self, ckpt: dict, criterion_id: nn.Module, resume_path: Path) -> None:
+        """Restore train-only margin classifier weights when resuming."""
+        if self.classifier_loss == "ce":
+            return
+
+        state = ckpt.get("classifier_loss_state_dict")
+        if state is None:
+            LOGGER.warning(
+                f"{resume_path} has no classifier_loss_state_dict; "
+                f"initializing {self.classifier_loss} classifier from scratch"
+            )
+            return
+
+        try:
+            criterion_id.load_state_dict(state)
+            LOGGER.info(f"Restored {self.classifier_loss} classifier state from checkpoint")
+        except RuntimeError as exc:
+            LOGGER.warning(f"Could not restore {self.classifier_loss} classifier state from {resume_path}: {exc}")
+
+    def _restore_center_loss_state(
+        self,
+        ckpt: dict,
+        criterion_center: CenterLoss,
+        model: nn.Module,
+        train_loader: DataLoader,
+        resume_path: Path,
+    ) -> None:
+        """Restore center-loss centers, or initialize them for older checkpoints."""
+        if self.center_loss_weight <= 0:
+            return
+
+        center_state = ckpt.get("center_loss_state_dict")
+        if center_state is not None:
+            try:
+                criterion_center.load_state_dict(center_state)
+                LOGGER.info("Restored center loss state from checkpoint")
+                return
+            except RuntimeError as exc:
+                LOGGER.warning(f"Could not restore center loss state from {resume_path}: {exc}")
+
+        if "optimizer_center" in ckpt:
+            LOGGER.warning(
+                f"{resume_path} has optimizer_center but no center_loss_state_dict; "
+                "initializing center-loss centers from resumed model features"
+            )
+        self._initialize_center_loss_from_features(model, criterion_center, train_loader)
+
+    def _initialize_center_loss_from_features(
+        self,
+        model: nn.Module,
+        criterion_center: CenterLoss,
+        train_loader: DataLoader,
+    ) -> None:
+        """Initialize missing center-loss centers from per-class feature means."""
+        was_training = model.training
+        model.eval()
+
+        centers = torch.zeros_like(criterion_center.centers.data)
+        counts = torch.zeros(criterion_center.num_classes, device=self.device)
+
+        try:
+            with torch.no_grad():
+                for imgs, pids, _ in train_loader:
+                    imgs = imgs.to(self.device)
+                    pids = pids.to(self.device)
+                    output = model(imgs)
+                    _, features = self._split_model_output(output)
+                    center_features = self._center_features(features)
+                    if center_features is None:
+                        continue
+
+                    center_features = center_features.detach()
+                    if center_features.shape[1] != criterion_center.feat_dim:
+                        raise RuntimeError(
+                            "Center feature dimension does not match center-loss checkpoint state: "
+                            f"{center_features.shape[1]} != {criterion_center.feat_dim}"
+                        )
+
+                    valid = (pids >= 0) & (pids < criterion_center.num_classes)
+                    if not valid.any():
+                        continue
+
+                    valid_pids = pids[valid].long()
+                    centers.index_add_(0, valid_pids, center_features[valid])
+                    counts.index_add_(0, valid_pids, torch.ones_like(valid_pids, dtype=counts.dtype))
+        finally:
+            if was_training:
+                model.train()
+
+        seen = counts > 0
+        if not seen.any():
+            LOGGER.warning("Could not initialize center-loss centers: no valid class features found")
+            return
+
+        centers[seen] = centers[seen] / counts[seen].unsqueeze(1)
+        criterion_center.centers.data[seen] = centers[seen]
+        LOGGER.info(
+            f"Initialized center-loss centers from resumed model features "
+            f"({int(seen.sum().item())}/{criterion_center.num_classes} classes)"
+        )
 
     def _train_epoch(
         self, epoch, model, loader, criterion_id, criterion_metric, criterion_center,
@@ -854,26 +1242,30 @@ class ReIDTrainer:
 
             with torch.amp.autocast("cuda", enabled=use_amp):
                 output = model(imgs)
+                logits, features = self._split_model_output(output)
 
-                if isinstance(output, tuple):
-                    logits, features = output
+                # ID loss — CE uses model logits; margin classifiers use embeddings.
+                if self.classifier_loss == "ce":
+                    if isinstance(logits, list):
+                        loss_id = self._reduce_branch_losses([criterion_id(lg, pids) for lg in logits])
+                    else:
+                        loss_id = criterion_id(logits, pids)
                 else:
-                    logits = output
-                    features = None
-
-                # ID loss — supports multi-branch (part-based) logits
-                if isinstance(logits, list):
-                    loss_id = sum(criterion_id(lg, pids) for lg in logits) / len(logits)
-                else:
-                    loss_id = criterion_id(logits, pids)
-                loss = loss_id
+                    cls_features = self._classification_features(features)
+                    if cls_features is None:
+                        raise RuntimeError(
+                            f"classifier_loss={self.classifier_loss} requires embedding features; "
+                            f"model loss contract is {self._model_loss_type()}"
+                        )
+                    loss_id = criterion_id(cls_features, pids)
+                loss = self.id_loss_weight * loss_id
 
                 # Triplet loss — L2-normalize features so Euclidean distance in
                 # triplet loss aligns with cosine distance used at evaluation.
                 loss_tri = torch.tensor(0.0, device=self.device)
                 if criterion_metric is not None and features is not None:
                     loss_tri = self._metric_loss_for_features(criterion_metric, features, pids)
-                    loss = loss + loss_tri
+                    loss = loss + self.metric_loss_weight * loss_tri
 
                 # Center loss — only on embeddings, never on logits
                 center_features = self._center_features(features)
@@ -959,7 +1351,7 @@ class ReIDTrainer:
         self._empty_cache()
 
     def _validate(self, epoch, model, query_loader, gallery_loader) -> ValMetrics:
-        use_flip = self._is_vit(model)
+        use_flip = self.flip_tta if self.flip_tta is not None else self._is_vit(model)
         q_feats, q_pids, q_camids = extract_features(model, query_loader, self.device, desc="Query", flip_tta=use_flip)
         g_feats, g_pids, g_camids = extract_features(
             model, gallery_loader, self.device, desc="Gallery", flip_tta=use_flip
@@ -990,6 +1382,8 @@ class ReIDTrainer:
     def _save_checkpoint(
         self, model, path: Path, epoch: int, val: Optional[ValMetrics],
         optimizer=None, optimizer_center=None,
+        criterion_center: Optional[CenterLoss] = None,
+        criterion_classifier: Optional[nn.Module] = None,
         ema_model=None, best_mAP: float = 0.0,
     ):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -998,10 +1392,16 @@ class ReIDTrainer:
             "epoch": epoch,
             "model_name": self.model_name,
             "dataset": self.dataset_name,
+            "epochs": self.epochs,
+            "warmup_epochs": self.warmup_epochs,
+            "eta_min": self.eta_min,
             "num_classes": self._get_num_classes(model),
             "preprocess": self.preprocess,
+            "loss_type": self.loss_type,
+            "classifier_loss": self.classifier_loss,
             "best_mAP": best_mAP,
             "inference_feature": self.inference_feature,
+            "feature_fusion": self.feature_fusion,
             "feat_dim": self.feat_dim,
             "neck_dim": self.neck_dim,
             "head_pool": self.head_pool,
@@ -1018,6 +1418,10 @@ class ReIDTrainer:
             state["optimizer"] = optimizer.state_dict()
         if optimizer_center is not None:
             state["optimizer_center"] = optimizer_center.state_dict()
+        if criterion_center is not None:
+            state["center_loss_state_dict"] = criterion_center.state_dict()
+        if criterion_classifier is not None and self.classifier_loss != "ce":
+            state["classifier_loss_state_dict"] = criterion_classifier.state_dict()
         if ema_model is not None:
             state["ema_state_dict"] = ema_model.state_dict()
         torch.save(state, path)
@@ -1027,6 +1431,9 @@ class ReIDTrainer:
         history: List[TrainMetrics],
         val_history: List[ValMetrics],
         best_epoch: int, best_mAP: float, best_rank1: float,
+        average_epoch_time_s: float = 0.0,
+        average_eval_time_s: float = 0.0,
+        total_end_to_end_time_s: float = 0.0,
     ):
         """Persist full training & validation history to metrics.json."""
         # Group val entries by epoch
@@ -1047,6 +1454,9 @@ class ReIDTrainer:
             "best_epoch": best_epoch,
             "best_mAP": round(best_mAP, 4),
             "best_rank1": round(best_rank1, 4),
+            "average_epoch_time_s": round(average_epoch_time_s, 4),
+            "average_eval_time_s": round(average_eval_time_s, 4),
+            "total_end_to_end_time_s": round(total_end_to_end_time_s, 4),
             "train": [
                 {
                     "epoch": m.epoch, "loss": round(m.loss, 5),
@@ -1062,6 +1472,76 @@ class ReIDTrainer:
         path = save_dir / "metrics.json"
         path.write_text(json.dumps(data, indent=2))
         LOGGER.info(f"Saved training metrics to {path}")
+
+    def _save_training_plots(
+        self,
+        save_dir: Path,
+        history: List[TrainMetrics],
+        val_history: List[ValMetrics],
+    ) -> None:
+        """Plot training losses and primary validation metrics after training."""
+        if not history:
+            return
+
+        try:
+            import matplotlib
+
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+        except Exception as exc:
+            LOGGER.warning(f"Could not generate training plots: {exc}")
+            return
+
+        train_epochs = [m.epoch for m in history]
+        primary_dataset = self.dataset_name.split(",")[0].strip().lower()
+        val_by_epoch: dict[int, ValMetrics] = {}
+        for val in val_history:
+            val_ds = val.dataset.strip().lower()
+            if val_ds == primary_dataset and val.epoch not in val_by_epoch:
+                val_by_epoch[val.epoch] = val
+
+        if not val_by_epoch:
+            for val in val_history:
+                val_by_epoch.setdefault(val.epoch, val)
+
+        val_epochs = sorted(val_by_epoch)
+        mAP = [val_by_epoch[epoch].mAP for epoch in val_epochs]
+        rank1 = [val_by_epoch[epoch].rank1 for epoch in val_epochs]
+        rank5 = [val_by_epoch[epoch].rank5 for epoch in val_epochs]
+        rank10 = [val_by_epoch[epoch].rank10 for epoch in val_epochs]
+
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5), dpi=140)
+
+        loss_ax = axes[0]
+        loss_ax.plot(train_epochs, [m.loss for m in history], label="loss", linewidth=2)
+        loss_ax.plot(train_epochs, [m.id_loss for m in history], label="id_loss")
+        loss_ax.plot(train_epochs, [m.triplet_loss for m in history], label="triplet_loss")
+        loss_ax.plot(train_epochs, [m.center_loss for m in history], label="center_loss")
+        loss_ax.set_title("Training Loss")
+        loss_ax.set_xlabel("Epoch")
+        loss_ax.set_ylabel("Loss")
+        loss_ax.grid(True, alpha=0.3)
+        loss_ax.legend()
+
+        metrics_ax = axes[1]
+        if val_epochs:
+            metrics_ax.plot(val_epochs, mAP, label="mAP", linewidth=2)
+            metrics_ax.plot(val_epochs, rank1, label="Rank-1")
+            metrics_ax.plot(val_epochs, rank5, label="Rank-5")
+            metrics_ax.plot(val_epochs, rank10, label="Rank-10")
+            metrics_ax.set_ylim(0.0, 1.0)
+        metrics_ax.set_title(f"Validation Metrics ({primary_dataset})")
+        metrics_ax.set_xlabel("Epoch")
+        metrics_ax.set_ylabel("Score")
+        metrics_ax.grid(True, alpha=0.3)
+        if val_epochs:
+            metrics_ax.legend()
+
+        fig.tight_layout()
+        path = save_dir / "training_curves.png"
+        fig.savefig(path, bbox_inches="tight")
+        plt.close(fig)
+        LOGGER.info(f"Saved training curves to {path}")
 
     def _make_save_dir(self) -> Path:
         base = self.project / self.name

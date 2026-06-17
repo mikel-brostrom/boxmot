@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -147,10 +149,109 @@ class MultiSimilarityLoss(nn.Module):
         return sum(loss) / batch_size
 
 
+class CircleLoss(nn.Module):
+    """Circle loss for pair-similarity optimization.
+
+    Reference:
+        Sun et al. "Circle Loss: A Unified Perspective of Pair Similarity
+        Optimization." CVPR 2020.
+
+    Args:
+        margin: Similarity margin ``m``.
+        gamma: Logit scale ``gamma``.
+    """
+
+    def __init__(self, margin: float = 0.25, gamma: float = 64.0):
+        super().__init__()
+        self.margin = margin
+        self.gamma = gamma
+        self.softplus = nn.Softplus()
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        inputs = F.normalize(inputs, p=2, dim=1)
+        sim = inputs @ inputs.t()
+        targets = targets.view(-1, 1)
+        pos_mask = targets.eq(targets.t())
+        neg_mask = ~pos_mask
+        pos_mask.fill_diagonal_(False)
+
+        losses = []
+        delta_p = 1.0 - self.margin
+        delta_n = self.margin
+        for i in range(inputs.size(0)):
+            sp = sim[i][pos_mask[i]]
+            sn = sim[i][neg_mask[i]]
+            if sp.numel() == 0 or sn.numel() == 0:
+                continue
+
+            alpha_p = torch.clamp_min(-sp.detach() + 1.0 + self.margin, 0.0)
+            alpha_n = torch.clamp_min(sn.detach() + self.margin, 0.0)
+            logit_p = -self.gamma * alpha_p * (sp - delta_p)
+            logit_n = self.gamma * alpha_n * (sn - delta_n)
+            losses.append(self.softplus(torch.logsumexp(logit_p, dim=0) + torch.logsumexp(logit_n, dim=0)))
+
+        if not losses:
+            return torch.zeros([], device=inputs.device, requires_grad=True)
+        return torch.stack(losses).mean()
+
+
+class ArcFaceLoss(nn.Module):
+    """Additive angular-margin classifier loss.
+
+    The classifier weights are local to the training criterion. They are not
+    needed for ReID inference, which uses the backbone embedding directly.
+    """
+
+    def __init__(self, feat_dim: int, num_classes: int, scale: float = 30.0, margin: float = 0.5):
+        super().__init__()
+        self.feat_dim = feat_dim
+        self.num_classes = num_classes
+        self.scale = scale
+        self.margin = margin
+        self.weight = nn.Parameter(torch.empty(num_classes, feat_dim))
+        nn.init.xavier_uniform_(self.weight)
+        self.cos_m = math.cos(margin)
+        self.sin_m = math.sin(margin)
+        self.th = math.cos(math.pi - margin)
+        self.mm = math.sin(math.pi - margin) * margin
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        cosine = F.linear(F.normalize(inputs, p=2, dim=1), F.normalize(self.weight, p=2, dim=1))
+        sine = torch.sqrt((1.0 - cosine.square()).clamp(min=1e-7))
+        phi = cosine * self.cos_m - sine * self.sin_m
+        phi = torch.where(cosine > self.th, phi, cosine - self.mm)
+
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, targets.view(-1, 1), 1.0)
+        logits = (one_hot * phi + (1.0 - one_hot) * cosine) * self.scale
+        return F.cross_entropy(logits, targets)
+
+
+class CosFaceLoss(nn.Module):
+    """Additive cosine-margin classifier loss."""
+
+    def __init__(self, feat_dim: int, num_classes: int, scale: float = 30.0, margin: float = 0.35):
+        super().__init__()
+        self.feat_dim = feat_dim
+        self.num_classes = num_classes
+        self.scale = scale
+        self.margin = margin
+        self.weight = nn.Parameter(torch.empty(num_classes, feat_dim))
+        nn.init.xavier_uniform_(self.weight)
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        cosine = F.linear(F.normalize(inputs, p=2, dim=1), F.normalize(self.weight, p=2, dim=1))
+        one_hot = torch.zeros_like(cosine)
+        one_hot.scatter_(1, targets.view(-1, 1), 1.0)
+        logits = (cosine - one_hot * self.margin) * self.scale
+        return F.cross_entropy(logits, targets)
+
+
 # Registry of metric losses (beyond CE).  Maps name → (class, default kwargs).
 METRIC_LOSS_REGISTRY: dict[str, type] = {
     "triplet": TripletLoss,
     "ms": MultiSimilarityLoss,
+    "circle": CircleLoss,
 }
 
 

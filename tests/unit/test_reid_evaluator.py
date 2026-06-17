@@ -20,7 +20,7 @@ def test_eval_reid_overrides_inference_feature_and_writes_mode_json(monkeypatch,
         weights,
     )
     (tmp_path / "hparams.json").write_text(
-        '{"img_size": [384, 128], "preprocess": "resize", "flip_tta": true}'
+        '{"data": {"img_size": [384, 128], "preprocess": "resize"}, "evaluation": {"flip_tta": true}}'
     )
     output_dir = tmp_path / "evals"
 

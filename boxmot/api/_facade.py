@@ -453,6 +453,13 @@ class Boxmot:
         verbose: bool = False,
         batch_size: int = BOXMOT_DEFAULTS.export.batch_size,
         imgsz=None,
+        tflite_quantize: str = BOXMOT_DEFAULTS.export.tflite_quantize,
+        tflite_calibration_data=None,
+        tflite_calibration_samples: int = BOXMOT_DEFAULTS.export.tflite_calibration_samples,
+        tflite_calibration_preprocess: str = BOXMOT_DEFAULTS.export.tflite_calibration_preprocess,
+        tflite_calibration_seed: int = BOXMOT_DEFAULTS.export.tflite_calibration_seed,
+        tflite_calibration_update: str = BOXMOT_DEFAULTS.export.tflite_calibration_update,
+        tflite_static_activation_bits: int = BOXMOT_DEFAULTS.export.tflite_static_activation_bits,
     ) -> ExportResult:
         args = adapters.build_export_args(
             self,
@@ -467,6 +474,13 @@ class Boxmot:
             verbose=verbose,
             batch_size=batch_size,
             imgsz=imgsz,
+            tflite_quantize=tflite_quantize,
+            tflite_calibration_data=tflite_calibration_data,
+            tflite_calibration_samples=tflite_calibration_samples,
+            tflite_calibration_preprocess=tflite_calibration_preprocess,
+            tflite_calibration_seed=tflite_calibration_seed,
+            tflite_calibration_update=tflite_calibration_update,
+            tflite_static_activation_bits=tflite_static_activation_bits,
         )
         return export_module.run_export(args)
 
@@ -492,6 +506,7 @@ class Boxmot:
         center_loss_weight: float = BOXMOT_DEFAULTS.train.center_loss_weight,
         metric_feature: str = BOXMOT_DEFAULTS.train.metric_feature,
         inference_feature: str = BOXMOT_DEFAULTS.train.inference_feature,
+        feature_fusion: str = BOXMOT_DEFAULTS.train.feature_fusion,
         feat_dim: int = BOXMOT_DEFAULTS.train.feat_dim,
         neck_dim: int = BOXMOT_DEFAULTS.train.neck_dim,
         head_pool: str = BOXMOT_DEFAULTS.train.head_pool,
@@ -537,6 +552,7 @@ class Boxmot:
                 "center_loss_weight": float(center_loss_weight),
                 "metric_feature": metric_feature,
                 "inference_feature": inference_feature,
+                "feature_fusion": feature_fusion,
                 "feat_dim": int(feat_dim),
                 "neck_dim": int(neck_dim),
                 "head_pool": head_pool,

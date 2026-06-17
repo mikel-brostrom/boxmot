@@ -147,7 +147,7 @@ class PatchMerging(nn.Module):
     def forward(self, x, hw_size):
         if x.ndim == 3:
             H, W = hw_size
-            B = len(x)
+            B = x.shape[0]
             x = x.view(B, H, W, -1).permute(0, 3, 1, 2)
         x = self.act(self.conv1(x))
         x = self.act(self.conv2(x))
@@ -432,6 +432,28 @@ class GeM(nn.Module):
         return x.pow(1.0 / p)
 
 
+class SpatialTopDrop(nn.Module):
+    """Drop top-activation rows in a feature map during training."""
+
+    def __init__(self, h_ratio: float = 0.33):
+        super().__init__()
+        self.h_ratio = h_ratio
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.training:
+            return x
+        b, c, h, w = x.size()
+        rh = max(1, min(h, round(self.h_ratio * h)))
+        act = (x**2).sum(1)
+        max_act, _ = act.max(2)
+        top_rows = torch.argsort(max_act, dim=1)[:, -rh:]
+        mask = x.new_ones((b, h))
+        for i in range(b):
+            mask[i, top_rows[i]] = 0
+        mask = mask.unsqueeze(1).unsqueeze(-1).expand(-1, c, -1, w)
+        return x * mask
+
+
 class MultiBranchHead(nn.Module):
     """Multi-granularity feature head with configurable horizontal stripes.
 
@@ -570,6 +592,228 @@ class MultiBranchHead(nn.Module):
         return cls_scores, feats
 
 
+class LMBNStyleMultiBranchHead(MultiBranchHead):
+    """LMBN-style head with drop-global and channel split branches."""
+
+    def __init__(
+        self,
+        in_ch,
+        feat_dim,
+        num_classes,
+        metric_feature: str = "raw_mean",
+        inference_feature: str = "concat_bn",
+        head_pool: str = "avg",
+        branch_metric: bool = False,
+        head_parts: tuple[int, ...] = (1, 2),
+        drop_h_ratio: float = 0.33,
+    ):
+        super().__init__(
+            in_ch=in_ch,
+            feat_dim=feat_dim,
+            num_classes=num_classes,
+            metric_feature=metric_feature,
+            inference_feature=inference_feature,
+            head_pool=head_pool,
+            branch_metric=branch_metric,
+            head_parts=head_parts,
+        )
+        if in_ch % 2 != 0:
+            raise ValueError(f"LMBN-style channel split requires even channels, got {in_ch}")
+        self.drop_global = SpatialTopDrop(h_ratio=drop_h_ratio)
+        self.channel_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.channel_shared = nn.Sequential(
+            nn.Conv2d(in_ch // 2, feat_dim, kernel_size=1, bias=False),
+            nn.BatchNorm2d(feat_dim),
+            nn.ReLU(inplace=True),
+        )
+        self.bn_drop_global = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
+        self.bn_part_global = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
+        self.bn_ch0 = BNNeck3(feat_dim, num_classes, feat_dim, return_f=True)
+        self.bn_ch1 = BNNeck3(feat_dim, num_classes, feat_dim, return_f=True)
+
+    def forward(self, x):
+        pooled_by_granularity = {
+            granularity: getattr(self, self._pool_attr(granularity))(x)
+            for granularity in self.head_parts
+        }
+        branch_outputs = {"global": getattr(self, self._bn_attr("global"))(pooled_by_granularity[1])}
+        dropped = self.drop_global(x)
+        branch_outputs["drop_global"] = self.bn_drop_global(
+            getattr(self, self._pool_attr(1))(dropped)
+        )
+        branch_outputs["part_global"] = self.bn_part_global(pooled_by_granularity[1])
+
+        for key, granularity, stripe_index in self.branch_specs:
+            if key == "global" or granularity <= 1:
+                continue
+            pooled = pooled_by_granularity[granularity][:, :, stripe_index : stripe_index + 1, :]
+            branch_outputs[key] = getattr(self, self._bn_attr(key))(pooled)
+
+        pooled_channel = self.channel_pool(x)
+        channel_0, channel_1 = torch.chunk(pooled_channel, chunks=2, dim=1)
+        channel_0 = self.channel_shared(channel_0)
+        channel_1 = self.channel_shared(channel_1)
+        branch_outputs["ch0"] = self.bn_ch0(channel_0)
+        branch_outputs["ch1"] = self.bn_ch1(channel_1)
+
+        ordered_keys = ["global", "drop_global", "part_global", *self.part_keys, "ch0", "ch1"]
+        bn_features_list = [branch_outputs[key][0] for key in ordered_keys]
+        cls_scores = [branch_outputs[key][1] for key in ordered_keys]
+        raw_features_list = [branch_outputs[key][2] for key in ordered_keys]
+
+        bn_features = torch.stack(bn_features_list, dim=2).flatten(1, 2)
+        raw_features = {
+            key: branch_outputs[key][2]
+            for key in ordered_keys
+        }
+        raw_features["raw_mean"] = torch.stack(raw_features_list, dim=0).mean(dim=0)
+        raw_features["concat_bn"] = bn_features
+
+        if not self.training:
+            if self.inference_feature == "concat_bn":
+                return bn_features
+            if self.inference_feature == "global":
+                return branch_outputs["global"][0]
+            if self.inference_feature == "raw_mean":
+                return raw_features["raw_mean"]
+            raise ValueError(f"Unsupported CSL-TinyViT inference_feature: {self.inference_feature}")
+
+        if self.branch_metric:
+            feats = raw_features
+        elif self.metric_feature == "concat_bn":
+            feats = bn_features
+        else:
+            feats = [
+                raw_features["global"],
+                raw_features["drop_global"],
+                raw_features["part_global"],
+            ]
+        return cls_scores, feats
+
+
+class CSLTinyViTFeatureFusion(nn.Module):
+    """Swappable spatial feature fusion module for CSL-TinyViT stage outputs."""
+
+    _VALID_MODES = {"final", "last2", "last3", "weighted_last2", "weighted_last3"}
+    _VALID_FUSION_TYPES = {"final", "residual", "weighted"}
+
+    def __init__(
+        self,
+        fusion_type: str,
+        stage_indices: tuple[int, ...],
+        path_channels: dict[int, int],
+        out_channels: int,
+    ):
+        super().__init__()
+        self.fusion_type = str(fusion_type).lower()
+        if self.fusion_type not in self._VALID_FUSION_TYPES:
+            raise ValueError(f"Unsupported CSL-TinyViT feature fusion type: {fusion_type}")
+        self.mode = self.fusion_type
+        self.stage_indices = tuple(stage_indices)
+        if self.fusion_type == "final" and self.stage_indices:
+            raise ValueError("CSL-TinyViT final feature fusion must not define path stages")
+        self.weighted = self.fusion_type == "weighted"
+
+        missing = [index for index in self.stage_indices if index not in path_channels]
+        if missing:
+            raise ValueError(f"Missing CSL-TinyViT fusion path channels for stages: {missing}")
+
+        self.projections = nn.ModuleDict(
+            {
+                str(index): nn.Sequential(
+                    nn.Conv2d(path_channels[index], out_channels, kernel_size=1, bias=False),
+                    LayerNorm2d(out_channels),
+                )
+                for index in self.stage_indices
+            }
+        )
+        self.residual_scales = nn.ParameterDict(
+            {
+                str(index): nn.Parameter(torch.zeros(()))
+                for index in (() if self.weighted else self.stage_indices)
+            }
+        )
+        if self.weighted:
+            self.fusion_weights = nn.Parameter(torch.tensor([1.0, *([1e-3] * len(self.stage_indices))]))
+        else:
+            self.register_parameter("fusion_weights", None)
+
+    @classmethod
+    def from_mode(
+        cls,
+        mode: str,
+        path_channels: dict[int, int],
+        out_channels: int,
+    ) -> CSLTinyViTFeatureFusion:
+        normalized_mode = cls.normalize_mode(mode)
+        module = cls(
+            fusion_type=cls.fusion_type_for_mode(normalized_mode),
+            stage_indices=cls.stage_indices_for_mode(normalized_mode),
+            path_channels=path_channels,
+            out_channels=out_channels,
+        )
+        module.mode = normalized_mode
+        return module
+
+    @classmethod
+    def normalize_mode(cls, mode: str) -> str:
+        mode = str(mode).lower()
+        if mode not in cls._VALID_MODES:
+            raise ValueError(f"Unsupported CSL-TinyViT feature_fusion: {mode}")
+        return mode
+
+    @staticmethod
+    def fusion_type_for_mode(mode: str) -> str:
+        if mode == "final":
+            return "final"
+        if mode.startswith("weighted_"):
+            return "weighted"
+        return "residual"
+
+    @staticmethod
+    def stage_indices_for_mode(mode: str) -> tuple[int, ...]:
+        if mode in {"last2", "weighted_last2"}:
+            return (2,)
+        if mode in {"last3", "weighted_last3"}:
+            return (1, 2)
+        return ()
+
+    def normalized_weights(self) -> torch.Tensor:
+        if self.fusion_weights is None:
+            raise RuntimeError("Normalized fusion weights are only available for weighted feature fusion")
+        weights = F.relu(self.fusion_weights)
+        return weights / (weights.sum() + 1e-4)
+
+    def _project_path(self, stage_index: int, feature: torch.Tensor, output_size: tuple[int, int]) -> torch.Tensor:
+        feature = self.projections[str(stage_index)](feature)
+        if feature.shape[-2:] != output_size:
+            feature = F.interpolate(feature, size=output_size, mode="bilinear", align_corners=False)
+        return feature
+
+    def forward(self, final_feature: torch.Tensor, path_features: dict[int, torch.Tensor]) -> torch.Tensor:
+        if not self.stage_indices:
+            return final_feature
+
+        output_size = final_feature.shape[-2:]
+        fused = final_feature
+        weighted_features = [final_feature]
+        for stage_index in self.stage_indices:
+            path_feature = self._project_path(stage_index, path_features[stage_index], output_size)
+            if self.weighted:
+                weighted_features.append(path_feature)
+            else:
+                fused = fused + self.residual_scales[str(stage_index)] * path_feature
+
+        if not self.weighted:
+            return fused
+
+        fusion_weights = self.normalized_weights()
+        fused = fusion_weights[0] * weighted_features[0]
+        for weight, feature in zip(fusion_weights[1:], weighted_features[1:], strict=True):
+            fused = fused + weight * feature
+        return fused
+
+
 # ---------------------------------------------------------------------------
 # CSL-TinyViT Backbone
 # ---------------------------------------------------------------------------
@@ -608,9 +852,12 @@ class CSLTinyViT(nn.Module):
         feat_dim: int = 512,
         neck_dim: int = 512,
         inference_feature: str = "concat_bn",
+        feature_fusion: str = "final",
         head_pool: str = "avg",
         head_parts: tuple[int, ...] = (1, 2),
         branch_metric: bool = False,
+        lmbn_style_head: bool = False,
+        drop_h_ratio: float = 0.33,
     ):
         super().__init__()
         if embed_dims is None:
@@ -627,6 +874,7 @@ class CSLTinyViT(nn.Module):
         self.depths = depths
         self.num_layers = len(depths)
         self.mlp_ratio = mlp_ratio
+        self.feature_fusion = CSLTinyViTFeatureFusion.normalize_mode(feature_fusion)
 
         activation = nn.GELU
 
@@ -677,23 +925,101 @@ class CSLTinyViT(nn.Module):
             nn.Conv2d(neck_dim, neck_dim, kernel_size=3, padding=1, bias=False),
             LayerNorm2d(neck_dim),
         )
-
-        # Multi-branch ReID head. MS loss optimizes cosine pair similarities, so
-        # train it on the same concatenated BN embedding used at inference.
-        metric_feature = "concat_bn" if loss == "ms" else "raw_mean"
-        self.head = MultiBranchHead(
-            neck_dim,
-            feat_dim=feat_dim,
-            num_classes=num_classes,
-            metric_feature=metric_feature,
-            inference_feature=inference_feature,
-            head_pool=head_pool,
-            head_parts=head_parts,
-            branch_metric=branch_metric,
+        fusion_stage_indices = CSLTinyViTFeatureFusion.stage_indices_for_mode(self.feature_fusion)
+        fusion_path_channels = {
+            index: embed_dims[min(index + 1, len(embed_dims) - 1)]
+            for index in fusion_stage_indices
+        }
+        self.feature_fusion_module = CSLTinyViTFeatureFusion.from_mode(
+            mode=self.feature_fusion,
+            path_channels=fusion_path_channels,
+            out_channels=neck_dim,
         )
+        self._fusion_stage_indices = self.feature_fusion_module.stage_indices
+
+        # Multi-branch ReID head.
+        # For standard CSL-TinyViT, MS loss trains on the same concatenated BN
+        # embedding used at inference. For LMBN-style heads, keep LightMBN-like
+        # metric supervision on the three raw branch features
+        # (global/drop-global/part-global) regardless of loss type.
+        metric_feature = "concat_bn" if loss == "ms" else "raw_mean"
+        if lmbn_style_head:
+            metric_feature = "raw_mean"
+        if lmbn_style_head:
+            self.head = LMBNStyleMultiBranchHead(
+                neck_dim,
+                feat_dim=feat_dim,
+                num_classes=num_classes,
+                metric_feature=metric_feature,
+                inference_feature=inference_feature,
+                head_pool=head_pool,
+                head_parts=head_parts,
+                branch_metric=branch_metric,
+                drop_h_ratio=drop_h_ratio,
+            )
+        else:
+            self.head = MultiBranchHead(
+                neck_dim,
+                feat_dim=feat_dim,
+                num_classes=num_classes,
+                metric_feature=metric_feature,
+                inference_feature=inference_feature,
+                head_pool=head_pool,
+                head_parts=head_parts,
+                branch_metric=branch_metric,
+            )
 
         # Initialize weights
         self.apply(self._init_weights)
+
+    @property
+    def fusion_scales(self) -> nn.ParameterDict:
+        return self.feature_fusion_module.residual_scales
+
+    @property
+    def fusion_weights(self) -> nn.Parameter | None:
+        return self.feature_fusion_module.fusion_weights
+
+    def _normalized_fusion_weights(self) -> torch.Tensor:
+        return self.feature_fusion_module.normalized_weights()
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ) -> None:
+        old_to_new_prefixes = {
+            "fusion_projections.": "feature_fusion_module.projections.",
+            "fusion_scales.": "feature_fusion_module.residual_scales.",
+        }
+        for old_prefix, new_prefix in old_to_new_prefixes.items():
+            old_full_prefix = f"{prefix}{old_prefix}"
+            for key in list(state_dict.keys()):
+                if key.startswith(old_full_prefix):
+                    new_key = f"{prefix}{new_prefix}{key[len(old_full_prefix):]}"
+                    state_dict.setdefault(new_key, state_dict[key])
+                    del state_dict[key]
+
+        old_weight_key = f"{prefix}fusion_weights"
+        new_weight_key = f"{prefix}feature_fusion_module.fusion_weights"
+        if old_weight_key in state_dict:
+            state_dict.setdefault(new_weight_key, state_dict[old_weight_key])
+            del state_dict[old_weight_key]
+
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -708,6 +1034,7 @@ class CSLTinyViT(nn.Module):
         """Extract spatial feature map from backbone."""
         x = self.patch_embed(x)
         out_size = (x.shape[2], x.shape[3])
+        fusion_features: dict[int, tuple[torch.Tensor, tuple[int, int]]] = {}
 
         # Stage 0 (conv layer operates on 4D tensor)
         x, out_size = self.layers[0](x, out_size)
@@ -715,12 +1042,19 @@ class CSLTinyViT(nn.Module):
         # Stages 1+ (attention layers operate on 3D tokens)
         for i in range(1, len(self.layers)):
             x, out_size = self.layers[i](x, out_size)
+            if i in self._fusion_stage_indices:
+                fusion_features[i] = (x, out_size)
 
         # Reshape back to spatial for neck
         B, _, C = x.size()
         x = x.view(B, out_size[0], out_size[1], C).permute(0, 3, 1, 2)
         x = self.neck(x)
-        return x
+        path_features: dict[int, torch.Tensor] = {}
+        for index in self._fusion_stage_indices:
+            stage_tokens, stage_size = fusion_features[index]
+            stage = stage_tokens.view(B, stage_size[0], stage_size[1], -1)
+            path_features[index] = stage.permute(0, 3, 1, 2)
+        return self.feature_fusion_module(x, path_features)
 
     def forward(self, x):
         x = self.forward_features(x)  # (B, neck_dim, H, W)
@@ -966,6 +1300,77 @@ def csl_tinyvit_large(
 ) -> CSLTinyViT:
     """Alias for the large CSL-TinyViT 23M variant."""
     return csl_tinyvit_23m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_7m_lmbn(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """LMBN-style CSL-TinyViT 7M variant with drop-global and channel branches."""
+    kwargs["lmbn_style_head"] = True
+    return csl_tinyvit_7m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_11m_lmbn(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """LMBN-style CSL-TinyViT 11M variant with drop-global and channel branches."""
+    kwargs["lmbn_style_head"] = True
+    return csl_tinyvit_11m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_23m_lmbn(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """LMBN-style CSL-TinyViT 23M variant with drop-global and channel branches."""
+    kwargs["lmbn_style_head"] = True
+    return csl_tinyvit_23m(
+        num_classes=num_classes,
+        loss=loss,
+        pretrained=pretrained,
+        use_gpu=use_gpu,
+        **kwargs,
+    )
+
+
+def csl_tinyvit_lmbn(
+    num_classes: int = 1000,
+    loss: str = "softmax",
+    pretrained: bool = False,
+    use_gpu: bool = True,
+    **kwargs,
+) -> CSLTinyViT:
+    """Backward-compatible alias for LMBN-style CSL-TinyViT 11M."""
+    return csl_tinyvit_11m_lmbn(
         num_classes=num_classes,
         loss=loss,
         pretrained=pretrained,

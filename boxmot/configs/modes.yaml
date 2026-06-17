@@ -95,6 +95,13 @@ export:
   workspace: 4
   weights: osnet_x0_25_msmt17
   half: false
+  tflite_quantize: none
+  tflite_calibration_data: null
+  tflite_calibration_samples: 256
+  tflite_calibration_preprocess: resize
+  tflite_calibration_seed: 0
+  tflite_calibration_update: minmax
+  tflite_static_activation_bits: 16
   include:
     - onnx
 
@@ -117,9 +124,19 @@ train:
   k_instances: 4
   margin: 0.3
   label_smooth: 0.05
+  classifier_loss: ce
+  triplet_soft_margin: null
+  arcface_scale: 30.0
+  arcface_margin: 0.5
+  cosface_scale: 30.0
+  cosface_margin: 0.35
   center_loss_weight: 0.005
+  id_loss_weight: 1.0
+  metric_loss_weight: 1.0
+  branch_loss_agg: mean
   metric_feature: auto
   inference_feature: concat_bn
+  feature_fusion: last3
   feat_dim: 512
   neck_dim: 512
   head_pool: gem
@@ -140,3 +157,6 @@ train:
   color_jitter: true  # color jitter augmentation (auto-enabled for ViTs)
   random_grayscale: 0.1  # probability of random grayscale conversion
   random_erasing: 0.5  # probability of random erasing augmentation
+  random_patch: true  # apply RandomPatch occlusion augmentation
+  color_augmentation: true  # apply PCA ColorAugmentation
+  flip_tta: null  # null = auto (ViT-only), true/false to force

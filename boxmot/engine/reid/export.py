@@ -101,7 +101,7 @@ def setup_model(args):
 
     if "vehicleid" in args.weights.name or "veri" in args.weights.name:
         args.imgsz = (256, 256)
-    elif "lmbn" in model_name:
+    elif "lmbn" in model_name or "csl_tinyvit" in model_name:
         args.imgsz = (384, 128)
     elif "hacnn" in model_name:
         args.imgsz = (160, 64)
@@ -164,7 +164,22 @@ def create_export_tasks(args, model, dummy_input):
         tasks["tflite"] = (
             True,
             TFLiteExporter,
-            (model, dummy_input, args.weights, args.opset, args.dynamic, args.half, args.simplify),
+            (
+                model,
+                dummy_input,
+                args.weights,
+                args.opset,
+                args.dynamic,
+                args.half,
+                args.simplify,
+                getattr(args, "tflite_quantize", "none"),
+                getattr(args, "tflite_calibration_data", None),
+                getattr(args, "tflite_calibration_samples", 256),
+                getattr(args, "tflite_calibration_preprocess", "resize"),
+                getattr(args, "tflite_calibration_seed", 0),
+                getattr(args, "tflite_calibration_update", "minmax"),
+                getattr(args, "tflite_static_activation_bits", 16),
+            ),
         )
 
     if openvino_flag:
@@ -193,11 +208,19 @@ def perform_exports(export_tasks):
 
 def _prepare_export(args):
     WEIGHTS.mkdir(parents=True, exist_ok=True)
-    args.weights = WEIGHTS / Path(args.weights).name
+    args.weights = _resolve_export_weights(args.weights)
 
     with _suppress_export_noise(not args.verbose):
         model, dummy_input = setup_model(args)
     return model, dummy_input
+
+
+def _resolve_export_weights(weights: str | Path) -> Path:
+    """Keep explicit checkpoint paths; otherwise resolve bare names in WEIGHTS."""
+    path = Path(weights)
+    if path.exists():
+        return path
+    return WEIGHTS / path.name
 
 
 def _execute_export(args, model, dummy_input):
@@ -361,6 +384,8 @@ def _verify_export_parity(
 
 def _run_tflite_for_parity(fpath: str | Path, cpu_input: torch.Tensor):
     litert = import_module("ai_edge_litert.interpreter")
+    from boxmot.reid.backends.tflite_backend import TFLiteBackend
+
     interpreter = litert.Interpreter(model_path=str(fpath))
     interpreter.allocate_tensors()
 
@@ -370,7 +395,7 @@ def _run_tflite_for_parity(fpath: str | Path, cpu_input: torch.Tensor):
         raise RuntimeError("TFLite model is missing input or output tensors.")
 
     input_detail = input_details[0]
-    input_array = cpu_input.detach().cpu().numpy().astype(input_detail["dtype"], copy=False)
+    input_array = cpu_input.detach().cpu().numpy().astype("float32", copy=False)
     expected_shape = tuple(int(dim) for dim in input_detail["shape"])
     input_array = _match_tflite_input_layout(input_array, expected_shape)
 
@@ -380,9 +405,11 @@ def _run_tflite_for_parity(fpath: str | Path, cpu_input: torch.Tensor):
         input_detail = interpreter.get_input_details()[0]
         output_details = interpreter.get_output_details()
 
+    input_array = TFLiteBackend._quantize_input(input_array, input_detail)
     interpreter.set_tensor(input_detail["index"], input_array)
     interpreter.invoke()
-    return interpreter.get_tensor(output_details[0]["index"])
+    output = interpreter.get_tensor(output_details[0]["index"])
+    return TFLiteBackend._dequantize_output(output, output_details[0])
 
 
 def _match_tflite_input_layout(input_array, expected_shape: tuple[int, ...]):

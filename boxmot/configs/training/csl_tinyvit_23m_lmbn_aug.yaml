@@ -1,0 +1,34 @@
+# CSL-TinyViT 23M recipe with LightMBN-style augmentation/eval settings.
+
+model: csl_tinyvit_23m
+loss: triplet
+epochs: 200
+lr: 0.0007
+weight_decay: 0.1
+batch_size: 64
+imgsz: [384, 128]
+warmup_epochs: 20
+head_pool: gem
+head_parts: [1, 2]
+inference_feature: concat_bn
+feature_fusion: last3
+branch_aware_metric: false
+branch_metric_part_weight: 0.5
+head_warmup_epochs: 0
+head_warmup_lr_mult: 2.0
+margin: 0.3
+label_smooth: 0.05
+center_loss_weight: 0.005
+feat_dim: 512
+neck_dim: 512
+ema_decay: 0
+
+# Match official LightMBN-style augmentation/eval behavior.
+color_jitter: false
+gaussian_blur: false
+random_grayscale: 0.0
+random_erasing: 0.5
+random_patch: false
+color_augmentation: false
+flip_tta: true
+preprocess: resize

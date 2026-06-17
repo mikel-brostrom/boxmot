@@ -60,6 +60,15 @@ def _parse_head_parts(ctx, param, value):
     return tuple(dict.fromkeys(parts))
 
 
+def _parse_tflite_static_activation_bits(ctx, param, value):
+    """Parse TFLite static activation precision."""
+    del ctx, param
+    bits = int(value)
+    if bits not in {8, 16}:
+        raise click.BadParameter("must be 8 or 16")
+    return bits
+
+
 def _normalize_tune_metric_cli_args(args: list[str]) -> list[str]:
     """Fold space-separated tune metric values into Click option values."""
     if "tune" not in args:
@@ -428,6 +437,44 @@ def export_options(func):
                      help='Path to the model weights (.pt file)'),
         click.option('--half', is_flag=True,
                      help='Enable FP16 half-precision export (GPU only)'),
+        click.option('--tflite-quantize',
+                     type=click.Choice(['none', 'weight', 'dynamic', 'static'], case_sensitive=False),
+                     default=EXPORT_DEFAULTS.tflite_quantize,
+                     show_default=True,
+                     help=(
+                         'Post-quantize TFLite export: weight=int8 weights with float compute, '
+                         'dynamic=int8 dynamic range, static=int8 weights with calibrated activations'
+                     )),
+        click.option('--tflite-calibration-data',
+                     type=Path,
+                     default=EXPORT_DEFAULTS.tflite_calibration_data,
+                     help='Image, image-list .txt, or directory of ReID crops for TFLite static calibration'),
+        click.option('--tflite-calibration-samples',
+                     type=int,
+                     default=EXPORT_DEFAULTS.tflite_calibration_samples,
+                     show_default=True,
+                     help='Maximum number of calibration images for TFLite static export'),
+        click.option('--tflite-calibration-preprocess',
+                     type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
+                     default=EXPORT_DEFAULTS.tflite_calibration_preprocess,
+                     show_default=True,
+                     help='Crop preprocessing for TFLite static calibration images'),
+        click.option('--tflite-calibration-seed',
+                     type=int,
+                     default=EXPORT_DEFAULTS.tflite_calibration_seed,
+                     show_default=True,
+                     help='Seed for nested directory sampling in TFLite static calibration'),
+        click.option('--tflite-calibration-update',
+                     type=click.Choice(['minmax', 'moving_average'], case_sensitive=False),
+                     default=EXPORT_DEFAULTS.tflite_calibration_update,
+                     show_default=True,
+                     help='Activation range update rule for TFLite static calibration'),
+        click.option('--tflite-static-activation-bits',
+                     type=int,
+                     callback=_parse_tflite_static_activation_bits,
+                     default=EXPORT_DEFAULTS.tflite_static_activation_bits,
+                     show_default=True,
+                     help='Activation precision for TFLite static quantization; weights remain int8'),
         click.option('--include', multiple=True, default=EXPORT_DEFAULTS.include,
                      help='Export formats to include. Options: torchscript, onnx, openvino, engine, tflite'),
     ]
@@ -791,9 +838,13 @@ def train_options(func):
                           f'Available: {", ".join(sorted(DATASET_REGISTRY.keys()))}'),
         click.option('--data-dir', type=click.Path(exists=True), required=False, default=None,
                      help='Root directory of the dataset (inferred from hparams.json when --resume is used)'),
-        click.option('--loss', type=click.Choice(['softmax', 'triplet', 'ms'], case_sensitive=False),
+        click.option('--loss', type=click.Choice(['softmax', 'triplet', 'circle', 'ms'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.loss, show_default=True,
-                     help='Metric loss type (triplet=hard-mining triplet, ms=multi-similarity, softmax=CE only)'),
+                     help='Metric loss type (triplet=batch-hard triplet, circle=Circle loss, '
+                          'ms=multi-similarity, softmax=classifier only)'),
+        click.option('--classifier-loss', type=click.Choice(['ce', 'arcface', 'cosface'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.classifier_loss, show_default=True,
+                     help='ID classifier loss: ce, arcface, or cosface'),
         click.option('--preprocess', type=click.Choice(sorted(PREPROCESS_REGISTRY.keys()), case_sensitive=False),
                      default=TRAIN_DEFAULTS.preprocess, show_default=True,
                      help='Crop preprocessing method; must match inference-time preprocessing'),
@@ -818,16 +869,42 @@ def train_options(func):
                      help='Number of instances per identity'),
         click.option('--margin', type=float, default=TRAIN_DEFAULTS.margin, show_default=True,
                      help='Triplet loss margin'),
+        click.option('--triplet-soft-margin/--triplet-hard-margin',
+                     default=TRAIN_DEFAULTS.triplet_soft_margin,
+                     help='Use softplus batch-hard triplet instead of the hard margin. '
+                          'Default: auto for ViT models, hard margin otherwise.'),
+        click.option('--arcface-scale', type=float, default=TRAIN_DEFAULTS.arcface_scale, show_default=True,
+                     help='ArcFace logit scale'),
+        click.option('--arcface-margin', type=float, default=TRAIN_DEFAULTS.arcface_margin, show_default=True,
+                     help='ArcFace angular margin'),
+        click.option('--cosface-scale', type=float, default=TRAIN_DEFAULTS.cosface_scale, show_default=True,
+                     help='CosFace logit scale'),
+        click.option('--cosface-margin', type=float, default=TRAIN_DEFAULTS.cosface_margin, show_default=True,
+                     help='CosFace cosine margin'),
         click.option('--label-smooth', type=float, default=TRAIN_DEFAULTS.label_smooth, show_default=True,
                      help='Label smoothing epsilon'),
         click.option('--center-loss-weight', type=float, default=TRAIN_DEFAULTS.center_loss_weight, show_default=True,
                      help='Center loss weight'),
+        click.option('--id-loss-weight', type=float, default=TRAIN_DEFAULTS.id_loss_weight, show_default=True,
+                     help='Weight applied to the ID classification loss term'),
+        click.option('--metric-loss-weight', type=float, default=TRAIN_DEFAULTS.metric_loss_weight, show_default=True,
+                     help='Weight applied to the metric loss term (triplet/circle/ms)'),
+        click.option('--branch-loss-agg', type=click.Choice(['mean', 'sum'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.branch_loss_agg, show_default=True,
+                     help='How to aggregate multi-branch losses before weighting'),
         click.option('--metric-feature', type=click.Choice(['auto', 'raw_mean', 'concat_bn'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.metric_feature, show_default=True,
                      help='Feature representation used for metric losses when the model supports multiple branches'),
         click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.inference_feature, show_default=True,
                      help='Feature representation emitted by CSL-TinyViT at validation/inference time'),
+        click.option('--feature-fusion',
+                     type=click.Choice(
+                         ['final', 'last2', 'last3', 'weighted_last2', 'weighted_last3'],
+                         case_sensitive=False,
+                     ),
+                     default=TRAIN_DEFAULTS.feature_fusion, show_default=True,
+                     help='CSL-TinyViT spatial feature fusion before the ReID head'),
         click.option('--feat-dim', type=int, default=TRAIN_DEFAULTS.feat_dim, show_default=True,
                      help='Per-branch embedding dimension for ReID heads that support projection'),
         click.option('--neck-dim', type=int, default=TRAIN_DEFAULTS.neck_dim, show_default=True,

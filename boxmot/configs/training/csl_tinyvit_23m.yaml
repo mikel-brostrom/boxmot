@@ -2,7 +2,10 @@
 #
 # Uses the GeM-only head/training recipe selected by the Market-1501 ablation.
 # Branch-aware metric loss and head-only warmup are disabled because they did
-# not improve retrieval quality over the simpler GeM setting.
+# not improve retrieval quality over the simpler GeM setting. The residual
+# last3 feature fusion is preferred over last2 because the extra projection is
+# cheap and the 23M feature-fusion ablation slightly favored the three-scale
+# aggregation.
 #   - model: csl_tinyvit_23m
 #   - pretrained source: TinyViT-21M ImageNet checkpoint
 #   - backbone dims: [96, 192, 384, 576]
@@ -14,6 +17,7 @@
 #   - warmup_epochs: 20
 #   - head_pool: gem
 #   - inference_feature: concat_bn
+#   - feature_fusion: last3
 #   - branch_aware_metric: false
 #   - head_warmup_epochs: 0
 #
@@ -34,6 +38,7 @@ warmup_epochs: 20
 head_pool: gem
 head_parts: [1, 2]
 inference_feature: concat_bn
+feature_fusion: last3
 branch_aware_metric: false
 branch_metric_part_weight: 0.5
 head_warmup_epochs: 0

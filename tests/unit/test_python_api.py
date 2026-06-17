@@ -1590,13 +1590,28 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert tune_args.compare_to_first_trial is True
     assert tune_baseline is None
 
-    export_results = model.export(include=("onnx",), device="cpu")
+    export_results = model.export(
+        include=("onnx",),
+        device="cpu",
+        tflite_quantize="static",
+        tflite_calibration_data=tmp_path / "calibration",
+        tflite_calibration_samples=32,
+        tflite_calibration_seed=7,
+        tflite_calibration_update="moving_average",
+        tflite_static_activation_bits=8,
+    )
 
     export_args = calls["export"]
     assert export_results.weights.name == "lmbn_n_duke.pt"
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
     assert export_args.include == ("onnx",)
     assert export_args.weights.name == "lmbn_n_duke.pt"
+    assert export_args.tflite_quantize == "static"
+    assert export_args.tflite_calibration_data == tmp_path / "calibration"
+    assert export_args.tflite_calibration_samples == 32
+    assert export_args.tflite_calibration_seed == 7
+    assert export_args.tflite_calibration_update == "moving_average"
+    assert export_args.tflite_static_activation_bits == 8
 
 
 def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):

@@ -200,6 +200,8 @@ def build_train_transforms(
     color_jitter: bool = True,
     gaussian_blur: bool = False,
     random_grayscale: float = 0.0,
+    random_patch: bool = True,
+    color_augmentation: bool = True,
 ) -> T.Compose:
     """Build the standard ReID training augmentation pipeline.
 
@@ -213,8 +215,9 @@ def build_train_transforms(
         _resize_op(img_size, preprocess),
         T.RandomHorizontalFlip(p=0.5),
         Random2DTranslation(h, w, p=0.5),
-        RandomPatch(prob_happen=0.5),
     ]
+    if random_patch:
+        ops.append(RandomPatch(prob_happen=0.5))
     if color_jitter:
         # torchreid values: brightness=0.2, contrast=0.15
         ops.append(T.ColorJitter(brightness=0.2, contrast=0.15, saturation=0, hue=0))
@@ -224,9 +227,10 @@ def build_train_transforms(
         ops.append(T.RandomGrayscale(p=random_grayscale))
     ops.extend([
         T.ToTensor(),
-        ColorAugmentation(p=0.5),
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
+    if color_augmentation:
+        ops.insert(-1, ColorAugmentation(p=0.5))
     if random_erasing > 0:
         # Zhong et al. "Random Erasing Data Augmentation" §5.3.1:
         # p=0.5, scale=(0.02, 0.2), ratio=(0.3, 3.33), fill=ImageNet mean

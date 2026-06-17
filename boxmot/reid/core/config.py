@@ -22,11 +22,15 @@ MODEL_TYPES = [
     "vit_tiny_parts",
     "vit_tiny_parts3",
     "csl_tinyvit_7m",
+    "csl_tinyvit_7m_lmbn",
     "csl_tinyvit_11m",
+    "csl_tinyvit_11m_lmbn",
     "csl_tinyvit_23m",
+    "csl_tinyvit_23m_lmbn",
     "csl_tinyvit_small",
     "csl_tinyvit_normal",
     "csl_tinyvit_large",
+    "csl_tinyvit_lmbn",
 ]
 
 TRAINED_URLS = {

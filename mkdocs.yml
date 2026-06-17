@@ -107,6 +107,7 @@ nav:
       - Tracking Pipeline: concepts/tracking-pipeline.md
   - Guides:
       - Benchmark Workflows: guides/benchmarks.md
+      - ReID Ablation Findings: guides/reid-ablation-findings.md
       - Evaluation and Postprocessing: guides/evaluation.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
   - Native C++: native/index.md

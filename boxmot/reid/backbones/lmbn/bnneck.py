@@ -18,7 +18,7 @@ class BNNeck(nn.Module):
         after_neck = self.bn(before_neck)
 
         if self.return_f:
-            score = self.classifier(after_neck)
+            score = self.classifier(after_neck) if self.training else None
             return after_neck, score, before_neck
         else:
             x = self.classifier(x)
@@ -68,7 +68,7 @@ class BNNeck3(nn.Module):
         before_neck = x.view(x.size(0), x.size(1))
         after_neck = self.bn(before_neck)
         if self.return_f:
-            score = self.classifier(after_neck)
+            score = self.classifier(after_neck) if self.training else None
             return after_neck, score, before_neck
         else:
             x = self.classifier(x)
@@ -140,7 +140,7 @@ class ClassBlock(nn.Module):
         x = self.add_block(x.squeeze(3).squeeze(2))
         if self.return_f:
             f = x
-            x = self.classifier(x)
+            x = self.classifier(x) if self.training else None
             return f, x, f
         else:
             x = self.classifier(x)

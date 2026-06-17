@@ -169,6 +169,8 @@ def build_mode_namespace(
         values.setdefault("split_explicit", "split" in explicit)
     elif normalized_mode == "export":
         values["weights"] = ensure_model_extension(values.get("weights") or get_mode_default("export", "weights"))
+        calibration_data = values.get("tflite_calibration_data")
+        values["tflite_calibration_data"] = Path(calibration_data) if calibration_data else None
         include = values.get("include") or ()
         values["include"] = tuple(include)
         project = values.get("project")
@@ -433,10 +435,18 @@ class ExportModeDefaults:
     workspace: int
     weights: Path
     half: bool
+    tflite_quantize: str
+    tflite_calibration_data: Path | None
+    tflite_calibration_samples: int
+    tflite_calibration_preprocess: str
+    tflite_calibration_seed: int
+    tflite_calibration_update: str
+    tflite_static_activation_bits: int
     include: tuple[str, ...]
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "ExportModeDefaults":
+        calibration_data = values.get("tflite_calibration_data")
         return cls(
             batch_size=int(values.get("batch_size", 1)),
             imgsz=values.get("imgsz"),
@@ -448,6 +458,13 @@ class ExportModeDefaults:
             workspace=int(values.get("workspace", 4)),
             weights=ensure_model_extension(values.get("weights") or DEFAULT_REID),
             half=bool(values.get("half", False)),
+            tflite_quantize=str(values.get("tflite_quantize", "none")),
+            tflite_calibration_data=Path(calibration_data) if calibration_data else None,
+            tflite_calibration_samples=int(values.get("tflite_calibration_samples", 256)),
+            tflite_calibration_preprocess=str(values.get("tflite_calibration_preprocess", "resize")),
+            tflite_calibration_seed=int(values.get("tflite_calibration_seed", 0)),
+            tflite_calibration_update=str(values.get("tflite_calibration_update", "minmax")),
+            tflite_static_activation_bits=int(values.get("tflite_static_activation_bits", 16)),
             include=tuple(values.get("include") or ()),
         )
 
@@ -470,9 +487,19 @@ class TrainModeDefaults:
     k_instances: int
     margin: float
     label_smooth: float
+    classifier_loss: str
+    triplet_soft_margin: bool | None
+    arcface_scale: float
+    arcface_margin: float
+    cosface_scale: float
+    cosface_margin: float
     center_loss_weight: float
+    id_loss_weight: float
+    metric_loss_weight: float
+    branch_loss_agg: str
     metric_feature: str
     inference_feature: str
+    feature_fusion: str
     feat_dim: int
     neck_dim: int
     head_pool: str
@@ -494,6 +521,9 @@ class TrainModeDefaults:
     color_jitter: bool
     random_grayscale: float
     random_erasing: float
+    random_patch: bool
+    color_augmentation: bool
+    flip_tta: bool | None
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "TrainModeDefaults":
@@ -519,9 +549,19 @@ class TrainModeDefaults:
             k_instances=int(values.get("k_instances", 4)),
             margin=float(values.get("margin", 0.3)),
             label_smooth=float(values.get("label_smooth", 0.1)),
+            classifier_loss=str(values.get("classifier_loss", "ce")),
+            triplet_soft_margin=values.get("triplet_soft_margin"),
+            arcface_scale=float(values.get("arcface_scale", 30.0)),
+            arcface_margin=float(values.get("arcface_margin", 0.5)),
+            cosface_scale=float(values.get("cosface_scale", 30.0)),
+            cosface_margin=float(values.get("cosface_margin", 0.35)),
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
+            id_loss_weight=float(values.get("id_loss_weight", 1.0)),
+            metric_loss_weight=float(values.get("metric_loss_weight", 1.0)),
+            branch_loss_agg=str(values.get("branch_loss_agg", "mean")),
             metric_feature=str(values.get("metric_feature", "auto")),
             inference_feature=str(values.get("inference_feature", "concat_bn")),
+            feature_fusion=str(values.get("feature_fusion", "last3")),
             feat_dim=int(values.get("feat_dim", 512)),
             neck_dim=int(values.get("neck_dim", 512)),
             head_pool=str(values.get("head_pool", "avg")),
@@ -543,6 +583,9 @@ class TrainModeDefaults:
             color_jitter=bool(values.get("color_jitter", False)),
             random_grayscale=float(values.get("random_grayscale", 0.0)),
             random_erasing=float(values.get("random_erasing", 0.5)),
+            random_patch=bool(values.get("random_patch", True)),
+            color_augmentation=bool(values.get("color_augmentation", True)),
+            flip_tta=values.get("flip_tta"),
         )
 
 

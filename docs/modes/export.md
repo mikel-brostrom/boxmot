@@ -22,6 +22,24 @@ Use `export` to convert ReID models to deployment formats such as ONNX and Tenso
           --dynamic
         ```
 
+        Export calibrated TFLite int8 using representative ReID crops:
+
+        ```bash
+        boxmot export \
+          --weights runs/reid_train/exp/best.pt \
+          --include tflite \
+          --tflite-quantize static \
+          --tflite-calibration-data Market-1501-v15.09.15/bounding_box_train \
+          --tflite-calibration-samples 512 \
+          --tflite-calibration-seed 0 \
+          --tflite-calibration-update minmax \
+          --tflite-static-activation-bits 16
+        ```
+
+        Static TFLite uses int8 weights. The default `--tflite-static-activation-bits 16`
+        preserves ReID embedding parity better but can be slower on CPU; use `8` only
+        for strict int8 activation ablations.
+
     === "Python"
 
         ```python
