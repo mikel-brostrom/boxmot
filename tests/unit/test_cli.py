@@ -350,7 +350,7 @@ def test_train_csl_tinyvit_7m_recipe_keeps_small_model(monkeypatch):
     assert args.head_pool == "gem"
     assert args.head_parts == (1, 2)
     assert args.inference_feature == "concat_bn"
-    assert args.feature_fusion == "last3"
+    assert args.feature_fusion == "last2"
     assert args.branch_aware_metric is False
     assert args.head_warmup_epochs == 0
 

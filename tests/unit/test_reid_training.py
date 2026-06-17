@@ -25,7 +25,7 @@ from boxmot.reid.backbones.csl_tinyvit import (
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.datasets import build_combined_dataset, build_dataset
-from boxmot.reid.training.losses import ArcFaceLoss, CenterLoss, CircleLoss, CosFaceLoss
+from boxmot.reid.training.losses import ArcFaceLoss, CenterLoss, CircleLoss, CosFaceLoss, TripletLoss
 from boxmot.reid.training.trainer import ReIDTrainer
 
 
@@ -704,6 +704,30 @@ def test_trainer_uses_embedding_model_contract_for_margin_classifier(tmp_path):
 def test_trainer_triplet_soft_margin_can_be_forced(tmp_path):
     assert _trainer(tmp_path, triplet_soft_margin=False)._use_soft_margin_triplet(is_vit=True) is False
     assert _trainer(tmp_path, triplet_soft_margin=True)._use_soft_margin_triplet(is_vit=False) is True
+
+
+def test_trainer_eta_min_accepts_scientific_notation_string(tmp_path):
+    trainer = _trainer(tmp_path, eta_min="1e-07")
+
+    assert trainer.eta_min == 1e-07
+
+
+def test_triplet_soft_margin_respects_margin_value():
+    inputs = torch.tensor(
+        [
+            [0.0, 0.0],
+            [0.1, 0.0],
+            [1.0, 0.0],
+            [1.1, 0.0],
+        ],
+        dtype=torch.float32,
+    )
+    targets = torch.tensor([0, 0, 1, 1], dtype=torch.long)
+
+    low_margin_loss = TripletLoss(margin=0.0, soft_margin=True)(inputs, targets)
+    high_margin_loss = TripletLoss(margin=0.5, soft_margin=True)(inputs, targets)
+
+    assert high_margin_loss > low_margin_loss
 
 
 def test_trainer_margin_classifier_uses_effective_metric_feature(tmp_path):

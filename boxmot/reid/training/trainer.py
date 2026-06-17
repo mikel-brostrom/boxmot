@@ -165,7 +165,7 @@ class ReIDTrainer:
         self.branch_loss_agg = branch_loss_agg.lower()
         if self.branch_loss_agg not in {"mean", "sum"}:
             raise ValueError("branch_loss_agg must be 'mean' or 'sum'")
-        self.eta_min = eta_min
+        self.eta_min = float(eta_min)
         self.pretrained = pretrained
         self.device = torch.device(device)
         self.project = Path(project)

@@ -37,8 +37,8 @@ class TripletLoss(nn.Module):
         Hermans et al. "In Defense of the Triplet Loss for Person Re-Identification." arXiv 2017.
 
     Args:
-        margin: Hard margin threshold (ignored when ``soft_margin=True``).
-        soft_margin: Use ``log(1 + exp(d_ap - d_an))`` instead of
+        margin: Margin offset applied to both hard-margin and soft-margin forms.
+        soft_margin: Use ``log(1 + exp(d_ap - d_an + margin))`` instead of
             ``max(0, d_ap - d_an + margin)``.  Provides smoother gradients.
     """
 
@@ -67,7 +67,7 @@ class TripletLoss(nn.Module):
         dist_an = torch.cat(dist_an)
 
         if self.soft_margin:
-            return F.softplus(dist_ap - dist_an).mean()
+            return F.softplus(dist_ap - dist_an + self.margin).mean()
 
         y = torch.ones_like(dist_an)
         return self.ranking_loss(dist_an, dist_ap, y)

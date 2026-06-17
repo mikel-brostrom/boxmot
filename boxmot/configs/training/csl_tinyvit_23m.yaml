@@ -1,56 +1,99 @@
-# Training recipe for optimized CSL-TinyViT 23M on Market-1501
-#
-# Uses the GeM-only head/training recipe selected by the Market-1501 ablation.
-# Branch-aware metric loss and head-only warmup are disabled because they did
-# not improve retrieval quality over the simpler GeM setting. The residual
-# last3 feature fusion is preferred over last2 because the extra projection is
-# cheap and the 23M feature-fusion ablation slightly favored the three-scale
-# aggregation.
-#   - model: csl_tinyvit_23m
-#   - pretrained source: TinyViT-21M ImageNet checkpoint
-#   - backbone dims: [96, 192, 384, 576]
-#   - heads: [3, 6, 12, 18]
-#   - depths: [2, 2, 6, 2]
-#   - neck_dim: 512
-#   - feat_dim: 512
-#   - weight_decay: 0.1
-#   - warmup_epochs: 20
-#   - head_pool: gem
-#   - inference_feature: concat_bn
-#   - feature_fusion: last3
-#   - branch_aware_metric: false
-#   - head_warmup_epochs: 0
-#
-# Usage:
-#   uv run python -m boxmot.engine.cli train \
-#     --recipe csl_tinyvit_23m \
-#     --data-dir ./Market-1501-v15.09.15 \
-#     --device mps
-
-model: csl_tinyvit_23m
-loss: triplet
-epochs: 250
-lr: 0.0007
-weight_decay: 0.1
-batch_size: 64
-imgsz: [384, 128]
-warmup_epochs: 20
-head_pool: gem
-head_parts: [1, 2]
-inference_feature: concat_bn
-feature_fusion: last3
-branch_aware_metric: false
-branch_metric_part_weight: 0.5
-head_warmup_epochs: 0
-head_warmup_lr_mult: 2.0
-margin: 0.3
-label_smooth: 0.05
-center_loss_weight: 0.005
-feat_dim: 512
-neck_dim: 512
-ema_decay: 0
-color_jitter: true
-gaussian_blur: true
-random_grayscale: 0.1
-random_erasing: 0.5
-preprocess: resize
+{
+  "run": {
+    "model_name": "csl_tinyvit_23m",
+    "seed": 42,
+    "pretrained": true
+  },
+  "data": {
+    "dataset": "market1501",
+    "data_dir": "./Market-1501-v15.09.15",
+    "img_size": [
+      384,
+      128
+    ],
+    "preprocess": "resize",
+    "num_classes": 751,
+    "batch_size": 64,
+    "sampler": {
+      "p": 16,
+      "k": 4
+    },
+    "num_workers": 4
+  },
+  "model": {
+    "is_vit": true,
+    "feature_fusion": "last3",
+    "feat_dim": 512,
+    "neck_dim": 512,
+    "head": {
+      "pool": "gem",
+      "parts": [
+        1,
+        2
+      ],
+      "warmup_epochs": 0,
+      "warmup_lr_mult": 2.0
+    },
+    "feature_selection": {
+      "metric_feature": "raw_mean",
+      "inference_feature": "concat_bn"
+    },
+    "branch": {
+      "aware_metric": false,
+      "metric_part_weight": 0.5,
+      "loss_agg": "mean"
+    },
+    "regularization": {
+      "drop_path_rate": 0.1
+    }
+  },
+  "optimization": {
+    "epochs": 200,
+    "optimizer": "AdamW",
+    "lr": 0.0007,
+    "weight_decay": 0.1,
+    "grad_clip": 1.0,
+    "layer_decay": 0.95,
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "eta_min": 1e-07,
+      "warmup_epochs": 20
+    },
+    "ema_decay": 0.0
+  },
+  "losses": {
+    "loss_type": "triplet",
+    "classifier_loss": "ce",
+    "weights": {
+      "id_loss_weight": 1.0,
+      "metric_loss_weight": 1.0,
+      "center_loss_weight": 0.005
+    },
+    "label_smooth": 0.05,
+    "triplet": {
+      "margin": 0.3,
+      "soft_margin": true
+    }
+  },
+  "augmentation": {
+    "color_jitter": true,
+    "gaussian_blur": true,
+    "random_grayscale": 0.1,
+    "random_erasing": 0.5,
+    "random_patch": true,
+    "color_augmentation": true
+  },
+  "evaluation": {
+    "eval_interval": 10,
+    "eval_datasets": [],
+    "flip_tta": true
+  },
+  "system": {
+    "device": "mps"
+  },
+  "derived": {
+    "metric_dim": 512,
+    "classifier_dim": 512,
+    "n_params": 25713284
+  }
+}

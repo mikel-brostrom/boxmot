@@ -49,6 +49,12 @@ _NATIVE_DISPLAY_NAME = "BoTSORT"
 _TRACKER_NAME = "botsort"
 
 
+def _configure_native_reid_env() -> None:
+    """Prefer the stable CPU ReID path on macOS GitHub runners."""
+    if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        os.environ.setdefault("BOXMOT_REID_DEVICE", "cpu")
+
+
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     with open(get_tracker_config("botsort"), "r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
@@ -135,6 +141,7 @@ class _BotSortLiveLibrary:
         # Allow the native tracker library to coexist in-process on macOS.
         if sys.platform == "darwin":
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+        _configure_native_reid_env()
         self._library = ctypes.CDLL(str(self.library_path))
         self._configure_functions()
 

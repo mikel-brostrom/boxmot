@@ -23,6 +23,98 @@ def _load_mode_defaults() -> dict[str, Any]:
         return yaml.safe_load(handle) or {}
 
 
+def _nested_get(mapping: Mapping[str, Any], *keys: str) -> Any:
+    current: Any = mapping
+    for key in keys:
+        if not isinstance(current, Mapping) or key not in current:
+            return None
+        current = current[key]
+    return current
+
+
+def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize nested recipe layout into train-arg keys.
+
+    Supports both legacy flat recipes and nested hparams-like recipes.
+    """
+    sections = {
+        "run",
+        "data",
+        "model",
+        "optimization",
+        "losses",
+        "augmentation",
+        "evaluation",
+        "system",
+        "derived",
+    }
+    if not any(section in recipe_values for section in sections):
+        return dict(recipe_values)
+
+    flattened: dict[str, Any] = {
+        key: value
+        for key, value in recipe_values.items()
+        if key not in sections
+    }
+
+    mappings: dict[str, tuple[str, ...]] = {
+        "model": ("run", "model_name"),
+        "seed": ("run", "seed"),
+        "pretrained": ("run", "pretrained"),
+        "dataset": ("data", "dataset"),
+        "data_dir": ("data", "data_dir"),
+        "imgsz": ("data", "img_size"),
+        "preprocess": ("data", "preprocess"),
+        "batch_size": ("data", "batch_size"),
+        "p_ids": ("data", "sampler", "p"),
+        "k_instances": ("data", "sampler", "k"),
+        "num_workers": ("data", "num_workers"),
+        "feature_fusion": ("model", "feature_fusion"),
+        "feat_dim": ("model", "feat_dim"),
+        "neck_dim": ("model", "neck_dim"),
+        "head_pool": ("model", "head", "pool"),
+        "head_parts": ("model", "head", "parts"),
+        "head_warmup_epochs": ("model", "head", "warmup_epochs"),
+        "head_warmup_lr_mult": ("model", "head", "warmup_lr_mult"),
+        "metric_feature": ("model", "feature_selection", "metric_feature"),
+        "inference_feature": ("model", "feature_selection", "inference_feature"),
+        "branch_aware_metric": ("model", "branch", "aware_metric"),
+        "branch_metric_part_weight": ("model", "branch", "metric_part_weight"),
+        "branch_loss_agg": ("model", "branch", "loss_agg"),
+        "epochs": ("optimization", "epochs"),
+        "lr": ("optimization", "lr"),
+        "weight_decay": ("optimization", "weight_decay"),
+        "eta_min": ("optimization", "scheduler", "eta_min"),
+        "warmup_epochs": ("optimization", "scheduler", "warmup_epochs"),
+        "ema_decay": ("optimization", "ema_decay"),
+        "loss": ("losses", "loss_type"),
+        "classifier_loss": ("losses", "classifier_loss"),
+        "label_smooth": ("losses", "label_smooth"),
+        "margin": ("losses", "triplet", "margin"),
+        "triplet_soft_margin": ("losses", "triplet", "soft_margin"),
+        "id_loss_weight": ("losses", "weights", "id_loss_weight"),
+        "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
+        "center_loss_weight": ("losses", "weights", "center_loss_weight"),
+        "color_jitter": ("augmentation", "color_jitter"),
+        "gaussian_blur": ("augmentation", "gaussian_blur"),
+        "random_grayscale": ("augmentation", "random_grayscale"),
+        "random_erasing": ("augmentation", "random_erasing"),
+        "random_patch": ("augmentation", "random_patch"),
+        "color_augmentation": ("augmentation", "color_augmentation"),
+        "eval_interval": ("evaluation", "eval_interval"),
+        "eval_datasets": ("evaluation", "eval_datasets"),
+        "flip_tta": ("evaluation", "flip_tta"),
+        "device": ("system", "device"),
+    }
+
+    for target_key, path in mappings.items():
+        value = _nested_get(recipe_values, *path)
+        if value is not None:
+            flattened[target_key] = value
+
+    return flattened
+
+
 def load_training_recipe(name: str) -> dict[str, Any]:
     """Load a training recipe YAML by name (e.g. ``'lmbn_n'``)."""
     recipe_path = TRAINING_RECIPES_DIR / f"{name}.yaml"
@@ -33,7 +125,8 @@ def load_training_recipe(name: str) -> dict[str, Any]:
             f"Available recipes: {', '.join(available) or '(none)'}"
         )
     with open(recipe_path, "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+        recipe_values = yaml.safe_load(handle) or {}
+    return _flatten_training_recipe_values(recipe_values)
 
 
 def list_training_recipes() -> list[str]:
