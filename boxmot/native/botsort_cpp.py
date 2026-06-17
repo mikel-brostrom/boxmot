@@ -32,6 +32,7 @@ from boxmot.native._common import (
     resolve_reid_model_ref as _resolve_reid_model_ref,
 )
 from boxmot.trackers.tracker_zoo import get_tracker_config
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests via monkeypatch)
 
 
@@ -53,6 +54,10 @@ def _configure_native_reid_env() -> None:
     """Prefer the stable CPU ReID path on macOS GitHub runners."""
     if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
         os.environ.setdefault("BOXMOT_REID_DEVICE", "cpu")
+
+
+def _is_ci_macos_runner() -> bool:
+    return sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
@@ -338,7 +343,21 @@ class NativeBotSortTracker:
         library: _BotSortLiveLibrary | None = None,
     ) -> None:
         self.cfg = _resolve_tracker_cfg(cfg_dict)
-        native_reid_path = _ensure_native_reid_model_path(reid_weights)
+        native_reid_path = None
+        if _is_ci_macos_runner() and reid_weights is not None:
+            resolved_ref = _resolve_reid_model_ref(reid_weights)
+            if resolved_ref is not None and resolved_ref.suffix.lower() == ".pt":
+                onnx_candidate = _native_onnx_cache_path(resolved_ref)
+                if not onnx_candidate.exists():
+                    LOGGER.warning(
+                        "Native BoTSORT ReID is disabled on macOS CI when only '.pt' weights "
+                        "are available (ONNX export can crash on this runner)."
+                    )
+                    self.cfg["with_reid"] = False
+            if bool(self.cfg.get("with_reid", True)):
+                native_reid_path = _ensure_native_reid_model_path(reid_weights)
+        else:
+            native_reid_path = _ensure_native_reid_model_path(reid_weights)
         self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
         self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         self.cfg["reid_model_path"] = self.reid_model_path
