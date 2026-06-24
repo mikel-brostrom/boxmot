@@ -12,7 +12,7 @@ OC-SORT focuses on a specific failure mode in Kalman-filter trackers: error accu
 
 ## Native C++ Backend
 
-BoxMOT ships a native C++17 OCSORT implementation under `boxmot/native/trackers/ocsort/`. It supports:
+BoxMOT ships a native C++17 OCSORT implementation under `boxmot/native/cpp/trackers/ocsort/`. It supports:
 
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`

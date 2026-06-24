@@ -23,7 +23,7 @@ On the MOT17 ablation split (`yolox_x_MOT17_ablation` + `lmbn_n_duke`), OccluBoo
 
 ## Native C++ Backend
 
-BoxMOT ships a native C++17 OccluBoost implementation under `boxmot/native/trackers/occluboost/`. It mirrors the Python tracker and shares the BoTSORT-style ReID plumbing, so it supports:
+BoxMOT ships a native C++17 OccluBoost implementation under `boxmot/native/cpp/trackers/occluboost/`. It mirrors the Python tracker and shares the BoTSORT-style ReID plumbing, so it supports:
 
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`

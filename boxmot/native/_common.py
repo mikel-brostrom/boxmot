@@ -1,7 +1,7 @@
 """Shared helpers for native (C++) tracker backends.
 
 Centralizes functionality that was previously duplicated across each
-``boxmot/native/<tracker>_cpp.py`` module:
+``boxmot/native/trackers/<tracker>.py`` module:
 
 * ReID model resolution and ONNX auto-export (used by BoTSORT and OccluBoost).
 * ``dets_n_embs`` cache root construction (used by every native replay backend).
@@ -167,11 +167,11 @@ def repo_root() -> Path:
 def tracker_source_dir(name: str) -> Path:
     """Directory containing the C++ sources for a given native tracker.
 
-    After the relocation of ``native/trackers`` into the package, this lives
-    at ``boxmot/native/trackers/<name>``. The path is the same whether the
-    package is imported from a source checkout or an installed wheel.
+    Native C++ sources live at ``boxmot/native/cpp/trackers/<name>``.
+    The path is the same whether the package is imported from a source
+    checkout or an installed wheel.
     """
-    return package_native_root() / "trackers" / str(name)
+    return package_native_root() / "cpp" / "trackers" / str(name)
 
 
 def tracker_build_dir(name: str) -> Path:
@@ -454,7 +454,7 @@ def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
     """Export ``.pt`` ReID weights to an OpenCV-compatible ONNX file."""
     import torch
 
-    from boxmot.engine.reid.export import setup_model
+    from boxmot.reid.workflows.export import setup_model
 
     args = SimpleNamespace(
         weights=weights,

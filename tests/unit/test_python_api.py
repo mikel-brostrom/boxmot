@@ -12,24 +12,23 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
+import boxmot.engine.tracking.results as results_module
+import boxmot.utils.rich.ui as ui_module
+from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
+from boxmot.detectors import Detector
+from boxmot.detectors.base import Detections
+from boxmot.engine import research as research_engine_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
-from boxmot.engine.reid import evaluator as reid_evaluator_module
-from boxmot.engine.reid import export as export_module
-from boxmot.engine.reid import trainer as reid_trainer_module
-from boxmot.engine import research as research_engine_module
 from boxmot.engine.tracking import tracker as tracker_module
 from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import reporting as reporting_module
 from boxmot.engine.workflows import support as workflow_support_module
-import boxmot.engine.tracking.results as results_module
-from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
-from boxmot.detectors import Detector
-from boxmot.detectors.base import Detections
 from boxmot.reid import ReID
+from boxmot.reid.workflows import evaluator as reid_evaluator_module
+from boxmot.reid.workflows import export as export_module
+from boxmot.reid.workflows import trainer as reid_trainer_module
 from boxmot.utils.timing import TimingStats
-import boxmot.utils.rich.ui as ui_module
-
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
@@ -1659,6 +1658,8 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
         project=tmp_path / "runs" / "reid_train",
         name="exp",
         pretrained=False,
+        seed=123,
+        deterministic=False,
     )
 
     assert trained is expected_train
@@ -1673,6 +1674,8 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     assert train_args.p_ids == 2
     assert train_args.k_instances == 2
     assert train_args.pretrained is False
+    assert train_args.seed == 123
+    assert train_args.deterministic is False
     assert train_args.project == tmp_path / "runs" / "reid_train"
     assert train_args.name == "exp"
 

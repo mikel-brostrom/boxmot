@@ -77,10 +77,40 @@ class ReIDModelRegistry:
                     values["head_pool"] = checkpoint["head_pool"]
                 if checkpoint.get("head_parts") is not None:
                     values["head_parts"] = tuple(int(part) for part in checkpoint["head_parts"])
+                if checkpoint.get("head_type") is not None:
+                    values["head_type"] = checkpoint["head_type"]
+                if checkpoint.get("part_pooling") is not None:
+                    values["part_pooling"] = checkpoint["part_pooling"]
+                if checkpoint.get("num_part_tokens") is not None:
+                    values["num_part_tokens"] = int(checkpoint["num_part_tokens"])
+                if checkpoint.get("decouple_patterns") is not None:
+                    values["decouple_patterns"] = bool(checkpoint["decouple_patterns"])
+                if checkpoint.get("pattern_adapter_dim") is not None:
+                    values["pattern_adapter_dim"] = int(checkpoint["pattern_adapter_dim"])
+                if checkpoint.get("stripe_visibility") is not None:
+                    values["stripe_visibility"] = bool(checkpoint["stripe_visibility"])
                 if checkpoint.get("inference_feature") is not None:
                     values["inference_feature"] = checkpoint["inference_feature"]
                 if checkpoint.get("feature_fusion") is not None:
                     values["feature_fusion"] = checkpoint["feature_fusion"]
+                if checkpoint.get("drop_path_rate") is not None:
+                    values["drop_path_rate"] = float(checkpoint["drop_path_rate"])
+                if checkpoint.get("attention_window_layout") is not None:
+                    values["attention_window_layout"] = checkpoint["attention_window_layout"]
+                if checkpoint.get("attention_bias") is not None:
+                    values["attention_bias"] = checkpoint["attention_bias"]
+                if checkpoint.get("attention_mask") is not None:
+                    values["attention_mask"] = bool(checkpoint["attention_mask"])
+                if checkpoint.get("attention_shift") is not None:
+                    values["attention_shift"] = bool(checkpoint["attention_shift"])
+                if checkpoint.get("stage3_global") is not None:
+                    values["stage3_global"] = bool(checkpoint["stage3_global"])
+                if checkpoint.get("reid_adapter_stages") is not None:
+                    values["reid_adapter_stages"] = tuple(
+                        int(stage) for stage in checkpoint["reid_adapter_stages"]
+                    )
+                if checkpoint.get("reid_adapter_reduction") is not None:
+                    values["reid_adapter_reduction"] = int(checkpoint["reid_adapter_reduction"])
                 state_dict = checkpoint.get("state_dict", checkpoint)
                 if isinstance(state_dict, dict):
                     if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
@@ -116,6 +146,7 @@ class ReIDModelRegistry:
                 # Remove 'module.' prefix if present
                 key = k[7:] if k.startswith("module.") else k
                 key = ReIDModelRegistry._normalize_checkpoint_key(model, key)
+                key, v = ReIDModelRegistry._normalize_checkpoint_tensor(model_dict, key, v)
                 if key in model_dict and model_dict[key].size() == v.size():
                     new_state_dict[key] = v
                     matched_layers.append(key)
@@ -155,6 +186,16 @@ class ReIDModelRegistry:
             if key == "fusion_weights":
                 return "feature_fusion_module.fusion_weights"
         return key
+
+    @staticmethod
+    def _normalize_checkpoint_tensor(model_dict: dict, key: str, value: torch.Tensor) -> tuple[str, torch.Tensor]:
+        """Map legacy checkpoint tensor values onto current parameter semantics."""
+        if key.endswith(".p"):
+            raw_key = f"{key[:-2]}.raw_p"
+            if raw_key in model_dict and model_dict[raw_key].shape == value.shape:
+                p = value.to(dtype=model_dict[raw_key].dtype).clamp(min=1.0 + 1e-6, max=8.0)
+                return raw_key, torch.log(torch.expm1(p - 1.0))
+        return key, value
 
     @staticmethod
     def show_available_models():

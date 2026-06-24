@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from . import _common
+
 
 @dataclass(frozen=True, slots=True)
 class NativeReplayBackend:
@@ -26,112 +28,112 @@ class NativeLiveBackend:
 
 
 def _load_botsort_backend() -> NativeReplayBackend:
-    from boxmot.native.botsort_cpp import ensure_botsort_cpp_executable, process_sequence_cpp
+    from boxmot.native.trackers.botsort import ensure_botsort_cpp_executable, process_sequence_cpp
 
     return NativeReplayBackend(
         tracker_name="botsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_botsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "botsort",
+        source_dir=_common.tracker_source_dir("botsort"),
     )
 
 
 def _load_botsort_live_backend() -> NativeLiveBackend:
-    from boxmot.native.botsort_cpp import create_botsort_live_tracker, ensure_botsort_cpp_library
+    from boxmot.native.trackers.botsort import create_botsort_live_tracker, ensure_botsort_cpp_library
 
     return NativeLiveBackend(
         tracker_name="botsort",
         create_tracker=create_botsort_live_tracker,
         ensure_built=ensure_botsort_cpp_library,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "botsort",
+        source_dir=_common.tracker_source_dir("botsort"),
     )
 
 
 def _load_bytetrack_backend() -> NativeReplayBackend:
-    from boxmot.native.bytetrack_cpp import ensure_bytetrack_cpp_executable, process_sequence_cpp
+    from boxmot.native.trackers.bytetrack import ensure_bytetrack_cpp_executable, process_sequence_cpp
 
     return NativeReplayBackend(
         tracker_name="bytetrack",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_bytetrack_cpp_executable,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "bytetrack",
+        source_dir=_common.tracker_source_dir("bytetrack"),
     )
 
 
 def _load_bytetrack_live_backend() -> NativeLiveBackend:
-    from boxmot.native.bytetrack_cpp import create_bytetrack_live_tracker, ensure_bytetrack_cpp_library
+    from boxmot.native.trackers.bytetrack import create_bytetrack_live_tracker, ensure_bytetrack_cpp_library
 
     return NativeLiveBackend(
         tracker_name="bytetrack",
         create_tracker=create_bytetrack_live_tracker,
         ensure_built=ensure_bytetrack_cpp_library,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "bytetrack",
+        source_dir=_common.tracker_source_dir("bytetrack"),
     )
 
 
 def _load_sfsort_backend() -> NativeReplayBackend:
-    from boxmot.native.sfsort_cpp import ensure_sfsort_cpp_executable, process_sequence_cpp
+    from boxmot.native.trackers.sfsort import ensure_sfsort_cpp_executable, process_sequence_cpp
 
     return NativeReplayBackend(
         tracker_name="sfsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_sfsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "sfsort",
+        source_dir=_common.tracker_source_dir("sfsort"),
     )
 
 
 def _load_sfsort_live_backend() -> NativeLiveBackend:
-    from boxmot.native.sfsort_cpp import create_sfsort_live_tracker, ensure_sfsort_cpp_library
+    from boxmot.native.trackers.sfsort import create_sfsort_live_tracker, ensure_sfsort_cpp_library
 
     return NativeLiveBackend(
         tracker_name="sfsort",
         create_tracker=create_sfsort_live_tracker,
         ensure_built=ensure_sfsort_cpp_library,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "sfsort",
+        source_dir=_common.tracker_source_dir("sfsort"),
     )
 
 
 def _load_occluboost_backend() -> NativeReplayBackend:
-    from boxmot.native.occluboost_cpp import ensure_occluboost_cpp_executable, process_sequence_cpp
+    from boxmot.native.trackers.occluboost import ensure_occluboost_cpp_executable, process_sequence_cpp
 
     return NativeReplayBackend(
         tracker_name="occluboost",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_occluboost_cpp_executable,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "occluboost",
+        source_dir=_common.tracker_source_dir("occluboost"),
     )
 
 
 def _load_occluboost_live_backend() -> NativeLiveBackend:
-    from boxmot.native.occluboost_cpp import create_occluboost_live_tracker, ensure_occluboost_cpp_library
+    from boxmot.native.trackers.occluboost import create_occluboost_live_tracker, ensure_occluboost_cpp_library
 
     return NativeLiveBackend(
         tracker_name="occluboost",
         create_tracker=create_occluboost_live_tracker,
         ensure_built=ensure_occluboost_cpp_library,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "occluboost",
+        source_dir=_common.tracker_source_dir("occluboost"),
     )
 
 
 def _load_ocsort_backend() -> NativeReplayBackend:
-    from boxmot.native.ocsort_cpp import ensure_ocsort_cpp_executable, process_sequence_cpp
+    from boxmot.native.trackers.ocsort import ensure_ocsort_cpp_executable, process_sequence_cpp
 
     return NativeReplayBackend(
         tracker_name="ocsort",
         process_sequence=process_sequence_cpp,
         ensure_built=ensure_ocsort_cpp_executable,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "ocsort",
+        source_dir=_common.tracker_source_dir("ocsort"),
     )
 
 
 def _load_ocsort_live_backend() -> NativeLiveBackend:
-    from boxmot.native.ocsort_cpp import create_ocsort_live_tracker, ensure_ocsort_cpp_library
+    from boxmot.native.trackers.ocsort import create_ocsort_live_tracker, ensure_ocsort_cpp_library
 
     return NativeLiveBackend(
         tracker_name="ocsort",
         create_tracker=create_ocsort_live_tracker,
         ensure_built=ensure_ocsort_cpp_library,
-        source_dir=Path(__file__).resolve().parent / "trackers" / "ocsort",
+        source_dir=_common.tracker_source_dir("ocsort"),
     )
 
 

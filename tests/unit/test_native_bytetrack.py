@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import queue
 from io import StringIO
 from pathlib import Path
-import queue
 
-from boxmot.native import bytetrack_cpp as native_module
+from boxmot.native.trackers import bytetrack as native_module
 
 
 def test_native_bytetrack_tracker_advertises_obb_support():

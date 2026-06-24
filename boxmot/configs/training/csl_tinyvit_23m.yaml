@@ -1,7 +1,8 @@
 {
   "run": {
     "model_name": "csl_tinyvit_23m",
-    "seed": 42,
+    "seed": 0,
+    "deterministic": true,
     "pretrained": true
   },
   "data": {
@@ -25,18 +26,31 @@
     "feature_fusion": "last3",
     "feat_dim": 512,
     "neck_dim": 512,
+    "attention": {
+      "window_layout": "rect",
+      "bias": "signed_factorized",
+      "mask": true,
+      "shift": true,
+      "stage3_global": false
+    },
     "head": {
-      "pool": "gem",
+      "pool": "gelu_gem",
       "parts": [
         1,
         2
       ],
+      "head_type": "standard",
+      "part_pooling": "stripes",
+      "num_part_tokens": 4,
+      "decouple_patterns": false,
+      "pattern_adapter_dim": 128,
+      "stripe_visibility": false,
       "warmup_epochs": 0,
       "warmup_lr_mult": 2.0
     },
     "feature_selection": {
-      "metric_feature": "raw_mean",
-      "inference_feature": "concat_bn"
+      "metric_feature": "raw_concat",
+      "inference_feature": "norm_concat_bn"
     },
     "branch": {
       "aware_metric": false,
@@ -44,7 +58,7 @@
       "loss_agg": "mean"
     },
     "regularization": {
-      "drop_path_rate": 0.1
+      "drop_path_rate": 0.2
     }
   },
   "optimization": {
@@ -92,8 +106,8 @@
     "device": "mps"
   },
   "derived": {
-    "metric_dim": 512,
-    "classifier_dim": 512,
-    "n_params": 25713284
+    "metric_dim": 1536,
+    "classifier_dim": 1536,
+    "n_params": 25701284
   }
 }

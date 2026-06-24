@@ -5,13 +5,13 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from boxmot.engine.reid.export import (
+from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
+from boxmot.reid.workflows.export import (
     _resolve_export_weights,
     _run_tflite_for_parity,
     _verify_export_parity,
     create_export_tasks,
 )
-from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
 from boxmot.utils.checks import RequirementsChecker
 
 

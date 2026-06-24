@@ -1,10 +1,20 @@
 """ReID model training utilities: losses, trainer, and evaluation."""
 
+from boxmot.reid.training.config import (
+    AugmentationConfig,
+    DataConfig,
+    EvalConfig,
+    LossConfig,
+    ModelConfig,
+    OptimizationConfig,
+    ReIDTrainConfig,
+    RunConfig,
+)
 from boxmot.reid.training.evaluator import evaluate_ranking
 from boxmot.reid.training.losses import (
+    METRIC_LOSS_REGISTRY,
     CenterLoss,
     CrossEntropyLabelSmooth,
-    METRIC_LOSS_REGISTRY,
     MultiSimilarityLoss,
     TripletLoss,
 )
@@ -12,8 +22,16 @@ from boxmot.reid.training.losses import (
 __all__ = (
     "CenterLoss",
     "CrossEntropyLabelSmooth",
+    "AugmentationConfig",
+    "DataConfig",
+    "EvalConfig",
+    "LossConfig",
     "METRIC_LOSS_REGISTRY",
+    "ModelConfig",
     "MultiSimilarityLoss",
+    "OptimizationConfig",
+    "ReIDTrainConfig",
+    "RunConfig",
     "TripletLoss",
     "evaluate_ranking",
 )

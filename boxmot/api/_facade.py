@@ -5,16 +5,13 @@ from types import SimpleNamespace
 from typing import Any, Sequence
 
 from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
+from boxmot.engine import research as research_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
-from boxmot.engine.reid import evaluator as reid_evaluator_module
-from boxmot.engine.reid import export as export_module
-from boxmot.engine.reid import trainer as reid_trainer_module
-from boxmot.engine import research as research_module
 from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tracking.results import Results
 from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import support
-from boxmot.engine.tracking.results import Results
 from boxmot.engine.workflows.reporting import timing_summary_from_stats
 from boxmot.engine.workflows.results import (
     ExportResult,
@@ -23,6 +20,9 @@ from boxmot.engine.workflows.results import (
     TuneResult,
     ValidationResult,
 )
+from boxmot.reid.workflows import evaluator as reid_evaluator_module
+from boxmot.reid.workflows import export as export_module
+from boxmot.reid.workflows import trainer as reid_trainer_module
 
 from . import _adapters as adapters
 
@@ -511,6 +511,12 @@ class Boxmot:
         neck_dim: int = BOXMOT_DEFAULTS.train.neck_dim,
         head_pool: str = BOXMOT_DEFAULTS.train.head_pool,
         head_parts: Sequence[int] = BOXMOT_DEFAULTS.train.head_parts,
+        head_type: str = BOXMOT_DEFAULTS.train.head_type,
+        part_pooling: str = BOXMOT_DEFAULTS.train.part_pooling,
+        num_part_tokens: int = BOXMOT_DEFAULTS.train.num_part_tokens,
+        decouple_patterns: bool = BOXMOT_DEFAULTS.train.decouple_patterns,
+        pattern_adapter_dim: int = BOXMOT_DEFAULTS.train.pattern_adapter_dim,
+        stripe_visibility: bool = BOXMOT_DEFAULTS.train.stripe_visibility,
         branch_aware_metric: bool = BOXMOT_DEFAULTS.train.branch_aware_metric,
         branch_metric_part_weight: float = BOXMOT_DEFAULTS.train.branch_metric_part_weight,
         head_warmup_epochs: int = BOXMOT_DEFAULTS.train.head_warmup_epochs,
@@ -521,6 +527,7 @@ class Boxmot:
         name: str = BOXMOT_DEFAULTS.train.name,
         num_workers: int = BOXMOT_DEFAULTS.train.num_workers,
         seed: int = BOXMOT_DEFAULTS.train.seed,
+        deterministic: bool = BOXMOT_DEFAULTS.train.deterministic,
         eval_datasets: Sequence[str] = BOXMOT_DEFAULTS.train.eval_datasets,
         ema_decay: float | None = BOXMOT_DEFAULTS.train.ema_decay,
         gaussian_blur: bool = BOXMOT_DEFAULTS.train.gaussian_blur,
@@ -557,6 +564,12 @@ class Boxmot:
                 "neck_dim": int(neck_dim),
                 "head_pool": head_pool,
                 "head_parts": tuple(int(part) for part in head_parts),
+                "head_type": head_type,
+                "part_pooling": part_pooling,
+                "num_part_tokens": int(num_part_tokens),
+                "decouple_patterns": bool(decouple_patterns),
+                "pattern_adapter_dim": int(pattern_adapter_dim),
+                "stripe_visibility": bool(stripe_visibility),
                 "branch_aware_metric": bool(branch_aware_metric),
                 "branch_metric_part_weight": float(branch_metric_part_weight),
                 "head_warmup_epochs": int(head_warmup_epochs),
@@ -567,6 +580,7 @@ class Boxmot:
                 "name": name,
                 "num_workers": int(num_workers),
                 "seed": int(seed),
+                "deterministic": bool(deterministic),
                 "eval_datasets": list(eval_datasets),
                 "ema_decay": ema_decay,
                 "gaussian_blur": bool(gaussian_blur),

@@ -15,14 +15,14 @@ import numpy as np
 
 from boxmot.data import MOTDataset
 from boxmot.detectors import default_conf
+from boxmot.engine.mot_utils import write_mot_results
 from boxmot.engine.tracking.tracker import TrackerRuntime
-from boxmot.native import get_native_replay_backend, process_sequence_cpp
+from boxmot.native import get_native_replay_backend
 from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import configure_logging as _base_configure_logging
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.callbacks import safe_progress_callback
 from boxmot.utils.misc import increment_path
-from boxmot.engine.mot_utils import write_mot_results
 from boxmot.utils.rich.ui import print_text
 from boxmot.utils.timing import TimingStats
 from boxmot.utils.torch_utils import select_device
@@ -710,7 +710,9 @@ def run_generate_mot_results(
     # Parse postprocessing pipeline (comma-separated, applied in order)
     pp_raw = getattr(args, "postprocessing", "none")
     pp_steps = [s.strip().lower() for s in pp_raw.split(",") if s.strip().lower() not in ("none", "")]
-    valid_steps = {"gsi", "gbrc", "gta"}
+    from boxmot.postprocessing import create_postprocessor, supported_postprocessors
+
+    valid_steps = set(supported_postprocessors())
     for s in pp_steps:
         if s not in valid_steps:
             raise ValueError(
@@ -749,29 +751,26 @@ def run_generate_mot_results(
                 _emit()
             return _cb
 
-        if pp_step == "gsi":
+        if pp_step != "gta":
+            postprocessor = create_postprocessor(pp_step)
             if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GSI postprocessing...")
-            from boxmot.postprocessing.gsi import gsi
+                LOGGER.info(
+                    f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing..."
+                )
 
-            gsi(
+            postprocessor.run(
                 mot_results_folder=exp_dir,
                 progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
             )
-        elif pp_step == "gbrc":
-            if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GBRC postprocessing...")
-            from boxmot.postprocessing.gbrc import gbrc
+            continue
 
-            gbrc(
-                mot_results_folder=exp_dir,
-                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
-            )
-        elif pp_step == "gta":
+        if pp_step == "gta":
+            postprocessor = create_postprocessor(pp_step)
             if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying GTA postprocessing...")
+                LOGGER.info(
+                    f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing..."
+                )
             from boxmot.data.cache import reid_cache_key
-            from boxmot.postprocessing.gta import gta as gta_postprocess
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
 
             # Resolve cached embeddings/detections directory
@@ -810,9 +809,12 @@ def run_generate_mot_results(
                     LOGGER.warning(skip_msg)
                 continue
 
-            gta_postprocess(
-                mot_results_folder=exp_dir,
+            postprocessor = create_postprocessor(
+                "gta",
                 embs_dir=embs_dir,
                 dets_dir=dets_dir if dets_dir.exists() else None,
+            )
+            postprocessor.run(
+                mot_results_folder=exp_dir,
                 progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
             )

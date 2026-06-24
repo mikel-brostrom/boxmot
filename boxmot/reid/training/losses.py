@@ -269,19 +269,6 @@ class CenterLoss(nn.Module):
         self.centers = nn.Parameter(torch.randn(num_classes, feat_dim))
 
     def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        batch_size = inputs.size(0)
-        # Compute pairwise distance between features and centers
-        dist = (
-            torch.pow(inputs, 2).sum(dim=1, keepdim=True).expand(batch_size, self.num_classes)
-            + torch.pow(self.centers, 2).sum(dim=1, keepdim=True).expand(self.num_classes, batch_size).t()
-        )
-        dist.addmm_(inputs, self.centers.t(), beta=1, alpha=-2)
-        dist = dist.clamp(min=1e-12)
-
-        # Gather center distances for the correct classes
-        classes = torch.arange(self.num_classes, dtype=torch.long, device=inputs.device)
-        labels = targets.unsqueeze(1).expand(batch_size, self.num_classes)
-        mask = labels.eq(classes.expand(batch_size, self.num_classes))
-
-        loss = dist * mask.float()
-        return loss.sum() / batch_size
+        target_centers = self.centers.index_select(0, targets.long())
+        distances = (inputs - target_centers).square().sum(dim=1).clamp_min(1e-12)
+        return distances.mean()

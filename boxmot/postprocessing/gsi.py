@@ -1,8 +1,4 @@
 import argparse
-import concurrent.futures
-import multiprocessing as mp
-import queue
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable
 
@@ -10,9 +6,8 @@ import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF
 
+from boxmot.postprocessing.base import FileWorker, MotFilePostprocessor, ProgressCallback
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.callbacks import safe_seq_progress_callback
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 
 def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:
@@ -145,17 +140,29 @@ def process_file(file_path: Path, interval: int, tau: float, progress_queue=None
             progress_queue.put((seq_name, 1, 1))  # mark done
 
 
-def _drain_queue(progress_queue, seq_progress: dict) -> None:
-    """Read all available messages from a progress queue."""
-    while True:
-        try:
-            name, current, total = progress_queue.get_nowait()
-            seq_progress[name] = (current, total)
-        except (queue.Empty, OSError):
-            break
+class GSIPostprocessor(MotFilePostprocessor):
+    """Gaussian-smoothed interpolation postprocessor."""
+
+    name = "gsi"
+    display_name = "GSI"
+
+    def __init__(self, interval: int = 20, tau: float = 10) -> None:
+        self.interval = interval
+        self.tau = tau
+
+    def worker(self) -> FileWorker:
+        return process_file
+
+    def worker_args(self) -> tuple[int, float]:
+        return self.interval, self.tau
 
 
-def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10, progress_callback: Callable[[str, int, int], None] | None = None):
+def gsi(
+    mot_results_folder: Path,
+    interval: int = 20,
+    tau: float = 10,
+    progress_callback: ProgressCallback | None = None,
+):
     """
     Apply Gaussian Smoothed Interpolation (GSI) to all tracking result files in a folder.
 
@@ -165,69 +172,10 @@ def gsi(mot_results_folder: Path, interval: int = 20, tau: float = 10, progress_
         tau (float, optional): Smoothing parameter for Gaussian process. Defaults to 10.
         progress_callback: Called with (seq_name, current_track, total_tracks) per track.
     """
-    progress_callback = safe_seq_progress_callback(progress_callback)
-    tracking_files = sorted(mot_results_folder.glob("*.txt"))
-    total_files = len(tracking_files)
-    LOGGER.debug(f"GSI: Found {total_files} file(s) to process.")
-
-    if total_files == 0:
-        LOGGER.warning("GSI: No .txt files found in results folder. Nothing to process.")
-        return
-
-    use_queue = progress_callback is not None
-    spawn_ctx = mp.get_context("spawn")
-    manager_ctx = spawn_ctx.Manager() if use_queue else nullcontext()
-    failed_files: list[str] = []
-
-    with manager_ctx as manager:
-        progress_queue = manager.Queue() if use_queue else None
-
-        with concurrent.futures.ProcessPoolExecutor(mp_context=spawn_ctx) as executor:
-            futures = {
-                executor.submit(process_file, file_path, interval, tau, progress_queue): file_path
-                for file_path in tracking_files
-            }
-
-            if progress_callback is not None:
-                seq_progress: dict[str, tuple[int, int]] = {}
-                pending = set(futures)
-
-                while pending:
-                    done, pending = concurrent.futures.wait(
-                        pending,
-                        timeout=0.3,
-                        return_when=concurrent.futures.FIRST_COMPLETED,
-                    )
-                    for future in done:
-                        file_path = futures[future]
-                        try:
-                            future.result()
-                        except Exception as e:
-                            LOGGER.error(f"Error processing file {file_path}: {e}")
-                            failed_files.append(str(file_path))
-                        seq_progress[file_path.stem] = (1, 1)
-
-                    _drain_queue(progress_queue, seq_progress)
-                    for name, (cur, tot) in seq_progress.items():
-                        progress_callback(name, cur, tot)
-            else:
-                for future in tqdm(
-                    concurrent.futures.as_completed(futures),
-                    total=total_files,
-                    desc="Processing files",
-                ):
-                    file_path = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        LOGGER.error(f"Error processing file {file_path}: {e}")
-                        failed_files.append(str(file_path))
-
-    if failed_files and len(failed_files) == total_files:
-        raise RuntimeError(
-            f"GSI postprocessing failed for all {total_files} file(s). "
-            f"Check logs for details."
-        )
+    GSIPostprocessor(interval=interval, tau=tau).run(
+        mot_results_folder,
+        progress_callback=progress_callback,
+    )
 
 
 def main():

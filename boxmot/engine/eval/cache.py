@@ -138,7 +138,7 @@ def _build_reid_only_models(
     cpp_factory = None
     if use_cpp_reid:
         try:
-            from boxmot.native.reid_capi import CppOnnxReID
+            from boxmot.native.reid import CppOnnxReID
             cpp_factory = CppOnnxReID
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning(

@@ -137,7 +137,7 @@ class DetectorReIDPipeline:
         cpp_reid_factory = None
         if use_cpp_reid:
             try:
-                from boxmot.native.reid_capi import CppOnnxReID
+                from boxmot.native.reid import CppOnnxReID
                 cpp_reid_factory = CppOnnxReID
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning(

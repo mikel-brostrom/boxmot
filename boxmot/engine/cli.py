@@ -60,6 +60,22 @@ def _parse_head_parts(ctx, param, value):
     return tuple(dict.fromkeys(parts))
 
 
+def _parse_int_tuple(ctx, param, value):
+    """Parse optional comma-separated integer tuples."""
+    del ctx, param
+    if value is None:
+        return ()
+    if isinstance(value, (list, tuple)):
+        parts = tuple(int(part) for part in value)
+    else:
+        value = str(value).strip()
+        if value.lower() in {"", "none", "off"}:
+            return ()
+        tokens = [token for token in value.replace(";", ",").split(",") if token.strip()]
+        parts = tuple(int(token) for token in tokens)
+    return tuple(dict.fromkeys(parts))
+
+
 def _parse_tflite_static_activation_bits(ctx, param, value):
     """Parse TFLite static activation precision."""
     del ctx, param
@@ -852,7 +868,7 @@ def train_options(func):
                      default=_click_imgsz_default(TRAIN_DEFAULTS.imgsz),
                      help='Image size as H,W (e.g. 256,128)'),
         click.option('--batch-size', type=int, default=TRAIN_DEFAULTS.batch_size, show_default=True,
-                     help='Training batch size'),
+                     help='Evaluation batch size; training uses --p-ids × --k-instances'),
         click.option('--lr', type=float, default=TRAIN_DEFAULTS.lr, show_default=True,
                      help='Base learning rate'),
         click.option('--weight-decay', type=float, default=TRAIN_DEFAULTS.weight_decay, show_default=True,
@@ -861,6 +877,13 @@ def train_options(func):
                      help='Number of training epochs'),
         click.option('--warmup-epochs', type=int, default=TRAIN_DEFAULTS.warmup_epochs, show_default=True,
                      help='Linear warmup epochs'),
+        click.option('--vit-lr-profile',
+                     type=click.Choice(['layer_decay', 'reid_lrd'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.vit_lr_profile, show_default=True,
+                     help='ViT LR grouping profile: existing geometric layer decay or ReID stage-wise decay'),
+        click.option('--backbone-freeze-epochs', type=int,
+                     default=TRAIN_DEFAULTS.backbone_freeze_epochs, show_default=True,
+                     help='Freeze pretrained CSL-TinyViT patch/stage layers for the first N epochs'),
         click.option('--eval-interval', type=int, default=TRAIN_DEFAULTS.eval_interval, show_default=True,
                      help='Validate every N epochs'),
         click.option('--p-ids', type=int, default=TRAIN_DEFAULTS.p_ids, show_default=True,
@@ -889,32 +912,103 @@ def train_options(func):
                      help='Weight applied to the ID classification loss term'),
         click.option('--metric-loss-weight', type=float, default=TRAIN_DEFAULTS.metric_loss_weight, show_default=True,
                      help='Weight applied to the metric loss term (triplet/circle/ms)'),
+        click.option('--aux-ce-weight', type=float, default=TRAIN_DEFAULTS.aux_ce_weight, show_default=True,
+                     help='Relative CE weight for auxiliary branch classifiers; 1.0 preserves equal branch averaging'),
+        click.option('--aux-ce-drop-epoch', type=int, default=TRAIN_DEFAULTS.aux_ce_drop_epoch, show_default=True,
+                     help='Set auxiliary CE weight to 0 after this epoch; 0 keeps it active for all epochs'),
         click.option('--branch-loss-agg', type=click.Choice(['mean', 'sum'], case_sensitive=False),
                      default=TRAIN_DEFAULTS.branch_loss_agg, show_default=True,
                      help='How to aggregate multi-branch losses before weighting'),
-        click.option('--metric-feature', type=click.Choice(['auto', 'raw_mean', 'concat_bn'], case_sensitive=False),
+        click.option('--metric-feature',
+                     type=click.Choice(
+                         ['auto', 'global', 'raw_mean', 'raw_concat', 'concat_bn', 'dse_weighted', 'dse_mix'],
+                         case_sensitive=False,
+                     ),
                      default=TRAIN_DEFAULTS.metric_feature, show_default=True,
                      help='Feature representation used for metric losses when the model supports multiple branches'),
-        click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+        click.option('--inference-feature',
+                     type=click.Choice(
+                         ['concat_bn', 'norm_concat_bn', 'global', 'raw_mean', 'raw_concat', 'dse_weighted', 'dse_mix'],
+                         case_sensitive=False,
+                     ),
                      default=TRAIN_DEFAULTS.inference_feature, show_default=True,
                      help='Feature representation emitted by CSL-TinyViT at validation/inference time'),
         click.option('--feature-fusion',
                      type=click.Choice(
-                         ['final', 'last2', 'last3', 'weighted_last2', 'weighted_last3'],
+                         [
+                             'final',
+                             'last2',
+                             'last3',
+                             'weighted_last2',
+                             'weighted_last3',
+                             'normpres_last2',
+                             'normpres_last3',
+                             'dynamic_last3',
+                             'dynamic_last3_scale_token',
+                         ],
                          case_sensitive=False,
                      ),
                      default=TRAIN_DEFAULTS.feature_fusion, show_default=True,
-                     help='CSL-TinyViT spatial feature fusion before the ReID head'),
+                     help='CSL-TinyViT static or per-image dynamic spatial fusion before the ReID head'),
         click.option('--feat-dim', type=int, default=TRAIN_DEFAULTS.feat_dim, show_default=True,
                      help='Per-branch embedding dimension for ReID heads that support projection'),
         click.option('--neck-dim', type=int, default=TRAIN_DEFAULTS.neck_dim, show_default=True,
                      help='Neck channel dimension for ReID backbones that support a feature neck'),
-        click.option('--head-pool', type=click.Choice(['avg', 'gem'], case_sensitive=False),
+        click.option('--drop-path-rate', type=float, default=TRAIN_DEFAULTS.drop_path_rate, show_default=True,
+                     help='Maximum stochastic-depth probability for CSL-TinyViT'),
+        click.option('--attention-window-layout',
+                     type=click.Choice(['legacy', 'rect'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.attention_window_layout, show_default=True,
+                     help='CSL-TinyViT attention windows: legacy square windows or ReID rectangular windows'),
+        click.option('--attention-bias',
+                     type=click.Choice(['absolute', 'signed_factorized'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.attention_bias, show_default=True,
+                     help='CSL-TinyViT relative attention bias parameterization'),
+        click.option('--attention-mask/--no-attention-mask',
+                     default=TRAIN_DEFAULTS.attention_mask, show_default=True,
+                     help='Mask padded tokens in CSL-TinyViT window attention'),
+        click.option('--attention-shift/--no-attention-shift',
+                     default=TRAIN_DEFAULTS.attention_shift, show_default=True,
+                     help='Alternate shifted CSL-TinyViT windows in attention stages 1 and 2'),
+        click.option('--stage3-global/--no-stage3-global',
+                     default=TRAIN_DEFAULTS.stage3_global, show_default=True,
+                     help='Use full 24x8 attention in the final CSL-TinyViT block'),
+        click.option('--reid-adapter-stages', callback=_parse_int_tuple, type=str,
+                     default=_click_imgsz_default(TRAIN_DEFAULTS.reid_adapter_stages), show_default=True,
+                     help='CSL-TinyViT attention stages that receive zero-gated ReID residual adapters'),
+        click.option('--reid-adapter-reduction', type=int,
+                     default=TRAIN_DEFAULTS.reid_adapter_reduction, show_default=True,
+                     help='Channel reduction ratio for CSL-TinyViT ReID residual adapters'),
+        click.option('--head-pool',
+                     type=click.Choice(
+                         ['avg', 'gem', 'dse', 'gelu_gem', 'relu_gem', 'softplus_gem'],
+                         case_sensitive=False,
+                     ),
                      default=TRAIN_DEFAULTS.head_pool, show_default=True,
                      help='Pooling layer used by CSL-TinyViT multi-branch heads'),
         click.option('--head-parts', callback=_parse_head_parts, type=str,
                      default=_click_imgsz_default(TRAIN_DEFAULTS.head_parts), show_default=True,
                      help='CSL-TinyViT head granularities, e.g. 1,2 for global+2 parts or 1,2,4 for MGN'),
+        click.option('--head-type',
+                     type=click.Choice(['standard', 'gpc_lite'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.head_type, show_default=True,
+                     help='CSL-TinyViT branch head: standard or global/part/channel lite'),
+        click.option('--part-pooling',
+                     type=click.Choice(['stripes', 'tokens'], case_sensitive=False),
+                     default=TRAIN_DEFAULTS.part_pooling, show_default=True,
+                     help='CSL-TinyViT local pooling: fixed horizontal stripes or learned part tokens'),
+        click.option('--num-part-tokens', type=int,
+                     default=TRAIN_DEFAULTS.num_part_tokens, show_default=True,
+                     help='Number of learned local queries when --part-pooling=tokens'),
+        click.option('--decouple-patterns/--no-decouple-patterns',
+                     default=TRAIN_DEFAULTS.decouple_patterns, show_default=True,
+                     help='Use separate zero-initialized residual adapters for global and local features'),
+        click.option('--pattern-adapter-dim', type=int,
+                     default=TRAIN_DEFAULTS.pattern_adapter_dim, show_default=True,
+                     help='Bottleneck width of each global/local pattern adapter'),
+        click.option('--stripe-visibility/--no-stripe-visibility',
+                     default=TRAIN_DEFAULTS.stripe_visibility, show_default=True,
+                     help='Learn a per-image confidence for each fixed local stripe'),
         click.option('--branch-aware-metric/--no-branch-aware-metric',
                      default=TRAIN_DEFAULTS.branch_aware_metric, show_default=True,
                      help='Apply metric loss separately to CSL-TinyViT global and part branches'),
@@ -940,7 +1034,10 @@ def train_options(func):
         click.option('--num-workers', type=int, default=TRAIN_DEFAULTS.num_workers, show_default=True,
                      help='Dataloader workers'),
         click.option('--seed', type=int, default=TRAIN_DEFAULTS.seed, show_default=True,
-                     help='Random seed'),
+                     help='Global random seed for Python, NumPy, PyTorch, samplers, and dataloader workers'),
+        click.option('--deterministic/--no-deterministic',
+                     default=TRAIN_DEFAULTS.deterministic, show_default=True,
+                     help='Require deterministic PyTorch algorithms and backend behavior'),
         click.option('--eval-datasets', type=str, default=','.join(TRAIN_DEFAULTS.eval_datasets) if TRAIN_DEFAULTS.eval_datasets else '',
                      help='Comma-separated list of extra datasets for cross-domain evaluation '
                           '(e.g. duke,cuhk03,msmt17)'),
@@ -955,6 +1052,11 @@ def train_options(func):
                      help='Probability of random grayscale conversion (0 to disable)'),
         click.option('--random-erasing', type=float, default=TRAIN_DEFAULTS.random_erasing, show_default=True,
                      help='Probability of random erasing augmentation (0 to disable)'),
+        click.option('--random-patch/--no-random-patch', default=TRAIN_DEFAULTS.random_patch, show_default=True,
+                     help='Apply random patch augmentation'),
+        click.option('--color-augmentation/--no-color-augmentation',
+                     default=TRAIN_DEFAULTS.color_augmentation, show_default=True,
+                     help='Enable additional color augmentation mix used by LMBN-style recipes'),
         click.option('--resume', type=click.Path(), default=None,
                      help='Resume training from a checkpoint dir or last.pt file'),
     ]
@@ -967,11 +1069,12 @@ def train_options(func):
 @train_options
 @click.pass_context
 def train(ctx, **kwargs):
-    # --data-dir is required unless --resume is provided
-    if not kwargs.get('resume') and not kwargs.get('data_dir'):
-        raise click.MissingParameter(param_hint="'--data-dir'", param_type='option')
     args = _build_cli_namespace(ctx, "train", kwargs)
-    _run_engine_workflow("boxmot.engine.reid.trainer", args)
+    # --data-dir is required unless --resume is provided, but recipes may
+    # supply it, so validate after recipe/default resolution.
+    if not getattr(args, "resume", None) and not getattr(args, "data_dir", None):
+        raise click.MissingParameter(param_hint="'--data-dir'", param_type='option')
+    _run_engine_workflow("boxmot.reid.workflows.trainer", args)
 
 
 @boxmot.command(name='eval-reid', help='Evaluate a trained ReID model on query/gallery')
@@ -988,7 +1091,11 @@ def train(ctx, **kwargs):
               help='Crop preprocessing method (default: checkpoint/hparams value)')
 @click.option('--imgsz', callback=parse_imgsz, type=str, default=None,
               help='Image size as H,W (default: hparams value, fallback 256,128)')
-@click.option('--inference-feature', type=click.Choice(['concat_bn', 'global', 'raw_mean'], case_sensitive=False),
+@click.option('--inference-feature',
+              type=click.Choice(
+                  ['concat_bn', 'norm_concat_bn', 'global', 'raw_mean', 'raw_concat', 'dse_weighted', 'dse_mix'],
+                  case_sensitive=False,
+              ),
               default=None,
               help='Override CSL-TinyViT eval embedding without retraining')
 @click.option('--flip-tta/--no-flip-tta', default=None,
@@ -1003,7 +1110,7 @@ def train(ctx, **kwargs):
 @click.pass_context
 def eval_reid(ctx, **kwargs):
     args = _build_cli_namespace(ctx, "eval-reid", kwargs)
-    _run_engine_workflow("boxmot.engine.reid.evaluator", args)
+    _run_engine_workflow("boxmot.reid.workflows.evaluator", args)
 
 
 @boxmot.command(help='Export ReID models')
@@ -1015,7 +1122,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     args = _build_cli_namespace(ctx, "export", kwargs)
-    _run_engine_workflow("boxmot.engine.reid.export", args)
+    _run_engine_workflow("boxmot.reid.workflows.export", args)
 
 
 @boxmot.command(help='Build native (C++) tracker shared libraries')
@@ -1028,7 +1135,7 @@ def export(ctx, **kwargs):
 )
 @click.option('--force', is_flag=True, default=False, help='Force rebuild even if libraries already exist.')
 def build(trackers, force):
-    """Compile the native C++ shared libraries shipped under ``boxmot/native/trackers``.
+    """Compile the native C++ shared libraries shipped under ``boxmot/native/cpp/trackers``.
 
     Useful for editable installs (``pip install -e .``) where the wheel build
     step is skipped. Each tracker is built into ``build/native/<tracker>/`` and
@@ -1048,10 +1155,10 @@ def build(trackers, force):
     for name in selected:
         try:
             if name == 'reid':
-                from boxmot.native.reid_capi import ensure_reid_capi_library
+                from boxmot.native.reid import ensure_reid_capi_library
                 lib = ensure_reid_capi_library(force_rebuild=force)
             else:
-                module = __import__(f'boxmot.native.{name}_cpp', fromlist=['*'])
+                module = importlib.import_module(f"boxmot.native.trackers.{name}")
                 ensure = getattr(module, f'ensure_{name}_cpp_library')
                 lib = ensure(force_rebuild=force)
             click.echo(f"[boxmot build] {name}: built -> {lib}")

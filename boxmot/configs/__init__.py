@@ -60,6 +60,7 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
     mappings: dict[str, tuple[str, ...]] = {
         "model": ("run", "model_name"),
         "seed": ("run", "seed"),
+        "deterministic": ("run", "deterministic"),
         "pretrained": ("run", "pretrained"),
         "dataset": ("data", "dataset"),
         "data_dir": ("data", "data_dir"),
@@ -72,8 +73,22 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "feature_fusion": ("model", "feature_fusion"),
         "feat_dim": ("model", "feat_dim"),
         "neck_dim": ("model", "neck_dim"),
+        "drop_path_rate": ("model", "regularization", "drop_path_rate"),
+        "attention_window_layout": ("model", "attention", "window_layout"),
+        "attention_bias": ("model", "attention", "bias"),
+        "attention_mask": ("model", "attention", "mask"),
+        "attention_shift": ("model", "attention", "shift"),
+        "stage3_global": ("model", "attention", "stage3_global"),
+        "reid_adapter_stages": ("model", "reid_adapters", "stages"),
+        "reid_adapter_reduction": ("model", "reid_adapters", "reduction"),
         "head_pool": ("model", "head", "pool"),
         "head_parts": ("model", "head", "parts"),
+        "head_type": ("model", "head", "head_type"),
+        "part_pooling": ("model", "head", "part_pooling"),
+        "num_part_tokens": ("model", "head", "num_part_tokens"),
+        "decouple_patterns": ("model", "head", "decouple_patterns"),
+        "pattern_adapter_dim": ("model", "head", "pattern_adapter_dim"),
+        "stripe_visibility": ("model", "head", "stripe_visibility"),
         "head_warmup_epochs": ("model", "head", "warmup_epochs"),
         "head_warmup_lr_mult": ("model", "head", "warmup_lr_mult"),
         "metric_feature": ("model", "feature_selection", "metric_feature"),
@@ -86,6 +101,8 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "weight_decay": ("optimization", "weight_decay"),
         "eta_min": ("optimization", "scheduler", "eta_min"),
         "warmup_epochs": ("optimization", "scheduler", "warmup_epochs"),
+        "vit_lr_profile": ("optimization", "vit_lr_profile"),
+        "backbone_freeze_epochs": ("optimization", "backbone_freeze_epochs"),
         "ema_decay": ("optimization", "ema_decay"),
         "loss": ("losses", "loss_type"),
         "classifier_loss": ("losses", "classifier_loss"),
@@ -95,6 +112,8 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "id_loss_weight": ("losses", "weights", "id_loss_weight"),
         "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
         "center_loss_weight": ("losses", "weights", "center_loss_weight"),
+        "aux_ce_weight": ("losses", "weights", "aux_ce_weight"),
+        "aux_ce_drop_epoch": ("losses", "aux_ce_drop_epoch"),
         "color_jitter": ("augmentation", "color_jitter"),
         "gaussian_blur": ("augmentation", "gaussian_blur"),
         "random_grayscale": ("augmentation", "random_grayscale"),
@@ -286,6 +305,7 @@ def build_mode_namespace(
         elif isinstance(imgsz, int):
             values["imgsz"] = (imgsz, imgsz // 2)
         values["head_parts"] = _normalize_int_tuple(values.get("head_parts", (1, 2)))
+        values["reid_adapter_stages"] = _normalize_int_tuple(values.get("reid_adapter_stages", ()))
         # Parse eval_datasets: accept comma-separated string or list
         ed = values.get("eval_datasets", ())
         if isinstance(ed, str):
@@ -589,18 +609,36 @@ class TrainModeDefaults:
     center_loss_weight: float
     id_loss_weight: float
     metric_loss_weight: float
+    aux_ce_weight: float
+    aux_ce_drop_epoch: int
     branch_loss_agg: str
     metric_feature: str
     inference_feature: str
     feature_fusion: str
     feat_dim: int
     neck_dim: int
+    drop_path_rate: float
+    attention_window_layout: str
+    attention_bias: str
+    attention_mask: bool
+    attention_shift: bool
+    stage3_global: bool
+    reid_adapter_stages: tuple[int, ...]
+    reid_adapter_reduction: int
     head_pool: str
     head_parts: tuple[int, ...]
+    head_type: str
+    part_pooling: str
+    num_part_tokens: int
+    decouple_patterns: bool
+    pattern_adapter_dim: int
+    stripe_visibility: bool
     branch_aware_metric: bool
     branch_metric_part_weight: float
     head_warmup_epochs: int
     head_warmup_lr_mult: float
+    vit_lr_profile: str
+    backbone_freeze_epochs: int
     eta_min: float
     pretrained: bool
     device: str
@@ -608,6 +646,7 @@ class TrainModeDefaults:
     name: str
     num_workers: int
     seed: int
+    deterministic: bool
     eval_datasets: tuple
     ema_decay: float | None
     gaussian_blur: bool
@@ -651,25 +690,44 @@ class TrainModeDefaults:
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
             id_loss_weight=float(values.get("id_loss_weight", 1.0)),
             metric_loss_weight=float(values.get("metric_loss_weight", 1.0)),
+            aux_ce_weight=float(values.get("aux_ce_weight", 1.0)),
+            aux_ce_drop_epoch=int(values.get("aux_ce_drop_epoch", 0)),
             branch_loss_agg=str(values.get("branch_loss_agg", "mean")),
             metric_feature=str(values.get("metric_feature", "auto")),
             inference_feature=str(values.get("inference_feature", "concat_bn")),
             feature_fusion=str(values.get("feature_fusion", "last3")),
             feat_dim=int(values.get("feat_dim", 512)),
             neck_dim=int(values.get("neck_dim", 512)),
+            drop_path_rate=float(values.get("drop_path_rate", 0.1)),
+            attention_window_layout=str(values.get("attention_window_layout", "legacy")),
+            attention_bias=str(values.get("attention_bias", "absolute")),
+            attention_mask=bool(values.get("attention_mask", False)),
+            attention_shift=bool(values.get("attention_shift", False)),
+            stage3_global=bool(values.get("stage3_global", False)),
+            reid_adapter_stages=_normalize_int_tuple(values.get("reid_adapter_stages", ())),
+            reid_adapter_reduction=int(values.get("reid_adapter_reduction", 4)),
             head_pool=str(values.get("head_pool", "avg")),
             head_parts=_normalize_int_tuple(values.get("head_parts", (1, 2))),
+            head_type=str(values.get("head_type", "standard")),
+            part_pooling=str(values.get("part_pooling", "stripes")),
+            num_part_tokens=int(values.get("num_part_tokens", 4)),
+            decouple_patterns=bool(values.get("decouple_patterns", False)),
+            pattern_adapter_dim=int(values.get("pattern_adapter_dim", 128)),
+            stripe_visibility=bool(values.get("stripe_visibility", False)),
             branch_aware_metric=bool(values.get("branch_aware_metric", False)),
             branch_metric_part_weight=float(values.get("branch_metric_part_weight", 0.5)),
             head_warmup_epochs=int(values.get("head_warmup_epochs", 0)),
             head_warmup_lr_mult=float(values.get("head_warmup_lr_mult", 2.0)),
+            vit_lr_profile=str(values.get("vit_lr_profile", "layer_decay")),
+            backbone_freeze_epochs=int(values.get("backbone_freeze_epochs", 0)),
             eta_min=float(values.get("eta_min", 1e-7)),
             pretrained=bool(values.get("pretrained", True)),
             device=str(values.get("device", "cpu")),
             project=str(values.get("project", "runs/reid_train")),
             name=str(values.get("name", "exp")),
             num_workers=int(values.get("num_workers", 4)),
-            seed=int(values.get("seed", 42)),
+            seed=int(values.get("seed", 0)),
+            deterministic=bool(values.get("deterministic", True)),
             eval_datasets=tuple(values.get("eval_datasets", ())),
             ema_decay=values.get("ema_decay"),
             gaussian_blur=bool(values.get("gaussian_blur", False)),

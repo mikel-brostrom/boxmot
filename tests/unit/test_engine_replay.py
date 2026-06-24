@@ -339,6 +339,9 @@ def test_replay_cpp_backend_uses_native_runner(tmp_path, monkeypatch):
         def result(self):
             return self._value
 
+    def fake_process_sequence_cpp(*args, **kwargs):
+        raise AssertionError("The fake executor should not call the submitted function directly")
+
     class FakeThreadPoolExecutor:
         def __init__(self, *args, **kwargs):
             assert kwargs["max_workers"] == 2
@@ -350,14 +353,14 @@ def test_replay_cpp_backend_uses_native_runner(tmp_path, monkeypatch):
             return False
 
         def submit(self, fn, *task_arg):
-            assert fn is replay_module.process_sequence_cpp
+            assert fn is fake_process_sequence_cpp
             seq_name = task_arg[0]
             return FakeFuture((seq_name, [1], {"track_time_ms": 7.5, "num_frames": 1}))
 
     monkeypatch.setattr(
         replay_module,
         "get_native_replay_backend",
-        lambda tracker_name: SimpleNamespace(process_sequence=replay_module.process_sequence_cpp),
+        lambda tracker_name: SimpleNamespace(process_sequence=fake_process_sequence_cpp),
     )
     monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
     monkeypatch.setattr(
@@ -467,6 +470,9 @@ def test_replay_cpp_backend_reports_incremental_progress(tmp_path, monkeypatch):
 
     state = {"progress_queue": None, "calls": 0}
 
+    def fake_process_sequence_cpp(*args, **kwargs):
+        raise AssertionError("The fake executor should not call the submitted function directly")
+
     class FakeThreadPoolExecutor:
         def __init__(self, *args, **kwargs):
             assert kwargs["max_workers"] == 1
@@ -478,7 +484,7 @@ def test_replay_cpp_backend_reports_incremental_progress(tmp_path, monkeypatch):
             return False
 
         def submit(self, fn, *task_arg):
-            assert fn is replay_module.process_sequence_cpp
+            assert fn is fake_process_sequence_cpp
             state["progress_queue"] = task_arg[-1]
             return FakeFuture(("MOT17-02-FRCNN", [1, 2, 3], {"track_time_ms": 7.5, "num_frames": 3}))
 
@@ -486,7 +492,7 @@ def test_replay_cpp_backend_reports_incremental_progress(tmp_path, monkeypatch):
     monkeypatch.setattr(
         replay_module,
         "get_native_replay_backend",
-        lambda tracker_name: SimpleNamespace(process_sequence=replay_module.process_sequence_cpp),
+        lambda tracker_name: SimpleNamespace(process_sequence=fake_process_sequence_cpp),
     )
     monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
     monkeypatch.setattr(

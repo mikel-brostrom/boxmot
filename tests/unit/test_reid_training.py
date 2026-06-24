@@ -1,17 +1,22 @@
 import json
 from types import SimpleNamespace
 
+import pytest
 import torch
 import torch.nn as nn
 
-from boxmot.engine.reid import trainer as engine_trainer
 import boxmot.reid.backbones.lmbn.lmbn_ain_n as lmbn_ain_n_module
 import boxmot.reid.backbones.lmbn.lmbn_n as lmbn_n_module
-from boxmot.reid.backbones.lmbn.bnneck import BNNeck3
 from boxmot.reid.backbones.csl_tinyvit import (
+    Attention,
     CSLTinyViTFeatureFusion,
+    DSELitePool,
+    GeM,
+    GPCLiteMultiBranchHead,
     LMBNStyleMultiBranchHead,
     MultiBranchHead,
+    ReIDResidualAdapter,
+    TinyViTBlock,
     csl_tinyvit_7m,
     csl_tinyvit_7m_lmbn,
     csl_tinyvit_11m,
@@ -23,10 +28,20 @@ from boxmot.reid.backbones.csl_tinyvit import (
     csl_tinyvit_normal,
     csl_tinyvit_small,
 )
+from boxmot.reid.backbones.lmbn.bnneck import BNNeck3
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.datasets import build_combined_dataset, build_dataset
+from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.losses import ArcFaceLoss, CenterLoss, CircleLoss, CosFaceLoss, TripletLoss
-from boxmot.reid.training.trainer import ReIDTrainer
+from boxmot.reid.training.trainer import (
+    LoaderBundle,
+    LossBundle,
+    ModelBundle,
+    OptimizationBundle,
+    ReIDTrainer,
+    ValMetrics,
+)
+from boxmot.reid.workflows import trainer as workflow_trainer
 
 
 def _trainer(tmp_path, **kwargs):
@@ -142,6 +157,117 @@ def test_vit_defaults_respect_explicit_training_values(tmp_path):
     assert trainer.center_loss_weight == 0.0
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"loss_type": "unknown"}, "Unsupported loss_type"),
+        ({"classifier_loss": "unknown"}, "classifier_loss"),
+        ({"epochs": 10, "warmup_epochs": 10}, "warmup_epochs"),
+        ({"p": 0}, "p and k"),
+        ({"k": 0}, "p and k"),
+        ({"batch_size": 0}, "evaluation batch size"),
+        ({"center_loss_weight": -1}, "center_loss_weight"),
+        ({"random_erasing": 1.1}, "random_erasing"),
+        ({"eta_min": 1.0}, "eta_min"),
+    ],
+)
+def test_trainer_rejects_invalid_config_early(tmp_path, kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        _trainer(tmp_path, **kwargs)
+
+
+def test_trainer_exposes_distinct_train_and_eval_batch_sizes(tmp_path):
+    trainer = _trainer(tmp_path, batch_size=96, p=12, k=4)
+
+    assert trainer.train_batch_size == 48
+    assert trainer.eval_batch_size == 96
+    assert trainer.batch_size == 96
+
+
+def test_typed_training_config_preserves_legacy_constructor_values(tmp_path):
+    config = ReIDTrainConfig.from_flat_kwargs(
+        model_name="csl_tinyvit_7m",
+        dataset_name="market1501",
+        data_dir=str(tmp_path),
+        batch_size=96,
+        p=12,
+        k=4,
+        seed=7,
+        deterministic=True,
+        center_loss_weight=0.0,
+    )
+
+    trainer = ReIDTrainer.from_config(config)
+
+    assert trainer.model_name == "csl_tinyvit_7m"
+    assert trainer.train_batch_size == 48
+    assert trainer.eval_batch_size == 96
+    assert trainer.seed == 7
+    assert trainer.center_loss_weight == 0.0
+
+
+def test_run_is_thin_orchestration_over_typed_bundles(monkeypatch, tmp_path):
+    trainer = _trainer(tmp_path)
+    calls = []
+    data = SimpleNamespace(num_classes=4)
+    models = object()
+    loaders = object()
+    losses = object()
+    optimization = object()
+    state = object()
+    expected = SimpleNamespace(best_mAP=0.5)
+
+    monkeypatch.setattr(trainer, "_prepare_runtime", lambda: calls.append("runtime"))
+    monkeypatch.setattr(trainer, "_build_dataset_bundle", lambda: calls.append("data") or data)
+    monkeypatch.setattr(
+        trainer,
+        "_build_model_bundle",
+        lambda num_classes: calls.append(("model", num_classes)) or models,
+    )
+    monkeypatch.setattr(
+        trainer,
+        "_build_loader_bundle",
+        lambda bundle: calls.append(("loaders", bundle)) or loaders,
+    )
+    monkeypatch.setattr(
+        trainer,
+        "_build_loss_bundle",
+        lambda model_bundle, num_classes: calls.append(("losses", num_classes)) or losses,
+    )
+    monkeypatch.setattr(
+        trainer,
+        "_build_optimization_bundle",
+        lambda model_bundle, loss_bundle: calls.append("optimization") or optimization,
+    )
+    monkeypatch.setattr(
+        trainer,
+        "_restore_if_needed",
+        lambda *args: calls.append("restore") or state,
+    )
+    monkeypatch.setattr(trainer, "_make_save_dir", lambda: tmp_path / "run")
+    monkeypatch.setattr(trainer, "_write_hparams", lambda *args: calls.append("hparams"))
+    monkeypatch.setattr(
+        trainer,
+        "_fit",
+        lambda **kwargs: calls.append("fit") or expected,
+    )
+
+    result = trainer.run()
+
+    assert result is expected
+    assert calls == [
+        "runtime",
+        "data",
+        ("model", 4),
+        ("loaders", data),
+        ("losses", 4),
+        "optimization",
+        "restore",
+        "hparams",
+        "fit",
+    ]
+
+
 def test_lmbn_augment_flags_are_config_driven(tmp_path):
     trainer = ReIDTrainer(
         model_name="lmbn_n",
@@ -175,15 +301,25 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
                 "dataset": "market1501",
                 "data_dir": str(tmp_path),
                 "loss_type": "triplet",
+                "seed": 91,
+                "deterministic": False,
                 "lr": 7e-4,
                 "center_loss_weight": 5e-3,
                 "head_pool": "gem",
                 "head_parts": [1, 2, 4],
+                "part_pooling": "tokens",
+                "num_part_tokens": 4,
+                "decouple_patterns": True,
+                "pattern_adapter_dim": 128,
                 "feature_fusion": "last2",
+                "reid_adapter_stages": [2, 3],
+                "reid_adapter_reduction": 8,
                 "branch_aware_metric": True,
                 "branch_metric_part_weight": 0.25,
                 "head_warmup_epochs": 10,
                 "head_warmup_lr_mult": 3.0,
+                "vit_lr_profile": "reid_lrd",
+                "backbone_freeze_epochs": 20,
             }
         )
     )
@@ -196,7 +332,7 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)
 
-    monkeypatch.setattr(engine_trainer, "ReIDTrainer", FakeTrainer)
+    monkeypatch.setattr(workflow_trainer, "ReIDTrainer", FakeTrainer)
     args = SimpleNamespace(
         model="csl_tinyvit_7m",
         dataset="market1501",
@@ -209,17 +345,27 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
         train_explicit_keys=("lr", "center_loss_weight"),
     )
 
-    engine_trainer.main(args)
+    workflow_trainer.main(args)
 
     assert captured["lr"] == 3.5e-4
     assert captured["center_loss_weight"] == 0.0
+    assert captured["seed"] == 91
+    assert captured["deterministic"] is False
     assert captured["head_pool"] == "gem"
     assert captured["head_parts"] == [1, 2, 4]
+    assert captured["part_pooling"] == "tokens"
+    assert captured["num_part_tokens"] == 4
+    assert captured["decouple_patterns"] is True
+    assert captured["pattern_adapter_dim"] == 128
     assert captured["feature_fusion"] == "last2"
+    assert captured["reid_adapter_stages"] == [2, 3]
+    assert captured["reid_adapter_reduction"] == 8
     assert captured["branch_aware_metric"] is True
     assert captured["branch_metric_part_weight"] == 0.25
     assert captured["head_warmup_epochs"] == 10
     assert captured["head_warmup_lr_mult"] == 3.0
+    assert captured["vit_lr_profile"] == "reid_lrd"
+    assert captured["backbone_freeze_epochs"] == 20
     assert captured["explicit_hparams"] == {"lr", "center_loss_weight"}
 
 
@@ -231,6 +377,8 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
             {
                 "run": {
                     "model_name": "csl_tinyvit_7m",
+                    "seed": 73,
+                    "deterministic": False,
                 },
                 "data": {
                     "dataset": "market1501",
@@ -240,11 +388,21 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
                 },
                 "model": {
                     "feature_fusion": "last2",
-                    "head": {"pool": "gem", "parts": [1, 2, 4]},
+                    "reid_adapters": {"stages": [3], "reduction": 4},
+                    "head": {
+                        "pool": "gem",
+                        "parts": [1, 2, 4],
+                        "part_pooling": "tokens",
+                        "num_part_tokens": 4,
+                        "decouple_patterns": True,
+                        "pattern_adapter_dim": 128,
+                    },
                     "branch": {"aware_metric": True, "metric_part_weight": 0.25},
                 },
                 "optimization": {
                     "epochs": 250,
+                    "vit_lr_profile": "reid_lrd",
+                    "backbone_freeze_epochs": 40,
                     "scheduler": {"warmup_epochs": 20},
                 },
                 "losses": {
@@ -263,7 +421,7 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)
 
-    monkeypatch.setattr(engine_trainer, "ReIDTrainer", FakeTrainer)
+    monkeypatch.setattr(workflow_trainer, "ReIDTrainer", FakeTrainer)
     args = SimpleNamespace(
         model="csl_tinyvit_7m",
         dataset="market1501",
@@ -275,18 +433,28 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
         train_explicit_keys=("lr",),
     )
 
-    engine_trainer.main(args)
+    workflow_trainer.main(args)
 
     assert captured["lr"] == 3.5e-4
+    assert captured["seed"] == 73
+    assert captured["deterministic"] is False
     assert captured["feature_fusion"] == "last2"
     assert captured["head_pool"] == "gem"
     assert captured["head_parts"] == [1, 2, 4]
+    assert captured["part_pooling"] == "tokens"
+    assert captured["num_part_tokens"] == 4
+    assert captured["decouple_patterns"] is True
+    assert captured["pattern_adapter_dim"] == 128
+    assert captured["reid_adapter_stages"] == [3]
+    assert captured["reid_adapter_reduction"] == 4
     assert captured["branch_aware_metric"] is True
     assert captured["branch_metric_part_weight"] == 0.25
     assert captured["center_loss_weight"] == 0.005
     assert captured["p"] == 16
     assert captured["k"] == 4
     assert captured["warmup_epochs"] == 20
+    assert captured["vit_lr_profile"] == "reid_lrd"
+    assert captured["backbone_freeze_epochs"] == 40
 
 
 def test_reid_checkpoint_saves_center_loss_state(tmp_path):
@@ -310,6 +478,151 @@ def test_reid_checkpoint_saves_center_loss_state(tmp_path):
 
     assert "center_loss_state_dict" in ckpt
     assert torch.allclose(ckpt["center_loss_state_dict"]["centers"], expected_centers)
+    assert ckpt["seed"] == trainer.seed
+    assert ckpt["deterministic"] is trainer.deterministic
+    assert {"python", "numpy", "torch"} <= set(ckpt["rng_state"])
+
+
+def test_last_checkpoint_keeps_live_and_ema_weights_separate(tmp_path):
+    trainer = _trainer(tmp_path)
+    live_model = nn.Linear(2, 2)
+    ema_model = nn.Linear(2, 2)
+    with torch.no_grad():
+        live_model.weight.fill_(1.0)
+        ema_model.weight.fill_(2.0)
+    optimizer = torch.optim.SGD(live_model.parameters(), lr=0.1)
+    criterion_center = CenterLoss(num_classes=2, feat_dim=2)
+    path = tmp_path / "last.pt"
+
+    trainer.checkpoint_manager.save_last(
+        path,
+        model=live_model,
+        epoch=4,
+        val=None,
+        optimizer=optimizer,
+        optimizer_center=None,
+        criterion_center=criterion_center,
+        criterion_classifier=nn.Identity(),
+        ema_model=ema_model,
+        best_mAP=0.7,
+    )
+
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    torch.testing.assert_close(checkpoint["state_dict"]["weight"], live_model.weight)
+    torch.testing.assert_close(checkpoint["ema_state_dict"]["weight"], ema_model.weight)
+    assert checkpoint["checkpoint_type"] == "last"
+    assert checkpoint["resumable"] is True
+    assert checkpoint["best_mAP"] == 0.7
+
+
+def test_best_checkpoint_records_metric_and_is_weights_only(tmp_path):
+    trainer = _trainer(tmp_path)
+    model = nn.Linear(2, 2)
+    validation = ValMetrics(epoch=3, mAP=0.81, rank1=0.92, rank5=0.0, rank10=0.0)
+    path = tmp_path / "best.pt"
+
+    trainer.checkpoint_manager.save_best(
+        path,
+        model=model,
+        epoch=3,
+        val=validation,
+        criterion_center=None,
+        criterion_classifier=None,
+        best_mAP=validation.mAP,
+    )
+
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+    assert checkpoint["checkpoint_type"] == "best"
+    assert checkpoint["resumable"] is False
+    assert checkpoint["best_mAP"] == validation.mAP
+    assert checkpoint["mAP"] == validation.mAP
+    assert "optimizer" not in checkpoint
+
+
+def test_weights_only_resume_syncs_ema_and_falls_back_to_map(tmp_path):
+    checkpoint_path = tmp_path / "best.pt"
+    source_model = nn.Linear(2, 2)
+    with torch.no_grad():
+        source_model.weight.fill_(3.0)
+    torch.save(
+        {
+            "state_dict": source_model.state_dict(),
+            "epoch": 4,
+            "epochs": 120,
+            "best_mAP": 0.0,
+            "mAP": 0.77,
+            "rank1": 0.88,
+            "resumable": False,
+            "rng_state": ReIDTrainer._capture_rng_state(),
+        },
+        checkpoint_path,
+    )
+    trainer = _trainer(
+        tmp_path,
+        resume=str(checkpoint_path),
+        center_loss_weight=0.0,
+    )
+    live_model = nn.Linear(2, 2)
+    ema_model = nn.Linear(2, 2)
+    model_bundle = ModelBundle(
+        model=live_model,
+        ema_model=ema_model,
+        val_model=ema_model,
+        is_vit=False,
+    )
+    loaders = LoaderBundle(train=[], query=[], gallery=[], cross_domain={})
+    losses = LossBundle(
+        criterion_id=nn.Identity(),
+        criterion_metric=None,
+        criterion_center=CenterLoss(2, 2),
+        label_smooth=0.0,
+        soft_margin=False,
+        metric_dim=2,
+        classifier_dim=2,
+    )
+    optimizer = torch.optim.SGD(live_model.parameters(), lr=0.1)
+    optimization = OptimizationBundle(
+        optimizer=optimizer,
+        optimizer_center=torch.optim.SGD(losses.criterion_center.parameters(), lr=0.5),
+        scheduler=torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=100),
+        grad_clip=0.0,
+    )
+
+    state = trainer._restore_if_needed(model_bundle, loaders, losses, optimization)
+
+    torch.testing.assert_close(live_model.weight, source_model.weight)
+    torch.testing.assert_close(ema_model.weight, source_model.weight)
+    assert state.start_epoch == 5
+    assert state.best_mAP == 0.77
+    assert state.best_rank1 == 0.88
+
+
+def test_center_loss_matches_full_distance_matrix_value_and_gradients():
+    torch.manual_seed(7)
+    inputs = torch.randn(8, 16, dtype=torch.float64, requires_grad=True)
+    centers = torch.randn(5, 16, dtype=torch.float64, requires_grad=True)
+    targets = torch.tensor([0, 1, 1, 2, 3, 3, 3, 4])
+
+    full_distances = (
+        inputs.square().sum(dim=1, keepdim=True)
+        + centers.square().sum(dim=1).unsqueeze(0)
+        - 2 * inputs @ centers.t()
+    ).clamp_min(1e-12)
+    reference = full_distances.gather(1, targets[:, None]).mean()
+    reference.backward()
+    expected_input_grad = inputs.grad.clone()
+    expected_center_grad = centers.grad.clone()
+
+    optimized_inputs = inputs.detach().clone().requires_grad_(True)
+    criterion = CenterLoss(num_classes=5, feat_dim=16).double()
+    with torch.no_grad():
+        criterion.centers.copy_(centers.detach())
+    actual = criterion(optimized_inputs, targets)
+    actual.backward()
+
+    torch.testing.assert_close(actual, reference)
+    torch.testing.assert_close(optimized_inputs.grad, expected_input_grad)
+    torch.testing.assert_close(criterion.centers.grad, expected_center_grad)
 
 
 def test_reid_resume_restores_center_loss_state(tmp_path):
@@ -369,6 +682,34 @@ def test_csl_tinyvit_metric_feature_mode_follows_loss():
     assert ms_model.head.metric_feature == "concat_bn"
 
 
+def test_registry_reads_pattern_head_checkpoint_kwargs(tmp_path):
+    weights = tmp_path / "pattern_head.pt"
+    torch.save(
+        {
+            "head_type": "gpc_lite",
+            "part_pooling": "tokens",
+            "num_part_tokens": 4,
+            "decouple_patterns": True,
+            "pattern_adapter_dim": 128,
+            "stripe_visibility": True,
+            "reid_adapter_stages": [2, 3],
+            "reid_adapter_reduction": 8,
+        },
+        weights,
+    )
+
+    kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(weights)
+
+    assert kwargs["head_type"] == "gpc_lite"
+    assert kwargs["part_pooling"] == "tokens"
+    assert kwargs["num_part_tokens"] == 4
+    assert kwargs["decouple_patterns"] is True
+    assert kwargs["pattern_adapter_dim"] == 128
+    assert kwargs["stripe_visibility"] is True
+    assert kwargs["reid_adapter_stages"] == (2, 3)
+    assert kwargs["reid_adapter_reduction"] == 8
+
+
 def test_reid_registry_reads_custom_checkpoint_metadata(tmp_path):
     weights = tmp_path / "best.pt"
     torch.save({"model_name": "csl_tinyvit_23m", "num_classes": 751}, weights)
@@ -415,6 +756,186 @@ def test_csl_tinyvit_family_uses_standard_widths_and_512_neck():
     assert small.neck[0].out_channels == 512
     assert normal.neck[0].out_channels == 512
     assert large.neck[0].out_channels == 512
+
+
+def test_csl_tinyvit_builds_pattern_decoupled_part_token_head():
+    model = csl_tinyvit_7m(
+        num_classes=4,
+        pretrained=False,
+        part_pooling="tokens",
+        num_part_tokens=4,
+        decouple_patterns=True,
+        pattern_adapter_dim=64,
+    )
+
+    assert model.head.part_pooling == "tokens"
+    assert model.head.num_part_tokens == 4
+    assert model.head.decouple_patterns is True
+    assert model.head.pattern_adapter_dim == 64
+
+
+def test_trainer_builds_pattern_decoupled_part_token_head(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        part_pooling="tokens",
+        num_part_tokens=4,
+        decouple_patterns=True,
+        pattern_adapter_dim=64,
+    )
+
+    model = trainer._build_model(num_classes=4)
+
+    assert model.head.part_pooling == "tokens"
+    assert model.head.num_part_tokens == 4
+    assert model.head.decouple_patterns is True
+    assert model.head.pattern_adapter_dim == 64
+
+
+def test_csl_tinyvit_drop_path_rate_is_configurable():
+    model = csl_tinyvit_23m(num_classes=4, pretrained=False, drop_path_rate=0.1)
+
+    max_drop = max(
+        block.drop_path.drop_prob
+        for layer in model.layers
+        for block in layer.blocks
+        if hasattr(block.drop_path, "drop_prob")
+    )
+
+    assert abs(max_drop - 0.1) < 1e-6
+
+
+def test_csl_tinyvit_23m_default_drop_path_rate_is_point_two():
+    model = csl_tinyvit_23m(num_classes=4, pretrained=False)
+
+    max_drop = max(
+        block.drop_path.drop_prob
+        for layer in model.layers
+        for block in layer.blocks
+        if hasattr(block.drop_path, "drop_prob")
+    )
+
+    assert abs(max_drop - 0.2) < 1e-6
+
+
+def test_csl_tinyvit_rectangular_shifted_attention_config():
+    model = csl_tinyvit_7m(
+        num_classes=4,
+        pretrained=False,
+        attention_window_layout="rect",
+        attention_bias="signed_factorized",
+        attention_mask=True,
+        attention_shift=True,
+        stage3_global=True,
+    )
+
+    assert model.layers[1].blocks[0].window_size == (12, 4)
+    assert model.layers[1].blocks[1].shift_size == (6, 2)
+    assert model.layers[2].blocks[1].window_size == (12, 8)
+    assert model.layers[2].blocks[1].shift_size == (6, 4)
+    assert model.layers[3].blocks[-1].window_size == (24, 8)
+    assert model.layers[1].blocks[0].attn.bias_mode == "signed_factorized"
+    assert model.layers[1].blocks[0].attention_mask is True
+
+
+def test_reid_residual_adapter_is_identity_at_initialization():
+    adapter = ReIDResidualAdapter(dim=8, reduction_ratio=4)
+    x = torch.randn(2, 6, 8)
+
+    y = adapter(x, (3, 2))
+
+    torch.testing.assert_close(y, x)
+    assert adapter.gamma.item() == 0.0
+
+
+def test_csl_tinyvit_inserts_zero_gated_reid_adapters_in_requested_stages():
+    model = csl_tinyvit_7m(
+        num_classes=4,
+        pretrained=False,
+        reid_adapter_stages=(3,),
+        reid_adapter_reduction=8,
+    )
+
+    assert len(model.layers[2].reid_adapters) == 0
+    assert len(model.layers[3].reid_adapters) == len(model.layers[3].blocks)
+    assert all(adapter.gamma.item() == 0.0 for adapter in model.layers[3].reid_adapters)
+
+
+def test_signed_factorized_attention_bias_keeps_direction():
+    attention = Attention(dim=8, key_dim=4, num_heads=2, resolution=(3, 2), bias_mode="signed_factorized")
+
+    top_to_bottom = attention.attention_bias_h_idxs[0, 2].item()
+    bottom_to_top = attention.attention_bias_h_idxs[2, 0].item()
+
+    assert top_to_bottom != bottom_to_top
+    assert attention.attention_bias_h.shape == (2, 5)
+    assert attention.attention_bias_w.shape == (2, 3)
+
+
+def test_tinyvit_block_masks_padded_tokens():
+    block = TinyViTBlock(dim=8, input_resolution=(3, 3), num_heads=2, window_size=(2, 2), attention_mask=True)
+    captured = {}
+
+    def fake_attention(x, attn_mask=None):
+        captured["attn_mask"] = attn_mask
+        return torch.zeros_like(x)
+
+    block.attn.forward = fake_attention
+    block(torch.randn(1, 9, 8), (3, 3))
+
+    mask = captured["attn_mask"]
+    assert mask.shape == (4, 4, 4)
+    assert not mask.all()
+
+
+def test_tinyvit_block_shift_builds_attention_mask_without_padding():
+    block = TinyViTBlock(dim=8, input_resolution=(4, 4), num_heads=2, window_size=(2, 2), shift_size=(1, 1))
+    captured = {}
+
+    def fake_attention(x, attn_mask=None):
+        captured["attn_mask"] = attn_mask
+        return torch.zeros_like(x)
+
+    block.attn.forward = fake_attention
+    block(torch.randn(1, 16, 8), (4, 4))
+
+    mask = captured["attn_mask"]
+    assert mask.shape == (4, 4, 4)
+    assert not mask.all()
+
+
+def test_gem_uses_safe_exponent_parameterization():
+    gem = GeM((1, 1), p=3.0)
+
+    assert torch.allclose(gem.effective_p(), torch.tensor([3.0]))
+    gem.raw_p.data.fill_(20.0)
+    assert gem.effective_p().item() == 8.0
+
+
+def test_gem_loads_legacy_p_parameter():
+    gem = GeM((1, 1), p=3.0)
+
+    gem.load_state_dict({"p": torch.tensor([4.0])}, strict=True)
+
+    assert torch.allclose(gem.effective_p(), torch.tensor([4.0]))
+
+
+def test_registry_loads_legacy_gem_p_parameter(tmp_path):
+    source = csl_tinyvit_7m(num_classes=4, pretrained=False, head_pool="gem")
+    legacy_state = {}
+    for key, value in source.state_dict().items():
+        if key.endswith(".raw_p"):
+            legacy_state[f"{key[:-6]}.p"] = torch.tensor([4.0])
+        else:
+            legacy_state[key] = value.clone()
+    weights = tmp_path / "csl_tinyvit_7m_legacy_gem.pt"
+    torch.save({"state_dict": legacy_state}, weights)
+
+    loaded = csl_tinyvit_7m(num_classes=4, pretrained=False, head_pool="gem")
+    ReIDModelRegistry.load_pretrained_weights(loaded, weights)
+
+    assert torch.allclose(loaded.head.global_pool.effective_p(), torch.tensor([4.0]))
+    assert torch.allclose(loaded.head.partial_pool.effective_p(), torch.tensor([4.0]))
 
 
 def test_csl_tinyvit_size_aliases_build_expected_variants():
@@ -500,6 +1021,124 @@ def test_csl_tinyvit_weighted_feature_fusion_preserves_output_shape():
     assert weights[0] > 0.99
     assert torch.all(weights[1:] > 0)
     assert features.shape == (1, 1536)
+
+
+def test_norm_preserved_feature_fusion_preserves_max_path_norm():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "normpres_last3",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {
+        1: torch.randn(2, 4, 6, 4),
+        2: torch.randn(2, 4, 3, 2),
+    }
+
+    projected = module._ordered_features(final_feature, path_features)
+    output = module(final_feature, path_features)
+    max_norm = torch.stack([feature.norm(p=2, dim=1) for feature in projected], dim=0).max(dim=0).values
+
+    assert module.fusion_type == "norm_preserved"
+    assert module.stage_indices == (1, 2)
+    torch.testing.assert_close(output.norm(p=2, dim=1), max_norm, atol=1e-5, rtol=1e-5)
+
+
+def test_csl_tinyvit_dynamic_feature_fusion_preserves_output_shape():
+    model = csl_tinyvit_7m(num_classes=4, pretrained=False, feature_fusion="dynamic_last3")
+    model.eval()
+
+    with torch.no_grad():
+        features = model(torch.randn(2, 3, 384, 128))
+
+    assert model.feature_fusion == "dynamic_last3"
+    assert model._fusion_stage_indices == (2, 1)
+    assert model.feature_fusion_module.dynamic_gate[-1].out_features == 3
+    assert features.shape == (2, 1536)
+
+
+def test_dynamic_feature_fusion_uses_per_image_softmax_weights():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "dynamic_last3",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 4, 2)
+    path_features = {
+        1: torch.randn(2, 4, 8, 4),
+        2: torch.randn(2, 4, 4, 2),
+    }
+
+    weights = module.dynamic_weights(final_feature, path_features)
+
+    assert weights.shape == (2, 3)
+    torch.testing.assert_close(weights.sum(dim=1), torch.ones(2))
+    torch.testing.assert_close(
+        weights.mean(dim=0),
+        torch.tensor([0.8, 0.1, 0.1]),
+        atol=0.01,
+        rtol=0.0,
+    )
+
+
+def test_dynamic_image_gate_depends_only_on_final_feature():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "dynamic_last3",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(1, 4, 4, 2).repeat(2, 1, 1, 1)
+    path_features = {
+        1: torch.stack([torch.zeros(4, 8, 4), torch.randn(4, 8, 4)]),
+        2: torch.stack([torch.randn(4, 4, 2), torch.zeros(4, 4, 2)]),
+    }
+
+    weights = module.dynamic_weights(final_feature, path_features)
+
+    torch.testing.assert_close(weights[0], weights[1])
+
+
+def test_dynamic_scale_token_responds_to_multiscale_path_content():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "dynamic_last3_scale_token",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(1, 4, 4, 2).repeat(2, 1, 1, 1)
+    ascending = torch.arange(4, dtype=torch.float32)[:, None, None]
+    descending = ascending.flip(0)
+    path_features = {
+        1: torch.stack([ascending.expand(4, 8, 4), descending.expand(4, 8, 4)]),
+        2: torch.stack([descending.expand(4, 4, 2), ascending.expand(4, 4, 2)]),
+    }
+
+    weights = module.dynamic_weights(final_feature, path_features)
+
+    assert module.stage_indices == (2, 1)
+    assert module.scale_token_projection is not None
+    assert module.scale_tokens.shape[0] == 3
+    assert weights.shape == (2, 3)
+    assert not torch.allclose(weights[0], weights[1], atol=1e-8, rtol=0.0)
+
+
+def test_dynamic_fusion_initialization_keeps_side_path_gradients_active():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "dynamic_last3_scale_token",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 4, 2, requires_grad=True)
+    path_features = {
+        1: torch.randn(2, 4, 8, 4, requires_grad=True),
+        2: torch.randn(2, 4, 4, 2, requires_grad=True),
+    }
+
+    module(final_feature, path_features).square().mean().backward()
+
+    assert module.dynamic_gate[-1].weight.grad.abs().sum() > 0
+    assert module.scale_tokens.grad.abs().sum() > 0
+    assert path_features[1].grad.abs().sum() > 0
+    assert path_features[2].grad.abs().sum() > 0
 
 
 def test_csl_tinyvit_feature_fusion_module_handles_variable_paths():
@@ -611,8 +1250,9 @@ def test_multibranch_head_metric_feature_shapes():
     branch_head = MultiBranchHead(8, feat_dim=4, num_classes=3, branch_metric=True)
     branch_head.train()
     _, branch_features = branch_head(x)
-    assert set(branch_features) == {"global", "part0", "part1", "raw_mean", "concat_bn"}
+    assert set(branch_features) == {"global", "part0", "part1", "raw_mean", "raw_concat", "concat_bn", "norm_concat_bn"}
     assert branch_features["global"].shape == (4, 4)
+    assert branch_features["raw_concat"].shape == (4, 12)
     assert branch_features["concat_bn"].shape == (4, 12)
 
 
@@ -644,6 +1284,18 @@ def test_multibranch_head_inference_feature_modes():
     raw_mean_head.eval()
     with torch.no_grad():
         assert raw_mean_head(x).shape == (2, 4)
+
+    norm_concat_head = MultiBranchHead(8, feat_dim=4, num_classes=3, inference_feature="norm_concat_bn")
+    norm_concat_head.eval()
+    with torch.no_grad():
+        features = norm_concat_head(x)
+    assert features.shape == (2, 12)
+    assert torch.allclose(features.norm(dim=1), torch.ones(2), atol=1e-5)
+
+    raw_concat_head = MultiBranchHead(8, feat_dim=4, num_classes=3, metric_feature="raw_concat")
+    raw_concat_head.train()
+    _, train_features = raw_concat_head(x)
+    assert train_features.shape == (2, 12)
 
 
 def test_multibranch_head_feat_dim_1024_projects_each_branch():
@@ -689,10 +1341,258 @@ def test_multibranch_head_supports_multi_granularity_parts():
     assert eval_features.shape == (2, 28)
 
 
+def test_multibranch_head_supports_learned_part_tokens():
+    x = torch.randn(2, 8, 6, 2)
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="concat_bn",
+        inference_feature="concat_bn",
+        part_pooling="tokens",
+        num_part_tokens=4,
+    )
+
+    head.train()
+    logits, train_features = head(x)
+    assert len(logits) == 5
+    assert train_features.shape == (2, 20)
+
+    head.eval()
+    with torch.no_grad():
+        eval_features = head(x)
+    assert eval_features.shape == (2, 20)
+
+
+def test_dse_lite_pool_weights_tokens_without_changing_shape():
+    pool = DSELitePool((3, 1))
+    x = torch.zeros(1, 4, 6, 2)
+    x[:, :, 3, :] = 2.0
+
+    pooled = pool(x)
+
+    assert pooled.shape == (1, 4, 3, 1)
+    assert pooled[:, :, 1].mean() > pooled[:, :, 0].mean()
+
+
+def test_multibranch_head_supports_dse_pool_and_mix_descriptor():
+    x = torch.randn(2, 8, 6, 2)
+    dse_head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_pool="dse",
+    )
+    dse_head.train()
+    logits, features = dse_head(x)
+    assert len(logits) == 3
+    assert features.shape == (2, 12)
+
+    mix_head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="dse_mix",
+        inference_feature="dse_mix",
+    )
+    mix_head.train()
+    _, train_features = mix_head(x)
+    assert train_features.shape == (2, 24)
+
+    mix_head.eval()
+    with torch.no_grad():
+        eval_features = mix_head(x)
+    assert eval_features.shape == (2, 24)
+
+
+def test_learned_part_tokens_receive_gradients():
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        part_pooling="tokens",
+        num_part_tokens=4,
+    )
+    head.train()
+
+    logits, features = head(torch.randn(2, 8, 6, 2))
+    loss = features.square().mean() + sum(score.square().mean() for score in logits)
+    loss.backward()
+
+    assert head.part_token_pool.queries.grad is not None
+    assert head.part_token_pool.queries.grad.abs().sum() > 0
+
+
+def test_pattern_adapters_are_identity_at_initialization():
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        decouple_patterns=True,
+        pattern_adapter_dim=4,
+    )
+    x = torch.randn(2, 8, 6, 2)
+
+    torch.testing.assert_close(head.global_adapter(x), x)
+    torch.testing.assert_close(head.local_adapter(x), x)
+
+
+def test_multibranch_head_combines_part_tokens_and_pattern_adapters():
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        inference_feature="concat_bn",
+        part_pooling="tokens",
+        num_part_tokens=4,
+        decouple_patterns=True,
+        pattern_adapter_dim=4,
+    )
+    head.eval()
+
+    with torch.no_grad():
+        features = head(torch.randn(2, 8, 6, 2))
+
+    assert features.shape == (2, 20)
+    assert head.decouple_patterns is True
+    assert head.part_pooling == "tokens"
+
+
+def test_gpc_lite_head_has_global_three_part_and_two_channel_branches():
+    head = GPCLiteMultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="raw_mean",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 3),
+        branch_metric=True,
+    )
+    x = torch.randn(2, 8, 6, 2)
+
+    head.train()
+    logits, features = head(x)
+
+    assert len(logits) == 6
+    assert {"global", "part0", "part1", "part2", "ch0", "ch1"} <= set(features)
+    torch.testing.assert_close(features["raw_mean"], features["global"])
+
+    head.eval()
+    with torch.no_grad():
+        embedding = head(x)
+    assert embedding.shape == (2, 24)
+    torch.testing.assert_close(embedding.norm(dim=1), torch.ones(2))
+
+
+def test_stripe_visibility_weights_local_descriptors_and_receives_gradients():
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 3),
+        stripe_visibility=True,
+    )
+    x = torch.randn(2, 8, 6, 2)
+
+    pooled = head.part_pool_3(x)
+    confidence = head.visibility_gate(pooled)
+    torch.testing.assert_close(
+        confidence,
+        torch.full_like(confidence, 0.9),
+        atol=1e-6,
+        rtol=0.0,
+    )
+
+    head.train()
+    logits, features = head(x)
+    loss = features.square().mean() + sum(score.square().mean() for score in logits)
+    loss.backward()
+
+    assert len(logits) == 4
+    assert features.shape == (2, 16)
+    assert head.visibility_gate.predictor.weight.grad is not None
+    assert head.visibility_gate.predictor.weight.grad.abs().sum() > 0
+
+    head.eval()
+    with torch.no_grad():
+        head.visibility_gate.predictor.bias.fill_(torch.logit(torch.tensor(0.1)))
+        low_visibility = head(x)
+        head.visibility_gate.predictor.bias.fill_(torch.logit(torch.tensor(0.9)))
+        high_visibility = head(x)
+    assert not torch.allclose(low_visibility, high_visibility)
+
+
+def test_trainer_builds_gpc_lite_and_visibility_heads(tmp_path):
+    gpc_trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        head_type="gpc_lite",
+        head_parts=(1, 3),
+        part_pooling="stripes",
+        decouple_patterns=False,
+        stripe_visibility=False,
+        metric_feature="raw_mean",
+    )
+    gpc_model = gpc_trainer._build_model(num_classes=4)
+    assert isinstance(gpc_model.head, GPCLiteMultiBranchHead)
+
+    visibility_trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        head_type="standard",
+        head_parts=(1, 3),
+        part_pooling="stripes",
+        stripe_visibility=True,
+    )
+    visibility_model = visibility_trainer._build_model(num_classes=4)
+    assert visibility_model.head.stripe_visibility is True
+
+
 def test_trainer_effective_metric_feature_modes(tmp_path):
     assert _trainer(tmp_path, loss_type="triplet")._effective_metric_feature() == "raw_mean"
     assert _trainer(tmp_path, loss_type="ms")._effective_metric_feature() == "concat_bn"
     assert _trainer(tmp_path, loss_type="ms", metric_feature="raw_mean")._effective_metric_feature() == "raw_mean"
+    assert _trainer(tmp_path, metric_feature="global")._effective_metric_feature() == "global"
+
+
+def test_trainer_aux_ce_weight_preserves_default_and_can_drop(tmp_path):
+    trainer = _trainer(tmp_path, aux_ce_weight=0.1, aux_ce_drop_epoch=2)
+    logits = [
+        torch.tensor([[5.0, 0.0], [0.0, 5.0]]),
+        torch.tensor([[0.0, 5.0], [5.0, 0.0]]),
+    ]
+    pids = torch.tensor([0, 1])
+    criterion = nn.CrossEntropyLoss()
+
+    before_drop = trainer._classification_loss_for_logits(criterion, logits, pids, epoch=2)
+    after_drop = trainer._classification_loss_for_logits(criterion, logits, pids, epoch=3)
+
+    assert before_drop > after_drop
+    torch.testing.assert_close(after_drop, criterion(logits[0], pids))
+
+
+def test_trainer_branch_metric_includes_raw_concat_when_selected(tmp_path):
+    trainer = _trainer(tmp_path, metric_feature="raw_concat", branch_aware_metric=True, branch_metric_part_weight=0.5)
+    features = {
+        "global": torch.randn(4, 8),
+        "part0": torch.randn(4, 8),
+        "part1": torch.randn(4, 8),
+        "raw_mean": torch.randn(4, 8),
+        "raw_concat": torch.randn(4, 24),
+    }
+    called_shapes = []
+
+    def criterion(feature, pids):
+        called_shapes.append(tuple(feature.shape))
+        return feature.sum() * 0
+
+    trainer._metric_loss_for_features(criterion, features, torch.tensor([0, 0, 1, 1]))
+
+    assert called_shapes == [(4, 8), (4, 24), (4, 8), (4, 8)]
 
 
 def test_trainer_uses_embedding_model_contract_for_margin_classifier(tmp_path):
@@ -848,4 +1748,53 @@ def test_trainer_head_warmup_toggles_backbone_trainability(tmp_path):
     assert model.head.weight.requires_grad
 
     trainer._set_head_warmup_trainability(model, False)
+    assert all(param.requires_grad for param in model.parameters())
+
+
+def test_trainer_reid_lrd_uses_requested_stage_lr_scales(tmp_path):
+    trainer = _trainer(tmp_path, vit_lr_profile="reid_lrd")
+
+    assert trainer._vit_lr_scale_for_param("head.bn_global.weight", depth=4) == 1.0
+    assert trainer._vit_lr_scale_for_param("feature_fusion_module.projections.2.weight", depth=4) == 1.0
+    assert trainer._vit_lr_scale_for_param("layers.3.blocks.0.attn.qkv.weight", depth=4) == 0.5
+    assert trainer._vit_lr_scale_for_param("layers.2.blocks.0.attn.qkv.weight", depth=4) == 0.25
+    assert trainer._vit_lr_scale_for_param("layers.1.blocks.0.attn.qkv.weight", depth=4) == 0.1
+    assert trainer._vit_lr_scale_for_param("layers.0.blocks.0.conv1.c.weight", depth=4) == 0.05
+    assert trainer._vit_lr_scale_for_param("patch_embed.seq.0.c.weight", depth=4) == 0.05
+    assert trainer._vit_lr_scale_for_param("layers.2.reid_adapters.0.gamma", depth=4) == 1.0
+
+
+def test_trainer_backbone_freeze_keeps_reid_modules_trainable(tmp_path):
+    trainer = _trainer(tmp_path)
+
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.patch_embed = nn.Linear(1, 1)
+            self.layers = nn.ModuleList(
+                [
+                    nn.Linear(1, 1),
+                    nn.Linear(1, 1),
+                    nn.ModuleDict({"reid_adapters": nn.ModuleList([nn.Linear(1, 1)])}),
+                ]
+            )
+            self.feature_fusion_module = nn.Linear(1, 1)
+            self.neck = nn.Linear(1, 1)
+            self.head = nn.Linear(1, 1)
+
+    model = TinyModel()
+
+    trainer._set_backbone_freeze_trainability(model, True)
+    assert not model.patch_embed.weight.requires_grad
+    assert not model.layers[0].weight.requires_grad
+    assert not model.layers[1].weight.requires_grad
+    assert model.patch_embed.training is False
+    assert model.layers.training is False
+    assert model.layers[2]["reid_adapters"][0].weight.requires_grad
+    assert model.feature_fusion_module.weight.requires_grad
+    assert model.neck.weight.requires_grad
+    assert model.head.weight.requires_grad
+    assert model.feature_fusion_module.training is True
+
+    trainer._set_backbone_freeze_trainability(model, False)
     assert all(param.requires_grad for param in model.parameters())

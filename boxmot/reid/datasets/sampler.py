@@ -25,26 +25,33 @@ class PKSampler(Sampler[int]):
         k: Number of instances per identity.
     """
 
-    def __init__(self, samples: List[ReIDSample], p: int = 16, k: int = 4):
+    def __init__(self, samples: List[ReIDSample], p: int = 16, k: int = 4, seed: int = 0):
         self.samples = samples
         self.p = p
         self.k = k
+        self.seed = int(seed)
+        self.epoch = 0
 
         self._pid_to_indices: dict[int, list[int]] = defaultdict(list)
         for idx, s in enumerate(samples):
             self._pid_to_indices[s.pid].append(idx)
         self._pids = list(self._pid_to_indices.keys())
 
+    def set_epoch(self, epoch: int) -> None:
+        """Select a deterministic sampling stream for one training epoch."""
+        self.epoch = int(epoch)
+
     def __iter__(self) -> Iterator[int]:
+        rng = random.Random(self.seed + self.epoch)
         pids = copy.deepcopy(self._pids)
-        random.shuffle(pids)
+        rng.shuffle(pids)
 
         batch_indices: List[int] = []
         for pid in pids:
             idxs = copy.deepcopy(self._pid_to_indices[pid])
             if len(idxs) < self.k:
                 idxs = idxs * (self.k // len(idxs) + 1)
-            random.shuffle(idxs)
+            rng.shuffle(idxs)
             batch_indices.extend(idxs[: self.k])
 
             if len(batch_indices) >= self.p * self.k:

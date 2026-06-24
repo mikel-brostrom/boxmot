@@ -1,7 +1,8 @@
 {
   "run": {
     "model_name": "csl_tinyvit_7m",
-    "seed": 42,
+    "seed": 0,
+    "deterministic": true,
     "pretrained": true
   },
   "data": {
