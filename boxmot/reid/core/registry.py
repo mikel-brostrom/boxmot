@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -9,9 +12,64 @@ from boxmot.reid.core.config import MODEL_TYPES, NR_CLASSES_DICT, TRAINED_URLS
 from boxmot.reid.core.factory import MODEL_FACTORY
 from boxmot.utils import logger as LOGGER
 
+MODEL_TYPES_BY_SPECIFICITY = tuple(sorted(MODEL_TYPES, key=len, reverse=True))
+
+
+def _identity(value: Any) -> Any:
+    return value
+
+
+def _int_tuple(value: Any) -> tuple[int, ...]:
+    if isinstance(value, int):
+        return (int(value),)
+    return tuple(int(item) for item in value)
+
+
+CHECKPOINT_MODEL_KWARG_CONVERTERS: Mapping[str, Callable[[Any], Any]] = {
+    "feat_dim": int,
+    "neck_dim": int,
+    "head_pool": _identity,
+    "head_parts": _int_tuple,
+    "head_type": _identity,
+    "part_pooling": _identity,
+    "num_part_tokens": int,
+    "decouple_patterns": bool,
+    "pattern_adapter_dim": int,
+    "stripe_visibility": bool,
+    "inference_feature": _identity,
+    "feature_fusion": _identity,
+    "drop_path_rate": float,
+    "attention_window_layout": _identity,
+    "attention_bias": _identity,
+    "attention_mask": bool,
+    "attention_shift": bool,
+    "stage3_global": bool,
+    "reid_adapter_stages": _int_tuple,
+    "reid_adapter_reduction": int,
+}
+
 
 class ReIDModelRegistry:
     """Encapsulates model registration and related utilities."""
+
+    @staticmethod
+    def _load_checkpoint(weight_path: str | Path, *, strict: bool = False) -> Any | None:
+        try:
+            return torch.load(
+                weight_path,
+                map_location="cpu",
+                weights_only=False,
+                encoding="latin1",
+            )
+        except Exception:
+            if strict:
+                raise
+            return None
+
+    @staticmethod
+    def _checkpoint_dict(weight_path: str | Path) -> dict[str, Any] | None:
+        checkpoint = ReIDModelRegistry._load_checkpoint(weight_path)
+        return checkpoint if isinstance(checkpoint, dict) else None
 
     @staticmethod
     def show_downloadable_models():
@@ -20,107 +78,49 @@ class ReIDModelRegistry:
 
     @staticmethod
     def get_model_name(model):
-        if hasattr(model, "is_file") and model.is_file():
-            try:
-                checkpoint = torch.load(
-                    model,
-                    map_location="cpu",
-                    weights_only=False,
-                    encoding="latin1",
-                )
-                if isinstance(checkpoint, dict) and checkpoint.get("model_name"):
-                    return checkpoint["model_name"]
-            except Exception:
-                pass
-        for name in MODEL_TYPES:
-            if name in model.name:
+        path = Path(model)
+        if path.is_file():
+            checkpoint = ReIDModelRegistry._checkpoint_dict(path)
+            if checkpoint and checkpoint.get("model_name"):
+                return checkpoint["model_name"]
+        model_name = path.name.lower()
+        for name in MODEL_TYPES_BY_SPECIFICITY:
+            if name in model_name:
                 return name
         return None
 
     @staticmethod
     def get_model_url(model):
-        return TRAINED_URLS.get(model.name, None)
+        return TRAINED_URLS.get(Path(model).name, None)
 
     @staticmethod
     def get_checkpoint_preprocess(weight_path) -> str | None:
         """Return the preprocessing method stored in a checkpoint, or None."""
-        try:
-            checkpoint = torch.load(
-                weight_path,
-                map_location="cpu",
-                weights_only=False,
-                encoding="latin1",
-            )
-            if isinstance(checkpoint, dict):
-                return checkpoint.get("preprocess")
-        except Exception:
-            pass
-        return None
+        checkpoint = ReIDModelRegistry._checkpoint_dict(weight_path)
+        return checkpoint.get("preprocess") if checkpoint else None
 
     @staticmethod
     def get_checkpoint_model_kwargs(weight_path) -> dict:
         """Return optional architecture kwargs stored in a checkpoint."""
+        checkpoint = ReIDModelRegistry._checkpoint_dict(weight_path)
+        if not checkpoint:
+            return {}
+
         try:
-            checkpoint = torch.load(
-                weight_path,
-                map_location="cpu",
-                weights_only=False,
-                encoding="latin1",
-            )
-            if isinstance(checkpoint, dict):
-                values = {}
-                if checkpoint.get("feat_dim") is not None:
-                    values["feat_dim"] = int(checkpoint["feat_dim"])
-                if checkpoint.get("neck_dim") is not None:
-                    values["neck_dim"] = int(checkpoint["neck_dim"])
-                if checkpoint.get("head_pool") is not None:
-                    values["head_pool"] = checkpoint["head_pool"]
-                if checkpoint.get("head_parts") is not None:
-                    values["head_parts"] = tuple(int(part) for part in checkpoint["head_parts"])
-                if checkpoint.get("head_type") is not None:
-                    values["head_type"] = checkpoint["head_type"]
-                if checkpoint.get("part_pooling") is not None:
-                    values["part_pooling"] = checkpoint["part_pooling"]
-                if checkpoint.get("num_part_tokens") is not None:
-                    values["num_part_tokens"] = int(checkpoint["num_part_tokens"])
-                if checkpoint.get("decouple_patterns") is not None:
-                    values["decouple_patterns"] = bool(checkpoint["decouple_patterns"])
-                if checkpoint.get("pattern_adapter_dim") is not None:
-                    values["pattern_adapter_dim"] = int(checkpoint["pattern_adapter_dim"])
-                if checkpoint.get("stripe_visibility") is not None:
-                    values["stripe_visibility"] = bool(checkpoint["stripe_visibility"])
-                if checkpoint.get("inference_feature") is not None:
-                    values["inference_feature"] = checkpoint["inference_feature"]
-                if checkpoint.get("feature_fusion") is not None:
-                    values["feature_fusion"] = checkpoint["feature_fusion"]
-                if checkpoint.get("drop_path_rate") is not None:
-                    values["drop_path_rate"] = float(checkpoint["drop_path_rate"])
-                if checkpoint.get("attention_window_layout") is not None:
-                    values["attention_window_layout"] = checkpoint["attention_window_layout"]
-                if checkpoint.get("attention_bias") is not None:
-                    values["attention_bias"] = checkpoint["attention_bias"]
-                if checkpoint.get("attention_mask") is not None:
-                    values["attention_mask"] = bool(checkpoint["attention_mask"])
-                if checkpoint.get("attention_shift") is not None:
-                    values["attention_shift"] = bool(checkpoint["attention_shift"])
-                if checkpoint.get("stage3_global") is not None:
-                    values["stage3_global"] = bool(checkpoint["stage3_global"])
-                if checkpoint.get("reid_adapter_stages") is not None:
-                    values["reid_adapter_stages"] = tuple(
-                        int(stage) for stage in checkpoint["reid_adapter_stages"]
-                    )
-                if checkpoint.get("reid_adapter_reduction") is not None:
-                    values["reid_adapter_reduction"] = int(checkpoint["reid_adapter_reduction"])
-                state_dict = checkpoint.get("state_dict", checkpoint)
-                if isinstance(state_dict, dict):
-                    if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
-                        values["feat_dim"] = int(state_dict["head.bn_global.reduction.weight"].shape[0])
-                    if "neck_dim" not in values and "neck.0.weight" in state_dict:
-                        values["neck_dim"] = int(state_dict["neck.0.weight"].shape[0])
-                return values
+            values = {
+                key: converter(checkpoint[key])
+                for key, converter in CHECKPOINT_MODEL_KWARG_CONVERTERS.items()
+                if checkpoint.get(key) is not None
+            }
+            state_dict = checkpoint.get("state_dict", checkpoint)
+            if isinstance(state_dict, dict):
+                if "feat_dim" not in values and "head.bn_global.reduction.weight" in state_dict:
+                    values["feat_dim"] = int(state_dict["head.bn_global.reduction.weight"].shape[0])
+                if "neck_dim" not in values and "neck.0.weight" in state_dict:
+                    values["neck_dim"] = int(state_dict["neck.0.weight"].shape[0])
+            return values
         except Exception:
-            pass
-        return {}
+            return {}
 
     @staticmethod
     def load_pretrained_weights(model, weight_path):
@@ -128,13 +128,9 @@ class ReIDModelRegistry:
         Loads pretrained weights into a model.
         Chooses the proper map_location based on CUDA availability.
         """
-        checkpoint = torch.load(
-            weight_path,
-            map_location="cpu",
-            weights_only=False,
-            encoding='latin1',
-        )
-        state_dict = checkpoint.get("state_dict", checkpoint)
+        weight_path = Path(weight_path)
+        checkpoint = ReIDModelRegistry._load_checkpoint(weight_path, strict=True)
+        state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
         model_dict = model.state_dict()
 
         if "lmbn" in weight_path.parts:
@@ -204,21 +200,15 @@ class ReIDModelRegistry:
 
     @staticmethod
     def get_nr_classes(weights):
-        try:
-            checkpoint = torch.load(
-                weights,
-                map_location="cpu",
-                weights_only=False,
-                encoding="latin1",
-            )
-            if isinstance(checkpoint, dict) and checkpoint.get("num_classes") is not None:
-                return int(checkpoint["num_classes"])
-        except Exception:
-            pass
-        # Extract dataset name from weights name, then look up in the class dictionary
-        parts = weights.name.split("_")
-        dataset_key = parts[1] if len(parts) > 1 else ""
-        return NR_CLASSES_DICT.get(dataset_key, 1)
+        checkpoint = ReIDModelRegistry._checkpoint_dict(weights)
+        if checkpoint and checkpoint.get("num_classes") is not None:
+            return int(checkpoint["num_classes"])
+
+        weights_name = Path(weights).stem.lower()
+        for dataset_key in sorted(NR_CLASSES_DICT, key=len, reverse=True):
+            if dataset_key in weights_name:
+                return NR_CLASSES_DICT[dataset_key]
+        return 1
 
     @staticmethod
     def build_model(

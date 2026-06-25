@@ -1,19 +1,13 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-import pandas as pd
+from boxmot.reid.core.config import REID_EXPORT_FORMAT_COLUMNS, REID_EXPORT_FORMAT_ROWS
 
 
 def export_formats():
-    # yolo tracking export formats
-    x = [
-        ["PyTorch", "-", ".pt", True, True],
-        ["TorchScript", "torchscript", ".torchscript", True, True],
-        ["ONNX", "onnx", ".onnx", True, True],
-        ["OpenVINO", "openvino", "_openvino_model", True, False],
-        ["TensorRT", "engine", ".engine", False, True],
-        ["TensorFlow Lite", "tflite", ".tflite", True, False],
-    ]
-    return pd.DataFrame(x, columns=["Format", "Argument", "Suffix", "CPU", "GPU"])
+    """Return supported ReID export formats as the public pandas table."""
+    import pandas as pd
+
+    return pd.DataFrame(REID_EXPORT_FORMAT_ROWS, columns=REID_EXPORT_FORMAT_COLUMNS)
 
 
 from .reid import ReID
