@@ -2,7 +2,7 @@ id: mmot
 
 dataset:
   id: mmot
-  root: "boxmot/engine/eval/trackeval/data/MMOT-OBB"
+  root: "data/benchmarks/MMOT-OBB"
   layout: mot
   box_type: obb
   splits:

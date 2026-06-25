@@ -53,11 +53,16 @@ def test_tflite_backend_installs_litert_when_no_runtime_is_available(monkeypatch
         return types.SimpleNamespace(Interpreter=litert_interpreter)
 
     monkeypatch.setattr(tflite_backend_module, "import_module", fake_import_module)
+    monkeypatch.setattr(
+        tflite_backend_module,
+        "ensure_reid_backend_requirements",
+        lambda checker, _backend: checker.check_packages(("ai-edge-litert>=2.1.0",)),
+    )
 
     interpreter_class = backend._get_interpreter_class()
 
     assert interpreter_class is litert_interpreter
-    assert backend.checker.calls == [("ai-edge-litert",)]
+    assert backend.checker.calls == [("ai-edge-litert>=2.1.0",)]
     assert calls == ["ai_edge_litert.interpreter", "ai_edge_litert.interpreter"]
 
 

@@ -27,8 +27,11 @@ weights/*_openvino_model
 weights/*.engine
 weights/*.tflite
 
-# evaluation tools folder
-boxmot/engine/eval/trackeval/
+# runtime evaluation downloads
+data/benchmarks/
+data/trackeval/
+boxmot/engine/eval/trackeval/data/
+boxmot/engine/eval/trackeval/trackeval/
 
 # zip files
 *.zip

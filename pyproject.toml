@@ -30,7 +30,12 @@ select = ["E", "W", "F", "I"]
 ignore = ["E731", "F405", "E402", "E741"]
 
 [tool.pytest.ini_options]
-norecursedirs = ["boxmot/engine/eval/trackeval/tests", "runs"]
+norecursedirs = [
+  "data/benchmarks",
+  "data/trackeval",
+  "boxmot/engine/eval/trackeval",
+  "runs",
+]
 
 ##############
 # Build System #
@@ -165,6 +170,7 @@ onnx = [
 openvino = ["openvino>=2025.2.0"]
 
 tflite = [
+  "ai-edge-litert>=2.1.0",
   "litert-torch==0.9.1",
 ]
 

@@ -6,6 +6,7 @@ import yaml
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.reid.core import ReID
+from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import TRACKER_CONFIGS
 
 REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"]
@@ -70,11 +71,7 @@ def create_tracker(
       ``tracker_backend`` is not available for that tracker.
     """
 
-    backend = str(tracker_backend or "python").strip().lower()
-    if backend not in ("python", "cpp"):
-        raise ValueError(
-            f"Unknown tracker_backend '{tracker_backend}'. Expected one of: python, cpp."
-        )
+    backend = normalize_tracker_backend(tracker_backend, default="python")
 
     if backend == "cpp":
         # Lazy import to keep ``boxmot.native`` (which pulls in ctypes / CMake

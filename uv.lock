@@ -356,7 +356,7 @@ wheels = [
 
 [[package]]
 name = "boxmot"
-version = "20.0.0"
+version = "21.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
@@ -407,6 +407,7 @@ rtdetr = [
     { name = "transformers" },
 ]
 tflite = [
+    { name = "ai-edge-litert" },
     { name = "litert-torch" },
 ]
 yolo = [
@@ -435,6 +436,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "ai-edge-litert", marker = "extra == 'tflite'", specifier = ">=2.1.0" },
     { name = "bayesian-optimization", marker = "extra == 'evolve'", specifier = "==2.0.4" },
     { name = "click", specifier = ">=8.1.8" },
     { name = "filterpy", specifier = ">=1.4.5,<2.0.0" },

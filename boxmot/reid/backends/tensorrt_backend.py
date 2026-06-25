@@ -4,6 +4,7 @@ import numpy as np
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -20,11 +21,14 @@ class TensorRTBackend(BaseModelBackend):
 
     def load_model(self, w):
         LOGGER.info(f"Loading {w} for TensorRT inference...")
-        self.checker.check_packages(("nvidia-tensorrt",))
+        ensure_reid_backend_requirements(self.checker, "tensorrt")
         try:
             import tensorrt as trt  # TensorRT library
-        except ImportError:
-            raise ImportError("Please install tensorrt to use this backend.")
+        except ImportError as exc:
+            raise ImportError(
+                "TensorRT auto-install completed, but the 'tensorrt' module still "
+                "could not be imported. Check CUDA, Python, and NVIDIA package compatibility."
+            ) from exc
 
         if self.device.type == "cpu":
             if torch.cuda.is_available():

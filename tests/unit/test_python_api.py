@@ -13,14 +13,14 @@ import torch
 import boxmot
 import boxmot.api as api_module
 import boxmot.engine.tracking.results as results_module
-import boxmot.utils.rich.ui as ui_module
+import boxmot.utils.rich.core.ui as ui_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
 from boxmot.engine import research as research_engine_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
-from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tracking import workflow as tracker_module
 from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import reporting as reporting_module
 from boxmot.engine.workflows import support as workflow_support_module
@@ -87,10 +87,10 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     assert args.tracker_explicit is True
 
 
-def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
-    model = api_module.Boxmot(tracker="botsort:cpp")
+def test_boxmot_eval_namespace_uses_explicit_tracker_backend():
+    model = api_module.Boxmot(tracker="botsort")
 
-    args = model._base_eval_args("mot17-mini")
+    args = model._base_eval_args("mot17-mini", tracker_backend="cpp")
 
     assert args.tracker == "botsort"
     assert args.tracker_backend == "cpp"

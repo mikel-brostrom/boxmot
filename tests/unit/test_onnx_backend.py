@@ -81,6 +81,16 @@ def test_ensure_onnxruntime_installed_accepts_silicon_package_on_macos(monkeypat
     assert install_calls == []
 
 
+def test_ensure_onnxruntime_installed_uses_shared_cpu_requirement(monkeypatch):
+    backend, install_calls = _make_backend("cpu")
+    monkeypatch.setattr(onnx_backend_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(ONNXBackend, "_requirement_satisfied", staticmethod(lambda _requirement: False))
+
+    backend._ensure_onnxruntime_installed()
+
+    assert install_calls == [("onnxruntime==1.24.3",)]
+
+
 def test_load_model_uses_selected_execution_providers(monkeypatch, tmp_path):
     backend, _ = _make_backend("cpu")
     requested: dict[str, object] = {}

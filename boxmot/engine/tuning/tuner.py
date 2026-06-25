@@ -21,10 +21,27 @@ import click
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"
 
 from boxmot.engine.eval.evaluator import eval_setup, run_eval, run_generate_dets_embs
-from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.backends import (  # noqa: F401
+    SEARCH_BACKENDS,
+    build_search_backend,
+    resolve_search_backend,
+)
+from boxmot.engine.tuning.backends import (
+    resolve_search_backend as _resolve_search_backend,
+)
+from boxmot.engine.tuning.backends.hyperopt_backend import (  # noqa: F401
+    _hyperopt_param,
+    yaml_to_hyperopt_space,
+)
+from boxmot.engine.tuning.backends.optuna_backend import (  # noqa: F401
+    _OptunaDefineSpace,
+    _suggest_param,
+    yaml_to_optuna_define_space,
+)
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     ALL_TUNE_METRICS,
     MAXIMIZE_TUNE_METRICS,
+    METRIC_SUM,
     MINIMIZE_TUNE_METRICS,
     aggregate_results,
     best_trial_data,
@@ -33,10 +50,57 @@ from boxmot.engine.tuning.postprocessing import (
     save_all_results,
     score_summary,
 )
+from boxmot.engine.tuning.postprocessing import (
+    aggregate_results as _aggregate_results,
+)
+from boxmot.engine.tuning.postprocessing import (
+    best_trial_data as _best_trial_data,
+)
+from boxmot.engine.tuning.postprocessing import (
+    collect_trial_data as _collect_trial_data,
+)
+from boxmot.engine.tuning.postprocessing import (
+    find_pareto_front as _find_pareto_front,
+)
+from boxmot.engine.tuning.postprocessing import (
+    save_all_results as _save_all_results,
+)
+from boxmot.engine.tuning.postprocessing import (
+    save_results_csv as _save_results_csv,
+)
+from boxmot.engine.tuning.postprocessing import (
+    write_trial_yaml as _write_trial_yaml,
+)
+
+# Re-exports for backward compatibility
+from boxmot.engine.tuning.search_space import (  # noqa: F401
+    conditional_yaml_tree as _conditional_yaml_tree,
+)
 from boxmot.engine.tuning.search_space import (
     default_tune_config,
     load_yaml_config,
     normalize_trial_config,
+)
+from boxmot.engine.tuning.search_space import (
+    default_tune_config as _default_tune_config,
+)
+from boxmot.engine.tuning.search_space import (
+    flatten_yaml_config as _flatten_yaml_config,
+)
+from boxmot.engine.tuning.search_space import (
+    is_valid_search_param as _is_valid_search_param,
+)
+from boxmot.engine.tuning.search_space import (
+    normalize_trial_config as _normalize_trial_config,
+)
+from boxmot.engine.tuning.search_space import (
+    to_builtin_value as _to_builtin_value,
+)
+from boxmot.engine.tuning.search_space import (
+    unpack_nested_dict as _unpack_nested_dict,
+)
+from boxmot.engine.tuning.search_space import (
+    yaml_to_tune_space as yaml_to_search_space,
 )
 from boxmot.engine.workflows.reporting import (
     CLI_TUNE_BEST_SUMMARY_TITLE,
@@ -45,7 +109,7 @@ from boxmot.engine.workflows.reporting import (
 from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import suppress_boxmot_logs
-from boxmot.utils.rich.tune_reporting import (
+from boxmot.utils.rich.reporters.tune import (
     TuneSilentReporter,
     TuneWorkflowCallback,
     TuneWorkflowReporter,
@@ -55,42 +119,6 @@ from boxmot.utils.rich.tune_reporting import (
     format_initial_tune_progress,
     format_tune_progress,
     set_tune_progress_workflow,
-)
-
-# Re-exports for backward compatibility
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    conditional_yaml_tree as _conditional_yaml_tree,
-    default_tune_config as _default_tune_config,
-    flatten_yaml_config as _flatten_yaml_config,
-    is_valid_search_param as _is_valid_search_param,
-    normalize_trial_config as _normalize_trial_config,
-    to_builtin_value as _to_builtin_value,
-    unpack_nested_dict as _unpack_nested_dict,
-    yaml_to_tune_space as yaml_to_search_space,
-)
-from boxmot.engine.tuning.backends import (  # noqa: F401
-    SEARCH_BACKENDS,
-    build_search_backend,
-    resolve_search_backend as _resolve_search_backend,
-)
-from boxmot.engine.tuning.backends.optuna_backend import (  # noqa: F401
-    _OptunaDefineSpace,
-    _suggest_param,
-    yaml_to_optuna_define_space,
-)
-from boxmot.engine.tuning.backends.hyperopt_backend import (  # noqa: F401
-    _hyperopt_param,
-    yaml_to_hyperopt_space,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    METRIC_SUM,
-    aggregate_results as _aggregate_results,
-    best_trial_data as _best_trial_data,
-    collect_trial_data as _collect_trial_data,
-    find_pareto_front as _find_pareto_front,
-    save_all_results as _save_all_results,
-    save_results_csv as _save_results_csv,
-    write_trial_yaml as _write_trial_yaml,
 )
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"

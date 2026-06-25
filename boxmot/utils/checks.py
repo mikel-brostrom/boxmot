@@ -1,4 +1,7 @@
+import shlex
+import shutil
 import subprocess
+import sys
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
@@ -13,6 +16,23 @@ from boxmot.utils import logger as LOGGER
 REQUIREMENTS_FILE = Path("requirements.txt")
 
 
+def requirement_satisfied(requirement: str) -> bool:
+    """Return whether a requirement specifier is satisfied in the active env."""
+    req = Requirement(requirement)
+    if req.marker is not None and not req.marker.evaluate():
+        return True
+    try:
+        inst_ver = version(req.name)
+    except PackageNotFoundError:
+        return False
+    return not req.specifier or req.specifier.contains(inst_ver, prereleases=True)
+
+
+def missing_requirements(requirements: Iterable[str]) -> list[str]:
+    """Return requirement specifiers from *requirements* that are not satisfied."""
+    return [requirement for requirement in requirements if not requirement_satisfied(requirement)]
+
+
 class RequirementsChecker:
     """
     Runtime dependency helper.
@@ -20,8 +40,7 @@ class RequirementsChecker:
     Features:
       - Check/install a list of requirement specifiers (e.g., ["yolox", "onnx>=1.15"])
       - Read and install from a requirements.txt
-      - Install a uv dependency *group* (requires uv)
-      - Install a project *extra* (PEP 621 optional-dependencies) via uv
+      - Install a project *extra* (PEP 621 optional-dependencies)
     """
 
     def __init__(
@@ -39,7 +58,7 @@ class RequirementsChecker:
     def check_packages(
         self,
         requirements: Iterable[str],
-        extra_args: Optional[Sequence[str]] = None,
+        extra_args: Optional[Sequence[str] | str] = None,
     ):
         """
         Check & install packages specified by requirement strings.
@@ -54,13 +73,14 @@ class RequirementsChecker:
     def sync_extra(
         self,
         extra: str,
-        extra_args: Optional[Sequence[str]] = None,
+        extra_args: Optional[Sequence[str] | str] = None,
         verbose: bool = True,
     ):
         """
         Install a project *extra* (PEP 621 optional-dependencies).
-        - From source checkout + uv available: uv pip install -e ".[extra]"
-        - From PyPI install:                  uv pip install "boxmot[extra]"
+        - From source checkout: install -e ".[extra]"
+        - From PyPI install:    install "boxmot[extra]"
+        Uses uv when available, otherwise the active Python's pip.
         """
         if not extra:
             raise ValueError("Extra name must be provided (e.g. 'openvino', 'export').")
@@ -88,105 +108,113 @@ class RequirementsChecker:
         if verbose:
             LOGGER.warning(f"Installing extra '{extra}'...")
 
-        cmd: list[str]
-
-        # From source checkout (editable install): uv pip install -e ".[extra]"
-        # From PyPI install: uv pip install "boxmot[extra]"
+        # From source checkout (editable install): install -e ".[extra]"
+        # From PyPI install:                  install "boxmot[extra]"
+        install_args = self._normalize_args(extra_args)
         if root_pyproject.is_file():
             # Editable install detected or running from source root
             # We use ROOT to point to the source directory
             target = f"{ROOT}[{extra}]"
-            cmd = ["uv", "pip", "install", "--no-cache-dir", "-e", target]
+            install_args.extend(["-e", target])
         else:
             # Installed from PyPI: install the published dist extra
-            cmd = ["uv", "pip", "install", f"boxmot[{extra}]"]
+            install_args.append(f"boxmot[{extra}]")
 
-        if extra_args:
-            cmd.extend(extra_args)
-
-        try:
-            # Always pipe subprocess output so that callers running inside a
-            # Rich ``Live`` workflow do not see raw ``uv`` writes corrupting
-            # their cursor positioning. When verbose is requested we surface
-            # the captured output via the LOGGER (which routes through Rich).
-            completed = subprocess.run(
-                cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            if verbose:
-                for line in (completed.stdout or "").splitlines():
-                    if line.strip():
-                        LOGGER.info(line)
-                for line in (completed.stderr or "").splitlines():
-                    if line.strip():
-                        LOGGER.info(line)
-                LOGGER.info(f"Extra '{extra}' installed successfully.")
-        except subprocess.CalledProcessError as e:
-            stderr_tail = (e.stderr or "").strip().splitlines()[-5:]
-            for line in stderr_tail:
-                LOGGER.error(line)
-            LOGGER.error(f"Failed to install extra '{extra}': {e}")
-            raise RuntimeError(f"Failed to install extra '{extra}': {e}")
+        self._run_install(install_args, description=f"extra '{extra}'", verbose=verbose)
 
     # ---------- internals ----------
 
+    @staticmethod
+    def _installer_command() -> list[str]:
+        """Return the preferred package installer for the active environment."""
+        return RequirementsChecker._installer_commands()[0]
+
+    @staticmethod
+    def _installer_commands() -> list[list[str]]:
+        """Return installer command prefixes in fallback order."""
+        commands: list[list[str]] = []
+        if shutil.which("uv"):
+            commands.append(["uv", "pip", "install", "--no-cache-dir"])
+        commands.append([sys.executable, "-m", "pip", "install", "--no-cache-dir"])
+        return commands
+
+    @staticmethod
+    def _normalize_args(args: Optional[Sequence[str] | str]) -> list[str]:
+        """Return installer arguments from a sequence or shell-style string."""
+        if args is None:
+            return []
+        if isinstance(args, str):
+            return shlex.split(args)
+        return [str(arg) for arg in args]
+
     def _missing_packages(self, requirements: Iterable[str]) -> list[str]:
         """Return requirement specifiers from *requirements* that are not satisfied."""
-        missing: list[str] = []
-        for req in [Requirement(r) for r in requirements]:
-            if req.marker is not None and not req.marker.evaluate():
-                continue
-            try:
-                inst_ver = version(req.name)
-                if req.specifier and not req.specifier.contains(inst_ver, prereleases=True):
-                    missing.append(str(req))
-            except PackageNotFoundError:
-                missing.append(str(req))
-        return missing
+        return missing_requirements(requirements)
 
     def _install_packages(
-        self, packages: Sequence[str], extra_args: Optional[Sequence[str]] = None
+        self, packages: Sequence[str], extra_args: Optional[Sequence[str] | str] = None
     ):
         """
-        Install an explicit list of requirement specifiers with uv.
+        Install an explicit list of requirement specifiers.
         """
-        try:
-            LOGGER.warning(
-                f"\nMissing or mismatched packages: {', '.join(packages)}\n"
-                "Attempting installation..."
-            )
-            cmd = ["uv", "pip", "install", "--no-cache-dir"]
+        LOGGER.warning(
+            f"\nMissing or mismatched packages: {', '.join(packages)}\n"
+            "Attempting installation..."
+        )
+        install_args = self._normalize_args(extra_args)
+        install_args.extend(str(package) for package in packages)
+        self._run_install(install_args, description="packages", verbose=True)
 
-            if extra_args:
-                cmd += list(extra_args)
-            cmd += list(packages)
+    def _run_install(
+        self,
+        install_args: Sequence[str],
+        *,
+        description: str,
+        verbose: bool,
+    ) -> None:
+        """Run an install command, retrying with pip when uv fails."""
+        failures: list[tuple[list[str], str, str]] = []
+        commands = [[*installer, *install_args] for installer in self._installer_commands()]
 
-            # Pipe subprocess output (see comment in ``sync_extra``) and
-            # surface any captured lines through the LOGGER so they render
-            # cleanly inside an active Rich workflow.
-            completed = subprocess.run(
-                cmd,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            for line in (completed.stdout or "").splitlines():
-                if line.strip():
-                    LOGGER.info(line)
-            for line in (completed.stderr or "").splitlines():
-                if line.strip():
-                    LOGGER.info(line)
-            LOGGER.info("All missing packages were installed successfully.")
-        except subprocess.CalledProcessError as e:
-            stderr_tail = (e.stderr or "").strip().splitlines()[-5:]
-            for line in stderr_tail:
+        for idx, cmd in enumerate(commands):
+            try:
+                completed = subprocess.run(
+                    cmd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            except FileNotFoundError as e:
+                failures.append((cmd, "", str(e)))
+            except subprocess.CalledProcessError as e:
+                failures.append((cmd, e.stdout or "", e.stderr or str(e)))
+            else:
+                if verbose:
+                    self._log_install_output(completed)
+                    LOGGER.info(f"Installed {description} successfully.")
+                return
+
+            if idx + 1 < len(commands) and verbose:
+                LOGGER.warning(
+                    f"Installer command failed ({cmd[0]}). "
+                    f"Retrying with {commands[idx + 1][0]}..."
+                )
+
+        if failures:
+            last_cmd, stdout, stderr = failures[-1]
+            tail = (stderr or stdout).strip().splitlines()[-5:]
+            for line in tail:
                 LOGGER.error(line)
-            LOGGER.error(f"Failed to install packages: {e}")
-            raise RuntimeError(f"Failed to install packages: {e}")
-        except Exception as e:
-            LOGGER.error(f"Failed to install packages: {e}")
-            raise RuntimeError(f"Failed to install packages: {e}")
+            LOGGER.error(f"Failed to install {description} with: {' '.join(last_cmd)}")
+        raise RuntimeError(f"Failed to install {description}")
+
+    @staticmethod
+    def _log_install_output(completed: subprocess.CompletedProcess[str]) -> None:
+        """Log captured installer output through the project logger."""
+        for line in (completed.stdout or "").splitlines():
+            if line.strip():
+                LOGGER.info(line)
+        for line in (completed.stderr or "").splitlines():
+            if line.strip():
+                LOGGER.info(line)

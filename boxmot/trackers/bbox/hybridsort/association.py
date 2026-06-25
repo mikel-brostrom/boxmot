@@ -748,11 +748,7 @@ def embedding_distance(tracks_feat, detections_feat, metric='cosine'):
     cost_matrix = np.zeros((len(tracks_feat), len(detections_feat)), dtype=float)
     if cost_matrix.size == 0:
         return cost_matrix
-    # det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float)    # [detection_num, emd_dim]
-    # #for i, track in enumerate(tracks):
-    #     #cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
-    # track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float)    # [track_num, emd_dim]
-    cost_matrix = np.maximum(0.0, cdist(tracks_feat, detections_feat, metric))  # Nomalized features, metric: cosine, [track_num, detection_num]
+    cost_matrix = np.maximum(0.0, cdist(tracks_feat, detections_feat, metric))
     return cost_matrix
 
 chi2inv95 = {

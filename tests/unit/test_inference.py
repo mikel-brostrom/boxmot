@@ -1,44 +1,46 @@
 import importlib
-from io import StringIO
 import queue
-from contextlib import nullcontext
-from pathlib import Path
 import re
+from contextlib import nullcontext
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
-from rich.console import Console
 import torch
+from rich.console import Console
 
-from boxmot.configs import ensure_model_extension
-from boxmot.data import iter_source
-from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
-from boxmot.detectors.base import Detections
 import boxmot.data.loaders as loaders_module
 import boxmot.detectors.detector as detector_module
 import boxmot.detectors.ultralytics as ultralytics_detector_module
 import boxmot.engine.eval.evaluator as evaluator_module
-import boxmot.engine.tracking.inference as pipeline_module
 import boxmot.engine.eval.replay as cached_tracking_module
-import boxmot.engine.tracking.tracker as tracker_runtime_module
+import boxmot.engine.tracking.inference as pipeline_module
+import boxmot.engine.tracking.runtime as tracker_runtime_module
 import boxmot.engine.workflows.reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
-import boxmot.utils.rich.ui as ui_module
-from boxmot.detectors.ultralytics import UltralyticsDetector
-from boxmot.engine.tracking.inference import prepare_detections
-from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
+import boxmot.utils.rich.core.ui as ui_module
+from boxmot.configs import ensure_model_extension
+from boxmot.data import iter_source
 from boxmot.data.cache import (
     AppendableNpyWriter,
     _existing_cache_path,
     _max_frame_id,
     _saved_detection_column_count,
 )
-from boxmot.utils.iou import iou_obb_pair
-from boxmot.engine.mot_utils import convert_to_mot_format, write_mot_results
+from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
+from boxmot.detectors.base import Detections
+from boxmot.detectors.ultralytics import UltralyticsDetector
+from boxmot.engine.tracking.inference import prepare_detections
+from boxmot.engine.tracking.mot import convert_to_mot_format, write_mot_results
+from boxmot.engine.workflows import support as workflow_support_module
+from boxmot.trackers.association.iou import iou_obb_pair
+from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
+from boxmot.trackers.common.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.utils import WEIGHTS
+from boxmot.utils.timing import TimingStats
 
 _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
@@ -879,7 +881,7 @@ def test_parse_mot_results_preserves_multiword_class_names():
 
 
 def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
-    results_module = importlib.import_module("boxmot.engine.eval.metrics.results")
+    results_module = importlib.import_module("boxmot.engine.eval.trackeval.results")
     raw = {
         "all": {
             "HOTA": 62.5,
@@ -1249,7 +1251,7 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
             if detail:
                 actions.append(("detail", next_step, detail))
 
-    from boxmot.utils.rich.pipeline import PipelineTracker
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
@@ -1351,7 +1353,7 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         def transition(self, done, next_step, detail=None):
             return None
 
-    from boxmot.utils.rich.pipeline import PipelineTracker
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 
     monkeypatch.setattr(evaluator_module, "suppress_boxmot_logs", fake_suppress)
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
@@ -1475,7 +1477,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         def transition(self, done, next_step, detail=None):
             return None
 
-    from boxmot.utils.rich.pipeline import PipelineTracker
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 
     monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
     monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
@@ -2385,22 +2387,13 @@ def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, mon
     assert executor_kwargs["max_workers"] == 2
 
 
-def test_tracking_session_output_stem_handles_stream_and_camera_sources():
-    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="rtsp://camera/stream", fps=None))
-
-    assert session._resolve_output_stem() == "rtsp_camera_stream"
-
-    session.args.source = "0"
-    assert session._resolve_output_stem() == "camera_0"
+def test_resolve_output_stem_handles_stream_and_camera_sources():
+    assert workflow_support_module.resolve_output_stem("rtsp://camera/stream") == "rtsp_camera_stream"
+    assert workflow_support_module.resolve_output_stem("0") == "camera_0"
 
 
-def test_tracking_session_resolves_output_fps_from_args():
-    session = tracker_runtime_module.TrackingSession(SimpleNamespace(source="video.mp4", fps=12))
-
-    assert session._resolve_output_fps() == 12
-
-    session.args.fps = None
-    assert session._resolve_output_fps() == 30
+def test_resolve_output_fps_uses_video_fallback_when_source_cannot_open():
+    assert workflow_support_module.resolve_output_fps("video.mp4") == 30
 
 
 def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
@@ -2415,7 +2408,7 @@ def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
             _ = (show_trajectories, thickness, show_kf_preds)
             return img
 
-    timing_stats = tracker_runtime_module.TimingStats()
+    timing_stats = TimingStats()
     runtime = tracker_runtime_module.TrackerRuntime(_FakeTracker(), timing_stats=timing_stats)
 
     tracks, elapsed_ms = runtime.update(
@@ -2431,8 +2424,5 @@ def test_tracker_runtime_update_measures_elapsed_time_and_passes_embeddings():
 
 
 def test_initialize_trackers_rejects_unknown_tracker():
-    predictor = SimpleNamespace(dataset=SimpleNamespace(bs=1), device="cpu")
-    args = SimpleNamespace(tracker="unknown", reid=Path("reid.pt"), half=False, per_class=False, target_id=None)
-
     with pytest.raises(ValueError, match="registered tracker name"):
-        tracker_runtime_module.TrackingSession.initialize_trackers(predictor, args)
+        workflow_support_module.tracker_name_from_spec("unknown")

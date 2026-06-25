@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.rich.ui import print_text
+from boxmot.utils.rich.core.ui import print_text
 
 DETECTOR_PHASES = ("preprocess", "process", "postprocess")
 REID_PHASES = ("preprocess", "process", "postprocess")

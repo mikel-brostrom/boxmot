@@ -2,22 +2,18 @@ from __future__ import annotations
 
 import os
 import platform
-from importlib.metadata import PackageNotFoundError, version
 
 import torch
-from packaging.requirements import Requirement
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.dependencies import (
+    reid_backend_requirements,
+    requirement_satisfied,
+)
 from boxmot.utils import logger as LOGGER
 
 
 class ONNXBackend(BaseModelBackend):
-    _CUDA_RUNTIME_REQUIREMENTS = ("onnxruntime-gpu>=1.18.1",)
-    _DARWIN_RUNTIME_REQUIREMENTS = (
-        "onnxruntime>=1.18.1",
-        "onnxruntime-silicon>=1.18.1",
-    )
-    _DEFAULT_RUNTIME_REQUIREMENTS = ("onnxruntime>=1.18.1",)
     _DEVICE_PROVIDER_ORDER = {
         "cuda": ("CUDAExecutionProvider",),
         "mps": ("CoreMLExecutionProvider", "MPSExecutionProvider"),
@@ -46,19 +42,14 @@ class ONNXBackend(BaseModelBackend):
 
     @staticmethod
     def _requirement_satisfied(requirement: str) -> bool:
-        parsed = Requirement(requirement)
-        try:
-            installed_version = version(parsed.name)
-        except PackageNotFoundError:
-            return False
-        return not parsed.specifier or parsed.specifier.contains(installed_version, prereleases=True)
+        return requirement_satisfied(requirement)
 
     def _runtime_requirements(self) -> tuple[str, ...]:
-        if self._device_type(self._requested_device) == "cuda":
-            return self._CUDA_RUNTIME_REQUIREMENTS
-        if platform.system() == "Darwin":
-            return self._DARWIN_RUNTIME_REQUIREMENTS
-        return self._DEFAULT_RUNTIME_REQUIREMENTS
+        return reid_backend_requirements(
+            "onnx",
+            device=self._requested_device,
+            system_name=platform.system(),
+        )
 
     def _ensure_onnxruntime_installed(self) -> None:
         requirements = self._runtime_requirements()

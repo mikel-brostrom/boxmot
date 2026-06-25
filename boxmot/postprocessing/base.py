@@ -11,7 +11,7 @@ from typing import Any
 
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.callbacks import safe_seq_progress_callback
-from boxmot.utils.rich.progress import RichTqdm as tqdm
+from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
 ProgressCallback = Callable[[str, int, int], None]
 FileWorker = Callable[..., None]

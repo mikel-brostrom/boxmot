@@ -2,6 +2,8 @@
 
 Use `export` to convert ReID models to deployment formats such as ONNX and TensorRT.
 
+Format-specific Python packages are installed on first use when possible. TensorRT export also attempts to install `nvidia-tensorrt`, but the resulting wheel still needs a compatible CUDA/NVIDIA runtime.
+
 ## Examples
 
 !!! example

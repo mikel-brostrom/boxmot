@@ -2,7 +2,7 @@
 
 BoxMOT ships native C++ implementations of several trackers. You can use them in two ways:
 
-1. From the BoxMOT CLI / Python API via `--tracker-backend cpp` (or the `tracker:cpp` shorthand).
+1. From the BoxMOT CLI / Python API via `--tracker-backend cpp`.
 2. Linked directly into your own C++ program via the `<tracker>_core` CMake target or the flat C ABI.
 
 ## Using the native backend from BoxMOT
@@ -12,7 +12,7 @@ Pass `--tracker-backend cpp` to swap the in-process tracker implementation. This
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
 boxmot eval  --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval  --benchmark mot17 --split ablation --tracker botsort:cpp
+boxmot eval  --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 ```
 
 `--tracking-backend cpp` still works as a compatibility alias. The first run configures and builds the matching shared library under `build/native/<tracker>/`. Use `boxmot build` to compile ahead of time:

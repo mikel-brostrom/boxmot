@@ -9,46 +9,15 @@ import cv2
 import numpy as np
 
 from boxmot.data import iter_source
-from boxmot.detectors.base import Detections
+from boxmot.engine.tracking.detections import as_2d_array, extract_detection_array, extract_masks
+from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.engine.tracking.rendering import Drawer, draw_tracks
+from boxmot.engine.tracking.video import append_frame
+from boxmot.engine.tracking.video import close as close_video
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
-from boxmot.engine.mot_utils import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
-from boxmot.utils.rich.ui import print_text
+from boxmot.utils.rich.core.ui import print_text
 from boxmot.utils.timing import build_timing_display_rows, derive_timing_breakdown
-
-
-def _resolve_fps(source: Any) -> float:
-    """Lazily import and call resolve_output_fps to avoid circular imports."""
-    from boxmot.engine.workflows.support import resolve_output_fps
-    return resolve_output_fps(source)
-
-
-try:
-    from ultralytics.utils.plotting import colors
-except ImportError:
-    colors = None
-
-
-Drawer = Callable[[np.ndarray, np.ndarray], np.ndarray]
-
-
-def _track_color(track_id: int) -> tuple[int, int, int]:
-    if colors is not None:
-        color = colors(track_id, True)
-        return int(color[0]), int(color[1]), int(color[2])
-    base = (int(track_id) * 123457) % 255
-    return int(base), int((base * 3) % 255), int((base * 7) % 255)
-
-
-def _is_live_source(source: Any) -> bool:
-    if isinstance(source, int):
-        return True
-    if isinstance(source, str):
-        return source.isdigit() or "://" in source
-    return False
-
-
-_video_writers: dict[str, cv2.VideoWriter] = {}
 
 
 class FrameResult:
@@ -105,13 +74,7 @@ class FrameResult:
 
     @staticmethod
     def _as_2d_array(values: Any) -> np.ndarray:
-        arr = np.asarray(values, dtype=np.float32)
-        if arr.size == 0:
-            cols = arr.shape[1] if arr.ndim == 2 else 0
-            return np.empty((0, cols), dtype=np.float32)
-        if arr.ndim == 1:
-            return arr.reshape(1, -1)
-        return arr
+        return as_2d_array(values)
 
     def _align_to_tracks(
         self, dets: np.ndarray | None, embs: np.ndarray | None,
@@ -171,54 +134,7 @@ class FrameResult:
     # ------------------------------------------------------------------
 
     def _default_draw(self, frame: np.ndarray) -> np.ndarray:
-        drawn = frame.copy()
-        if self.tracks.size == 0:
-            return drawn
-
-        # Draw mask overlays first (beneath boxes)
-        if self.masks is not None:
-            h_frame, w_frame = drawn.shape[:2]
-            for i in range(len(self.tracks)):
-                mask = self.masks[i]
-                if mask.sum() == 0:
-                    continue
-                track_id = int(self.tracks.id[i])
-                color = _track_color(track_id)
-                # Resize mask to frame dimensions if needed
-                h_mask, w_mask = mask.shape[:2]
-                if (h_mask, w_mask) != (h_frame, w_frame):
-                    mask = cv2.resize(mask, (w_frame, h_frame), interpolation=cv2.INTER_NEAREST)
-                colored = np.zeros_like(drawn)
-                colored[:] = color
-                mask_bool = mask.astype(bool)
-                drawn[mask_bool] = cv2.addWeighted(drawn, 0.6, colored, 0.4, 0)[mask_bool]
-
-        for i in range(len(self.tracks)):
-            track_id = int(self.tracks.id[i])
-            conf = float(self.tracks.conf[i])
-            if self.tracks.is_obb:
-                cx, cy, width, height, angle = self.tracks.xywha[i]
-                rect = ((float(cx), float(cy)), (max(float(width), 1.0), max(float(height), 1.0)), float(np.degrees(angle)))
-                corners = cv2.boxPoints(rect).astype(np.int32)
-                cv2.polylines(drawn, [corners], True, _track_color(track_id), 2)
-                label_point = tuple(corners[0])
-            else:
-                x1, y1, x2, y2 = self.tracks.xyxy[i].round().astype(int)
-                cv2.rectangle(drawn, (x1, y1), (x2, y2), _track_color(track_id), 2)
-                label_point = (x1, max(0, y1 - 6))
-
-            cv2.putText(
-                drawn,
-                f"{track_id} {conf:.2f}",
-                label_point,
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                _track_color(track_id),
-                1,
-                cv2.LINE_AA,
-            )
-
-        return drawn
+        return draw_tracks(frame, self.tracks, self.masks)
 
     def plot(self) -> np.ndarray:
         """Plot tracks on the frame and return the annotated image."""
@@ -288,17 +204,7 @@ class FrameResult:
             fps: Frames per second. If None (default), auto-detected from
                  the source video/camera.
         """
-        key = str(Path(path))
-        rendered = self.plot()
-        if key not in _video_writers:
-            if fps is None:
-                fps = _resolve_fps(self.source_path)
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            h, w = rendered.shape[:2]
-            _video_writers[key] = cv2.VideoWriter(
-                key, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h),
-            )
-        _video_writers[key].write(rendered)
+        append_frame(path, self.plot(), self.source_path, fps=fps)
 
     @staticmethod
     def close_vid(path: str | Path | None = None) -> None:
@@ -307,15 +213,7 @@ class FrameResult:
         Args:
             path: Release writer for this path only. If None, release all.
         """
-        if path is not None:
-            key = str(Path(path))
-            writer = _video_writers.pop(key, None)
-            if writer is not None:
-                writer.release()
-        else:
-            for writer in _video_writers.values():
-                writer.release()
-            _video_writers.clear()
+        close_video(path)
 
     def to_csv(self) -> str:
         """Return tracks as a CSV-formatted string."""
@@ -417,38 +315,15 @@ class Results:
 
     @staticmethod
     def _as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
-        arr = np.asarray(values, dtype=np.float32)
-        if arr.size == 0:
-            cols = arr.shape[1] if arr.ndim == 2 else empty_cols
-            return np.empty((0, cols), dtype=np.float32)
-        if arr.ndim == 1:
-            return arr.reshape(1, -1)
-        return arr
+        return as_2d_array(values, empty_cols=empty_cols)
 
     @staticmethod
     def _extract_detections(output: Any) -> np.ndarray:
-        if isinstance(output, (list, tuple)) and len(output) == 1:
-            output = output[0]
-        if isinstance(output, Detections):
-            cols = output.dets.shape[1] if output.dets.ndim == 2 else (7 if output.is_obb else 6)
-            return Results._as_2d_array(output.dets, empty_cols=cols)
-        if hasattr(output, "dets"):
-            dets = getattr(output, "dets")
-            cols = dets.shape[1] if isinstance(dets, np.ndarray) and dets.ndim == 2 else 6
-            return Results._as_2d_array(dets, empty_cols=cols)
-        if output is None:
-            return np.empty((0, 6), dtype=np.float32)
-        return Results._as_2d_array(output, empty_cols=6)
+        return extract_detection_array(output)
 
     @staticmethod
     def _extract_masks(output: Any) -> np.ndarray | None:
-        if isinstance(output, (list, tuple)) and len(output) == 1:
-            output = output[0]
-        if isinstance(output, Detections) and output.masks is not None:
-            return output.masks
-        if hasattr(output, "masks"):
-            return getattr(output, "masks")
-        return None
+        return extract_masks(output)
 
     def _iter_frames(self):
         source = self.source
@@ -589,7 +464,13 @@ class Results:
         self._add_reid_phase_time("process", reid_ms)
         return features, reid_ms
 
-    def _run_tracker(self, dets: np.ndarray, frame: np.ndarray, features: np.ndarray | None, masks: np.ndarray | None = None) -> TrackResults:
+    def _run_tracker(
+        self,
+        dets: np.ndarray,
+        frame: np.ndarray,
+        features: np.ndarray | None,
+        masks: np.ndarray | None = None,
+    ) -> TrackResults:
         kwargs: dict[str, Any] = {}
         if features is not None:
             kwargs["embs"] = features
@@ -693,8 +574,12 @@ class Results:
             if entry["kind"] == "note":
                 lines.append(str(entry["label"]))
                 continue
+            label = str(entry["label"])
+            total = float(entry["total"])
+            avg = float(entry["avg"])
+            fps = float(entry["fps"])
             lines.append(
-                f"{str(entry['label']):<20} {float(entry['total']):>12.1f} {float(entry['avg']):>12.2f} {float(entry['fps']):>10.1f}"
+                f"{label:<20} {total:>12.1f} {avg:>12.2f} {fps:>10.1f}"
             )
         lines.append("=" * width)
         return "\n".join(lines)

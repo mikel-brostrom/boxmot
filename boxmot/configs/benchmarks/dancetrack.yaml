@@ -2,7 +2,7 @@ id: dancetrack
 
 dataset:
   id: dancetrack
-  root: "boxmot/engine/eval/trackeval/data/test1"
+  root: "data/benchmarks/test1"
   layout: mot
   box_type: aabb
   splits:

@@ -3,53 +3,100 @@ from __future__ import annotations
 import sys
 import types
 from contextlib import contextmanager
-from pathlib import Path
 from types import SimpleNamespace
 
 import boxmot.utils.download as download_module
-from boxmot.utils.download import _sync_trackeval_dataset_overlays
 
 
-def test_sync_trackeval_dataset_overlays_copies_all_mmot_files(tmp_path):
-    dest = tmp_path / "trackeval_root"
-    # Create the expected package structure so _resolve_trackeval_package_root finds it
-    pkg_dir = dest / "trackeval"
-    pkg_dir.mkdir(parents=True)
-    (pkg_dir / "__init__.py").write_text("")
-    _sync_trackeval_dataset_overlays(dest)
-
-    utils_dir = Path("boxmot/engine/eval/metrics")
-    expected = {
-        dest / "trackeval" / "datasets" / "mmot_rgb.py": utils_dir / "custom_mot_challenge_obb.py",
-        dest / "trackeval" / "datasets" / "__init__.py": utils_dir / "trackeval_datasets_init.py",
-    }
-
-    for target, source in expected.items():
-        assert target.exists()
-        assert target.read_text() == source.read_text()
-
-    assert not (dest / "trackeval" / "datasets" / "mmot_8ch.py").exists()
-
-
-def test_sync_trackeval_dataset_overlays_patches_numpy_builtin_aliases(tmp_path):
-    dest = tmp_path / "trackeval_root"
-    dataset_file = dest / "trackeval" / "datasets" / "mot_challenge_2d_box.py"
-    dataset_file.parent.mkdir(parents=True, exist_ok=True)
-    # Create __init__.py so _resolve_trackeval_package_root recognizes the package
-    (dest / "trackeval" / "__init__.py").write_text("")
-    dataset_file.write_text(
+def _write_trackeval_repo(root, *, marker="official", managed=False, branch="master"):
+    datasets_dir = root / "trackeval" / "datasets"
+    datasets_dir.mkdir(parents=True)
+    (root / "trackeval" / "__init__.py").write_text("")
+    (root / "trackeval" / "eval.py").write_text(marker)
+    (datasets_dir / "__init__.py").write_text("")
+    (datasets_dir / "mot_challenge_2d_box.py").write_text(
         "import numpy as np\n"
-        "def load(read_data):\n"
-        "    return np.asarray(read_data, dtype=np.float), np.asarray(read_data, dtype=np.int)\n"
+        "time_data = np.asarray([], dtype=np.float)\n"
+        "id_data = np.asarray([], dtype=np.int)\n"
+        "flag_data = np.asarray([], dtype=np.bool)\n"
     )
+    if managed:
+        (root / download_module.TRACKEVAL_SOURCE_MARKER).write_text(
+            download_module._trackeval_source_marker_text(branch)
+        )
 
-    _sync_trackeval_dataset_overlays(dest)
+
+def test_download_trackeval_patches_managed_official_cache_without_downloading(tmp_path):
+    dest = tmp_path / "trackeval_root"
+    pkg_dir = dest / "trackeval"
+    dataset_dir = pkg_dir / "trackeval" / "datasets"
+    _write_trackeval_repo(pkg_dir, managed=True)
+    dataset_file = dataset_dir / "mot_challenge_2d_box.py"
+
+    download_module.download_trackeval(dest)
 
     patched = dataset_file.read_text()
     assert "np.float" not in patched
     assert "np.int" not in patched
+    assert "np.bool" not in patched
     assert "dtype=float" in patched
     assert "dtype=int" in patched
+    assert "dtype=bool" in patched
+
+
+def test_download_trackeval_uses_official_trackeval_archive(monkeypatch, tmp_path):
+    dest = tmp_path / "trackeval_root"
+    calls = {}
+
+    def fake_download_file(url, zip_file, overwrite=False):
+        calls["url"] = url
+        calls["overwrite"] = overwrite
+        zip_file.write_bytes(b"zip")
+        return zip_file
+
+    def fake_extract_zip(zip_path, extract_to, overwrite=False):
+        calls["zip_path"] = zip_path
+        calls["extract_to"] = extract_to
+        _write_trackeval_repo(extract_to / "TrackEval-master", marker="official")
+
+    monkeypatch.setattr(download_module, "download_file", fake_download_file)
+    monkeypatch.setattr(download_module, "extract_zip", fake_extract_zip)
+
+    download_module.download_trackeval(dest)
+
+    assert calls["url"] == "https://github.com/JonathonLuiten/TrackEval/archive/refs/heads/master.zip"
+    assert (dest / "trackeval" / "trackeval" / "eval.py").read_text() == "official"
+    assert "np.float" not in (dest / "trackeval" / "trackeval" / "datasets" / "mot_challenge_2d_box.py").read_text()
+    assert (dest / "trackeval" / download_module.TRACKEVAL_SOURCE_MARKER).read_text() == (
+        download_module._trackeval_source_marker_text("master")
+    )
+    assert not (tmp_path / "TrackEval-master").exists()
+    assert not (tmp_path / "trackeval-master.zip").exists()
+
+
+def test_download_trackeval_refreshes_unmanaged_cache(monkeypatch, tmp_path):
+    dest = tmp_path / "trackeval_root"
+    _write_trackeval_repo(dest / "trackeval", marker="stale")
+    calls = {}
+
+    def fake_download_file(url, zip_file, overwrite=False):
+        calls["url"] = url
+        zip_file.write_bytes(b"zip")
+        return zip_file
+
+    def fake_extract_zip(_zip_path, extract_to, overwrite=False):
+        _write_trackeval_repo(extract_to / "TrackEval-master", marker="replacement")
+
+    monkeypatch.setattr(download_module, "download_file", fake_download_file)
+    monkeypatch.setattr(download_module, "extract_zip", fake_extract_zip)
+
+    download_module.download_trackeval(dest)
+
+    assert calls["url"] == "https://github.com/JonathonLuiten/TrackEval/archive/refs/heads/master.zip"
+    assert (dest / "trackeval" / "trackeval" / "eval.py").read_text() == "replacement"
+    assert (dest / "trackeval" / download_module.TRACKEVAL_SOURCE_MARKER).read_text() == (
+        download_module._trackeval_source_marker_text("master")
+    )
 
 
 def test_hf_subfolder_workflow_progress_uses_file_units(monkeypatch, tmp_path):
@@ -142,3 +189,13 @@ def test_hf_subfolder_workflow_progress_uses_file_units(monkeypatch, tmp_path):
         }
     ]
     assert (tmp_path / "images" / "val" / ".hf_download_complete").exists()
+
+
+def test_hf_subfolder_skips_populated_target_without_marker(tmp_path):
+    target = tmp_path / "images" / "val"
+    target.mkdir(parents=True)
+    (target / "frame001.jpg").write_bytes(b"image")
+
+    download_module.download_hf_dataset_subfolder("user/repo", "images/val", tmp_path)
+
+    assert (target / ".hf_download_complete").exists()

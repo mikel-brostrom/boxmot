@@ -15,7 +15,7 @@ from boxmot.reid.core import ReID, export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import WEIGHTS
-from boxmot.utils.rich.export_reporting import ExportWorkflowReporter
+from boxmot.utils.rich.reporters.export import ExportWorkflowReporter
 from boxmot.utils.torch_utils import select_device
 
 __all__ = [

@@ -4,5 +4,4 @@ __all__ = (
     "cache",
     "evaluator",
     "replay",
-    "trackeval",
 )

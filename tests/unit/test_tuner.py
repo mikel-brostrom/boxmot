@@ -1,6 +1,6 @@
 import logging
-from pathlib import Path
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import click
@@ -8,9 +8,9 @@ import pytest
 import yaml
 
 import boxmot.engine.tuning.tuner as tuner_module
-import boxmot.utils.rich.reporting as rich_reporting
-import boxmot.utils.rich.tune_reporting as tune_reporting
-import boxmot.utils.rich.ui as ui_module
+import boxmot.utils.rich.core.ui as ui_module
+import boxmot.utils.rich.reporters.tune as tune_reporting
+import boxmot.utils.rich.workflow.reporting as rich_reporting
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
 from boxmot.engine.tuning.postprocessing import write_trial_yaml
 from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_config

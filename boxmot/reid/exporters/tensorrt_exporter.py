@@ -1,21 +1,23 @@
+from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
 from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.reid.exporters.onnx_exporter import ONNXExporter
 from boxmot.utils import logger as LOGGER
 
 
 class EngineExporter(BaseExporter):
-    required_packages = ("nvidia-tensorrt",)
-    cmds = "--extra-index-url https://pypi.ngc.nvidia.com"
-
     def export(self):
 
         assert (
             self.im.device.type != "cpu"
         ), "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
+        ensure_reid_backend_requirements(self.checker, "tensorrt")
         try:
             import tensorrt as trt
-        except ImportError:
-            import tensorrt as trt
+        except ImportError as exc:
+            raise ImportError(
+                "TensorRT auto-install completed, but the 'tensorrt' module still "
+                "could not be imported. Check CUDA, Python, and NVIDIA package compatibility."
+            ) from exc
 
         onnx_file = self.export_onnx()
         LOGGER.info(f"\nStarting export with TensorRT {trt.__version__}...")

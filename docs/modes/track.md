@@ -93,7 +93,7 @@ Use `--tracker-backend cpp` when you want the in-process native C++ tracker impl
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort:cpp --source 0
+boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --tracker-backend cpp --source 0
 ```
 
 Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. See [Native C++ Integration](../native/index.md) for build requirements and embedding details.

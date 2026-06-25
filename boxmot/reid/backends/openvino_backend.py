@@ -3,6 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -15,18 +16,11 @@ class OpenVinoBackend(BaseModelBackend):
         self._max_batch: int | None = None
 
     def load_model(self, w):
-        self.checker.check_packages(("openvino>=2025.2.0",))
+        ensure_reid_backend_requirements(self.checker, "openvino")
 
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
-        try:
-            # requires openvino-dev: https://pypi.org/project/openvino-dev/
-            from openvino import Core, Layout
-        except ImportError:
-            LOGGER.error(
-                f"Running {self.__class__} with the specified OpenVINO weights\n{w.name}\n"
-                "requires openvino pip package to be installed!\n"
-                "$ pip install openvino>=2025.2.0\n"
-            )
+        from openvino import Core, Layout
+
         ie = Core()
         w = Path(w)
         LOGGER.info(w)

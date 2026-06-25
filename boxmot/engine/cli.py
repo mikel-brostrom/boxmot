@@ -693,7 +693,7 @@ def track(ctx, detector, reid, classes, split, **kwargs):
     _dispatch_cli_workflow(
         ctx,
         "track",
-        "boxmot.engine.tracking.tracker",
+        "boxmot.engine.tracking.workflow",
         _apply_track_cli_defaults(ctx, {
             **kwargs,
             "detector": detector,

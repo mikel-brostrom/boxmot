@@ -59,6 +59,7 @@ python -m boxmot.engine.cli --help
 
 - Keep changes focused: one logical change per PR / task.
 - Follow the existing structure and conventions of the modules you touch.
+- Do not add backwards compatibility layers, legacy aliases, migration shims, compatibility wrappers, or deprecated paths unless explicitly requested. Prefer updating callers, tests, docs, and examples to the new canonical structure.
 
 ## 3. Coding Conventions
 
@@ -80,7 +81,7 @@ python -m boxmot.engine.cli --help
 
 When editing `boxmot/engine/cli.py` or other CLIs:
 
-- Group options logically (e.g., input, inference, output, display), but maintain backwards-compatible option names and defaults where possible.
+- Group options logically (e.g., input, inference, output, display). Use the new canonical option names and defaults; do not preserve legacy options solely for backwards compatibility unless explicitly requested.
 - Prefer reusable decorators for option groups (`core_options`, `plural_model_options`, etc.).
 - Use parsing helpers (e.g., `parse_tuple`, `parse_hw_tuple`) rather than ad-hoc parsing in every command.
 - Keep help text accurate and concise; if you change behavior, update:

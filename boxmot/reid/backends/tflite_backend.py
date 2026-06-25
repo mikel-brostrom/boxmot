@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
+from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -43,7 +44,7 @@ class TFLiteBackend(BaseModelBackend):
         try:
             litert = import_module("ai_edge_litert.interpreter")
         except ModuleNotFoundError:
-            self.checker.check_packages(("ai-edge-litert",))
+            ensure_reid_backend_requirements(self.checker, "tflite")
             litert = import_module("ai_edge_litert.interpreter")
         return litert.Interpreter
 

@@ -2,7 +2,7 @@ id: visdrone
 
 dataset:
   id: visdrone
-  root: "boxmot/engine/eval/trackeval/data/VisDrone2019-MOT-test-dev"
+  root: "data/benchmarks/VisDrone2019-MOT-test-dev"
   layout: visdrone
   box_type: aabb
   splits:

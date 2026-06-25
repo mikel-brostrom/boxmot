@@ -34,10 +34,10 @@ from typing import Any, Optional
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.trackers.association.iou import AssociationFunction
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.boosttrack.assoc import associate, iou_batch
 from boxmot.trackers.bbox.boosttrack.boosttrack import BoostTrack, KalmanBoxTracker
-from boxmot.utils.iou import AssociationFunction
 
 
 def _xywha_to_xyxy_enclosing(boxes: np.ndarray) -> np.ndarray:

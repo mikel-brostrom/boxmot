@@ -6,26 +6,27 @@ import pytest
 import yaml
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.reid.core import ReID
 from boxmot.trackers import (
     DeepOcSort,
     OcSort,
     StrongSort,
 )
-from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.association.matching import iou_distance
 from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.bbox.botsort.botsort import BotSort
+from boxmot.trackers.bbox.botsort.botsort_track import STrack as BotSortTrack
+from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack
+from boxmot.trackers.bbox.bytetrack.bytetrack import STrack as ByteTrackTrack
 from boxmot.trackers.bbox.deepocsort.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
-from boxmot.trackers.bbox.botsort.botsort import BotSort
-from boxmot.trackers.bbox.botsort.botsort_track import STrack as BotSortTrack
-from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack, STrack as ByteTrackTrack
 from boxmot.trackers.bbox.hybridsort.hybridsort import HybridSort
 from boxmot.trackers.bbox.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.bbox.sfsort.sfsort import SFSORT
-from boxmot.reid.core import ReID
 from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
-from boxmot.utils.matching import iou_distance
 from tests.test_config import (
     ALL_TRACKERS,
     MOTION_N_APPEARANCE_TRACKING_METHODS,
