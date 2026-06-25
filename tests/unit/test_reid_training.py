@@ -7,6 +7,7 @@ import torch.nn as nn
 
 import boxmot.reid.backbones.lmbn.lmbn_ain_n as lmbn_ain_n_module
 import boxmot.reid.backbones.lmbn.lmbn_n as lmbn_n_module
+from boxmot.engine.reid import trainer as workflow_trainer
 from boxmot.reid.backbones.csl_tinyvit import (
     Attention,
     CSLTinyViTFeatureFusion,
@@ -41,7 +42,6 @@ from boxmot.reid.training.trainer import (
     ReIDTrainer,
     ValMetrics,
 )
-from boxmot.reid.workflows import trainer as workflow_trainer
 
 
 def _trainer(tmp_path, **kwargs):
@@ -329,6 +329,10 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
         def __init__(self, **kwargs):
             captured.update(kwargs)
 
+        @classmethod
+        def from_config(cls, config):
+            return cls(**config.to_trainer_kwargs())
+
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)
 
@@ -417,6 +421,10 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
     class FakeTrainer:
         def __init__(self, **kwargs):
             captured.update(kwargs)
+
+        @classmethod
+        def from_config(cls, config):
+            return cls(**config.to_trainer_kwargs())
 
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)

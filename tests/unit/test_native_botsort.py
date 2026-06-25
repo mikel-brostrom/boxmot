@@ -472,7 +472,7 @@ def test_resolve_reid_model_ref_returns_explicit_onnx_as_is(monkeypatch, tmp_pat
 
 
 def test_export_reid_to_onnx_uses_native_compatible_export_settings(monkeypatch, tmp_path):
-    export_module = importlib.import_module("boxmot.reid.workflows.export")
+    export_module = importlib.import_module("boxmot.engine.reid.export")
     weights = tmp_path / "osnet_x0_25_msmt17.pt"
     weights.touch()
 

@@ -5,11 +5,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-from boxmot.reid.exporters.onnx_exporter import ONNXExporter
-from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
-from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
-from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
-from boxmot.reid.workflows.export import (
+from boxmot.engine.reid.export import (
     ExportTask,
     _resolve_export_weights,
     _run_tflite_for_parity,
@@ -17,6 +13,10 @@ from boxmot.reid.workflows.export import (
     create_export_tasks,
     perform_exports,
 )
+from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
+from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
+from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
 from boxmot.utils.checks import RequirementsChecker
 
 

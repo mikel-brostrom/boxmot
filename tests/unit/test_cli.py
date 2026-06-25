@@ -115,7 +115,7 @@ def test_train_preserves_explicit_hparam_keys(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -144,7 +144,7 @@ def test_train_accepts_global_seed_and_deterministic_flags(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -164,7 +164,7 @@ def test_train_accepts_composed_head_options(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -194,7 +194,7 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -312,7 +312,7 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -362,7 +362,7 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -465,7 +465,7 @@ def test_train_recipe_can_supply_data_dir(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_23m"])
 
@@ -489,7 +489,7 @@ def test_train_csl_tinyvit_7m_recipe_keeps_small_model(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_7m", "--data-dir", "."])
 
@@ -514,7 +514,7 @@ def test_train_default_model_is_csl_tinyvit_11m(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["train", "--data-dir", "."])
 
@@ -540,7 +540,7 @@ def test_train_csl_tinyvit_11m_recipe_is_normal_model(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_11m", "--data-dir", "."])
 
@@ -561,7 +561,7 @@ def test_train_accepts_csl_tinyvit_23m_lmbn_model(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.trainer", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -582,7 +582,7 @@ def test_eval_reid_accepts_scientific_feature_override_options(monkeypatch, tmp_
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.evaluator", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.evaluator", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,
@@ -867,7 +867,7 @@ def test_export_builds_shared_namespace(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(sys.modules, "boxmot.reid.workflows.export", SimpleNamespace(main=fake_main))
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.export", SimpleNamespace(main=fake_main))
 
     result = CliRunner().invoke(
         boxmot,

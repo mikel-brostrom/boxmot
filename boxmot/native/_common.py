@@ -454,7 +454,7 @@ def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
     """Export ``.pt`` ReID weights to an OpenCV-compatible ONNX file."""
     import torch
 
-    from boxmot.reid.workflows.export import setup_model
+    from boxmot.engine.reid.export import setup_model
 
     args = SimpleNamespace(
         weights=weights,

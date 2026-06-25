@@ -1074,7 +1074,7 @@ def train(ctx, **kwargs):
     # supply it, so validate after recipe/default resolution.
     if not getattr(args, "resume", None) and not getattr(args, "data_dir", None):
         raise click.MissingParameter(param_hint="'--data-dir'", param_type='option')
-    _run_engine_workflow("boxmot.reid.workflows.trainer", args)
+    _run_engine_workflow("boxmot.engine.reid.trainer", args)
 
 
 @boxmot.command(name='eval-reid', help='Evaluate a trained ReID model on query/gallery')
@@ -1110,7 +1110,7 @@ def train(ctx, **kwargs):
 @click.pass_context
 def eval_reid(ctx, **kwargs):
     args = _build_cli_namespace(ctx, "eval-reid", kwargs)
-    _run_engine_workflow("boxmot.reid.workflows.evaluator", args)
+    _run_engine_workflow("boxmot.engine.reid.evaluator", args)
 
 
 @boxmot.command(help='Export ReID models')
@@ -1122,7 +1122,7 @@ def export(ctx, **kwargs):
     Mirrors the standalone argparse-based export script.
     """
     args = _build_cli_namespace(ctx, "export", kwargs)
-    _run_engine_workflow("boxmot.reid.workflows.export", args)
+    _run_engine_workflow("boxmot.engine.reid.export", args)
 
 
 @boxmot.command(help='Build native (C++) tracker shared libraries')

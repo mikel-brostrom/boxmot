@@ -1,4 +1,4 @@
-"""Workflow entry point for ReID model export."""
+"""Engine entry point for ReID model export."""
 
 import logging
 import time
@@ -42,9 +42,7 @@ def validate_export_formats(include):
     include_lower = [fmt.lower() for fmt in include]
     flags = [fmt in include_lower for fmt in available_formats]
     if sum(flags) != len(include_lower):
-        raise AssertionError(
-            f"ERROR: Invalid --include {include}, valid arguments are {available_formats}"
-        )
+        raise AssertionError(f"ERROR: Invalid --include {include}, valid arguments are {available_formats}")
     return tuple(flags)
 
 
@@ -163,6 +161,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if torchscript_flag:
         from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
+
         tasks["torchscript"] = ExportTask(
             TorchScriptExporter,
             {
@@ -174,6 +173,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if onnx_flag or engine_flag or openvino_flag:
         from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+
         tasks["onnx"] = ExportTask(
             ONNXExporter,
             dict(onnx_kwargs),
@@ -182,6 +182,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if engine_flag:
         from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
+
         tasks["engine"] = ExportTask(
             EngineExporter,
             {
@@ -192,6 +193,7 @@ def create_export_tasks(args, model, dummy_input):
 
     if tflite_flag:
         from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
+
         tasks["tflite"] = ExportTask(
             TFLiteExporter,
             {
@@ -213,13 +215,13 @@ def create_export_tasks(args, model, dummy_input):
 
     if openvino_flag:
         from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
+
         tasks["openvino"] = ExportTask(
             OpenVINOExporter,
             dict(onnx_kwargs),
         )
 
     return tasks
-
 
 
 def perform_exports(export_tasks):
@@ -261,12 +263,8 @@ def run_export(args) -> ExportResult:
     parity_report: dict[str, dict[str, Any]] = {}
     if exported_files:
         with _suppress_export_noise(not args.verbose):
-            parity_report = _verify_export_parity(
-                args, model, dummy_input, exported_files
-            )
-    return ExportResult(
-        weights=args.weights, files=exported_files, parity=parity_report
-    )
+            parity_report = _verify_export_parity(args, model, dummy_input, exported_files)
+    return ExportResult(weights=args.weights, files=exported_files, parity=parity_report)
 
 
 def _verify_export_parity(
@@ -317,9 +315,7 @@ def _verify_export_parity(
     # through the model gives spurious parity failures. Use a deterministic
     # random tensor of the same shape/dtype/device for the comparison.
     torch.manual_seed(0)
-    sample = torch.rand_like(dummy_input.float()).to(
-        dtype=dummy_input.dtype, device=dummy_input.device
-    )
+    sample = torch.rand_like(dummy_input.float()).to(dtype=dummy_input.dtype, device=dummy_input.device)
 
     with torch.inference_mode():
         ref_output = model(sample)
@@ -378,9 +374,7 @@ def _verify_export_parity(
             # spatial dims and average the per-sample cosine.
             ref_flat = ref_np.reshape(ref_np.shape[0], -1)
             out_flat = out_np.reshape(out_np.shape[0], -1)
-            denom = np.linalg.norm(ref_flat, axis=1) * np.linalg.norm(
-                out_flat, axis=1
-            )
+            denom = np.linalg.norm(ref_flat, axis=1) * np.linalg.norm(out_flat, axis=1)
             denom = np.where(denom == 0, 1.0, denom)
             cosine = float(((ref_flat * out_flat).sum(axis=1) / denom).mean())
             embedding_ok = cosine >= 0.999
@@ -474,12 +468,8 @@ def main(args):
         parity_report: dict[str, dict[str, Any]] = {}
         if exported_files:
             with _suppress_export_noise(not args.verbose):
-                parity_report = _verify_export_parity(
-                    args, model, dummy_input, exported_files
-                )
-        result = ExportResult(
-            weights=args.weights, files=exported_files, parity=parity_report
-        )
+                parity_report = _verify_export_parity(args, model, dummy_input, exported_files)
+        result = ExportResult(weights=args.weights, files=exported_files, parity=parity_report)
 
         elapsed_time = time.time() - start_time
         if result.files:

@@ -20,14 +20,14 @@ from boxmot.detectors.base import Detections
 from boxmot.engine import research as research_engine_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.reid import evaluator as reid_evaluator_module
+from boxmot.engine.reid import export as export_module
+from boxmot.engine.reid import trainer as reid_trainer_module
 from boxmot.engine.tracking import workflow as tracker_module
 from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import reporting as reporting_module
 from boxmot.engine.workflows import support as workflow_support_module
 from boxmot.reid import ReID
-from boxmot.reid.workflows import evaluator as reid_evaluator_module
-from boxmot.reid.workflows import export as export_module
-from boxmot.reid.workflows import trainer as reid_trainer_module
 from boxmot.utils.timing import TimingStats
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)

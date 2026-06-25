@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from boxmot.reid.workflows import evaluator as evaluator_module
+from boxmot.engine.reid import evaluator as evaluator_module
 
 
 def test_eval_reid_overrides_inference_feature_and_writes_mode_json(monkeypatch, tmp_path):

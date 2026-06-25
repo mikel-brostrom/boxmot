@@ -380,7 +380,7 @@ class Boxmot:
         tflite_calibration_update: str = BOXMOT_DEFAULTS.export.tflite_calibration_update,
         tflite_static_activation_bits: int = BOXMOT_DEFAULTS.export.tflite_static_activation_bits,
     ) -> ExportResult:
-        from boxmot.reid.workflows import export as export_module
+        from boxmot.engine.reid import export as export_module
 
         args = _api_args().build_export_args(
             self,
@@ -459,7 +459,7 @@ class Boxmot:
     ):
         train_project = project if project is not None else BOXMOT_DEFAULTS.train.project
         from boxmot.configs import build_mode_namespace
-        from boxmot.reid.workflows import trainer as reid_trainer_module
+        from boxmot.engine.reid import trainer as reid_trainer_module
 
         args = build_mode_namespace(
             "train",
@@ -546,6 +546,6 @@ class Boxmot:
             num_workers=int(num_workers),
             output=None if output is None else str(output),
         )
-        from boxmot.reid.workflows import evaluator as reid_evaluator_module
+        from boxmot.engine.reid import evaluator as reid_evaluator_module
 
         return reid_evaluator_module.main(args)

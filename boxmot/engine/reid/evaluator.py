@@ -1,4 +1,4 @@
-"""Workflow entry point for standalone ReID model evaluation.
+"""Engine entry point for standalone ReID model evaluation.
 
 Invoked by the CLI ``eval-reid`` subcommand via ``main(args)``.
 Loads a trained checkpoint and evaluates on query/gallery splits.
@@ -89,8 +89,7 @@ def main(args) -> dict:
     model_name = getattr(args, "model", None) or checkpoint.get("model_name")
     if model_name is None:
         raise ValueError(
-            "Cannot determine model architecture. "
-            "Provide --model or use a checkpoint that stores 'model_name'."
+            "Cannot determine model architecture. Provide --model or use a checkpoint that stores 'model_name'."
         )
 
     num_classes = checkpoint.get("num_classes", -1)

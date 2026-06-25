@@ -60,6 +60,7 @@ python -m boxmot.engine.cli --help
 - Keep changes focused: one logical change per PR / task.
 - Follow the existing structure and conventions of the modules you touch.
 - Do not add backwards compatibility layers, legacy aliases, migration shims, compatibility wrappers, or deprecated paths unless explicitly requested. Prefer updating callers, tests, docs, and examples to the new canonical structure.
+- Architecture rule: `boxmot.engine` owns command entrypoints and orchestration. Domain packages such as `boxmot.reid` should keep reusable model, backend, dataset, training, exporter, and algorithm code; CLI/API workflow adapters for those domains belong under `boxmot.engine`.
 
 ## 3. Coding Conventions
 
