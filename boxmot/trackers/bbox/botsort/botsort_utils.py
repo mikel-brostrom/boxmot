@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from boxmot.utils.matching import iou_distance
+from boxmot.trackers.association.matching import iou_distance
 
 
 def joint_stracks(tlista: List["STrack"], tlistb: List["STrack"]) -> List["STrack"]:

@@ -5,12 +5,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import numpy as np
-
-from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
-from boxmot.utils import TRACKEVAL
 from rich.markup import escape as _escape_markup
 
-from boxmot.utils import logger as LOGGER
 from boxmot.configs.benchmark import (
     apply_benchmark_config,
     apply_reid_runtime_defaults,
@@ -25,6 +21,9 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_detector,
     should_use_benchmark_reid,
 )
+from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
+from boxmot.utils import TRACKEVAL
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.download import download_trackeval
 from boxmot.utils.misc import resolve_model_path
 
@@ -353,7 +352,10 @@ def build_gt_class_remap(
         if remap_logging:
             LOGGER.info("[yellow]Auto class mapping (positional):[/yellow]")
             for bench_name, det_name in rows:
-                LOGGER.info(f"  [yellow]{_escape_markup(str(bench_name)):<22}[/yellow] -> [cyan]{_escape_markup(str(det_name))}[/cyan]")
+                LOGGER.info(
+                    f"  [yellow]{_escape_markup(str(bench_name)):<22}[/yellow] -> "
+                    f"[cyan]{_escape_markup(str(det_name))}[/cyan]"
+                )
             LOGGER.info(
                 "  [yellow]GT class IDs remapped:[/yellow] "
                 + ", ".join(f"{bench_id}->{remap[bench_id]}" for bench_id in sorted(remap))
@@ -405,7 +407,8 @@ def build_gt_class_remap(
         detector_class_name = str(detector_class_name)
         if benchmark_class_name in bench_name_to_id and detector_class_name in det_name_to_id:
             LOGGER.info(
-                f"  [blue]{_escape_markup(benchmark_class_name):<22}[/blue] -> [cyan]{_escape_markup(detector_class_name)}[/cyan]"
+                f"  [blue]{_escape_markup(benchmark_class_name):<22}[/blue] -> "
+                f"[cyan]{_escape_markup(detector_class_name)}[/cyan]"
             )
     LOGGER.info(
         "  [cyan]GT class IDs remapped:[/cyan] "
@@ -521,7 +524,7 @@ def prepare_aabb_eval_gt(
 def eval_init(
     args: argparse.Namespace,
     trackeval_dest: Path = TRACKEVAL,
-    branch: str = "main",
+    branch: str = "master",
     overwrite: bool = False,
     status_fn: Callable[[str], None] | None = None,
 ) -> None:

@@ -54,13 +54,13 @@ Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned result
 
 ## Native C++ backends
 
-Use `tracker_backend="cpp"` or an inline tracker spec such as `"bytetrack:cpp"` when the selected tracker has a native backend:
+Use `tracker_backend="cpp"` when the selected tracker has a native backend:
 
 ```python
 from boxmot import Boxmot
 
-native_track = Boxmot(detector="yolov8n", tracker="bytetrack:cpp")
-run = native_track.track(source="video.mp4")
+native_track = Boxmot(detector="yolov8n", tracker="bytetrack")
+run = native_track.track(source="video.mp4", tracker_backend="cpp")
 
 native_eval = Boxmot(tracker="ocsort")
 metrics = native_eval.val(benchmark="mot17", split="ablation", tracker_backend="cpp")

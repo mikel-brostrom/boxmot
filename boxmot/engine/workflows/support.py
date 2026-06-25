@@ -11,12 +11,11 @@ import yaml
 from boxmot.configs import BOXMOT_DEFAULTS
 from boxmot.data import VIDEO_EXTS
 from boxmot.detectors import Detector as PublicDetector
-from boxmot.engine.tracking.results import Results
+from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
-from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.torch_utils import select_device
 
@@ -158,9 +157,10 @@ def tracker_config_from_spec(spec: Any) -> dict[str, Any] | None:
 
     with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle) or {}
+    flat_config = flatten_yaml_config(config)
 
     resolved: dict[str, Any] = {}
-    for key, details in config.items():
+    for key, details in flat_config.items():
         if hasattr(spec, key):
             resolved[key] = getattr(spec, key)
         else:
@@ -179,9 +179,10 @@ def default_tracker_config(tracker_spec: Any) -> dict[str, Any]:
     if existing is not None:
         return existing
     search_space = load_tracker_search_space(tracker_spec)
+    flat_search_space = flatten_yaml_config(search_space)
     return {
         key: details.get("default")
-        for key, details in search_space.items()
+        for key, details in flat_search_space.items()
     }
 
 
@@ -342,26 +343,6 @@ def resolve_output_fps(source: Any, *, fallback: float = 30.0, cv2_module=cv2) -
     return fallback
 
 
-def save_video(results: Results, video_path: Path, fps: float, *, cv2_module=cv2) -> Path:
-    writer = None
-    try:
-        for frame_result in results:
-            rendered = frame_result.render()
-            if writer is None:
-                height, width = rendered.shape[:2]
-                writer = cv2_module.VideoWriter(
-                    str(video_path),
-                    cv2_module.VideoWriter_fourcc(*"mp4v"),
-                    fps,
-                    (width, height),
-                )
-            writer.write(rendered)
-    finally:
-        if writer is not None:
-            writer.release()
-    return video_path
-
-
 __all__ = (
     "REID_TRACKERS",
     "TRACKER_CLASS_TO_NAME",
@@ -379,7 +360,6 @@ __all__ = (
     "resolve_output_fps",
     "resolve_output_stem",
     "resolve_track_output_dir",
-    "save_video",
     "tracker_backend_from_spec",
     "tracker_config_from_spec",
     "tracker_name_from_spec",

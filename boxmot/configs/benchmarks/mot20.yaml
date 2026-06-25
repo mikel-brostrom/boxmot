@@ -2,7 +2,7 @@ id: mot20
 
 dataset:
   id: mot20
-  root: "boxmot/engine/eval/trackeval/data/MOT20"
+  root: "data/benchmarks/MOT20"
   layout: mot
   box_type: aabb
   splits:

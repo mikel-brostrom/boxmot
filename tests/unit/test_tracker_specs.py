@@ -12,20 +12,16 @@ def test_parse_tracker_spec_defaults_to_python_backend():
     assert parsed == TrackerSpec(name="bytetrack", backend="python")
 
 
-@pytest.mark.parametrize(
-    ("value", "expected_name", "expected_backend"),
-    [
-        ("botsort:cpp", "botsort", "cpp"),
-        ("cpp:botsort", "botsort", "cpp"),
-        ("botsort@cpp", "botsort", "cpp"),
-        ("strongsort:native", "strongsort", "cpp"),
-    ],
-)
-def test_parse_tracker_spec_supports_inline_backend_syntax(value, expected_name, expected_backend):
-    parsed = parse_tracker_spec(value)
+@pytest.mark.parametrize("value", ["botsort:cpp", "cpp:botsort", "botsort@cpp"])
+def test_parse_tracker_spec_rejects_inline_backend_syntax(value):
+    with pytest.raises(ValueError, match="tracker_backend"):
+        parse_tracker_spec(value)
 
-    assert parsed.name == expected_name
-    assert parsed.backend == expected_backend
+
+@pytest.mark.parametrize("value", ["py", "native", "c++"])
+def test_normalize_tracker_backend_rejects_aliases(value):
+    with pytest.raises(ValueError, match="Unknown tracker backend"):
+        normalize_tracker_backend(value)
 
 
 def test_normalize_tracker_backend_rejects_unknown_values():
@@ -34,5 +30,5 @@ def test_normalize_tracker_backend_rejects_unknown_values():
 
 
 def test_workflow_support_extracts_name_and_backend_from_string_spec():
-    assert support.tracker_name_from_spec("botsort:cpp") == "botsort"
-    assert support.tracker_backend_from_spec("botsort:cpp") == "cpp"
+    assert support.tracker_name_from_spec("botsort") == "botsort"
+    assert support.tracker_backend_from_spec("botsort") == "python"

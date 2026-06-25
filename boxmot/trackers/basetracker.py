@@ -5,11 +5,11 @@ from abc import ABC, abstractmethod
 import cv2 as cv
 import numpy as np
 
-from boxmot.trackers.detection_layout import get_detection_layout, infer_detection_layout
+from boxmot.trackers.association.iou import AssociationFunction
+from boxmot.trackers.common.detection_layout import get_detection_layout, infer_detection_layout
+from boxmot.trackers.common.visualization import VisualizationMixin
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.iou import AssociationFunction
-from boxmot.trackers.visualization import VisualizationMixin
 
 
 class BaseTracker(VisualizationMixin):

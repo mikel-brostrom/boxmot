@@ -1,0 +1,100 @@
+{
+  "run": {
+    "model_name": "csl_tinyvit_7m",
+    "seed": 0,
+    "deterministic": true,
+    "pretrained": true
+  },
+  "data": {
+    "dataset": "market1501",
+    "data_dir": "./Market-1501-v15.09.15",
+    "img_size": [
+      384,
+      128
+    ],
+    "preprocess": "resize",
+    "num_classes": 751,
+    "batch_size": 64,
+    "sampler": {
+      "p": 16,
+      "k": 4
+    },
+    "num_workers": 4
+  },
+  "model": {
+    "is_vit": true,
+    "feature_fusion": "last2",
+    "feat_dim": 512,
+    "neck_dim": 512,
+    "head": {
+      "pool": "gem",
+      "parts": [
+        1,
+        2
+      ],
+      "warmup_epochs": 0,
+      "warmup_lr_mult": 2.0
+    },
+    "feature_selection": {
+      "metric_feature": "raw_mean",
+      "inference_feature": "concat_bn"
+    },
+    "branch": {
+      "aware_metric": false,
+      "metric_part_weight": 0.5,
+      "loss_agg": "mean"
+    },
+    "regularization": {
+      "drop_path_rate": 0.1
+    }
+  },
+  "optimization": {
+    "epochs": 200,
+    "optimizer": "AdamW",
+    "lr": 0.0007,
+    "weight_decay": 0.1,
+    "grad_clip": 1.0,
+    "layer_decay": 0.95,
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "eta_min": 1e-07,
+      "warmup_epochs": 20
+    },
+    "ema_decay": 0.0
+  },
+  "losses": {
+    "loss_type": "triplet",
+    "classifier_loss": "ce",
+    "weights": {
+      "id_loss_weight": 1.0,
+      "metric_loss_weight": 1.0,
+      "center_loss_weight": 0.005
+    },
+    "label_smooth": 0.05,
+    "triplet": {
+      "margin": 0.3,
+      "soft_margin": true
+    }
+  },
+  "augmentation": {
+    "color_jitter": true,
+    "gaussian_blur": true,
+    "random_grayscale": 0.1,
+    "random_erasing": 0.5,
+    "random_patch": true,
+    "color_augmentation": true
+  },
+  "evaluation": {
+    "eval_interval": 10,
+    "eval_datasets": [],
+    "flip_tta": true
+  },
+  "system": {
+    "device": "mps"
+  },
+  "derived": {
+    "metric_dim": 512,
+    "classifier_dim": 512,
+    "n_params": 9704215
+  }
+}

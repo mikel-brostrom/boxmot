@@ -63,8 +63,12 @@ def test_build_mode_namespace_normalizes_track_and_export_models():
     assert export_args.include == ("onnx",)
 
 
-def test_build_mode_namespace_normalizes_inline_tracker_backend():
-    args = build_mode_namespace("eval", {"data": "mot17-mini", "tracker": "botsort:cpp"}, explicit_keys={"tracker"})
+def test_build_mode_namespace_uses_explicit_tracker_backend():
+    args = build_mode_namespace(
+        "eval",
+        {"data": "mot17-mini", "tracker": "botsort", "tracker_backend": "cpp"},
+        explicit_keys={"tracker", "tracker_backend"},
+    )
 
     assert args.tracker == "botsort"
     assert args.tracker_backend == "cpp"

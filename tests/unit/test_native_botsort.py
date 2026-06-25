@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import importlib
+import queue
 from io import StringIO
 from pathlib import Path
-import queue
 
 import torch
 
 from boxmot.native import _common as native_common
-from boxmot.native import botsort_cpp as native_module
+from boxmot.native.trackers import botsort as native_module
 
 
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
@@ -366,6 +366,43 @@ def test_native_botsort_tracker_auto_exports_pt_reid_provider(monkeypatch):
 
     assert tracker.provides_reid is True
     assert tracker.cfg["reid_model_path"] == "models/exported.onnx"
+    tracker.close()
+
+
+def test_native_botsort_ci_macos_disables_pt_reid_without_cached_onnx(monkeypatch, tmp_path):
+    class _FakeLibrary:
+        def create(self, cfg):
+            return cfg
+
+        def destroy(self, handle):
+            return None
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            return dets
+
+    pt_weights = tmp_path / "osnet_x0_25_msmt17.pt"
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(native_module.sys, "platform", "darwin")
+    monkeypatch.setattr(native_module, "_resolve_reid_model_ref", lambda _weights: pt_weights)
+    monkeypatch.setattr(native_module, "_native_onnx_cache_path", lambda _weights: tmp_path / "missing.onnx")
+    monkeypatch.setattr(
+        native_module,
+        "_ensure_native_reid_model_path",
+        lambda _weights: (_ for _ in ()).throw(AssertionError("should not export PT on macOS CI")),
+    )
+
+    tracker = native_module.NativeBotSortTracker(
+        {"with_reid": True},
+        reid_weights="models/osnet_x0_25_msmt17.pt",
+        library=_FakeLibrary(),
+    )
+
+    assert tracker.with_reid is False
+    assert tracker.provides_reid is False
+    assert tracker.cfg["reid_model_path"] == ""
     tracker.close()
 
 

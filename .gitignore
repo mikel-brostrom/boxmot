@@ -27,8 +27,11 @@ weights/*_openvino_model
 weights/*.engine
 weights/*.tflite
 
-# evaluation tools folder
-boxmot/engine/eval/trackeval/
+# runtime evaluation downloads
+data/benchmarks/
+data/trackeval/
+boxmot/engine/eval/trackeval/data/
+boxmot/engine/eval/trackeval/trackeval/
 
 # zip files
 *.zip
@@ -65,18 +68,18 @@ boxmot/motion/cmc/*.jpg
 *_output.json
 
 # In-place compiled native (C++) tracker artifacts (scikit-build-core editable install)
-boxmot/native/trackers/**/*.so
-boxmot/native/trackers/**/*.dylib
-boxmot/native/trackers/**/*.dll
-boxmot/native/trackers/**/*.pyd
-boxmot/native/trackers/**/*.a
-boxmot/native/trackers/*/*_replay
-boxmot/native/trackers/*/*_replay.exe
+boxmot/native/cpp/trackers/**/*.so
+boxmot/native/cpp/trackers/**/*.dylib
+boxmot/native/cpp/trackers/**/*.dll
+boxmot/native/cpp/trackers/**/*.pyd
+boxmot/native/cpp/trackers/**/*.a
+boxmot/native/cpp/trackers/*/*_replay
+boxmot/native/cpp/trackers/*/*_replay.exe
 
 # CMake caches that may end up beside the C++ sources in inplace builds
-boxmot/native/trackers/**/CMakeCache.txt
-boxmot/native/trackers/**/CMakeFiles/
-boxmot/native/trackers/**/cmake_install.cmake
+boxmot/native/cpp/trackers/**/CMakeCache.txt
+boxmot/native/cpp/trackers/**/CMakeFiles/
+boxmot/native/cpp/trackers/**/cmake_install.cmake
 
 # scikit-build-core inplace editable build artifacts at the repo root
 .skbuild-info.json

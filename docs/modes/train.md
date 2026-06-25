@@ -74,6 +74,7 @@ When training finishes, BoxMOT reports the best checkpoint path along with the b
 
 - [Evaluate ReID](eval-reid.md)
 - [Export](export.md)
+- [ReID Ablation Findings](../guides/reid-ablation-findings.md)
 - [ReID Profiles](../config/reid.md)
 
 ## CLI Arguments

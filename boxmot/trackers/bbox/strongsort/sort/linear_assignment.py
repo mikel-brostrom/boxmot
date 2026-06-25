@@ -6,7 +6,7 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.utils.matching import chi2inv95
+from boxmot.trackers.association.matching import chi2inv95
 
 INFTY_COST = 1e5
 

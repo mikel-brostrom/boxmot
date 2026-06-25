@@ -10,9 +10,9 @@ from typing import Any, Iterable
 import cv2
 import numpy as np
 
+from boxmot.trackers.association.iou import AssociationFunction
+from boxmot.trackers.association.matching import linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
-from boxmot.utils.iou import AssociationFunction
-from boxmot.utils.matching import linear_assignment
 
 
 class TrackState:

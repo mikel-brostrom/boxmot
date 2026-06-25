@@ -1,3 +1,33 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class ReIDExportFormat:
+    name: str
+    argument: str
+    suffix: str
+    cpu: bool
+    gpu: bool
+
+
+REID_EXPORT_FORMAT_COLUMNS = ("Format", "Argument", "Suffix", "CPU", "GPU")
+REID_EXPORT_FORMATS = (
+    ReIDExportFormat("PyTorch", "-", ".pt", True, True),
+    ReIDExportFormat("TorchScript", "torchscript", ".torchscript", True, True),
+    ReIDExportFormat("ONNX", "onnx", ".onnx", True, True),
+    ReIDExportFormat("OpenVINO", "openvino", "_openvino_model", True, False),
+    ReIDExportFormat("TensorRT", "engine", ".engine", False, True),
+    ReIDExportFormat("TensorFlow Lite", "tflite", ".tflite", True, False),
+)
+REID_EXPORT_FORMAT_ROWS = tuple(
+    (format_.name, format_.argument, format_.suffix, format_.cpu, format_.gpu)
+    for format_ in REID_EXPORT_FORMATS
+)
+REID_EXPORT_ARGUMENTS = tuple(format_.argument for format_ in REID_EXPORT_FORMATS)
+REID_EXPORT_SUFFIXES = tuple(format_.suffix for format_ in REID_EXPORT_FORMATS)
+
 MODEL_TYPES = [
     "resnet50",
     "resnet101",
@@ -13,6 +43,7 @@ MODEL_TYPES = [
     "osnet_ain_x1_0",
     "lmbn_ain_n",
     "lmbn_n",
+    "cspreid_n",
     "clip",
     "vit_nano",
     "vit_nano_ain",
@@ -20,6 +51,16 @@ MODEL_TYPES = [
     "vit_tiny",
     "vit_tiny_parts",
     "vit_tiny_parts3",
+    "csl_tinyvit_7m",
+    "csl_tinyvit_7m_lmbn",
+    "csl_tinyvit_11m",
+    "csl_tinyvit_11m_lmbn",
+    "csl_tinyvit_23m",
+    "csl_tinyvit_23m_lmbn",
+    "csl_tinyvit_small",
+    "csl_tinyvit_normal",
+    "csl_tinyvit_large",
+    "csl_tinyvit_lmbn",
 ]
 
 TRAINED_URLS = {

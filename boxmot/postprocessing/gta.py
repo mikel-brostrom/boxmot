@@ -42,8 +42,8 @@ import argparse
 import glob
 import os
 import pickle
-from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -52,9 +52,10 @@ import torchvision.transforms as T
 from PIL import Image
 from scipy.spatial.distance import cdist
 
+from boxmot.postprocessing.base import Postprocessor, ProgressCallback
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.callbacks import safe_seq_progress_callback
-from boxmot.utils.rich.progress import RichTqdm as tqdm
+from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -1075,10 +1076,143 @@ def main() -> None:
 # ---------------------------------------------------------------------------
 
 
+class GTAPostprocessor(Postprocessor):
+    """Global tracklet association postprocessor."""
+
+    name = "gta"
+    display_name = "GTA"
+
+    def __init__(
+        self,
+        embs_dir: Path | None = None,
+        dets_dir: Path | None = None,
+        use_split: bool = True,
+        use_connect: bool = True,
+        eps: float = 0.7,
+        min_samples: int = 10,
+        max_k: int = 3,
+        min_len: int = 100,
+        merge_dist_thres: float = 0.4,
+        spatial_factor: float = 1.0,
+        batch_size: int = 50,
+    ) -> None:
+        self.embs_dir = embs_dir
+        self.dets_dir = dets_dir
+        self.use_split = use_split
+        self.use_connect = use_connect
+        self.eps = eps
+        self.min_samples = min_samples
+        self.max_k = max_k
+        self.min_len = min_len
+        self.merge_dist_thres = merge_dist_thres
+        self.spatial_factor = spatial_factor
+        self.batch_size = batch_size
+
+    def run(
+        self,
+        mot_results_folder: Path,
+        *,
+        progress_callback: ProgressCallback | None = None,
+    ) -> None:
+        """Run GTA postprocessing on MOT result files using cached embeddings."""
+        embs_dir = self.embs_dir
+        dets_dir = self.dets_dir
+        use_split = self.use_split
+        use_connect = self.use_connect
+        eps = self.eps
+        min_samples = self.min_samples
+        max_k = self.max_k
+        min_len = self.min_len
+        merge_dist_thres = self.merge_dist_thres
+        spatial_factor = self.spatial_factor
+        batch_size = self.batch_size
+
+        mot_results_folder = Path(mot_results_folder)
+        result_files = sorted(mot_results_folder.glob("*.txt"))
+
+        if not result_files:
+            LOGGER.warning(f"GTA: No .txt files found in {mot_results_folder}")
+            return
+
+        if embs_dir is None:
+            LOGGER.warning(
+                "GTA: No embeddings directory provided, skipping postprocessing. "
+                "GTA requires appearance embeddings from a ReID model."
+            )
+            return
+
+        embs_dir = Path(embs_dir)
+        dets_dir = Path(dets_dir) if dets_dir is not None else None
+
+        progress_callback = safe_seq_progress_callback(progress_callback)
+        total_files = len(result_files)
+        for file_idx, result_file in enumerate(result_files, 1):
+            seq_name = result_file.stem
+            LOGGER.info(f"GTA postprocessing: {seq_name}")
+
+            # Load MOT results: [frame, id, l, t, w, h, conf, cls, det_ind]
+            try:
+                mot_data = np.loadtxt(result_file, delimiter=",")
+            except (ValueError, OSError) as exc:
+                LOGGER.warning(f"GTA: could not load {result_file}: {exc}. Skipping {seq_name}...")
+                continue
+            if mot_data.size == 0:
+                continue
+            if mot_data.ndim == 1:
+                mot_data = mot_data.reshape(1, -1)
+
+            # Load cached embeddings for this sequence
+            emb_path = embs_dir / f"{seq_name}.npy"
+            if not emb_path.exists():
+                LOGGER.warning(f"GTA: Embedding file not found: {emb_path}, skipping {seq_name}")
+                continue
+            all_embs = np.load(emb_path, mmap_mode="r")
+
+            # Load cached detections (needed to map frame_id -> row indices)
+            det_data = None
+            if dets_dir is not None:
+                det_path = dets_dir / f"{seq_name}.npy"
+                if det_path.exists():
+                    det_data = np.load(det_path, mmap_mode="r")
+
+            # Build Tracklet objects from MOT results + embeddings
+            tracklets = _build_tracklets_from_mot(mot_data, all_embs, det_data)
+            if not tracklets:
+                continue
+
+            # Compute spatial constraints
+            max_x_range, max_y_range = get_spatial_constraints(tracklets, spatial_factor)
+
+            # Split phase
+            if use_split:
+                LOGGER.debug(f"  Tracklets before split: {len(tracklets)}")
+                tracklets = split_tracklets(
+                    tracklets, eps=eps, max_k=max_k,
+                    min_samples=min_samples, len_thres=min_len,
+                )
+
+            # Connect/merge phase
+            if use_connect:
+                LOGGER.debug(f"  Tracklets before merge: {len(tracklets)}")
+                tracklets = merge_tracklets_batched(
+                    tracklets,
+                    batch_size=batch_size,
+                    max_x_range=max_x_range,
+                    max_y_range=max_y_range,
+                    merge_dist_thres=merge_dist_thres,
+                )
+                LOGGER.debug(f"  Tracklets after merge: {len(tracklets)}")
+
+            # Overwrite the MOT result file
+            save_results(str(result_file), tracklets)
+            if progress_callback is not None:
+                progress_callback(seq_name, file_idx, total_files)
+
+
 def gta(
-    mot_results_folder: "Path",
-    embs_dir: "Path | None" = None,
-    dets_dir: "Path | None" = None,
+    mot_results_folder: Path,
+    embs_dir: Path | None = None,
+    dets_dir: Path | None = None,
     use_split: bool = True,
     use_connect: bool = True,
     eps: float = 0.7,
@@ -1088,7 +1222,7 @@ def gta(
     merge_dist_thres: float = 0.4,
     spatial_factor: float = 1.0,
     batch_size: int = 50,
-    progress_callback: "Callable[[str, int, int], None] | None" = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> None:
     """Run GTA postprocessing on MOT result files using cached embeddings.
 
@@ -1096,105 +1230,20 @@ def gta(
     Reads MOT result .txt files from ``mot_results_folder``, loads corresponding
     cached embeddings via the ``det_ind`` column, builds Tracklet objects, and
     runs the split + connect pipeline in-place.
-
-    Args:
-        mot_results_folder: Directory containing per-sequence MOT .txt files.
-        embs_dir: Directory containing per-sequence embedding .npy files.
-            If None, GTA is skipped with a warning.
-        dets_dir: Directory containing per-sequence detection .npy files.
-            Used only for frame_id indexing when det_ind lookup is needed.
-        use_split: Enable the splitting component.
-        use_connect: Enable the connecting/merging component.
-        eps: DBSCAN eps (cosine distance).
-        min_samples: DBSCAN min_samples.
-        max_k: Max clusters for splitting.
-        min_len: Min tracklet length for splitting.
-        merge_dist_thres: Cosine distance threshold for merging.
-        spatial_factor: Spatial constraint factor.
-        batch_size: Batch size for batched merging.
     """
-    from pathlib import Path as _Path
-
-    mot_results_folder = _Path(mot_results_folder)
-    result_files = sorted(mot_results_folder.glob("*.txt"))
-
-    if not result_files:
-        LOGGER.warning(f"GTA: No .txt files found in {mot_results_folder}")
-        return
-
-    if embs_dir is None:
-        LOGGER.warning(
-            "GTA: No embeddings directory provided, skipping postprocessing. "
-            "GTA requires appearance embeddings from a ReID model."
-        )
-        return
-
-    embs_dir = _Path(embs_dir)
-    dets_dir = _Path(dets_dir) if dets_dir is not None else None
-
-    progress_callback = safe_seq_progress_callback(progress_callback)
-    total_files = len(result_files)
-    for file_idx, result_file in enumerate(result_files, 1):
-        seq_name = result_file.stem
-        LOGGER.info(f"GTA postprocessing: {seq_name}")
-
-        # Load MOT results: [frame, id, l, t, w, h, conf, cls, det_ind]
-        try:
-            mot_data = np.loadtxt(result_file, delimiter=",")
-        except (ValueError, OSError) as exc:
-            LOGGER.warning(f"GTA: could not load {result_file}: {exc}. Skipping {seq_name}...")
-            continue
-        if mot_data.size == 0:
-            continue
-        if mot_data.ndim == 1:
-            mot_data = mot_data.reshape(1, -1)
-
-        # Load cached embeddings for this sequence
-        emb_path = embs_dir / f"{seq_name}.npy"
-        if not emb_path.exists():
-            LOGGER.warning(f"GTA: Embedding file not found: {emb_path}, skipping {seq_name}")
-            continue
-        all_embs = np.load(emb_path, mmap_mode="r")
-
-        # Load cached detections (needed to map frame_id -> row indices)
-        det_data = None
-        if dets_dir is not None:
-            det_path = dets_dir / f"{seq_name}.npy"
-            if det_path.exists():
-                det_data = np.load(det_path, mmap_mode="r")
-
-        # Build Tracklet objects from MOT results + embeddings
-        tracklets = _build_tracklets_from_mot(mot_data, all_embs, det_data)
-        if not tracklets:
-            continue
-
-        # Compute spatial constraints
-        max_x_range, max_y_range = get_spatial_constraints(tracklets, spatial_factor)
-
-        # Split phase
-        if use_split:
-            LOGGER.debug(f"  Tracklets before split: {len(tracklets)}")
-            tracklets = split_tracklets(
-                tracklets, eps=eps, max_k=max_k,
-                min_samples=min_samples, len_thres=min_len,
-            )
-
-        # Connect/merge phase
-        if use_connect:
-            LOGGER.debug(f"  Tracklets before merge: {len(tracklets)}")
-            tracklets = merge_tracklets_batched(
-                tracklets,
-                batch_size=batch_size,
-                max_x_range=max_x_range,
-                max_y_range=max_y_range,
-                merge_dist_thres=merge_dist_thres,
-            )
-            LOGGER.debug(f"  Tracklets after merge: {len(tracklets)}")
-
-        # Overwrite the MOT result file
-        save_results(str(result_file), tracklets)
-        if progress_callback is not None:
-            progress_callback(seq_name, file_idx, total_files)
+    GTAPostprocessor(
+        embs_dir=embs_dir,
+        dets_dir=dets_dir,
+        use_split=use_split,
+        use_connect=use_connect,
+        eps=eps,
+        min_samples=min_samples,
+        max_k=max_k,
+        min_len=min_len,
+        merge_dist_thres=merge_dist_thres,
+        spatial_factor=spatial_factor,
+        batch_size=batch_size,
+    ).run(mot_results_folder, progress_callback=progress_callback)
 
 
 def _build_tracklets_from_mot(

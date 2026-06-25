@@ -20,7 +20,7 @@ id: mot17
 
 dataset:
   id: mot17
-  root: "boxmot/engine/eval/trackeval/data/MOT17"
+  root: "data/benchmarks/MOT17"
   splits:
     train: "train"
     val: "val"

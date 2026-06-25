@@ -1,17 +1,12 @@
 import argparse
-import concurrent.futures
-import multiprocessing as mp
-import queue
-from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 from sklearn.ensemble import GradientBoostingRegressor
 
+from boxmot.postprocessing.base import FileWorker, MotFilePostprocessor, ProgressCallback
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.callbacks import safe_seq_progress_callback
-from boxmot.utils.rich.progress import RichTqdm as tqdm
 
 
 def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:
@@ -166,14 +161,34 @@ def process_file(
     )
 
 
-def _drain_queue(progress_queue, seq_progress: dict) -> None:
-    """Read all available messages from a progress queue."""
-    while True:
-        try:
-            name, current, total = progress_queue.get_nowait()
-            seq_progress[name] = (current, total)
-        except (queue.Empty, OSError):
-            break
+class GBRCPostprocessor(MotFilePostprocessor):
+    """Gradient-boosting reconnection context postprocessor."""
+
+    name = "gbrc"
+    display_name = "GBRC"
+
+    def __init__(
+        self,
+        interval: int = 20,
+        n_estimators: int = 115,
+        learning_rate: float = 0.065,
+        min_samples_split: int = 6,
+    ) -> None:
+        self.interval = interval
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.min_samples_split = min_samples_split
+
+    def worker(self) -> FileWorker:
+        return process_file
+
+    def worker_args(self) -> tuple[int, int, float, int]:
+        return (
+            self.interval,
+            self.n_estimators,
+            self.learning_rate,
+            self.min_samples_split,
+        )
 
 
 def gbrc(
@@ -182,86 +197,17 @@ def gbrc(
     n_estimators: int = 115,
     learning_rate: float = 0.065,
     min_samples_split: int = 6,
-    progress_callback: Callable[[str, int, int], None] | None = None,
+    progress_callback: ProgressCallback | None = None,
 ):
     """
     Apply GBRC/GBI-style postprocessing to all MOT*.txt files in a folder.
     """
-    tracking_files = sorted(mot_results_folder.glob("*.txt"))
-    total_files = len(tracking_files)
-    LOGGER.debug(f"GBRC: Found {total_files} file(s) to process.")
-
-    if total_files == 0:
-        LOGGER.warning("GBRC: No .txt files found in results folder. Nothing to process.")
-        return
-
-    progress_callback = safe_seq_progress_callback(progress_callback)
-    use_queue = progress_callback is not None
-    spawn_ctx = mp.get_context("spawn")
-    manager_ctx = spawn_ctx.Manager() if use_queue else nullcontext()
-    failed_files: list[str] = []
-
-    with manager_ctx as manager:
-        progress_queue = manager.Queue() if use_queue else None
-
-        with concurrent.futures.ProcessPoolExecutor(mp_context=spawn_ctx) as executor:
-            futures = {
-                executor.submit(
-                    process_file,
-                    file_path,
-                    interval,
-                    n_estimators,
-                    learning_rate,
-                    min_samples_split,
-                    progress_queue,
-                ): file_path
-                for file_path in tracking_files
-            }
-
-            if progress_callback is not None:
-                # Poll-based loop (like tracking) for live progress
-                seq_progress: dict[str, tuple[int, int]] = {}
-                pending = set(futures)
-
-                while pending:
-                    done, pending = concurrent.futures.wait(
-                        pending,
-                        timeout=0.3,
-                        return_when=concurrent.futures.FIRST_COMPLETED,
-                    )
-                    for future in done:
-                        file_path = futures[future]
-                        try:
-                            future.result()
-                        except Exception as e:
-                            LOGGER.error(f"Error processing file {file_path}: {e}")
-                            failed_files.append(str(file_path))
-                        seq_progress[file_path.stem] = (1, 1)  # mark complete
-
-                    # Drain queue and emit latest state
-                    _drain_queue(progress_queue, seq_progress)
-                    # Send the latest update for each seq to the callback
-                    for name, (cur, tot) in seq_progress.items():
-                        progress_callback(name, cur, tot)
-            else:
-                # Simple tqdm loop (no callback)
-                for future in tqdm(
-                    concurrent.futures.as_completed(futures),
-                    total=total_files,
-                    desc="Processing files",
-                ):
-                    file_path = futures[future]
-                    try:
-                        future.result()
-                    except Exception as e:
-                        LOGGER.error(f"Error processing file {file_path}: {e}")
-                        failed_files.append(str(file_path))
-
-    if failed_files and len(failed_files) == total_files:
-        raise RuntimeError(
-            f"GBRC postprocessing failed for all {total_files} file(s). "
-            f"Check logs for details."
-        )
+    GBRCPostprocessor(
+        interval=interval,
+        n_estimators=n_estimators,
+        learning_rate=learning_rate,
+        min_samples_split=min_samples_split,
+    ).run(mot_results_folder, progress_callback=progress_callback)
 
 
 def main():

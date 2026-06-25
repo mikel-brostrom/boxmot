@@ -35,7 +35,7 @@ def _image_or_skip() -> np.ndarray:
 
 def _load_adapter():
     try:
-        from boxmot.native.reid_capi import CppOnnxReID
+        from boxmot.native.reid import CppOnnxReID
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Native ReID C ABI unavailable: {exc}")
     return CppOnnxReID
@@ -123,7 +123,7 @@ def test_cpp_reid_matches_python_embeddings():
     Both stacks share the same ONNX weights and ImageNet preprocessing
     (resize → BGR→RGB → /255 → mean/std → L2 norm). The only place the two
     can diverge is the box-to-crop conversion in
-    ``boxmot/native/trackers/base/src/reid_onnx.cpp::ClampBoxToImage`` (cpp)
+    ``boxmot/native/cpp/trackers/base/src/reid_onnx.cpp::ClampBoxToImage`` (cpp)
     vs ``boxmot/reid/backends/base_backend.py::get_crops`` (Python). This
     test guards against silent regressions in either path.
     """

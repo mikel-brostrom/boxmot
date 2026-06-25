@@ -12,24 +12,23 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
+import boxmot.engine.tracking.results as results_module
+import boxmot.utils.rich.core.ui as ui_module
+from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
+from boxmot.detectors import Detector
+from boxmot.detectors.base import Detections
+from boxmot.engine import research as research_engine_module
 from boxmot.engine.eval import cache as cache_module
 from boxmot.engine.eval import evaluator as evaluator_module
 from boxmot.engine.reid import evaluator as reid_evaluator_module
 from boxmot.engine.reid import export as export_module
 from boxmot.engine.reid import trainer as reid_trainer_module
-from boxmot.engine import research as research_engine_module
-from boxmot.engine.tracking import tracker as tracker_module
+from boxmot.engine.tracking import workflow as tracker_module
 from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import reporting as reporting_module
 from boxmot.engine.workflows import support as workflow_support_module
-import boxmot.engine.tracking.results as results_module
-from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
-from boxmot.detectors import Detector
-from boxmot.detectors.base import Detections
 from boxmot.reid import ReID
 from boxmot.utils.timing import TimingStats
-import boxmot.utils.rich.ui as ui_module
-
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
@@ -88,10 +87,10 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     assert args.tracker_explicit is True
 
 
-def test_boxmot_eval_namespace_normalizes_inline_tracker_backend():
-    model = api_module.Boxmot(tracker="botsort:cpp")
+def test_boxmot_eval_namespace_uses_explicit_tracker_backend():
+    model = api_module.Boxmot(tracker="botsort")
 
-    args = model._base_eval_args("mot17-mini")
+    args = model._base_eval_args("mot17-mini", tracker_backend="cpp")
 
     assert args.tracker == "botsort"
     assert args.tracker_backend == "cpp"
@@ -1590,13 +1589,28 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert tune_args.compare_to_first_trial is True
     assert tune_baseline is None
 
-    export_results = model.export(include=("onnx",), device="cpu")
+    export_results = model.export(
+        include=("onnx",),
+        device="cpu",
+        tflite_quantize="static",
+        tflite_calibration_data=tmp_path / "calibration",
+        tflite_calibration_samples=32,
+        tflite_calibration_seed=7,
+        tflite_calibration_update="moving_average",
+        tflite_static_activation_bits=8,
+    )
 
     export_args = calls["export"]
     assert export_results.weights.name == "lmbn_n_duke.pt"
     assert export_results.files["onnx"] == tmp_path / "exported.onnx"
     assert export_args.include == ("onnx",)
     assert export_args.weights.name == "lmbn_n_duke.pt"
+    assert export_args.tflite_quantize == "static"
+    assert export_args.tflite_calibration_data == tmp_path / "calibration"
+    assert export_args.tflite_calibration_samples == 32
+    assert export_args.tflite_calibration_seed == 7
+    assert export_args.tflite_calibration_update == "moving_average"
+    assert export_args.tflite_static_activation_bits == 8
 
 
 def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
@@ -1644,6 +1658,8 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
         project=tmp_path / "runs" / "reid_train",
         name="exp",
         pretrained=False,
+        seed=123,
+        deterministic=False,
     )
 
     assert trained is expected_train
@@ -1658,6 +1674,8 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     assert train_args.p_ids == 2
     assert train_args.k_instances == 2
     assert train_args.pretrained is False
+    assert train_args.seed == 123
+    assert train_args.deterministic is False
     assert train_args.project == tmp_path / "runs" / "reid_train"
     assert train_args.name == "exp"
 
@@ -1666,6 +1684,10 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
         model="mobilenetv2_x1_0",
         dataset="market1501",
         data_dir=tmp_path / "assets" / "reid-mini",
+        preprocess="resize",
+        imgsz=(384, 128),
+        inference_feature="raw_mean",
+        flip_tta=True,
         device="cpu",
         batch_size=2,
         num_workers=0,
@@ -1678,6 +1700,10 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     assert eval_args.model == "mobilenetv2_x1_0"
     assert eval_args.dataset == "market1501"
     assert eval_args.data_dir == str(tmp_path / "assets" / "reid-mini")
+    assert eval_args.preprocess == "resize"
+    assert eval_args.imgsz == (384, 128)
+    assert eval_args.inference_feature == "raw_mean"
+    assert eval_args.flip_tta is True
     assert eval_args.batch_size == 2
     assert eval_args.num_workers == 0
     assert eval_args.output == str(tmp_path / "runs" / "reid_eval")

@@ -12,6 +12,12 @@ import cv2
 import numpy as np
 import torch
 
+from boxmot.configs.benchmark import (
+    ensure_benchmark_detector_model,
+    ensure_benchmark_reid_model,
+    should_use_benchmark_detector,
+    should_use_benchmark_reid,
+)
 from boxmot.data.benchmark import configure_benchmark_runtime, load_benchmark_cfg_from_args
 from boxmot.data.cache import (
     AppendableNpyWriter,
@@ -26,19 +32,19 @@ from boxmot.data.cache import (
 )
 from boxmot.data.dataset import _list_sequence_frames, _sequence_img_dir, _sequence_name_from_img_dir
 from boxmot.detectors import default_imgsz
-from boxmot.engine.tracking.inference import DetectorReIDPipeline, prepare_detections
+from boxmot.engine.tracking.detections import prepare_detections
+from boxmot.engine.tracking.inference import DetectorReIDPipeline
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
-from boxmot.configs.benchmark import (
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
-)
 from boxmot.utils.callbacks import safe_progress_callback
 from boxmot.utils.misc import prompt_overwrite, resolve_model_path
-from boxmot.utils.rich.generate_reporting import GenerateWorkflowReporter
-from boxmot.utils.rich.progress import RichTqdm as tqdm
+from boxmot.utils.rich.reporters.generate import (
+    GENERATE_RUN_STEP,
+    GENERATE_SETUP_STEP,
+    GenerateWorkflowReporter,
+    log_generate_pipeline_intro,
+)
+from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 from boxmot.utils.timing import TimingStats
 
 __all__ = (
@@ -138,7 +144,7 @@ def _build_reid_only_models(
     cpp_factory = None
     if use_cpp_reid:
         try:
-            from boxmot.native.reid_capi import CppOnnxReID
+            from boxmot.native.reid import CppOnnxReID
             cpp_factory = CppOnnxReID
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning(
@@ -335,9 +341,8 @@ def _ensure_public_detector_setup(args: argparse.Namespace, detector: str) -> No
 
     # Run parquet setup
     try:
-        from boxmot.utils.mot17_parquet import setup_mot17_from_parquet
+        from boxmot.data.mot17_parquet import setup_mot17_from_parquet
 
-        benchmark = getattr(args, "benchmark", None) or "mot17"
         split = getattr(args, "split", None) or "ablation"
         # Resolve the dataset dest from the source path
         # source is usually <root>/<split>, so dest is <root>
@@ -365,13 +370,8 @@ def _generate_public_dets_cache(
     ``<seq>/det/det.txt`` with format: frame,id,x,y,w,h,conf,-1,-1,-1.
     This converts them to the standard cache format (frame_id, x1, y1, x2, y2, conf, cls).
     """
-    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
     verbose = bool(getattr(args, "verbose", False))
     resume = bool(getattr(args, "resume", True))
-    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-    tracker_backend = getattr(args, "tracker_backend", None)
-
-    expected_det_cols = 7  # public dets are always AABB
     benchmark = getattr(args, "benchmark", None)
     split = getattr(args, "split", None)
     cache_project = Path(getattr(args, "cache_project", args.project))
@@ -564,8 +564,14 @@ def generate_dets_embs_batched(
                     f"found {det_col_count} columns, expected {expected_det_cols}. Resetting cached data."
                 )
                 reset_paths = {
-                    dets_path,
-                    *(path for path in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if path is not None),
+                    path
+                    for path in [
+                        dets_path,
+                        cached_dets_path,
+                        *emb_paths.values(),
+                        *cached_emb_paths.values(),
+                    ]
+                    if path is not None
                 }
                 for path in reset_paths:
                     try:
@@ -623,14 +629,24 @@ def generate_dets_embs_batched(
                         # stays accurate when there are also full-regen seqs.
                         initial_done += len(frames)
                         continue
+                emb_rows_by_key = {
+                    stem: emb_rows.get(stem, 0)
+                    for stem in cached_emb_paths.keys()
+                }
                 LOGGER.warning(
                     f"Partial det/emb cache for {seq_name} "
-                    f"(det_rows={det_rows}, emb_rows={ {stem: emb_rows.get(stem, 0) for stem in cached_emb_paths.keys()} }); "
+                    f"(det_rows={det_rows}, emb_rows={emb_rows_by_key}); "
                     "resetting cached data."
                 )
                 reset_paths = {
-                    dets_path,
-                    *(path for path in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if path is not None),
+                    path
+                    for path in [
+                        dets_path,
+                        cached_dets_path,
+                        *emb_paths.values(),
+                        *cached_emb_paths.values(),
+                    ]
+                    if path is not None
                 }
                 for path in reset_paths:
                     try:
@@ -645,8 +661,14 @@ def generate_dets_embs_batched(
             elif expected_files and not rows_match:
                 LOGGER.warning(f"Cached det/emb rows mismatch for {seq_name}; resetting cached data.")
                 reset_paths = {
-                    dets_path,
-                    *(path for path in [cached_dets_path, *emb_paths.values(), *cached_emb_paths.values()] if path is not None),
+                    path
+                    for path in [
+                        dets_path,
+                        cached_dets_path,
+                        *emb_paths.values(),
+                        *cached_emb_paths.values(),
+                    ]
+                    if path is not None
                 }
                 for path in reset_paths:
                     try:

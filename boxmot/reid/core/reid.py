@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Tuple
+from typing import Any
 
 import cv2
 import numpy as np
@@ -14,12 +14,13 @@ from boxmot.reid.backends.pytorch_backend import PyTorchBackend
 from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
 from boxmot.reid.backends.tflite_backend import TFLiteBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
-from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+from boxmot.reid.core.config import REID_EXPORT_SUFFIXES
+from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS, get_preprocess_fn
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.torch_utils import select_device
 
-from . import export_formats
+OPENVINO_FILE_SUFFIXES = (".xml", ".bin")
 
 
 class ReID:
@@ -107,7 +108,7 @@ class ReID:
     def check_suffix(
         self,
         file: Path | str = "osnet_x0_25_msmt17.pt",
-        suffix: str | Tuple[str, ...] = (".pt",),
+        suffix: str | tuple[str, ...] = (".pt",),
         msg: str = "",
     ) -> None:
         suffixes = [suffix] if isinstance(suffix, str) else list(suffix)
@@ -120,12 +121,20 @@ class ReID:
                     f"File {candidate} does not have an acceptable suffix. Expected: {suffixes}{msg}"
                 )
 
-    def model_type(self, path: Path) -> Tuple[bool, ...]:
-        suffixes = list(export_formats().Suffix)
-        self.check_suffix(path, suffixes)
-        types = [suffix in Path(path).name for suffix in suffixes]
+    @staticmethod
+    def _matches_export_suffix(path: Path, suffix: str) -> bool:
+        name = path.name.lower()
+        suffix = suffix.lower()
+        if suffix.startswith("."):
+            return path.suffix.lower() == suffix
+        return name.endswith(suffix)
 
-        if Path(path).suffix in {".xml", ".bin"}:
+    def model_type(self, path: Path) -> tuple[bool, ...]:
+        suffixes = REID_EXPORT_SUFFIXES
+        self.check_suffix(path, suffixes + OPENVINO_FILE_SUFFIXES)
+        types = [self._matches_export_suffix(path, suffix) for suffix in suffixes]
+
+        if path.suffix.lower() in OPENVINO_FILE_SUFFIXES:
             try:
                 openvino_index = suffixes.index("_openvino_model")
                 types[openvino_index] = True
@@ -172,7 +181,6 @@ class ReID:
                 device=self.model.device,
             )
 
-        from boxmot.reid.core.preprocessing import get_preprocess_fn
         preprocess_fn = get_preprocess_fn(self.preprocess_name)
 
         batch = torch.empty(

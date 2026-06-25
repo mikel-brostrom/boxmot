@@ -100,7 +100,7 @@ boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-
 
 # Native C++ replay
 boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval --benchmark mot17 --split ablation --tracker botsort:cpp
+boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 ```
 
 ## Main outputs

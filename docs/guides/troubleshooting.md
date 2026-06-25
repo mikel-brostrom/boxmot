@@ -13,6 +13,8 @@ pip install "boxmot[yolo]"        # track / generate / eval with YOLO backends
 pip install "boxmot[evolve]"      # tune
 pip install "boxmot[research]"    # research
 pip install "boxmot[onnx]"        # export --include onnx
+pip install "boxmot[openvino]"    # export --include openvino
+pip install "boxmot[tflite]"      # export --include tflite and LiteRT inference
 ```
 
 See [Installation](../getting-started/installation.md#mode-specific-extras) for the full table.
@@ -56,6 +58,10 @@ python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 ```
 
 `CUDAExecutionProvider` must appear in the second output for the ONNX ReID backend to pick it up.
+
+### TensorRT auto-install succeeds but import still fails
+
+The TensorRT ReID backend and `export --include engine` try to install `nvidia-tensorrt` on first use, including NVIDIA's Python package index. If `import tensorrt` still fails afterward, check that your Python, CUDA, NVIDIA driver, and TensorRT wheel versions are compatible for the machine.
 
 ## OBB tracking
 

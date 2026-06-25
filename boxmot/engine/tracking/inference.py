@@ -21,6 +21,7 @@ import torch
 from boxmot.data import iter_source
 from boxmot.detectors import default_imgsz, get_detector_class
 from boxmot.detectors.base import Detections
+from boxmot.engine.tracking.detections import prepare_detections
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.timing import TimingStats, timed_reid_get_features
 from boxmot.utils.torch_utils import select_device
@@ -137,7 +138,7 @@ class DetectorReIDPipeline:
         cpp_reid_factory = None
         if use_cpp_reid:
             try:
-                from boxmot.native.reid_capi import CppOnnxReID
+                from boxmot.native.reid import CppOnnxReID
                 cpp_reid_factory = CppOnnxReID
             except Exception as exc:  # noqa: BLE001
                 LOGGER.warning(
@@ -412,33 +413,8 @@ class DetectorReIDPipeline:
         self.timing_stats.print_summary()
 
 
-# ---------------------------------------------------------------------------
-# Utility functions (used by evaluator.py and tracker.py)
-# ---------------------------------------------------------------------------
-
-def prepare_detections(result: Detections) -> np.ndarray:
-    """
-    Extract detections from a result and sanitize them for downstream use.
-
-    For AABB (N, 6) — [x1, y1, x2, y2, conf, cls]:
-      removes boxes where x2 <= x1, y2 <= y1, or area < 10 px².
-
-    For OBB (N, 7) — [cx, cy, w, h, angle, conf, cls]:
-      removes boxes where w <= 0, h <= 0, or w*h < 10 px².
-
-    Returns filtered array of the same width, or empty (0, 6)/(0, 7) when
-    no valid detections remain.
-    """
-    dets = result.dets
-    if dets is None or len(dets) == 0:
-        n_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else 6
-        return np.empty((0, n_cols))
-
-    if result.is_obb:
-        w, h = dets[:, 2], dets[:, 3]
-        valid = (w > 0) & (h > 0) & (w * h >= 10.0)
-    else:
-        x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
-        valid = (x2 > x1) & (y2 > y1) & ((x2 - x1) * (y2 - y1) >= 10.0)
-
-    return dets[valid]
+__all__ = (
+    "DetectorReIDPipeline",
+    "TimedReIDModel",
+    "prepare_detections",
+)

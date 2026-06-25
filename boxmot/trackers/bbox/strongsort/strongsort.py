@@ -11,7 +11,7 @@ from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.strongsort.sort.detection import Detection
 from boxmot.trackers.bbox.strongsort.sort.linear_assignment import NearestNeighborDistanceMetric
 from boxmot.trackers.bbox.strongsort.sort.tracker import Tracker
-from boxmot.trackers.ops import xyxy2tlwh
+from boxmot.trackers.common.geometry import xyxy2tlwh
 
 
 class StrongSort(BaseTracker):

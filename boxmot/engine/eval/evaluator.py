@@ -7,7 +7,14 @@ import json
 from pathlib import Path
 from typing import Optional
 
-import boxmot.utils.rich.ui as ui
+import boxmot.utils.rich.core.ui as ui
+from boxmot.configs.benchmark import (
+    ensure_benchmark_detector_model,
+    ensure_benchmark_reid_model,
+    load_benchmark_cfg,
+    should_use_benchmark_detector,
+    should_use_benchmark_reid,
+)
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
@@ -30,7 +37,21 @@ from boxmot.data.cache import (
 )
 from boxmot.detectors import get_runtime_detector_cfg
 from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
+from boxmot.engine.eval.plots import MetricsPlotter
 from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
+from boxmot.engine.eval.trackeval.results import (
+    _filter_obb_trackeval_results,
+    _known_trackeval_class_names,
+    _select_plot_metrics_data,
+    log_trackeval_report,
+    parse_mot_results,
+    render_trackeval_report,
+)
+from boxmot.engine.eval.trackeval.runner import (
+    _load_obb_gt_matrix,
+    trackeval_aabb,
+    trackeval_obb,
+)
 from boxmot.engine.workflows.reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflows.results import ValidationResult
 from boxmot.utils import (
@@ -39,30 +60,9 @@ from boxmot.utils import (
 from boxmot.utils import (
     logger as LOGGER,
 )
-from boxmot.configs.benchmark import (
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    load_benchmark_cfg,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
-)
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.engine.eval.metrics.results import (
-    _filter_obb_trackeval_results,
-    _known_trackeval_class_names,
-    _select_plot_metrics_data,
-    log_trackeval_report,
-    parse_mot_results,
-    render_trackeval_report,
-)
-from boxmot.engine.eval.metrics.trackeval import (
-    _load_obb_gt_matrix,
-    trackeval_aabb,
-    trackeval_obb,
-)
 from boxmot.utils.misc import resolve_model_path, suppress_boxmot_logs
-from boxmot.engine.eval.plots import MetricsPlotter
-from boxmot.utils.rich.eval_reporting import (
+from boxmot.utils.rich.reporters.eval import (
     EVAL_EVALUATE_STEP,
     EVAL_GENERATE_STEP,
     EVAL_SETUP_STEP,
@@ -70,7 +70,7 @@ from boxmot.utils.rich.eval_reporting import (
     EvalWorkflowReporter,
     _build_eval_workflow_fields,
 )
-from boxmot.utils.rich.pipeline import PipelineTracker
+from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 from boxmot.utils.timing import TimingStats
 
 _EVAL_DEPENDENCIES_READY = False
@@ -81,6 +81,10 @@ __all__ = [
     "_ensure_eval_dependencies",
     "_existing_cache_path",
     "_existing_embedding_cache_path",
+    "EVAL_EVALUATE_STEP",
+    "EVAL_GENERATE_STEP",
+    "EVAL_SETUP_STEP",
+    "EVAL_TRACK_STEP",
     "_load_benchmark_cfg",
     "_load_embedding_cache_array",
     "_load_numeric_cache_array",
@@ -200,7 +204,9 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
 
     single_class_mode = False
     if eval_box_type == "obb":
-        parsed_results, single_class_mode = _filter_obb_trackeval_results(parsed_results, args, cfg.get("benchmark", {}))
+        parsed_results, single_class_mode = _filter_obb_trackeval_results(
+            parsed_results, args, cfg.get("benchmark", {})
+        )
     elif getattr(args, "remapped_class_names", None):
         remapped_lower = {name.lower() for name in args.remapped_class_names}
         parsed_results = {key: value for key, value in parsed_results.items() if key.lower() in remapped_lower}
@@ -342,6 +348,28 @@ def run_eval(
             )
     if pipeline is not None:
         pipeline.advance("Starting tracker...")
+
+    # -- KF calibration --
+    if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
+        from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
+
+        kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
+        if kf_type:
+            if pipeline is not None:
+                pipeline.advance("Calibrating Kalman filter...")
+            kf_result, _ = run_kf_tuning(args, kf_type, capture=True)
+            if kf_result is not None:
+                kf_result["kf_type"] = kf_type
+                args.kf_tuning = kf_result
+                LOGGER.info(
+                    f"KF calibration ({kf_type}): "
+                    f"std_weight_position={kf_result['std_weight_position']:.6f}, "
+                    f"std_weight_velocity={kf_result['std_weight_velocity']:.6f}"
+                )
+            else:
+                LOGGER.warning("KF calibration produced no result; using default noise weights.")
+        else:
+            LOGGER.debug(f"Tracker '{args.tracker}' has no KF parameterization; skipping --tune-kf.")
 
     # -- Track --
     with suppress_boxmot_logs(suppress, level="WARNING"):

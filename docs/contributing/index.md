@@ -1,11 +1,11 @@
 # Contributing Guide
 
-The repo has three main extension surfaces:
+The repo has four main extension surfaces:
 
 - trackers under `boxmot/trackers`
-- native tracker backends under `boxmot/native/trackers` and `boxmot/native`
+- native C++ sources under `boxmot/native/cpp/trackers` and Python bindings under `boxmot/native/trackers`
 - configs under `boxmot/configs`
-- workflow and public API code under `boxmot/engine` and `boxmot/api.py`
+- generic workflow internals under `boxmot/engine`, public Python API entrypoints under `boxmot/api`, and ReID lifecycle workflows under `boxmot/reid/workflows`
 
 ## Where to start
 

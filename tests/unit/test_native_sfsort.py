@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import queue
 from io import StringIO
 from pathlib import Path
-import queue
 
-from boxmot.native import sfsort_cpp as native_module
+from boxmot.native.trackers import sfsort as native_module
 
 
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):

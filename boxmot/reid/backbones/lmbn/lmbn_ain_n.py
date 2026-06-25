@@ -30,7 +30,14 @@ class LMBN_ain_n(nn.Module):
         self.n_ch = 2
         self.chs = 512 // self.n_ch
 
-        osnet = osnet_ain_x1_0(pretrained=not test_only)
+        if args is not None:
+            backbone_pretrained = not test_only
+        elif pretrained is not None:
+            backbone_pretrained = bool(pretrained)
+        else:
+            backbone_pretrained = not test_only
+
+        osnet = osnet_ain_x1_0(pretrained=backbone_pretrained)
 
         self.backone = nn.Sequential(
             osnet.conv1,

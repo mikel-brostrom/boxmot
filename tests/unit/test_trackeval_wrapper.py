@@ -3,15 +3,19 @@ from __future__ import annotations
 import importlib
 from argparse import Namespace
 
+trackeval_module = importlib.import_module("boxmot.engine.eval.trackeval.runner")
 
-trackeval_module = importlib.import_module("boxmot.engine.eval.metrics.trackeval")
 
-
-_RESOURCE_TRACKER_STDERR = """/Users/test/.local/share/uv/python/cpython-3.12.10/lib/python3.12/multiprocessing/resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 6 leaked semaphore objects to clean up at shutdown
-  warnings.warn('resource_tracker: There appear to be %d '
-/Users/test/.local/share/uv/python/cpython-3.12.10/lib/python3.12/multiprocessing/resource_tracker.py:292: UserWarning: resource_tracker: '/mp-abc123': [Errno 2] No such file or directory
-  warnings.warn('resource_tracker: %r: %s' % (name, e))
-"""
+_RESOURCE_TRACKER_STDERR = (
+    "/Users/test/.local/share/uv/python/cpython-3.12.10/lib/python3.12/multiprocessing/"
+    "resource_tracker.py:279: UserWarning: resource_tracker: There appear to be 6 leaked semaphore objects "
+    "to clean up at shutdown\n"
+    "  warnings.warn('resource_tracker: There appear to be %d '\n"
+    "/Users/test/.local/share/uv/python/cpython-3.12.10/lib/python3.12/multiprocessing/"
+    "resource_tracker.py:292: UserWarning: resource_tracker: '/mp-abc123': "
+    "[Errno 2] No such file or directory\n"
+    "  warnings.warn('resource_tracker: %r: %s' % (name, e))\n"
+)
 
 
 class _FakeProcess:
@@ -56,7 +60,7 @@ def test_trackeval_enables_parallel_and_suppresses_resource_tracker_stderr(monke
         classes=None,
     )
 
-    output = trackeval_module.trackeval(
+    output = trackeval_module.trackeval_aabb(
         args,
         seq_paths=[],
         save_dir=tmp_path / "save",
@@ -69,6 +73,7 @@ def test_trackeval_enables_parallel_and_suppresses_resource_tracker_stderr(monke
     cores_idx = cmd.index("--NUM_PARALLEL_CORES")
 
     assert output == "summary"
+    assert "boxmot.engine.eval.trackeval.scripts.mot_challenge" in cmd
     assert cmd[use_parallel_idx + 1] == "True"
     assert int(cmd[cores_idx + 1]) >= 1
     assert "ignore:resource_tracker:UserWarning" in popen_calls[0]["env"]["PYTHONWARNINGS"]
@@ -93,7 +98,7 @@ def test_trackeval_reports_non_resource_tracker_stderr(monkeypatch, tmp_path):
         classes=None,
     )
 
-    trackeval_module.trackeval(
+    trackeval_module.trackeval_aabb(
         args,
         seq_paths=[],
         save_dir=tmp_path / "save",

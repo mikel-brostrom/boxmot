@@ -2,7 +2,7 @@
 
 BoxMOT ships native C++ implementations of several trackers. You can use them in two ways:
 
-1. From the BoxMOT CLI / Python API via `--tracker-backend cpp` (or the `tracker:cpp` shorthand).
+1. From the BoxMOT CLI / Python API via `--tracker-backend cpp`.
 2. Linked directly into your own C++ program via the `<tracker>_core` CMake target or the flat C ABI.
 
 ## Using the native backend from BoxMOT
@@ -12,7 +12,7 @@ Pass `--tracker-backend cpp` to swap the in-process tracker implementation. This
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
 boxmot eval  --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval  --benchmark mot17 --split ablation --tracker botsort:cpp
+boxmot eval  --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
 ```
 
 `--tracking-backend cpp` still works as a compatibility alias. The first run configures and builds the matching shared library under `build/native/<tracker>/`. Use `boxmot build` to compile ahead of time:
@@ -33,7 +33,7 @@ boxmot build --force                                  # reconfigure from scratch
 
 ### Native C++ ReID
 
-When the selected tracker uses appearance features (currently `botsort` and `occluboost`), `--tracker-backend cpp` also routes ReID embedding generation through the native C++ ReID (`OnnxReIdModel`, exposed to Python as `boxmot.native.reid_capi.CppOnnxReID`) instead of the Python `ReID` backend. This applies to both live `track` and the cached `eval` / `tune` / `research` generate phase.
+When the selected tracker uses appearance features (currently `botsort` and `occluboost`), `--tracker-backend cpp` also routes ReID embedding generation through the native C++ ReID (`OnnxReIdModel`, exposed to Python as `boxmot.native.reid.CppOnnxReID`) instead of the Python `ReID` backend. This applies to both live `track` and the cached `eval` / `tune` / `research` generate phase.
 
 - If the supplied ReID weights are a `.pt` file, BoxMOT auto-exports them to a native OpenCV-compatible `*_opencv.onnx` file and reuses that export for later native runs.
 - Embeddings produced by the native path are cached in a separate bucket suffixed with `__cpp` so they don't collide with Python-backend embeddings on disk.
@@ -53,15 +53,15 @@ Embed a BoxMOT native tracker in your own C++ program by linking against the tra
 
 | Tracker | Directory | CMake target | Main class |
 | --- | --- | --- | --- |
-| ByteTrack  | `boxmot/native/trackers/bytetrack`  | `bytetrack_core`  | `bytetrack::ByteTrackTracker` |
-| BoTSORT    | `boxmot/native/trackers/botsort`    | `botsort_core`    | `botsort::BotSortTracker` |
-| OccluBoost | `boxmot/native/trackers/occluboost` | `occluboost_core` | `occluboost::OccluBoostTracker` |
-| OCSORT     | `boxmot/native/trackers/ocsort`     | `ocsort_core`     | `ocsort::OCSortTracker` |
-| SFSORT     | `boxmot/native/trackers/sfsort`     | `sfsort_core`     | `sfsort::SFSORTTracker` |
+| ByteTrack  | `boxmot/native/cpp/trackers/bytetrack`  | `bytetrack_core`  | `bytetrack::ByteTrackTracker` |
+| BoTSORT    | `boxmot/native/cpp/trackers/botsort`    | `botsort_core`    | `botsort::BotSortTracker` |
+| OccluBoost | `boxmot/native/cpp/trackers/occluboost` | `occluboost_core` | `occluboost::OccluBoostTracker` |
+| OCSORT     | `boxmot/native/cpp/trackers/ocsort`     | `ocsort_core`     | `ocsort::OCSortTracker` |
+| SFSORT     | `boxmot/native/cpp/trackers/sfsort`     | `sfsort_core`     | `sfsort::SFSORTTracker` |
 
 ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base` library (`boxmot::trackers::base::OnnxReIdModel`) and is pulled in transitively when you link against `<tracker>_core`.
 
-> Calling from C, Rust, Go, Swift, JNI, .NET, etc.? Each tracker also exposes a flat C ABI in `boxmot/native/trackers/<tracker>/include/<tracker>/c_api.hpp` and produces a `<tracker>_capi.{so,dylib,dll}`. The header is the contract.
+> Calling from C, Rust, Go, Swift, JNI, .NET, etc.? Each tracker also exposes a flat C ABI in `boxmot/native/cpp/trackers/<tracker>/include/<tracker>/c_api.hpp` and produces a `<tracker>_capi.{so,dylib,dll}`. The header is the contract.
 
 ## Requirements
 
@@ -103,7 +103,7 @@ ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base`
 
 ## Building from Python (`boxmot build`)
 
-If BoxMOT is already installed (`pip install boxmot`), the CLI compiles the native trackers in-place — no separate CMake invocation needed. See the [Using the native backend from BoxMOT](#using-the-native-backend-from-boxmot) section above for the `boxmot build` commands. The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources under `boxmot/native/trackers/<name>/`, and `--tracker-backend cpp` picks it up automatically.
+If BoxMOT is already installed (`pip install boxmot`), the CLI compiles the native trackers in-place — no separate CMake invocation needed. See the [Using the native backend from BoxMOT](#using-the-native-backend-from-boxmot) section above for the `boxmot build` commands. The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources under `boxmot/native/cpp/trackers/<name>/`, and `--tracker-backend cpp` picks it up automatically.
 
 ## Minimal C++ project
 
@@ -132,7 +132,7 @@ if(NOT BOXMOT_ROOT)
 endif()
 
 add_subdirectory(
-    "${BOXMOT_ROOT}/boxmot/native/trackers/bytetrack"
+    "${BOXMOT_ROOT}/boxmot/native/cpp/trackers/bytetrack"
     "${CMAKE_BINARY_DIR}/boxmot_bytetrack")
 
 add_executable(demo main.cpp)

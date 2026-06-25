@@ -2,6 +2,10 @@
 
 Use `export` to convert ReID models to deployment formats such as ONNX and TensorRT.
 
+Format-specific Python packages are installed on first use when possible. TensorRT export also attempts to install `nvidia-tensorrt`, but the resulting wheel still needs a compatible CUDA/NVIDIA runtime.
+
+TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` or `openvino`, BoxMOT creates or reuses a fresh `.onnx` file next to the source weights before building the requested format.
+
 ## Examples
 
 !!! example
@@ -17,10 +21,27 @@ Use `export` to convert ReID models to deployment formats such as ONNX and Tenso
         ```bash
         boxmot export \
           --weights osnet_x0_25_msmt17.pt \
-          --include onnx \
           --include engine \
           --dynamic
         ```
+
+        Export calibrated TFLite int8 using representative ReID crops:
+
+        ```bash
+        boxmot export \
+          --weights runs/reid_train/exp/best.pt \
+          --include tflite \
+          --tflite-quantize static \
+          --tflite-calibration-data Market-1501-v15.09.15/bounding_box_train \
+          --tflite-calibration-samples 512 \
+          --tflite-calibration-seed 0 \
+          --tflite-calibration-update minmax \
+          --tflite-static-activation-bits 16
+        ```
+
+        Static TFLite uses int8 weights. The default `--tflite-static-activation-bits 16`
+        preserves ReID embedding parity better but can be slower on CPU; use `8` only
+        for strict int8 activation ablations.
 
     === "Python"
 

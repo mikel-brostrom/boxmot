@@ -6,7 +6,7 @@ import numpy as np
 
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.bbox.botsort.basetrack import BaseTrack, TrackState
-from boxmot.trackers.ops import xywh2xyxy, xyxy2xywh
+from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):

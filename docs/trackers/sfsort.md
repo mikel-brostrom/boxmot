@@ -12,7 +12,7 @@ SFSORT is designed around speed. The paper removes the Kalman filter entirely, i
 
 ## Native C++ Backend
 
-BoxMOT also ships a native C++17 SFSORT implementation under `boxmot/native/trackers/sfsort/`. It supports:
+BoxMOT also ships a native C++17 SFSORT implementation under `boxmot/native/cpp/trackers/sfsort/`. It supports:
 
 - cached replay for `eval`, `tune`, and `research`
 - live `track` through `--tracker-backend cpp`

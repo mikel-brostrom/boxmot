@@ -75,8 +75,10 @@ research:
   max_metric_calls: 24
   eval_timeout: 900.0
   keep_workspace: false
+  hota_penalty: 0.0
   idf1_penalty: 1.0
   mota_penalty: 1.0
+  hota_tolerance: 0.0
   idf1_tolerance: 0.0
   mota_tolerance: 0.0
 
@@ -93,37 +95,87 @@ export:
   workspace: 4
   weights: osnet_x0_25_msmt17
   half: false
+  tflite_quantize: none
+  tflite_calibration_data: null
+  tflite_calibration_samples: 256
+  tflite_calibration_preprocess: resize
+  tflite_calibration_seed: 0
+  tflite_calibration_update: minmax
+  tflite_static_activation_bits: 16
   include:
     - onnx
 
 train:
-  model: osnet_x0_25
+  model: csl_tinyvit_11m
   dataset: market1501
   data_dir: null
   loss: triplet
   preprocess: resize
   imgsz:
-    - 256
+    - 384
     - 128
   batch_size: 64
-  lr: 0.00035
-  weight_decay: 0.0005
-  epochs: 120
-  warmup_epochs: 10
+  lr: 0.0007
+  weight_decay: 0.1
+  epochs: 250
+  warmup_epochs: 20
   eval_interval: 10
   p_ids: 16
   k_instances: 4
   margin: 0.3
-  label_smooth: 0.1
-  center_loss_weight: 0.0005
+  label_smooth: 0.05
+  classifier_loss: ce
+  triplet_soft_margin: null
+  arcface_scale: 30.0
+  arcface_margin: 0.5
+  cosface_scale: 30.0
+  cosface_margin: 0.35
+  center_loss_weight: 0.005
+  id_loss_weight: 1.0
+  metric_loss_weight: 1.0
+  aux_ce_weight: 1.0
+  aux_ce_drop_epoch: 0
+  branch_loss_agg: mean
+  metric_feature: auto
+  inference_feature: concat_bn
+  feature_fusion: last3
+  feat_dim: 512
+  neck_dim: 512
+  drop_path_rate: 0.1
+  attention_window_layout: legacy
+  attention_bias: absolute
+  attention_mask: false
+  attention_shift: false
+  stage3_global: false
+  reid_adapter_stages: []
+  reid_adapter_reduction: 4
+  head_pool: gem
+  head_parts: [1, 2]
+  head_type: standard
+  part_pooling: stripes
+  num_part_tokens: 4
+  decouple_patterns: false
+  pattern_adapter_dim: 128
+  stripe_visibility: false
+  branch_aware_metric: false
+  branch_metric_part_weight: 0.5
+  head_warmup_epochs: 0
+  head_warmup_lr_mult: 2.0
+  vit_lr_profile: layer_decay
+  backbone_freeze_epochs: 0
   pretrained: true
   device: cpu
   project: runs/reid_train
   name: exp
   num_workers: 4
-  seed: 42
+  seed: 0
+  deterministic: true
   eval_datasets: []  # cross-domain eval datasets, e.g. [duke, cuhk03]
-  ema_decay: null  # EMA momentum decay, e.g. 0.999 (null to disable)
-  gaussian_blur: false  # random Gaussian blur augmentation (DynaMix-style)
-  color_jitter: false  # color jitter augmentation (auto-enabled for ViTs)
-  random_grayscale: 0.0  # probability of random grayscale conversion
+  ema_decay: 0  # EMA momentum decay, e.g. 0.999 (null to disable)
+  gaussian_blur: true  # random Gaussian blur augmentation (DynaMix-style)
+  color_jitter: true  # color jitter augmentation (auto-enabled for ViTs)
+  random_grayscale: 0.1  # probability of random grayscale conversion
+  random_erasing: 0.5  # probability of random erasing augmentation
+  random_patch: true  # apply RandomPatch occlusion augmentation
+  color_augmentation: true  # apply PCA ColorAugmentation
+  flip_tta: null  # null = auto (ViT-only), true/false to force

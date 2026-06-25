@@ -212,7 +212,7 @@ class BoostTrack(BaseTracker):
 
     Args:
         reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
-        use_ecc (bool): Whether to enable camera-motion compensation.
+        use_cmc (bool): Whether to enable camera-motion compensation.
         min_box_area (int): Minimum detection area.
         aspect_ratio_thresh (float): Maximum accepted aspect ratio.
         cmc_method (str): Camera-motion compensation method.
@@ -242,7 +242,7 @@ class BoostTrack(BaseTracker):
         self,
         reid_model: Any | None = None,
         # BoostTrack-specific parameters
-        use_ecc: bool = True,
+        use_cmc: bool = True,
         min_box_area: int = 10,
         aspect_ratio_thresh: float = 1.6,
         cmc_method: str = "ecc",
@@ -269,7 +269,7 @@ class BoostTrack(BaseTracker):
         self.trackers: List[KalmanBoxTracker] = []
 
         # Parameters for BoostTrack (these can be tuned as needed)
-        self.use_ecc = use_ecc            # use ECC for camera motion compensation
+        self.use_cmc = use_cmc            # use camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
         self.cmc_method = cmc_method
@@ -290,7 +290,7 @@ class BoostTrack(BaseTracker):
         self.reid_model = reid_model if self.with_reid else None
         self.adaptive_kf = bool(adaptive_kf)
 
-        if self.use_ecc:
+        if self.use_cmc:
             self.cmc = get_cmc_method(cmc_method)()
         else:
             self.cmc = None

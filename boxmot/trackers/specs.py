@@ -4,13 +4,6 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 TRACKER_BACKENDS = frozenset({"python", "cpp"})
-_TRACKER_BACKEND_ALIASES = {
-    "py": "python",
-    "python": "python",
-    "c++": "cpp",
-    "cpp": "cpp",
-    "native": "cpp",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,8 +11,7 @@ class TrackerSpec:
     """Normalized tracker selection.
 
     ``name`` is the registered tracker id used throughout BoxMOT. ``backend``
-    selects whether that tracker should run through the Python implementation or
-    a native C++ implementation when one exists.
+    is either ``"python"`` or ``"cpp"``.
     """
 
     name: str
@@ -30,8 +22,8 @@ def normalize_tracker_backend(backend: Any, *, default: str = "python") -> str:
     """Return a normalized tracker backend identifier."""
 
     raw_backend = default if backend in {None, ""} else backend
-    normalized = _TRACKER_BACKEND_ALIASES.get(str(raw_backend).strip().lower())
-    if normalized is None:
+    normalized = str(raw_backend).strip().lower()
+    if normalized not in TRACKER_BACKENDS:
         available = ", ".join(sorted(TRACKER_BACKENDS))
         raise ValueError(f"Unknown tracker backend: {backend!r}. Available backends are: {available}")
     return normalized
@@ -45,12 +37,8 @@ def parse_tracker_spec(
 ) -> TrackerSpec:
     """Parse tracker spec strings and tracker instances into a normalized form.
 
-    Supported string forms are:
-
-    - ``bytetrack``
-    - ``bytetrack:cpp``
-    - ``cpp:bytetrack``
-    - ``bytetrack@cpp``
+    Tracker strings must contain only the tracker name. Select the backend with
+    the separate ``tracker_backend`` field.
     """
 
     normalized_default_backend = normalize_tracker_backend(default_backend)
@@ -65,21 +53,11 @@ def parse_tracker_spec(
         raw_spec = spec.strip()
         if not raw_spec:
             raise ValueError("Tracker spec cannot be empty.")
-
-        for separator in ("@", ":"):
-            if separator not in raw_spec:
-                continue
-            left, right = (part.strip() for part in raw_spec.split(separator, 1))
-            if not left or not right:
-                break
-
-            left_backend = _TRACKER_BACKEND_ALIASES.get(left.lower())
-            right_backend = _TRACKER_BACKEND_ALIASES.get(right.lower())
-            if left_backend is not None:
-                return TrackerSpec(name=right.lower(), backend=left_backend)
-            if right_backend is not None:
-                return TrackerSpec(name=left.lower(), backend=right_backend)
-            break
+        if ":" in raw_spec or "@" in raw_spec:
+            raise ValueError(
+                "Tracker spec must be a tracker name only. "
+                "Set tracker_backend to either 'python' or 'cpp'."
+            )
 
         return TrackerSpec(name=raw_spec.lower(), backend=normalized_default_backend)
 

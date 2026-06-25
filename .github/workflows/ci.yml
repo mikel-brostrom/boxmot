@@ -75,7 +75,7 @@ jobs:
       - name: Configure native trackers
         shell: bash
         run: |
-          cmake -S boxmot/native/trackers -B build/native/trackers -DCMAKE_BUILD_TYPE=Release
+          cmake -S boxmot/native/cpp -B build/native/trackers -DCMAKE_BUILD_TYPE=Release
       - name: Build native trackers
         shell: bash
         run: |

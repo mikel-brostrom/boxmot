@@ -2,6 +2,8 @@
 
 __all__ = (
     "analysis",
-    "kf_tuning",
+    "backends",
+    "postprocessing",
+    "search_space",
     "tuner",
 )

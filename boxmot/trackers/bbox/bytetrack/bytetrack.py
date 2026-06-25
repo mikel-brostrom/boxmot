@@ -8,10 +8,10 @@ import numpy as np
 
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.association.matching import fuse_score, iou_distance, linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.bytetrack.basetrack import BaseTrack, TrackState
-from boxmot.utils.matching import fuse_score, iou_distance, linear_assignment
-from boxmot.trackers.ops import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
+from boxmot.trackers.common.geometry import tlwh2xyah, xywh2tlwh, xywh2xyxy, xyxy2xywh
 
 
 class STrack(BaseTrack):

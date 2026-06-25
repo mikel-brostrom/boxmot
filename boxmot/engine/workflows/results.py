@@ -10,7 +10,7 @@ from rich.table import Table
 from rich.text import Text
 
 from boxmot.engine.tracking.results import FrameResult, Results
-from boxmot.utils.rich.ui import (
+from boxmot.utils.rich.core.ui import (
     STYLE_ACCENT,
     STYLE_RULE,
     STYLE_TABLE_HEADER,

@@ -11,7 +11,7 @@ pip install boxmot
 boxmot --help
 ```
 
-This installs the core package. It is enough for simple tracking and Python API usage when your detector and ReID backends are already available in the environment.
+This installs the core package. It is enough for simple tracking and Python API usage. Optional detector and ReID runtime packages are installed on first use when BoxMOT can resolve a safe package for the selected backend.
 
 ## Mode-specific extras
 
@@ -25,7 +25,7 @@ BoxMOT keeps heavier workflow dependencies optional. Install the extras that mat
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra research` | Installs GEPA for the code-evolution loop. |
 | `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra onnx` | The default export path uses ONNX. |
 | `export --include openvino` | `pip install "boxmot[openvino]"` | `uv sync --extra openvino` | Usually paired with `--include onnx`. |
-| `export --include tflite` | `pip install "boxmot[tflite]"` | `uv sync --extra tflite` | Python `3.12` on Linux or Windows only. |
+| `export --include tflite` | `pip install "boxmot[tflite]"` | `uv sync --extra tflite` | Installs both TFLite export and LiteRT inference packages. |
 
 You can combine extras when needed:
 
@@ -34,7 +34,7 @@ uv sync --extra yolo --extra evolve --extra research
 pip install "boxmot[yolo,evolve,research]"
 ```
 
-`boxmot export --include engine` requires NVIDIA TensorRT to be available in the environment. It is not provided as a BoxMOT extra.
+When an optional ReID runtime is missing, BoxMOT attempts a first-use install with `uv pip install` when `uv` is available, otherwise with the active `python -m pip`. This covers ONNX Runtime, OpenVINO, LiteRT, and NVIDIA TensorRT. TensorRT still requires a compatible CUDA/NVIDIA stack for the installed wheel to import and run correctly.
 
 ## Native C++ backends
 

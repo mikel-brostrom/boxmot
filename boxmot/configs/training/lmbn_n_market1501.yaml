@@ -1,0 +1,40 @@
+# Training recipe matching LightMBN Market1501 procedure for lmbn_n.
+#
+# Notes:
+# - Focuses on optimizer/scheduler/loss/batching hyperparameters.
+# - Augmentation settings are intentionally omitted so your current
+#   augmentation flags/defaults remain unchanged.
+
+model: lmbn_n
+dataset: market1501
+preprocess: resize
+imgsz: [384, 128]
+
+loss: ms
+margin: 0.7
+label_smooth: 0.1
+id_loss_weight: 0.5
+metric_loss_weight: 0.5
+branch_loss_agg: sum
+center_loss_weight: 0.0
+
+batch_size: 64
+p_ids: 6
+k_instances: 8
+
+epochs: 130
+eval_interval: 10
+warmup_epochs: 10
+
+lr: 0.0006
+weight_decay: 0.0005
+eta_min: 0.0000006
+
+# Match official LightMBN-style augmentation/eval behavior.
+color_jitter: false
+gaussian_blur: false
+random_grayscale: 0.0
+random_erasing: 0.5
+random_patch: false
+color_augmentation: false
+flip_tta: true

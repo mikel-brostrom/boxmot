@@ -53,12 +53,23 @@ class Market1501(BaseReIDDataset):
     def _find_root(self, root: str):
         from pathlib import Path
         p = Path(root)
-        if (p / "bounding_box_train").is_dir():
-            return p
+        # 1. Named subdirectories under root (most specific match)
         for sub in self._SUBDIRS:
             candidate = p / sub
             if (candidate / "bounding_box_train").is_dir():
                 return candidate
+        # 2. Named subdirectories under parent (cross-dataset support)
+        for sub in self._SUBDIRS:
+            candidate = p.parent / sub
+            if (candidate / "bounding_box_train").is_dir():
+                return candidate
+        # 3. Bare root only if its folder name matches a known alias
+        #    (prevents silently loading Duke/CUHK03 data as Market)
+        if (p / "bounding_box_train").is_dir():
+            norm = p.name.lower().replace("-", "").replace("_", "")
+            known = {s.lower().replace("-", "").replace("_", "") for s in self._SUBDIRS}
+            if norm in known:
+                return p
         return None
 
     def _load_split(self, split: str) -> List[ReIDSample]:
@@ -69,6 +80,13 @@ class Market1501(BaseReIDDataset):
         }
         split_dir = self.root / dir_map[split]
         return _parse_market_dir(split_dir, is_train=(split == "train"))
+
+
+class MOT17Market1501(Market1501):
+    """MOT17 person crops stored in Market1501-style ReID folders."""
+
+    name = "mot17_1501"
+    _SUBDIRS = ("MOT17-1501-fixed", "mot17-1501-fixed", "mot17_1501_fixed", "MOT17-1501", "mot17-1501", "mot17_1501")
 
 
 def _parse_market_dir(directory, *, is_train: bool) -> List[ReIDSample]:

@@ -69,13 +69,13 @@ Tracks(frame_idx, frame, tracks, detections)
 
 ## Native C++ live tracking from BoxMOT
 
-Use this path when BoxMOT still owns the source, detector, output handling, and Python API, but the tracker implementation is native C++ through `--tracker-backend cpp` or a tracker spec such as `bytetrack:cpp`.
+Use this path when BoxMOT still owns the source, detector, output handling, and Python API, but the tracker implementation is native C++ through `--tracker-backend cpp`.
 
 ```text
 User selects native tracker backend
         |
         +--> boxmot track --tracker-backend cpp
-        +--> Boxmot(..., tracker="bytetrack:cpp")
+        +--> Boxmot(..., tracker="bytetrack").track(..., tracker_backend="cpp")
         |
         v
 build_tracker_from_spec(...)

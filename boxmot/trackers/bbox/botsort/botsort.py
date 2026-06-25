@@ -9,11 +9,11 @@ import numpy as np
 
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.association.matching import embedding_distance, fuse_score, iou_distance, linear_assignment
 from boxmot.trackers.basetracker import BaseTracker
 from boxmot.trackers.bbox.botsort.basetrack import BaseTrack, TrackState
 from boxmot.trackers.bbox.botsort.botsort_track import STrack
 from boxmot.trackers.bbox.botsort.botsort_utils import joint_stracks, remove_duplicate_stracks, sub_stracks
-from boxmot.utils.matching import embedding_distance, fuse_score, iou_distance, linear_assignment
 
 
 class BotSort(BaseTracker):
@@ -32,11 +32,20 @@ class BotSort(BaseTracker):
         proximity_thresh (float): IoU gate used before appearance matching.
         appearance_thresh (float): Maximum embedding distance accepted for ReID
             matching.
+        use_cmc (bool): Whether to apply camera-motion compensation.
         cmc_method (str): Camera-motion compensation method.
         frame_rate (int): Frame rate used to scale the internal track buffer.
         fuse_first_associate (bool): Whether to fuse motion and appearance in
             the first association step.
         with_reid (bool): Whether to enable appearance features.
+        second_match_thresh (float): Matching threshold for the second
+            association pass over low-confidence detections.
+        unconfirmed_match_thresh (float): Matching threshold for tentative
+            tracks that have not yet been confirmed.
+        unconfirmed_emb_scale (float): Divisor applied to embedding distances
+            during unconfirmed-track matching.
+        removed_stracks_buffer (int): Maximum number of removed tracks retained
+            for duplicate bookkeeping.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
@@ -65,10 +74,15 @@ class BotSort(BaseTracker):
         match_thresh: float = 0.8,
         proximity_thresh: float = 0.5,
         appearance_thresh: float = 0.25,
+        use_cmc: bool = True,
         cmc_method: str = "ecc",
         frame_rate: int = 30,
         fuse_first_associate: bool = False,
         with_reid: bool = True,
+        second_match_thresh: float = 0.5,
+        unconfirmed_match_thresh: float = 0.7,
+        unconfirmed_emb_scale: float = 2.0,
+        removed_stracks_buffer: int = 100,
         **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
@@ -76,7 +90,9 @@ class BotSort(BaseTracker):
         super().__init__(**init_args, _tracker_name='BotSort', **kwargs)
 
         self.lost_stracks = []  # type: list[STrack]
-        self.removed_stracks = deque(maxlen=100)  # type: deque[STrack]
+        self.removed_stracks = deque(
+            maxlen=removed_stracks_buffer
+        )  # type: deque[STrack]
         BaseTrack.clear_count()
 
         self.track_high_thresh = track_high_thresh
@@ -91,10 +107,13 @@ class BotSort(BaseTracker):
         # ReID module
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
+        self.second_match_thresh = second_match_thresh
+        self.unconfirmed_match_thresh = unconfirmed_match_thresh
+        self.unconfirmed_emb_scale = unconfirmed_emb_scale
         self.with_reid = with_reid
         self.model = reid_model if self.with_reid else None
 
-        cmc_cls = get_cmc_method(cmc_method)
+        cmc_cls = get_cmc_method(cmc_method if use_cmc else None)
         self.cmc = cmc_cls() if cmc_cls is not None else None
         self.fuse_first_associate = fuse_first_associate
 
@@ -336,7 +355,9 @@ class BotSort(BaseTracker):
         ]
 
         dists = iou_distance(r_tracked_stracks, detections_second, is_obb=self.is_obb)
-        matches, u_track, u_detection = linear_assignment(dists, thresh=0.5)
+        matches, u_track, u_detection = linear_assignment(
+            dists, thresh=self.second_match_thresh
+        )
 
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
@@ -380,7 +401,9 @@ class BotSort(BaseTracker):
 
         # Fuse scores for IoU-based and embedding-based matching (if applicable)
         if self.with_reid:
-            emb_dists = embedding_distance(unconfirmed, detections) / 2.0
+            emb_dists = (
+                embedding_distance(unconfirmed, detections) / self.unconfirmed_emb_scale
+            )
             emb_dists[emb_dists > self.appearance_thresh] = 1.0
             emb_dists[ious_dists_mask] = (
                 1.0  # Apply the IoU mask to embedding distances
@@ -390,7 +413,9 @@ class BotSort(BaseTracker):
             dists = ious_dists
 
         # Perform data association using linear assignment on the combined distances
-        matches, u_unconfirmed, u_detection = linear_assignment(dists, thresh=0.7)
+        matches, u_unconfirmed, u_detection = linear_assignment(
+            dists, thresh=self.unconfirmed_match_thresh
+        )
 
         # Update matched unconfirmed tracks
         for itracked, idet in matches:

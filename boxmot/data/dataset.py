@@ -73,7 +73,7 @@ import cv2
 import numpy as np
 
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.rich.progress import RichTqdm as tqdm
+from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
 
 def _sequence_img_dir(seq_dir: Path) -> Path:

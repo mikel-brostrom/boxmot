@@ -35,7 +35,7 @@ Run a native C++ tracker backend:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --benchmark mot17 --split ablation --tracker bytetrack:cpp
+boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
 ```
 
 Export a ReID model:

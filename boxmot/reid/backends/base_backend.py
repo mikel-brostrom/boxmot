@@ -30,6 +30,9 @@ class BaseModelBackend:
 
         self.download_model(self.weights)
         self.model_name = ReIDModelRegistry.get_model_name(self.weights)
+        model_kwargs = {}
+        if self.weights and self.weights.is_file():
+            model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(self.weights)
 
         self.model = ReIDModelRegistry.build_model(
             self.model_name,
@@ -37,6 +40,7 @@ class BaseModelBackend:
             num_classes=ReIDModelRegistry.get_nr_classes(self.weights),
             pretrained=not (self.weights and self.weights.is_file()),
             use_gpu=device,
+            **model_kwargs,
         )
         self.checker = RequirementsChecker()
         self._preprocess_name = preprocess
@@ -52,7 +56,7 @@ class BaseModelBackend:
         # Determine input shape, depending on dataset and model name
         if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
-        elif "lmbn" in self.model_name or "vit_tiny" in self.model_name:
+        elif "lmbn" in self.model_name or "vit_tiny" in self.model_name or "csl_tinyvit" in self.model_name:
             input_shape = (384, 128)
         elif "hacnn" in self.model_name:
             input_shape = (160, 64)

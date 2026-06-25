@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import queue
 from io import StringIO
 from pathlib import Path
-import queue
 
 import pytest
 
-from boxmot.native import ocsort_cpp as native_module
+from boxmot.native.trackers import ocsort as native_module
 
 
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):

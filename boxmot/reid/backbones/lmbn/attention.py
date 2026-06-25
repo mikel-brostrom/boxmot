@@ -109,16 +109,11 @@ class BatchDropTop(nn.Module):
             max_act, _ = act.max(2)
             ind = torch.argsort(max_act, 1)
             ind = ind[:, -rh:]
-            mask = []
+            mask = x.new_ones((b, h))
             for i in range(b):
-                rmask = torch.ones(h)
-                rmask[ind[i]] = 0
-                mask.append(rmask.unsqueeze(0))
-            mask = torch.cat(mask)
+                mask[i, ind[i]] = 0
             mask = torch.repeat_interleave(mask, w, 1).view(b, h, w)
             mask = torch.repeat_interleave(mask, c, 0).view(b, c, h, w)
-            if x.is_cuda:
-                mask = mask.cuda()
             if visdrop:
                 return mask
             x = x * mask

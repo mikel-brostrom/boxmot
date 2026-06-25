@@ -7,7 +7,7 @@ import numpy as np
 from boxmot.motion.cmc import get_cmc_method
 from boxmot.trackers.bbox.strongsort.sort import iou_matching, linear_assignment
 from boxmot.trackers.bbox.strongsort.sort.track import Track
-from boxmot.utils.matching import chi2inv95
+from boxmot.trackers.association.matching import chi2inv95
 
 
 class Tracker:
