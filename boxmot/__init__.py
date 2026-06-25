@@ -29,19 +29,18 @@ __all__ = ("__version__", *_API_EXPORTS)
 
 
 if TYPE_CHECKING:
-    from boxmot.api import (
-        Boxmot,
+    from boxmot.api.client import Boxmot
+    from boxmot.api.functional import evaluate, track
+    from boxmot.engine.research.models import ResearchResult
+    from boxmot.engine.workflows.results import (
         ExportResult,
         GenerateResult,
-        ResearchResult,
         TrackRunResult,
-        TrainResult,
         TuneResult,
         TuneTrialResult,
         ValidationResult,
-        evaluate,
-        track,
     )
+    from boxmot.reid.training.trainer import TrainResult
 
 
 def __getattr__(name: str):
