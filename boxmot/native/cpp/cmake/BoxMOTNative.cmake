@@ -7,6 +7,9 @@
 
 include_guard(GLOBAL)
 
+get_filename_component(_BOXMOT_NATIVE_CMAKE_DIR "${CMAKE_CURRENT_LIST_FILE}" DIRECTORY)
+get_filename_component(_BOXMOT_NATIVE_ROOT "${_BOXMOT_NATIVE_CMAKE_DIR}/.." ABSOLUTE)
+
 # ---------------------------------------------------------------------------
 # Project-wide defaults.
 # ---------------------------------------------------------------------------
@@ -56,7 +59,7 @@ function(boxmot_require_native_deps)
         # Pull the shared base library in if the per-tracker project is
         # being built standalone (e.g. ``cmake -S boxmot/native/cpp/trackers/X``).
         get_filename_component(_boxmot_native_dir
-            "${CMAKE_CURRENT_LIST_DIR}/../trackers/base" ABSOLUTE)
+            "${_BOXMOT_NATIVE_ROOT}/trackers/base" ABSOLUTE)
         add_subdirectory("${_boxmot_native_dir}"
             "${CMAKE_BINARY_DIR}/_boxmot_native_base")
     endif()
