@@ -1,13 +1,15 @@
-import colorsys
-import hashlib
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 
-import cv2 as cv
 import numpy as np
 
-from boxmot.trackers.association.iou import AssociationFunction
-from boxmot.trackers.common.detection_layout import get_detection_layout, infer_detection_layout
-from boxmot.trackers.common.visualization import VisualizationMixin
+from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.detections import DetectionBatch
+from boxmot.trackers.common.detections.layout import get_detection_layout, infer_detection_layout
+from boxmot.trackers.common.motion import cmc as cmc_utils
+from boxmot.trackers.common.tracking import outputs as output_utils
+from boxmot.trackers.common.tracking.records import DetectionRecord, TrackRecord
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState
+from boxmot.trackers.common.tracking.visualization import VisualizationMixin
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 
@@ -35,7 +37,8 @@ class BaseTracker(VisualizationMixin):
         Parameters:
         - det_thresh (float): Detection threshold for considering detections.
         - max_age (int): Maximum age (in frames) of a track before it is considered lost.
-        - max_obs (int): Maximum number of historical observations (bounding boxes) stored for each track. max_obs is always greater than max_age by minimum 5.
+        - max_obs (int): Maximum number of historical observations stored for each track.
+          max_obs is always greater than max_age by minimum 5.
         - min_hits (int): Minimum number of detection hits before a track is considered confirmed.
         - iou_threshold (float): IOU threshold for determining match between detection and tracks.
         - per_class (bool): Enables class-separated tracking
@@ -59,6 +62,8 @@ class BaseTracker(VisualizationMixin):
         - active_tracks (list): List to hold active tracks, may be used differently in subclasses.
         """
 
+        tracker_name = kwargs.pop("_tracker_name", None)
+        self.name = str(tracker_name or self.__class__.__name__)
         self.det_thresh = det_thresh
         self.max_age = max_age
         self.max_obs = max_obs
@@ -70,17 +75,16 @@ class BaseTracker(VisualizationMixin):
         self.detection_layout = get_detection_layout(is_obb)
         self.asso_func_name = self.detection_layout.association_mode_name(asso_func)
         self.is_obb = self.detection_layout.is_obb
+        self.id_allocator = TrackIdAllocator()
 
         # Attributes
         self.frame_count = 0
         self.active_tracks = []  # This might be handled differently in derived classes
 
         self.per_class_active_tracks = None
-        self._first_frame_processed = (
-            False  # Flag to track if the first frame has been processed
-        )
+        self._first_frame_processed = False  # Flag to track if the first frame has been processed
         self._first_dets_processed = False
-        self.last_emb_size = None  # Tracks the dimensionality of embedding vectors used for re-identification during tracking.
+        self.last_emb_size = None
 
         # Initialize per-class active tracks
         if self.per_class:
@@ -91,9 +95,7 @@ class BaseTracker(VisualizationMixin):
                 self.per_class_trackers[i] = []
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning(
-                "Max age > max observations, increasing size of max observations..."
-            )
+            LOGGER.warning("Max age > max observations, increasing size of max observations...")
             self.max_obs = self.max_age + 5
 
         # Plotting lifecycle bookkeeping
@@ -103,22 +105,31 @@ class BaseTracker(VisualizationMixin):
         self.removed_display_frames = getattr(self, "removed_display_frames", 10)
 
         # Log all params if tracker_name provided via kwargs
-        tracker_name = kwargs.pop('_tracker_name', None)
         if tracker_name:
             base_params = {
-                'det_thresh': det_thresh, 'max_age': max_age, 'max_obs': max_obs,
-                'min_hits': min_hits, 'iou_threshold': iou_threshold, 'per_class': per_class,
-                'asso_func': asso_func,
+                "det_thresh": det_thresh,
+                "max_age": max_age,
+                "max_obs": max_obs,
+                "min_hits": min_hits,
+                "iou_threshold": iou_threshold,
+                "per_class": per_class,
+                "asso_func": asso_func,
             }
             # Filter out internal/non-config params
-            filtered_kwargs = {k: v for k, v in kwargs.items()
-                              if not k.startswith('_') and k not in ('__class__', 'reid_weights', 'device', 'half')}
+            filtered_kwargs = {
+                k: v
+                for k, v in kwargs.items()
+                if not k.startswith("_") and k not in ("__class__", "reid_weights", "device", "half")
+            }
             all_params = {**base_params, **filtered_kwargs}
             params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
             LOGGER.info(f"{tracker_name}: {params_str}")
 
     def update(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        self,
+        dets: np.ndarray,
+        img: np.ndarray,
+        embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with new detections for a new frame.
@@ -175,9 +186,7 @@ class BaseTracker(VisualizationMixin):
         # First frame image-based setup (association function needs w/h)
         if not self._first_frame_processed and img is not None:
             self.h, self.w = img.shape[0:2]
-            self.asso_func = AssociationFunction(
-                w=self.w, h=self.h, asso_mode=self.asso_func_name
-            ).asso_func
+            self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
             self._first_frame_processed = True
 
         return dets, img
@@ -189,29 +198,21 @@ class BaseTracker(VisualizationMixin):
 
         if not self.supports_masks:
             if not getattr(self, "_masks_warning_issued", False):
-                LOGGER.warning(
-                    f"{self.__class__.__name__} does not support masks. "
-                    "Masks will be ignored."
-                )
+                LOGGER.warning(f"{self.__class__.__name__} does not support masks. Masks will be ignored.")
                 self._masks_warning_issued = True
             return None
 
         masks = np.asarray(masks)
         if masks.ndim != 3:
-            raise ValueError(
-                f"Masks must be 3D (N, H, W), got shape {masks.shape}"
-            )
+            raise ValueError(f"Masks must be 3D (N, H, W), got shape {masks.shape}")
 
         n_dets = len(dets) if dets is not None else 0
         if masks.shape[0] != n_dets:
-            raise ValueError(
-                f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})"
-            )
+            raise ValueError(f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})")
 
         return masks
 
-    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
-                    masks: np.ndarray = None):
+    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
         """Dispatch to single-pass or per-class update."""
         if dets is None or len(dets) == 0:
             dets = self.empty_detections()
@@ -283,7 +284,10 @@ class BaseTracker(VisualizationMixin):
 
     @abstractmethod
     def _update_impl(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None,
+        self,
+        dets: np.ndarray,
+        img: np.ndarray,
+        embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
         """Core tracking logic. Subclasses must implement this.
@@ -299,18 +303,12 @@ class BaseTracker(VisualizationMixin):
             Mask-capable trackers may return a tuple (tracks_array, output_masks)
             where output_masks has shape (M, H, W) for M active tracks.
         """
-        raise NotImplementedError(
-            "The _update_impl method needs to be implemented by the subclass."
-        )
+        raise NotImplementedError("The _update_impl method needs to be implemented by the subclass.")
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):
         # Initialize empty arrays for detections and embeddings
         class_dets = self.detection_layout.empty_dets(dtype=np.float32)
-        class_embs = (
-            np.empty((0, self.last_emb_size))
-            if self.last_emb_size is not None
-            else None
-        )
+        class_embs = np.empty((0, self.last_emb_size)) if self.last_emb_size is not None else None
 
         # Check if there are detections
         if dets.size == 0:
@@ -329,29 +327,186 @@ class BaseTracker(VisualizationMixin):
         class_embs = None
         if embs.size > 0:
             class_embs = embs[class_indices]
-            self.last_emb_size = class_embs.shape[
-                1
-            ]  # Update the last known embedding size
+            self.last_emb_size = class_embs.shape[1]  # Update the last known embedding size
         return class_dets, class_embs
 
     def _set_detection_mode(self, is_obb: bool) -> None:
         """Update the tracker detection mode and association function name."""
         self.detection_layout = get_detection_layout(is_obb)
         self.is_obb = self.detection_layout.is_obb
-        self.asso_func_name = self.detection_layout.association_mode_name(
-            self._asso_func_base_name
-        )
+        self.asso_func_name = self.detection_layout.association_mode_name(self._asso_func_base_name)
 
         if self._first_frame_processed and hasattr(self, "w") and hasattr(self, "h"):
-            self.asso_func = AssociationFunction(
-                w=self.w, h=self.h, asso_mode=self.asso_func_name
-            ).asso_func
+            self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
 
     def empty_detections(self, dtype=np.float32) -> np.ndarray:
         return self.detection_layout.empty_dets(dtype=dtype)
 
     def empty_output(self, dtype=float) -> np.ndarray:
-        return self.detection_layout.empty_output(dtype=dtype)
+        return output_utils.empty_output(self.detection_layout, dtype=dtype)
+
+    def make_detection_batch(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> DetectionBatch:
+        """Convert raw detections to a canonical detection batch."""
+        return DetectionBatch.from_layout(
+            dets,
+            self.detection_layout,
+            embs=embs,
+            masks=masks,
+        )
+
+    def make_detections(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> list[DetectionRecord]:
+        """Convert raw detections to canonical detection records."""
+        return self.make_detection_batch(dets, embs=embs, masks=masks).as_records()
+
+    def _track_box_for_output(self, track) -> np.ndarray:
+        for attr_name in (
+            "output_box",
+            "box",
+            "bbox",
+            "xywha" if self.is_obb else "xyxy",
+        ):
+            if not attr_name:
+                continue
+            box = self._resolve_track_box_attr(track, attr_name)
+            if box is not None:
+                return np.asarray(box, dtype=np.float32).reshape(-1)
+        if hasattr(track, "get_state"):
+            return np.asarray(track.get_state()[0], dtype=np.float32).reshape(-1)
+        raise AttributeError(f"{track.__class__.__name__} does not expose an output box")
+
+    @staticmethod
+    def _track_id(track) -> int:
+        if hasattr(track, "id"):
+            return int(getattr(track, "id"))
+        return int(getattr(track, "track_id"))
+
+    def track_record(self, track, state: str = "active") -> TrackRecord:
+        """Return a canonical snapshot for a tracker-local track object."""
+        return TrackRecord(
+            box=self._track_box_for_output(track),
+            track_id=self._track_id(track),
+            conf=float(getattr(track, "conf", 1.0)),
+            cls=int(getattr(track, "cls", -1)),
+            det_ind=int(getattr(track, "det_ind", -1)),
+            state=state,
+            age=int(getattr(track, "age", 0)),
+            time_since_update=int(getattr(track, "time_since_update", 0)),
+        )
+
+    def format_output_row(
+        self,
+        box: np.ndarray,
+        track_id: int,
+        conf: float,
+        cls: int,
+        det_ind: int,
+        dtype=np.float32,
+    ) -> np.ndarray:
+        """Format one track row using the canonical public output contract."""
+        return output_utils.format_output_row(
+            self.detection_layout,
+            box,
+            track_id,
+            conf,
+            cls,
+            det_ind,
+            dtype=dtype,
+        )
+
+    def format_outputs(self, tracks, dtype=np.float32) -> np.ndarray:
+        """Format a sequence of track-like objects into the public output array."""
+        rows = [
+            self.format_output_row(
+                self._track_box_for_output(track),
+                self._track_id(track),
+                float(getattr(track, "conf", 1.0)),
+                int(getattr(track, "cls", -1)),
+                int(getattr(track, "det_ind", -1)),
+                dtype=dtype,
+            )
+            for track in tracks
+        ]
+        return output_utils.format_output_rows(self.detection_layout, rows, dtype=dtype)
+
+    def format_output_rows(self, rows, dtype=np.float32) -> np.ndarray:
+        """Return rows with the tracker-specific empty shape when no rows exist."""
+        return output_utils.format_output_rows(self.detection_layout, rows, dtype=dtype)
+
+    def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
+        """Return AABB boxes used for camera-motion estimation."""
+        return cmc_utils.cmc_detection_boxes(dets, self.detection_layout)
+
+    def aabb_detections_for_association(self, dets: np.ndarray) -> np.ndarray:
+        """Return AABB-layout detections for legacy association code."""
+        if not self.is_obb:
+            return dets
+
+        has_indices = dets.ndim == 2 and dets.shape[1] == self.detection_layout.det_cols + 1
+        out_cols = 7 if has_indices else 6
+        if dets.size == 0:
+            dtype = dets.dtype if hasattr(dets, "dtype") else np.float32
+            return np.empty((0, out_cols), dtype=dtype)
+
+        boxes = self.cmc_detection_boxes(dets)
+        confs = self.detection_layout.confidences(dets).reshape(-1, 1)
+        clss = self.detection_layout.classes(dets).reshape(-1, 1)
+        columns = [boxes, confs, clss]
+        if has_indices:
+            columns.append(dets[:, self.detection_layout.det_cols].reshape(-1, 1))
+        return np.hstack(columns).astype(dets.dtype, copy=False)
+
+    def apply_cmc(
+        self,
+        img: np.ndarray,
+        dets: np.ndarray,
+        tracks,
+        update_method: str = "camera_update",
+    ) -> np.ndarray | None:
+        """Apply CMC to tracks using OBB-safe detection boxes for estimation."""
+        return cmc_utils.apply_cmc_to_tracks(
+            getattr(self, "cmc", None),
+            img,
+            dets,
+            self.detection_layout,
+            tracks,
+            update_method=update_method,
+        )
+
+    def filter_outputs_by_geometry(
+        self,
+        outputs: np.ndarray,
+        min_box_area: float | None = None,
+        max_aspect_ratio: float | None = None,
+    ) -> np.ndarray:
+        """Filter output rows by area and width/height ratio in AABB or OBB mode."""
+        if outputs.size == 0:
+            dtype = outputs.dtype if hasattr(outputs, "dtype") else np.float32
+            return self.empty_output(dtype=dtype)
+
+        outputs = np.asarray(outputs)
+        if self.is_obb:
+            widths = outputs[:, 2]
+            heights = outputs[:, 3]
+        else:
+            widths = outputs[:, 2] - outputs[:, 0]
+            heights = outputs[:, 3] - outputs[:, 1]
+
+        keep = np.ones(len(outputs), dtype=bool)
+        if max_aspect_ratio is not None:
+            keep &= widths / np.maximum(heights, 1e-6) <= max_aspect_ratio
+        if min_box_area is not None:
+            keep &= widths * heights > min_box_area
+        return outputs[keep]
 
     def check_inputs(self, dets, img, embs=None):
         assert isinstance(dets, np.ndarray), (
@@ -360,14 +515,10 @@ class BaseTracker(VisualizationMixin):
         assert isinstance(img, np.ndarray), (
             f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
         )
-        assert len(dets.shape) == 2, (
-            "Unsupported 'dets' dimensions, valid number of dimensions is two"
-        )
+        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
 
         if embs is not None:
-            assert dets.shape[0] == embs.shape[0], (
-                "Missmatch between detections and embeddings sizes"
-            )
+            assert dets.shape[0] == embs.shape[0], "Missmatch between detections and embeddings sizes"
 
         self.detection_layout.validate_dets(dets)
 
@@ -400,6 +551,11 @@ class BaseTracker(VisualizationMixin):
         if hasattr(track, "is_activated") and not track.is_activated:
             return None
 
+        meta_state = getattr(getattr(track, "meta", None), "state", None)
+        display_state = self._display_state_from_common_state(meta_state)
+        if display_state in ("predicted", "removed"):
+            return display_state
+
         if hasattr(track, "time_since_update"):
             if track.time_since_update == 0:
                 return "confirmed"
@@ -407,19 +563,54 @@ class BaseTracker(VisualizationMixin):
                 return "predicted"
             return "lost"
 
-        if hasattr(track, "state"):
-            try:
-                from boxmot.trackers.bbox.bytetrack.basetrack import TrackState
+        if display_state is not None:
+            return display_state
 
-                if track.state == TrackState.Tracked:
-                    return "confirmed"
-                if track.state == TrackState.Lost:
-                    return "predicted"
-                return "lost"
-            except Exception:
-                return "confirmed" if getattr(track, "is_activated", True) else "lost"
+        if hasattr(track, "state"):
+            return self._display_state_from_local_state(track)
 
         return "confirmed"
+
+    @staticmethod
+    def _display_state_from_common_state(state) -> str | None:
+        """Map canonical track metadata state onto visualization state names."""
+        if state is TrackState.TRACKED:
+            return "confirmed"
+        if state is TrackState.LOST:
+            return "predicted"
+        if state is TrackState.REMOVED:
+            return "removed"
+        return None
+
+    @staticmethod
+    def _display_state_from_local_state(track) -> str:
+        """Best-effort display mapping for tracker-local state conventions."""
+        state = getattr(track, "state", None)
+        state_name = getattr(state, "name", state if isinstance(state, str) else None)
+        if state_name is not None:
+            normalized = str(state_name).replace("_", "").replace("-", "").lower()
+            if normalized in {"tracked", "confirmed", "active", "reliable"}:
+                return "confirmed"
+            if normalized in {"lost", "longlost", "lostcentral", "lostmarginal", "suspicious"}:
+                return "predicted"
+            if normalized in {"removed", "deleted", "frameout"}:
+                return "removed"
+            if normalized in {"new", "tentative", "pending"}:
+                return "lost"
+
+        module_name = getattr(track.__class__, "__module__", "")
+        byte_or_bot_state = module_name in {
+            "boxmot.trackers.bbox.bytetrack",
+            "boxmot.trackers.bbox.botsort",
+        }
+        if isinstance(state, (int, np.integer)) and byte_or_bot_state:
+            if int(state) == 1:
+                return "confirmed"
+            if int(state) == 2:
+                return "predicted"
+            return "lost"
+
+        return "confirmed" if getattr(track, "is_activated", True) else "lost"
 
     def get_track_id_for_display(self, track) -> int:
         return int(getattr(track, "id"))
@@ -462,9 +653,7 @@ class BaseTracker(VisualizationMixin):
         return history[-1] if history else None
 
     def has_explicit_display_lifecycle(self) -> bool:
-        return (getattr(self, "lost_stracks", None) is not None) or (
-            getattr(self, "removed_stracks", None) is not None
-        )
+        return (getattr(self, "lost_stracks", None) is not None) or (getattr(self, "removed_stracks", None) is not None)
 
     def _removed_track_display_key(self, track):
         start_frame = int(getattr(track, "start_frame", getattr(track, "birth_frame", -1)))
@@ -500,11 +689,7 @@ class BaseTracker(VisualizationMixin):
 
         horizon = getattr(self, "removed_tombstone_horizon", 10000)
         cutoff = now - max(ttl, 1) - horizon
-        stale_keys = [
-            key
-            for key, first_seen in self._removed_first_seen.items()
-            if first_seen < cutoff
-        ]
+        stale_keys = [key for key, first_seen in self._removed_first_seen.items() if first_seen < cutoff]
         for key in stale_keys:
             self._removed_first_seen.pop(key, None)
             self._removed_expired.discard(key)
@@ -552,5 +737,39 @@ class BaseTracker(VisualizationMixin):
                     continue
                 yield track, state, style
 
+    def _reset_cmc_state(self) -> None:
+        """Reset CMC adapters that keep frame-to-frame state."""
+        cmc_utils.reset_cmc(getattr(self, "cmc", None))
+
+    def _reset_common_state(self) -> None:
+        """Reset BaseTracker-owned sequence state while keeping configuration."""
+        self.frame_count = 0
+        self.active_tracks = []
+        self.last_emb_size = None
+        self._first_frame_processed = False
+        self._first_dets_processed = False
+        self._plot_frame_idx = -1
+        self._removed_first_seen.clear()
+        self._removed_expired.clear()
+        self.id_allocator.reset()
+
+        for attr_name in (
+            "trackers",
+            "lost_stracks",
+            "removed_stracks",
+            "lost_tracks",
+            "removed_tracks",
+        ):
+            if hasattr(self, attr_name):
+                setattr(self, attr_name, [])
+
+        if self.per_class_active_tracks is not None:
+            for cls_id in range(self.nr_classes):
+                self.per_class_active_tracks[cls_id] = []
+                self.per_class_trackers[cls_id] = []
+
+        self._reset_cmc_state()
+
     def reset(self):
-        pass
+        """Reset sequence-local tracker state."""
+        self._reset_common_state()

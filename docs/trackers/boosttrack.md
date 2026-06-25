@@ -40,4 +40,4 @@ Or in the tracker config YAML:
 adaptive_kf: true
 ```
 
-::: boxmot.trackers.bbox.boosttrack.boosttrack.BoostTrack
+::: boxmot.trackers.bbox.boosttrack.BoostTrack

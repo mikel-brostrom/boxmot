@@ -178,6 +178,8 @@ class TrackResults(np.ndarray):
         """Append track results in MOT challenge format to a text file.
 
         Format: frame_id, track_id, left, top, width, height, conf, cls, -1
+        Track IDs are converted from BoxMOT's internal 0-based IDs to MOT's
+        1-based IDs during export.
 
         Args:
             path: File path to append to.
@@ -188,12 +190,13 @@ class TrackResults(np.ndarray):
 
         with open(path, "a") as f:
             for i in range(len(self)):
+                mot_id = int(self.id[i]) + 1
                 if self.is_obb:
                     cx, cy, w, h, angle = self.xywha[i]
-                    f.write(f"{frame_id},{int(self.id[i])},{cx:.2f},{cy:.2f},{w:.2f},{h:.2f},"
+                    f.write(f"{frame_id},{mot_id},{cx:.2f},{cy:.2f},{w:.2f},{h:.2f},"
                             f"{angle:.4f},{self.conf[i]:.6f},{int(self.cls[i])},-1\n")
                 else:
                     x1, y1, x2, y2 = self.xyxy[i]
                     w, h = x2 - x1, y2 - y1
-                    f.write(f"{frame_id},{int(self.id[i])},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},"
+                    f.write(f"{frame_id},{mot_id},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},"
                             f"{self.conf[i]:.6f},{int(self.cls[i])},-1\n")

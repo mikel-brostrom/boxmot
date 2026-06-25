@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
+from boxmot.trackers.common.geometry.obb import xywha_to_corners
 from boxmot.trackers.track_results import TrackResults
 from boxmot.utils import logger as LOGGER
 
@@ -22,48 +23,6 @@ def _xyxy_to_ltwh(boxes: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor
     converted[..., 2] = converted[..., 2] - converted[..., 0]
     converted[..., 3] = converted[..., 3] - converted[..., 1]
     return converted
-
-
-def _order_corners(corners: np.ndarray) -> np.ndarray:
-    """Return corners in top-left, top-right, bottom-right, bottom-left order."""
-    arr = np.asarray(corners, dtype=np.float32)
-    single = arr.ndim == 2
-    if single:
-        arr = arr.reshape(1, 4, 2)
-
-    ordered = np.empty_like(arr)
-    rows = np.arange(arr.shape[0])
-    sums = arr.sum(axis=2)
-    diffs = np.diff(arr, axis=2).reshape(arr.shape[0], 4)
-
-    ordered[:, 0] = arr[rows, np.argmin(sums, axis=1)]
-    ordered[:, 2] = arr[rows, np.argmax(sums, axis=1)]
-    ordered[:, 1] = arr[rows, np.argmin(diffs, axis=1)]
-    ordered[:, 3] = arr[rows, np.argmax(diffs, axis=1)]
-    return ordered[0] if single else ordered
-
-
-def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
-    """Convert one or more ``[cx, cy, w, h, angle]`` boxes to 4 corner points."""
-    arr = np.asarray(boxes, dtype=np.float32)
-    single = arr.ndim == 1
-    if single:
-        arr = arr.reshape(1, 5)
-
-    corners = np.empty((arr.shape[0], 4, 2), dtype=np.float32)
-    for i, (cx, cy, w, h, angle) in enumerate(arr):
-        c = float(np.cos(angle))
-        s = float(np.sin(angle))
-        rot = np.array([[c, -s], [s, c]], dtype=np.float32)
-        rect = np.array(
-            [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]],
-            dtype=np.float32,
-        )
-        corners[i] = rect @ rot.T + np.array([cx, cy], dtype=np.float32)
-
-    corners = _order_corners(corners)
-    flattened = corners.reshape(arr.shape[0], 8)
-    return flattened[0] if single else flattened
 
 
 def _build_val_half_split(seq_dirs: list[Path], dst_dir: Path) -> None:
@@ -198,7 +157,7 @@ def split_dataset(src_fldr: Path) -> Tuple[Path, str]:
             LOGGER.info(f"`{seq_path}` already ≤ split size, skipping.")
             continue
 
-        LOGGER.info(f"{seq_path.name}: keeping frames {split_frame+1}-{max_frame}")
+        LOGGER.info(f"{seq_path.name}: keeping frames {split_frame + 1}-{max_frame}")
 
         # filter and re-index gt
         df = df[df[0] > split_frame].copy()
@@ -261,14 +220,16 @@ def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarr
         tlwh = _xyxy_to_ltwh(tr.xyxy)
         frame_idx_column = np.full((len(tr), 1), frame_idx, dtype=np.int32)
         det_ind = tr.det_ind.reshape(-1, 1).astype(np.int32)
-        return np.column_stack((
-            frame_idx_column,  # frame index
-            tr.id.reshape(-1, 1).astype(np.int32),  # track id
-            tlwh.round().astype(np.int32),  # top,left,width,height
-            tr.conf.reshape(-1, 1),  # confidence (float)
-            (tr.cls + 1).reshape(-1, 1).astype(np.int32),  # class
-            det_ind,  # detection index
-        ))
+        return np.column_stack(
+            (
+                frame_idx_column,  # frame index
+                tr.id.reshape(-1, 1).astype(np.int32),  # track id
+                tlwh.round().astype(np.int32),  # top,left,width,height
+                tr.conf.reshape(-1, 1),  # confidence (float)
+                (tr.cls + 1).reshape(-1, 1).astype(np.int32),  # class
+                det_ind,  # detection index
+            )
+        )
 
     boxes = getattr(results, "boxes", None)
     if boxes is None or len(boxes) == 0:
@@ -282,14 +243,17 @@ def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarr
     tlwh = _xyxy_to_ltwh(torch.as_tensor(boxes.xyxy)).to(dtype=torch.int32)
     conf = torch.as_tensor(boxes.conf).reshape(-1, 1).to(dtype=torch.float32)
     cls = torch.as_tensor(boxes.cls).reshape(-1, 1).to(dtype=torch.int32) + 1
-    mot_results = torch.cat([
-        frame_indices,  # frame index
-        track_ids,  # track id
-        tlwh,  # top,left,width,height
-        conf,  # confidence (float)
-        cls,  # class
-        det_inds,  # detection index
-    ], dim=1)
+    mot_results = torch.cat(
+        [
+            frame_indices,  # frame index
+            track_ids,  # track id
+            tlwh,  # top,left,width,height
+            conf,  # confidence (float)
+            cls,  # class
+            det_inds,  # detection index
+        ],
+        dim=1,
+    )
 
     return mot_results.numpy()
 

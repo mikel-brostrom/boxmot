@@ -40,4 +40,4 @@ When `--tracker-backend cpp` is set, embeddings generated for the cached replay 
 
 For OBB replay, the native runner consumes 8-column OBB caches and writes MMOT-style corner outputs so the native replay stage matches the existing OBB evaluation pipeline.
 
-::: boxmot.trackers.bbox.botsort.botsort.BotSort
+::: boxmot.trackers.bbox.botsort.BotSort

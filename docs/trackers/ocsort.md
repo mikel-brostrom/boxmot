@@ -34,4 +34,4 @@ boxmot track --tracker ocsort --tracker-backend cpp --source 0
 
 The native backend currently supports `asso_func=iou`. Use the Python backend if you need the other OCSORT association functions from `boxmot/configs/trackers/ocsort.yaml`.
 
-::: boxmot.trackers.bbox.ocsort.ocsort.OcSort
+::: boxmot.trackers.bbox.ocsort.OcSort

@@ -35,4 +35,4 @@ boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 
 `--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
 
-::: boxmot.trackers.bbox.bytetrack.bytetrack.ByteTrack
+::: boxmot.trackers.bbox.bytetrack.ByteTrack

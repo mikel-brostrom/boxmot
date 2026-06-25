@@ -92,4 +92,4 @@ adaptive_kf: true
 
 The tuner will also explore it automatically since it's registered as a `choice` parameter in the search space.
 
-::: boxmot.trackers.bbox.occluboost.occluboost.OccluBoost
+::: boxmot.trackers.bbox.occluboost.OccluBoost

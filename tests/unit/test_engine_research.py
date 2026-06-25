@@ -52,7 +52,7 @@ def test_ensure_not_local_gepa_path_accepts_site_packages():
 
 def test_normalize_editable_files_defaults_to_primary_tracker_source():
     files = research_module._normalize_editable_files("strongsort", None)
-    assert "boxmot/trackers/bbox/strongsort/strongsort.py" in files
+    assert "boxmot/trackers/bbox/strongsort.py" in files
     assert "boxmot/trackers/bbox/strongsort/__init__.py" not in files
     assert "boxmot/trackers/bbox/strongsort/strongsort_kf.py" not in files
     assert "boxmot/configs/trackers/strongsort.yaml" not in files
@@ -154,7 +154,9 @@ def test_resolve_benchmark_runtime_normalizes_models_to_absolute_paths(monkeypat
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(research_module, "apply_benchmark_config", fake_apply_benchmark_config)
-    monkeypatch.setattr(research_module, "resolve_required_yolo_model", lambda _cfg: Path("models/yolox_x_MOT17_ablation.pt"))
+    monkeypatch.setattr(
+        research_module, "resolve_required_yolo_model", lambda _cfg: Path("models/yolox_x_MOT17_ablation.pt")
+    )
     monkeypatch.setattr(research_module, "resolve_required_reid_model", lambda _cfg: Path("models/lmbn_n_duke.pt"))
     monkeypatch.setattr(research_module, "resolve_model_path", lambda path: Path(path))
 

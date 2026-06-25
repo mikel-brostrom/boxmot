@@ -12,16 +12,16 @@ from boxmot.utils import TRACKER_CONFIGS
 REID_TRACKERS = ["strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"]
 
 TRACKER_MAPPING = {
-    "strongsort": "boxmot.trackers.bbox.strongsort.strongsort.StrongSort",
-    "ocsort"    : "boxmot.trackers.bbox.ocsort.ocsort.OcSort",
-    "bytetrack" : "boxmot.trackers.bbox.bytetrack.bytetrack.ByteTrack",
-    "sfsort"    : "boxmot.trackers.bbox.sfsort.sfsort.SFSORT",
-    "botsort"   : "boxmot.trackers.bbox.botsort.botsort.BotSort",
-    "deepocsort": "boxmot.trackers.bbox.deepocsort.deepocsort.DeepOcSort",
-    "hybridsort": "boxmot.trackers.bbox.hybridsort.hybridsort.HybridSort",
-    "boosttrack": "boxmot.trackers.bbox.boosttrack.boosttrack.BoostTrack",
-    "occluboost": "boxmot.trackers.bbox.occluboost.occluboost.OccluBoost",
-    "sam2mot"   : "boxmot.trackers.hybrid.sam2mot.sam2mot.Sam2Mot",
+    "strongsort": "boxmot.trackers.bbox.strongsort.StrongSort",
+    "ocsort": "boxmot.trackers.bbox.ocsort.OcSort",
+    "bytetrack": "boxmot.trackers.bbox.bytetrack.ByteTrack",
+    "sfsort": "boxmot.trackers.bbox.sfsort.SFSORT",
+    "botsort": "boxmot.trackers.bbox.botsort.BotSort",
+    "deepocsort": "boxmot.trackers.bbox.deepocsort.DeepOcSort",
+    "hybridsort": "boxmot.trackers.bbox.hybridsort.HybridSort",
+    "boosttrack": "boxmot.trackers.bbox.boosttrack.BoostTrack",
+    "occluboost": "boxmot.trackers.bbox.occluboost.OccluBoost",
+    "sam2mot": "boxmot.trackers.hybrid.sam2mot.sam2mot.Sam2Mot",
 }
 
 
@@ -86,9 +86,7 @@ def create_tracker(
             with open(tracker_config, "r", encoding="utf-8") as f:
                 yaml_config = yaml.safe_load(f) or {}
                 flat_config = flatten_yaml_config(yaml_config)
-                cfg_dict = {
-                    param: details["default"] for param, details in flat_config.items()
-                }
+                cfg_dict = {param: details["default"] for param, details in flat_config.items()}
         # Native live constructors take ``(cfg_dict, reid_weights=...)``; only
         # ReID-aware trackers consume ``reid_weights``. Passing ``reid_weights``
         # to non-ReID trackers is harmless because the unused kwarg is ignored
@@ -112,9 +110,7 @@ def create_tracker(
         with open(tracker_config, "r") as f:
             yaml_config = yaml.safe_load(f) or {}
             flat_config = flatten_yaml_config(yaml_config)
-            tracker_args = {
-                param: details["default"] for param, details in flat_config.items()
-            }
+            tracker_args = {param: details["default"] for param, details in flat_config.items()}
     else:
         tracker_args = evolve_param_dict.copy()
 
