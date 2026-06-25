@@ -1,4 +1,5 @@
 import inspect
+from pathlib import Path
 
 import torch
 from torch.export import Dim
@@ -7,12 +8,61 @@ from boxmot.reid.exporters.base_exporter import BaseExporter
 from boxmot.utils import logger as LOGGER
 
 
+def ensure_onnx_export(
+    model,
+    im,
+    file,
+    *,
+    opset: int | None = None,
+    dynamic: bool = False,
+    half: bool = False,
+    simplify: bool = False,
+    verbose: bool = True,
+) -> Path:
+    """Return a fresh ONNX export path, creating it when needed."""
+    source_path = Path(file)
+    onnx_path = source_path.with_suffix(".onnx")
+    if _onnx_export_is_current(source_path, onnx_path):
+        if verbose:
+            LOGGER.info(f"Using existing ONNX export: {onnx_path}")
+        return onnx_path
+
+    exporter = ONNXExporter(
+        model=model,
+        im=im,
+        file=source_path,
+        opset=opset,
+        dynamic=dynamic,
+        half=half,
+        simplify=simplify,
+        verbose=verbose,
+    )
+    return Path(exporter.export())
+
+
+def _onnx_export_is_current(source_path: Path, onnx_path: Path) -> bool:
+    if not onnx_path.is_file():
+        return False
+    if not source_path.is_file() or source_path.resolve() == onnx_path.resolve():
+        return True
+    return onnx_path.stat().st_mtime >= source_path.stat().st_mtime
+
+
 class ONNXExporter(BaseExporter):
     group = "onnx"
 
     def __init__(self, model, im, file, opset=None, dynamic=False, half=False, simplify=False, verbose=True):
         # keep BaseExporter behavior (optimize handled elsewhere in boxmot)
-        super().__init__(model, im, file, optimize=False, dynamic=dynamic, half=half, simplify=simplify, verbose=verbose)
+        super().__init__(
+            model,
+            im,
+            file,
+            optimize=False,
+            dynamic=dynamic,
+            half=half,
+            simplify=simplify,
+            verbose=verbose,
+        )
         self.opset = opset  # None -> auto
 
     def export(self):

@@ -4,6 +4,8 @@ Use `export` to convert ReID models to deployment formats such as ONNX and Tenso
 
 Format-specific Python packages are installed on first use when possible. TensorRT export also attempts to install `nvidia-tensorrt`, but the resulting wheel still needs a compatible CUDA/NVIDIA runtime.
 
+TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` or `openvino`, BoxMOT creates or reuses a fresh `.onnx` file next to the source weights before building the requested format.
+
 ## Examples
 
 !!! example
@@ -19,7 +21,6 @@ Format-specific Python packages are installed on first use when possible. Tensor
         ```bash
         boxmot export \
           --weights osnet_x0_25_msmt17.pt \
-          --include onnx \
           --include engine \
           --dynamic
         ```

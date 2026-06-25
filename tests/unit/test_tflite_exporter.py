@@ -5,12 +5,17 @@ from pathlib import Path
 import numpy as np
 import torch
 
+from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
+from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
 from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
 from boxmot.reid.workflows.export import (
+    ExportTask,
     _resolve_export_weights,
     _run_tflite_for_parity,
     _verify_export_parity,
     create_export_tasks,
+    perform_exports,
 )
 from boxmot.utils.checks import RequirementsChecker
 
@@ -153,25 +158,109 @@ def test_create_export_tasks_passes_tflite_export_settings():
 
     tasks = create_export_tasks(args, model, dummy_input)
 
-    flag, exporter_class, exp_args = tasks["tflite"]
-    assert flag is True
-    assert exporter_class is TFLiteExporter
-    assert exp_args[0] is model
-    assert exp_args[1] is dummy_input
-    assert exp_args[2] == args.weights
-    assert exp_args[3:] == (
-        18,
-        True,
-        True,
-        False,
-        "static",
-        Path("calibration"),
-        64,
-        "resize_pad",
-        7,
-        "moving_average",
-        8,
+    task = tasks["tflite"]
+    assert task.exporter_class is TFLiteExporter
+    assert task.report is True
+    assert task.kwargs == {
+        "model": model,
+        "im": dummy_input,
+        "file": args.weights,
+        "opset": 18,
+        "dynamic": True,
+        "half": True,
+        "simplify": False,
+        "quantize": "static",
+        "calibration_data": Path("calibration"),
+        "calibration_samples": 64,
+        "calibration_preprocess": "resize_pad",
+        "calibration_seed": 7,
+        "calibration_update": "moving_average",
+        "static_activation_bits": 8,
+        "verbose": False,
+    }
+
+
+def test_create_export_tasks_passes_onnx_dependent_export_settings():
+    args = types.SimpleNamespace(
+        include=("engine", "openvino"),
+        weights=Path("models/osnet_x0_25_msmt17.pt"),
+        opset=18,
+        dynamic=True,
+        half=True,
+        simplify=False,
+        optimize=False,
+        verbose=False,
+        workspace=6,
     )
+    model = object()
+    dummy_input = torch.randn(2, 3, 256, 128)
+
+    tasks = create_export_tasks(args, model, dummy_input)
+
+    onnx_task = tasks["onnx"]
+    assert onnx_task.exporter_class is ONNXExporter
+    assert onnx_task.report is False
+    assert onnx_task.kwargs == {
+        "model": model,
+        "im": dummy_input,
+        "file": args.weights,
+        "opset": 18,
+        "dynamic": True,
+        "half": True,
+        "simplify": False,
+        "verbose": False,
+    }
+
+    engine_task = tasks["engine"]
+    assert engine_task.exporter_class is EngineExporter
+    assert engine_task.report is True
+    assert engine_task.kwargs == {
+        "model": model,
+        "im": dummy_input,
+        "file": args.weights,
+        "opset": 18,
+        "dynamic": True,
+        "half": True,
+        "simplify": False,
+        "verbose": False,
+        "workspace": 6,
+    }
+
+    openvino_task = tasks["openvino"]
+    assert openvino_task.exporter_class is OpenVINOExporter
+    assert openvino_task.report is True
+    assert openvino_task.kwargs == {
+        "model": model,
+        "im": dummy_input,
+        "file": args.weights,
+        "opset": 18,
+        "dynamic": True,
+        "half": True,
+        "simplify": False,
+        "verbose": False,
+    }
+
+
+def test_perform_exports_runs_hidden_dependency_without_reporting():
+    calls = []
+
+    class FakeExporter:
+        def __init__(self, path):
+            self.path = path
+
+        def export(self):
+            calls.append(self.path)
+            return self.path
+
+    exported = perform_exports(
+        {
+            "onnx": ExportTask(FakeExporter, {"path": Path("model.onnx")}, report=False),
+            "engine": ExportTask(FakeExporter, {"path": Path("model.engine")}),
+        }
+    )
+
+    assert calls == [Path("model.onnx"), Path("model.engine")]
+    assert exported == {"engine": Path("model.engine")}
 
 
 def test_tflite_export_quantizes_and_removes_float_intermediate(monkeypatch, tmp_path):

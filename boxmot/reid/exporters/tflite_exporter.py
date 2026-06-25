@@ -38,8 +38,18 @@ class TFLiteExporter(BaseExporter):
         calibration_seed=0,
         calibration_update="minmax",
         static_activation_bits=16,
+        verbose=True,
     ):
-        super().__init__(model, im, file, optimize=False, dynamic=dynamic, half=half, simplify=simplify)
+        super().__init__(
+            model,
+            im,
+            file,
+            optimize=False,
+            dynamic=dynamic,
+            half=half,
+            simplify=simplify,
+            verbose=verbose,
+        )
         self.opset = opset
         self.quantize = str(quantize or "none").lower()
         if self.quantize not in self._QUANTIZATION_MODES:

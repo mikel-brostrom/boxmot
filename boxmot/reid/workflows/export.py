@@ -4,6 +4,7 @@ import logging
 import time
 import warnings
 from contextlib import contextmanager
+from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,17 @@ __all__ = [
     "main",
     "run_export",
 ]
+
+
+@dataclass(frozen=True)
+class ExportTask:
+    exporter_class: type[BaseExporter]
+    kwargs: dict[str, Any]
+    report: bool = True
+
+    def export(self):
+        exporter = self.exporter_class(**self.kwargs)
+        return exporter.export()
 
 
 def validate_export_formats(include):
@@ -135,60 +147,75 @@ def setup_model(args):
 def create_export_tasks(args, model, dummy_input):
     torchscript_flag, onnx_flag, openvino_flag, engine_flag, tflite_flag = validate_export_formats(args.include)
     tasks = {}
+    common_kwargs = {
+        "model": model,
+        "im": dummy_input,
+        "file": args.weights,
+    }
+    onnx_kwargs = {
+        **common_kwargs,
+        "opset": args.opset,
+        "dynamic": args.dynamic,
+        "half": args.half,
+        "simplify": args.simplify,
+        "verbose": args.verbose,
+    }
 
     if torchscript_flag:
         from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
-        tasks["torchscript"] = (
-            True,
+        tasks["torchscript"] = ExportTask(
             TorchScriptExporter,
-            (model, dummy_input, args.weights, args.optimize),
+            {
+                **common_kwargs,
+                "optimize": args.optimize,
+                "verbose": args.verbose,
+            },
         )
 
-    if onnx_flag:
+    if onnx_flag or engine_flag or openvino_flag:
         from boxmot.reid.exporters.onnx_exporter import ONNXExporter
-        tasks["onnx"] = (
-            True,
+        tasks["onnx"] = ExportTask(
             ONNXExporter,
-            (model, dummy_input, args.weights, args.opset, args.dynamic, args.half, args.simplify, args.verbose),
+            dict(onnx_kwargs),
+            report=onnx_flag,
         )
 
     if engine_flag:
         from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
-        tasks["engine"] = (
-            True,
+        tasks["engine"] = ExportTask(
             EngineExporter,
-            (model, dummy_input, args.weights, args.half, args.dynamic, args.simplify, args.verbose),
+            {
+                **onnx_kwargs,
+                "workspace": args.workspace,
+            },
         )
 
     if tflite_flag:
         from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
-        tasks["tflite"] = (
-            True,
+        tasks["tflite"] = ExportTask(
             TFLiteExporter,
-            (
-                model,
-                dummy_input,
-                args.weights,
-                args.opset,
-                args.dynamic,
-                args.half,
-                args.simplify,
-                getattr(args, "tflite_quantize", "none"),
-                getattr(args, "tflite_calibration_data", None),
-                getattr(args, "tflite_calibration_samples", 256),
-                getattr(args, "tflite_calibration_preprocess", "resize"),
-                getattr(args, "tflite_calibration_seed", 0),
-                getattr(args, "tflite_calibration_update", "minmax"),
-                getattr(args, "tflite_static_activation_bits", 16),
-            ),
+            {
+                **common_kwargs,
+                "opset": args.opset,
+                "dynamic": args.dynamic,
+                "half": args.half,
+                "simplify": args.simplify,
+                "quantize": getattr(args, "tflite_quantize", "none"),
+                "calibration_data": getattr(args, "tflite_calibration_data", None),
+                "calibration_samples": getattr(args, "tflite_calibration_samples", 256),
+                "calibration_preprocess": getattr(args, "tflite_calibration_preprocess", "resize"),
+                "calibration_seed": getattr(args, "tflite_calibration_seed", 0),
+                "calibration_update": getattr(args, "tflite_calibration_update", "minmax"),
+                "static_activation_bits": getattr(args, "tflite_static_activation_bits", 16),
+                "verbose": args.verbose,
+            },
         )
 
     if openvino_flag:
         from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
-        tasks["openvino"] = (
-            True,
+        tasks["openvino"] = ExportTask(
             OpenVINOExporter,
-            (model, dummy_input, args.weights, args.half),
+            dict(onnx_kwargs),
         )
 
     return tasks
@@ -197,13 +224,10 @@ def create_export_tasks(args, model, dummy_input):
 
 def perform_exports(export_tasks):
     exported_files = {}
-    for fmt, (flag, exporter_class, exp_args) in export_tasks.items():
-        if flag:
-            exporter = exporter_class(*exp_args)
-            # Exporters can optionally declare:
-            #   group="...", or extra="...", and extra_args=["--upgrade"]
-            # The BaseExporter decorator will auto-install them.
-            exported_files[fmt] = exporter.export()
+    for fmt, task in export_tasks.items():
+        exported = task.export()
+        if task.report:
+            exported_files[fmt] = exported
     return exported_files
 
 

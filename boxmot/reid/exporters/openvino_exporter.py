@@ -1,24 +1,52 @@
-
 from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.onnx_exporter import ensure_onnx_export
 from boxmot.utils import logger as LOGGER
 
 
 class OpenVINOExporter(BaseExporter):
     group = "openvino"
 
+    def __init__(
+        self,
+        model,
+        im,
+        file,
+        opset: int | None = None,
+        dynamic: bool = False,
+        half: bool = False,
+        simplify: bool = False,
+        verbose: bool = True,
+    ):
+        super().__init__(
+            model=model,
+            im=im,
+            file=file,
+            optimize=False,
+            dynamic=dynamic,
+            half=half,
+            simplify=simplify,
+            verbose=verbose,
+        )
+        self.opset = opset
+
     def export(self) -> str:
         import openvino as ov
 
-        onnx_path = self.file.with_suffix(".onnx")
+        onnx_path = ensure_onnx_export(
+            model=self.model,
+            im=self.im,
+            file=self.file,
+            opset=self.opset,
+            dynamic=self.dynamic,
+            half=self.half,
+            simplify=self.simplify,
+            verbose=self.verbose,
+        )
         export_dir = self.file.parent / f"{self.file.stem}_openvino_model"
         export_dir.mkdir(parents=True, exist_ok=True)
         xml_path = export_dir / self.file.with_suffix(".xml").name
 
         LOGGER.info(f"Exporting OpenVINO with openvino {ov.__version__}...")
-
-        # Ensure ONNX exists (since you run --include onnx this should be true)
-        if not onnx_path.exists():
-            raise FileNotFoundError(f"Missing ONNX file for OpenVINO export: {onnx_path}")
 
         # Derive CHW from the dummy input so model-specific resolutions
         # (e.g. lmbn uses 384x128, hacnn uses 160x64) are honored. Hardcoding

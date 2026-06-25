@@ -1,12 +1,36 @@
 from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
 from boxmot.reid.exporters.base_exporter import BaseExporter
-from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+from boxmot.reid.exporters.onnx_exporter import ensure_onnx_export
 from boxmot.utils import logger as LOGGER
 
 
 class EngineExporter(BaseExporter):
-    def export(self):
+    def __init__(
+        self,
+        model,
+        im,
+        file,
+        opset: int | None = None,
+        dynamic: bool = False,
+        half: bool = True,
+        simplify: bool = True,
+        verbose: bool = True,
+        workspace: int = 4,
+    ):
+        super().__init__(
+            model=model,
+            im=im,
+            file=file,
+            optimize=False,
+            dynamic=dynamic,
+            half=half,
+            simplify=simplify,
+            verbose=verbose,
+        )
+        self.opset = opset
+        self.workspace = workspace
 
+    def export(self):
         assert (
             self.im.device.type != "cpu"
         ), "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
@@ -25,7 +49,7 @@ class EngineExporter(BaseExporter):
         assert onnx_file.exists(), f"Failed to export ONNX file: {onnx_file}"
         f = self.file.with_suffix(".engine")
         logger = trt.Logger(trt.Logger.INFO)
-        if True:
+        if self.verbose:
             logger.min_severity = trt.Logger.Severity.VERBOSE
 
         builder = trt.Builder(logger)
@@ -40,7 +64,11 @@ class EngineExporter(BaseExporter):
         network = builder.create_network(flag)
         parser = trt.OnnxParser(network, logger)
         if not parser.parse_from_file(str(onnx_file)):
-            raise RuntimeError(f"Failed to load ONNX file: {onnx_file}")
+            errors = "\n".join(str(parser.get_error(i)) for i in range(parser.num_errors))
+            message = f"Failed to load ONNX file: {onnx_file}"
+            if errors:
+                message = f"{message}\n{errors}"
+            raise RuntimeError(message)
 
         inputs = [network.get_input(i) for i in range(network.num_inputs)]
         outputs = [network.get_output(i) for i in range(network.num_outputs)]
@@ -79,13 +107,13 @@ class EngineExporter(BaseExporter):
         return f
 
     def export_onnx(self):
-        onnx_exporter = ONNXExporter(
-            self.model,
-            self.im,
-            self.file,
-            self.optimize,
-            self.dynamic,
-            self.half,
-            self.simplify,
+        return ensure_onnx_export(
+            model=self.model,
+            im=self.im,
+            file=self.file,
+            opset=self.opset,
+            dynamic=self.dynamic,
+            half=self.half,
+            simplify=self.simplify,
+            verbose=self.verbose,
         )
-        return onnx_exporter.export()

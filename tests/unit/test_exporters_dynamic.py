@@ -1,12 +1,18 @@
-import types
+import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
 import torch
 
+import boxmot.reid.exporters.onnx_exporter as onnx_exporter_module
+import boxmot.reid.exporters.openvino_exporter as openvino_exporter_module
+import boxmot.reid.exporters.tensorrt_exporter as tensorrt_exporter_module
 from boxmot.reid.core import ReID
-from boxmot.reid.exporters.onnx_exporter import ONNXExporter
+from boxmot.reid.exporters.onnx_exporter import ONNXExporter, ensure_onnx_export
+from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
+from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
 from boxmot.utils import ROOT, WEIGHTS
 from boxmot.utils.checks import RequirementsChecker
 
@@ -183,3 +189,167 @@ def test_onnx_export_static_fallback_uses_legacy_exporter(monkeypatch, tmp_path)
         assert second_kwargs["dynamo"] is False
     assert "dynamic_shapes" not in second_kwargs
     assert "dynamic_axes" not in second_kwargs
+
+
+def test_ensure_onnx_export_reuses_current_file(monkeypatch, tmp_path):
+    weights = tmp_path / "model.pt"
+    onnx_file = tmp_path / "model.onnx"
+    weights.write_bytes(b"weights")
+    onnx_file.write_bytes(b"onnx")
+    os.utime(weights, (1, 1))
+    os.utime(onnx_file, (2, 2))
+
+    class FailingExporter:
+        def __init__(self, **_kwargs):
+            raise AssertionError("should reuse current ONNX export")
+
+    monkeypatch.setattr(onnx_exporter_module, "ONNXExporter", FailingExporter)
+
+    assert ensure_onnx_export(object(), object(), weights, verbose=False) == onnx_file
+
+
+def test_ensure_onnx_export_refreshes_stale_file(monkeypatch, tmp_path):
+    weights = tmp_path / "model.pt"
+    onnx_file = tmp_path / "model.onnx"
+    onnx_file.write_bytes(b"stale")
+    weights.write_bytes(b"weights")
+    os.utime(onnx_file, (1, 1))
+    os.utime(weights, (2, 2))
+    calls = []
+
+    class FakeExporter:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def export(self):
+            onnx_file.write_bytes(b"fresh")
+            return onnx_file
+
+    monkeypatch.setattr(onnx_exporter_module, "ONNXExporter", FakeExporter)
+
+    result = ensure_onnx_export(
+        model="model",
+        im="image",
+        file=weights,
+        opset=18,
+        dynamic=True,
+        half=True,
+        simplify=False,
+        verbose=False,
+    )
+
+    assert result == onnx_file
+    assert calls == [
+        {
+            "model": "model",
+            "im": "image",
+            "file": weights,
+            "opset": 18,
+            "dynamic": True,
+            "half": True,
+            "simplify": False,
+            "verbose": False,
+        }
+    ]
+
+
+def test_tensorrt_export_onnx_forwards_export_settings(monkeypatch, tmp_path):
+    calls = []
+    onnx_file = tmp_path / "model.onnx"
+
+    def fake_ensure_onnx_export(**kwargs):
+        calls.append(kwargs)
+        return onnx_file
+
+    monkeypatch.setattr(tensorrt_exporter_module, "ensure_onnx_export", fake_ensure_onnx_export)
+
+    exporter = EngineExporter(
+        model="model",
+        im="image",
+        file=tmp_path / "model.pt",
+        opset=18,
+        dynamic=True,
+        half=True,
+        simplify=False,
+        verbose=False,
+        workspace=8,
+    )
+
+    assert exporter.export_onnx() == onnx_file
+    assert exporter.workspace == 8
+    assert calls == [
+        {
+            "model": "model",
+            "im": "image",
+            "file": tmp_path / "model.pt",
+            "opset": 18,
+            "dynamic": True,
+            "half": True,
+            "simplify": False,
+            "verbose": False,
+        }
+    ]
+
+
+def test_openvino_export_creates_onnx_intermediate(monkeypatch, tmp_path):
+    _disable_dep_sync(monkeypatch)
+    calls = {}
+    onnx_file = tmp_path / "model.onnx"
+
+    def fake_ensure_onnx_export(**kwargs):
+        calls["ensure"] = kwargs
+        onnx_file.write_bytes(b"onnx")
+        return onnx_file
+
+    def fake_convert_model(path, input):
+        calls["convert"] = (path, input)
+        return types.SimpleNamespace(
+            inputs=[types.SimpleNamespace(partial_shape="[-1, 3, 384, 128]")]
+        )
+
+    def fake_save_model(model, path, compress_to_fp16=False):
+        calls["save"] = (model, Path(path), compress_to_fp16)
+        Path(path).touch()
+
+    monkeypatch.setattr(openvino_exporter_module, "ensure_onnx_export", fake_ensure_onnx_export)
+    monkeypatch.setitem(
+        sys.modules,
+        "openvino",
+        types.SimpleNamespace(
+            __version__="0.0-test",
+            convert_model=fake_convert_model,
+            save_model=fake_save_model,
+        ),
+    )
+
+    image = torch.randn(2, 3, 384, 128)
+    weights = tmp_path / "model.pt"
+    exporter = OpenVINOExporter(
+        model="model",
+        im=image,
+        file=weights,
+        opset=18,
+        dynamic=True,
+        half=True,
+        simplify=False,
+        verbose=False,
+    )
+
+    exported = exporter.export()
+
+    assert Path(exported) == tmp_path / "model_openvino_model" / "model.xml"
+    ensure_kwargs = calls["ensure"]
+    assert ensure_kwargs["model"] == "model"
+    assert ensure_kwargs["im"] is image
+    assert {key: value for key, value in ensure_kwargs.items() if key != "im"} == {
+        "model": "model",
+        "file": weights,
+        "opset": 18,
+        "dynamic": True,
+        "half": True,
+        "simplify": False,
+        "verbose": False,
+    }
+    assert calls["convert"] == (str(onnx_file), [("images", [-1, 3, 384, 128])])
+    assert calls["save"][1] == Path(exported)
+    assert calls["save"][2] is True
