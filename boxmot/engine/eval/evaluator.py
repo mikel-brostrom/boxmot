@@ -75,6 +75,13 @@ from boxmot.utils.timing import TimingStats
 
 _EVAL_DEPENDENCIES_READY = False
 
+
+def _has_eval_postprocessing(args: argparse.Namespace) -> bool:
+    """Return True when eval will run at least one MOT postprocessing step."""
+    pp_raw = getattr(args, "postprocessing", "none") or "none"
+    return any(step.strip().lower() not in ("", "none") for step in str(pp_raw).split(","))
+
+
 __all__ = [
     "AppendableNpyWriter",
     "_configure_benchmark_runtime",
@@ -328,6 +335,8 @@ def run_eval(
     timing_stats = TimingStats()
     has_pipeline = pipeline is not None
     suppress = (not verbose) or has_pipeline
+    has_postprocessing = _has_eval_postprocessing(args)
+    tune_kf_step = bool(getattr(args, "tune_kf", False))
 
     # -- Setup --
     if setup:
@@ -350,7 +359,11 @@ def run_eval(
                 progress_callback=pipeline.callback() if pipeline and show_progress else None,
             )
     if pipeline is not None:
-        pipeline.advance("Starting tracker...")
+        pipeline.advance(
+            "Calibrating Kalman filter..."
+            if tune_kf_step
+            else "Starting tracker..."
+        )
 
     # -- KF calibration --
     if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
@@ -358,8 +371,6 @@ def run_eval(
 
         kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
         if kf_type:
-            if pipeline is not None:
-                pipeline.advance("Calibrating Kalman filter...")
             kf_result, _ = run_kf_tuning(args, kf_type, capture=True)
             if kf_result is not None:
                 kf_result["kf_type"] = kf_type
@@ -374,7 +385,22 @@ def run_eval(
         else:
             LOGGER.debug(f"Tracker '{args.tracker}' has no KF parameterization; skipping --tune-kf.")
 
+    if pipeline is not None and tune_kf_step:
+        pipeline.advance("Starting tracker...")
+
     # -- Track --
+    postprocess_started = False
+
+    def _postprocess_progress(detail: str) -> None:
+        nonlocal postprocess_started
+        if pipeline is None:
+            return
+        if not postprocess_started:
+            pipeline.advance(detail)
+            postprocess_started = True
+            return
+        pipeline.callback()(detail)
+
     with suppress_boxmot_logs(suppress, level="WARNING"):
         run_generate_mot_results(
             args,
@@ -382,8 +408,11 @@ def run_eval(
             timing_stats=timing_stats,
             quiet=not bool(show_progress),
             progress_callback=pipeline.callback() if pipeline and show_progress else None,
+            postprocess_callback=_postprocess_progress if pipeline and has_postprocessing else None,
         )
     if pipeline is not None:
+        if has_postprocessing and not postprocess_started:
+            pipeline.advance("Postprocessing tracks...")
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --

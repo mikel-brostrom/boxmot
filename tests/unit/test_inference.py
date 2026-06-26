@@ -1316,6 +1316,169 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     assert actions[11] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
 
 
+def test_run_eval_advances_from_postprocess_to_evaluate(monkeypatch, tmp_path):
+    actions = []
+    postprocess_step = "Postprocess tracks"
+
+    class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (postprocess_step, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
+
+        def activate(self, label, *, render=True):
+            actions.append(("active", label))
+
+        def complete(self, label, *, render=True):
+            actions.append(("done", label))
+
+        def set_detail(self, title, text, *, render=True):
+            actions.append(("detail", title, text))
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            actions.append(("renderable", title))
+
+        def transition(self, done, next_step, detail=None):
+            actions.append(("done", done))
+            actions.append(("active", next_step))
+            if detail:
+                actions.append(("detail", next_step, detail))
+
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, pipeline=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda *args, **kwargs: None)
+
+    def fake_run_generate_mot_results(*args, progress_callback=None, postprocess_callback=None, **kwargs):
+        if progress_callback:
+            progress_callback("Tracking: 1/1 sequences done")
+        if postprocess_callback:
+            postprocess_callback("GBRC: 1/1 sequences done")
+
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", fake_run_generate_mot_results)
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        postprocessing="gbrc",
+        show_progress=True,
+        verbose=False,
+    )
+
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
+
+    assert ("done", evaluator_module.EVAL_TRACK_STEP) in actions
+    assert ("active", postprocess_step) in actions
+    assert ("detail", postprocess_step, "GBRC: 1/1 sequences done") in actions
+    assert ("done", postprocess_step) in actions
+    assert ("active", evaluator_module.EVAL_EVALUATE_STEP) in actions
+    assert ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics...") in actions
+    assert actions[-2:] == [
+        ("done", evaluator_module.EVAL_EVALUATE_STEP),
+        ("renderable", evaluator_module.EVAL_EVALUATE_STEP),
+    ]
+
+
+def test_run_eval_advances_through_tune_kf_step(monkeypatch, tmp_path):
+    actions = []
+
+    from boxmot.motion.kalman_filters import calibration as calibration_module
+    from boxmot.utils.rich.workflow import steps as step_labels
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
+
+    class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (step_labels.TUNE_KF, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
+
+        def activate(self, label, *, render=True):
+            actions.append(("active", label))
+
+        def complete(self, label, *, render=True):
+            actions.append(("done", label))
+
+        def set_detail(self, title, text, *, render=True):
+            actions.append(("detail", title, text))
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            actions.append(("renderable", title))
+
+        def transition(self, done, next_step, detail=None):
+            actions.append(("done", done))
+            actions.append(("active", next_step))
+            if detail:
+                actions.append(("detail", next_step, detail))
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, pipeline=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(calibration_module, "tracker_kf_type", lambda tracker: "xywh")
+    monkeypatch.setattr(
+        calibration_module,
+        "run_kf_tuning",
+        lambda *args, **kwargs: ({"std_weight_position": 0.1, "std_weight_velocity": 0.01}, None),
+    )
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        tracker="botsort",
+        tune_kf=True,
+        show_progress=True,
+        verbose=False,
+    )
+
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
+
+    assert [label for action, label, *detail in actions if action == "active"] == [
+        evaluator_module.EVAL_GENERATE_STEP,
+        step_labels.TUNE_KF,
+        evaluator_module.EVAL_TRACK_STEP,
+        evaluator_module.EVAL_EVALUATE_STEP,
+    ]
+    assert ("detail", step_labels.TUNE_KF, "Calibrating Kalman filter...") in actions
+    assert ("detail", evaluator_module.EVAL_TRACK_STEP, "Starting tracker...") in actions
+    assert actions[-2:] == [
+        ("done", evaluator_module.EVAL_EVALUATE_STEP),
+        ("renderable", evaluator_module.EVAL_EVALUATE_STEP),
+    ]
+
+
 def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp_path):
     suppress_calls = []
 
