@@ -166,7 +166,7 @@ class DetectionBatch:
         return np.column_stack((self.boxes, self.confs, self.clss, self.det_inds)).astype(dtype, copy=False)
 
     def as_box_conf_detections(self, dtype=np.float32) -> np.ndarray:
-        """Reconstruct ``[box..., conf]`` detections for legacy association code."""
+        """Reconstruct ``[box..., conf]`` detections for AABB-only association."""
         if len(self) == 0:
             return np.empty((0, self.boxes.shape[1] + 1), dtype=dtype)
         return np.column_stack((self.boxes, self.confs)).astype(dtype, copy=False)

@@ -8,13 +8,13 @@ from typing import Any
 import numpy as np
 
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import embedding_distance, fuse_score, iou_distance
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
-from boxmot.trackers.common.tracks.botsort import STrack, TrackState
+from boxmot.trackers.common.track_models.botsort import STrack, TrackState
 
 
 class BotSort(BaseTracker):
@@ -49,8 +49,8 @@ class BotSort(BaseTracker):
             for duplicate bookkeeping.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
+            ``asso_func``, and ``is_obb``.
 
     Attributes:
         lost_stracks (list[STrack]): Tracks kept in the lost state.

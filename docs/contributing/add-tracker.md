@@ -2,9 +2,9 @@
 
 To integrate a new tracker cleanly:
 
-1. Add a module under `boxmot/trackers/<name>/`.
+1. Add a module under the appropriate modality folder, such as `boxmot/trackers/bbox/<name>.py`, `boxmot/trackers/mask/<name>/`, or `boxmot/trackers/hybrid/<name>/`.
 2. Implement a tracker class that subclasses `BaseTracker` and defines `update()`.
-3. Register it in `boxmot/trackers/tracker_zoo.py`.
+3. Register it in `boxmot/trackers/registry.py`.
 4. Export it from `boxmot/trackers/__init__.py` and `boxmot/__init__.py`.
 5. Add a default YAML under `boxmot/configs/trackers`.
 6. Add a tracker doc page and wire it into `mkdocs.yml`.

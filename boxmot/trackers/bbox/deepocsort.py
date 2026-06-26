@@ -6,7 +6,7 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
     resolve_batch_embeddings,
@@ -24,7 +24,7 @@ from boxmot.trackers.common.association.velocity import (
     linear_assignment as legacy_linear_assignment,
 )
 from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracks.deepocsort import KalmanBoxTracker, k_previous_obs
+from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker, k_previous_obs
 
 
 class DeepOcSort(BaseTracker):
@@ -46,8 +46,8 @@ class DeepOcSort(BaseTracker):
         Q_s_scaling (float): Process-noise scaling for scale coordinates.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
+            ``asso_func``, and ``is_obb``.
 
     Attributes:
         model: ReID model used for appearance extraction.

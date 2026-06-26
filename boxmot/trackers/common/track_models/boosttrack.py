@@ -11,7 +11,7 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.geometry.obb import align_obb_measurement, normalize_angle
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
-from boxmot.trackers.common.tracks.base import SortBoxTrack
+from boxmot.trackers.common.track_models.base import SortBoxTrack
 
 
 class KalmanBoxTracker(SortBoxTrack):

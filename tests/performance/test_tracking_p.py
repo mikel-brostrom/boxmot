@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pytest
 
-from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
+from boxmot.trackers.registry import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
     MOTION_N_APPEARANCE_TRACKING_NAMES,

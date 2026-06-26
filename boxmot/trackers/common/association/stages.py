@@ -182,7 +182,7 @@ def detection_track_tuple_to_association_result(
     result: tuple[np.ndarray, Sequence[int], Sequence[int]],
     cost_matrix: np.ndarray | None = None,
 ) -> AssociationResult:
-    """Convert legacy detector-row/track-column tuples to canonical orientation."""
+    """Convert detector-row/track-column tuples to canonical track-row orientation."""
     matches, unmatched_dets, unmatched_tracks = result
     matches = np.asarray(matches, dtype=int).reshape(-1, 2)
     if matches.size > 0:

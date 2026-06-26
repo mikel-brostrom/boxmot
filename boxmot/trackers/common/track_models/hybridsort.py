@@ -6,7 +6,7 @@ from __future__ import annotations
 # - ReID via pre-built backend passed as ``reid_model``
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
-# - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
+# - Preserves detector class IDs and det_ind; guards out-of-range indices
 from collections import deque
 from typing import Optional
 
@@ -19,7 +19,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
-from boxmot.trackers.common.tracks.base import SortBoxTrack
+from boxmot.trackers.common.track_models.base import SortBoxTrack
 
 
 def k_previous_obs(observations, cur_age, k):

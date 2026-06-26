@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association import (
     AssociationStage,
     detection_track_iou_assignment,
@@ -21,7 +21,7 @@ from boxmot.trackers.common.association.velocity import (
 from boxmot.trackers.common.association.velocity import (
     linear_assignment as legacy_linear_assignment,
 )
-from boxmot.trackers.common.tracks.ocsort import KalmanBoxTracker, k_previous_obs
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker, k_previous_obs
 
 
 class OcSort(BaseTracker):
@@ -38,8 +38,8 @@ class OcSort(BaseTracker):
         Q_s_scaling (float): Process-noise scaling for scale coordinates.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
+            ``asso_func``, and ``is_obb``.
 
     Attributes:
         frame_count (int): Number of processed frames.

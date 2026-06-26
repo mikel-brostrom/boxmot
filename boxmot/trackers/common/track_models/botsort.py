@@ -9,7 +9,7 @@ from boxmot.trackers.common.appearance import ema_update_embedding, normalize_em
 from boxmot.trackers.common.geometry import xyxy2xywh
 from boxmot.trackers.common.geometry.obb import xywha_to_corners
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
-from boxmot.trackers.common.tracks.base import BoxTrack
+from boxmot.trackers.common.track_models.base import BoxTrack
 
 
 class TrackState:

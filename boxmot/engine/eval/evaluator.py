@@ -287,7 +287,10 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     )
     if remap_result is not None:
         remap_dict, new_class_ids, new_class_names = remap_result
-        distractor_ids = [int(key) for key in bench_cfg.get("distractor_classes", {}).keys()]
+        if "ignore_dataset_ids" in bench_cfg:
+            distractor_ids = [int(class_id) for class_id in bench_cfg.get("ignore_dataset_ids") or []]
+        else:
+            distractor_ids = [int(key) for key in bench_cfg.get("distractor_classes", {}).keys()]
         args.gt_class_remap = remap_dict
         args.gt_class_distractor_ids = distractor_ids
         args.remapped_class_ids = new_class_ids

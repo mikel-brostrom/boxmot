@@ -13,18 +13,18 @@ from boxmot.trackers import (
     OcSort,
     StrongSort,
 )
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.bbox.botsort import BotSort
 from boxmot.trackers.bbox.bytetrack import ByteTrack
 from boxmot.trackers.bbox.hybridsort import HybridSort
 from boxmot.trackers.bbox.sfsort import SFSORT
 from boxmot.trackers.common.association.matching import iou_distance
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
-from boxmot.trackers.common.tracks.botsort import STrack as BotSortTrack
-from boxmot.trackers.common.tracks.bytetrack import STrack as ByteTrackTrack
-from boxmot.trackers.common.tracks.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
-from boxmot.trackers.common.tracks.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
-from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
+from boxmot.trackers.common.track_models.botsort import STrack as BotSortTrack
+from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTrack
+from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.registry import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
     ALL_TRACKERS,
@@ -279,8 +279,43 @@ def test_per_class_tracker_active_tracks(tracker_type):
     embs = np.random.random(size=(2, 512))
 
     tracker.update(det, rgb, embs)
-    assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
-    assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
+    assert tracker.get_class_tracks(0, "active"), "No active tracks for class 0"
+    assert tracker.get_class_tracks(65, "active"), "No active tracks for class 65"
+
+
+def test_per_class_tracking_accepts_arbitrary_detector_class_ids():
+    tracker = ByteTrack(per_class=True, track_thresh=0.5, min_conf=0.1)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 123]], dtype=np.float32)
+
+    tracker.update(det, rgb)
+
+    assert tracker.get_class_tracks(123, "active")
+
+
+def test_configured_class_catalog_rejects_unknown_detector_class():
+    tracker = ByteTrack(class_ids=[0, 7], track_thresh=0.5, min_conf=0.1)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 8]], dtype=np.float32)
+
+    with pytest.raises(ValueError, match="not present in the tracker class catalog"):
+        tracker.update(det, rgb)
+
+
+def test_class_names_define_tracker_class_catalog():
+    tracker = ByteTrack(
+        per_class=True,
+        class_names={7: "awning-bike"},
+        track_thresh=0.5,
+        min_conf=0.1,
+    )
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 7]], dtype=np.float32)
+
+    tracker.update(det, rgb)
+
+    assert tracker.class_names == {7: "awning-bike"}
+    assert tracker.get_class_tracks(7, "active")
 
 
 def test_strongsort_rejects_obb_with_shared_error_message():
@@ -576,6 +611,58 @@ def test_per_class_isolation(tracker_type):
     out = tracker.update(det, rgb, embs)
     ids = set(out[:, 1].tolist())
     assert len(ids) == 2, "Each class should get a separate track even if overlapping"
+
+
+def test_per_class_state_keeps_lost_tracks_class_local():
+    tracker = ByteTrack(per_class=True, track_thresh=0.5, min_conf=0.1, track_buffer=30)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    empty = np.empty((0, 6), dtype=np.float32)
+    class_1_det = np.array([[100, 100, 200, 200, 0.9, 1]], dtype=np.float32)
+    class_0_det = np.array([[100, 100, 200, 200, 0.9, 0]], dtype=np.float32)
+
+    tracker.update(class_1_det, rgb)
+    class_1_id = tracker.get_class_tracks(1, "active")[0].id
+
+    tracker.update(empty, rgb)
+    class_1_lost_ids = {track.id for track in tracker.get_class_tracks(1, "lost")}
+    assert class_1_id in class_1_lost_ids
+
+    tracker.update(class_0_det, rgb)
+    class_0_ids = {track.id for track in tracker.get_class_tracks(0, "active")}
+    class_1_lost_ids = {track.id for track in tracker.get_class_tracks(1, "lost")}
+
+    assert class_1_id not in class_0_ids
+    assert class_1_id in class_1_lost_ids
+
+    tracker.reset()
+    assert not tracker.get_class_tracks(0, "active")
+    assert not tracker.get_class_tracks(1, "lost")
+
+
+def test_per_class_cmc_is_estimated_once_per_frame():
+    tracker = BotSort(
+        reid_model=None,
+        with_reid=False,
+        use_cmc=False,
+        per_class=True,
+        track_high_thresh=0.5,
+        track_low_thresh=0.1,
+        new_track_thresh=0.5,
+    )
+    tracker.cmc = DummyCMC()
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array(
+        [
+            [100, 100, 200, 200, 0.9, 0],
+            [300, 300, 400, 400, 0.9, 1],
+        ],
+        dtype=np.float32,
+    )
+
+    tracker.update(det, rgb)
+
+    assert len(tracker.cmc.calls) == 1
+    assert tracker.cmc.calls[0].shape == (2, 4)
 
 
 @pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_NAMES)

@@ -192,11 +192,13 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 ## 9. Integrating a New Tracker (Checklist)
 
 1) Implement the tracker
-  - Add a new module under `boxmot/trackers/<name>/` (e.g., `sfsort.py`).
+  - Add a new module under the appropriate modality folder, such as
+    `boxmot/trackers/bbox/<name>.py`, `boxmot/trackers/mask/<name>/`, or
+    `boxmot/trackers/hybrid/<name>/`.
   - Implement a tracker class that subclasses `BaseTracker` and defines `update()`.
 
 2) Register the tracker
-  - Add the tracker to `TRACKER_MAPPING` in `boxmot/trackers/tracker_zoo.py`.
+  - Add the tracker to `TRACKER_MAPPING` in `boxmot/trackers/registry.py`.
   - Export it in `boxmot/trackers/__init__.py` and `boxmot/__init__.py`.
   - Add the tracker name to the `TRACKERS` list in `boxmot/__init__.py`.
 
@@ -226,8 +228,8 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 - Set `supports_obb = True` on the tracker class.
 - Keep `@BaseTracker.setup_decorator` enabled so detection shape can trigger OBB mode automatically.
 - Reuse shared detection plumbing from:
-  - `boxmot/trackers/basetracker.py`
-  - `boxmot/trackers/detection_layout.py`
+  - `boxmot/trackers/base.py`
+  - `boxmot/trackers/common/detections/layout.py`
 - Do not hardcode column indices if layout helpers already provide them:
   - `self.detection_layout.boxes(...)`
   - `self.detection_layout.confidences(...)`

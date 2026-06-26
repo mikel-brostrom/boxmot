@@ -35,7 +35,7 @@ from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.tracking.inference import prepare_detections
 from boxmot.engine.tracking.mot import convert_to_mot_format, write_mot_results
 from boxmot.engine.workflows import support as workflow_support_module
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association.iou import iou_obb_pair
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.trackers.common.motion import (

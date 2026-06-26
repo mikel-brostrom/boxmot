@@ -42,7 +42,7 @@ class AssociationResult:
 
     @classmethod
     def from_tuple(cls, result: tuple) -> AssociationResult:
-        """Adapt legacy association tuples to the shared result record."""
+        """Adapt association tuples to the shared result record."""
         if len(result) == 3:
             matches, unmatched_dets, unmatched_tracks = result
             cost_matrix = None

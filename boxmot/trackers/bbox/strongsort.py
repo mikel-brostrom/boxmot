@@ -6,12 +6,12 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association.strongsort import NearestNeighborDistanceMetric
 from boxmot.trackers.common.geometry import xyxy2tlwh
 from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracks.strongsort import Detection, Tracker
+from boxmot.trackers.common.track_models.strongsort import Detection, Tracker
 
 
 class StrongSort(BaseTracker):

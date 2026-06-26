@@ -189,6 +189,10 @@ class ReIDTrainer:
         center_loss_weight: float = 5e-4,
         id_loss_weight: float = 1.0,
         metric_loss_weight: float = 1.0,
+        early_id_loss_weight: float = 0.0,
+        early_id_loss_epochs: int = 0,
+        center_loss_ramp_start_epoch: int = 0,
+        center_loss_ramp_end_epoch: int = 0,
         aux_ce_weight: float = 1.0,
         aux_ce_drop_epoch: int = 0,
         branch_loss_agg: str = "mean",
@@ -223,6 +227,11 @@ class ReIDTrainer:
         stage3_global: bool = False,
         vit_lr_profile: str = "layer_decay",
         backbone_freeze_epochs: int = 0,
+        gradual_unfreeze: bool = False,
+        gradual_unfreeze_head_epochs: int = 5,
+        gradual_unfreeze_stage_epochs: int = 10,
+        gradual_unfreeze_backbone_lr_mult: float = 0.1,
+        gradual_unfreeze_backbone_lr_epochs: int = 5,
         branch_aware_metric: bool = False,
         branch_metric_part_weight: float = 0.5,
         head_pool: str = "avg",
@@ -265,6 +274,10 @@ class ReIDTrainer:
         self.center_loss_weight = float(center_loss_weight)
         self.id_loss_weight = float(id_loss_weight)
         self.metric_loss_weight = float(metric_loss_weight)
+        self.early_id_loss_weight = float(early_id_loss_weight)
+        self.early_id_loss_epochs = int(early_id_loss_epochs)
+        self.center_loss_ramp_start_epoch = int(center_loss_ramp_start_epoch)
+        self.center_loss_ramp_end_epoch = int(center_loss_ramp_end_epoch)
         self.aux_ce_weight = float(aux_ce_weight)
         self.aux_ce_drop_epoch = int(aux_ce_drop_epoch)
         self.branch_loss_agg = branch_loss_agg.lower()
@@ -304,6 +317,11 @@ class ReIDTrainer:
         self.stage3_global = bool(stage3_global)
         self.vit_lr_profile = str(vit_lr_profile).lower()
         self.backbone_freeze_epochs = int(backbone_freeze_epochs)
+        self.gradual_unfreeze = bool(gradual_unfreeze)
+        self.gradual_unfreeze_head_epochs = int(gradual_unfreeze_head_epochs)
+        self.gradual_unfreeze_stage_epochs = int(gradual_unfreeze_stage_epochs)
+        self.gradual_unfreeze_backbone_lr_mult = float(gradual_unfreeze_backbone_lr_mult)
+        self.gradual_unfreeze_backbone_lr_epochs = int(gradual_unfreeze_backbone_lr_epochs)
         self.branch_aware_metric = bool(branch_aware_metric)
         self.branch_metric_part_weight = float(branch_metric_part_weight)
         self.head_pool = str(head_pool).lower()
@@ -372,9 +390,24 @@ class ReIDTrainer:
             raise ValueError("margin must be non-negative")
         if not 0 <= self.label_smooth < 1:
             raise ValueError("label_smooth must satisfy 0 <= label_smooth < 1")
-        for name in ("center_loss_weight", "id_loss_weight", "metric_loss_weight", "aux_ce_weight"):
+        for name in (
+            "center_loss_weight",
+            "id_loss_weight",
+            "metric_loss_weight",
+            "early_id_loss_weight",
+            "aux_ce_weight",
+        ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be non-negative")
+        if self.early_id_loss_epochs < 0 or self.early_id_loss_epochs > self.epochs:
+            raise ValueError("early_id_loss_epochs must satisfy 0 <= value <= epochs")
+        if self.center_loss_ramp_start_epoch < 0 or self.center_loss_ramp_end_epoch < 0:
+            raise ValueError("center_loss_ramp_* epochs must be non-negative")
+        if self.center_loss_ramp_end_epoch > 0:
+            if self.center_loss_ramp_end_epoch <= self.center_loss_ramp_start_epoch:
+                raise ValueError("center_loss_ramp_end_epoch must be > center_loss_ramp_start_epoch")
+            if self.center_loss_ramp_end_epoch > self.epochs:
+                raise ValueError("center_loss_ramp_end_epoch must be <= epochs")
         if self.aux_ce_drop_epoch < 0 or self.aux_ce_drop_epoch > self.epochs:
             raise ValueError("aux_ce_drop_epoch must satisfy 0 <= value <= epochs")
         metric_active = self.loss_type != "softmax" and self.metric_loss_weight > 0
@@ -450,6 +483,25 @@ class ReIDTrainer:
             raise ValueError("vit_lr_profile must be one of: layer_decay, reid_lrd")
         if self.backbone_freeze_epochs < 0 or self.backbone_freeze_epochs > self.epochs:
             raise ValueError("backbone_freeze_epochs must satisfy 0 <= value <= epochs")
+        if self.gradual_unfreeze_head_epochs < 0:
+            raise ValueError("gradual_unfreeze_head_epochs must be non-negative")
+        if self.gradual_unfreeze_stage_epochs < 0:
+            raise ValueError("gradual_unfreeze_stage_epochs must be non-negative")
+        if self.gradual_unfreeze_backbone_lr_epochs < 0:
+            raise ValueError("gradual_unfreeze_backbone_lr_epochs must be non-negative")
+        if self.gradual_unfreeze_backbone_lr_mult <= 0:
+            raise ValueError("gradual_unfreeze_backbone_lr_mult must be positive")
+        if self.gradual_unfreeze:
+            if self.backbone_freeze_epochs > 0:
+                raise ValueError("gradual_unfreeze cannot be combined with backbone_freeze_epochs")
+            if self.head_warmup_epochs > 0:
+                raise ValueError("gradual_unfreeze cannot be combined with head_warmup_epochs")
+            if self.gradual_unfreeze_stage_epochs < self.gradual_unfreeze_head_epochs:
+                raise ValueError(
+                    "gradual_unfreeze_stage_epochs must be >= gradual_unfreeze_head_epochs"
+                )
+            if self.gradual_unfreeze_stage_epochs > self.epochs:
+                raise ValueError("gradual_unfreeze_stage_epochs must be <= epochs")
         if self.branch_metric_part_weight < 0:
             raise ValueError("branch_metric_part_weight must be non-negative")
         invalid_adapter_stages = [stage for stage in self.reid_adapter_stages if stage not in {1, 2, 3}]
@@ -903,6 +955,19 @@ class ReIDTrainer:
             losses_hparams["weights"]["metric_loss_weight"] = self.metric_loss_weight
         if self.center_loss_weight > 0 and self.loss_type != "ms":
             losses_hparams["weights"]["center_loss_weight"] = self.center_loss_weight
+        loss_schedules = {}
+        if self.early_id_loss_weight > 0 and self.early_id_loss_epochs > 0:
+            loss_schedules["early_id_loss"] = {
+                "weight": self.early_id_loss_weight,
+                "epochs": self.early_id_loss_epochs,
+            }
+        if self.center_loss_ramp_end_epoch > 0:
+            loss_schedules["center_loss_ramp"] = {
+                "start_epoch": self.center_loss_ramp_start_epoch,
+                "end_epoch": self.center_loss_ramp_end_epoch,
+            }
+        if loss_schedules:
+            losses_hparams["schedules"] = loss_schedules
 
         hparams = {
             "run": {
@@ -973,6 +1038,13 @@ class ReIDTrainer:
                 "vit_lr_profile": self.vit_lr_profile,
                 "layer_decay": 0.95 if models.is_vit and self.vit_lr_profile == "layer_decay" else 1.0,
                 "backbone_freeze_epochs": self.backbone_freeze_epochs,
+                "gradual_unfreeze": {
+                    "enabled": self.gradual_unfreeze,
+                    "head_epochs": self.gradual_unfreeze_head_epochs,
+                    "stage_epochs": self.gradual_unfreeze_stage_epochs,
+                    "backbone_lr_mult": self.gradual_unfreeze_backbone_lr_mult,
+                    "backbone_lr_epochs": self.gradual_unfreeze_backbone_lr_epochs,
+                },
                 "scheduler": {
                     "name": "CosineAnnealingLR",
                     "eta_min": self.eta_min,
@@ -1677,17 +1749,23 @@ class ReIDTrainer:
             lr_scale = self._vit_lr_scale_for_param(name, depth)
             wd = 0.0 if _no_wd(name) else self.weight_decay
 
+            is_reid_adaptation = self._is_reid_adaptation_param(name)
             group_key = f"lr_{lr_scale:.6g}_wd_{wd}"
+            if self.gradual_unfreeze:
+                role = "reid" if is_reid_adaptation else "backbone"
+                group_key = f"{role}_{group_key}"
             if group_key not in param_groups:
                 param_groups[group_key] = {
                     "params": [],
                     "lr": self.lr * lr_scale,
                     "weight_decay": wd,
-                    "is_head": self._is_reid_adaptation_param(name),
+                    "is_head": is_reid_adaptation,
+                    "is_backbone": not is_reid_adaptation,
                     "lr_scale": lr_scale,
                 }
             else:
-                param_groups[group_key]["is_head"] |= self._is_reid_adaptation_param(name)
+                param_groups[group_key]["is_head"] |= is_reid_adaptation
+                param_groups[group_key]["is_backbone"] |= not is_reid_adaptation
             param_groups[group_key]["params"].append(param)
 
         LOGGER.info(
@@ -1704,6 +1782,42 @@ class ReIDTrainer:
         """Return whether this epoch should keep pretrained backbone stages frozen."""
         return self.backbone_freeze_epochs > 0 and epoch <= self.backbone_freeze_epochs
 
+    def _gradual_unfreeze_phase(self, epoch: int) -> str | None:
+        """Return the active staged-unfreeze phase for this epoch."""
+        if not self.gradual_unfreeze:
+            return None
+        if epoch <= self.gradual_unfreeze_head_epochs:
+            return "head"
+        if epoch <= self.gradual_unfreeze_stage_epochs:
+            return "stage"
+        return "full"
+
+    def _gradual_backbone_lr_active(self, epoch: int) -> bool:
+        """Return whether full-backbone training should use the temporary LR drop."""
+        return (
+            self.gradual_unfreeze
+            and self.gradual_unfreeze_backbone_lr_epochs > 0
+            and self.gradual_unfreeze_stage_epochs < epoch
+            and epoch <= self.gradual_unfreeze_stage_epochs + self.gradual_unfreeze_backbone_lr_epochs
+        )
+
+    def _effective_id_loss_weight(self, epoch: int) -> float:
+        """Return ID loss weight after applying any temporary early CE boost."""
+        if self.early_id_loss_epochs > 0 and epoch <= self.early_id_loss_epochs:
+            return self.early_id_loss_weight if self.early_id_loss_weight > 0 else self.id_loss_weight
+        return self.id_loss_weight
+
+    def _effective_center_loss_weight(self, epoch: int) -> float:
+        """Return center loss weight after applying the optional epoch ramp."""
+        if self.center_loss_weight <= 0 or self.center_loss_ramp_end_epoch <= 0:
+            return self.center_loss_weight
+        if epoch <= self.center_loss_ramp_start_epoch:
+            return 0.0
+        if epoch <= self.center_loss_ramp_end_epoch:
+            span = self.center_loss_ramp_end_epoch - self.center_loss_ramp_start_epoch
+            return self.center_loss_weight * ((epoch - self.center_loss_ramp_start_epoch) / span)
+        return self.center_loss_weight
+
     @staticmethod
     def _is_head_or_neck_param(name: str) -> bool:
         return name.startswith("head.") or name.startswith("neck.")
@@ -1711,6 +1825,22 @@ class ReIDTrainer:
     @staticmethod
     def _is_reid_adaptation_param(name: str) -> bool:
         return name.startswith(("head.", "neck.", "feature_fusion_module.")) or ".reid_adapters." in name
+
+    @staticmethod
+    def _last_vit_stage_index(model: nn.Module) -> int | None:
+        layers = getattr(model, "layers", None)
+        if layers is not None:
+            return len(layers) - 1
+        blocks = getattr(model, "blocks", None)
+        if blocks is not None:
+            return len(blocks) - 1
+        return None
+
+    @staticmethod
+    def _is_last_vit_stage_param(name: str, stage_index: int | None) -> bool:
+        if stage_index is None or stage_index < 0:
+            return False
+        return name.startswith((f"layers.{stage_index}.", f"blocks.{stage_index}."))
 
     def _set_head_warmup_trainability(self, model: nn.Module, enabled: bool) -> None:
         """Freeze/unfreeze backbone parameters for head-only warmup."""
@@ -1728,11 +1858,49 @@ class ReIDTrainer:
             if module is not None:
                 module.eval()
 
+    def _set_gradual_unfreeze_trainability(self, model: nn.Module, phase: str) -> None:
+        """Apply staged CSL-TinyViT unfreeze trainability for the active phase."""
+        last_stage_index = self._last_vit_stage_index(model)
+        for name, param in model.named_parameters():
+            if phase == "head":
+                trainable = self._is_head_or_neck_param(name)
+            elif phase == "stage":
+                trainable = (
+                    self._is_head_or_neck_param(name)
+                    or self._is_last_vit_stage_param(name, last_stage_index)
+                )
+            else:
+                trainable = True
+            param.requires_grad_(trainable)
+
+        if phase == "full":
+            return
+
+        patch_embed = getattr(model, "patch_embed", None)
+        if patch_embed is not None:
+            patch_embed.eval()
+        layers = getattr(model, "layers", None)
+        if layers is None:
+            return
+        if phase == "head":
+            layers.eval()
+            return
+        for index, layer in enumerate(layers):
+            layer.train(index == last_stage_index)
+
     def _apply_head_warmup_lrs(self, optimizer) -> None:
         """Use zero LR for backbone groups and a boosted LR for head groups."""
         for group in optimizer.param_groups:
             base_lr = group.get("_base_lr", group.get("lr", self.lr))
             group["lr"] = base_lr * self.head_warmup_lr_mult if group.get("is_head", False) else 0.0
+
+    def _apply_gradual_backbone_lrs(self, optimizer) -> list[float]:
+        """Temporarily reduce backbone LR groups during early full-backbone epochs."""
+        original_lrs = [group["lr"] for group in optimizer.param_groups]
+        for group in optimizer.param_groups:
+            if group.get("is_backbone", False):
+                group["lr"] *= self.gradual_unfreeze_backbone_lr_mult
+        return original_lrs
 
     def _metric_loss_for_features(self, criterion_metric, features, pids: torch.Tensor) -> torch.Tensor:
         """Compute metric loss for a tensor feature or branch feature dict."""
@@ -1938,8 +2106,21 @@ class ReIDTrainer:
         self._seed_training_epoch(epoch, loader)
         model.train()
         backbone_freeze_active = self._backbone_freeze_active(epoch)
+        gradual_unfreeze_phase = self._gradual_unfreeze_phase(epoch)
+        gradual_backbone_original_lrs = None
         head_warmup_active = False
-        if backbone_freeze_active:
+        if gradual_unfreeze_phase:
+            self._set_gradual_unfreeze_trainability(model, gradual_unfreeze_phase)
+            if epoch == 1:
+                LOGGER.info(
+                    "Gradual unfreeze enabled: "
+                    f"head/neck through epoch {self.gradual_unfreeze_head_epochs}, "
+                    f"last stage through epoch {self.gradual_unfreeze_stage_epochs}, "
+                    f"then full backbone with backbone_lr_mult="
+                    f"{self.gradual_unfreeze_backbone_lr_mult:g} for "
+                    f"{self.gradual_unfreeze_backbone_lr_epochs} epochs"
+                )
+        elif backbone_freeze_active:
             self._set_backbone_freeze_trainability(model, True)
             if epoch == 1:
                 LOGGER.info(
@@ -1963,6 +2144,17 @@ class ReIDTrainer:
                     f"Head warmup enabled for {self.head_warmup_epochs} epochs "
                     f"(head_lr_mult={self.head_warmup_lr_mult:g})"
                 )
+        elif self._gradual_backbone_lr_active(epoch):
+            gradual_backbone_original_lrs = self._apply_gradual_backbone_lrs(optimizer)
+            if epoch == self.gradual_unfreeze_stage_epochs + 1:
+                LOGGER.info(
+                    "Gradual unfreeze backbone LR drop active for "
+                    f"{self.gradual_unfreeze_backbone_lr_epochs} epochs "
+                    f"(backbone_lr_mult={self.gradual_unfreeze_backbone_lr_mult:g})"
+                )
+
+        id_loss_weight = self._effective_id_loss_weight(epoch)
+        center_loss_weight = self._effective_center_loss_weight(epoch)
 
         running_losses = torch.zeros(4, device=self.device)
         n_batches = 0
@@ -1997,7 +2189,7 @@ class ReIDTrainer:
                             f"model loss contract is {self._model_loss_type()}"
                         )
                     loss_id = criterion_id(cls_features, pids)
-                loss = self.id_loss_weight * loss_id
+                loss = id_loss_weight * loss_id
 
                 # Triplet loss — L2-normalize features so Euclidean distance in
                 # triplet loss aligns with cosine distance used at evaluation.
@@ -2009,8 +2201,8 @@ class ReIDTrainer:
                 # Center loss — only on embeddings, never on logits
                 center_features = self._center_features(features)
                 loss_cen = torch.tensor(0.0, device=self.device)
-                if center_features is not None and self.center_loss_weight > 0 and not head_warmup_active:
-                    loss_cen = criterion_center(center_features, pids) * self.center_loss_weight
+                if center_features is not None and center_loss_weight > 0 and not head_warmup_active:
+                    loss_cen = criterion_center(center_features, pids) * center_loss_weight
                     loss = loss + loss_cen
 
             optimizer.zero_grad()
@@ -2025,11 +2217,11 @@ class ReIDTrainer:
             scaler.step(optimizer)
 
             # Center loss has its own optimizer with special LR
-            if center_features is not None and self.center_loss_weight > 0 and not head_warmup_active:
+            if center_features is not None and center_loss_weight > 0 and not head_warmup_active:
                 scaler.unscale_(optimizer_center)
                 for param in criterion_center.parameters():
                     if param.grad is not None:
-                        param.grad.data *= (1.0 / self.center_loss_weight)
+                        param.grad.data *= (1.0 / center_loss_weight)
                 scaler.step(optimizer_center)
 
             scaler.update()
@@ -2061,6 +2253,10 @@ class ReIDTrainer:
             n_batches += 1
             if n_batches % 20 == 0:
                 batch_bar.set_postfix(loss=f"{(running_losses[0] / n_batches).item():.4f}")
+
+        if gradual_backbone_original_lrs is not None:
+            for group, lr in zip(optimizer.param_groups, gradual_backbone_original_lrs):
+                group["lr"] = lr
 
         # Scheduler step
         if epoch > self.warmup_epochs:
@@ -2149,6 +2345,11 @@ class ReIDTrainer:
             "stage3_global": self.stage3_global,
             "vit_lr_profile": self.vit_lr_profile,
             "backbone_freeze_epochs": self.backbone_freeze_epochs,
+            "gradual_unfreeze": self.gradual_unfreeze,
+            "gradual_unfreeze_head_epochs": self.gradual_unfreeze_head_epochs,
+            "gradual_unfreeze_stage_epochs": self.gradual_unfreeze_stage_epochs,
+            "gradual_unfreeze_backbone_lr_mult": self.gradual_unfreeze_backbone_lr_mult,
+            "gradual_unfreeze_backbone_lr_epochs": self.gradual_unfreeze_backbone_lr_epochs,
             "reid_adapter_stages": list(self.reid_adapter_stages),
             "reid_adapter_reduction": self.reid_adapter_reduction,
             "head_pool": self.head_pool,
@@ -2163,6 +2364,10 @@ class ReIDTrainer:
             "branch_metric_part_weight": self.branch_metric_part_weight,
             "head_warmup_epochs": self.head_warmup_epochs,
             "head_warmup_lr_mult": self.head_warmup_lr_mult,
+            "early_id_loss_weight": self.early_id_loss_weight,
+            "early_id_loss_epochs": self.early_id_loss_epochs,
+            "center_loss_ramp_start_epoch": self.center_loss_ramp_start_epoch,
+            "center_loss_ramp_end_epoch": self.center_loss_ramp_end_epoch,
             "aux_ce_weight": self.aux_ce_weight,
             "aux_ce_drop_epoch": self.aux_ce_drop_epoch,
             "seed": self.seed,

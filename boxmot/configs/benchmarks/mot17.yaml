@@ -20,6 +20,14 @@ dataset:
     8: distractor
     12: reflection
 
+evaluation:
+  classes:
+    - name: pedestrian
+      dataset_id: 1
+      detector_id: 0
+      detector_name: person
+  ignore_dataset_ids: [2, 7, 8, 12]
+
 download:
   # Primary source: parquet repo with deduplicated images
   source: parquet

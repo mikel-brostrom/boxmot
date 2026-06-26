@@ -46,6 +46,10 @@ TRAIN_HPARAM_TO_ARG = {
     "center_loss_weight": "center_loss_weight",
     "id_loss_weight": "id_loss_weight",
     "metric_loss_weight": "metric_loss_weight",
+    "early_id_loss_weight": "early_id_loss_weight",
+    "early_id_loss_epochs": "early_id_loss_epochs",
+    "center_loss_ramp_start_epoch": "center_loss_ramp_start_epoch",
+    "center_loss_ramp_end_epoch": "center_loss_ramp_end_epoch",
     "aux_ce_weight": "aux_ce_weight",
     "aux_ce_drop_epoch": "aux_ce_drop_epoch",
     "branch_loss_agg": "branch_loss_agg",
@@ -76,6 +80,11 @@ TRAIN_HPARAM_TO_ARG = {
     "head_warmup_lr_mult": "head_warmup_lr_mult",
     "vit_lr_profile": "vit_lr_profile",
     "backbone_freeze_epochs": "backbone_freeze_epochs",
+    "gradual_unfreeze": "gradual_unfreeze",
+    "gradual_unfreeze_head_epochs": "gradual_unfreeze_head_epochs",
+    "gradual_unfreeze_stage_epochs": "gradual_unfreeze_stage_epochs",
+    "gradual_unfreeze_backbone_lr_mult": "gradual_unfreeze_backbone_lr_mult",
+    "gradual_unfreeze_backbone_lr_epochs": "gradual_unfreeze_backbone_lr_epochs",
     "p": "p_ids",
     "k": "k_instances",
     "seed": "seed",
@@ -158,6 +167,11 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "layer_decay": ("optimization", "layer_decay"),
         "vit_lr_profile": ("optimization", "vit_lr_profile"),
         "backbone_freeze_epochs": ("optimization", "backbone_freeze_epochs"),
+        "gradual_unfreeze": ("optimization", "gradual_unfreeze", "enabled"),
+        "gradual_unfreeze_head_epochs": ("optimization", "gradual_unfreeze", "head_epochs"),
+        "gradual_unfreeze_stage_epochs": ("optimization", "gradual_unfreeze", "stage_epochs"),
+        "gradual_unfreeze_backbone_lr_mult": ("optimization", "gradual_unfreeze", "backbone_lr_mult"),
+        "gradual_unfreeze_backbone_lr_epochs": ("optimization", "gradual_unfreeze", "backbone_lr_epochs"),
         "scheduler": ("optimization", "scheduler", "name"),
         "eta_min": ("optimization", "scheduler", "eta_min"),
         "warmup_epochs": ("optimization", "scheduler", "warmup_epochs"),
@@ -171,6 +185,10 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "id_loss_weight": ("losses", "weights", "id_loss_weight"),
         "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
         "center_loss_weight": ("losses", "weights", "center_loss_weight"),
+        "early_id_loss_weight": ("losses", "schedules", "early_id_loss", "weight"),
+        "early_id_loss_epochs": ("losses", "schedules", "early_id_loss", "epochs"),
+        "center_loss_ramp_start_epoch": ("losses", "schedules", "center_loss_ramp", "start_epoch"),
+        "center_loss_ramp_end_epoch": ("losses", "schedules", "center_loss_ramp", "end_epoch"),
         "aux_ce_weight": ("losses", "weights", "aux_ce_weight"),
         "aux_ce_drop_epoch": ("losses", "aux_ce_drop_epoch"),
         "arcface_scale": ("losses", "arcface", "scale"),
@@ -275,6 +293,18 @@ def trainer_kwargs_from_args(
         "center_loss_weight": value("center_loss_weight", "center_loss_weight", 5e-4),
         "id_loss_weight": value("id_loss_weight", "id_loss_weight", 1.0),
         "metric_loss_weight": value("metric_loss_weight", "metric_loss_weight", 1.0),
+        "early_id_loss_weight": value("early_id_loss_weight", "early_id_loss_weight", 0.0),
+        "early_id_loss_epochs": value("early_id_loss_epochs", "early_id_loss_epochs", 0),
+        "center_loss_ramp_start_epoch": value(
+            "center_loss_ramp_start_epoch",
+            "center_loss_ramp_start_epoch",
+            0,
+        ),
+        "center_loss_ramp_end_epoch": value(
+            "center_loss_ramp_end_epoch",
+            "center_loss_ramp_end_epoch",
+            0,
+        ),
         "aux_ce_weight": value("aux_ce_weight", "aux_ce_weight", 1.0),
         "aux_ce_drop_epoch": value("aux_ce_drop_epoch", "aux_ce_drop_epoch", 0),
         "branch_loss_agg": value("branch_loss_agg", "branch_loss_agg", "mean"),
@@ -305,6 +335,27 @@ def trainer_kwargs_from_args(
         "head_warmup_lr_mult": value("head_warmup_lr_mult", "head_warmup_lr_mult", 2.0),
         "vit_lr_profile": value("vit_lr_profile", "vit_lr_profile", "layer_decay"),
         "backbone_freeze_epochs": value("backbone_freeze_epochs", "backbone_freeze_epochs", 0),
+        "gradual_unfreeze": value("gradual_unfreeze", "gradual_unfreeze", False),
+        "gradual_unfreeze_head_epochs": value(
+            "gradual_unfreeze_head_epochs",
+            "gradual_unfreeze_head_epochs",
+            5,
+        ),
+        "gradual_unfreeze_stage_epochs": value(
+            "gradual_unfreeze_stage_epochs",
+            "gradual_unfreeze_stage_epochs",
+            10,
+        ),
+        "gradual_unfreeze_backbone_lr_mult": value(
+            "gradual_unfreeze_backbone_lr_mult",
+            "gradual_unfreeze_backbone_lr_mult",
+            0.1,
+        ),
+        "gradual_unfreeze_backbone_lr_epochs": value(
+            "gradual_unfreeze_backbone_lr_epochs",
+            "gradual_unfreeze_backbone_lr_epochs",
+            5,
+        ),
         "eta_min": value("eta_min", "eta_min", 1e-7),
         "pretrained": value("pretrained", "pretrained", True),
         "device": value("device", "device", "cpu"),
@@ -403,6 +454,10 @@ class LossConfig:
     center_loss_weight: float = 5e-4
     id_loss_weight: float = 1.0
     metric_loss_weight: float = 1.0
+    early_id_loss_weight: float = 0.0
+    early_id_loss_epochs: int = 0
+    center_loss_ramp_start_epoch: int = 0
+    center_loss_ramp_end_epoch: int = 0
     aux_ce_weight: float = 1.0
     aux_ce_drop_epoch: int = 0
     branch_loss_agg: str = "mean"
@@ -420,6 +475,11 @@ class OptimizationConfig:
     ema_decay: Optional[float] = None
     vit_lr_profile: str = "layer_decay"
     backbone_freeze_epochs: int = 0
+    gradual_unfreeze: bool = False
+    gradual_unfreeze_head_epochs: int = 5
+    gradual_unfreeze_stage_epochs: int = 10
+    gradual_unfreeze_backbone_lr_mult: float = 0.1
+    gradual_unfreeze_backbone_lr_epochs: int = 5
 
 
 @dataclass(frozen=True)
@@ -524,6 +584,10 @@ class ReIDTrainConfig:
                 center_loss_weight=values.get("center_loss_weight", 5e-4),
                 id_loss_weight=values.get("id_loss_weight", 1.0),
                 metric_loss_weight=values.get("metric_loss_weight", 1.0),
+                early_id_loss_weight=values.get("early_id_loss_weight", 0.0),
+                early_id_loss_epochs=values.get("early_id_loss_epochs", 0),
+                center_loss_ramp_start_epoch=values.get("center_loss_ramp_start_epoch", 0),
+                center_loss_ramp_end_epoch=values.get("center_loss_ramp_end_epoch", 0),
                 aux_ce_weight=values.get("aux_ce_weight", 1.0),
                 aux_ce_drop_epoch=values.get("aux_ce_drop_epoch", 0),
                 branch_loss_agg=values.get("branch_loss_agg", "mean"),
@@ -537,6 +601,11 @@ class ReIDTrainConfig:
                 ema_decay=values.get("ema_decay"),
                 vit_lr_profile=values.get("vit_lr_profile", "layer_decay"),
                 backbone_freeze_epochs=values.get("backbone_freeze_epochs", 0),
+                gradual_unfreeze=values.get("gradual_unfreeze", False),
+                gradual_unfreeze_head_epochs=values.get("gradual_unfreeze_head_epochs", 5),
+                gradual_unfreeze_stage_epochs=values.get("gradual_unfreeze_stage_epochs", 10),
+                gradual_unfreeze_backbone_lr_mult=values.get("gradual_unfreeze_backbone_lr_mult", 0.1),
+                gradual_unfreeze_backbone_lr_epochs=values.get("gradual_unfreeze_backbone_lr_epochs", 5),
             ),
             augmentation=AugmentationConfig(
                 gaussian_blur=values.get("gaussian_blur", False),

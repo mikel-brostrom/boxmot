@@ -4,7 +4,7 @@ from typing import Any, List, Optional
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
     resolve_batch_embeddings,
@@ -19,7 +19,7 @@ from boxmot.trackers.common.association.boost import (
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracks.boosttrack import KalmanBoxTracker
+from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker
 
 
 class BoostTrack(BaseTracker):

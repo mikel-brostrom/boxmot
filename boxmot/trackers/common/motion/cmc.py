@@ -46,8 +46,8 @@ def apply_cmc_to_tracks(
     """Apply CMC to tracks and return the estimated warp matrix.
 
     Disabled CMC is a no-op and returns ``None``. Track-specific update methods
-    are intentionally passed by name because legacy trackers use different
-    correction APIs.
+    are passed by name because tracker implementations expose different
+    correction method names.
     """
     if cmc is None:
         return None
@@ -59,7 +59,7 @@ def apply_cmc_to_tracks(
 
 
 def reset_cmc(cmc) -> None:
-    """Reset a CMC estimator, including legacy estimators without ``reset``."""
+    """Reset a CMC estimator, including estimators without a ``reset`` method."""
     if cmc is None:
         return
 

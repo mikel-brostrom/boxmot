@@ -306,6 +306,48 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
     } <= set(args.train_explicit_keys)
 
 
+def test_train_accepts_gradual_unfreeze_options(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--gradual-unfreeze",
+            "--gradual-unfreeze-head-epochs",
+            "5",
+            "--gradual-unfreeze-stage-epochs",
+            "10",
+            "--gradual-unfreeze-backbone-lr-mult",
+            "0.1",
+            "--gradual-unfreeze-backbone-lr-epochs",
+            "5",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.gradual_unfreeze is True
+    assert args.gradual_unfreeze_head_epochs == 5
+    assert args.gradual_unfreeze_stage_epochs == 10
+    assert args.gradual_unfreeze_backbone_lr_mult == 0.1
+    assert args.gradual_unfreeze_backbone_lr_epochs == 5
+    assert {
+        "gradual_unfreeze",
+        "gradual_unfreeze_head_epochs",
+        "gradual_unfreeze_stage_epochs",
+        "gradual_unfreeze_backbone_lr_mult",
+        "gradual_unfreeze_backbone_lr_epochs",
+    } <= set(args.train_explicit_keys)
+
+
 def test_train_accepts_loss_ablation_options(monkeypatch):
     captured = {}
 
@@ -333,6 +375,18 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
             "30",
             "--cosface-margin",
             "0.35",
+            "--id-loss-weight",
+            "1.25",
+            "--metric-loss-weight",
+            "1.0",
+            "--early-id-loss-weight",
+            "1.25",
+            "--early-id-loss-epochs",
+            "40",
+            "--center-loss-ramp-start-epoch",
+            "10",
+            "--center-loss-ramp-end-epoch",
+            "20",
         ],
     )
 
@@ -345,6 +399,12 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
     assert args.arcface_margin == 0.5
     assert args.cosface_scale == 30.0
     assert args.cosface_margin == 0.35
+    assert args.id_loss_weight == 1.25
+    assert args.metric_loss_weight == 1.0
+    assert args.early_id_loss_weight == 1.25
+    assert args.early_id_loss_epochs == 40
+    assert args.center_loss_ramp_start_epoch == 10
+    assert args.center_loss_ramp_end_epoch == 20
     assert {
         "loss",
         "classifier_loss",
@@ -353,6 +413,12 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
         "arcface_margin",
         "cosface_scale",
         "cosface_margin",
+        "id_loss_weight",
+        "metric_loss_weight",
+        "early_id_loss_weight",
+        "early_id_loss_epochs",
+        "center_loss_ramp_start_epoch",
+        "center_loss_ramp_end_epoch",
     } <= set(args.train_explicit_keys)
 
 

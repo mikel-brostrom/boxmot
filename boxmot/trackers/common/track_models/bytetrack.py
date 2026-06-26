@@ -6,7 +6,7 @@ from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.geometry import tlwh2xyah, xywh2tlwh, xyxy2xywh
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
-from boxmot.trackers.common.tracks.base import BoxTrack
+from boxmot.trackers.common.track_models.base import BoxTrack
 
 
 class TrackState(object):

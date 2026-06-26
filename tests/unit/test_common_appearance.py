@@ -10,7 +10,7 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.detections import DetectionBatch
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
-from boxmot.trackers.common.tracks.botsort import STrack
+from boxmot.trackers.common.track_models.botsort import STrack
 
 
 class DummyReID:

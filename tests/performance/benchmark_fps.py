@@ -35,7 +35,7 @@ from typing import Iterable
 
 import numpy as np
 
-from boxmot.trackers.tracker_zoo import REID_TRACKERS, create_tracker
+from boxmot.trackers.registry import REID_TRACKERS, create_tracker
 from boxmot.utils import logger as LOGGER
 
 try:

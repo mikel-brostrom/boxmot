@@ -14,6 +14,7 @@ from boxmot.engine.workflows.support import (
     build_tracker_from_spec,
     build_tracker_with_reid_spec,
     reid_path_from_spec,
+    resolve_tracker_class_metadata,
     resolve_output_fps,
     resolve_track_output_dir,
 )
@@ -57,7 +58,13 @@ def _build_detector(args, detector_spec: Any, classes: list[int] | None):
     )
 
 
-def _build_tracker(args, tracker_spec: Any):
+def _build_tracker(
+    args,
+    tracker_spec: Any,
+    *,
+    class_ids: tuple[int, ...] | None = None,
+    class_names: dict[int, str] | None = None,
+):
     spec = tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker"))
     reid_weights = reid_path_from_spec(first_value(getattr(args, "reid", None)), required=False)
     return build_tracker_from_spec(
@@ -67,6 +74,8 @@ def _build_tracker(args, tracker_spec: Any):
         tracker_backend=getattr(args, "tracker_backend", None),
         reid_weights=reid_weights,
         reid_preprocess=getattr(args, "reid_preprocess", None),
+        class_ids=class_ids,
+        class_names=class_names,
     )
 
 
@@ -99,7 +108,14 @@ def run_track(
 
     with suppress_boxmot_logs((not verbose) or pipeline is not None, level="WARNING"):
         detector_runtime = detector if detector is not None else _build_detector(args, detector_spec, classes)
-        tracker_runtime = tracker if tracker is not None else _build_tracker(args, tracker_spec)
+        class_ids, class_names = resolve_tracker_class_metadata(args, detector_runtime)
+        tracker_runtime = (
+            tracker
+            if tracker is not None
+            else _build_tracker(args, tracker_spec, class_ids=class_ids, class_names=class_names)
+        )
+        if tracker is not None and hasattr(tracker_runtime, "configure_class_catalog"):
+            tracker_runtime.configure_class_catalog(class_ids=class_ids, class_names=class_names)
         reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
 
     if show_trajectories and drawer is None:

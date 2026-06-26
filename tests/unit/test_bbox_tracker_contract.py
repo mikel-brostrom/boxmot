@@ -27,17 +27,17 @@ from boxmot.trackers.common.tracking.track import (
     TrackState,
     sync_track_meta,
 )
-from boxmot.trackers.common.tracks.base import BoxTrack, SortBoxTrack
-from boxmot.trackers.common.tracks.boosttrack import KalmanBoxTracker as BoostTrackBoxTrack
-from boxmot.trackers.common.tracks.botsort import BaseTrack as BotSortBaseTrack
-from boxmot.trackers.common.tracks.botsort import STrack as BotSortTrack
-from boxmot.trackers.common.tracks.botsort import TrackState as BotSortTrackState
-from boxmot.trackers.common.tracks.bytetrack import BaseTrack as ByteTrackBaseTrack
-from boxmot.trackers.common.tracks.bytetrack import STrack as ByteTrackTrack
-from boxmot.trackers.common.tracks.bytetrack import TrackState as ByteTrackState
-from boxmot.trackers.common.tracks.deepocsort import KalmanBoxTracker as DeepOCSortBoxTrack
-from boxmot.trackers.common.tracks.hybridsort import KalmanBoxTracker as HybridSortBoxTrack
-from boxmot.trackers.common.tracks.ocsort import KalmanBoxTracker as OCSortBoxTrack
+from boxmot.trackers.common.track_models.base import BoxTrack, SortBoxTrack
+from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker as BoostTrackBoxTrack
+from boxmot.trackers.common.track_models.botsort import BaseTrack as BotSortBaseTrack
+from boxmot.trackers.common.track_models.botsort import STrack as BotSortTrack
+from boxmot.trackers.common.track_models.botsort import TrackState as BotSortTrackState
+from boxmot.trackers.common.track_models.bytetrack import BaseTrack as ByteTrackBaseTrack
+from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTrack
+from boxmot.trackers.common.track_models.bytetrack import TrackState as ByteTrackState
+from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortBoxTrack
+from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker as HybridSortBoxTrack
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortBoxTrack
 
 
 class DummyCMC:

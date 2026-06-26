@@ -10,7 +10,7 @@ import pandas as pd
 import torch
 
 from boxmot.trackers.common.geometry.obb import xywha_to_corners
-from boxmot.trackers.track_results import TrackResults
+from boxmot.trackers.results import TrackResults
 from boxmot.utils import logger as LOGGER
 
 

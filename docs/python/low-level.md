@@ -12,6 +12,6 @@ Auto-generated reference for the building blocks used by the high-level facade. 
 
 ## Tracker factory
 
-::: boxmot.trackers.tracker_zoo.create_tracker
+::: boxmot.trackers.registry.create_tracker
 
-::: boxmot.trackers.tracker_zoo.get_tracker_config
+::: boxmot.trackers.registry.get_tracker_config

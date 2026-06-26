@@ -10,7 +10,7 @@ from typing import Any, Iterable, Literal
 import cv2
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.geometry.obb import (
@@ -155,8 +155,8 @@ class SFSORT(BaseTracker):
             detection.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``nr_classes``, ``asso_func``,
-            and ``is_obb``.
+            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
+            ``asso_func``, and ``is_obb``.
     """
 
     supports_obb = True

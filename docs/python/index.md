@@ -1,6 +1,6 @@
 # Python API
 
-Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.detectors`, `boxmot.reid`, and `boxmot.trackers.tracker_zoo` when you want lower-level control.
+Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.detectors`, `boxmot.reid`, and `boxmot.trackers.registry` when you want lower-level control.
 
 ## High-level facade
 
@@ -148,7 +148,7 @@ from boxmot.trackers import (
 The `create_tracker` factory builds a tracker from its string name and loads its default YAML config automatically:
 
 ```python
-from boxmot.trackers.tracker_zoo import create_tracker
+from boxmot.trackers.registry import create_tracker
 
 # Motion-only tracker (no ReID model needed)
 tracker = create_tracker("bytetrack")
@@ -221,7 +221,7 @@ print(tracks.conf)  # confidences
     entirely:
 
     ```python
-    from boxmot.trackers.tracker_zoo import create_tracker
+    from boxmot.trackers.registry import create_tracker
 
     tracker = create_tracker(
         "ocsort",

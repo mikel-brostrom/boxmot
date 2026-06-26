@@ -6,12 +6,12 @@ from __future__ import annotations
 # - ReID via pre-built backend passed as ``reid_model``
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
-# - Safe with COCO 80 classes; preserves det_ind; guards out-of-range indices
+# - Preserves detector class IDs and det_ind; guards out-of-range detection indices
 from typing import Any, List
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import (
     resolve_batch_embeddings,
 )
@@ -29,7 +29,7 @@ from boxmot.trackers.common.association.hybrid import (
     linear_assignment,
 )
 from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracks.hybridsort import KalmanBoxTracker, k_previous_obs
+from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker, k_previous_obs
 
 ASSO_FUNCS = {
     "iou": iou_batch,
@@ -182,9 +182,10 @@ class HybridSort(BaseTracker):
             xi = int(x)
             return xi if 0 <= xi < n else -1
 
-        def _safe_cls(x: int, n: int) -> int:
+        def _safe_cls(x: int) -> int:
             xi = int(x)
-            return xi if 0 <= xi < n else xi  # change to -1 if you prefer strictness
+            self.class_catalog.validate_ids([xi])
+            return xi
 
         # ECC: compute warp using all current detections (BotSort pattern)
         if n_dets_full:
@@ -323,7 +324,7 @@ class HybridSort(BaseTracker):
             self.active_tracks[m[1]].update(
                 dets_first[det_i, :],
                 id_feature_keep[det_i, :],
-                cls=_safe_cls(cls_keep[det_i], self.nr_classes),
+                cls=_safe_cls(cls_keep[det_i]),
                 det_ind=_safe_detind(det_inds_keep[det_i], n_dets_full),
             )
 
@@ -360,7 +361,7 @@ class HybridSort(BaseTracker):
                         dets_low[det_rel, :],
                         id_feature_second[det_rel, :],
                         update_feature=False,
-                        cls=_safe_cls(cls_second[det_rel], self.nr_classes),
+                        cls=_safe_cls(cls_second[det_rel]),
                         det_ind=_safe_detind(det_inds_second[det_rel], n_dets_full),
                     )
                     to_remove_trk_indices.append(trk_ind)
@@ -385,7 +386,7 @@ class HybridSort(BaseTracker):
                         dets_first[det_abs, :],
                         id_feature_keep[det_abs, :],
                         update_feature=False,
-                        cls=_safe_cls(cls_keep[det_abs], self.nr_classes),
+                        cls=_safe_cls(cls_keep[det_abs]),
                         det_ind=_safe_detind(det_inds_keep[det_abs], n_dets_full),
                     )
                     to_remove_det_indices.append(det_abs)
@@ -408,7 +409,7 @@ class HybridSort(BaseTracker):
                 alpha=self.alpha,
                 adapfs=self.adapfs,
                 track_thresh=self.track_thresh,
-                cls=_safe_cls(cls_keep[i], self.nr_classes),
+                cls=_safe_cls(cls_keep[i]),
                 det_ind=_safe_detind(det_inds_keep[i], n_dets_full) if len(det_inds_keep) else -1,
                 id_allocator=self.id_allocator,
             )

@@ -2,15 +2,15 @@ import unittest
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.tracking.track import TrackMeta, TrackState
 
 
 class MockTracker(BaseTracker):
     def __init__(self):
         super().__init__()
-        self.lost_stracks = []
-        self.removed_stracks = []
+        self.lost_tracks = []
+        self.removed_tracks = []
 
     def _update_impl(self, dets, img, embs=None):
         return self.empty_output()
@@ -72,7 +72,7 @@ class TestVisualization(unittest.TestCase):
         # Mock state inference for lost track
         lost_track.time_since_update = 5
 
-        self.tracker.lost_stracks = [lost_track]
+        self.tracker.lost_tracks = [lost_track]
 
         # Plot with show_kf_preds=True
         res = self.tracker.plot_results(self.img.copy(), show_trajectories=True, show_kf_preds=True)
@@ -86,7 +86,7 @@ class TestVisualization(unittest.TestCase):
             [[20, 20, 40, 40]],
             xyxy=[50, 50, 80, 80],
         )
-        self.tracker.removed_stracks = [removed_track]
+        self.tracker.removed_tracks = [removed_track]
 
         res = self.tracker.plot_results(
             self.img.copy(),
@@ -108,7 +108,7 @@ class TestVisualization(unittest.TestCase):
         lost_track = MockTrack(2, [[20, 20, 60, 60]], state="lost")
         lost_track.time_since_update = 5
 
-        self.tracker.lost_stracks = [lost_track]
+        self.tracker.lost_tracks = [lost_track]
 
         # Plot with show_kf_preds=False
         res = self.tracker.plot_results(self.img.copy(), show_trajectories=True, show_kf_preds=False)

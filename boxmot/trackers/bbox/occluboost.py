@@ -42,7 +42,7 @@ from boxmot.trackers.common.association.boost import associate, iou_batch
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
-from boxmot.trackers.common.tracks.boosttrack import KalmanBoxTracker
+from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker
 
 
 class OccluBoost(BoostTrack):

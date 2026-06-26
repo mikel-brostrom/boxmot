@@ -14,6 +14,13 @@ dataset:
   classes:
     1: player
 
+evaluation:
+  classes:
+    - name: player
+      dataset_id: 1
+      detector_id: 0
+      detector_name: person
+
 download:
   # SportsMOT official split contents:
   #   train: has images + seqinfo.ini + gt/gt.txt
