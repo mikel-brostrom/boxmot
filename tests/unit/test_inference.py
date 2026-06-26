@@ -170,6 +170,48 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
     )
 
 
+def test_ultralytics_detector_scales_segmentation_masks_to_original_shape():
+    class _FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([[10.0, 10.0, 20.0, 20.0]], dtype=torch.float32)
+            self.conf = torch.tensor([0.9], dtype=torch.float32)
+            self.cls = torch.tensor([0.0], dtype=torch.float32)
+
+        def __len__(self):
+            return len(self.conf)
+
+    class _FakeMasks:
+        def __init__(self):
+            self.data = torch.zeros((1, 80, 80), dtype=torch.uint8)
+            # Original image is 40x80 letterboxed into 80x80, so rows 0:20
+            # and 60:80 are padding. This object should land at y=10:20
+            # after de-letterboxing, not y=15:20 from naive resize.
+            self.data[0, 30:40, 10:20] = 1
+            self.orig_shape = (40, 80)
+
+        def __len__(self):
+            return int(self.data.shape[0])
+
+    result = SimpleNamespace(
+        obb=None,
+        boxes=_FakeBoxes(),
+        masks=_FakeMasks(),
+        orig_img=np.zeros((40, 80, 3), dtype=np.uint8),
+    )
+    detector = UltralyticsDetector.__new__(UltralyticsDetector)
+
+    dets, masks = detector._extract_dets(result)
+
+    np.testing.assert_array_equal(
+        dets,
+        np.array([[10.0, 10.0, 20.0, 20.0, 0.9, 0.0]], dtype=np.float32),
+    )
+    assert masks.shape == (1, 40, 80)
+    assert masks[0, 10:20, 10:20].all()
+    assert masks[0, :10, 10:20].sum() == 0
+    assert masks[0, 20:, 10:20].sum() == 0
+
+
 def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
     assert default_imgsz("yolox_s.pt") == [1080, 1920]
     assert default_imgsz("yolov8n.pt") == [640, 640]
