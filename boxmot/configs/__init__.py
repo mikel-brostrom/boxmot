@@ -103,6 +103,11 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "warmup_epochs": ("optimization", "scheduler", "warmup_epochs"),
         "vit_lr_profile": ("optimization", "vit_lr_profile"),
         "backbone_freeze_epochs": ("optimization", "backbone_freeze_epochs"),
+        "gradual_unfreeze": ("optimization", "gradual_unfreeze", "enabled"),
+        "gradual_unfreeze_head_epochs": ("optimization", "gradual_unfreeze", "head_epochs"),
+        "gradual_unfreeze_stage_epochs": ("optimization", "gradual_unfreeze", "stage_epochs"),
+        "gradual_unfreeze_backbone_lr_mult": ("optimization", "gradual_unfreeze", "backbone_lr_mult"),
+        "gradual_unfreeze_backbone_lr_epochs": ("optimization", "gradual_unfreeze", "backbone_lr_epochs"),
         "ema_decay": ("optimization", "ema_decay"),
         "loss": ("losses", "loss_type"),
         "classifier_loss": ("losses", "classifier_loss"),
@@ -112,6 +117,10 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "id_loss_weight": ("losses", "weights", "id_loss_weight"),
         "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
         "center_loss_weight": ("losses", "weights", "center_loss_weight"),
+        "early_id_loss_weight": ("losses", "schedules", "early_id_loss", "weight"),
+        "early_id_loss_epochs": ("losses", "schedules", "early_id_loss", "epochs"),
+        "center_loss_ramp_start_epoch": ("losses", "schedules", "center_loss_ramp", "start_epoch"),
+        "center_loss_ramp_end_epoch": ("losses", "schedules", "center_loss_ramp", "end_epoch"),
         "aux_ce_weight": ("losses", "weights", "aux_ce_weight"),
         "aux_ce_drop_epoch": ("losses", "aux_ce_drop_epoch"),
         "color_jitter": ("augmentation", "color_jitter"),
@@ -609,6 +618,10 @@ class TrainModeDefaults:
     center_loss_weight: float
     id_loss_weight: float
     metric_loss_weight: float
+    early_id_loss_weight: float
+    early_id_loss_epochs: int
+    center_loss_ramp_start_epoch: int
+    center_loss_ramp_end_epoch: int
     aux_ce_weight: float
     aux_ce_drop_epoch: int
     branch_loss_agg: str
@@ -639,6 +652,11 @@ class TrainModeDefaults:
     head_warmup_lr_mult: float
     vit_lr_profile: str
     backbone_freeze_epochs: int
+    gradual_unfreeze: bool
+    gradual_unfreeze_head_epochs: int
+    gradual_unfreeze_stage_epochs: int
+    gradual_unfreeze_backbone_lr_mult: float
+    gradual_unfreeze_backbone_lr_epochs: int
     eta_min: float
     pretrained: bool
     device: str
@@ -690,6 +708,10 @@ class TrainModeDefaults:
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
             id_loss_weight=float(values.get("id_loss_weight", 1.0)),
             metric_loss_weight=float(values.get("metric_loss_weight", 1.0)),
+            early_id_loss_weight=float(values.get("early_id_loss_weight", 0.0)),
+            early_id_loss_epochs=int(values.get("early_id_loss_epochs", 0)),
+            center_loss_ramp_start_epoch=int(values.get("center_loss_ramp_start_epoch", 0)),
+            center_loss_ramp_end_epoch=int(values.get("center_loss_ramp_end_epoch", 0)),
             aux_ce_weight=float(values.get("aux_ce_weight", 1.0)),
             aux_ce_drop_epoch=int(values.get("aux_ce_drop_epoch", 0)),
             branch_loss_agg=str(values.get("branch_loss_agg", "mean")),
@@ -720,6 +742,11 @@ class TrainModeDefaults:
             head_warmup_lr_mult=float(values.get("head_warmup_lr_mult", 2.0)),
             vit_lr_profile=str(values.get("vit_lr_profile", "layer_decay")),
             backbone_freeze_epochs=int(values.get("backbone_freeze_epochs", 0)),
+            gradual_unfreeze=bool(values.get("gradual_unfreeze", False)),
+            gradual_unfreeze_head_epochs=int(values.get("gradual_unfreeze_head_epochs", 5)),
+            gradual_unfreeze_stage_epochs=int(values.get("gradual_unfreeze_stage_epochs", 10)),
+            gradual_unfreeze_backbone_lr_mult=float(values.get("gradual_unfreeze_backbone_lr_mult", 0.1)),
+            gradual_unfreeze_backbone_lr_epochs=int(values.get("gradual_unfreeze_backbone_lr_epochs", 5)),
             eta_min=float(values.get("eta_min", 1e-7)),
             pretrained=bool(values.get("pretrained", True)),
             device=str(values.get("device", "cpu")),

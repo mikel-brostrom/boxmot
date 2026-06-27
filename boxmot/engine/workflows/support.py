@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -15,15 +16,17 @@ from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
-from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
+from boxmot.trackers.registry import (
+    REID_TRACKERS as REGISTERED_REID_TRACKERS,
+    TRACKER_CLASS_TO_NAME,
+    TRACKER_MAPPING,
+    create_tracker,
+    get_tracker_config,
+)
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.torch_utils import select_device
 
-REID_TRACKERS = {"strongsort", "botsort", "deepocsort", "hybridsort", "boosttrack", "occluboost"}
-TRACKER_CLASS_TO_NAME = {
-    class_path.rsplit(".", 1)[-1].lower(): tracker_name
-    for tracker_name, class_path in TRACKER_MAPPING.items()
-}
+REID_TRACKERS = set(REGISTERED_REID_TRACKERS)
 
 
 def normalize_classes(classes: Any) -> list[int] | None:
@@ -35,6 +38,55 @@ def normalize_classes(classes: Any) -> list[int] | None:
     if isinstance(classes, int):
         return [int(classes)]
     return [int(value) for value in classes]
+
+
+def normalize_class_names(class_names: Any) -> dict[int, str]:
+    if class_names is None:
+        return {}
+    if isinstance(class_names, Mapping):
+        return {int(class_id): str(name) for class_id, name in class_names.items()}
+    if isinstance(class_names, Sequence) and not isinstance(class_names, (str, bytes)):
+        return {int(class_id): str(name) for class_id, name in enumerate(class_names)}
+    return {}
+
+
+def tracker_class_metadata_from_detector_config(
+    detector_cfg: dict | None,
+) -> tuple[tuple[int, ...] | None, dict[int, str] | None]:
+    if not detector_cfg:
+        return None, None
+
+    class_names = normalize_class_names(detector_cfg.get("classes"))
+    if not class_names:
+        return None, None
+
+    class_ids = tuple(sorted(class_names))
+    return class_ids, class_names
+
+
+def tracker_class_metadata_from_detector(detector: Any) -> tuple[tuple[int, ...] | None, dict[int, str] | None]:
+    class_names = normalize_class_names(getattr(detector, "names", None))
+    if not class_names:
+        backend = getattr(detector, "backend", None)
+        class_names = normalize_class_names(getattr(backend, "names", None))
+    if not class_names:
+        return None, None
+    return tuple(sorted(class_names)), class_names
+
+
+def resolve_tracker_class_metadata(
+    args: Any,
+    detector: Any = None,
+) -> tuple[tuple[int, ...] | None, dict[int, str] | None]:
+    class_ids, class_names = tracker_class_metadata_from_detector_config(getattr(args, "dataset_detector_cfg", None))
+    if class_names is None and detector is not None:
+        class_ids, class_names = tracker_class_metadata_from_detector(detector)
+
+    selected_classes = normalize_classes(getattr(args, "classes", None))
+    if selected_classes is not None:
+        class_ids = tuple(sorted(set(selected_classes)))
+
+    return class_ids, class_names
 
 
 def ensure_model_path(model_ref: str | Path | None) -> Path | None:
@@ -253,8 +305,12 @@ def build_tracker_from_spec(
     tracker_backend: str | None = None,
     reid_weights=None,
     reid_preprocess: str | None = None,
+    class_ids: tuple[int, ...] | None = None,
+    class_names: dict[int, str] | None = None,
 ):
     if not isinstance(spec, str):
+        if hasattr(spec, "configure_class_catalog") and (class_ids is not None or class_names is not None):
+            spec.configure_class_catalog(class_ids=class_ids, class_names=class_names)
         return spec
 
     tracker_name = tracker_name_from_spec(spec, required=True)
@@ -287,6 +343,8 @@ def build_tracker_from_spec(
         device=select_device(device),
         half=half,
         per_class=False,
+        class_ids=class_ids,
+        class_names=class_names,
     )
 
 
@@ -356,7 +414,9 @@ __all__ = (
     "ensure_model_path",
     "load_tracker_search_space",
     "normalize_classes",
+    "normalize_class_names",
     "reid_path_from_spec",
+    "resolve_tracker_class_metadata",
     "resolve_output_fps",
     "resolve_output_stem",
     "resolve_track_output_dir",

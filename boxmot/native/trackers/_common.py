@@ -12,7 +12,7 @@ import numpy as np
 import yaml
 
 from boxmot.native import _common as native_common
-from boxmot.trackers.tracker_zoo import get_tracker_config
+from boxmot.trackers.registry import get_tracker_config
 
 LIVE_UPDATE_ARGTYPES = [
     ctypes.c_void_p,

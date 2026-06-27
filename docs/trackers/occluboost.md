@@ -60,7 +60,7 @@ When `--tracker-backend cpp` is set, embedding generation for cached replay also
 - `recovery_appearance_thresh` is the dominant identity safety knob: raise it (e.g. 0.7) to be conservative and protect IDF1, lower it (e.g. 0.4) to recover more occluded objects.
 - `use_second_pass` is on by default and only re-attaches low-confidence detections to **confirmed** tracks above `second_pass_min_hits`. Tighten `second_iou_thresh` / `second_appearance_thresh` if you see ID switches in dense scenes; relax them to gain MOTA in clean scenes.
 - `new_track_thresh` is decoupled from `det_thresh` so weakly-confident detections can update existing tracks without spawning new ones.
-- Keep `max_age >= nr_classes` (default 120 vs 80 COCO classes) so per-class tracking survives the per-class predict loop.
+- Keep `max_age` comfortably above the longest expected detector gap for each class so per-class tracking survives sparse class-specific detections.
 
 ### Adaptive Kalman Filter (`adaptive_kf`)
 
@@ -92,4 +92,4 @@ adaptive_kf: true
 
 The tuner will also explore it automatically since it's registered as a `choice` parameter in the search space.
 
-::: boxmot.trackers.bbox.occluboost.occluboost.OccluBoost
+::: boxmot.trackers.bbox.occluboost.OccluBoost

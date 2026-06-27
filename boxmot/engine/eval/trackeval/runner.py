@@ -88,6 +88,7 @@ def build_dataset_eval_settings(
     bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
+    ignore_dataset_ids = bench_cfg.get("ignore_dataset_ids") if isinstance(bench_cfg, dict) else None
 
     layout_name = str(cfg.get("layout") or bench_cfg.get("layout") or "").lower() if isinstance(cfg, dict) else ""
 
@@ -102,10 +103,14 @@ def build_dataset_eval_settings(
 
     benchmark_name = getattr(args, "benchmark", "")
 
+    if ignore_dataset_ids is not None:
+        distractor_ids = [int(class_id) for class_id in ignore_dataset_ids]
+    elif isinstance(distractor_cfg, dict) and distractor_cfg:
+        distractor_ids = [int(k) for k in distractor_cfg.keys()]
+    else:
+        distractor_ids = []
+
     if getattr(args, "remapped_class_ids", None):
-        distractor_ids: list[int] = []
-        if isinstance(distractor_cfg, dict) and distractor_cfg:
-            distractor_ids = [int(k) for k in distractor_cfg.keys()]
         return {
             "classes_to_eval": args.remapped_class_names,
             "class_ids": args.remapped_class_ids,
@@ -136,10 +141,6 @@ def build_dataset_eval_settings(
         classes_to_eval = ["person"]
     if not class_ids:
         class_ids = [1]
-
-    distractor_ids: list[int] = []
-    if isinstance(distractor_cfg, dict) and distractor_cfg:
-        distractor_ids = [int(k) for k in distractor_cfg.keys()]
 
     seen: set[str] = set()
     pairs: list[tuple[str, int]] = []

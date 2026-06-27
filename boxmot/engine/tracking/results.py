@@ -14,7 +14,7 @@ from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mo
 from boxmot.engine.tracking.rendering import Drawer, draw_tracks
 from boxmot.engine.tracking.video import append_frame
 from boxmot.engine.tracking.video import close as close_video
-from boxmot.trackers.track_results import TrackResults
+from boxmot.trackers.results import TrackResults
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.core.ui import print_text
 from boxmot.utils.timing import build_timing_display_rows, derive_timing_breakdown

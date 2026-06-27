@@ -7,7 +7,7 @@ tracked masks as output.
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 
 
 class MaskBaseTracker(BaseTracker):

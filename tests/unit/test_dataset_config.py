@@ -27,6 +27,8 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_detector,
     should_use_benchmark_reid,
 )
+from boxmot.data.benchmark import build_gt_class_remap, resolve_obb_eval_class_pairs
+from boxmot.engine.eval.trackeval.runner import build_dataset_eval_settings
 
 
 def test_mot17_benchmark_uses_split_schema():
@@ -54,7 +56,16 @@ def test_mot17_benchmark_uses_split_schema():
                 8: "distractor",
                 12: "reflection",
             },
-            "mapping": {},
+            "mapping": {"pedestrian": "person"},
+            "bridge": [
+                {
+                    "name": "pedestrian",
+                    "dataset_id": 1,
+                    "detector_id": 0,
+                    "detector_name": "person",
+                }
+            ],
+            "ignore_dataset_ids": [2, 7, 8, 12],
         },
     }
 
@@ -105,6 +116,78 @@ def test_obb_dataset_derives_trackeval_from_box_type():
     assert cfg["box_type"] == "obb"
     assert cfg["trackeval"] == "mot_challenge_obb"
     assert cfg["evaluation"]["tracker_eval"] == "mot_challenge_obb"
+
+
+def test_all_benchmarks_define_explicit_class_bridge():
+    for cfg_path in sorted(Path("boxmot/configs/benchmarks").glob("*.yaml")):
+        cfg = load_benchmark_cfg(cfg_path)
+        bridge = cfg["benchmark"]["class_bridge"]
+
+        assert bridge, f"{cfg_path.name} must define evaluation.classes"
+        assert cfg["evaluation"]["classes"]["bridge"] == bridge
+        assert cfg["benchmark"]["eval_classes"] == {
+            entry["dataset_id"]: entry["name"] for entry in bridge
+        }
+        assert cfg["benchmark"]["class_mapping"] == {
+            entry["name"]: entry.get("detector_name", entry["name"]) for entry in bridge
+        }
+
+
+def test_mot20_class_bridge_remaps_gt_to_detector_person():
+    cfg = load_benchmark_cfg("mot20")
+
+    remap, class_ids, class_names = build_gt_class_remap(
+        cfg["benchmark"],
+        cfg["detector"],
+        benchmark_name="mot20",
+        model_stem="yolox_x_MOT20_ablation",
+    )
+
+    assert remap == {1: 1}
+    assert class_ids == [1]
+    assert class_names == ["person"]
+    assert cfg["benchmark"]["ignore_dataset_ids"] == [2, 6, 7, 8, 12]
+
+
+def test_mmot_obb_class_bridge_uses_detector_ids():
+    cfg = load_benchmark_cfg("mmot")
+    args = SimpleNamespace(
+        classes=None,
+        remapped_class_ids=None,
+        remapped_class_names=None,
+        translated_benchmark_class_names=None,
+    )
+
+    pairs = resolve_obb_eval_class_pairs(args, cfg["benchmark"])
+
+    assert pairs == [
+        ("car", 0),
+        ("bike", 1),
+        ("pedestrian", 2),
+        ("van", 3),
+        ("truck", 4),
+        ("bus", 5),
+        ("tricycle", 6),
+        ("awning-bike", 7),
+    ]
+
+
+def test_visdrone_trackeval_uses_explicit_ignore_dataset_ids():
+    args = SimpleNamespace(
+        benchmark="visdrone",
+        benchmark_id=None,
+        dataset_id=None,
+        remapped_class_ids=[1],
+        remapped_class_names=["pedestrian"],
+        classes=None,
+    )
+
+    settings = build_dataset_eval_settings(args, Path("gt"), {"uav0000013_00000_v": 100})
+
+    assert settings["classes_to_eval"] == ["pedestrian"]
+    assert settings["class_ids"] == [1]
+    assert settings["distractor_ids"] == [0, 11]
+    assert settings["gt_loc_format"] == "{gt_folder}/{seq}.txt"
 
 
 def test_mmot_mini_uses_mmot_mini_root():
@@ -408,7 +491,16 @@ def test_sportsmot_benchmark_uses_split_schema():
         "classes": {
             "eval": {1: "player"},
             "distractor": {},
-            "mapping": {},
+            "mapping": {"player": "person"},
+            "bridge": [
+                {
+                    "name": "player",
+                    "dataset_id": 1,
+                    "detector_id": 0,
+                    "detector_name": "person",
+                }
+            ],
+            "ignore_dataset_ids": [],
         },
     }
 

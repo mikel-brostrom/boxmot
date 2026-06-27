@@ -18,6 +18,41 @@ dataset:
     7: tricycle
     8: awning-bike
 
+evaluation:
+  classes:
+    - name: car
+      dataset_id: 1
+      detector_id: 0
+      detector_name: car
+    - name: bike
+      dataset_id: 2
+      detector_id: 1
+      detector_name: bike
+    - name: pedestrian
+      dataset_id: 3
+      detector_id: 2
+      detector_name: pedestrian
+    - name: van
+      dataset_id: 4
+      detector_id: 3
+      detector_name: van
+    - name: truck
+      dataset_id: 5
+      detector_id: 4
+      detector_name: truck
+    - name: bus
+      dataset_id: 6
+      detector_id: 5
+      detector_name: bus
+    - name: tricycle
+      dataset_id: 7
+      detector_id: 6
+      detector_name: tricycle
+    - name: awning-bike
+      dataset_id: 8
+      detector_id: 7
+      detector_name: awning-bike
+
 download:
   runs: ""
 

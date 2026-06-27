@@ -4,7 +4,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
+import torch
 from ultralytics import YOLO
+from ultralytics.utils import ops
 from ultralytics.utils.downloads import attempt_download_asset
 
 from boxmot.detectors.base import BaseDetectorBackend, Detections
@@ -181,16 +183,39 @@ class UltralyticsDetector(BaseDetectorBackend):
 
             # Extract masks from segmentation models
             if result.masks is not None and len(result.masks) > 0:
-                mask_data = result.masks.data  # (N, H_model, W_model) tensor
-                if hasattr(mask_data, "cpu"):
-                    mask_data = mask_data.cpu()
-                if hasattr(mask_data, "numpy"):
-                    mask_data = mask_data.numpy()
-                masks = (mask_data > 0.5).astype(np.uint8)
+                masks = self._extract_original_shape_masks(result)
 
             return dets, masks
 
         return np.empty((0, 6), dtype=np.float32), None
+
+    @staticmethod
+    def _extract_original_shape_masks(result) -> np.ndarray:
+        """Return segmentation masks in original image coordinates.
+
+        Ultralytics' default segmentation path returns ``masks.data`` in the
+        letterboxed model-input shape while boxes are already scaled back to
+        ``orig_img``.  Scale masks through Ultralytics' own de-letterbox logic
+        so rendering and mask caches share the same coordinate system.
+        """
+        mask_data = result.masks.data
+        if isinstance(mask_data, np.ndarray):
+            mask_tensor = torch.from_numpy(mask_data)
+        else:
+            mask_tensor = mask_data.detach() if hasattr(mask_data, "detach") else torch.as_tensor(mask_data)
+
+        if mask_tensor.ndim == 2:
+            mask_tensor = mask_tensor[None]
+
+        orig_shape = getattr(result.masks, "orig_shape", None)
+        if orig_shape is None:
+            orig_shape = result.orig_img.shape[:2]
+        orig_shape = tuple(int(dim) for dim in orig_shape[:2])
+
+        if tuple(mask_tensor.shape[-2:]) != orig_shape:
+            mask_tensor = ops.scale_masks(mask_tensor[None].float(), orig_shape)[0]
+
+        return (mask_tensor > 0.5).to(torch.uint8).cpu().numpy()
 
     def __call__(self, images: list, conf, iou, classes, agnostic_nms) -> list:
         preprocessed = self.preprocess(images)

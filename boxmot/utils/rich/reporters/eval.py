@@ -11,7 +11,7 @@ from rich.text import Text
 
 import boxmot.utils.rich.core.ui as ui
 from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
-from boxmot.trackers.tracker_zoo import get_tracker_config
+from boxmot.trackers.registry import get_tracker_config
 from boxmot.utils.rich.workflow.fields import bool_glyph, compact_model_name, image_size_text, panel_field
 from boxmot.utils.rich.workflow.reporting import RichWorkflowReporter
 from boxmot.utils.rich.workflow.steps import (

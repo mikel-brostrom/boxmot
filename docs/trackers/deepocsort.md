@@ -10,4 +10,4 @@ Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearanc
 - AABB detections only in BoxMOT.
 - Useful when OC-SORT is close but still loses IDs in crowded scenes where appearance recovery matters.
 
-::: boxmot.trackers.bbox.deepocsort.deepocsort.DeepOcSort
+::: boxmot.trackers.bbox.deepocsort.DeepOcSort

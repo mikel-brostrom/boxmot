@@ -20,6 +20,14 @@ dataset:
     8: distractor
     12: reflection
 
+evaluation:
+  classes:
+    - name: pedestrian
+      dataset_id: 1
+      detector_id: 0
+      detector_name: person
+  ignore_dataset_ids: [2, 6, 7, 8, 12]
+
 download:
   dataset:
     train: "hf://Lekim89/MOT20/train"

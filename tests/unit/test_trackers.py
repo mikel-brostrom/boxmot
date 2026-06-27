@@ -13,19 +13,18 @@ from boxmot.trackers import (
     OcSort,
     StrongSort,
 )
-from boxmot.trackers.association.matching import iou_distance
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.bbox.botsort.botsort import BotSort
-from boxmot.trackers.bbox.botsort.botsort_track import STrack as BotSortTrack
-from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack
-from boxmot.trackers.bbox.bytetrack.bytetrack import STrack as ByteTrackTrack
-from boxmot.trackers.bbox.deepocsort.deepocsort import (
-    KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
-)
-from boxmot.trackers.bbox.hybridsort.hybridsort import HybridSort
-from boxmot.trackers.bbox.ocsort.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
-from boxmot.trackers.bbox.sfsort.sfsort import SFSORT
-from boxmot.trackers.tracker_zoo import create_tracker, get_tracker_config
+from boxmot.trackers.base import BaseTracker
+from boxmot.trackers.bbox.botsort import BotSort
+from boxmot.trackers.bbox.bytetrack import ByteTrack
+from boxmot.trackers.bbox.hybridsort import HybridSort
+from boxmot.trackers.bbox.sfsort import SFSORT
+from boxmot.trackers.common.association.matching import iou_distance
+from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.common.track_models.botsort import STrack as BotSortTrack
+from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTrack
+from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.registry import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
     ALL_TRACKERS,
@@ -40,11 +39,7 @@ from tests.test_config import (
 
 class DummyCMC:
     def __init__(self, warp: np.ndarray | None = None):
-        self.warp = (
-            np.eye(2, 3, dtype=np.float32)
-            if warp is None
-            else np.asarray(warp, dtype=np.float32)
-        )
+        self.warp = np.eye(2, 3, dtype=np.float32) if warp is None else np.asarray(warp, dtype=np.float32)
         self.calls: list[np.ndarray | None] = []
 
     def apply(self, img: np.ndarray, dets: np.ndarray | None = None) -> np.ndarray:
@@ -121,9 +116,7 @@ def test_hybridsort_config_covers_constructor_params_and_conditionals():
         "low_thresh",
         "TCM_byte_step",
     }
-    assert set(
-        yaml_config["use_byte"]["activates"]["TCM_byte_step"]["activates"]
-    ) == {"TCM_byte_step_weight"}
+    assert set(yaml_config["use_byte"]["activates"]["TCM_byte_step"]["activates"]) == {"TCM_byte_step_weight"}
     assert set(yaml_config["TCM_first_step"]["activates"]) == {"inertia"}
     with_reid_children = yaml_config["with_reid"]["activates"]
     assert set(with_reid_children) == {
@@ -136,9 +129,7 @@ def test_hybridsort_config_covers_constructor_params_and_conditionals():
         "with_longterm_reid",
         "with_longterm_reid_correction",
     }
-    assert set(with_reid_children["with_longterm_reid"]["activates"]) == {
-        "longterm_reid_weight"
-    }
+    assert set(with_reid_children["with_longterm_reid"]["activates"]) == {"longterm_reid_weight"}
     assert set(with_reid_children["with_longterm_reid_correction"]["activates"]) == {
         "longterm_reid_correction_thresh",
         "longterm_reid_correction_thresh_low",
@@ -187,13 +178,17 @@ def create_kalman_box_tracker_ocsort(bbox, cls, det_ind, tracker):
         det_ind,
         Q_xy_scaling=tracker.Q_xy_scaling,
         Q_s_scaling=tracker.Q_s_scaling,
+        id_allocator=TrackIdAllocator(),
     )
 
 
 def create_kalman_box_tracker_deepocsort(bbox, cls, det_ind, tracker):
     det = np.concatenate([bbox, [cls, det_ind]])
     return DeepOCSortKalmanBoxTracker(
-        det, Q_xy_scaling=tracker.Q_xy_scaling, Q_s_scaling=tracker.Q_s_scaling
+        det,
+        Q_xy_scaling=tracker.Q_xy_scaling,
+        Q_s_scaling=tracker.Q_s_scaling,
+        id_allocator=TrackIdAllocator(),
     )
 
 
@@ -235,6 +230,7 @@ def test_Q_matrix_scaling(Tracker, init_args):
     assert kalman_box_tracker.kf.Q[5, 5] == Q_xy_scaling, "Q_xy scaling incorrect for y' velocity"
     assert kalman_box_tracker.kf.Q[6, 6] == Q_s_scaling, "Q_s scaling incorrect for s' (scale) velocity"
 
+
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)
 def test_per_class_tracker_output_size(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
@@ -248,10 +244,12 @@ def test_per_class_tracker_output_size(tracker_type):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([
-        [100, 100, 300, 250, 0.95,   0],  # class 0
-        [400, 300, 550, 450, 0.90,  65],  # class 65
-    ])
+    det = np.array(
+        [
+            [100, 100, 300, 250, 0.95, 0],  # class 0
+            [400, 300, 550, 450, 0.90, 65],  # class 65
+        ]
+    )
     embs = np.random.random(size=(2, 512))
 
     _ = tracker.update(det, rgb, embs)
@@ -272,15 +270,52 @@ def test_per_class_tracker_active_tracks(tracker_type):
     )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
-    det = np.array([
-        [100, 100, 300, 250, 0.95,   0],  # class 0
-        [400, 300, 550, 450, 0.90,  65],  # class 65
-    ])
+    det = np.array(
+        [
+            [100, 100, 300, 250, 0.95, 0],  # class 0
+            [400, 300, 550, 450, 0.90, 65],  # class 65
+        ]
+    )
     embs = np.random.random(size=(2, 512))
 
     tracker.update(det, rgb, embs)
-    assert tracker.per_class_active_tracks[0], "No active tracks for class 0"
-    assert tracker.per_class_active_tracks[65], "No active tracks for class 65"
+    assert tracker.get_class_tracks(0, "active"), "No active tracks for class 0"
+    assert tracker.get_class_tracks(65, "active"), "No active tracks for class 65"
+
+
+def test_per_class_tracking_accepts_arbitrary_detector_class_ids():
+    tracker = ByteTrack(per_class=True, track_thresh=0.5, min_conf=0.1)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 123]], dtype=np.float32)
+
+    tracker.update(det, rgb)
+
+    assert tracker.get_class_tracks(123, "active")
+
+
+def test_configured_class_catalog_rejects_unknown_detector_class():
+    tracker = ByteTrack(class_ids=[0, 7], track_thresh=0.5, min_conf=0.1)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 8]], dtype=np.float32)
+
+    with pytest.raises(ValueError, match="not present in the tracker class catalog"):
+        tracker.update(det, rgb)
+
+
+def test_class_names_define_tracker_class_catalog():
+    tracker = ByteTrack(
+        per_class=True,
+        class_names={7: "awning-bike"},
+        track_thresh=0.5,
+        min_conf=0.1,
+    )
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array([[100, 100, 200, 200, 0.9, 7]], dtype=np.float32)
+
+    tracker.update(det, rgb)
+
+    assert tracker.class_names == {7: "awning-bike"}
+    assert tracker.get_class_tracks(7, "active")
 
 
 def test_strongsort_rejects_obb_with_shared_error_message():
@@ -313,8 +348,18 @@ def test_botsort_supports_obb_without_reid():
 
 def test_botsort_obb_matching_uses_oriented_geometry():
     det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
-    track_a = BotSortTrack(det, max_obs=10, is_obb=True)
-    track_b = BotSortTrack(det, max_obs=10, is_obb=True)
+    track_a = BotSortTrack(
+        det,
+        max_obs=10,
+        is_obb=True,
+        id_allocator=TrackIdAllocator(),
+    )
+    track_b = BotSortTrack(
+        det,
+        max_obs=10,
+        is_obb=True,
+        id_allocator=TrackIdAllocator(),
+    )
 
     cost = iou_distance([track_a], [track_b], is_obb=True)
 
@@ -345,7 +390,12 @@ def test_botsort_obb_cmc_uses_enclosing_aabb_boxes():
 
 def test_botsort_obb_cmc_warps_track_state():
     det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
-    track = BotSortTrack(det, max_obs=10, is_obb=True)
+    track = BotSortTrack(
+        det,
+        max_obs=10,
+        is_obb=True,
+        id_allocator=TrackIdAllocator(),
+    )
     track.activate(KalmanFilterXYWH(ndim=5), frame_id=1)
 
     BotSortTrack.multi_gmc_obb(
@@ -353,9 +403,7 @@ def test_botsort_obb_cmc_warps_track_state():
         np.array([[1.0, 0.0, 12.0], [0.0, 1.0, -6.0]], dtype=np.float32),
     )
 
-    np.testing.assert_allclose(
-        track.xywha[:2], np.array([332.0, 234.0], dtype=np.float32), atol=1e-4
-    )
+    np.testing.assert_allclose(track.xywha[:2], np.array([332.0, 234.0], dtype=np.float32), atol=1e-4)
     np.testing.assert_allclose(track.xywha[2:], det[2:5], atol=1e-4)
 
 
@@ -394,8 +442,18 @@ def test_bytetrack_supports_obb_outputs():
 
 def test_bytetrack_obb_matching_uses_oriented_geometry():
     det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
-    track_a = ByteTrackTrack(det, max_obs=10, is_obb=True)
-    track_b = ByteTrackTrack(det, max_obs=10, is_obb=True)
+    track_a = ByteTrackTrack(
+        det,
+        id_allocator=TrackIdAllocator(),
+        max_obs=10,
+        is_obb=True,
+    )
+    track_b = ByteTrackTrack(
+        det,
+        id_allocator=TrackIdAllocator(),
+        max_obs=10,
+        is_obb=True,
+    )
 
     cost = iou_distance([track_a], [track_b], is_obb=True)
 
@@ -449,9 +507,7 @@ def test_ocsort_obb_state_history_uses_post_update_state_center():
     track = tracker.active_tracks[0]
     assert len(track.history_observations) >= 1
 
-    history_center = (
-        np.asarray(track.history_observations[-1], dtype=np.float32).reshape(4, 2).mean(axis=0)
-    )
+    history_center = np.asarray(track.history_observations[-1], dtype=np.float32).reshape(4, 2).mean(axis=0)
     state_center = np.asarray(track.get_state()[0][:2], dtype=np.float32)
     np.testing.assert_allclose(history_center, state_center, atol=0.75)
 
@@ -557,6 +613,58 @@ def test_per_class_isolation(tracker_type):
     assert len(ids) == 2, "Each class should get a separate track even if overlapping"
 
 
+def test_per_class_state_keeps_lost_tracks_class_local():
+    tracker = ByteTrack(per_class=True, track_thresh=0.5, min_conf=0.1, track_buffer=30)
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    empty = np.empty((0, 6), dtype=np.float32)
+    class_1_det = np.array([[100, 100, 200, 200, 0.9, 1]], dtype=np.float32)
+    class_0_det = np.array([[100, 100, 200, 200, 0.9, 0]], dtype=np.float32)
+
+    tracker.update(class_1_det, rgb)
+    class_1_id = tracker.get_class_tracks(1, "active")[0].id
+
+    tracker.update(empty, rgb)
+    class_1_lost_ids = {track.id for track in tracker.get_class_tracks(1, "lost")}
+    assert class_1_id in class_1_lost_ids
+
+    tracker.update(class_0_det, rgb)
+    class_0_ids = {track.id for track in tracker.get_class_tracks(0, "active")}
+    class_1_lost_ids = {track.id for track in tracker.get_class_tracks(1, "lost")}
+
+    assert class_1_id not in class_0_ids
+    assert class_1_id in class_1_lost_ids
+
+    tracker.reset()
+    assert not tracker.get_class_tracks(0, "active")
+    assert not tracker.get_class_tracks(1, "lost")
+
+
+def test_per_class_cmc_is_estimated_once_per_frame():
+    tracker = BotSort(
+        reid_model=None,
+        with_reid=False,
+        use_cmc=False,
+        per_class=True,
+        track_high_thresh=0.5,
+        track_low_thresh=0.1,
+        new_track_thresh=0.5,
+    )
+    tracker.cmc = DummyCMC()
+    rgb = np.zeros((640, 640, 3), dtype=np.uint8)
+    det = np.array(
+        [
+            [100, 100, 200, 200, 0.9, 0],
+            [300, 300, 400, 400, 0.9, 1],
+        ],
+        dtype=np.float32,
+    )
+
+    tracker.update(det, rgb)
+
+    assert len(tracker.cmc.calls) == 1
+    assert tracker.cmc.calls[0].shape == (2, 4)
+
+
 @pytest.mark.parametrize("tracker_type", MOTION_N_APPEARANCE_TRACKING_NAMES)
 def test_emb_trackers_requires_embeddings(tracker_type):
     tracker_conf = get_tracker_config(tracker_type)
@@ -651,10 +759,8 @@ def test_create_tracker_invalid_tracker_name():
 
 # ---------------- OccluBoost OBB tests ----------------
 
-from boxmot.trackers.bbox.occluboost.occluboost import (  # noqa: E402
-    OccluBoost,
-    _xywha_to_xyxy_enclosing,
-)
+from boxmot.trackers.bbox.occluboost import OccluBoost  # noqa: E402
+from boxmot.trackers.common.geometry.obb import xywha_to_xyxy  # noqa: E402
 
 
 def test_occluboost_supports_obb_without_reid():
@@ -712,16 +818,14 @@ def test_occluboost_obb_aabb_path_unchanged():
 def test_xywha_to_xyxy_enclosing_axis_aligned():
     # Zero angle: the enclosing AABB should equal the box itself.
     boxes = np.array([[100, 100, 60, 40, 0.0]], dtype=np.float32)
-    xyxy = _xywha_to_xyxy_enclosing(boxes)
-    np.testing.assert_allclose(
-        xyxy[0], np.array([70, 80, 130, 120], dtype=np.float32), atol=1e-4
-    )
+    xyxy = xywha_to_xyxy(boxes)
+    np.testing.assert_allclose(xyxy[0], np.array([70, 80, 130, 120], dtype=np.float32), atol=1e-4)
 
 
 def test_xywha_to_xyxy_enclosing_45deg_grows_bounds():
     # 45-degree rotation: enclosing AABB should expand symmetrically.
     boxes = np.array([[100, 100, 60, 40, np.pi / 4]], dtype=np.float32)
-    xyxy = _xywha_to_xyxy_enclosing(boxes)
+    xyxy = xywha_to_xyxy(boxes)
     half = 0.5 * (60 + 40) * np.cos(np.pi / 4)  # = 50/sqrt(2) added per axis
     np.testing.assert_allclose(
         xyxy[0],

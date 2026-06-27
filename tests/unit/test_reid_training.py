@@ -167,6 +167,12 @@ def test_vit_defaults_respect_explicit_training_values(tmp_path):
         ({"k": 0}, "p and k"),
         ({"batch_size": 0}, "evaluation batch size"),
         ({"center_loss_weight": -1}, "center_loss_weight"),
+        ({"early_id_loss_weight": -1}, "early_id_loss_weight"),
+        ({"epochs": 20, "early_id_loss_epochs": 21}, "early_id_loss_epochs"),
+        (
+            {"center_loss_ramp_start_epoch": 10, "center_loss_ramp_end_epoch": 10},
+            "center_loss_ramp_end_epoch",
+        ),
         ({"random_erasing": 1.1}, "random_erasing"),
         ({"eta_min": 1.0}, "eta_min"),
     ],
@@ -174,6 +180,25 @@ def test_vit_defaults_respect_explicit_training_values(tmp_path):
 def test_trainer_rejects_invalid_config_early(tmp_path, kwargs, message):
     with pytest.raises(ValueError, match=message):
         _trainer(tmp_path, **kwargs)
+
+
+def test_trainer_applies_epoch_loss_schedules(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        center_loss_weight=5e-3,
+        early_id_loss_weight=1.25,
+        early_id_loss_epochs=40,
+        center_loss_ramp_start_epoch=10,
+        center_loss_ramp_end_epoch=20,
+    )
+
+    assert trainer._effective_id_loss_weight(1) == 1.25
+    assert trainer._effective_id_loss_weight(40) == 1.25
+    assert trainer._effective_id_loss_weight(41) == 1.0
+    assert trainer._effective_center_loss_weight(10) == 0.0
+    assert trainer._effective_center_loss_weight(15) == pytest.approx(2.5e-3)
+    assert trainer._effective_center_loss_weight(20) == pytest.approx(5e-3)
+    assert trainer._effective_center_loss_weight(21) == pytest.approx(5e-3)
 
 
 def test_trainer_exposes_distinct_train_and_eval_batch_sizes(tmp_path):
@@ -305,6 +330,10 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
                 "deterministic": False,
                 "lr": 7e-4,
                 "center_loss_weight": 5e-3,
+                "early_id_loss_weight": 1.25,
+                "early_id_loss_epochs": 40,
+                "center_loss_ramp_start_epoch": 10,
+                "center_loss_ramp_end_epoch": 20,
                 "head_pool": "gem",
                 "head_parts": [1, 2, 4],
                 "part_pooling": "tokens",
@@ -320,6 +349,11 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
                 "head_warmup_lr_mult": 3.0,
                 "vit_lr_profile": "reid_lrd",
                 "backbone_freeze_epochs": 20,
+                "gradual_unfreeze": True,
+                "gradual_unfreeze_head_epochs": 5,
+                "gradual_unfreeze_stage_epochs": 10,
+                "gradual_unfreeze_backbone_lr_mult": 0.1,
+                "gradual_unfreeze_backbone_lr_epochs": 5,
             }
         )
     )
@@ -353,6 +387,10 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
 
     assert captured["lr"] == 3.5e-4
     assert captured["center_loss_weight"] == 0.0
+    assert captured["early_id_loss_weight"] == 1.25
+    assert captured["early_id_loss_epochs"] == 40
+    assert captured["center_loss_ramp_start_epoch"] == 10
+    assert captured["center_loss_ramp_end_epoch"] == 20
     assert captured["seed"] == 91
     assert captured["deterministic"] is False
     assert captured["head_pool"] == "gem"
@@ -370,6 +408,11 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
     assert captured["head_warmup_lr_mult"] == 3.0
     assert captured["vit_lr_profile"] == "reid_lrd"
     assert captured["backbone_freeze_epochs"] == 20
+    assert captured["gradual_unfreeze"] is True
+    assert captured["gradual_unfreeze_head_epochs"] == 5
+    assert captured["gradual_unfreeze_stage_epochs"] == 10
+    assert captured["gradual_unfreeze_backbone_lr_mult"] == 0.1
+    assert captured["gradual_unfreeze_backbone_lr_epochs"] == 5
     assert captured["explicit_hparams"] == {"lr", "center_loss_weight"}
 
 
@@ -407,11 +450,22 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
                     "epochs": 250,
                     "vit_lr_profile": "reid_lrd",
                     "backbone_freeze_epochs": 40,
+                    "gradual_unfreeze": {
+                        "enabled": True,
+                        "head_epochs": 5,
+                        "stage_epochs": 10,
+                        "backbone_lr_mult": 0.1,
+                        "backbone_lr_epochs": 5,
+                    },
                     "scheduler": {"warmup_epochs": 20},
                 },
                 "losses": {
                     "loss_type": "triplet",
                     "weights": {"center_loss_weight": 0.005},
+                    "schedules": {
+                        "early_id_loss": {"weight": 1.25, "epochs": 40},
+                        "center_loss_ramp": {"start_epoch": 10, "end_epoch": 20},
+                    },
                 },
             }
         )
@@ -458,11 +512,20 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
     assert captured["branch_aware_metric"] is True
     assert captured["branch_metric_part_weight"] == 0.25
     assert captured["center_loss_weight"] == 0.005
+    assert captured["early_id_loss_weight"] == 1.25
+    assert captured["early_id_loss_epochs"] == 40
+    assert captured["center_loss_ramp_start_epoch"] == 10
+    assert captured["center_loss_ramp_end_epoch"] == 20
     assert captured["p"] == 16
     assert captured["k"] == 4
     assert captured["warmup_epochs"] == 20
     assert captured["vit_lr_profile"] == "reid_lrd"
     assert captured["backbone_freeze_epochs"] == 40
+    assert captured["gradual_unfreeze"] is True
+    assert captured["gradual_unfreeze_head_epochs"] == 5
+    assert captured["gradual_unfreeze_stage_epochs"] == 10
+    assert captured["gradual_unfreeze_backbone_lr_mult"] == 0.1
+    assert captured["gradual_unfreeze_backbone_lr_epochs"] == 5
 
 
 def test_reid_checkpoint_saves_center_loss_state(tmp_path):
@@ -1772,6 +1835,37 @@ def test_trainer_reid_lrd_uses_requested_stage_lr_scales(tmp_path):
     assert trainer._vit_lr_scale_for_param("layers.2.reid_adapters.0.gamma", depth=4) == 1.0
 
 
+def test_trainer_preserves_vit_param_grouping_unless_gradual_unfreeze(tmp_path):
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.blocks = nn.ModuleList()
+            self.other = nn.Linear(1, 1, bias=False)
+            self.head = nn.Linear(1, 1, bias=False)
+
+    model = TinyModel()
+    default_trainer = _trainer(tmp_path)
+    gradual_trainer = _trainer(tmp_path, gradual_unfreeze=True)
+
+    default_groups = default_trainer._build_vit_param_groups(model)
+    gradual_groups = gradual_trainer._build_vit_param_groups(model)
+
+    mixed_default_groups = [
+        group for group in default_groups
+        if group.get("lr_scale") == 1.0 and group.get("weight_decay") == default_trainer.weight_decay
+    ]
+    assert len(mixed_default_groups) == 1
+    assert mixed_default_groups[0]["is_head"] is True
+    assert mixed_default_groups[0]["is_backbone"] is True
+
+    split_gradual_groups = [
+        group for group in gradual_groups
+        if group.get("lr_scale") == 1.0 and group.get("weight_decay") == gradual_trainer.weight_decay
+    ]
+    assert len(split_gradual_groups) == 2
+    assert sorted(group["is_backbone"] for group in split_gradual_groups) == [False, True]
+
+
 def test_trainer_backbone_freeze_keeps_reid_modules_trainable(tmp_path):
     trainer = _trainer(tmp_path)
 
@@ -1806,3 +1900,66 @@ def test_trainer_backbone_freeze_keeps_reid_modules_trainable(tmp_path):
 
     trainer._set_backbone_freeze_trainability(model, False)
     assert all(param.requires_grad for param in model.parameters())
+
+
+def test_trainer_gradual_unfreeze_stages_trainability_and_backbone_lr(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        gradual_unfreeze=True,
+        gradual_unfreeze_head_epochs=5,
+        gradual_unfreeze_stage_epochs=10,
+        gradual_unfreeze_backbone_lr_mult=0.1,
+        gradual_unfreeze_backbone_lr_epochs=5,
+    )
+
+    class TinyModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.patch_embed = nn.Linear(1, 1)
+            self.layers = nn.ModuleList([nn.Linear(1, 1) for _ in range(4)])
+            self.feature_fusion_module = nn.Linear(1, 1)
+            self.neck = nn.Linear(1, 1)
+            self.head = nn.Linear(1, 1)
+
+    model = TinyModel()
+
+    trainer._set_gradual_unfreeze_trainability(model, "head")
+    assert not model.patch_embed.weight.requires_grad
+    assert not model.layers[3].weight.requires_grad
+    assert not model.feature_fusion_module.weight.requires_grad
+    assert model.neck.weight.requires_grad
+    assert model.head.weight.requires_grad
+    assert model.patch_embed.training is False
+    assert model.layers[0].training is False
+    assert model.layers[3].training is False
+
+    trainer._set_gradual_unfreeze_trainability(model, "stage")
+    assert not model.patch_embed.weight.requires_grad
+    assert not model.layers[2].weight.requires_grad
+    assert model.layers[3].weight.requires_grad
+    assert not model.feature_fusion_module.weight.requires_grad
+    assert model.neck.weight.requires_grad
+    assert model.head.weight.requires_grad
+    assert model.layers[2].training is False
+    assert model.layers[3].training is True
+
+    trainer._set_gradual_unfreeze_trainability(model, "full")
+    assert all(param.requires_grad for param in model.parameters())
+
+    optimizer = torch.optim.SGD(
+        [
+            {"params": [model.layers[0].weight], "lr": 1.0, "is_backbone": True},
+            {"params": [model.head.weight], "lr": 2.0, "is_head": True, "is_backbone": False},
+        ],
+        lr=1.0,
+    )
+    original_lrs = trainer._apply_gradual_backbone_lrs(optimizer)
+
+    assert original_lrs == [1.0, 2.0]
+    assert [group["lr"] for group in optimizer.param_groups] == [0.1, 2.0]
+    assert trainer._gradual_unfreeze_phase(5) == "head"
+    assert trainer._gradual_unfreeze_phase(6) == "stage"
+    assert trainer._gradual_unfreeze_phase(11) == "full"
+    assert trainer._gradual_backbone_lr_active(11) is True
+    assert trainer._gradual_backbone_lr_active(15) is True
+    assert trainer._gradual_backbone_lr_active(16) is False

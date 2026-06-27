@@ -23,18 +23,28 @@ def _normalize_editable_files(
     if editable_files:
         files = [Path(path) for path in editable_files]
     else:
-        tracker_dir = ROOT / "boxmot" / "trackers" / "bbox" / tracker.lower()
-        if not tracker_dir.exists():
-            # Fallback for non-bbox trackers (e.g. hybrid)
-            tracker_dir = ROOT / "boxmot" / "trackers" / tracker.lower()
-        if not tracker_dir.exists():
-            raise FileNotFoundError(f"Tracker source directory not found: {tracker_dir}")
-
-        main_impl = tracker_dir / f"{tracker.lower()}.py"
-        if main_impl.exists():
-            files = [main_impl]
+        tracker_name = tracker.lower()
+        tracker_file = ROOT / "boxmot" / "trackers" / "bbox" / f"{tracker_name}.py"
+        tracker_dir = ROOT / "boxmot" / "trackers" / "bbox" / tracker_name
+        if tracker_file.exists():
+            files = [tracker_file]
+        elif tracker_dir.exists():
+            main_impl = tracker_dir / f"{tracker_name}.py"
+            if main_impl.exists():
+                files = [main_impl]
+            else:
+                files = sorted(path for path in tracker_dir.rglob("*.py") if path.name != "__init__.py")
         else:
-            files = sorted(path for path in tracker_dir.rglob("*.py") if path.name != "__init__.py")
+            # Fallback for non-bbox trackers (e.g. hybrid)
+            tracker_dir = ROOT / "boxmot" / "trackers" / tracker_name
+            if not tracker_dir.exists():
+                raise FileNotFoundError(f"Tracker source not found for: {tracker}")
+
+            main_impl = tracker_dir / f"{tracker_name}.py"
+            if main_impl.exists():
+                files = [main_impl]
+            else:
+                files = sorted(path for path in tracker_dir.rglob("*.py") if path.name != "__init__.py")
 
     normalized: list[str] = []
     for path in files:

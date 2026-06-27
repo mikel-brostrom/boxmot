@@ -5,7 +5,7 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from boxmot.trackers.track_results import TrackResults
+from boxmot.trackers.results import TrackResults
 
 try:
     from ultralytics.utils.plotting import colors

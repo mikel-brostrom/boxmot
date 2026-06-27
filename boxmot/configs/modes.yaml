@@ -133,6 +133,10 @@ train:
   center_loss_weight: 0.005
   id_loss_weight: 1.0
   metric_loss_weight: 1.0
+  early_id_loss_weight: 0.0
+  early_id_loss_epochs: 0
+  center_loss_ramp_start_epoch: 0
+  center_loss_ramp_end_epoch: 0
   aux_ce_weight: 1.0
   aux_ce_drop_epoch: 0
   branch_loss_agg: mean
@@ -163,6 +167,11 @@ train:
   head_warmup_lr_mult: 2.0
   vit_lr_profile: layer_decay
   backbone_freeze_epochs: 0
+  gradual_unfreeze: false
+  gradual_unfreeze_head_epochs: 5
+  gradual_unfreeze_stage_epochs: 10
+  gradual_unfreeze_backbone_lr_mult: 0.1
+  gradual_unfreeze_backbone_lr_epochs: 5
   pretrained: true
   device: cpu
   project: runs/reid_train

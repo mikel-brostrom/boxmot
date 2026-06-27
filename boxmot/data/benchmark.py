@@ -256,17 +256,28 @@ def configure_benchmark_runtime(
 
 def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> list[tuple[str, int]]:
     """Resolve OBB class names and their actual zero-based MMOT class IDs."""
-    eval_classes_cfg = bench_cfg.get("eval_classes") or {}
-    ordered_pairs = [
-        (str(name).lower(), int(class_id) - 1)
-        for class_id, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))
-    ]
+    class_bridge = bench_cfg.get("class_bridge") or []
+    if class_bridge:
+        ordered_pairs = [
+            (str(entry.get("name", entry.get("dataset_id"))).lower(), int(entry["detector_id"]))
+            for entry in class_bridge
+            if isinstance(entry, dict) and entry.get("detector_id") is not None
+        ]
+    else:
+        eval_classes_cfg = bench_cfg.get("eval_classes") or {}
+        ordered_pairs = [
+            (str(name).lower(), int(class_id) - 1)
+            for class_id, name in sorted(eval_classes_cfg.items(), key=lambda kv: int(kv[0]))
+        ]
 
     if not ordered_pairs and getattr(args, "remapped_class_ids", None) and getattr(args, "remapped_class_names", None):
         return [
             (str(name).lower(), int(class_id))
             for name, class_id in zip(args.remapped_class_names, args.remapped_class_ids)
         ]
+
+    if not ordered_pairs:
+        return []
 
     translated_names = getattr(args, "translated_benchmark_class_names", None)
     if translated_names:
@@ -305,6 +316,60 @@ def build_gt_class_remap(
     """Build a GT class remap so gt_temp.txt class IDs match tracker output."""
     eval_classes_cfg = bench_cfg.get("eval_classes")
     class_mapping = bench_cfg.get("class_mapping")
+    class_bridge = bench_cfg.get("class_bridge") or []
+
+    if class_bridge:
+        remap: dict[int, int] = {}
+        used_detector_classes: dict[int, str] = {}
+        det_classes = det_cfg.get("classes", {}) if det_cfg else {}
+        det_classes_by_id = {int(key): str(value) for key, value in det_classes.items()}
+
+        for entry in class_bridge:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("dataset_id") is None or entry.get("detector_id") is None:
+                LOGGER.warning(f"class_bridge: skipping incomplete entry {entry}")
+                continue
+
+            dataset_id = int(entry["dataset_id"])
+            detector_id = int(entry["detector_id"])
+            detector_name = str(entry.get("detector_name") or entry.get("name") or detector_id)
+
+            configured_detector_name = det_classes_by_id.get(detector_id)
+            if configured_detector_name is not None and configured_detector_name != detector_name:
+                LOGGER.warning(
+                    "class_bridge detector metadata differs from detector config: "
+                    f"id {detector_id} is '{configured_detector_name}', bridge says '{detector_name}'"
+                )
+
+            remap[dataset_id] = detector_id + 1
+            used_detector_classes[detector_id + 1] = detector_name
+
+        if not remap:
+            LOGGER.warning("class_bridge produced no valid entries. Skipping remap.")
+            return None
+
+        new_entries = sorted(used_detector_classes.items())
+        new_class_ids = [class_id for class_id, _ in new_entries]
+        new_class_names = [name for _, name in new_entries]
+
+        model_label = f" -> {model_stem}" if model_stem else ""
+        LOGGER.info(f"[cyan]Class bridge ({_escape_markup(str(benchmark_name))}{_escape_markup(model_label)}):[/cyan]")
+        for entry in class_bridge:
+            if not isinstance(entry, dict) or entry.get("dataset_id") is None or entry.get("detector_id") is None:
+                continue
+            dataset_name = str(entry.get("name") or entry["dataset_id"])
+            detector_name = str(entry.get("detector_name") or dataset_name)
+            LOGGER.info(
+                f"  [blue]{_escape_markup(dataset_name):<22}[/blue] "
+                f"dataset:{int(entry['dataset_id'])} -> "
+                f"[cyan]{_escape_markup(detector_name)}[/cyan] detector:{int(entry['detector_id'])}"
+            )
+        LOGGER.info(
+            "  [cyan]GT class IDs remapped:[/cyan] "
+            + ", ".join(f"{bench_id}->{remap[bench_id]}" for bench_id in sorted(remap))
+        )
+        return remap, new_class_ids, new_class_names
 
     if det_cfg is None:
         if class_mapping:

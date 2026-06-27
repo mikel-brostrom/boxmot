@@ -7,7 +7,7 @@ Masks are optional — the tracker can fall back to bbox-only mode.
 
 import numpy as np
 
-from boxmot.trackers.basetracker import BaseTracker
+from boxmot.trackers.base import BaseTracker
 
 
 class HybridBaseTracker(BaseTracker):

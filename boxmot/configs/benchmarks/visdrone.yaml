@@ -23,6 +23,50 @@ dataset:
     0: ignored regions
     11: others
 
+evaluation:
+  classes:
+    - name: pedestrian
+      dataset_id: 1
+      detector_id: 0
+      detector_name: pedestrian
+    - name: people
+      dataset_id: 2
+      detector_id: 1
+      detector_name: people
+    - name: bicycle
+      dataset_id: 3
+      detector_id: 2
+      detector_name: bicycle
+    - name: car
+      dataset_id: 4
+      detector_id: 3
+      detector_name: car
+    - name: van
+      dataset_id: 5
+      detector_id: 4
+      detector_name: van
+    - name: truck
+      dataset_id: 6
+      detector_id: 5
+      detector_name: truck
+    - name: tricycle
+      dataset_id: 7
+      detector_id: 6
+      detector_name: tricycle
+    - name: awning-tricycle
+      dataset_id: 8
+      detector_id: 7
+      detector_name: awning-tricycle
+    - name: bus
+      dataset_id: 9
+      detector_id: 8
+      detector_name: bus
+    - name: motor
+      dataset_id: 10
+      detector_id: 9
+      detector_name: motor
+  ignore_dataset_ids: [0, 11]
+
 download:
   dataset: "https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu"
   runs: ""

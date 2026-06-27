@@ -10,4 +10,4 @@ StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The pap
 - AABB detections only in BoxMOT.
 - Good when appearance matching matters more than raw speed, especially for pedestrian-style MOT benchmarks.
 
-::: boxmot.trackers.bbox.strongsort.strongsort.StrongSort
+::: boxmot.trackers.bbox.strongsort.StrongSort

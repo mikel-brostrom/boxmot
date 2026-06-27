@@ -154,6 +154,61 @@ def test_workflow_support_routes_cpp_live_ocsort_backend(monkeypatch):
     assert seen["kwargs"] == {"reid_weights": None, "reid_preprocess": None}
 
 
+def test_resolve_tracker_class_metadata_uses_detector_config_classes():
+    args = SimpleNamespace(
+        dataset_detector_cfg={"classes": {0: "car", 7: "awning-bike"}},
+        classes=None,
+    )
+
+    class_ids, class_names = workflow_support_module.resolve_tracker_class_metadata(args)
+
+    assert class_ids == (0, 7)
+    assert class_names == {0: "car", 7: "awning-bike"}
+
+
+def test_resolve_tracker_class_metadata_respects_selected_classes():
+    args = SimpleNamespace(
+        dataset_detector_cfg={"classes": {0: "car", 7: "awning-bike"}},
+        classes=[7],
+    )
+
+    class_ids, class_names = workflow_support_module.resolve_tracker_class_metadata(args)
+
+    assert class_ids == (7,)
+    assert class_names == {0: "car", 7: "awning-bike"}
+
+
+def test_resolve_tracker_class_metadata_falls_back_to_detector_backend_names():
+    detector = SimpleNamespace(backend=SimpleNamespace(names={3: "van"}))
+    args = SimpleNamespace(dataset_detector_cfg=None, classes=None)
+
+    class_ids, class_names = workflow_support_module.resolve_tracker_class_metadata(args, detector)
+
+    assert class_ids == (3,)
+    assert class_names == {3: "van"}
+
+
+def test_build_tracker_from_spec_forwards_class_metadata(monkeypatch):
+    seen = {}
+
+    def fake_create_tracker(**kwargs):
+        seen.update(kwargs)
+        return "tracker"
+
+    monkeypatch.setattr(workflow_support_module, "create_tracker", fake_create_tracker)
+    monkeypatch.setattr(workflow_support_module, "select_device", lambda device: device)
+
+    tracker = workflow_support_module.build_tracker_from_spec(
+        "bytetrack",
+        class_ids=(0, 7),
+        class_names={0: "car", 7: "awning-bike"},
+    )
+
+    assert tracker == "tracker"
+    assert seen["class_ids"] == (0, 7)
+    assert seen["class_names"] == {0: "car", 7: "awning-bike"}
+
+
 def test_workflow_support_rejects_unsupported_cpp_live_tracker_backend():
     with pytest.raises(
         ValueError,

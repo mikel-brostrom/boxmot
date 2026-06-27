@@ -35,10 +35,13 @@ from boxmot.detectors.ultralytics import UltralyticsDetector
 from boxmot.engine.tracking.inference import prepare_detections
 from boxmot.engine.tracking.mot import convert_to_mot_format, write_mot_results
 from boxmot.engine.workflows import support as workflow_support_module
-from boxmot.trackers.association.iou import iou_obb_pair
-from boxmot.trackers.basetracker import BaseTracker
-from boxmot.trackers.bbox.ocsort.ocsort import convert_obb_to_z, convert_x_to_obb
-from boxmot.trackers.common.detection_layout import AABB_DETECTIONS, OBB_DETECTIONS
+from boxmot.trackers.base import BaseTracker
+from boxmot.trackers.common.association.iou import iou_obb_pair
+from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
+from boxmot.trackers.common.motion import (
+    xysr_state_to_xywha,
+    xywha_to_xysr_measurement,
+)
 from boxmot.utils import WEIGHTS
 from boxmot.utils.timing import TimingStats
 
@@ -46,7 +49,9 @@ _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 
 class _DummyTracker(BaseTracker):
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None) -> np.ndarray:
+    def _update_impl(
+        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None
+    ) -> np.ndarray:
         self.check_inputs(dets, img, embs)
         return np.empty((0, 9 if self.is_obb else 8), dtype=np.float32)
 
@@ -91,7 +96,7 @@ def test_prepare_detections_filters_invalid_obb_boxes():
     dets = np.array(
         [
             [100, 100, 20, 10, 0.2, 0.9, 0],  # valid: area = 200
-            [100, 100, 0, 10, 0.2, 0.9, 0],   # invalid: w = 0
+            [100, 100, 0, 10, 0.2, 0.9, 0],  # invalid: w = 0
         ],
         dtype=np.float32,
     )
@@ -134,11 +139,7 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
             return torch.zeros((preprocessed.shape[0], 1, 7), dtype=torch.float32)
 
         def postprocess(self, raw_preds, preprocessed, orig_imgs):
-            return [
-                _FakeResult(
-                    [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
-                )
-            ]
+            return [_FakeResult([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]])]
 
     class _FakeYOLO:
         def __init__(self, model):
@@ -148,11 +149,7 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
 
         def predict(self, **_kwargs):
             self.predictor = _FakePredictor()
-            return [
-                _FakeResult(
-                    [[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]]
-                )
-            ]
+            return [_FakeResult([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]])]
 
     monkeypatch.setattr(ultralytics_detector_module, "YOLO", _FakeYOLO)
 
@@ -171,6 +168,48 @@ def test_ultralytics_detector_preserves_obb_results(monkeypatch):
         results[0].dets,
         np.array([[32.0, 24.0, 20.0, 10.0, 0.25, 0.9, 0.0]], dtype=np.float32),
     )
+
+
+def test_ultralytics_detector_scales_segmentation_masks_to_original_shape():
+    class _FakeBoxes:
+        def __init__(self):
+            self.xyxy = torch.tensor([[10.0, 10.0, 20.0, 20.0]], dtype=torch.float32)
+            self.conf = torch.tensor([0.9], dtype=torch.float32)
+            self.cls = torch.tensor([0.0], dtype=torch.float32)
+
+        def __len__(self):
+            return len(self.conf)
+
+    class _FakeMasks:
+        def __init__(self):
+            self.data = torch.zeros((1, 80, 80), dtype=torch.uint8)
+            # Original image is 40x80 letterboxed into 80x80, so rows 0:20
+            # and 60:80 are padding. This object should land at y=10:20
+            # after de-letterboxing, not y=15:20 from naive resize.
+            self.data[0, 30:40, 10:20] = 1
+            self.orig_shape = (40, 80)
+
+        def __len__(self):
+            return int(self.data.shape[0])
+
+    result = SimpleNamespace(
+        obb=None,
+        boxes=_FakeBoxes(),
+        masks=_FakeMasks(),
+        orig_img=np.zeros((40, 80, 3), dtype=np.uint8),
+    )
+    detector = UltralyticsDetector.__new__(UltralyticsDetector)
+
+    dets, masks = detector._extract_dets(result)
+
+    np.testing.assert_array_equal(
+        dets,
+        np.array([[10.0, 10.0, 20.0, 20.0, 0.9, 0.0]], dtype=np.float32),
+    )
+    assert masks.shape == (1, 40, 80)
+    assert masks[0, 10:20, 10:20].all()
+    assert masks[0, :10, 10:20].sum() == 0
+    assert masks[0, 20:, 10:20].sum() == 0
 
 
 def test_default_detector_fallbacks_preserve_legacy_runtime_behavior():
@@ -224,9 +263,8 @@ def test_ultralytics_detector_downloads_missing_configured_weights(monkeypatch, 
     monkeypatch.setattr(
         ultralytics_detector_module,
         "download_file",
-        lambda url, dest, overwrite=False, **_kwargs: calls.update(
-            {"url": url, "dest": dest, "overwrite": overwrite}
-        ) or dest,
+        lambda url, dest, overwrite=False, **_kwargs: calls.update({"url": url, "dest": dest, "overwrite": overwrite})
+        or dest,
         raising=False,
     )
 
@@ -254,9 +292,7 @@ def test_ultralytics_detector_downloads_missing_official_weights_into_models_dir
     monkeypatch.setattr(
         ultralytics_detector_module,
         "attempt_download_asset",
-        lambda file, release="latest", **_kwargs: calls.update(
-            {"file": Path(file), "release": release}
-        ) or str(file),
+        lambda file, release="latest", **_kwargs: calls.update({"file": Path(file), "release": release}) or str(file),
         raising=False,
     )
 
@@ -282,9 +318,7 @@ def test_ultralytics_detector_redownloads_corrupt_official_weights(monkeypatch, 
     monkeypatch.setattr(
         ultralytics_detector_module,
         "attempt_download_asset",
-        lambda file, release="latest", **_kwargs: calls.update(
-            {"file": Path(file), "release": release}
-        ) or str(file),
+        lambda file, release="latest", **_kwargs: calls.update({"file": Path(file), "release": release}) or str(file),
         raising=False,
     )
 
@@ -441,6 +475,7 @@ def test_iter_source_expands_globs(tmp_path):
     img = np.zeros((8, 8, 3), dtype=np.uint8)
     img_path = tmp_path / "000001.jpg"
     import cv2
+
     cv2.imwrite(str(img_path), img)
 
     frames = list(iter_source(str(tmp_path / "*.jpg")))
@@ -693,7 +728,9 @@ def test_pipeline_records_detector_and_reid_phase_timings(monkeypatch):
             return preprocessed
 
         def postprocess(self, detections):
-            return [Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=image, path="") for image in detections]
+            return [
+                Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=image, path="") for image in detections
+            ]
 
     class _FakeReIDModel:
         def get_crops(self, xyxys, img):
@@ -813,8 +850,8 @@ def test_tracker_rejects_obb_when_not_supported():
 def test_ocsort_obb_state_roundtrip_handles_column_vectors():
     obb = np.array([32, 24, 20, 10, 0.25], dtype=np.float32)
 
-    state = convert_obb_to_z(obb)
-    decoded = convert_x_to_obb(state)
+    state = xywha_to_xysr_measurement(obb).reshape((5, 1))
+    decoded = xysr_state_to_xywha(state)
 
     assert decoded.shape == (1, 5)
     np.testing.assert_allclose(decoded[0], obb, rtol=1e-6, atol=1e-6)
@@ -1169,8 +1206,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
 
         def complete(self, label):
             self.steps = [
-                (step_label, "done" if step_label == label else step_state)
-                for step_label, step_state in self.steps
+                (step_label, "done" if step_label == label else step_state) for step_label, step_state in self.steps
             ]
 
         def fail(self, label=None, error=None, *, render=True):
@@ -1264,9 +1300,10 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         evaluator_module,
         "run_generate_dets_embs",
         lambda args, timing_stats=None, progress_callback=None: progress_callback(
-            "Generating detections and embeddings: 2/2 frames\n"
-            "  MOT17-02-FRCNN ████████████████████  100%  (done)"
-        ) if progress_callback else None,
+            "Generating detections and embeddings: 2/2 frames\n  MOT17-02-FRCNN ████████████████████  100%  (done)"
+        )
+        if progress_callback
+        else None,
     )
     monkeypatch.setattr(
         evaluator_module,
@@ -1282,7 +1319,9 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         return {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
 
     monkeypatch.setattr(evaluator_module, "run_trackeval", fake_run_trackeval)
-    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
 
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
@@ -1306,8 +1345,7 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         (
             "detail",
             evaluator_module.EVAL_GENERATE_STEP,
-            "Generating detections and embeddings: 2/2 frames\n"
-            "  MOT17-02-FRCNN ████████████████████  100%  (done)",
+            "Generating detections and embeddings: 2/2 frames\n  MOT17-02-FRCNN ████████████████████  100%  (done)",
         ),
         ("done", evaluator_module.EVAL_GENERATE_STEP),
         ("active", evaluator_module.EVAL_TRACK_STEP),
@@ -1318,6 +1356,169 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics..."),
     ]
     assert actions[11] == ("done", evaluator_module.EVAL_EVALUATE_STEP)
+
+
+def test_run_eval_advances_from_postprocess_to_evaluate(monkeypatch, tmp_path):
+    actions = []
+    postprocess_step = "Postprocess tracks"
+
+    class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (postprocess_step, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
+
+        def activate(self, label, *, render=True):
+            actions.append(("active", label))
+
+        def complete(self, label, *, render=True):
+            actions.append(("done", label))
+
+        def set_detail(self, title, text, *, render=True):
+            actions.append(("detail", title, text))
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            actions.append(("renderable", title))
+
+        def transition(self, done, next_step, detail=None):
+            actions.append(("done", done))
+            actions.append(("active", next_step))
+            if detail:
+                actions.append(("detail", next_step, detail))
+
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, pipeline=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda *args, **kwargs: None)
+
+    def fake_run_generate_mot_results(*args, progress_callback=None, postprocess_callback=None, **kwargs):
+        if progress_callback:
+            progress_callback("Tracking: 1/1 sequences done")
+        if postprocess_callback:
+            postprocess_callback("GBRC: 1/1 sequences done")
+
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", fake_run_generate_mot_results)
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        postprocessing="gbrc",
+        show_progress=True,
+        verbose=False,
+    )
+
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
+
+    assert ("done", evaluator_module.EVAL_TRACK_STEP) in actions
+    assert ("active", postprocess_step) in actions
+    assert ("detail", postprocess_step, "GBRC: 1/1 sequences done") in actions
+    assert ("done", postprocess_step) in actions
+    assert ("active", evaluator_module.EVAL_EVALUATE_STEP) in actions
+    assert ("detail", evaluator_module.EVAL_EVALUATE_STEP, "Computing metrics...") in actions
+    assert actions[-2:] == [
+        ("done", evaluator_module.EVAL_EVALUATE_STEP),
+        ("renderable", evaluator_module.EVAL_EVALUATE_STEP),
+    ]
+
+
+def test_run_eval_advances_through_tune_kf_step(monkeypatch, tmp_path):
+    actions = []
+
+    from boxmot.motion.kalman_filters import calibration as calibration_module
+    from boxmot.utils.rich.workflow import steps as step_labels
+    from boxmot.utils.rich.workflow.pipeline import PipelineTracker
+
+    class _FakeWorkflow:
+        steps = [
+            (evaluator_module.EVAL_SETUP_STEP, "active"),
+            (evaluator_module.EVAL_GENERATE_STEP, "todo"),
+            (step_labels.TUNE_KF, "todo"),
+            (evaluator_module.EVAL_TRACK_STEP, "todo"),
+            (evaluator_module.EVAL_EVALUATE_STEP, "todo"),
+        ]
+        detail_renderable = None
+        detail_text = None
+        detail_title = None
+
+        def activate(self, label, *, render=True):
+            actions.append(("active", label))
+
+        def complete(self, label, *, render=True):
+            actions.append(("done", label))
+
+        def set_detail(self, title, text, *, render=True):
+            actions.append(("detail", title, text))
+
+        def set_detail_renderable(self, title, renderable, *, render=True):
+            actions.append(("renderable", title))
+
+        def transition(self, done, next_step, detail=None):
+            actions.append(("done", done))
+            actions.append(("active", next_step))
+            if detail:
+                actions.append(("detail", next_step, detail))
+
+    monkeypatch.setattr(evaluator_module, "_ensure_eval_dependencies", lambda: None)
+    monkeypatch.setattr(evaluator_module, "_normalize_eval_models", lambda args: None)
+    monkeypatch.setattr(evaluator_module, "eval_setup", lambda args, pipeline=None: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda *args, **kwargs: None)
+    monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
+    monkeypatch.setattr(calibration_module, "tracker_kf_type", lambda tracker: "xywh")
+    monkeypatch.setattr(
+        calibration_module,
+        "run_kf_tuning",
+        lambda *args, **kwargs: ({"std_weight_position": 0.1, "std_weight_velocity": 0.01}, None),
+    )
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
+
+    args = SimpleNamespace(
+        detector=[tmp_path / "detector.pt"],
+        reid=[tmp_path / "reid.pt"],
+        benchmark="mot17-mini",
+        data="mot17-mini",
+        tracker="botsort",
+        tune_kf=True,
+        show_progress=True,
+        verbose=False,
+    )
+
+    pipeline = PipelineTracker(_FakeWorkflow(), wire_status_fns=False)
+    evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
+
+    assert [label for action, label, *detail in actions if action == "active"] == [
+        evaluator_module.EVAL_GENERATE_STEP,
+        step_labels.TUNE_KF,
+        evaluator_module.EVAL_TRACK_STEP,
+        evaluator_module.EVAL_EVALUATE_STEP,
+    ]
+    assert ("detail", step_labels.TUNE_KF, "Calibrating Kalman filter...") in actions
+    assert ("detail", evaluator_module.EVAL_TRACK_STEP, "Starting tracker...") in actions
+    assert actions[-2:] == [
+        ("done", evaluator_module.EVAL_EVALUATE_STEP),
+        ("renderable", evaluator_module.EVAL_EVALUATE_STEP),
+    ]
 
 
 def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp_path):
@@ -1365,8 +1566,12 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
         lambda args, timing_stats=None, progress_callback=None: None,
     )
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
-    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
 
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
@@ -1489,10 +1694,16 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
         args.tracker_backend = "cpp"
 
     monkeypatch.setattr(evaluator_module, "eval_setup", fake_eval_setup)
-    monkeypatch.setattr(evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None, progress_callback=None: None)
+    monkeypatch.setattr(
+        evaluator_module, "run_generate_dets_embs", lambda args, timing_stats=None, progress_callback=None: None
+    )
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
-    monkeypatch.setattr(evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}))
+    monkeypatch.setattr(
+        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+    )
+    monkeypatch.setattr(
+        evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
+    )
 
     args = SimpleNamespace(
         detector=[tmp_path / "detector.pt"],
@@ -1813,7 +2024,9 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
+    workflow.renderable = (
+        lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
+    )
 
     monkeypatch.setattr(
         ui_module.WorkflowProgress,
@@ -1830,6 +2043,7 @@ def test_workflow_progress_keeps_compact_layout_for_final_render(monkeypatch):
     # In compact mode, _renderable_with_limit builds a Panel via
     # build_workflow_intro instead of calling self.renderable(compact=True).
     from rich.panel import Panel
+
     assert isinstance(update_calls[-1][0], Panel)
 
 
@@ -1861,7 +2075,9 @@ def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch)
 
     full_renderable = object()
     compact_renderable = object()
-    workflow.renderable = lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
+    workflow.renderable = (
+        lambda *, compact=False, include_setup=True: compact_renderable if compact else full_renderable
+    )
 
     workflow.start()
 
@@ -1869,6 +2085,7 @@ def test_workflow_progress_prefers_compact_layout_from_first_render(monkeypatch)
     # In compact mode, _renderable_with_limit builds a Panel via
     # build_workflow_intro instead of calling self.renderable(compact=True).
     from rich.panel import Panel
+
     assert isinstance(init_renderables[0], Panel)
 
 

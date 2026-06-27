@@ -7,8 +7,8 @@ from typing import Any
 import numpy as np
 
 from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mot_format
-from boxmot.trackers.track_results import TrackResults
-from boxmot.trackers.tracker_zoo import TRACKER_MAPPING, create_tracker, get_tracker_config
+from boxmot.trackers.results import TrackResults
+from boxmot.trackers.registry import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.utils.timing import TimingStats, wrap_tracker_reid
 
 
@@ -45,6 +45,8 @@ class TrackerRuntime:
         target_id: int | None = None,
         timing_stats: TimingStats | None = None,
         reid_preprocess: str | None = None,
+        class_ids: tuple[int, ...] | None = None,
+        class_names: dict[int, str] | None = None,
     ) -> "TrackerRuntime":
         normalized_tracker = str(tracker_name).lower()
         if normalized_tracker not in TRACKER_MAPPING:
@@ -58,6 +60,8 @@ class TrackerRuntime:
             device=device,
             half=half,
             per_class=per_class,
+            class_ids=class_ids,
+            class_names=class_names,
             evolve_param_dict=evolve_param_dict,
             reid_preprocess=reid_preprocess,
         )

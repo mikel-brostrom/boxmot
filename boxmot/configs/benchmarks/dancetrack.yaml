@@ -11,6 +11,13 @@ dataset:
   classes:
     1: pedestrian
 
+evaluation:
+  classes:
+    - name: pedestrian
+      dataset_id: 1
+      detector_id: 0
+      detector_name: person
+
 download:
   dataset: "https://huggingface.co/datasets/noahcao/dancetrack/resolve/main/test1.zip"
   runs: ""
