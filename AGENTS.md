@@ -51,12 +51,43 @@ python -m boxmot.engine.cli --help
 
 ## 2. Workflow
 
-- Create feature branches for work:
+- Create short, lowercase branches with hyphens between words.
 
   ```bash
-  git checkout -b codex/<short-topic>
+  git checkout -b <type>/<short-description>
   ```
 
+- Branch name examples:
+  - `feature/add-login-page`
+  - `fix/handle-null-user`
+  - `refactor/simplify-auth-flow`
+  - `docs/update-readme`
+- Recommended branch types:
+  - `feature/` – New features or user-facing additions
+  - `fix/` – Bug fixes
+  - `hotfix/` – Urgent production fixes
+  - `refactor/` – Code restructuring without changing behavior
+  - `perf/` – Performance improvements
+  - `docs/` – Documentation-only changes
+  - `test/` – Adding or updating tests
+  - `chore/` – Maintenance tasks that do not affect runtime behavior
+  - `ci/` – CI/CD pipeline changes
+  - `build/` – Build system, dependency, packaging, or tooling changes
+  - `deps/` – Dependency updates
+  - `style/` – Formatting, linting, or non-functional style changes
+  - `release/` – Release preparation
+  - `revert/` – Reverting a previous change
+  - `security/` – Security-related fixes or hardening
+  - `experiment/` – Experimental work that may not be merged
+  - `spike/` – Research or investigation branches
+  - `migration/` – Database, schema, or data migration work
+  - `infra/` – Infrastructure, deployment, or cloud configuration changes
+- Avoid vague branch names such as `update`, `changes`, `stuff`, `fixes`, or `wip`.
+- Prefer descriptive branch names such as:
+  - `fix/user-session-timeout`
+  - `feature/export-results-csv`
+  - `refactor/split-training-pipeline`
+  - `docs/add-agent-instructions`
 - Keep changes focused: one logical change per PR / task.
 - Follow the existing structure and conventions of the modules you touch.
 - Do not add backwards compatibility layers, legacy aliases, migration shims, compatibility wrappers, or deprecated paths unless explicitly requested. Prefer updating callers, tests, docs, and examples to the new canonical structure.
