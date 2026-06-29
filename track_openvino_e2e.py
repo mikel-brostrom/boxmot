@@ -84,20 +84,18 @@ def load_tracker(tracker_type, reid_model=None):
     print(f"\n🔄 加载跟踪器: {tracker_type}")
 
     try:
-        from boxmot import TRACKERS
-
         if tracker_type.lower() == "bytetrack":
-            from boxmot.trackers.bytetrack import BYTETracker
-            tracker = BYTETracker()
+            from boxmot.trackers.bbox.bytetrack.bytetrack import ByteTrack
+            tracker = ByteTrack()
         elif tracker_type.lower() == "botsort":
-            from boxmot.trackers.botsort import BoTSORT
-            tracker = BoTSORT(
+            from boxmot.trackers.bbox.botsort.botsort import BotSort
+            tracker = BotSort(
                 reid_weights=reid_model or "osnet_x0_25_msmt17.pt",
                 device="cpu"
             )
         elif tracker_type.lower() == "strongsort":
-            from boxmot.trackers.strongsort import StrongSORT
-            tracker = StrongSORT(
+            from boxmot.trackers.bbox.strongsort.strongsort import StrongSort
+            tracker = StrongSort(
                 reid_weights=reid_model or "osnet_x0_25_msmt17.pt",
                 device="cpu"
             )
