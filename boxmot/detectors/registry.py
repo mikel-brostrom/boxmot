@@ -129,9 +129,42 @@ def default_conf(yolo_name):
     return 0.01
 
 
+def is_openvino_model(model_path):
+    """
+    检查是否是 OpenVINO 模型。
+
+    支持的格式:
+        - path/to/model.xml
+        - path/to/model.bin
+        - path/to/model_openvino/ (目录)
+    """
+    path = Path(str(model_path))
+
+    # 检查文件后缀
+    if path.suffix in ['.xml', '.bin']:
+        return True
+
+    # 检查目录中是否包含 XML 文件
+    if path.is_dir() and list(path.glob("*.xml")):
+        return True
+
+    return False
+
+
 def get_detector_class(yolo_model):
     """Return the detector backend class that matches the provided model reference."""
     model_name = str(yolo_model)
+
+    # OpenVINO 检测器优先级最高（显式指定格式）
+    if is_openvino_model(model_name):
+        LOGGER.info(f"Detected OpenVINO model: {model_name}")
+        try:
+            from boxmot.detectors.openvino_detector import OpenVinoDetector
+            return OpenVinoDetector
+        except ImportError as e:
+            LOGGER.error(f"Failed to import OpenVinoDetector: {e}")
+            LOGGER.error("Please install OpenVINO: pip install openvino")
+            raise SystemExit(1)
 
     detectors = [
         (
@@ -175,6 +208,7 @@ def get_detector_class(yolo_model):
     LOGGER.error(f"  Ultralytics: {ULTRALYTICS_MODELS}")
     LOGGER.error(f"  RTDetr: {RTDETR_MODELS}")
     LOGGER.error(f"  YOLOX: {YOLOX_MODELS}")
+    LOGGER.error(f"  OpenVINO: *.xml, *.bin, or directory with *.xml")
     LOGGER.error(
         "By using these names, the default COCO-trained models will be downloaded automatically. "
         "For custom models, the filename must include one of these substrings to route it to the correct package and architecture."
@@ -191,6 +225,7 @@ __all__ = (
     "get_detector_class",
     "get_detector_url",
     "get_runtime_detector_cfg",
+    "is_openvino_model",
     "is_rtdetr_model",
     "is_seg_model",
     "is_ultralytics_model",

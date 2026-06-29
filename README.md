@@ -244,6 +244,48 @@ tracks = tracker.update(dets, img)
 print(tracks)
 ```
 
+## OpenVINO Acceleration
+
+BoxMOT supports **OpenVINO** for faster inference on CPU/GPU/NPU. OpenVINO models are automatically detected and used when you provide a `.xml` model path.
+
+**Quick Start**:
+
+```bash
+# Export YOLOv8 to OpenVINO
+python fix_yolov8_openvino.py
+
+# Use OpenVINO model for tracking
+python track_openvino_e2e.py \
+    --openvino-model exports/yolov8n/yolov8n_openvino/model.xml \
+    --source video.mp4 \
+    --tracker bytetrack
+```
+
+**Python API**:
+
+```python
+from boxmot.detectors import Detector
+
+# OpenVINO model is auto-detected by .xml extension
+detector = Detector(
+    path="exports/yolov8n/yolov8n_openvino/model.xml",
+    device="cpu",  # or "gpu", "npu"
+    imgsz=640
+)
+
+# Use with any BoxMOT tracker
+results = detector(img)
+tracks = tracker.update(results[0].dets, img)
+```
+
+**Performance**: OpenVINO provides **1.6-1.7x speedup** on CPU with detection results aligned to PyTorch.
+
+📖 **Detailed Guide**: See [OPENVINO_README.md](OPENVINO_README.md) for complete documentation including:
+- Model export and conversion
+- Device selection (CPU/GPU/NPU)
+- Integration with all trackers
+- Performance benchmarks and troubleshooting
+
 ## Contributing
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [contributor docs](docs/contributing/index.md).
