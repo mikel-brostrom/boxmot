@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from rich.console import Group, RenderableType
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
-from boxmot.engine.tracking.results import FrameResult, Results
 from boxmot.utils.rich.core.ui import (
     STYLE_ACCENT,
     STYLE_RULE,
@@ -20,6 +19,9 @@ from boxmot.utils.rich.core.ui import (
 )
 
 from . import reporting
+
+if TYPE_CHECKING:
+    from boxmot.engine.tracking.results import FrameResult, Results
 
 
 def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
@@ -149,10 +151,7 @@ class ValidationResult:
         return self.render()
 
     def __repr__(self) -> str:
-        return (
-            f"ValidationResult(benchmark={self.benchmark!r}, "
-            f"summary={self.summary!r}, exp_dir={self.exp_dir!r})"
-        )
+        return f"ValidationResult(benchmark={self.benchmark!r}, summary={self.summary!r}, exp_dir={self.exp_dir!r})"
 
     def render(
         self,
@@ -487,6 +486,7 @@ class ExportResult:
     weights: Path
     files: dict[str, Any]
     parity: dict[str, dict[str, Any]] = field(default_factory=dict)
+    half: bool = False
 
     @property
     def parity_ok(self) -> bool:
@@ -498,6 +498,33 @@ class ExportResult:
         if not self.parity:
             return True
         return all(stats.get("ok", False) for stats in self.parity.values())
+
+    @property
+    def embedding_weights(self) -> Path:
+        """Return the preferred exported model for embedding inference."""
+        if "onnx" in self.files:
+            return Path(self.files["onnx"])
+        return Path(self.weights)
+
+    def embed(
+        self,
+        *,
+        source: str | Path | Any,
+        boxes: Any = None,
+        device: str = "cpu",
+        half: bool | None = None,
+        preprocess: str | None = None,
+    ):
+        """Generate ReID embeddings from the exported model when available."""
+        import boxmot.reid as reid_module
+
+        reid = reid_module.ReID(
+            self.embedding_weights,
+            device=device,
+            half=self.half if half is None else bool(half),
+            preprocess_name=preprocess,
+        )
+        return reid(source, boxes=boxes)
 
 
 @dataclass(slots=True)

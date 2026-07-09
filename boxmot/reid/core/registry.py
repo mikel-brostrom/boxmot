@@ -1,13 +1,14 @@
 # model_registry.py
 from __future__ import annotations
 
-from collections import OrderedDict
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
 import torch
 
+from boxmot.reid.backbones import get_backbone_spec
+from boxmot.reid.backbones.common import load_partial_state_dict
 from boxmot.reid.core.config import MODEL_TYPES, NR_CLASSES_DICT, TRAINED_URLS
 from boxmot.reid.core.factory import MODEL_FACTORY
 from boxmot.utils import logger as LOGGER
@@ -25,20 +26,44 @@ def _int_tuple(value: Any) -> tuple[int, ...]:
     return tuple(int(item) for item in value)
 
 
+def _int_pair(value: Any) -> tuple[int, int]:
+    if isinstance(value, int):
+        return (int(value), int(value))
+    values = tuple(int(item) for item in value)
+    if len(values) == 1:
+        return (values[0], values[0])
+    if len(values) != 2:
+        raise ValueError(f"Expected one or two integers, got {value!r}")
+    return values
+
+
 CHECKPOINT_MODEL_KWARG_CONVERTERS: Mapping[str, Callable[[Any], Any]] = {
     "feat_dim": int,
     "neck_dim": int,
+    "timm_model_name": _identity,
+    "use_timm_head": bool,
+    "post_fusion_mixer": _identity,
+    "post_fusion_mixer_reduction": int,
+    "post_fusion_mixer_kernel": _int_pair,
+    "post_fusion_mixer_gamma_init": float,
     "head_pool": _identity,
     "head_parts": _int_tuple,
     "head_type": _identity,
     "part_pooling": _identity,
     "num_part_tokens": int,
+    "evidence_num_roles": int,
     "decouple_patterns": bool,
     "pattern_adapter_dim": int,
     "stripe_visibility": bool,
+    "drop_global_aux": bool,
+    "drop_global_aux_ratio": float,
     "inference_feature": _identity,
     "feature_fusion": _identity,
     "drop_path_rate": float,
+    "patch_stride": int,
+    "dpt_out_indices": _int_tuple,
+    "dpt_fpn_fusion": _identity,
+    "dpt_fpn_target_index": int,
     "attention_window_layout": _identity,
     "attention_bias": _identity,
     "attention_mask": bool,
@@ -133,39 +158,32 @@ class ReIDModelRegistry:
         state_dict = checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
         model_dict = model.state_dict()
 
-        if "lmbn" in weight_path.parts:
-            model.load_state_dict(model_dict, strict=True)
+        matched_layers, discarded_layers = load_partial_state_dict(
+            model,
+            state_dict,
+            key_transform=lambda key: ReIDModelRegistry._normalize_checkpoint_key(model, key),
+            tensor_transform=lambda key, value: ReIDModelRegistry._normalize_checkpoint_tensor(
+                model_dict,
+                key,
+                value,
+            ),
+        )
+
+        if not matched_layers:
+            LOGGER.debug(
+                f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
+            )
         else:
-            new_state_dict = OrderedDict()
-            matched_layers, discarded_layers = [], []
-            for k, v in state_dict.items():
-                # Remove 'module.' prefix if present
-                key = k[7:] if k.startswith("module.") else k
-                key = ReIDModelRegistry._normalize_checkpoint_key(model, key)
-                key, v = ReIDModelRegistry._normalize_checkpoint_tensor(model_dict, key, v)
-                if key in model_dict and model_dict[key].size() == v.size():
-                    new_state_dict[key] = v
-                    matched_layers.append(key)
-                else:
-                    discarded_layers.append(key)
-            model_dict.update(new_state_dict)
-            model.load_state_dict(model_dict)
+            LOGGER.info(f"Loaded pretrained weights from {weight_path}")
 
-            if not matched_layers:
-                LOGGER.debug(
-                    f"Pretrained weights from {weight_path} cannot be loaded. Check key names manually."
-                )
-            else:
-                LOGGER.info(f"Loaded pretrained weights from {weight_path}")
-
-            if discarded_layers:
-                LOGGER.debug(
-                    f"Discarded layers due to unmatched keys or size: {discarded_layers}"
-                )
+        if discarded_layers:
+            LOGGER.debug(
+                f"Discarded layers due to unmatched keys or size: {discarded_layers}"
+            )
 
     @staticmethod
     def _normalize_checkpoint_key(model, key: str) -> str:
-        """Map legacy checkpoint parameter names onto the current model."""
+        """Map checkpoint parameter names onto the current model."""
         if hasattr(model, "feature_fusion_module"):
             if key.startswith("fusion_projections."):
                 return key.replace(
@@ -224,19 +242,16 @@ class ReIDModelRegistry:
             available = list(MODEL_FACTORY.keys())
             raise KeyError(f"Unknown model '{name}'. Must be one of {available}")
 
-        # Special case handling for clip model
-        if "clip" in name:
-            from boxmot.reid.backbones.clip.config.defaults import _C as cfg
-
-            if "vehicleid" in weights.name or "veri" in weights.name:
-                cfg.INPUT.SIZE_TRAIN = [256, 256]
-                cfg.INPUT.SIZE_TEST = [256, 256]
-
-            return MODEL_FACTORY[name](
-                cfg, num_class=num_classes, camera_num=2, view_num=1
-            )
-
-        if not str(name).startswith("csl_tinyvit"):
+        try:
+            spec = get_backbone_spec(name)
+        except KeyError:
+            spec = None
+        accepts_model_kwargs = spec is not None and (
+            spec.family in {"transformer", "hybrid"}
+            or spec.supports_drop_path
+            or spec.supports_layer_decay
+        )
+        if not accepts_model_kwargs:
             model_kwargs = {}
 
         return MODEL_FACTORY[name](

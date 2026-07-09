@@ -122,6 +122,7 @@ train:
   eval_interval: 10
   p_ids: 16
   k_instances: 4
+  source_balance: ""
   margin: 0.3
   label_smooth: 0.05
   classifier_loss: ce
@@ -140,9 +141,13 @@ train:
   aux_ce_weight: 1.0
   aux_ce_drop_epoch: 0
   branch_loss_agg: mean
-  metric_feature: auto
-  inference_feature: concat_bn
-  feature_fusion: last3
+  metric_feature: raw_concat
+  inference_feature: norm_concat_bn
+  feature_fusion: last2
+  post_fusion_mixer: none
+  post_fusion_mixer_reduction: 4
+  post_fusion_mixer_kernel: [5, 3]
+  post_fusion_mixer_gamma_init: 0.0
   feat_dim: 512
   neck_dim: 512
   drop_path_rate: 0.1
@@ -153,25 +158,35 @@ train:
   stage3_global: false
   reid_adapter_stages: []
   reid_adapter_reduction: 4
-  head_pool: gem
+  head_pool: gelu_gem
   head_parts: [1, 2]
   head_type: standard
   part_pooling: stripes
   num_part_tokens: 4
+  evidence_num_roles: 8
   decouple_patterns: false
   pattern_adapter_dim: 128
   stripe_visibility: false
+  drop_global_aux: false
+  drop_global_aux_ratio: 0.25
   branch_aware_metric: false
   branch_metric_part_weight: 0.5
+  evidence_alignment_loss_weight: 0.0
+  evidence_alignment_margin: 0.2
+  evidence_sinkhorn_iters: 20
+  evidence_sinkhorn_temperature: 0.1
+  evidence_rerank_topk: 100
+  evidence_null_loss_weight: 0.0
+  evidence_diversity_loss_weight: 0.0
   head_warmup_epochs: 0
   head_warmup_lr_mult: 2.0
   vit_lr_profile: layer_decay
-  backbone_freeze_epochs: 0
+  backbone_freeze_epochs: 10
   gradual_unfreeze: false
-  gradual_unfreeze_head_epochs: 5
-  gradual_unfreeze_stage_epochs: 10
-  gradual_unfreeze_backbone_lr_mult: 0.1
-  gradual_unfreeze_backbone_lr_epochs: 5
+  gradual_unfreeze_head_epochs: 0
+  gradual_unfreeze_stage_epochs: 0
+  gradual_unfreeze_backbone_lr_mult: 1.0
+  gradual_unfreeze_backbone_lr_epochs: 0
   pretrained: true
   device: cpu
   project: runs/reid_train
@@ -186,5 +201,6 @@ train:
   random_grayscale: 0.1  # probability of random grayscale conversion
   random_erasing: 0.5  # probability of random erasing augmentation
   random_patch: true  # apply RandomPatch occlusion augmentation
+  random_crop_scale: 1.05  # Random2DTranslation resize factor before crop
   color_augmentation: true  # apply PCA ColorAugmentation
   flip_tta: null  # null = auto (ViT-only), true/false to force

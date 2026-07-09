@@ -12,6 +12,7 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
+from boxmot.api import _args as api_args_module
 import boxmot.engine.tracking.results as results_module
 import boxmot.utils.rich.core.ui as ui_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
@@ -87,6 +88,88 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
     assert args.tracker_explicit is True
 
 
+def test_boxmot_val_namespace_accepts_explicit_split():
+    model = api_module.Boxmot(
+        detector="yolox_n",
+        reid="models/lmbn_n_duke.pt",
+        tracker="occluboost",
+    )
+
+    args = model._base_eval_args(
+        "mot17",
+        split="ablation",
+        conf=0.25,
+        imgsz=640,
+        half=True,
+    )
+
+    assert args.benchmark == "mot17"
+    assert args.split == "ablation"
+    assert args.split_explicit is True
+    assert args.conf == 0.25
+    assert args.imgsz == 640
+    assert args.half is True
+    assert args.detector[0].name == "yolox_n.pt"
+    assert args.reid[0] == Path("models/lmbn_n_duke.pt")
+    assert args.tracker == "occluboost"
+
+
+def test_boxmot_tune_namespace_accepts_explicit_split():
+    model = api_module.Boxmot(
+        detector="yolox_x_MOT17_ablation",
+        reid="models/lmbn_n_duke.pt",
+        tracker="occluboost",
+    )
+
+    args = api_args_module.build_tune_args(
+        model,
+        "mot17",
+        split="ablation",
+        n_trials=1,
+    )
+
+    assert args.benchmark == "mot17"
+    assert args.split == "ablation"
+    assert args.split_explicit is True
+    assert args.n_trials == 1
+    assert args.show_progress is False
+    assert args.objectives == tuple(BOXMOT_DEFAULTS.tune.objectives)
+    assert args.detector[0].name == "yolox_x_MOT17_ablation.pt"
+    assert args.reid[0] == Path("models/lmbn_n_duke.pt")
+    assert args.tracker == "occluboost"
+
+
+def test_boxmot_constructor_keeps_detector_positional_for_detector_names():
+    model = api_module.Boxmot("yolov8n")
+
+    assert model.detector == "yolov8n"
+    assert model.train_model is None
+    assert model.train_recipe is None
+    assert model._detector_explicit is True
+
+
+def test_boxmot_constructor_accepts_training_model_positional():
+    model = api_module.Boxmot("mobilenetv4")
+
+    assert model.detector == DEFAULT_DETECTOR
+    assert model.train_model is None
+    assert model.train_recipe == "mobilenetv4"
+    assert model._detector_explicit is False
+    assert model._train_recipe_explicit is True
+
+
+def test_boxmot_reid_factory_accepts_weight_and_training_profile():
+    model = api_module.Boxmot.reid("mobilenetv4.pt")
+
+    assert model.detector == DEFAULT_DETECTOR
+    assert model.reid == "mobilenetv4.pt"
+    assert model.train_model is None
+    assert model.train_recipe == "mobilenetv4"
+    assert model._detector_explicit is False
+    assert model._reid_explicit is True
+    assert model._train_recipe_explicit is True
+
+
 def test_boxmot_eval_namespace_uses_explicit_tracker_backend():
     model = api_module.Boxmot(tracker="botsort")
 
@@ -151,6 +234,36 @@ def test_public_reid_supports_boxes_and_crops(monkeypatch):
     assert np.allclose(from_boxes, np.full((1, 2), 32.0, dtype=np.float32))
     assert from_crops.shape == (2, 3)
     assert np.all(np.isfinite(from_crops))
+
+
+def test_public_reid_empty_boxes_skip_backend_feature_call(monkeypatch):
+    class _FakeModel:
+        def __init__(self):
+            self.device = torch.device("cpu")
+            self.half = False
+            self.input_shape = (8, 4)
+            self.mean_array = torch.zeros((1, 3, 1, 1), dtype=torch.float32)
+            self.std_array = torch.ones((1, 3, 1, 1), dtype=torch.float32)
+
+        def get_features(self, boxes, image):
+            raise AssertionError("empty boxes should not call backend feature extraction")
+
+        def inference_preprocess(self, batch):
+            return batch
+
+        def forward(self, batch):
+            raise AssertionError("empty boxes should not run model forward")
+
+        def inference_postprocess(self, features):
+            return features.cpu().numpy()
+
+    monkeypatch.setattr(ReID, "get_backend", lambda self: _FakeModel())
+
+    reid = ReID("lmbn_n_duke.pt")
+    embeddings = reid(_DUMMY_IMG, boxes=np.empty((0, 4), dtype=np.float32))
+
+    assert embeddings.shape == (0, 0)
+    assert embeddings.dtype == np.float32
 
 
 def test_public_reid_reuses_preselected_torch_device(monkeypatch):
@@ -257,6 +370,49 @@ def test_public_detector_and_reid_allow_stage_overrides(monkeypatch):
 
     assert reid_calls == ["pre", "proc", "post"]
     np.testing.assert_array_equal(reid_output, np.full((1, 4), 3.0, dtype=np.float32))
+
+
+def test_boxmot_detector_factory_predicts_with_public_detector(monkeypatch):
+    class _FakeDetectorBackend:
+        def __init__(self, model, device, imgsz):
+            self.model = model
+            self.device = device
+            self.imgsz = imgsz
+
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
+            return [Detections(dets=np.array([[1, 2, 3, 4, conf, 0]], dtype=np.float32), orig_img=images[0])]
+
+    monkeypatch.setattr(Detector, "_get_backend_class", classmethod(lambda cls, path: _FakeDetectorBackend))
+
+    detector = api_module.Boxmot.detector("fake.pt", conf=0.25, imgsz=640, half=True)
+    predictions = detector.predict(_DUMMY_IMG)
+
+    assert detector.conf == 0.25
+    assert detector.imgsz == 640
+    assert detector.half is True
+    np.testing.assert_array_equal(
+        predictions,
+        np.array([[1, 2, 3, 4, 0.25, 0]], dtype=np.float32),
+    )
+
+
+def test_public_detector_predict_normalizes_none_to_empty_detections(monkeypatch):
+    class _NoneDetectorBackend:
+        def __init__(self, model, device, imgsz):
+            self.model = model
+            self.device = device
+            self.imgsz = imgsz
+
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
+            return None
+
+    monkeypatch.setattr(Detector, "_get_backend_class", classmethod(lambda cls, path: _NoneDetectorBackend))
+
+    detector = api_module.Boxmot.detector("fake.pt")
+    predictions = detector.predict(_DUMMY_IMG)
+
+    assert predictions.shape == (0, 6)
+    assert predictions.dtype == np.float32
 
 
 def test_results_save_summary_and_evaluate(tmp_path):
@@ -1613,6 +1769,164 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
     assert export_args.tflite_static_activation_bits == 8
 
 
+def test_boxmot_export_accepts_format_alias_and_half_flag(monkeypatch, tmp_path):
+    import boxmot.reid as reid_module
+
+    calls = {}
+    expected = np.ones((1, 4), dtype=np.float32)
+
+    def fake_run_export(args):
+        calls["export"] = args
+        return api_module.ExportResult(
+            weights=Path(args.weights),
+            files={"onnx": tmp_path / "mobilenetv4.onnx"},
+            half=args.half,
+        )
+
+    class FakeReID:
+        def __init__(self, path, *, device="cpu", half=False, preprocess_name=None):
+            calls["reid"] = {
+                "path": path,
+                "device": device,
+                "half": half,
+                "preprocess_name": preprocess_name,
+            }
+
+        def __call__(self, source, boxes=None):
+            calls["embed"] = {"source": source, "boxes": boxes}
+            return expected
+
+    monkeypatch.setattr(export_module, "run_export", fake_run_export)
+    monkeypatch.setattr(reid_module, "ReID", FakeReID)
+
+    model = api_module.Boxmot.reid("mobilenetv4.pt", project=tmp_path / "runs")
+    model = model.export(format="onnx", half=True)
+    embeddings = model.embed(source=tmp_path / "image.jpg")
+
+    export_args = calls["export"]
+    assert model.files["onnx"] == tmp_path / "mobilenetv4.onnx"
+    assert embeddings is expected
+    assert export_args.weights == Path.cwd() / "models" / "mobilenetv4.pt"
+    assert export_args.include == ("onnx",)
+    assert export_args.half is True
+    assert calls["reid"] == {
+        "path": tmp_path / "mobilenetv4.onnx",
+        "device": "cpu",
+        "half": True,
+        "preprocess_name": None,
+    }
+    assert calls["embed"] == {"source": tmp_path / "image.jpg", "boxes": None}
+
+
+def test_export_result_embed_prefers_exported_onnx(monkeypatch, tmp_path):
+    import boxmot.reid as reid_module
+
+    calls = {}
+    expected = np.ones((1, 4), dtype=np.float32)
+
+    class FakeReID:
+        def __init__(self, path, *, device="cpu", half=False, preprocess_name=None):
+            calls["init"] = {
+                "path": path,
+                "device": device,
+                "half": half,
+                "preprocess_name": preprocess_name,
+            }
+
+        def __call__(self, source, boxes=None):
+            calls["call"] = {"source": source, "boxes": boxes}
+            return expected
+
+    monkeypatch.setattr(reid_module, "ReID", FakeReID)
+
+    result = api_module.ExportResult(
+        weights=tmp_path / "lmbn_n_duke.pt",
+        files={"onnx": tmp_path / "lmbn_n_duke.onnx"},
+        half=True,
+    )
+    embeddings = result.embed(source=tmp_path / "image.jpg", preprocess="resize")
+
+    assert embeddings is expected
+    assert result.embedding_weights == tmp_path / "lmbn_n_duke.onnx"
+    assert calls["init"] == {
+        "path": tmp_path / "lmbn_n_duke.onnx",
+        "device": "cpu",
+        "half": True,
+        "preprocess_name": "resize",
+    }
+    assert calls["call"] == {"source": tmp_path / "image.jpg", "boxes": None}
+
+
+def test_export_result_embed_falls_back_to_source_weights(monkeypatch, tmp_path):
+    import boxmot.reid as reid_module
+
+    calls = {}
+    expected = np.ones((1, 4), dtype=np.float32)
+
+    class FakeReID:
+        def __init__(self, path, *, device="cpu", half=False, preprocess_name=None):
+            calls["init"] = {"path": path, "device": device, "half": half, "preprocess_name": preprocess_name}
+
+        def __call__(self, source, boxes=None):
+            return expected
+
+    monkeypatch.setattr(reid_module, "ReID", FakeReID)
+
+    result = api_module.ExportResult(weights=tmp_path / "lmbn_n_duke.pt", files={})
+    embeddings = result.embed(source=tmp_path / "image.jpg", half=False)
+
+    assert embeddings is expected
+    assert result.embedding_weights == tmp_path / "lmbn_n_duke.pt"
+    assert calls["init"] == {
+        "path": tmp_path / "lmbn_n_duke.pt",
+        "device": "cpu",
+        "half": False,
+        "preprocess_name": None,
+    }
+
+
+def test_boxmot_embed_uses_reid_factory_weight(monkeypatch, tmp_path):
+    import boxmot.reid as reid_module
+
+    calls = {}
+    expected = np.ones((1, 4), dtype=np.float32)
+
+    class FakeReID:
+        def __init__(self, path, *, device="cpu", half=False, preprocess_name=None):
+            calls["init"] = {
+                "path": path,
+                "device": device,
+                "half": half,
+                "preprocess_name": preprocess_name,
+            }
+
+        def __call__(self, source, boxes=None):
+            calls["call"] = {"source": source, "boxes": boxes}
+            return expected
+
+    monkeypatch.setattr(reid_module, "ReID", FakeReID)
+
+    image = tmp_path / "image.jpg"
+    model = api_module.Boxmot.reid("mobilenetv4.pt", project=tmp_path / "runs")
+    embeddings = model.embed(
+        source=image,
+        boxes=np.array([[0, 0, 16, 16]], dtype=np.float32),
+        device="cpu",
+        half=True,
+        preprocess="resize",
+    )
+
+    assert embeddings is expected
+    assert calls["init"] == {
+        "path": Path.cwd() / "models" / "mobilenetv4.pt",
+        "device": "cpu",
+        "half": True,
+        "preprocess_name": "resize",
+    }
+    assert calls["call"]["source"] == image
+    np.testing.assert_array_equal(calls["call"]["boxes"], np.array([[0, 0, 16, 16]], dtype=np.float32))
+
+
 def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     calls = {}
 
@@ -1707,6 +2021,152 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     assert eval_args.batch_size == 2
     assert eval_args.num_workers == 0
     assert eval_args.output == str(tmp_path / "runs" / "reid_eval")
+
+
+def test_boxmot_train_accepts_training_cfg(monkeypatch, tmp_path):
+    calls = {}
+    expected_train = api_module.TrainResult(
+        best_epoch=1,
+        best_mAP=0.75,
+        best_rank1=0.50,
+        weights_path=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+    )
+
+    def fake_train_main(args):
+        calls["train"] = args
+        return expected_train
+
+    monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
+
+    train_cfg = tmp_path / "custom_config.yaml"
+    train_cfg.write_text(
+        "\n".join(
+            [
+                "run:",
+                "  model_name: csl_tinyvit_7m",
+                "data:",
+                "  dataset: duke",
+                f"  data_dir: {tmp_path}",
+                "  img_size: [384, 128]",
+                "model:",
+                "  head:",
+                "    parts: [1, 2, 4]",
+                "optimization:",
+                "  epochs: 5",
+                "  lr: 0.001",
+                "system:",
+                "  device: cpu",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    model = api_module.Boxmot(project=tmp_path / "runs")
+    trained = model.train(cfg=train_cfg, epochs=2)
+
+    assert trained is expected_train
+    train_args = calls["train"]
+    assert train_args.model == "csl_tinyvit_7m"
+    assert train_args.dataset == "duke"
+    assert train_args.data_dir == str(tmp_path)
+    assert train_args.imgsz == (384, 128)
+    assert train_args.head_parts == (1, 2, 4)
+    assert train_args.epochs == 2
+    assert train_args.lr == 0.001
+    assert train_args.device == "cpu"
+    assert {"cfg", "epochs"} <= set(train_args.train_explicit_keys)
+
+
+def test_boxmot_train_applies_constructor_training_profile_to_cfg(monkeypatch, tmp_path):
+    calls = {}
+    expected_train = api_module.TrainResult(
+        best_epoch=1,
+        best_mAP=0.75,
+        best_rank1=0.50,
+        weights_path=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+    )
+
+    def fake_train_main(args):
+        calls["train"] = args
+        return expected_train
+
+    monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
+
+    train_cfg = tmp_path / "mobilenetv4_custom.yaml"
+    train_cfg.write_text(
+        "\n".join(
+            [
+                "data:",
+                "  dataset: duke",
+                f"  data_dir: {tmp_path}",
+                "optimization:",
+                "  epochs: 9",
+                "  lr: 0.0008",
+                "system:",
+                "  device: cpu",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    model = api_module.Boxmot("mobilenetv4", project=tmp_path / "runs")
+    trained = model.train(cfg=train_cfg, epochs=2)
+
+    assert trained is expected_train
+    train_args = calls["train"]
+    assert train_args.model == "mobilenetv4_conv_small"
+    assert train_args.dataset == "duke"
+    assert train_args.data_dir == str(tmp_path)
+    assert train_args.epochs == 2
+    assert train_args.lr == 0.0008
+    assert train_args.device == "cpu"
+    assert train_args.feature_fusion == "final"
+    assert {"cfg", "recipe", "epochs"} <= set(train_args.train_explicit_keys)
+
+
+def test_boxmot_train_accepts_reid_data_yaml_list(monkeypatch, tmp_path):
+    calls = {}
+    expected_train = api_module.TrainResult(
+        best_epoch=1,
+        best_mAP=0.75,
+        best_rank1=0.50,
+        weights_path=tmp_path / "runs" / "reid_train" / "exp" / "best.pt",
+    )
+
+    def fake_train_main(args):
+        calls["train"] = args
+        return expected_train
+
+    monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
+
+    data_root = tmp_path / "datasets"
+    market_root = data_root / "Market-1501-v15.09.15"
+    duke_root = data_root / "DukeMTMC-reID"
+    market_root.mkdir(parents=True)
+    duke_root.mkdir(parents=True)
+    market_yaml = tmp_path / "market1501.yaml"
+    duke_yaml = tmp_path / "duke.yaml"
+    market_yaml.write_text(f"dataset: market1501\npath: {market_root}\n", encoding="utf-8")
+    duke_yaml.write_text(f"dataset: duke\npath: {duke_root}\n", encoding="utf-8")
+
+    model = api_module.Boxmot(project=tmp_path / "runs")
+    trained = model.train(
+        model="mobilenetv2_x1_0",
+        data=[market_yaml, duke_yaml],
+        device="cpu",
+        epochs=1,
+        project=tmp_path / "runs" / "reid_train",
+        name="exp",
+    )
+
+    assert trained is expected_train
+    train_args = calls["train"]
+    assert train_args.dataset == "market1501,duke"
+    assert train_args.data_dir == str(data_root)
+    assert train_args.data_specs[0]["root"] == str(market_root)
+    assert train_args.data_specs[1]["root"] == str(duke_root)
 
 
 def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp_path, capsys):
@@ -1897,6 +2357,7 @@ def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_pat
         benchmark="mot17-mini",
         n_trials=2,
         device="cpu",
+        objectives=("hota", "id_switches"),
         maximize=("HOTA", "IDF1"),
         minimize=("IDSW_rate",),
         seed=7,
@@ -1904,10 +2365,24 @@ def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_pat
 
     assert tuned.best.index == 1
     assert captured["args"].n_trials == 2
+    assert captured["args"].objectives == ("HOTA", "IDSW")
     assert captured["args"].maximize == ("HOTA", "IDF1")
     assert captured["args"].minimize == ("IDSW_rate",)
     assert captured["args"].seed == 7
     assert captured["baseline_config"] is None
+
+    tuned = model.tune(
+        benchmark="mot17-mini",
+        split="ablation",
+        n_trials=1,
+        objectives=("hota", "id_switches"),
+    )
+
+    assert tuned.best.index == 1
+    assert captured["args"].split == "ablation"
+    assert captured["args"].objectives == ("HOTA", "IDSW")
+    assert captured["args"].maximize == ("HOTA",)
+    assert captured["args"].minimize == ("IDSW",)
 
 
 def test_extract_summary_handles_single_class_results_with_per_sequence_first():

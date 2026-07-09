@@ -1,5 +1,6 @@
 """ReID model training utilities: losses, trainer, and evaluation."""
 
+from boxmot.reid.training.base import BaseTrainer
 from boxmot.reid.training.config import (
     AugmentationConfig,
     DataConfig,
@@ -23,6 +24,7 @@ __all__ = (
     "CenterLoss",
     "CrossEntropyLabelSmooth",
     "AugmentationConfig",
+    "BaseTrainer",
     "DataConfig",
     "EvalConfig",
     "LossConfig",

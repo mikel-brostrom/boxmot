@@ -1,12 +1,12 @@
 import torch
 
-from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
 
 
 class TorchScriptExporter(BaseExporter):
     def export(self):
         f = self.file.with_suffix(".torchscript")
-        ts = torch.jit.trace(self.model, self.im, strict=False)
+        ts = torch.jit.trace(as_inference_export_model(self.model), self.im, strict=False)
         if self.optimize:
             torch.utils.mobile_optimizer.optimize_for_mobile(
                 ts

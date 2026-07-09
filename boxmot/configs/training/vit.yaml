@@ -1,12 +1,11 @@
-# Training recipe for ViT-family ReID models
+# Training preset for transformer-family ReID models
 #
-# Covers: vit_nano, vit_nano_ain, vit_nano_ain_os, vit_tiny,
-#         vit_tiny_parts, vit_tiny_parts3, csl_tinyvit_7m,
-#         csl_tinyvit_11m, csl_tinyvit_23m
+# Covers: csl_tinyvit_7m, csl_tinyvit_11m, csl_tinyvit_23m,
+#         and their LMBN-style variants.
 #
-# The trainer auto-tunes several settings when it detects a ViT backbone
+# The trainer auto-tunes several settings from the backbone's transformer recipe
 # (AdamW, layer-decay LR, soft-margin triplet, grad clip).  This recipe
-# sets the remaining hyper-parameters to their optimal ViT values so
+# sets the remaining hyper-parameters to their optimal transformer values so
 # the full configuration is explicit and documented in one place.
 #
 # Usage:
@@ -16,7 +15,7 @@
 #     --data-dir ./Market-1501-v15.09.15 \
 #     --device mps
 
-model: vit_tiny
+model: csl_tinyvit_11m
 loss: triplet
 epochs: 250
 lr: 0.0005
@@ -24,6 +23,12 @@ weight_decay: 0.05
 batch_size: 64
 imgsz: [384, 128]
 warmup_epochs: 10
+backbone_freeze_epochs: 10
+gradual_unfreeze: false
+gradual_unfreeze_head_epochs: 0
+gradual_unfreeze_stage_epochs: 0
+gradual_unfreeze_backbone_lr_mult: 1.0
+gradual_unfreeze_backbone_lr_epochs: 0
 margin: 0.3
 label_smooth: 0.05
 center_loss_weight: 0.005

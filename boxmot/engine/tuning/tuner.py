@@ -20,6 +20,13 @@ import click
 
 os.environ["RAY_CHDIR_TO_TRIAL_DIR"] = "0"
 
+
+def _configure_ray_environment() -> None:
+    """Set stable Ray runtime defaults before importing or initializing Ray."""
+    os.environ.setdefault("RAY_CHDIR_TO_TRIAL_DIR", "0")
+    os.environ.setdefault("RAY_DEDUP_LOGS", "1")
+    os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
+
 from boxmot.engine.eval.evaluator import eval_setup, run_eval, run_generate_dets_embs
 from boxmot.engine.tuning.backends import (  # noqa: F401
     SEARCH_BACKENDS,
@@ -122,6 +129,24 @@ from boxmot.utils.rich.reporters.tune import (
 )
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
+_TUNE_METRIC_ALIASES = {
+    "hota": "HOTA",
+    "mota": "MOTA",
+    "idf1": "IDF1",
+    "assa": "AssA",
+    "assre": "AssRe",
+    "idsw": "IDSW",
+    "id_switch": "IDSW",
+    "id_switches": "IDSW",
+    "idswitch": "IDSW",
+    "idswitches": "IDSW",
+    "ids": "IDs",
+    "idsw_rate": "IDSW_rate",
+    "id_switch_rate": "IDSW_rate",
+    "id_switches_rate": "IDSW_rate",
+    "idswitch_rate": "IDSW_rate",
+    "idswitches_rate": "IDSW_rate",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +162,7 @@ def _normalize_metric_names(values: Any) -> list[str]:
         for part in str(value).split(","):
             metric = part.strip()
             if metric:
-                metrics.append(metric)
+                metrics.append(_TUNE_METRIC_ALIASES.get(metric.lower(), metric))
     return metrics
 
 
@@ -214,6 +239,7 @@ class Tuner:
         args.minimize = tuple(self._minimize)
 
     def _setup_ray(self):
+        _configure_ray_environment()
         import ray
 
         if ray.is_initialized():
@@ -229,7 +255,6 @@ class Tuner:
             init_kwargs["log_to_driver"] = False
         else:
             init_kwargs["logging_level"] = logging.WARNING
-        os.environ.setdefault("RAY_DEDUP_LOGS", "1")
         ray.init(**init_kwargs)
 
     def _run(self):

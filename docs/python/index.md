@@ -48,7 +48,19 @@ metrics = api.eval_reid(
 print(metrics)
 ```
 
-The same facade also exposes `research(...)` for GEPA-backed benchmark optimization, `train(...)` and `eval_reid(...)` for ReID model lifecycle workflows, and `export(...)` for ReID conversion workflows.
+You can also bind the facade to a ReID weight file and use the same object for
+training, export, and direct embedding extraction:
+
+```python
+from boxmot import Boxmot
+
+reid = Boxmot.reid("models/lmbn_n_duke.pt")
+reid.train(cfg="custom_config.yaml")
+reid = reid.export(format="onnx", half=True)
+embeddings = reid.embed(source="path/to/image.jpg")
+```
+
+The same facade also exposes `research(...)` for GEPA-backed benchmark optimization, `train(...)` and `eval_reid(...)` for ReID model lifecycle workflows, `export(...)` for ReID conversion workflows, and `embed(...)` for direct ReID inference.
 
 Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
 

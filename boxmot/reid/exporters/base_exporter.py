@@ -1,8 +1,33 @@
 from functools import wraps
 from pathlib import Path
 
+from torch import nn
+
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
+
+
+class InferenceExportWrapper(nn.Module):
+    """Single-input inference wrapper used by graph exporters.
+
+    Several ReID backbones expose optional runtime flags on ``forward`` for
+    feature map extraction. Legacy tracers can treat those optional flags as
+    tensor inputs, which produces noisy and sometimes brittle graphs. Export
+    inference embeddings through a narrow ``forward(x)`` contract instead.
+    """
+
+    def __init__(self, model: nn.Module) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(self, x):
+        return self.model(x)
+
+
+def as_inference_export_model(model: nn.Module) -> nn.Module:
+    if isinstance(model, InferenceExportWrapper):
+        return model
+    return InferenceExportWrapper(model).eval()
 
 
 def export_decorator(export_func):

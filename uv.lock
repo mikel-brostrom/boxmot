@@ -361,7 +361,6 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "filterpy" },
-    { name = "ftfy" },
     { name = "gdown" },
     { name = "huggingface-hub" },
     { name = "lapx" },
@@ -369,13 +368,12 @@ dependencies = [
     { name = "numpy", version = "2.4.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "opencv-python" },
     { name = "pandas" },
-    { name = "regex" },
     { name = "rich" },
     { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "timm" },
     { name = "torch" },
     { name = "torchvision" },
-    { name = "yacs" },
 ]
 
 [package.optional-dependencies]
@@ -440,7 +438,6 @@ requires-dist = [
     { name = "bayesian-optimization", marker = "extra == 'evolve'", specifier = "==2.0.4" },
     { name = "click", specifier = ">=8.1.8" },
     { name = "filterpy", specifier = ">=1.4.5,<2.0.0" },
-    { name = "ftfy", specifier = ">=6.1.3,<7.0.0" },
     { name = "gdown", specifier = ">=5.1.0,<6.0.0" },
     { name = "gepa", extras = ["full"], marker = "extra == 'research'", specifier = ">=0.1.1" },
     { name = "huggingface-hub", specifier = ">=1.7.1" },
@@ -461,16 +458,15 @@ requires-dist = [
     { name = "plotly", marker = "extra == 'evolve'", specifier = "==5.19.0" },
     { name = "pydantic", marker = "extra == 'evolve'", specifier = ">=2.5.0,<2.12.0" },
     { name = "ray", extras = ["tune"], marker = "extra == 'evolve'", specifier = "==2.52.1" },
-    { name = "regex", specifier = ">=2024.0.0" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "scikit-learn", specifier = ">=1.3.0,<2.0.0" },
     { name = "scipy", marker = "extra == 'evolve'", specifier = ">=1.11.0,<2.0.0" },
     { name = "seaborn", marker = "extra == 'evolve'", specifier = ">=0.13.0,<1.0.0" },
+    { name = "timm", specifier = ">=1.0.15,<2.0.0" },
     { name = "torch", specifier = ">=2.2.1,<3.0.0" },
     { name = "torchvision", specifier = ">=0.17.1,<1.0.0" },
     { name = "transformers", marker = "extra == 'rtdetr'", specifier = ">=5.0.0" },
     { name = "ultralytics", marker = "extra == 'yolo'", specifier = ">=8.4.58" },
-    { name = "yacs", specifier = ">=0.1.8,<1.0.0" },
     { name = "yolox", marker = "extra == 'yolo'", specifier = "==0.3.0" },
 ]
 provides-extras = ["yolo", "evolve", "research", "onnx", "openvino", "tflite", "rtdetr"]
@@ -1556,18 +1552,6 @@ wheels = [
 [package.optional-dependencies]
 http = [
     { name = "aiohttp" },
-]
-
-[[package]]
-name = "ftfy"
-version = "6.3.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "wcwidth" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/d3/8650919bc3c7c6e90ee3fa7fd618bf373cbbe55dff043bd67353dbb20cd8/ftfy-6.3.1.tar.gz", hash = "sha256:9b3c3d90f84fb267fe64d375a07b7f8912d817cf86009ae134aa03e1819506ec", size = 308927, upload-time = "2024-10-26T00:50:35.149Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/ab/6e/81d47999aebc1b155f81eca4477a616a70f238a2549848c38983f3c22a82/ftfy-6.3.1-py3-none-any.whl", hash = "sha256:7c70eb532015cd2f9adb53f101fb6c7945988d023a085d127d1573dc49dd0083", size = 44821, upload-time = "2024-10-26T00:50:33.425Z" },
 ]
 
 [[package]]
@@ -5690,6 +5674,22 @@ wheels = [
 ]
 
 [[package]]
+name = "timm"
+version = "1.0.27"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "pyyaml" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "torchvision" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/08/54/ece85b0eef3700c90db8271a43669b05a0ebbe2edb1962329c34374a297e/timm-1.0.27.tar.gz", hash = "sha256:315dfe63186ca9fb7ff941268941231fd5be259f2b4bb4afa28560ae1015cb9a", size = 2439861, upload-time = "2026-05-08T19:38:36.844Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1f/2e/26bab7686ff4aed48f8f5f6c23e2aa37b7a37ddd9effe3aa61e908fd518f/timm-1.0.27-py3-none-any.whl", hash = "sha256:5ff07c9ddf53cbada88eab1c93ff175c64cab683b5a2fddf863bcee985926f89", size = 2589280, upload-time = "2026-05-08T19:38:35.034Z" },
+]
+
+[[package]]
 name = "tokenizers"
 version = "0.22.2"
 source = { registry = "https://pypi.org/simple" }
@@ -6294,18 +6294,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/50/55/15a7b8a56590e66ccd374bbfa3f9ffc45b810886c8c3b614e3f90bd2367c/xxhash-3.6.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:881b47fc47e051b37d94d13e7455131054b56749b91b508b0907eb07900d1c13", size = 36251, upload-time = "2025-10-02T14:37:04.44Z" },
     { url = "https://files.pythonhosted.org/packages/62/b2/5ac99a041a29e58e95f907876b04f7067a0242cb85b5f39e726153981503/xxhash-3.6.0-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c6dc31591899f5e5666f04cc2e529e69b4072827085c1ef15294d91a004bc1bd", size = 32481, upload-time = "2025-10-02T14:37:05.869Z" },
     { url = "https://files.pythonhosted.org/packages/7b/d9/8d95e906764a386a3d3b596f3c68bb63687dfca806373509f51ce8eea81f/xxhash-3.6.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:15e0dac10eb9309508bfc41f7f9deaa7755c69e35af835db9cb10751adebc35d", size = 31565, upload-time = "2025-10-02T14:37:06.966Z" },
-]
-
-[[package]]
-name = "yacs"
-version = "0.1.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/44/3e/4a45cb0738da6565f134c01d82ba291c746551b5bc82e781ec876eb20909/yacs-0.1.8.tar.gz", hash = "sha256:efc4c732942b3103bea904ee89af98bcd27d01f0ac12d8d4d369f1e7a2914384", size = 11100, upload-time = "2020-08-10T16:37:47.755Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/4f/fe9a4d472aa867878ce3bb7efb16654c5d63672b86dc0e6e953a67018433/yacs-0.1.8-py3-none-any.whl", hash = "sha256:99f893e30497a4b66842821bac316386f7bd5c4f47ad35c9073ef089aa33af32", size = 14747, upload-time = "2020-08-10T16:37:46.4Z" },
 ]
 
 [[package]]

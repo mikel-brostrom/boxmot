@@ -7,7 +7,7 @@ import torch
 
 import boxmot.reid.training.trainer as trainer_module
 from boxmot.reid.datasets.base import ReIDSample
-from boxmot.reid.datasets.sampler import PKSampler
+from boxmot.reid.datasets.sampler import PKSampler, SourceBalancedPKSampler, parse_source_balance
 from boxmot.reid.training.trainer import ReIDTrainer, _seed_data_worker
 
 
@@ -15,6 +15,20 @@ def _samples(num_pids: int = 16, instances: int = 4) -> list[ReIDSample]:
     return [
         ReIDSample(img_path=f"{pid}_{index}.jpg", pid=pid, camid=index % 2)
         for pid in range(num_pids)
+        for index in range(instances)
+    ]
+
+
+def _source_samples(instances: int = 4) -> list[ReIDSample]:
+    return [
+        ReIDSample(
+            img_path=f"{source}_{pid}_{index}.jpg",
+            pid=pid,
+            camid=index % 2,
+            source=source,
+        )
+        for source, pid_offset in (("market1501", 0), ("mot17_1501", 100))
+        for pid in range(pid_offset, pid_offset + 4)
         for index in range(instances)
     ]
 
@@ -30,6 +44,36 @@ def test_pk_sampler_is_deterministic_per_seed_and_epoch():
 
     second.set_epoch(4)
     assert list(first) != list(second)
+
+
+def test_source_balance_spec_parses_normalized_groups():
+    groups = parse_source_balance("market1501+dukemtmc-reid:8,4;mot17_1501:8,4")
+
+    assert groups[0].sources == ("market1501", "dukemtmcreid")
+    assert groups[0].batch_size == 32
+    assert groups[1].sources == ("mot171501",)
+    assert groups[1].batch_size == 32
+
+
+def test_source_balanced_sampler_is_deterministic_and_mixes_sources():
+    samples = _source_samples()
+    first = SourceBalancedPKSampler(samples, "market1501:2,2;mot17_1501:2,2", seed=42)
+    second = SourceBalancedPKSampler(samples, "market1501:2,2;mot17_1501:2,2", seed=42)
+
+    first.set_epoch(3)
+    second.set_epoch(3)
+    first_indices = list(first)
+    second_indices = list(second)
+
+    assert first_indices == second_indices
+    assert len(first) == 16
+    batch = first_indices[: first.batch_size]
+    sources = [samples[index].source for index in batch]
+    assert sources.count("market1501") == 4
+    assert sources.count("mot17_1501") == 4
+
+    second.set_epoch(4)
+    assert first_indices != list(second)
 
 
 def test_seed_everything_controls_python_numpy_and_torch():
@@ -137,6 +181,24 @@ def test_cuda_train_loader_uses_seeded_nonpersistent_workers_and_generator(tmp_p
     for loader in (train_loader, query_loader, gallery_loader):
         assert loader.num_workers == 2
         assert loader.persistent_workers is False
+
+
+def test_source_balance_train_loader_uses_source_sampler(tmp_path):
+    trainer = ReIDTrainer(
+        model_name="csl_tinyvit_7m",
+        dataset_name="market1501,mot17_1501",
+        data_dir=str(tmp_path),
+        source_balance="market1501:2,2;mot17_1501:2,2",
+        seed=42,
+    )
+    split = SimpleNamespace(samples=_source_samples())
+    dataset = SimpleNamespace(train=split, query=split, gallery=split)
+
+    train_loader = trainer._build_train_loader(dataset)
+
+    assert isinstance(train_loader.sampler, SourceBalancedPKSampler)
+    assert train_loader.batch_size == 8
+    assert train_loader.sampler.seed == 42
 
 
 def test_cpu_and_mps_force_zero_nonpersistent_workers(tmp_path):

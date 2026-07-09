@@ -3,6 +3,7 @@ import types
 from pathlib import Path
 
 import numpy as np
+import pytest
 import torch
 
 from boxmot.engine.reid.export import (
@@ -12,7 +13,9 @@ from boxmot.engine.reid.export import (
     _verify_export_parity,
     create_export_tasks,
     perform_exports,
+    setup_model,
 )
+from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.onnx_exporter import ONNXExporter
 from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
 from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
@@ -37,6 +40,88 @@ def test_export_keeps_existing_explicit_weight_path(tmp_path):
     weights.touch()
 
     assert _resolve_export_weights(weights) == weights
+
+
+def test_export_setup_uses_reid_crop_shape_for_mobilenetv4(monkeypatch, tmp_path):
+    import boxmot.engine.reid.export as export_module
+
+    class FakeModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.ones(1))
+
+        def forward(self, x):
+            return x.mean(dim=(2, 3))
+
+    class FakeReID:
+        def __init__(self, weights, device, half):
+            self.model = types.SimpleNamespace(model=FakeModel())
+
+    weights = tmp_path / "mobilenetv4_conv_small_market1501.pt"
+    args = types.SimpleNamespace(
+        weights=weights,
+        device="cpu",
+        half=False,
+        optimize=False,
+        batch_size=2,
+    )
+    monkeypatch.setattr(export_module, "ReID", FakeReID)
+    monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "mobilenetv4_conv_small")
+
+    model, dummy_input = setup_model(args)
+
+    assert isinstance(model, FakeModel)
+    assert args.imgsz == (384, 128)
+    assert tuple(dummy_input.shape) == (2, 3, 384, 128)
+
+
+def test_export_setup_allows_cpu_onnx_fp16_graph_conversion(monkeypatch, tmp_path):
+    import boxmot.engine.reid.export as export_module
+
+    class FakeModel(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.ones(1))
+
+        def forward(self, x):
+            return x.mean(dim=(2, 3))
+
+    class FakeReID:
+        def __init__(self, weights, device, half):
+            assert half is False
+            self.model = types.SimpleNamespace(model=FakeModel())
+
+    weights = tmp_path / "mobilenetv4_conv_small_market1501.pt"
+    args = types.SimpleNamespace(
+        weights=weights,
+        include=("onnx",),
+        device="cpu",
+        half=True,
+        optimize=False,
+        batch_size=2,
+    )
+    monkeypatch.setattr(export_module, "ReID", FakeReID)
+    monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "mobilenetv4_conv_small")
+
+    model, dummy_input = setup_model(args)
+
+    assert isinstance(model, FakeModel)
+    assert next(model.parameters()).dtype == torch.float32
+    assert dummy_input.dtype == torch.float32
+
+
+def test_export_setup_rejects_cpu_tensorrt_fp16(tmp_path):
+    args = types.SimpleNamespace(
+        weights=tmp_path / "mobilenetv4_conv_small_market1501.pt",
+        include=("engine",),
+        device="cpu",
+        half=True,
+        optimize=False,
+        batch_size=2,
+    )
+
+    with pytest.raises(AssertionError, match="TensorRT export requires GPU"):
+        setup_model(args)
 
 
 def test_tflite_export_uses_litert_torch_direct_api(monkeypatch, tmp_path):

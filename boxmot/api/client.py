@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence as SequenceABC
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Sequence
@@ -52,6 +53,92 @@ def _normalize_classes(classes: Any) -> list[int] | None:
     return [int(value) for value in classes]
 
 
+def _normalize_reid_data(data: Any) -> tuple[str, ...]:
+    if data is None:
+        return ()
+    if isinstance(data, (str, Path)):
+        return (str(data),)
+    return tuple(str(value) for value in data)
+
+
+_MODEL_FILE_SUFFIXES = {
+    ".pt",
+    ".pth",
+    ".torchscript",
+    ".onnx",
+    ".engine",
+    ".xml",
+    ".tflite",
+}
+
+
+def _resolve_train_model_spec(value: Any) -> tuple[str, str] | None:
+    if not isinstance(value, (str, Path)):
+        return None
+    spec = str(value).strip()
+    if not spec:
+        return None
+
+    from boxmot.configs import list_training_recipes
+    from boxmot.reid.core.config import MODEL_TYPES
+
+    candidates = [spec]
+    path = Path(spec)
+    if path.suffix.lower() in _MODEL_FILE_SUFFIXES:
+        candidates.append(path.stem)
+
+    model_names = {name.lower(): name for name in MODEL_TYPES}
+    recipe_names = {name.lower(): name for name in list_training_recipes()}
+
+    for candidate in candidates:
+        lowered = candidate.lower()
+        if lowered in model_names:
+            return "model", model_names[lowered]
+        if lowered in recipe_names:
+            return "recipe", recipe_names[lowered]
+
+    if path.suffix.lower() in _MODEL_FILE_SUFFIXES:
+        from boxmot.reid.core.registry import ReIDModelRegistry
+
+        model_name = ReIDModelRegistry.get_model_name(path)
+        if model_name:
+            return "model", model_name
+    return None
+
+
+def _resolve_reid_weight_train_spec(value: Any) -> tuple[str, str] | None:
+    if not isinstance(value, (str, Path)):
+        return None
+    path = Path(value)
+    if path.suffix.lower() not in _MODEL_FILE_SUFFIXES:
+        return None
+    return _resolve_train_model_spec(value)
+
+
+def _normalize_export_include(format_value: Any, include: Sequence[str]) -> tuple[str, ...]:
+    if format_value is None:
+        return tuple(include)
+    if isinstance(format_value, str):
+        parts = [part for part in format_value.replace(",", " ").split() if part]
+        return tuple(parts)
+    if isinstance(format_value, SequenceABC):
+        return tuple(str(item) for item in format_value)
+    raise TypeError("format must be a string or sequence of strings.")
+
+
+def _matches_train_default(key: str, value: Any) -> bool:
+    if not hasattr(BOXMOT_DEFAULTS.train, key):
+        return False
+    default = getattr(BOXMOT_DEFAULTS.train, key)
+    if key == "imgsz" and isinstance(value, int):
+        value = (value, value // 2)
+    if key == "imgsz" and isinstance(default, int):
+        default = (default, default // 2)
+    if key in {"eval_datasets", "head_parts", "imgsz"}:
+        return tuple(value or ()) == tuple(default or ())
+    return value == default
+
+
 _UNSET = _DefaultArg()
 
 
@@ -75,16 +162,120 @@ class Boxmot:
         tracker: Any = _UNSET,
         classes: Any = None,
         project: str | Path = BOXMOT_DEFAULTS.track.project,
+        *,
+        model: str | None = None,
+        recipe: str | None = None,
     ) -> None:
+        train_model = model
+        train_recipe = recipe
+        if train_model is not None and train_recipe is not None:
+            raise ValueError("Provide only one of model=... or recipe=... when selecting a training profile.")
+
+        if detector is not _UNSET and reid is _UNSET and tracker is _UNSET and train_model is None and train_recipe is None:
+            train_spec = _resolve_reid_weight_train_spec(detector)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                reid = detector
+                if train_kind == "model":
+                    train_model = train_name
+                else:
+                    train_recipe = train_name
+                detector = _UNSET
+            else:
+                train_spec = _resolve_train_model_spec(detector)
+                if train_spec is not None:
+                    train_kind, train_name = train_spec
+                    if train_kind == "model":
+                        train_model = train_name
+                    else:
+                        train_recipe = train_name
+                    detector = _UNSET
+
+        if train_model is not None:
+            train_spec = _resolve_train_model_spec(train_model)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                if train_kind == "model":
+                    train_model = train_name
+                else:
+                    train_model = None
+                    train_recipe = train_name
+
+        if train_recipe is not None:
+            train_spec = _resolve_train_model_spec(train_recipe)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                if train_kind == "recipe":
+                    train_recipe = train_name
+                elif train_model is None:
+                    train_model = train_name
+                    train_recipe = None
+
         self._detector_explicit = detector is not _UNSET and detector is not None
         self._reid_explicit = reid is not _UNSET and reid is not None
         self._tracker_explicit = tracker is not _UNSET and tracker is not None
+        self._train_model_explicit = train_model is not None
+        self._train_recipe_explicit = train_recipe is not None
 
         self.detector = BOXMOT_DEFAULTS.shared.detector if detector is _UNSET else detector
         self.reid = BOXMOT_DEFAULTS.shared.reid if reid is _UNSET else reid
         self.tracker = BOXMOT_DEFAULTS.track.tracker if tracker is _UNSET else tracker
+        self.train_model = train_model
+        self.train_recipe = train_recipe
         self.classes = _normalize_classes(classes)
         self.project = Path(project)
+
+    @classmethod
+    def reid(
+        cls,
+        weights: str | Path,
+        *,
+        project: str | Path = BOXMOT_DEFAULTS.track.project,
+        model: str | None = None,
+        recipe: str | None = None,
+    ) -> "Boxmot":
+        """Create a ReID-focused facade bound to a weight file or model name."""
+        if model is None and recipe is None:
+            train_spec = _resolve_reid_weight_train_spec(weights)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                if train_kind == "model":
+                    model = train_name
+                else:
+                    recipe = train_name
+        return cls(reid=weights, project=project, model=model, recipe=recipe)
+
+    @classmethod
+    def detector(
+        cls,
+        model: str | Path,
+        *,
+        device: str = BOXMOT_DEFAULTS.track.device,
+        imgsz=None,
+        conf: float | None = None,
+        iou: float = BOXMOT_DEFAULTS.track.iou,
+        classes: Any = None,
+        agnostic_nms: bool = False,
+        half: bool = BOXMOT_DEFAULTS.track.half,
+        batch: int = 1,
+        vid_stride: int = 1,
+    ):
+        """Create a public detector runtime for standalone prediction."""
+        from boxmot.detectors import Detector
+
+        detector = Detector(
+            path=_workflow_support().detector_path_from_spec(model),
+            device=device,
+            imgsz=imgsz,
+            conf=conf,
+            iou=iou,
+            classes=_normalize_classes(classes),
+            agnostic_nms=agnostic_nms,
+            batch=batch,
+            vid_stride=vid_stride,
+        )
+        detector.half = bool(half)
+        return detector
 
     def _detector_path(self, required: bool = True) -> Path | None:
         return _workflow_support().detector_path_from_spec(self.detector, required=required)
@@ -105,6 +296,7 @@ class Boxmot:
         self,
         benchmark: str | Path,
         *,
+        split: str | None = None,
         imgsz=None,
         conf=None,
         iou: float = BOXMOT_DEFAULTS.eval.iou,
@@ -120,6 +312,7 @@ class Boxmot:
         return _api_args().build_eval_args(
             self,
             benchmark,
+            split=split,
             imgsz=imgsz,
             conf=conf,
             iou=iou,
@@ -229,6 +422,7 @@ class Boxmot:
         self,
         *,
         benchmark: str | Path,
+        split: str | None = None,
         imgsz=None,
         conf=None,
         iou: float = BOXMOT_DEFAULTS.eval.iou,
@@ -242,6 +436,7 @@ class Boxmot:
     ) -> ValidationResult:
         args = self._base_eval_args(
             benchmark,
+            split=split,
             imgsz=imgsz,
             conf=conf,
             iou=iou,
@@ -272,15 +467,17 @@ class Boxmot:
         self,
         *,
         benchmark: str | Path,
+        split: str | None = None,
         n_trials: int = BOXMOT_DEFAULTS.tune.n_trials,
+        objectives: Sequence[str] | str | None = None,
         imgsz=None,
         conf=None,
         iou: float = BOXMOT_DEFAULTS.eval.iou,
         device: str = BOXMOT_DEFAULTS.eval.device,
         half: bool = BOXMOT_DEFAULTS.eval.half,
         project: str | Path | None = None,
-        maximize: Sequence[str] = BOXMOT_DEFAULTS.tune.maximize,
-        minimize: Sequence[str] = BOXMOT_DEFAULTS.tune.minimize,
+        maximize: Sequence[str] | str | None = None,
+        minimize: Sequence[str] | str | None = None,
         verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
         tracker_backend: str | None = None,
         tracking_backend: str = "thread",
@@ -291,7 +488,9 @@ class Boxmot:
         args = _api_args().build_tune_args(
             self,
             benchmark,
+            split=split,
             n_trials=n_trials,
+            objectives=objectives,
             imgsz=imgsz,
             conf=conf,
             iou=iou,
@@ -361,6 +560,7 @@ class Boxmot:
     def export(
         self,
         *,
+        format: str | Sequence[str] | None = None,
         include: Sequence[str] = BOXMOT_DEFAULTS.export.include,
         device: str = BOXMOT_DEFAULTS.export.device,
         half: bool = BOXMOT_DEFAULTS.export.half,
@@ -382,9 +582,10 @@ class Boxmot:
     ) -> ExportResult:
         from boxmot.engine.reid import export as export_module
 
+        export_include = _normalize_export_include(format, include)
         args = _api_args().build_export_args(
             self,
-            include=include,
+            include=export_include,
             device=device,
             half=half,
             optimize=optimize,
@@ -405,11 +606,44 @@ class Boxmot:
         )
         return export_module.run_export(args)
 
+    def embed(
+        self,
+        *,
+        source: str | Path | Any,
+        boxes: Any = None,
+        device: str = BOXMOT_DEFAULTS.track.device,
+        half: bool = BOXMOT_DEFAULTS.track.half,
+        preprocess: str | None = None,
+    ):
+        from boxmot.reid import ReID
+        from boxmot.reid.core.preprocessing import get_preprocess_fn
+
+        if isinstance(self.reid, (str, Path)):
+            reid = ReID(
+                self._reid_path(required=True),
+                device=device,
+                half=half,
+                preprocess_name=preprocess,
+            )
+        else:
+            reid = _workflow_support().build_reid_from_spec(self.reid, device=device, half=half)
+            if preprocess is not None:
+                reid.preprocess_name = preprocess
+                backend = getattr(reid, "model", None)
+                if backend is not None:
+                    backend._preprocess_name = preprocess
+                    backend.preprocess_fn = get_preprocess_fn(preprocess)
+
+        return reid(source, boxes=boxes)
+
     def train(
         self,
         *,
+        cfg: str | Path | None = None,
+        recipe: str | None = None,
         model: str = BOXMOT_DEFAULTS.train.model,
         dataset: str = BOXMOT_DEFAULTS.train.dataset,
+        data: str | Path | Sequence[str | Path] | None = None,
         data_dir: str | Path | None = BOXMOT_DEFAULTS.train.data_dir,
         loss: str = BOXMOT_DEFAULTS.train.loss,
         preprocess: str = BOXMOT_DEFAULTS.train.preprocess,
@@ -441,11 +675,19 @@ class Boxmot:
         head_type: str = BOXMOT_DEFAULTS.train.head_type,
         part_pooling: str = BOXMOT_DEFAULTS.train.part_pooling,
         num_part_tokens: int = BOXMOT_DEFAULTS.train.num_part_tokens,
+        evidence_num_roles: int = BOXMOT_DEFAULTS.train.evidence_num_roles,
         decouple_patterns: bool = BOXMOT_DEFAULTS.train.decouple_patterns,
         pattern_adapter_dim: int = BOXMOT_DEFAULTS.train.pattern_adapter_dim,
         stripe_visibility: bool = BOXMOT_DEFAULTS.train.stripe_visibility,
         branch_aware_metric: bool = BOXMOT_DEFAULTS.train.branch_aware_metric,
         branch_metric_part_weight: float = BOXMOT_DEFAULTS.train.branch_metric_part_weight,
+        evidence_alignment_loss_weight: float = BOXMOT_DEFAULTS.train.evidence_alignment_loss_weight,
+        evidence_alignment_margin: float = BOXMOT_DEFAULTS.train.evidence_alignment_margin,
+        evidence_sinkhorn_iters: int = BOXMOT_DEFAULTS.train.evidence_sinkhorn_iters,
+        evidence_sinkhorn_temperature: float = BOXMOT_DEFAULTS.train.evidence_sinkhorn_temperature,
+        evidence_rerank_topk: int = BOXMOT_DEFAULTS.train.evidence_rerank_topk,
+        evidence_null_loss_weight: float = BOXMOT_DEFAULTS.train.evidence_null_loss_weight,
+        evidence_diversity_loss_weight: float = BOXMOT_DEFAULTS.train.evidence_diversity_loss_weight,
         head_warmup_epochs: int = BOXMOT_DEFAULTS.train.head_warmup_epochs,
         head_warmup_lr_mult: float = BOXMOT_DEFAULTS.train.head_warmup_lr_mult,
         gradual_unfreeze: bool = BOXMOT_DEFAULTS.train.gradual_unfreeze,
@@ -471,71 +713,118 @@ class Boxmot:
         train_project = project if project is not None else BOXMOT_DEFAULTS.train.project
         from boxmot.configs import build_mode_namespace
         from boxmot.engine.reid import trainer as reid_trainer_module
+        from boxmot.engine.reid.data import resolve_reid_train_data
 
-        args = build_mode_namespace(
-            "train",
-            {
-                "model": model,
-                "dataset": dataset,
-                "data_dir": None if data_dir is None else str(data_dir),
-                "loss": loss,
-                "preprocess": preprocess,
-                "imgsz": imgsz if imgsz is not None else BOXMOT_DEFAULTS.train.imgsz,
-                "batch_size": int(batch_size),
-                "lr": float(lr),
-                "weight_decay": float(weight_decay),
-                "epochs": int(epochs),
-                "warmup_epochs": int(warmup_epochs),
-                "eval_interval": int(eval_interval),
-                "p_ids": int(p_ids),
-                "k_instances": int(k_instances),
-                "margin": float(margin),
-                "label_smooth": float(label_smooth),
-                "center_loss_weight": float(center_loss_weight),
-                "id_loss_weight": float(id_loss_weight),
-                "metric_loss_weight": float(metric_loss_weight),
-                "early_id_loss_weight": float(early_id_loss_weight),
-                "early_id_loss_epochs": int(early_id_loss_epochs),
-                "center_loss_ramp_start_epoch": int(center_loss_ramp_start_epoch),
-                "center_loss_ramp_end_epoch": int(center_loss_ramp_end_epoch),
-                "metric_feature": metric_feature,
-                "inference_feature": inference_feature,
-                "feature_fusion": feature_fusion,
-                "feat_dim": int(feat_dim),
-                "neck_dim": int(neck_dim),
-                "head_pool": head_pool,
-                "head_parts": tuple(int(part) for part in head_parts),
-                "head_type": head_type,
-                "part_pooling": part_pooling,
-                "num_part_tokens": int(num_part_tokens),
-                "decouple_patterns": bool(decouple_patterns),
-                "pattern_adapter_dim": int(pattern_adapter_dim),
-                "stripe_visibility": bool(stripe_visibility),
-                "branch_aware_metric": bool(branch_aware_metric),
-                "branch_metric_part_weight": float(branch_metric_part_weight),
-                "head_warmup_epochs": int(head_warmup_epochs),
-                "head_warmup_lr_mult": float(head_warmup_lr_mult),
-                "gradual_unfreeze": bool(gradual_unfreeze),
-                "gradual_unfreeze_head_epochs": int(gradual_unfreeze_head_epochs),
-                "gradual_unfreeze_stage_epochs": int(gradual_unfreeze_stage_epochs),
-                "gradual_unfreeze_backbone_lr_mult": float(gradual_unfreeze_backbone_lr_mult),
-                "gradual_unfreeze_backbone_lr_epochs": int(gradual_unfreeze_backbone_lr_epochs),
-                "pretrained": bool(pretrained),
-                "device": device,
-                "project": Path(train_project),
-                "name": name,
-                "num_workers": int(num_workers),
-                "seed": int(seed),
-                "deterministic": bool(deterministic),
-                "eval_datasets": list(eval_datasets),
-                "ema_decay": ema_decay,
-                "gaussian_blur": bool(gaussian_blur),
-                "random_grayscale": float(random_grayscale),
-                "color_jitter": bool(color_jitter),
-                "random_erasing": float(random_erasing),
-                "resume": None if resume is None else str(resume),
-            },
-        )
+        train_model = model
+        train_recipe = recipe if recipe is not None else self.train_recipe
+        if model == BOXMOT_DEFAULTS.train.model and self.train_model is not None:
+            train_model = self.train_model
+        elif recipe is None:
+            train_spec = _resolve_train_model_spec(model)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                if train_kind == "model":
+                    train_model = train_name
+                else:
+                    train_model = BOXMOT_DEFAULTS.train.model
+                    train_recipe = train_name
+
+        if train_recipe is not None:
+            train_spec = _resolve_train_model_spec(train_recipe)
+            if train_spec is not None and train_spec[0] == "recipe":
+                train_recipe = train_spec[1]
+
+        payload = {
+            "cfg": None if cfg is None else str(cfg),
+            "recipe": train_recipe,
+            "model": train_model,
+            "dataset": dataset,
+            "data": _normalize_reid_data(data),
+            "data_dir": None if data_dir is None else str(data_dir),
+            "loss": loss,
+            "preprocess": preprocess,
+            "imgsz": imgsz if imgsz is not None else BOXMOT_DEFAULTS.train.imgsz,
+            "batch_size": int(batch_size),
+            "lr": float(lr),
+            "weight_decay": float(weight_decay),
+            "epochs": int(epochs),
+            "warmup_epochs": int(warmup_epochs),
+            "eval_interval": int(eval_interval),
+            "p_ids": int(p_ids),
+            "k_instances": int(k_instances),
+            "margin": float(margin),
+            "label_smooth": float(label_smooth),
+            "center_loss_weight": float(center_loss_weight),
+            "id_loss_weight": float(id_loss_weight),
+            "metric_loss_weight": float(metric_loss_weight),
+            "early_id_loss_weight": float(early_id_loss_weight),
+            "early_id_loss_epochs": int(early_id_loss_epochs),
+            "center_loss_ramp_start_epoch": int(center_loss_ramp_start_epoch),
+            "center_loss_ramp_end_epoch": int(center_loss_ramp_end_epoch),
+            "metric_feature": metric_feature,
+            "inference_feature": inference_feature,
+            "feature_fusion": feature_fusion,
+            "feat_dim": int(feat_dim),
+            "neck_dim": int(neck_dim),
+            "head_pool": head_pool,
+            "head_parts": tuple(int(part) for part in head_parts),
+            "head_type": head_type,
+            "part_pooling": part_pooling,
+            "num_part_tokens": int(num_part_tokens),
+            "evidence_num_roles": int(evidence_num_roles),
+            "decouple_patterns": bool(decouple_patterns),
+            "pattern_adapter_dim": int(pattern_adapter_dim),
+            "stripe_visibility": bool(stripe_visibility),
+            "branch_aware_metric": bool(branch_aware_metric),
+            "branch_metric_part_weight": float(branch_metric_part_weight),
+            "evidence_alignment_loss_weight": float(evidence_alignment_loss_weight),
+            "evidence_alignment_margin": float(evidence_alignment_margin),
+            "evidence_sinkhorn_iters": int(evidence_sinkhorn_iters),
+            "evidence_sinkhorn_temperature": float(evidence_sinkhorn_temperature),
+            "evidence_rerank_topk": int(evidence_rerank_topk),
+            "evidence_null_loss_weight": float(evidence_null_loss_weight),
+            "evidence_diversity_loss_weight": float(evidence_diversity_loss_weight),
+            "head_warmup_epochs": int(head_warmup_epochs),
+            "head_warmup_lr_mult": float(head_warmup_lr_mult),
+            "gradual_unfreeze": bool(gradual_unfreeze),
+            "gradual_unfreeze_head_epochs": int(gradual_unfreeze_head_epochs),
+            "gradual_unfreeze_stage_epochs": int(gradual_unfreeze_stage_epochs),
+            "gradual_unfreeze_backbone_lr_mult": float(gradual_unfreeze_backbone_lr_mult),
+            "gradual_unfreeze_backbone_lr_epochs": int(gradual_unfreeze_backbone_lr_epochs),
+            "pretrained": bool(pretrained),
+            "device": device,
+            "project": Path(train_project),
+            "name": name,
+            "num_workers": int(num_workers),
+            "seed": int(seed),
+            "deterministic": bool(deterministic),
+            "eval_datasets": list(eval_datasets),
+            "ema_decay": ema_decay,
+            "gaussian_blur": bool(gaussian_blur),
+            "random_grayscale": float(random_grayscale),
+            "color_jitter": bool(color_jitter),
+            "random_erasing": float(random_erasing),
+            "resume": None if resume is None else str(resume),
+        }
+        explicit_keys = None
+        if cfg is not None:
+            explicit_keys = {"cfg"}
+            if data is not None:
+                explicit_keys.add("data")
+            if project is not None:
+                explicit_keys.add("project")
+            if resume is not None:
+                explicit_keys.add("resume")
+            for key, value in payload.items():
+                if (
+                    value is not None
+                    and key not in {"cfg", "data", "project", "resume"}
+                    and not _matches_train_default(key, value)
+                ):
+                    explicit_keys.add(key)
+
+        args = build_mode_namespace("train", payload, explicit_keys=explicit_keys)
+        args = resolve_reid_train_data(args)
         return reid_trainer_module.main(args)
 
     def eval_reid(

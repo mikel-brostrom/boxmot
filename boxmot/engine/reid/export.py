@@ -100,10 +100,13 @@ def _suppress_export_noise(enabled: bool):
 
 def setup_model(args):
     args.device = select_device(args.device)
-    if args.half and args.device.type == "cpu":
-        raise AssertionError("--half only compatible with GPU export, use --device 0 for GPU")
+    include = tuple(str(fmt).lower() for fmt in (getattr(args, "include", ()) or ()))
+    cpu_fp16_graph_export = bool(args.half and args.device.type == "cpu" and "engine" not in include)
+    if args.half and args.device.type == "cpu" and not cpu_fp16_graph_export:
+        raise AssertionError("--half TensorRT export requires GPU, use --device 0")
 
-    reid = ReID(weights=args.weights, device=args.device, half=args.half)
+    backend_half = bool(args.half and not cpu_fp16_graph_export)
+    reid = ReID(weights=args.weights, device=args.device, half=backend_half)
     model_name = ReIDModelRegistry.get_model_name(args.weights)
     model = reid.model.model.eval()
 
@@ -112,14 +115,14 @@ def setup_model(args):
 
     if "vehicleid" in args.weights.name or "veri" in args.weights.name:
         args.imgsz = (256, 256)
-    elif "lmbn" in model_name or "csl_tinyvit" in model_name:
+    elif "lmbn" in model_name or "csl_tinyvit" in model_name or "mobilenetv4" in model_name:
         args.imgsz = (384, 128)
     elif "hacnn" in model_name:
         args.imgsz = (160, 64)
     else:
         args.imgsz = (256, 128)
 
-    if args.half:
+    if backend_half:
         model = model.half()
 
     first_param = next(model.parameters(), None)
@@ -264,7 +267,12 @@ def run_export(args) -> ExportResult:
     if exported_files:
         with _suppress_export_noise(not args.verbose):
             parity_report = _verify_export_parity(args, model, dummy_input, exported_files)
-    return ExportResult(weights=args.weights, files=exported_files, parity=parity_report)
+    return ExportResult(
+        weights=args.weights,
+        files=exported_files,
+        parity=parity_report,
+        half=bool(getattr(args, "half", False)),
+    )
 
 
 def _verify_export_parity(
@@ -469,7 +477,12 @@ def main(args):
         if exported_files:
             with _suppress_export_noise(not args.verbose):
                 parity_report = _verify_export_parity(args, model, dummy_input, exported_files)
-        result = ExportResult(weights=args.weights, files=exported_files, parity=parity_report)
+        result = ExportResult(
+            weights=args.weights,
+            files=exported_files,
+            parity=parity_report,
+            half=bool(getattr(args, "half", False)),
+        )
 
         elapsed_time = time.time() - start_time
         if result.files:

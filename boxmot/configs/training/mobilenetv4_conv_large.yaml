@@ -1,0 +1,123 @@
+{
+  "run": {
+    "model_name": "mobilenetv4_conv_large",
+    "seed": 0,
+    "deterministic": true,
+    "pretrained": true
+  },
+  "data": {
+    "dataset": "market1501",
+    "data_dir": "./Market-1501-v15.09.15",
+    "img_size": [
+      384,
+      128
+    ],
+    "preprocess": "resize",
+    "num_classes": 751,
+    "batch_size": 64,
+    "sampler": {
+      "p": 16,
+      "k": 4
+    },
+    "num_workers": 4
+  },
+  "model": {
+    "feature_fusion": "final",
+    "post_fusion_mixer": {
+      "mode": "none",
+      "reduction": 4,
+      "kernel": [
+        5,
+        3
+      ],
+      "gamma_init": 0.0
+    },
+    "feat_dim": 768,
+    "neck_dim": 768,
+    "head": {
+      "pool": "avg",
+      "parts": [
+        1
+      ],
+      "head_type": "standard",
+      "part_pooling": "stripes",
+      "num_part_tokens": 4,
+      "decouple_patterns": false,
+      "pattern_adapter_dim": 128,
+      "stripe_visibility": false,
+      "drop_global_aux": false,
+      "drop_global_aux_ratio": 0.25,
+      "warmup_epochs": 0,
+      "warmup_lr_mult": 2.0
+    },
+    "feature_selection": {
+      "metric_feature": "auto",
+      "inference_feature": "concat_bn"
+    },
+    "branch": {
+      "aware_metric": false,
+      "metric_part_weight": 0.5,
+      "loss_agg": "mean"
+    },
+    "regularization": {
+      "drop_path_rate": 0.0
+    }
+  },
+  "optimization": {
+    "epochs": 120,
+    "optimizer": "AdamW",
+    "lr": 0.00035,
+    "weight_decay": 0.0001,
+    "grad_clip": 1.0,
+    "backbone_freeze_epochs": 10,
+    "gradual_unfreeze": {
+      "enabled": false,
+      "head_epochs": 0,
+      "stage_epochs": 0,
+      "backbone_lr_mult": 1.0,
+      "backbone_lr_epochs": 0
+    },
+    "scheduler": {
+      "name": "CosineAnnealingLR",
+      "eta_min": 0.0000001,
+      "warmup_epochs": 10
+    },
+    "ema_decay": 0.999
+  },
+  "losses": {
+    "loss_type": "triplet",
+    "classifier_loss": "ce",
+    "weights": {
+      "id_loss_weight": 1.0,
+      "aux_ce_weight": 1.0,
+      "metric_loss_weight": 1.0,
+      "center_loss_weight": 0.0005
+    },
+    "aux_ce_drop_epoch": 0,
+    "label_smooth": 0.1,
+    "triplet": {
+      "margin": 0.3,
+      "soft_margin": true
+    }
+  },
+  "augmentation": {
+    "color_jitter": false,
+    "gaussian_blur": false,
+    "random_grayscale": 0.0,
+    "random_erasing": 0.35,
+    "random_patch": false,
+    "color_augmentation": true
+  },
+  "evaluation": {
+    "eval_interval": 10,
+    "eval_datasets": [],
+    "flip_tta": false
+  },
+  "system": {
+    "device": "mps"
+  },
+  "derived": {
+    "metric_dim": 768,
+    "classifier_dim": 768
+  }
+}

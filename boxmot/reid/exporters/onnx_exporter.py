@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch.export import Dim
 
-from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
 from boxmot.utils import logger as LOGGER
 
 
@@ -74,8 +74,10 @@ class ONNXExporter(BaseExporter):
         if self.verbose:
             LOGGER.info(f"Exporting ONNX with onnx {onnx.__version__} opset {opset}...")
 
+        export_model = as_inference_export_model(self.model)
+
         # Determine output count for correct output_names length
-        output_names = self._infer_output_names()
+        output_names = self._infer_output_names(export_model)
 
         # --- Export ---
         args = (self.im,)
@@ -94,7 +96,7 @@ class ONNXExporter(BaseExporter):
                 # Constrain dynamic batch range to satisfy torch.export shape guards on CUDA.
                 export_kwargs["dynamic_shapes"] = ({0: Dim("batch", min=1, max=65535)},)
             else:
-                export_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names)
+                export_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names, export_model)
 
         if use_dynamo:
             export_kwargs["dynamo"] = True
@@ -103,7 +105,7 @@ class ONNXExporter(BaseExporter):
 
         try:
             torch.onnx.export(
-                self.model,
+                export_model,
                 args,
                 str(f),
                 **export_kwargs,
@@ -133,10 +135,10 @@ class ONNXExporter(BaseExporter):
                 fallback_kwargs["dynamo"] = False
             if self.dynamic:
                 # Legacy exporter uses dynamic_axes instead of torch.export dynamic_shapes.
-                fallback_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names)
+                fallback_kwargs["dynamic_axes"] = self._build_dynamic_axes(output_names, export_model)
 
             torch.onnx.export(
-                self.model,
+                export_model,
                 args,
                 str(f),
                 **fallback_kwargs,
@@ -215,12 +217,12 @@ class ONNXExporter(BaseExporter):
 
         return min(int(opset), int(onnx.defs.onnx_opset_version()))
 
-    def _infer_output_names(self):
+    def _infer_output_names(self, export_model):
         # Ensure output_names matches the number of ONNX graph outputs.
         try:
-            self.model.eval()
+            export_model.eval()
             with torch.no_grad():
-                y = self.model(self.im)
+                y = export_model(self.im)
             if isinstance(y, (tuple, list)):
                 return [f"output{i}" for i in range(len(y))]
         except Exception:
@@ -228,7 +230,7 @@ class ONNXExporter(BaseExporter):
             pass
         return ["output0"]
 
-    def _build_dynamic_axes(self, output_names):
+    def _build_dynamic_axes(self, output_names, export_model):
         # ReID models use fixed crop sizes; only the batch dim varies. Marking
         # H/W dynamic breaks tracing for backbones that rely on adaptive pooling
         # (e.g. LMBN / OSNet variants), so keep spatial dims static.
@@ -237,7 +239,7 @@ class ONNXExporter(BaseExporter):
         # For outputs, always make batch dynamic; add extra dims only when obvious
         try:
             with torch.no_grad():
-                y = self.model(self.im)
+                y = export_model(self.im)
             ys = list(y) if isinstance(y, (tuple, list)) else [y]
             for name, t in zip(output_names, ys):
                 if not isinstance(t, torch.Tensor):

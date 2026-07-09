@@ -5,10 +5,15 @@ Code source: https://github.com/pytorch/vision
 """
 from __future__ import absolute_import, division
 
-import torch.utils.model_zoo as model_zoo
+from dataclasses import dataclass
+
 from torch import nn
 
-__all__ = [
+from boxmot.reid.backbones.base import ReIDBackbone, format_reid_output
+from boxmot.reid.backbones.common import init_kaiming_reid, load_url_pretrained
+from boxmot.reid.backbones.registry import BackboneVariant, register_variant
+
+_RESNET_PUBLIC_NAMES = (
     "resnet18",
     "resnet34",
     "resnet50",
@@ -17,7 +22,9 @@ __all__ = [
     "resnext50_32x4d",
     "resnext101_32x8d",
     "resnet50_fc512",
-]
+)
+
+__all__ = list(_RESNET_PUBLIC_NAMES)
 
 model_urls = {
     "resnet18": "https://download.pytorch.org/models/resnet18-5c106cde.pth",
@@ -150,7 +157,7 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
+class ResNet(ReIDBackbone):
     """Residual network.
 
     Reference:
@@ -310,23 +317,9 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def _init_params(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm1d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+        init_kaiming_reid(self)
 
-    def featuremaps(self, x):
+    def forward_features(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
@@ -337,9 +330,8 @@ class ResNet(nn.Module):
         x = self.layer4(x)
         return x
 
-    def forward(self, x):
-        f = self.featuremaps(x)
-        v = self.global_avgpool(f)
+    def forward_head(self, features):
+        v = self.global_avgpool(features)
         v = v.flatten(1)
 
         if self.fc is not None:
@@ -349,169 +341,66 @@ class ResNet(nn.Module):
             return v
 
         y = self.classifier(v)
-
-        if self.loss == "softmax":
-            return y
-        elif self.loss == "triplet":
-            return y, v
-        else:
-            raise KeyError("Unsupported loss: {}".format(self.loss))
+        return format_reid_output(self.loss, y, v)
 
 
-def init_pretrained_weights(model, model_url):
-    """Initializes model with pretrained weights.
-
-    Layers that don't match with pretrained layers in name or size are kept unchanged.
-    """
-    pretrain_dict = model_zoo.load_url(model_url)
-    model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
-    model_dict.update(pretrain_dict)
-    model.load_state_dict(model_dict)
+@dataclass(frozen=True)
+class ResNetVariant:
+    name: str
+    block: type[nn.Module]
+    layers: tuple[int, int, int, int]
+    model_url_key: str
+    last_stride: int = 2
+    fc_dims: tuple[int, ...] | None = None
+    groups: int = 1
+    width_per_group: int = 64
 
 
-"""ResNet"""
+def make_resnet_builder(spec: ResNetVariant):
+    def builder(num_classes, loss="softmax", pretrained=True, use_gpu=None, **kwargs):
+        del use_gpu
+        model = ResNet(
+            num_classes=num_classes,
+            loss=loss,
+            block=spec.block,
+            layers=list(spec.layers),
+            last_stride=spec.last_stride,
+            fc_dims=list(spec.fc_dims) if spec.fc_dims is not None else None,
+            dropout_p=None,
+            groups=spec.groups,
+            width_per_group=spec.width_per_group,
+            **kwargs,
+        )
+        if pretrained:
+            load_url_pretrained(model, model_urls[spec.model_url_key], strip_prefix=None)
+        return model
+
+    builder.__name__ = spec.name
+    builder.__qualname__ = spec.name
+    builder.__module__ = __name__
+    return builder
 
 
-def resnet18(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=BasicBlock,
-        layers=[2, 2, 2, 2],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet18"])
-    return model
+_RESNET_VARIANTS = (
+    ResNetVariant("resnet18", BasicBlock, (2, 2, 2, 2), "resnet18"),
+    ResNetVariant("resnet34", BasicBlock, (3, 4, 6, 3), "resnet34"),
+    ResNetVariant("resnet50", Bottleneck, (3, 4, 6, 3), "resnet50"),
+    ResNetVariant("resnet101", Bottleneck, (3, 4, 23, 3), "resnet101"),
+    ResNetVariant("resnet152", Bottleneck, (3, 8, 36, 3), "resnet152"),
+    ResNetVariant("resnext50_32x4d", Bottleneck, (3, 4, 6, 3), "resnext50_32x4d", groups=32, width_per_group=4),
+    ResNetVariant("resnext101_32x8d", Bottleneck, (3, 4, 23, 3), "resnext101_32x8d", groups=32, width_per_group=8),
+    ResNetVariant("resnet50_fc512", Bottleneck, (3, 4, 6, 3), "resnet50", last_stride=1, fc_dims=(512,)),
+)
 
 
-def resnet34(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=BasicBlock,
-        layers=[3, 4, 6, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet34"])
-    return model
+for _variant in _RESNET_VARIANTS:
+    globals()[_variant.name] = register_variant(
+        BackboneVariant(
+            name=_variant.name,
+            family="cnn",
+            default_recipe="cnn_reid",
+            pretrained_source="torchvision",
+        )
+    )(make_resnet_builder(_variant))
 
-
-def resnet50(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 4, 6, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet50"])
-    return model
-
-
-def resnet101(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 4, 23, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet101"])
-    return model
-
-
-def resnet152(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 8, 36, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet152"])
-    return model
-
-
-"""ResNeXt"""
-
-
-def resnext50_32x4d(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 4, 6, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        groups=32,
-        width_per_group=4,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnext50_32x4d"])
-    return model
-
-
-def resnext101_32x8d(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 4, 23, 3],
-        last_stride=2,
-        fc_dims=None,
-        dropout_p=None,
-        groups=32,
-        width_per_group=8,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnext101_32x8d"])
-    return model
-
-
-"""
-ResNet + FC
-"""
-
-
-def resnet50_fc512(num_classes, loss="softmax", pretrained=True, **kwargs):
-    model = ResNet(
-        num_classes=num_classes,
-        loss=loss,
-        block=Bottleneck,
-        layers=[3, 4, 6, 3],
-        last_stride=1,
-        fc_dims=[512],
-        dropout_p=None,
-        **kwargs,
-    )
-    if pretrained:
-        init_pretrained_weights(model, model_urls["resnet50"])
-    return model
+del _variant

@@ -23,15 +23,28 @@
   },
   "model": {
     "is_vit": true,
-    "feature_fusion": "last3",
+    "feature_fusion": "global_final_parts_stage2",
+    "post_fusion_mixer": {
+      "mode": "none",
+      "reduction": 4,
+      "kernel": [
+        5,
+        3
+      ],
+      "gamma_init": 0.0
+    },
     "feat_dim": 512,
     "neck_dim": 512,
     "attention": {
-      "window_layout": "rect",
-      "bias": "signed_factorized",
-      "mask": true,
-      "shift": true,
+      "window_layout": "legacy",
+      "bias": "absolute",
+      "mask": false,
+      "shift": false,
       "stage3_global": false
+    },
+    "reid_adapters": {
+      "stages": [],
+      "reduction": 4
     },
     "head": {
       "pool": "gelu_gem",
@@ -45,6 +58,8 @@
       "decouple_patterns": false,
       "pattern_adapter_dim": 128,
       "stripe_visibility": false,
+      "drop_global_aux": false,
+      "drop_global_aux_ratio": 0.25,
       "warmup_epochs": 0,
       "warmup_lr_mult": 2.0
     },
@@ -68,9 +83,18 @@
     "weight_decay": 0.1,
     "grad_clip": 1.0,
     "layer_decay": 0.95,
+    "vit_lr_profile": "layer_decay",
+    "backbone_freeze_epochs": 10,
+    "gradual_unfreeze": {
+      "enabled": false,
+      "head_epochs": 0,
+      "stage_epochs": 0,
+      "backbone_lr_mult": 1.0,
+      "backbone_lr_epochs": 0
+    },
     "scheduler": {
       "name": "CosineAnnealingLR",
-      "eta_min": 1e-07,
+      "eta_min": 0.0000001,
       "warmup_epochs": 20
     },
     "ema_decay": 0.0
@@ -80,9 +104,11 @@
     "classifier_loss": "ce",
     "weights": {
       "id_loss_weight": 1.0,
+      "aux_ce_weight": 1.0,
       "metric_loss_weight": 1.0,
       "center_loss_weight": 0.005
     },
+    "aux_ce_drop_epoch": 0,
     "label_smooth": 0.05,
     "triplet": {
       "margin": 0.3,
@@ -108,6 +134,6 @@
   "derived": {
     "metric_dim": 1536,
     "classifier_dim": 1536,
-    "n_params": 25701284
+    "n_params": 25713284
   }
 }

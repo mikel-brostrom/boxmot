@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from boxmot.reid.backbones import registered_backbone_names
+
 
 @dataclass(frozen=True)
 class ReIDExportFormat:
@@ -28,40 +30,7 @@ REID_EXPORT_FORMAT_ROWS = tuple(
 REID_EXPORT_ARGUMENTS = tuple(format_.argument for format_ in REID_EXPORT_FORMATS)
 REID_EXPORT_SUFFIXES = tuple(format_.suffix for format_ in REID_EXPORT_FORMATS)
 
-MODEL_TYPES = [
-    "resnet50",
-    "resnet101",
-    "mlfn",
-    "hacnn",
-    "mobilenetv2_x1_0",
-    "mobilenetv2_x1_4",
-    "osnet_x1_0",
-    "osnet_x0_75",
-    "osnet_x0_5",
-    "osnet_x0_25",
-    "osnet_ibn_x1_0",
-    "osnet_ain_x1_0",
-    "lmbn_ain_n",
-    "lmbn_n",
-    "cspreid_n",
-    "clip",
-    "vit_nano",
-    "vit_nano_ain",
-    "vit_nano_ain_os",
-    "vit_tiny",
-    "vit_tiny_parts",
-    "vit_tiny_parts3",
-    "csl_tinyvit_7m",
-    "csl_tinyvit_7m_lmbn",
-    "csl_tinyvit_11m",
-    "csl_tinyvit_11m_lmbn",
-    "csl_tinyvit_23m",
-    "csl_tinyvit_23m_lmbn",
-    "csl_tinyvit_small",
-    "csl_tinyvit_normal",
-    "csl_tinyvit_large",
-    "csl_tinyvit_lmbn",
-]
+MODEL_TYPES = [*registered_backbone_names()]
 
 TRAINED_URLS = {
     # resnet50
@@ -103,18 +72,14 @@ TRAINED_URLS = {
     "osnet_ibn_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1q3Sj2ii34NlfxA4LvmHdWO_75NDRmECJ",
     "osnet_ain_x1_0_msmt17.pt": "https://drive.google.com/uc?id=1SigwBE6mPdqiJMqhuIY4aqC7--5CsMal",
     # lmbn
-    "lmbn_n_duke.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
-    "lmbn_n_market.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_market.pth",
-    "lmbn_n_cuhk03_d.pt": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_cuhk03_d.pth",
-    # clip
-    "clip_market1501.pt": "https://drive.google.com/uc?id=1GnyAVeNOg3Yug1KBBWMKKbT2x43O5Ch7",
-    "clip_duke.pt": "https://drive.google.com/uc?id=1ldjSkj-7pXAWmx8on5x0EftlCaolU4dY",
-    "clip_veri.pt": "https://drive.google.com/uc?id=1RyfHdOBI2pan_wIGSim5-l6cM4S2WN8e",
-    "clip_vehicleid.pt": "https://drive.google.com/uc?id=168BLegHHxNqatW5wx1YyL2REaThWoof5",
+    "lmbn_n_duke.pt": "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt",
+    "lmbn_n_market.pt": "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_market.pt",
+    "lmbn_n_cuhk03_d.pt": "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_cuhk03_d.pt",
 }
 
 NR_CLASSES_DICT = {
     "market1501": 751,
+    "market": 751,
     "duke": 702,
     "cuhk03": 767,
     "msmt17": 1041,

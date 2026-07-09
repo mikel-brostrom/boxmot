@@ -14,6 +14,7 @@ class ReIDSample:
     img_path: str
     pid: int
     camid: int
+    source: str = ""
 
 
 @dataclass
@@ -56,9 +57,9 @@ class BaseReIDDataset:
                 f"Download the dataset and point --data-dir to its root."
             )
 
-        raw_train = self._load_split("train")
-        self.query = DatasetSplit(self._load_split("query"))
-        self.gallery = DatasetSplit(self._load_split("gallery"))
+        raw_train = self._with_source(self._load_split("train"), self.name)
+        self.query = DatasetSplit(self._with_source(self._load_split("query"), self.name))
+        self.gallery = DatasetSplit(self._with_source(self._load_split("gallery"), self.name))
 
         if relabel_train:
             raw_train = self._relabel(raw_train)
@@ -73,7 +74,20 @@ class BaseReIDDataset:
         """Remap PIDs to a contiguous range starting from 0."""
         pid_map = {pid: idx for idx, pid in enumerate(sorted({s.pid for s in samples}))}
         return [
-            ReIDSample(img_path=s.img_path, pid=pid_map[s.pid], camid=s.camid)
+            ReIDSample(img_path=s.img_path, pid=pid_map[s.pid], camid=s.camid, source=s.source)
+            for s in samples
+        ]
+
+    @staticmethod
+    def _with_source(samples: List[ReIDSample], source: str) -> List[ReIDSample]:
+        """Attach a dataset source label used by source-balanced samplers."""
+        return [
+            ReIDSample(
+                img_path=s.img_path,
+                pid=s.pid,
+                camid=s.camid,
+                source=s.source or source,
+            )
             for s in samples
         ]
 
@@ -118,6 +132,7 @@ class CombinedReIDDataset:
                         img_path=s.img_path,
                         pid=s.pid + pid_offset,
                         camid=s.camid + cam_offset,
+                        source=s.source or ds.name,
                     )
                 )
             pid_offset += ds.train.num_pids

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from importlib import import_module
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import boxmot.utils.rich.core.ui as ui
 from boxmot.configs.benchmark import (
@@ -25,33 +26,7 @@ from boxmot.data.benchmark import (
     prepare_aabb_eval_gt,
     resolve_eval_box_type,
 )
-from boxmot.data.cache import (
-    AppendableNpyWriter,
-    _collect_seq_info,
-    _existing_cache_path,
-    _existing_embedding_cache_path,
-    _load_embedding_cache_array,
-    _load_numeric_cache_array,
-    _max_frame_id,
-    _saved_detection_column_count,
-)
 from boxmot.detectors import get_runtime_detector_cfg
-from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
-from boxmot.engine.eval.plots import MetricsPlotter
-from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
-from boxmot.engine.eval.trackeval.results import (
-    _filter_obb_trackeval_results,
-    _known_trackeval_class_names,
-    _select_plot_metrics_data,
-    log_trackeval_report,
-    parse_mot_results,
-    render_trackeval_report,
-)
-from boxmot.engine.eval.trackeval.runner import (
-    _load_obb_gt_matrix,
-    trackeval_aabb,
-    trackeval_obb,
-)
 from boxmot.engine.workflows.reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflows.results import ValidationResult
 from boxmot.utils import (
@@ -72,6 +47,24 @@ from boxmot.utils.rich.reporters.eval import (
 )
 from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 from boxmot.utils.timing import TimingStats
+
+if TYPE_CHECKING:
+    from boxmot.data.cache import (
+        AppendableNpyWriter,
+        _existing_cache_path,
+        _existing_embedding_cache_path,
+        _load_embedding_cache_array,
+        _load_numeric_cache_array,
+        _max_frame_id,
+        _saved_detection_column_count,
+    )
+    from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
+    from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
+    from boxmot.engine.eval.trackeval.results import (
+        _select_plot_metrics_data,
+        parse_mot_results,
+    )
+    from boxmot.engine.eval.trackeval.runner import _load_obb_gt_matrix
 
 _EVAL_DEPENDENCIES_READY = False
 
@@ -112,6 +105,85 @@ __all__ = [
     "run_trackeval",
 ]
 
+_LAZY_EXPORTS = {
+    "AppendableNpyWriter": ("boxmot.data.cache", "AppendableNpyWriter"),
+    "_collect_seq_info": ("boxmot.data.cache", "_collect_seq_info"),
+    "_existing_cache_path": ("boxmot.data.cache", "_existing_cache_path"),
+    "_existing_embedding_cache_path": (
+        "boxmot.data.cache",
+        "_existing_embedding_cache_path",
+    ),
+    "_filter_obb_trackeval_results": (
+        "boxmot.engine.eval.trackeval.results",
+        "_filter_obb_trackeval_results",
+    ),
+    "_known_trackeval_class_names": (
+        "boxmot.engine.eval.trackeval.results",
+        "_known_trackeval_class_names",
+    ),
+    "_load_embedding_cache_array": (
+        "boxmot.data.cache",
+        "_load_embedding_cache_array",
+    ),
+    "_load_numeric_cache_array": ("boxmot.data.cache", "_load_numeric_cache_array"),
+    "_load_obb_gt_matrix": (
+        "boxmot.engine.eval.trackeval.runner",
+        "_load_obb_gt_matrix",
+    ),
+    "_max_frame_id": ("boxmot.data.cache", "_max_frame_id"),
+    "_saved_detection_column_count": (
+        "boxmot.data.cache",
+        "_saved_detection_column_count",
+    ),
+    "_select_plot_metrics_data": (
+        "boxmot.engine.eval.trackeval.results",
+        "_select_plot_metrics_data",
+    ),
+    "generate_dets_embs_batched": (
+        "boxmot.engine.eval.cache",
+        "generate_dets_embs_batched",
+    ),
+    "log_trackeval_report": (
+        "boxmot.engine.eval.trackeval.results",
+        "log_trackeval_report",
+    ),
+    "MetricsPlotter": ("boxmot.engine.eval.plots", "MetricsPlotter"),
+    "parse_mot_results": ("boxmot.engine.eval.trackeval.results", "parse_mot_results"),
+    "process_sequence": ("boxmot.engine.eval.replay", "process_sequence"),
+    "render_trackeval_report": (
+        "boxmot.engine.eval.trackeval.results",
+        "render_trackeval_report",
+    ),
+    "run_generate_dets_embs": ("boxmot.engine.eval.cache", "run_generate_dets_embs"),
+    "run_generate_mot_results": (
+        "boxmot.engine.eval.replay",
+        "run_generate_mot_results",
+    ),
+    "trackeval_aabb": ("boxmot.engine.eval.trackeval.runner", "trackeval_aabb"),
+    "trackeval_obb": ("boxmot.engine.eval.trackeval.runner", "trackeval_obb"),
+}
+
+
+def _get_lazy_export(name: str):
+    if name in globals():
+        return globals()[name]
+    return __getattr__(name)
+
+
+def __getattr__(name: str):
+    if name not in _LAZY_EXPORTS:
+        msg = f"module {__name__!r} has no attribute {name!r}"
+        raise AttributeError(msg)
+
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    value = getattr(import_module(module_name), attr_name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted((*globals(), *__all__))
+
 
 def _ensure_eval_dependencies() -> None:
     global _EVAL_DEPENDENCIES_READY
@@ -145,7 +217,16 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     """
     Evaluate tracking results via TrackEval and print a summary.
     """
-    seq_paths, seq_info = _collect_seq_info(args.source)
+    collect_seq_info = _get_lazy_export("_collect_seq_info")
+    filter_obb_trackeval_results = _get_lazy_export("_filter_obb_trackeval_results")
+    known_trackeval_class_names = _get_lazy_export("_known_trackeval_class_names")
+    log_trackeval_report_fn = _get_lazy_export("log_trackeval_report")
+    parse_mot_results_fn = _get_lazy_export("parse_mot_results")
+    render_trackeval_report_fn = _get_lazy_export("render_trackeval_report")
+    trackeval_aabb_fn = _get_lazy_export("trackeval_aabb")
+    trackeval_obb_fn = _get_lazy_export("trackeval_obb")
+
+    seq_paths, seq_info = collect_seq_info(args.source)
     annotations_dir = args.source.parent / "annotations"
     gt_folder = annotations_dir if annotations_dir.exists() else args.source
 
@@ -197,23 +278,21 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
                 cfg = {}
 
     if _resolve_eval_box_type(args, cfg) == "obb":
-        trackeval_results = trackeval_obb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+        trackeval_results = trackeval_obb_fn(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     else:
         gt_folder = prepare_aabb_eval_gt(args, gt_folder, seq_info)
-        trackeval_results = trackeval_aabb(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+        trackeval_results = trackeval_aabb_fn(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
 
-    parsed_results = parse_mot_results(
+    parsed_results = parse_mot_results_fn(
         trackeval_results,
         seq_names=set(seq_info.keys()),
-        known_classes=_known_trackeval_class_names(args, cfg),
+        known_classes=known_trackeval_class_names(args, cfg),
     )
     eval_box_type = _resolve_eval_box_type(args, cfg)
 
     single_class_mode = False
     if eval_box_type == "obb":
-        parsed_results, single_class_mode = _filter_obb_trackeval_results(
-            parsed_results, args, cfg.get("benchmark", {})
-        )
+        parsed_results, single_class_mode = filter_obb_trackeval_results(parsed_results, args, cfg.get("benchmark", {}))
     elif getattr(args, "remapped_class_names", None):
         remapped_lower = {name.lower() for name in args.remapped_class_names}
         parsed_results = {key: value for key, value in parsed_results.items() if key.lower() in remapped_lower}
@@ -236,8 +315,8 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
     final_results = list(parsed_results.values())[0] if single_class_mode and parsed_results else parsed_results
 
     if verbose:
-        log_trackeval_report(
-            render_trackeval_report(
+        log_trackeval_report_fn(
+            render_trackeval_report_fn(
                 parsed_results,
                 args,
                 cfg,
@@ -272,9 +351,7 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     """
     bench_cfg: dict = {}
     benchmark_id = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", None)
+        getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
     )
     if benchmark_id:
         try:
@@ -347,23 +424,20 @@ def run_eval(
     # -- Generate detections & embeddings --
     if prepare_cache:
         from boxmot.engine.workflows.support import REID_TRACKERS
+
         tracker_name = str(getattr(args, "tracker", "")).lower()
         if tracker_name not in REID_TRACKERS:
             args.reid = []
         if pipeline is not None:
             pipeline.advance("Generating detections & embeddings...")
         with suppress_boxmot_logs(suppress, level="WARNING"):
-            run_generate_dets_embs(
+            _get_lazy_export("run_generate_dets_embs")(
                 args,
                 timing_stats=timing_stats,
                 progress_callback=pipeline.callback() if pipeline and show_progress else None,
             )
     if pipeline is not None:
-        pipeline.advance(
-            "Calibrating Kalman filter..."
-            if tune_kf_step
-            else "Starting tracker..."
-        )
+        pipeline.advance("Calibrating Kalman filter..." if tune_kf_step else "Starting tracker...")
 
     # -- KF calibration --
     if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
@@ -402,7 +476,7 @@ def run_eval(
         pipeline.callback()(detail)
 
     with suppress_boxmot_logs(suppress, level="WARNING"):
-        run_generate_mot_results(
+        _get_lazy_export("run_generate_mot_results")(
             args,
             evolve_config=evolve_config,
             timing_stats=timing_stats,
@@ -445,9 +519,9 @@ def main(args):
     with pipeline:
         result = run_eval(args, verbose=False, pipeline=pipeline)
 
-    plot_class, metrics_data = _select_plot_metrics_data(result.raw)
+    plot_class, metrics_data = _get_lazy_export("_select_plot_metrics_data")(result.raw)
     if metrics_data:
-        plotter = MetricsPlotter(result.exp_dir)
+        plotter = _get_lazy_export("MetricsPlotter")(result.exp_dir)
         plot_metrics = ["HOTA", "MOTA", "IDF1"]
         plot_values = [metrics_data.get(metric, 0) for metric in plot_metrics]
 

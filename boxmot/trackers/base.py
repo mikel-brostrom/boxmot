@@ -134,6 +134,13 @@ class BaseTracker(
         masks: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with one frame of detections."""
+        if hasattr(dets, "dets"):
+            if img is None:
+                img = getattr(dets, "orig_img", None)
+            if masks is None:
+                masks = getattr(dets, "masks", None)
+            dets = dets.dets
+
         dets, img = self._preprocess(dets, img)
         masks = self._preprocess_masks(dets, masks)
         result = self._do_update(dets, img, embs, masks)

@@ -25,6 +25,8 @@ TRAIN_HPARAM_TO_ARG = {
     "model_name": "model",
     "dataset": "dataset",
     "data_dir": "data_dir",
+    "data_specs": "data_specs",
+    "source_balance": "source_balance",
     "img_size": "imgsz",
     "preprocess": "preprocess",
     "loss_type": "loss",
@@ -56,6 +58,10 @@ TRAIN_HPARAM_TO_ARG = {
     "metric_feature": "metric_feature",
     "inference_feature": "inference_feature",
     "feature_fusion": "feature_fusion",
+    "post_fusion_mixer": "post_fusion_mixer",
+    "post_fusion_mixer_reduction": "post_fusion_mixer_reduction",
+    "post_fusion_mixer_kernel": "post_fusion_mixer_kernel",
+    "post_fusion_mixer_gamma_init": "post_fusion_mixer_gamma_init",
     "feat_dim": "feat_dim",
     "neck_dim": "neck_dim",
     "drop_path_rate": "drop_path_rate",
@@ -71,11 +77,21 @@ TRAIN_HPARAM_TO_ARG = {
     "head_type": "head_type",
     "part_pooling": "part_pooling",
     "num_part_tokens": "num_part_tokens",
+    "evidence_num_roles": "evidence_num_roles",
     "decouple_patterns": "decouple_patterns",
     "pattern_adapter_dim": "pattern_adapter_dim",
     "stripe_visibility": "stripe_visibility",
+    "drop_global_aux": "drop_global_aux",
+    "drop_global_aux_ratio": "drop_global_aux_ratio",
     "branch_aware_metric": "branch_aware_metric",
     "branch_metric_part_weight": "branch_metric_part_weight",
+    "evidence_alignment_loss_weight": "evidence_alignment_loss_weight",
+    "evidence_alignment_margin": "evidence_alignment_margin",
+    "evidence_sinkhorn_iters": "evidence_sinkhorn_iters",
+    "evidence_sinkhorn_temperature": "evidence_sinkhorn_temperature",
+    "evidence_rerank_topk": "evidence_rerank_topk",
+    "evidence_null_loss_weight": "evidence_null_loss_weight",
+    "evidence_diversity_loss_weight": "evidence_diversity_loss_weight",
     "head_warmup_epochs": "head_warmup_epochs",
     "head_warmup_lr_mult": "head_warmup_lr_mult",
     "vit_lr_profile": "vit_lr_profile",
@@ -97,6 +113,7 @@ TRAIN_HPARAM_TO_ARG = {
     "color_jitter": "color_jitter",
     "random_erasing": "random_erasing",
     "random_patch": "random_patch",
+    "random_crop_scale": "random_crop_scale",
     "color_augmentation": "color_augmentation",
     "flip_tta": "flip_tta",
     "eval_interval": "eval_interval",
@@ -125,15 +142,21 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "pretrained": ("run", "pretrained"),
         "dataset": ("data", "dataset"),
         "data_dir": ("data", "data_dir"),
+        "data_specs": ("data", "data_specs"),
         "img_size": ("data", "img_size"),
         "preprocess": ("data", "preprocess"),
         "num_classes": ("data", "num_classes"),
         "batch_size": ("data", "batch_size"),
         "p": ("data", "sampler", "p"),
         "k": ("data", "sampler", "k"),
+        "source_balance": ("data", "sampler", "source_balance"),
         "num_workers": ("data", "num_workers"),
         "is_vit": ("model", "is_vit"),
         "feature_fusion": ("model", "feature_fusion"),
+        "post_fusion_mixer": ("model", "post_fusion_mixer", "mode"),
+        "post_fusion_mixer_reduction": ("model", "post_fusion_mixer", "reduction"),
+        "post_fusion_mixer_kernel": ("model", "post_fusion_mixer", "kernel"),
+        "post_fusion_mixer_gamma_init": ("model", "post_fusion_mixer", "gamma_init"),
         "feat_dim": ("model", "feat_dim"),
         "neck_dim": ("model", "neck_dim"),
         "attention_window_layout": ("model", "attention", "window_layout"),
@@ -148,9 +171,12 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "head_type": ("model", "head", "head_type"),
         "part_pooling": ("model", "head", "part_pooling"),
         "num_part_tokens": ("model", "head", "num_part_tokens"),
+        "evidence_num_roles": ("model", "head", "evidence_num_roles"),
         "decouple_patterns": ("model", "head", "decouple_patterns"),
         "pattern_adapter_dim": ("model", "head", "pattern_adapter_dim"),
         "stripe_visibility": ("model", "head", "stripe_visibility"),
+        "drop_global_aux": ("model", "head", "drop_global_aux"),
+        "drop_global_aux_ratio": ("model", "head", "drop_global_aux_ratio"),
         "head_warmup_epochs": ("model", "head", "warmup_epochs"),
         "head_warmup_lr_mult": ("model", "head", "warmup_lr_mult"),
         "metric_feature": ("model", "feature_selection", "metric_feature"),
@@ -158,6 +184,13 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "branch_aware_metric": ("model", "branch", "aware_metric"),
         "branch_metric_part_weight": ("model", "branch", "metric_part_weight"),
         "branch_loss_agg": ("model", "branch", "loss_agg"),
+        "evidence_alignment_loss_weight": ("model", "evidence", "alignment_loss_weight"),
+        "evidence_alignment_margin": ("model", "evidence", "alignment_margin"),
+        "evidence_sinkhorn_iters": ("model", "evidence", "sinkhorn_iters"),
+        "evidence_sinkhorn_temperature": ("model", "evidence", "sinkhorn_temperature"),
+        "evidence_rerank_topk": ("model", "evidence", "rerank_topk"),
+        "evidence_null_loss_weight": ("model", "evidence", "null_loss_weight"),
+        "evidence_diversity_loss_weight": ("model", "evidence", "diversity_loss_weight"),
         "drop_path_rate": ("model", "regularization", "drop_path_rate"),
         "epochs": ("optimization", "epochs"),
         "optimizer": ("optimization", "optimizer"),
@@ -200,6 +233,7 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "random_grayscale": ("augmentation", "random_grayscale"),
         "random_erasing": ("augmentation", "random_erasing"),
         "random_patch": ("augmentation", "random_patch"),
+        "random_crop_scale": ("augmentation", "random_crop_scale"),
         "color_augmentation": ("augmentation", "color_augmentation"),
         "eval_interval": ("evaluation", "eval_interval"),
         "eval_datasets": ("evaluation", "eval_datasets"),
@@ -271,6 +305,7 @@ def trainer_kwargs_from_args(
         "model_name": value("model_name", "model"),
         "dataset_name": value("dataset", "dataset"),
         "data_dir": data_dir,
+        "data_specs": value("data_specs", "data_specs", ()),
         "loss_type": value("loss_type", "loss", "triplet"),
         "preprocess": value("preprocess", "preprocess", "resize"),
         "img_size": img_size,
@@ -282,6 +317,7 @@ def trainer_kwargs_from_args(
         "eval_interval": value("eval_interval", "eval_interval", 10),
         "p": value("p", "p_ids", 16),
         "k": value("k", "k_instances", 4),
+        "source_balance": value("source_balance", "source_balance", ""),
         "margin": value("margin", "margin", 0.3),
         "label_smooth": value("label_smooth", "label_smooth", 0.1),
         "classifier_loss": value("classifier_loss", "classifier_loss", "ce"),
@@ -311,6 +347,22 @@ def trainer_kwargs_from_args(
         "metric_feature": value("metric_feature", "metric_feature", "auto"),
         "inference_feature": value("inference_feature", "inference_feature", "concat_bn"),
         "feature_fusion": value("feature_fusion", "feature_fusion", "last3"),
+        "post_fusion_mixer": value("post_fusion_mixer", "post_fusion_mixer", "none"),
+        "post_fusion_mixer_reduction": value(
+            "post_fusion_mixer_reduction",
+            "post_fusion_mixer_reduction",
+            4,
+        ),
+        "post_fusion_mixer_kernel": value(
+            "post_fusion_mixer_kernel",
+            "post_fusion_mixer_kernel",
+            (5, 3),
+        ),
+        "post_fusion_mixer_gamma_init": value(
+            "post_fusion_mixer_gamma_init",
+            "post_fusion_mixer_gamma_init",
+            0.0,
+        ),
         "feat_dim": value("feat_dim", "feat_dim", 512),
         "neck_dim": value("neck_dim", "neck_dim", 512),
         "drop_path_rate": value("drop_path_rate", "drop_path_rate", 0.1),
@@ -326,11 +378,33 @@ def trainer_kwargs_from_args(
         "head_type": value("head_type", "head_type", "standard"),
         "part_pooling": value("part_pooling", "part_pooling", "stripes"),
         "num_part_tokens": value("num_part_tokens", "num_part_tokens", 4),
+        "evidence_num_roles": value("evidence_num_roles", "evidence_num_roles", 8),
         "decouple_patterns": value("decouple_patterns", "decouple_patterns", False),
         "pattern_adapter_dim": value("pattern_adapter_dim", "pattern_adapter_dim", 128),
         "stripe_visibility": value("stripe_visibility", "stripe_visibility", False),
+        "drop_global_aux": value("drop_global_aux", "drop_global_aux", False),
+        "drop_global_aux_ratio": value("drop_global_aux_ratio", "drop_global_aux_ratio", 0.25),
         "branch_aware_metric": value("branch_aware_metric", "branch_aware_metric", False),
         "branch_metric_part_weight": value("branch_metric_part_weight", "branch_metric_part_weight", 0.5),
+        "evidence_alignment_loss_weight": value(
+            "evidence_alignment_loss_weight",
+            "evidence_alignment_loss_weight",
+            0.0,
+        ),
+        "evidence_alignment_margin": value("evidence_alignment_margin", "evidence_alignment_margin", 0.2),
+        "evidence_sinkhorn_iters": value("evidence_sinkhorn_iters", "evidence_sinkhorn_iters", 20),
+        "evidence_sinkhorn_temperature": value(
+            "evidence_sinkhorn_temperature",
+            "evidence_sinkhorn_temperature",
+            0.1,
+        ),
+        "evidence_rerank_topk": value("evidence_rerank_topk", "evidence_rerank_topk", 100),
+        "evidence_null_loss_weight": value("evidence_null_loss_weight", "evidence_null_loss_weight", 0.0),
+        "evidence_diversity_loss_weight": value(
+            "evidence_diversity_loss_weight",
+            "evidence_diversity_loss_weight",
+            0.0,
+        ),
         "head_warmup_epochs": value("head_warmup_epochs", "head_warmup_epochs", 0),
         "head_warmup_lr_mult": value("head_warmup_lr_mult", "head_warmup_lr_mult", 2.0),
         "vit_lr_profile": value("vit_lr_profile", "vit_lr_profile", "layer_decay"),
@@ -371,6 +445,7 @@ def trainer_kwargs_from_args(
         "color_jitter": value("color_jitter", "color_jitter", False),
         "random_erasing": value("random_erasing", "random_erasing", 0.5),
         "random_patch": value("random_patch", "random_patch", True),
+        "random_crop_scale": value("random_crop_scale", "random_crop_scale", 1.05),
         "color_augmentation": value("color_augmentation", "color_augmentation", True),
         "flip_tta": value("flip_tta", "flip_tta"),
         "resume": resume,
@@ -397,11 +472,13 @@ class DataConfig:
 
     dataset_name: str = "market1501"
     data_dir: str = "."
+    data_specs: Tuple[dict[str, Any], ...] = ()
     preprocess: str = "resize"
     img_size: Tuple[int, int] = (256, 128)
     batch_size: int = 64
     p: int = 16
     k: int = 4
+    source_balance: str = ""
     num_workers: int = 4
 
 
@@ -414,6 +491,10 @@ class ModelConfig:
     metric_feature: str = "auto"
     inference_feature: str = "concat_bn"
     feature_fusion: str = "last3"
+    post_fusion_mixer: str = "none"
+    post_fusion_mixer_reduction: int = 4
+    post_fusion_mixer_kernel: tuple[int, int] | list[int] = (5, 3)
+    post_fusion_mixer_gamma_init: float = 0.0
     feat_dim: int = 512
     neck_dim: int = 512
     drop_path_rate: float = 0.1
@@ -426,6 +507,7 @@ class ModelConfig:
     reid_adapter_reduction: int = 4
     branch_aware_metric: bool = False
     branch_metric_part_weight: float = 0.5
+    evidence_num_roles: int = 8
     head_pool: str = "avg"
     head_parts: tuple[int, ...] | list[int] = (1, 2)
     head_type: str = "standard"
@@ -434,6 +516,8 @@ class ModelConfig:
     decouple_patterns: bool = False
     pattern_adapter_dim: int = 128
     stripe_visibility: bool = False
+    drop_global_aux: bool = False
+    drop_global_aux_ratio: float = 0.25
     head_warmup_epochs: int = 0
     head_warmup_lr_mult: float = 2.0
 
@@ -461,6 +545,13 @@ class LossConfig:
     aux_ce_weight: float = 1.0
     aux_ce_drop_epoch: int = 0
     branch_loss_agg: str = "mean"
+    evidence_alignment_loss_weight: float = 0.0
+    evidence_alignment_margin: float = 0.2
+    evidence_sinkhorn_iters: int = 20
+    evidence_sinkhorn_temperature: float = 0.1
+    evidence_rerank_topk: int = 100
+    evidence_null_loss_weight: float = 0.0
+    evidence_diversity_loss_weight: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -491,6 +582,7 @@ class AugmentationConfig:
     color_jitter: bool = False
     random_erasing: float = 0.5
     random_patch: bool = True
+    random_crop_scale: float = 1.05
     color_augmentation: bool = True
 
 
@@ -535,11 +627,13 @@ class ReIDTrainConfig:
             data=DataConfig(
                 dataset_name=values["dataset_name"],
                 data_dir=str(values["data_dir"]),
+                data_specs=tuple(dict(spec) for spec in values.get("data_specs") or ()),
                 preprocess=values.get("preprocess", "resize"),
                 img_size=tuple(image_size),
                 batch_size=values.get("batch_size", 64),
                 p=values.get("p", 16),
                 k=values.get("k", 4),
+                source_balance=values.get("source_balance", ""),
                 num_workers=values.get("num_workers", 4),
             ),
             model=ModelConfig(
@@ -548,6 +642,10 @@ class ReIDTrainConfig:
                 metric_feature=values.get("metric_feature", "auto"),
                 inference_feature=values.get("inference_feature", "concat_bn"),
                 feature_fusion=values.get("feature_fusion", "last3"),
+                post_fusion_mixer=values.get("post_fusion_mixer", "none"),
+                post_fusion_mixer_reduction=values.get("post_fusion_mixer_reduction", 4),
+                post_fusion_mixer_kernel=values.get("post_fusion_mixer_kernel", (5, 3)),
+                post_fusion_mixer_gamma_init=values.get("post_fusion_mixer_gamma_init", 0.0),
                 feat_dim=values.get("feat_dim", 512),
                 neck_dim=values.get("neck_dim", 512),
                 drop_path_rate=values.get("drop_path_rate", 0.1),
@@ -560,6 +658,7 @@ class ReIDTrainConfig:
                 reid_adapter_reduction=values.get("reid_adapter_reduction", 4),
                 branch_aware_metric=values.get("branch_aware_metric", False),
                 branch_metric_part_weight=values.get("branch_metric_part_weight", 0.5),
+                evidence_num_roles=values.get("evidence_num_roles", 8),
                 head_pool=values.get("head_pool", "avg"),
                 head_parts=values.get("head_parts", (1, 2)),
                 head_type=values.get("head_type", "standard"),
@@ -568,6 +667,8 @@ class ReIDTrainConfig:
                 decouple_patterns=values.get("decouple_patterns", False),
                 pattern_adapter_dim=values.get("pattern_adapter_dim", 128),
                 stripe_visibility=values.get("stripe_visibility", False),
+                drop_global_aux=values.get("drop_global_aux", False),
+                drop_global_aux_ratio=values.get("drop_global_aux_ratio", 0.25),
                 head_warmup_epochs=values.get("head_warmup_epochs", 0),
                 head_warmup_lr_mult=values.get("head_warmup_lr_mult", 2.0),
             ),
@@ -591,6 +692,13 @@ class ReIDTrainConfig:
                 aux_ce_weight=values.get("aux_ce_weight", 1.0),
                 aux_ce_drop_epoch=values.get("aux_ce_drop_epoch", 0),
                 branch_loss_agg=values.get("branch_loss_agg", "mean"),
+                evidence_alignment_loss_weight=values.get("evidence_alignment_loss_weight", 0.0),
+                evidence_alignment_margin=values.get("evidence_alignment_margin", 0.2),
+                evidence_sinkhorn_iters=values.get("evidence_sinkhorn_iters", 20),
+                evidence_sinkhorn_temperature=values.get("evidence_sinkhorn_temperature", 0.1),
+                evidence_rerank_topk=values.get("evidence_rerank_topk", 100),
+                evidence_null_loss_weight=values.get("evidence_null_loss_weight", 0.0),
+                evidence_diversity_loss_weight=values.get("evidence_diversity_loss_weight", 0.0),
             ),
             optimization=OptimizationConfig(
                 lr=values.get("lr", 3.5e-4),
@@ -613,6 +721,7 @@ class ReIDTrainConfig:
                 color_jitter=values.get("color_jitter", False),
                 random_erasing=values.get("random_erasing", 0.5),
                 random_patch=values.get("random_patch", True),
+                random_crop_scale=values.get("random_crop_scale", 1.05),
                 color_augmentation=values.get("color_augmentation", True),
             ),
             evaluation=EvalConfig(
@@ -628,12 +737,14 @@ class ReIDTrainConfig:
             "model_name": self.model.model_name,
             "dataset_name": self.data.dataset_name,
             "data_dir": self.data.data_dir,
+            "data_specs": [dict(spec) for spec in self.data.data_specs],
             **self.loss.__dict__,
             "preprocess": self.data.preprocess,
             "img_size": self.data.img_size,
             "batch_size": self.data.batch_size,
             "p": self.data.p,
             "k": self.data.k,
+            "source_balance": self.data.source_balance,
             "num_workers": self.data.num_workers,
             **self.optimization.__dict__,
             **self.augmentation.__dict__,

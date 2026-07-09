@@ -197,6 +197,19 @@ class Detector:
         return results
 
     def postprocess(self, results, as_detections: bool = False, **kwargs):
+        if results is None:
+            dets = np.empty((0, 6), dtype=np.float32)
+            if as_detections:
+                orig_img = kwargs.get("image")
+                if orig_img is None:
+                    frames = kwargs.get("frames")
+                    if isinstance(frames, (list, tuple)) and len(frames) > 0:
+                        orig_img = frames[0]
+                    else:
+                        orig_img = np.empty((0, 0, 3), dtype=np.uint8)
+                return Detections(dets=dets, orig_img=orig_img, path=str(kwargs.get("path", "")))
+            return dets
+
         backend_post = getattr(self.backend, "postprocess", None)
         # If the backend has a real postprocess stage, route the raw model
         # output through it so NMS/scale-back work shows up in the dedicated
@@ -293,6 +306,10 @@ class Detector:
         """Consume streaming inference without accumulating outputs in memory."""
         for _ in self.stream_inference(source, **kwargs):
             pass
+
+    def predict(self, source, **kwargs):
+        """Run detector inference on a source and return detections."""
+        return self(source, **kwargs)
 
     def __call__(self, source, stream: bool = False, **kwargs):
         if stream:

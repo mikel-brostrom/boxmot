@@ -208,7 +208,7 @@ def test_detector_and_reid_component_configs_load_separately():
     assert detector_cfg["model"] == "models/yolox_x_MOT17_ablation.pt"
     assert reid_cfg["id"] == "lmbn_n_duke"
     assert reid_cfg["model"] == "models/lmbn_n_duke.pt"
-    assert reid_cfg["url"] == "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth"
+    assert reid_cfg["url"] == "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt"
     assert reid_cfg["device"] == ""
     assert reid_cfg["half"] is True
 
@@ -231,8 +231,8 @@ def test_mot17_dataset_exposes_default_reid():
         "id": "lmbn_n_duke",
         "default_model": "models/lmbn_n_duke.pt",
         "model": "models/lmbn_n_duke.pt",
-        "model_url": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
-        "url": "https://github.com/mikel-brostrom/yolov8_tracking/releases/download/v9.0/lmbn_n_duke.pth",
+        "model_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt",
+        "url": "https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt",
         "device": "",
         "half": True,
         "preprocess": "resize",

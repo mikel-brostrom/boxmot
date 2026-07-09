@@ -3,9 +3,12 @@
 from __future__ import absolute_import, division
 
 import torch
-import torch.utils.model_zoo as model_zoo
 from torch import nn
 from torch.nn import functional as F
+
+from boxmot.reid.backbones.base import ReIDBackbone, format_reid_output
+from boxmot.reid.backbones.common import init_kaiming_reid, warn_manual_pretrained_download
+from boxmot.reid.backbones.registry import register_backbone
 
 __all__ = ["mlfn"]
 
@@ -92,7 +95,7 @@ class MLFNBlock(nn.Module):
         return F.relu(residual + x, inplace=True), s
 
 
-class MLFN(nn.Module):
+class MLFN(ReIDBackbone):
     """Multi-Level Factorisation Net.
 
     Reference:
@@ -165,20 +168,9 @@ class MLFN(nn.Module):
         self.init_params()
 
     def init_params(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+        init_kaiming_reid(self)
 
-    def forward(self, x):
+    def forward_features(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
         x = F.relu(x, inplace=True)
@@ -195,46 +187,27 @@ class MLFN(nn.Module):
         s_hat = self.fc_s(s_hat)
 
         v = (x + s_hat) * 0.5
-        v = v.flatten(1)
+        return v.flatten(1)
 
+    def forward_head(self, features):
         if not self.training:
-            return v
+            return features
 
-        y = self.classifier(v)
+        y = self.classifier(features)
 
-        if self.loss == "softmax":
-            return y
-        elif self.loss == "triplet":
-            return y, v
-        else:
-            raise KeyError("Unsupported loss: {}".format(self.loss))
+        return format_reid_output(self.loss, y, features)
 
 
-def init_pretrained_weights(model, model_url):
-    """Initializes model with pretrained weights.
-
-    Layers that don't match with pretrained layers in name or size are kept unchanged.
-    """
-    pretrain_dict = model_zoo.load_url(model_url)
-    model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
-    model_dict.update(pretrain_dict)
-    model.load_state_dict(model_dict)
-
-
-def mlfn(num_classes, loss="softmax", pretrained=True, **kwargs):
+@register_backbone(
+    "mlfn",
+    family="legacy",
+    default_recipe="legacy_reid",
+    default_img_size=(256, 128),
+    pretrained_source="imagenet",
+)
+def mlfn(num_classes, loss="softmax", pretrained=True, use_gpu=None, **kwargs):
+    del use_gpu
     model = MLFN(num_classes, loss, **kwargs)
     if pretrained:
-        # init_pretrained_weights(model, model_urls['imagenet'])
-        import warnings
-
-        warnings.warn(
-            "The imagenet pretrained weights need to be manually downloaded from {}".format(
-                model_urls["imagenet"]
-            )
-        )
+        warn_manual_pretrained_download(model_urls["imagenet"])
     return model

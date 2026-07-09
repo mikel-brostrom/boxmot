@@ -1,9 +1,54 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
+
+_MAXIMIZE_TUNE_METRICS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe")
+_MINIMIZE_TUNE_METRICS = ("IDSW", "IDs", "IDSW_rate")
+_TUNE_METRIC_ALIASES = {
+    "hota": "HOTA",
+    "mota": "MOTA",
+    "idf1": "IDF1",
+    "assa": "AssA",
+    "assre": "AssRe",
+    "idsw": "IDSW",
+    "id_switch": "IDSW",
+    "id_switches": "IDSW",
+    "idswitch": "IDSW",
+    "idswitches": "IDSW",
+    "ids": "IDs",
+    "idsw_rate": "IDSW_rate",
+    "id_switch_rate": "IDSW_rate",
+    "id_switches_rate": "IDSW_rate",
+    "idswitch_rate": "IDSW_rate",
+    "idswitches_rate": "IDSW_rate",
+}
+
+
+def _metric_values(values: Any) -> tuple[str, ...]:
+    if values is None:
+        return ()
+    raw_values = (values,) if isinstance(values, str) else tuple(values)
+    metrics: list[str] = []
+    for value in raw_values:
+        for part in str(value).split(","):
+            metric = part.strip()
+            if metric:
+                metrics.append(_TUNE_METRIC_ALIASES.get(metric.lower(), metric))
+    return tuple(metrics)
+
+
+def _split_objectives_by_direction(objectives: tuple[str, ...]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    maximize: list[str] = []
+    minimize: list[str] = []
+    for metric in objectives:
+        if metric in _MINIMIZE_TUNE_METRICS:
+            minimize.append(metric)
+        else:
+            maximize.append(metric)
+    return tuple(maximize), tuple(minimize)
 
 
 def _explicit_api_keys(
@@ -71,6 +116,7 @@ def build_eval_args(
     api,
     benchmark: str | Path,
     *,
+    split: str | None = None,
     imgsz=None,
     conf=None,
     iou: float = BOXMOT_DEFAULTS.eval.iou,
@@ -95,7 +141,7 @@ def build_eval_args(
             "data": str(benchmark),
             "benchmark": str(benchmark),
             "source": None,
-            "split": "",
+            "split": "" if split is None else str(split),
             "detector": [api._detector_path(required=True)],
             "reid": [reid_path],
             "device": device,
@@ -126,7 +172,10 @@ def build_eval_args(
             "tracking_backend": str(tracking_backend),
             **(extra or {}),
         },
-        explicit_keys=_explicit_api_keys(api, device=device, half=half, defaults=BOXMOT_DEFAULTS.eval),
+        explicit_keys={
+            *_explicit_api_keys(api, device=device, half=half, defaults=BOXMOT_DEFAULTS.eval),
+            *({"split"} if split is not None else set()),
+        },
     )
     args.reid_device = device
     args.reid_half = bool(half)
@@ -144,23 +193,33 @@ def build_tune_args(
     api,
     benchmark: str | Path,
     *,
+    split: str | None = None,
     n_trials: int = BOXMOT_DEFAULTS.tune.n_trials,
+    objectives: Sequence[str] | str | None = None,
     imgsz=None,
     conf=None,
     iou: float = BOXMOT_DEFAULTS.eval.iou,
     device: str = BOXMOT_DEFAULTS.eval.device,
     half: bool = BOXMOT_DEFAULTS.eval.half,
     project: str | Path | None = None,
-    maximize=BOXMOT_DEFAULTS.tune.maximize,
-    minimize=BOXMOT_DEFAULTS.tune.minimize,
+    maximize: Sequence[str] | str | None = None,
+    minimize: Sequence[str] | str | None = None,
     verbose: bool = BOXMOT_DEFAULTS.eval.verbose,
     tracker_backend: str | None = None,
     tracking_backend: str = "thread",
     seed: int | None = None,
 ):
+    tune_objectives = _metric_values(objectives) or tuple(BOXMOT_DEFAULTS.tune.objectives)
+    if objectives is not None and maximize is None and minimize is None:
+        tune_maximize, tune_minimize = _split_objectives_by_direction(tune_objectives)
+    else:
+        tune_maximize = _metric_values(maximize) or tuple(BOXMOT_DEFAULTS.tune.maximize)
+        tune_minimize = _metric_values(minimize) or tuple(BOXMOT_DEFAULTS.tune.minimize)
+
     return build_eval_args(
         api,
         benchmark,
+        split=split,
         imgsz=imgsz,
         conf=conf,
         iou=iou,
@@ -175,9 +234,9 @@ def build_tune_args(
         mode="tune",
         extra={
             "n_trials": int(n_trials),
-            "objectives": tuple(BOXMOT_DEFAULTS.tune.objectives),
-            "maximize": tuple(maximize),
-            "minimize": tuple(minimize),
+            "objectives": tune_objectives,
+            "maximize": tune_maximize,
+            "minimize": tune_minimize,
             "seed": seed,
         },
     )

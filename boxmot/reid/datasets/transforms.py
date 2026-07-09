@@ -1,7 +1,7 @@
 """ReID training transforms (augmentation pipelines).
 
 Augmentations ported from torchreid (deep-person-reid):
-- Random2DTranslation: 1.125× upscale → random crop (Zhou et al.)
+- Random2DTranslation: 1.05× upscale → random crop (LMBN-style)
 - ColorAugmentation: PCA-based color jitter (Krizhevsky et al.)
 - RandomPatch: occlusion simulation with a patch pool (Zhou et al., ICCV 2019)
 """
@@ -54,9 +54,9 @@ def _resize_op(img_size: Tuple[int, int], preprocess: str):
 
 
 class Random2DTranslation:
-    """Randomly translate via 1.125× upscale → random crop (torchreid).
+    """Randomly translate via scale× upscale → random crop.
 
-    With probability *p* the image is resized to 1.125× the target size and
+    With probability *p* the image is resized to *scale*× the target size and
     then a random crop of the target size is taken.  Otherwise the image is
     simply resized to the target size.
 
@@ -65,23 +65,26 @@ class Random2DTranslation:
         Re-Identification." ICCV 2019.
     """
 
-    def __init__(self, height: int, width: int, p: float = 0.5):
+    def __init__(self, height: int, width: int, p: float = 0.5, scale: float = 1.05):
+        if scale < 1.0:
+            raise ValueError("Random2DTranslation scale must be >= 1.0")
         self.height = height
         self.width = width
         self.p = p
+        self.scale = float(scale)
 
     def __call__(self, img: Image.Image) -> Image.Image:
         if random.random() > self.p:
             return img.resize((self.width, self.height), Image.BILINEAR)
-        new_w = int(round(self.width * 1.125))
-        new_h = int(round(self.height * 1.125))
+        new_w = int(round(self.width * self.scale))
+        new_h = int(round(self.height * self.scale))
         resized = img.resize((new_w, new_h), Image.BILINEAR)
         x1 = random.randint(0, new_w - self.width)
         y1 = random.randint(0, new_h - self.height)
         return resized.crop((x1, y1, x1 + self.width, y1 + self.height))
 
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(h={self.height}, w={self.width}, p={self.p})"
+        return f"{self.__class__.__name__}(h={self.height}, w={self.width}, p={self.p}, scale={self.scale})"
 
 
 class ColorAugmentation:
@@ -201,6 +204,7 @@ def build_train_transforms(
     gaussian_blur: bool = False,
     random_grayscale: float = 0.0,
     random_patch: bool = True,
+    random_crop_scale: float = 1.05,
     color_augmentation: bool = True,
 ) -> T.Compose:
     """Build the standard ReID training augmentation pipeline.
@@ -214,7 +218,7 @@ def build_train_transforms(
     ops = [
         _resize_op(img_size, preprocess),
         T.RandomHorizontalFlip(p=0.5),
-        Random2DTranslation(h, w, p=0.5),
+        Random2DTranslation(h, w, p=0.5, scale=random_crop_scale),
     ]
     if random_patch:
         ops.append(RandomPatch(prob_happen=0.5))

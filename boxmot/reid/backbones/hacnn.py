@@ -6,6 +6,8 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from boxmot.reid.backbones.registry import register_backbone
+
 __all__ = ["HACNN"]
 
 
@@ -188,6 +190,12 @@ class HarmAttn(nn.Module):
         return y_soft_attn, theta
 
 
+@register_backbone(
+    "hacnn",
+    family="legacy",
+    default_recipe="legacy_reid",
+    default_img_size=(160, 64),
+)
 class HACNN(nn.Module):
     """Harmonious Attention Convolutional Neural Network.
 

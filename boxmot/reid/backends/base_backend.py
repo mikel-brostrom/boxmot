@@ -3,14 +3,13 @@ from abc import abstractmethod
 from pathlib import Path
 
 import cv2
-import gdown
 import numpy as np
 import torch
 from filelock import SoftFileLock
 
+from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.misc import resolve_model_path
@@ -49,19 +48,15 @@ class BaseModelBackend:
 
         self.mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         self.std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
-        if "clip" in self.model_name:
-            self.mean_array = torch.tensor([0.5, 0.5, 0.5], device=self.device).view(1, 3, 1, 1)
-            self.std_array = torch.tensor([0.5, 0.5, 0.5], device=self.device).view(1, 3, 1, 1)
 
-        # Determine input shape, depending on dataset and model name
+        # Determine input shape, depending on dataset and model metadata.
         if "vehicleid" in self.weights.name or "veri" in self.weights.name:
             input_shape = (256, 256)
-        elif "lmbn" in self.model_name or "vit_tiny" in self.model_name or "csl_tinyvit" in self.model_name:
-            input_shape = (384, 128)
-        elif "hacnn" in self.model_name:
-            input_shape = (160, 64)
         else:
-            input_shape = (256, 128)
+            try:
+                input_shape = get_backbone_spec(self.model_name).default_img_size
+            except KeyError:
+                input_shape = (256, 128)
         self.input_shape = input_shape
 
     @staticmethod

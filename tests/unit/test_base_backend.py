@@ -97,3 +97,13 @@ def test_base_backend_preserves_explicit_export_paths(monkeypatch):
 
     assert backend.weights == explicit_path
     assert backend.loaded_weights == explicit_path
+
+
+def test_base_backend_uses_reid_crop_shape_for_mobilenetv4(monkeypatch, tmp_path):
+    monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "mobilenetv4_conv_small")
+    monkeypatch.setattr(ReIDModelRegistry, "get_nr_classes", lambda _weights: 1)
+    monkeypatch.setattr(ReIDModelRegistry, "build_model", lambda *args, **kwargs: object())
+
+    backend = InitOnlyBackend(tmp_path / "mobilenetv4_conv_small_market1501.pt", torch.device("cpu"), half=False)
+
+    assert backend.input_shape == (384, 128)

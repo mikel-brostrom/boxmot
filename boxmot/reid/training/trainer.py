@@ -19,17 +19,20 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
+from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.datasets import build_combined_dataset, build_dataset
-from boxmot.reid.datasets.sampler import PKSampler
+from boxmot.reid.datasets import CombinedReIDDataset, build_combined_dataset, build_dataset
+from boxmot.reid.datasets.sampler import PKSampler, SourceBalancedPKSampler, parse_source_balance
 from boxmot.reid.datasets.torch_dataset import ReIDImageDataset
 from boxmot.reid.datasets.transforms import build_test_transforms, build_train_transforms
+from boxmot.reid.training.base import BaseTrainer
 from boxmot.reid.training.checkpoint import CheckpointManager
 from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.evaluator import (
     compute_distance_matrix,
     evaluate_ranking,
     extract_features,
+    visibility_part_count,
 )
 from boxmot.reid.training.losses import (
     METRIC_LOSS_REGISTRY,
@@ -37,6 +40,11 @@ from boxmot.reid.training.losses import (
     CenterLoss,
     CosFaceLoss,
     CrossEntropyLabelSmooth,
+)
+from boxmot.reid.training.recipes import (
+    TrainingRecipe,
+    build_training_recipe,
+    default_recipe_for_family,
 )
 from boxmot.utils import logger as LOGGER
 
@@ -60,6 +68,8 @@ class TrainMetrics:
     center_loss: float
     lr: float
     elapsed_s: float
+    backbone_lr: float = 0.0
+    head_lr: float = 0.0
 
 
 @dataclass
@@ -110,7 +120,9 @@ class ModelBundle:
     model: nn.Module
     ema_model: Optional[nn.Module]
     val_model: nn.Module
-    is_vit: bool
+    is_transformer: bool
+    training_family: str = "cnn"
+    recipe: Optional[TrainingRecipe] = None
 
 
 @dataclass
@@ -146,7 +158,7 @@ class ResumeState:
     best_epoch: int = 0
 
 
-class ReIDTrainer:
+class ReIDTrainer(BaseTrainer):
     """Orchestrates ReID model training.
 
     Supports softmax (cross-entropy with label smoothing) and triplet loss
@@ -178,6 +190,7 @@ class ReIDTrainer:
         eval_interval: int = 10,
         p: int = 16,
         k: int = 4,
+        source_balance: str = "",
         margin: float = 0.3,
         label_smooth: float = 0.1,
         classifier_loss: str = "ce",
@@ -205,18 +218,24 @@ class ReIDTrainer:
         seed: int = 0,
         deterministic: bool = True,
         eval_datasets: Optional[List[str]] = None,
+        data_specs: Optional[List[dict[str, Any]]] = None,
         ema_decay: Optional[float] = None,
         gaussian_blur: bool = False,
         random_grayscale: float = 0.0,
         color_jitter: bool = False,
         random_erasing: float = 0.5,
         random_patch: bool = True,
+        random_crop_scale: float = 1.05,
         color_augmentation: bool = True,
         flip_tta: Optional[bool] = None,
         resume: Optional[str] = None,
         metric_feature: str = "auto",
         inference_feature: str = "concat_bn",
         feature_fusion: str = "last3",
+        post_fusion_mixer: str = "none",
+        post_fusion_mixer_reduction: int = 4,
+        post_fusion_mixer_kernel: tuple[int, int] = (5, 3),
+        post_fusion_mixer_gamma_init: float = 0.0,
         feat_dim: int = 512,
         neck_dim: int = 512,
         drop_path_rate: float = 0.1,
@@ -234,6 +253,14 @@ class ReIDTrainer:
         gradual_unfreeze_backbone_lr_epochs: int = 5,
         branch_aware_metric: bool = False,
         branch_metric_part_weight: float = 0.5,
+        evidence_num_roles: int = 8,
+        evidence_alignment_loss_weight: float = 0.0,
+        evidence_alignment_margin: float = 0.2,
+        evidence_sinkhorn_iters: int = 20,
+        evidence_sinkhorn_temperature: float = 0.1,
+        evidence_rerank_topk: int = 100,
+        evidence_null_loss_weight: float = 0.0,
+        evidence_diversity_loss_weight: float = 0.0,
         head_pool: str = "avg",
         head_parts: tuple[int, ...] = (1, 2),
         head_type: str = "standard",
@@ -242,6 +269,8 @@ class ReIDTrainer:
         decouple_patterns: bool = False,
         pattern_adapter_dim: int = 128,
         stripe_visibility: bool = False,
+        drop_global_aux: bool = False,
+        drop_global_aux_ratio: float = 0.25,
         reid_adapter_stages: tuple[int, ...] = (),
         reid_adapter_reduction: int = 4,
         head_warmup_epochs: int = 0,
@@ -250,7 +279,11 @@ class ReIDTrainer:
     ):
         self.model_name = model_name
         self.dataset_name = dataset_name
-        self.data_dir = data_dir
+        self.data_dir = str(data_dir)
+        self.data_specs = tuple(self._normalize_data_spec(spec) for spec in (data_specs or ()))
+        self._data_roots_by_name = {
+            self._dataset_lookup_key(spec["name"]): spec["root"] for spec in self.data_specs
+        }
         self.loss_type = loss_type.lower()
         self.preprocess = preprocess
         self.img_size = tuple(int(value) for value in img_size)
@@ -263,6 +296,8 @@ class ReIDTrainer:
         self.eval_interval = int(eval_interval)
         self.p = int(p)
         self.k = int(k)
+        self.source_balance = str(source_balance or "").strip()
+        self.source_balance_groups = parse_source_balance(self.source_balance) if self.source_balance else ()
         self.margin = float(margin)
         self.label_smooth = float(label_smooth)
         self.classifier_loss = classifier_loss.lower()
@@ -301,12 +336,17 @@ class ReIDTrainer:
         self.color_jitter = color_jitter
         self.random_erasing = random_erasing
         self.random_patch = random_patch
+        self.random_crop_scale = float(random_crop_scale)
         self.color_augmentation = color_augmentation
         self.flip_tta = flip_tta
         self.resume = resume
         self.metric_feature = str(metric_feature).lower()
         self.inference_feature = str(inference_feature).lower()
         self.feature_fusion = str(feature_fusion).lower()
+        self.post_fusion_mixer = self._normalize_post_fusion_mixer(post_fusion_mixer)
+        self.post_fusion_mixer_reduction = int(post_fusion_mixer_reduction)
+        self.post_fusion_mixer_kernel = self._normalize_int_pair(post_fusion_mixer_kernel)
+        self.post_fusion_mixer_gamma_init = float(post_fusion_mixer_gamma_init)
         self.feat_dim = int(feat_dim)
         self.neck_dim = int(neck_dim)
         self.drop_path_rate = float(drop_path_rate)
@@ -324,12 +364,24 @@ class ReIDTrainer:
         self.gradual_unfreeze_backbone_lr_epochs = int(gradual_unfreeze_backbone_lr_epochs)
         self.branch_aware_metric = bool(branch_aware_metric)
         self.branch_metric_part_weight = float(branch_metric_part_weight)
+        self.evidence_num_roles = int(evidence_num_roles)
+        self.evidence_alignment_loss_weight = float(evidence_alignment_loss_weight)
+        self.evidence_alignment_margin = float(evidence_alignment_margin)
+        self.evidence_sinkhorn_iters = int(evidence_sinkhorn_iters)
+        self.evidence_sinkhorn_temperature = float(evidence_sinkhorn_temperature)
+        self.evidence_rerank_topk = int(evidence_rerank_topk)
+        self.evidence_null_loss_weight = float(evidence_null_loss_weight)
+        self.evidence_diversity_loss_weight = float(evidence_diversity_loss_weight)
         self.head_pool = str(head_pool).lower()
         self.head_parts = self._normalize_head_parts(head_parts)
         self.head_type = str(head_type).lower()
         self.part_pooling = str(part_pooling).lower()
-        if self.part_pooling not in {"stripes", "tokens"}:
-            raise ValueError("part_pooling must be 'stripes' or 'tokens'")
+        if self.part_pooling in {"soft_stripes", "overlapping_stripes"}:
+            self.part_pooling = "overlap_stripes"
+        if self.part_pooling in {"semantic", "semantic_tokens", "semantic_visibility"}:
+            self.part_pooling = "semantic_parts"
+        if self.part_pooling not in {"stripes", "overlap_stripes", "tokens", "semantic_parts"}:
+            raise ValueError("part_pooling must be one of: stripes, overlap_stripes, tokens, semantic_parts")
         self.num_part_tokens = int(num_part_tokens)
         if self.num_part_tokens < 1:
             raise ValueError("num_part_tokens must be positive")
@@ -338,6 +390,8 @@ class ReIDTrainer:
         if self.pattern_adapter_dim < 1:
             raise ValueError("pattern_adapter_dim must be positive")
         self.stripe_visibility = bool(stripe_visibility)
+        self.drop_global_aux = bool(drop_global_aux)
+        self.drop_global_aux_ratio = float(drop_global_aux_ratio)
         self.reid_adapter_stages = self._normalize_adapter_stages(reid_adapter_stages)
         self.reid_adapter_reduction = int(reid_adapter_reduction)
         self.head_warmup_epochs = int(head_warmup_epochs)
@@ -355,6 +409,8 @@ class ReIDTrainer:
     @property
     def train_batch_size(self) -> int:
         """Effective PK-sampled training batch size."""
+        if self.source_balance_groups:
+            return sum(group.batch_size for group in self.source_balance_groups)
         return self.p * self.k
 
     def _validate_config(self) -> None:
@@ -374,6 +430,9 @@ class ReIDTrainer:
             raise ValueError("eval_interval must be positive")
         if self.p <= 0 or self.k <= 0:
             raise ValueError("p and k must be positive")
+        for group in self.source_balance_groups:
+            if group.p <= 0 or group.k <= 0:
+                raise ValueError("source_balance p and k values must be positive")
         if self.eval_batch_size <= 0:
             raise ValueError("batch_size (evaluation batch size) must be positive")
         if len(self.img_size) != 2 or any(value <= 0 for value in self.img_size):
@@ -418,6 +477,8 @@ class ReIDTrainer:
             value = float(getattr(self, name))
             if not 0 <= value <= 1:
                 raise ValueError(f"{name} must satisfy 0 <= value <= 1")
+        if self.random_crop_scale < 1.0:
+            raise ValueError("random_crop_scale must be >= 1.0")
         if self.ema_decay is not None and not 0 <= self.ema_decay < 1:
             raise ValueError("ema_decay must satisfy 0 <= ema_decay < 1")
         valid_metric_features = {
@@ -437,6 +498,8 @@ class ReIDTrainer:
             "global",
             "raw_mean",
             "raw_concat",
+            "visibility_weighted_parts",
+            "evidence_sinkhorn",
             "dse_weighted",
             "dse_mix",
         }:
@@ -445,14 +508,30 @@ class ReIDTrainer:
             "final",
             "last2",
             "last3",
+            "last4_layer0_target",
+            "last3_stage2_target",
+            "last3_fpn_stage2",
+            "last3_pafpn_stage2",
+            "last4_fpn_layer0_target",
+            "global_final_parts_stage2",
+            "late_concat_stage2",
             "weighted_last2",
             "weighted_last3",
             "normpres_last2",
             "normpres_last3",
             "dynamic_last3",
             "dynamic_last3_scale_token",
+            "dpt_fpn",
         }:
             raise ValueError("Unsupported feature_fusion")
+        if self.post_fusion_mixer_reduction < 1:
+            raise ValueError("post_fusion_mixer_reduction must be positive")
+        if len(self.post_fusion_mixer_kernel) != 2 or any(value <= 0 for value in self.post_fusion_mixer_kernel):
+            raise ValueError("post_fusion_mixer_kernel must contain two positive integers")
+        if any(value % 2 == 0 for value in self.post_fusion_mixer_kernel):
+            raise ValueError("post_fusion_mixer_kernel values must be odd")
+        if not math.isfinite(self.post_fusion_mixer_gamma_init):
+            raise ValueError("post_fusion_mixer_gamma_init must be finite")
         if self.head_pool not in {"avg", "gem", "dse", "gelu_gem", "relu_gem", "softplus_gem"}:
             raise ValueError("Unsupported head_pool")
         if self.head_type not in {"standard", "gpc_lite"}:
@@ -467,12 +546,20 @@ class ReIDTrainer:
             raise ValueError("gpc_lite uses a shared backbone and does not support pattern decoupling")
         if self.head_type == "gpc_lite" and self.stripe_visibility:
             raise ValueError("gpc_lite does not support stripe visibility")
+        if self.drop_global_aux and self.head_type != "standard":
+            raise ValueError("drop_global_aux requires head_type='standard'")
+        if self.drop_global_aux and self.classifier_loss != "ce":
+            raise ValueError("drop_global_aux requires classifier_loss='ce'")
         if self.stripe_visibility:
             local_granularities = tuple(part for part in self.head_parts if part != 1)
             if self.part_pooling != "stripes" or len(local_granularities) != 1:
                 raise ValueError(
                     "stripe_visibility requires fixed stripes with exactly one local granularity"
                 )
+        if self.part_pooling == "semantic_parts" and not any(part > 1 for part in self.head_parts):
+            raise ValueError("semantic_parts pooling requires at least one local part in head_parts")
+        if not 0 < self.drop_global_aux_ratio <= 1:
+            raise ValueError("drop_global_aux_ratio must satisfy 0 < value <= 1")
         if not 0 <= self.drop_path_rate < 1:
             raise ValueError("drop_path_rate must satisfy 0 <= value < 1")
         if self.attention_window_layout not in {"legacy", "rect"}:
@@ -504,6 +591,21 @@ class ReIDTrainer:
                 raise ValueError("gradual_unfreeze_stage_epochs must be <= epochs")
         if self.branch_metric_part_weight < 0:
             raise ValueError("branch_metric_part_weight must be non-negative")
+        if self.evidence_num_roles < 1:
+            raise ValueError("evidence_num_roles must be positive")
+        for name in (
+            "evidence_alignment_loss_weight",
+            "evidence_alignment_margin",
+            "evidence_sinkhorn_temperature",
+            "evidence_null_loss_weight",
+            "evidence_diversity_loss_weight",
+        ):
+            if float(getattr(self, name)) < 0:
+                raise ValueError(f"{name} must be non-negative")
+        if self.evidence_sinkhorn_iters < 1:
+            raise ValueError("evidence_sinkhorn_iters must be positive")
+        if self.evidence_rerank_topk < 0:
+            raise ValueError("evidence_rerank_topk must be non-negative")
         invalid_adapter_stages = [stage for stage in self.reid_adapter_stages if stage not in {1, 2, 3}]
         if invalid_adapter_stages:
             raise ValueError(
@@ -634,6 +736,35 @@ class ReIDTrainer:
         return tuple(int(part) for part in head_parts)
 
     @staticmethod
+    def _normalize_int_pair(value) -> tuple[int, int]:
+        """Normalize integer-pair CLI/API inputs without deduplicating equal values."""
+        if isinstance(value, int):
+            return (int(value), int(value))
+        if isinstance(value, str):
+            tokens = [part for part in value.replace(";", ",").split(",") if part.strip()]
+            if len(tokens) == 1:
+                tokens = tokens * 2
+            if len(tokens) != 2:
+                raise ValueError(f"Expected one or two comma-separated integers, got {value!r}")
+            return (int(tokens[0]), int(tokens[1]))
+        values = tuple(int(part) for part in value)
+        if len(values) == 1:
+            return (values[0], values[0])
+        if len(values) != 2:
+            raise ValueError(f"Expected one or two integers, got {value!r}")
+        return values
+
+    @staticmethod
+    def _normalize_post_fusion_mixer(mixer: str) -> str:
+        """Normalize post-fusion local mixer aliases."""
+        normalized = str(mixer).lower()
+        if normalized in {"", "none", "off", "identity"}:
+            return "none"
+        if normalized in {"dwconv", "local", "dwconv5x3"}:
+            return "dwconv"
+        raise ValueError("post_fusion_mixer must be one of: none, dwconv")
+
+    @staticmethod
     def _normalize_adapter_stages(stages) -> tuple[int, ...]:
         """Normalize CSL-TinyViT ReID adapter stage indices from CLI/API inputs."""
         if stages is None:
@@ -660,22 +791,73 @@ class ReIDTrainer:
                 f"{self.device.type.upper()} training: forcing dataloader workers "
                 f"from {self.requested_num_workers} to 0"
             )
-        LOGGER.info(
-            f"Batch sizes: train={self.train_batch_size} (p={self.p} x k={self.k}), "
-            f"eval={self.eval_batch_size}"
-        )
+        if self.source_balance:
+            LOGGER.info(
+                f"Batch sizes: train={self.train_batch_size} "
+                f"(source_balance={self.source_balance}), eval={self.eval_batch_size}"
+            )
+        else:
+            LOGGER.info(
+                f"Batch sizes: train={self.train_batch_size} (p={self.p} x k={self.k}), "
+                f"eval={self.eval_batch_size}"
+            )
+
+    @staticmethod
+    def _normalize_data_spec(spec: dict[str, Any]) -> dict[str, Any]:
+        name = str(spec.get("name") or spec.get("dataset") or "").strip()
+        root = str(spec.get("root") or spec.get("path") or "").strip()
+        if not name:
+            raise ValueError("data_specs entries must define a dataset name")
+        if not root:
+            raise ValueError(f"data_specs entry for '{name}' must define a root/path")
+
+        normalized = {"name": name, "root": str(Path(root).expanduser().resolve())}
+        for key in ("config", "train", "val", "query", "gallery"):
+            if spec.get(key) is not None:
+                normalized[key] = str(spec[key])
+        return normalized
+
+    @staticmethod
+    def _dataset_lookup_key(name: str) -> str:
+        key = str(name).lower().replace("-", "").replace("_", "")
+        if key in {"dukemtmcreid", "dukemtmc", "duke"}:
+            return "duke"
+        if key in {"mot171501", "mot17market1501"}:
+            return "mot171501"
+        if key in {"veri776", "veri"}:
+            return "veri"
+        if key in {"cuhk03", "cuhk03np"}:
+            return "cuhk03"
+        if key == "msmt17merged":
+            return "msmt17merged"
+        return key
+
+    def _data_root_for_name(self, name: str) -> str:
+        return self._data_roots_by_name.get(self._dataset_lookup_key(name), self.data_dir)
 
     def _build_dataset_bundle(self) -> DatasetBundle:
         """Load the configured dataset and identify the primary validation split."""
-        dataset_names = [name.strip() for name in self.dataset_name.split(",") if name.strip()]
-        if len(dataset_names) > 1:
-            LOGGER.info(f"Loading combined dataset from: {dataset_names}")
-            dataset = build_combined_dataset(dataset_names, self.data_dir)
+        if self.data_specs:
+            dataset_names = [spec["name"] for spec in self.data_specs]
+            if len(self.data_specs) > 1:
+                LOGGER.info(f"Loading combined dataset from data specs: {dataset_names}")
+                datasets = [build_dataset(spec["name"], spec["root"]) for spec in self.data_specs]
+                dataset = CombinedReIDDataset(datasets)
+            else:
+                spec = self.data_specs[0]
+                LOGGER.info(f"Loading dataset '{spec['name']}' from {spec['root']}")
+                dataset = build_dataset(spec["name"], spec["root"])
             default_eval_name = dataset_names[0].lower()
         else:
-            LOGGER.info(f"Loading dataset '{self.dataset_name}' from {self.data_dir}")
-            dataset = build_dataset(self.dataset_name, self.data_dir)
-            default_eval_name = self.dataset_name.lower()
+            dataset_names = [name.strip() for name in self.dataset_name.split(",") if name.strip()]
+            if len(dataset_names) > 1:
+                LOGGER.info(f"Loading combined dataset from: {dataset_names}")
+                dataset = build_combined_dataset(dataset_names, self.data_dir)
+                default_eval_name = dataset_names[0].lower()
+            else:
+                LOGGER.info(f"Loading dataset '{self.dataset_name}' from {self.data_dir}")
+                dataset = build_dataset(self.dataset_name, self.data_dir)
+                default_eval_name = self.dataset_name.lower()
         LOGGER.info(dataset.summary())
         return DatasetBundle(
             dataset=dataset,
@@ -684,20 +866,20 @@ class ReIDTrainer:
         )
 
     def _build_model_bundle(self, num_classes: int) -> ModelBundle:
-        """Build live and optional EMA models with finalized ViT defaults."""
+        """Build live and optional EMA models with finalized training-family defaults."""
         LOGGER.info(f"Building model '{self.model_name}' with {num_classes} classes, loss='{self.loss_type}'")
+        pre_build_recipe = self._resolve_training_recipe_for_model_name()
+        if pre_build_recipe is not None:
+            pre_build_recipe.apply_pre_build_defaults(self)
+            self._validate_config()
         model = self._build_model(num_classes).to(self.device)
         if hasattr(model, "img_size") and model.img_size != self.img_size:
             LOGGER.info(f"Syncing img_size with model architecture: {self.img_size} → {model.img_size}")
             self.img_size = model.img_size
 
-        is_vit = self._is_vit(model)
-        if is_vit:
-            self._apply_vit_training_defaults()
-            self._validate_config()
-            if self.ema_decay is None:
-                self.ema_decay = 0
-                LOGGER.info("ViT detected: leaving EMA disabled by default")
+        recipe = self._resolve_training_recipe(model)
+        recipe.apply_defaults(self)
+        self._validate_config()
 
         ema_model: Optional[nn.Module] = None
         if self.ema_decay:
@@ -709,7 +891,9 @@ class ReIDTrainer:
             model=model,
             ema_model=ema_model,
             val_model=ema_model if ema_model is not None else model,
-            is_vit=is_vit,
+            is_transformer=recipe.family == "transformer",
+            training_family=recipe.family,
+            recipe=recipe,
         )
 
     def _build_loader_bundle(self, data: DatasetBundle) -> LoaderBundle:
@@ -721,12 +905,13 @@ class ReIDTrainer:
             if eval_dataset_name.strip().lower() == data.default_eval_name:
                 continue
             try:
-                eval_dataset = build_dataset(eval_dataset_name, self.data_dir)
+                eval_root = self._data_root_for_name(eval_dataset_name)
+                eval_dataset = build_dataset(eval_dataset_name, eval_root)
                 query, gallery = self._build_test_loaders(eval_dataset)
                 cross_domain[eval_dataset_name] = (query, gallery)
                 LOGGER.info(
                     f"Cross-domain eval: loaded '{eval_dataset_name}' "
-                    f"({eval_dataset.query.num_imgs}q / {eval_dataset.gallery.num_imgs}g)"
+                    f"from {eval_root} ({eval_dataset.query.num_imgs}q / {eval_dataset.gallery.num_imgs}g)"
                 )
             except Exception as exc:
                 LOGGER.warning(f"Skipping cross-domain eval dataset '{eval_dataset_name}': {exc}")
@@ -739,15 +924,10 @@ class ReIDTrainer:
 
     def _build_loss_bundle(self, model: ModelBundle, num_classes: int) -> LossBundle:
         """Resolve and construct ID, metric, and center-loss modules."""
-        label_smooth = self.label_smooth
-        if model.is_vit and label_smooth > 0 and "label_smooth" not in self.explicit_hparams:
-            label_smooth = 0.05
-            LOGGER.info(
-                f"ViT detected: reducing label smoothing to {label_smooth} "
-                f"(was {self.label_smooth})"
-            )
+        recipe = self._recipe_for_bundle(model)
+        label_smooth = recipe.resolve_label_smooth(self, self.label_smooth)
 
-        soft_margin = self._use_soft_margin_triplet(model.is_vit)
+        soft_margin = self._use_soft_margin_triplet(recipe.default_triplet_soft_margin)
         criterion_metric = None
         if self.loss_type in METRIC_LOSS_REGISTRY:
             metric_loss_class = METRIC_LOSS_REGISTRY[self.loss_type]
@@ -795,35 +975,22 @@ class ReIDTrainer:
             if self.classifier_loss != "ce"
             else []
         )
-        if model.is_vit:
-            parameter_groups = self._build_vit_param_groups(model.model)
-            if classifier_parameters:
-                parameter_groups.append({
-                    "params": classifier_parameters,
-                    "lr": self.lr,
-                    "weight_decay": 0.0,
-                    "is_head": True,
-                })
-            optimizer = torch.optim.AdamW(
-                parameter_groups,
-                lr=self.lr,
-                weight_decay=self.weight_decay,
-            )
-            grad_clip = 1.0
+        recipe = self._recipe_for_bundle(model)
+        parameter_groups = recipe.build_param_groups(self, model.model)
+        if classifier_parameters:
+            parameter_groups.append(recipe.classifier_param_group(self, classifier_parameters))
+        optimizer = recipe.build_optimizer(self, parameter_groups)
+        if recipe.family == "transformer":
             LOGGER.info(
-                f"ViT training: AdamW (lr={self.lr:.1e}, wd={self.weight_decay}), "
-                f"lr_profile={self.vit_lr_profile}, grad clip=1.0, DropPath enabled"
+                f"Transformer training: {recipe.optimizer_name} (lr={self.lr:.1e}, wd={self.weight_decay}), "
+                f"lr_profile={self.vit_lr_profile}, grad clip={recipe.grad_clip:.1f}, DropPath enabled"
             )
         else:
-            parameter_groups = [{"params": model.model.parameters()}]
-            if classifier_parameters:
-                parameter_groups.append({"params": classifier_parameters})
-            optimizer = torch.optim.Adam(
-                parameter_groups,
-                lr=self.lr,
-                weight_decay=self.weight_decay,
+            LOGGER.info(
+                f"{recipe.family.upper()} training: {recipe.optimizer_name} "
+                f"(lr={self.lr:.1e}, wd={self.weight_decay}), "
+                f"grad clip={recipe.grad_clip:.1f}"
             )
-            grad_clip = 0.0
 
         optimizer_center = torch.optim.SGD(losses.criterion_center.parameters(), lr=0.5)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -839,7 +1006,7 @@ class ReIDTrainer:
             optimizer=optimizer,
             optimizer_center=optimizer_center,
             scheduler=scheduler,
-            grad_clip=grad_clip,
+            grad_clip=recipe.grad_clip,
         )
 
     def _resolve_resume_path(self) -> Optional[Path]:
@@ -871,8 +1038,9 @@ class ReIDTrainer:
             return ResumeState()
 
         checkpoint = torch.load(resume_path, map_location=self.device, weights_only=False)
-        model.model.load_state_dict(checkpoint["state_dict"])
-        if not checkpoint.get("resumable", "optimizer" in checkpoint):
+        resumable = checkpoint.get("resumable", "optimizer" in checkpoint)
+        model.model.load_state_dict(checkpoint["state_dict"], strict=resumable)
+        if not resumable:
             LOGGER.warning(
                 f"{resume_path} is a weights-only checkpoint; optimizer and scheduler state will be reset"
             )
@@ -901,7 +1069,8 @@ class ReIDTrainer:
         )
         if model.ema_model is not None:
             model.ema_model.load_state_dict(
-                checkpoint.get("ema_state_dict", checkpoint["state_dict"])
+                checkpoint.get("ema_state_dict", checkpoint["state_dict"]),
+                strict=resumable,
             )
         self._restore_rng_state(checkpoint.get("rng_state"))
         best_mAP = float(checkpoint.get("best_mAP") or checkpoint.get("mAP", 0.0))
@@ -925,6 +1094,7 @@ class ReIDTrainer:
         losses: LossBundle,
     ) -> None:
         """Persist the effective, post-default training configuration."""
+        recipe = self._recipe_for_bundle(models)
         losses_hparams = {
             "loss_type": self.loss_type,
             "classifier_loss": self.classifier_loss,
@@ -985,12 +1155,27 @@ class ReIDTrainer:
                 "batch_size": self.eval_batch_size,
                 "train_batch_size": self.train_batch_size,
                 "eval_batch_size": self.eval_batch_size,
-                "sampler": {"p": self.p, "k": self.k},
+                "sampler": {
+                    "p": self.p,
+                    "k": self.k,
+                    "source_balance": self.source_balance,
+                },
                 "num_workers": self.num_workers,
             },
             "model": {
-                "is_vit": models.is_vit,
+                "is_vit": models.is_transformer,
+                "is_transformer": models.is_transformer,
+                "family": recipe.family,
+                "training_family": recipe.family,
+                "training_recipe": recipe.name,
+                "timm_model_name": getattr(models.model, "timm_model_name", None),
                 "feature_fusion": self.feature_fusion,
+                "post_fusion_mixer": {
+                    "mode": self.post_fusion_mixer,
+                    "reduction": self.post_fusion_mixer_reduction,
+                    "kernel": list(self.post_fusion_mixer_kernel),
+                    "gamma_init": self.post_fusion_mixer_gamma_init,
+                },
                 "feat_dim": self.feat_dim,
                 "neck_dim": self.neck_dim,
                 "attention": {
@@ -1010,9 +1195,12 @@ class ReIDTrainer:
                     "head_type": self.head_type,
                     "part_pooling": self.part_pooling,
                     "num_part_tokens": self.num_part_tokens,
+                    "evidence_num_roles": self.evidence_num_roles,
                     "decouple_patterns": self.decouple_patterns,
                     "pattern_adapter_dim": self.pattern_adapter_dim,
                     "stripe_visibility": self.stripe_visibility,
+                    "drop_global_aux": self.drop_global_aux,
+                    "drop_global_aux_ratio": self.drop_global_aux_ratio,
                     "warmup_epochs": self.head_warmup_epochs,
                     "warmup_lr_mult": self.head_warmup_lr_mult,
                 },
@@ -1025,18 +1213,32 @@ class ReIDTrainer:
                     "metric_part_weight": self.branch_metric_part_weight,
                     "loss_agg": self.branch_loss_agg,
                 },
+                "evidence": {
+                    "alignment_loss_weight": self.evidence_alignment_loss_weight,
+                    "alignment_margin": self.evidence_alignment_margin,
+                    "sinkhorn_iters": self.evidence_sinkhorn_iters,
+                    "sinkhorn_temperature": self.evidence_sinkhorn_temperature,
+                    "rerank_topk": self.evidence_rerank_topk,
+                    "null_loss_weight": self.evidence_null_loss_weight,
+                    "diversity_loss_weight": self.evidence_diversity_loss_weight,
+                },
                 "regularization": {
-                    "drop_path_rate": self._max_drop_path(models.model) if models.is_vit else 0.0,
+                    "drop_path_rate": self._max_drop_path(models.model)
+                    if recipe.family == "transformer"
+                    else 0.0,
                 },
             },
             "optimization": {
                 "epochs": self.epochs,
-                "optimizer": "AdamW" if models.is_vit else "Adam",
+                "family": recipe.family,
+                "training_family": recipe.family,
+                "recipe": recipe.name,
+                "optimizer": recipe.optimizer_name,
                 "lr": self.lr,
                 "weight_decay": self.weight_decay,
-                "grad_clip": 1.0 if models.is_vit else 0.0,
+                "grad_clip": recipe.grad_clip,
                 "vit_lr_profile": self.vit_lr_profile,
-                "layer_decay": 0.95 if models.is_vit and self.vit_lr_profile == "layer_decay" else 1.0,
+                "layer_decay": recipe.layer_decay(self),
                 "backbone_freeze_epochs": self.backbone_freeze_epochs,
                 "gradual_unfreeze": {
                     "enabled": self.gradual_unfreeze,
@@ -1059,12 +1261,13 @@ class ReIDTrainer:
                 "random_grayscale": self.random_grayscale,
                 "random_erasing": self.random_erasing,
                 "random_patch": self.random_patch,
+                "random_crop_scale": self.random_crop_scale,
                 "color_augmentation": self.color_augmentation,
             },
             "evaluation": {
                 "eval_interval": self.eval_interval,
                 "eval_datasets": self.eval_datasets,
-                "flip_tta": self.flip_tta if self.flip_tta is not None else models.is_vit,
+                "flip_tta": self.flip_tta if self.flip_tta is not None else recipe.default_flip_tta,
             },
             "system": {"device": str(self.device)},
             "derived": {
@@ -1073,6 +1276,21 @@ class ReIDTrainer:
                 "n_params": sum(parameter.numel() for parameter in models.model.parameters()),
             },
         }
+        if recipe.family == "transformer":
+            hparams["model"]["transformer"] = {
+                "drop_path_rate": self._max_drop_path(models.model),
+                "attention": hparams["model"]["attention"],
+                "reid_adapters": hparams["model"]["reid_adapters"],
+                "lr_profile": self.vit_lr_profile,
+            }
+        else:
+            hparams["model"][recipe.family] = {
+                "timm_model_name": getattr(models.model, "timm_model_name", None),
+                "use_timm_head": getattr(models.model, "use_timm_head", None),
+                "feature_fusion": self.feature_fusion,
+            }
+        if self.data_specs:
+            hparams["data"]["data_specs"] = [dict(spec) for spec in self.data_specs]
         path = save_dir / "hparams.json"
         path.write_text(json.dumps(hparams, indent=2))
         LOGGER.info(f"Saved hyperparameters to {path}")
@@ -1103,6 +1321,8 @@ class ReIDTrainer:
                         center_loss=train_metrics["center_loss"],
                         lr=train_metrics["lr"],
                         elapsed_s=0.0,
+                        backbone_lr=train_metrics.get("backbone_lr", 0.0),
+                        head_lr=train_metrics.get("head_lr", 0.0),
                     ))
             for validation in previous.get("val", []):
                 if validation["epoch"] >= start_epoch:
@@ -1333,34 +1553,6 @@ class ReIDTrainer:
             val_history=val_history,
         )
 
-    def run(self) -> TrainResult:
-        """Execute the full training pipeline."""
-        run_started_at = time.monotonic()
-        self._prepare_runtime()
-        data = self._build_dataset_bundle()
-        models = self._build_model_bundle(data.num_classes)
-        loaders = self._build_loader_bundle(data)
-        losses = self._build_loss_bundle(models, data.num_classes)
-        optimization = self._build_optimization_bundle(models, losses)
-        state = self._restore_if_needed(models, loaders, losses, optimization)
-
-        if self.resume:
-            save_dir = Path(self.resume) if Path(self.resume).is_dir() else Path(self.resume).parent
-        else:
-            save_dir = self._make_save_dir()
-        LOGGER.info(f"Saving results to {save_dir}")
-        self._write_hparams(save_dir, data, models, losses)
-        return self._fit(
-            save_dir=save_dir,
-            data=data,
-            models=models,
-            loaders=loaders,
-            losses=losses,
-            optimization=optimization,
-            state=state,
-            run_started_at=run_started_at,
-        )
-
     def _build_model(self, num_classes: int) -> nn.Module:
         model = ReIDModelRegistry.build_model(
             name=self.model_name,
@@ -1369,8 +1561,13 @@ class ReIDTrainer:
             loss=self._model_loss_type(),
             pretrained=self.pretrained,
             use_gpu=self.device.type != "cpu",
+            img_size=self.img_size,
             inference_feature=self.inference_feature,
             feature_fusion=self.feature_fusion,
+            post_fusion_mixer=self.post_fusion_mixer,
+            post_fusion_mixer_reduction=self.post_fusion_mixer_reduction,
+            post_fusion_mixer_kernel=self.post_fusion_mixer_kernel,
+            post_fusion_mixer_gamma_init=self.post_fusion_mixer_gamma_init,
             feat_dim=self.feat_dim,
             neck_dim=self.neck_dim,
             drop_path_rate=self.drop_path_rate,
@@ -1389,6 +1586,9 @@ class ReIDTrainer:
             decouple_patterns=self.decouple_patterns,
             pattern_adapter_dim=self.pattern_adapter_dim,
             stripe_visibility=self.stripe_visibility,
+            drop_global_aux=self.drop_global_aux,
+            drop_global_aux_ratio=self.drop_global_aux_ratio,
+            evidence_num_roles=self.evidence_num_roles,
             branch_metric=self.branch_aware_metric,
         )
         if hasattr(model, "head") and hasattr(model.head, "metric_feature"):
@@ -1435,7 +1635,12 @@ class ReIDTrainer:
             f"num_part_tokens={getattr(head, 'num_part_tokens', None)}, "
             f"decouple_patterns={getattr(head, 'decouple_patterns', None)}, "
             f"stripe_visibility={getattr(head, 'stripe_visibility', None)}, "
+            f"drop_global_aux={getattr(head, 'drop_global_aux_enabled', None)}, "
+            f"drop_global_aux_ratio={getattr(head, 'drop_global_aux_ratio', None)}, "
             f"feature_fusion={getattr(model, 'feature_fusion', None)}, "
+            f"post_fusion_mixer={getattr(model, 'post_fusion_mixer', None)}, "
+            f"post_fusion_mixer_kernel={getattr(model, 'post_fusion_mixer_kernel', None)}, "
+            f"post_fusion_mixer_gamma_init={getattr(model, 'post_fusion_mixer_gamma_init', None)}, "
             f"reid_adapter_stages={getattr(model, 'reid_adapter_stages', None)}, "
             f"reid_adapter_reduction={getattr(model, 'reid_adapter_reduction', None)}, "
             f"attention_window_layout={getattr(model, 'attention_window_layout', None)}, "
@@ -1507,6 +1712,27 @@ class ReIDTrainer:
             )
             return scheduler
 
+        if self.warmup_epochs > 0 and resumed_epoch < self.warmup_epochs:
+            warmup_factor = max(resumed_epoch, 1) / self.warmup_epochs
+            for group in optimizer.param_groups:
+                base_lr = float(group.get("_base_lr", group.get("initial_lr", group["lr"])))
+                group["_base_lr"] = base_lr
+                group["initial_lr"] = base_lr
+
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=max(self.epochs - self.warmup_epochs, 1),
+                eta_min=self.eta_min,
+            )
+            scheduler.last_epoch = 0
+            for group in optimizer.param_groups:
+                group["lr"] = float(group["_base_lr"]) * warmup_factor
+            LOGGER.info(
+                f"Resuming linear LR warmup at epoch {resumed_epoch}/{self.warmup_epochs}: "
+                f"warmup_factor={warmup_factor:.3f}"
+            )
+            return scheduler
+
         # Normal resume within the active cosine schedule. PyTorch's
         # last_epoch param has off-by-one issues with the incremental get_lr()
         # formula, so set last_epoch and LR via the closed-form cosine.
@@ -1533,13 +1759,23 @@ class ReIDTrainer:
             random_grayscale=self.random_grayscale,
             random_erasing=self.random_erasing,
             random_patch=self.random_patch,
+            random_crop_scale=self.random_crop_scale,
             color_augmentation=self.color_augmentation,
         )
         torch_ds = ReIDImageDataset(dataset.train.samples, transform=transform)
-        sampler = PKSampler(dataset.train.samples, p=self.p, k=self.k, seed=self.seed)
+        if self.source_balance_groups:
+            sampler = SourceBalancedPKSampler(
+                dataset.train.samples,
+                self.source_balance_groups,
+                seed=self.seed,
+            )
+            batch_size = sampler.batch_size
+        else:
+            sampler = PKSampler(dataset.train.samples, p=self.p, k=self.k, seed=self.seed)
+            batch_size = self.p * self.k
         return DataLoader(
             torch_ds,
-            batch_size=self.p * self.k,
+            batch_size=batch_size,
             sampler=sampler,
             num_workers=self.num_workers,
             pin_memory=self.device.type == "cuda",
@@ -1607,13 +1843,66 @@ class ReIDTrainer:
         return output, None
 
     # ------------------------------------------------------------------
-    # ViT-specific training helpers
+    # Training-family helpers
     # ------------------------------------------------------------------
 
     @staticmethod
     def _is_vit(model: nn.Module) -> bool:
-        """Check if the model is a ViT variant (has transformer blocks + patch embed)."""
+        """Check if the model is a transformer-like variant."""
         return hasattr(model, "blocks") and hasattr(model, "patch_embed")
+
+    def _backbone_spec(self):
+        """Return the registered backbone spec for this trainer, when available."""
+        try:
+            return get_backbone_spec(self.model_name)
+        except KeyError:
+            return None
+
+    @classmethod
+    def _detect_training_family(cls, model: nn.Module) -> str:
+        """Return the canonical training family for a model instance."""
+        explicit_family = getattr(model, "training_family", None)
+        if explicit_family is not None:
+            return cls._normalize_training_family(explicit_family)
+        return "transformer" if cls._is_vit(model) else "cnn"
+
+    @staticmethod
+    def _normalize_training_family(family: str) -> str:
+        family = str(family).lower()
+        if family in {"vit", "transformer"}:
+            return "transformer"
+        if family in {"cnn", "convnet"}:
+            return "cnn"
+        if family in {"hybrid", "legacy"}:
+            return family
+        raise ValueError(f"Unsupported training_family={family!r}")
+
+    @classmethod
+    def _training_recipe_for_family(cls, family: str) -> TrainingRecipe:
+        """Build the recipe object for a canonical training family."""
+        return default_recipe_for_family(cls._normalize_training_family(family))
+
+    def _resolve_training_recipe_for_model_name(self) -> TrainingRecipe | None:
+        """Resolve recipes that need defaults before model construction."""
+        spec = self._backbone_spec()
+        return build_training_recipe(spec=spec) if spec is not None else None
+
+    def _resolve_training_recipe(self, model: nn.Module) -> TrainingRecipe:
+        """Resolve the model's family-specific training recipe."""
+        explicit_recipe = getattr(model, "training_recipe", None)
+        if explicit_recipe is not None:
+            return build_training_recipe(str(explicit_recipe))
+        spec = self._backbone_spec()
+        if spec is not None:
+            return build_training_recipe(spec=spec)
+        return self._training_recipe_for_family(self._detect_training_family(model))
+
+    def _recipe_for_bundle(self, model: ModelBundle) -> TrainingRecipe:
+        """Resolve the recipe stored on, or implied by, a model bundle."""
+        if model.recipe is not None:
+            return model.recipe
+        family = "transformer" if model.is_transformer else model.training_family
+        return self._training_recipe_for_family(family)
 
     def _model_loss_type(self) -> str:
         """Choose the backbone output contract needed by the configured losses."""
@@ -1623,11 +1912,11 @@ class ReIDTrainer:
             return "ms"
         return "triplet"
 
-    def _use_soft_margin_triplet(self, is_vit: bool) -> bool:
+    def _use_soft_margin_triplet(self, default_soft_margin: bool) -> bool:
         """Resolve hard-margin vs softplus batch-hard triplet behavior."""
         if self.triplet_soft_margin is not None:
             return bool(self.triplet_soft_margin)
-        return is_vit
+        return default_soft_margin
 
     def _build_classifier_loss(self, num_classes: int, feat_dim: int, label_smooth: float) -> nn.Module:
         """Build the ID-classification criterion."""
@@ -1662,10 +1951,10 @@ class ReIDTrainer:
         return self.aux_ce_weight
 
     def _apply_vit_training_defaults(self) -> None:
-        """Apply ViT training conveniences unless the caller set values explicitly."""
+        """Apply transformer training conveniences unless the caller set values explicitly."""
         # AdamW uses decoupled weight decay: effective WD = lr x wd.
         # The default wd=5e-4 (calibrated for Adam L2-reg) gives negligible
-        # regularization with AdamW, so use the ViT recipe default unless the
+        # regularization with AdamW, so use the transformer recipe default unless the
         # caller intentionally passed a lower value for an ablation.
         if "weight_decay" not in self.explicit_hparams and self.weight_decay < 0.01:
             self.weight_decay = 0.1
@@ -1673,12 +1962,12 @@ class ReIDTrainer:
         if "warmup_epochs" not in self.explicit_hparams and self.warmup_epochs <= 10:
             self.warmup_epochs = 20
 
-        # ViTs with AdamW need ~2x higher LR than CNNs with Adam. Preserve
+        # Transformer-style ReID backbones with AdamW need ~2x higher LR than CNNs with Adam. Preserve
         # explicit lower LRs so LR sweeps test the requested value.
         if "lr" not in self.explicit_hparams and self.lr <= 3.5e-4:
             self.lr = 7e-4
 
-        # ViTs need stronger center loss to tighten positive clusters. Preserve
+        # Transformer-style ReID backbones need stronger center loss to tighten positive clusters. Preserve
         # explicit zero so loss ablations can remove center loss.
         if (
             "center_loss_weight" not in self.explicit_hparams
@@ -1698,7 +1987,7 @@ class ReIDTrainer:
         return depth + 1
 
     def _vit_lr_scale_for_param(self, name: str, depth: int) -> float:
-        """Return the LR scale for a ViT parameter under the active LR profile."""
+        """Return the LR scale for a transformer parameter under the active LR profile."""
         if self._is_reid_adaptation_param(name):
             return 1.0
 
@@ -1769,14 +2058,92 @@ class ReIDTrainer:
             param_groups[group_key]["params"].append(param)
 
         LOGGER.info(
-            f"ViT param groups: {len(param_groups)} groups, "
+            f"Transformer param groups: {len(param_groups)} groups, "
             f"lr_profile={self.vit_lr_profile}, depth={depth}"
         )
         return list(param_groups.values())
 
+    def _build_cnn_param_groups(self, model: nn.Module) -> list[dict]:
+        """Build Adam parameter groups for CNN models.
+
+        Keep the historical single-group behavior unless a staged freeze/warmup
+        schedule needs backbone and ReID-specific parameters to have separate LR
+        state.
+        """
+        if not (self.gradual_unfreeze or self.head_warmup_epochs > 0 or self.backbone_freeze_epochs > 0):
+            return [{"params": model.parameters()}]
+
+        head_params = []
+        backbone_params = []
+        for name, param in model.named_parameters():
+            if self._is_reid_adaptation_param(name):
+                head_params.append(param)
+            else:
+                backbone_params.append(param)
+
+        parameter_groups = []
+        if backbone_params:
+            parameter_groups.append({
+                "params": backbone_params,
+                "is_head": False,
+                "is_backbone": True,
+            })
+        if head_params:
+            parameter_groups.append({
+                "params": head_params,
+                "is_head": True,
+                "is_backbone": False,
+            })
+        return parameter_groups
+
+    def _build_mobilenetv4_param_groups(self, model: nn.Module) -> list[dict]:
+        """Build AdamW groups for MobileNetV4 with no decay on norm/bias params."""
+        grouped: dict[tuple[bool, bool], dict] = {}
+        for name, param in model.named_parameters():
+            if not param.requires_grad:
+                continue
+
+            is_head = self._is_reid_adaptation_param(name)
+            no_decay = self._is_cnn_no_weight_decay_param(name, param)
+            key = (is_head, no_decay)
+            if key not in grouped:
+                grouped[key] = {
+                    "params": [],
+                    "lr": self.lr,
+                    "weight_decay": 0.0 if no_decay else self.weight_decay,
+                    "is_head": is_head,
+                    "is_backbone": not is_head,
+                    "no_weight_decay": no_decay,
+                }
+            grouped[key]["params"].append(param)
+
+        return list(grouped.values())
+
+    @staticmethod
+    def _is_cnn_no_weight_decay_param(name: str, param: nn.Parameter) -> bool:
+        lower_name = name.lower()
+        return (
+            name.endswith(".bias")
+            or param.ndim <= 1
+            or ".bn" in lower_name
+            or "batchnorm" in lower_name
+            or "norm" in lower_name
+        )
+
     def _head_warmup_active(self, epoch: int) -> bool:
-        """Return whether this epoch should train only neck/head parameters."""
-        return self.head_warmup_epochs > 0 and epoch <= self.head_warmup_epochs
+        """Return whether this epoch should train only neck/head parameters.
+
+        If backbone freeze is configured, the head-only phase starts after the
+        freeze warm-start instead of being silently overlapped and skipped.
+        """
+        if self.head_warmup_epochs <= 0:
+            return False
+        start_epoch = self.backbone_freeze_epochs if self.backbone_freeze_epochs > 0 else 0
+        return start_epoch < epoch <= start_epoch + self.head_warmup_epochs
+
+    def _head_warmup_start_epoch(self) -> int:
+        """Return the first epoch of the effective head-only warmup phase."""
+        return self.backbone_freeze_epochs + 1 if self.backbone_freeze_epochs > 0 else 1
 
     def _backbone_freeze_active(self, epoch: int) -> bool:
         """Return whether this epoch should keep pretrained backbone stages frozen."""
@@ -1793,11 +2160,11 @@ class ReIDTrainer:
         return "full"
 
     def _gradual_backbone_lr_active(self, epoch: int) -> bool:
-        """Return whether full-backbone training should use the temporary LR drop."""
+        """Return whether trainable backbone groups should use the temporary LR drop."""
         return (
             self.gradual_unfreeze
             and self.gradual_unfreeze_backbone_lr_epochs > 0
-            and self.gradual_unfreeze_stage_epochs < epoch
+            and epoch > self.gradual_unfreeze_head_epochs
             and epoch <= self.gradual_unfreeze_stage_epochs + self.gradual_unfreeze_backbone_lr_epochs
         )
 
@@ -1820,11 +2187,34 @@ class ReIDTrainer:
 
     @staticmethod
     def _is_head_or_neck_param(name: str) -> bool:
-        return name.startswith("head.") or name.startswith("neck.")
+        return name == "fusion_logits" or name.startswith(
+            (
+                "head.",
+                "neck.",
+                "spatial_neck.",
+                "fpn_projections.",
+                "output_norms.",
+                "post_fusion_mixer_module.",
+            )
+        )
 
     @staticmethod
     def _is_reid_adaptation_param(name: str) -> bool:
-        return name.startswith(("head.", "neck.", "feature_fusion_module.")) or ".reid_adapters." in name
+        return (
+            name == "fusion_logits"
+            or name.startswith(
+                (
+                    "head.",
+                    "neck.",
+                    "spatial_neck.",
+                    "feature_fusion_module.",
+                    "fpn_projections.",
+                    "output_norms.",
+                    "post_fusion_mixer_module.",
+                )
+            )
+            or ".reid_adapters." in name
+        )
 
     @staticmethod
     def _last_vit_stage_index(model: nn.Module) -> int | None:
@@ -1842,6 +2232,26 @@ class ReIDTrainer:
             return False
         return name.startswith((f"layers.{stage_index}.", f"blocks.{stage_index}."))
 
+    @staticmethod
+    def _last_backbone_stage_prefixes(model: nn.Module) -> tuple[str, ...]:
+        backbone = getattr(model, "backbone", None)
+        if backbone is None:
+            return ()
+        for attr_name in ("stages", "blocks", "features"):
+            container = getattr(backbone, attr_name, None)
+            if isinstance(container, (nn.ModuleList, nn.Sequential)) and len(container) > 0:
+                return (f"backbone.{attr_name}.{len(container) - 1}.",)
+        return ()
+
+    def _is_last_stage_param(self, model: nn.Module, name: str, stage_index: int | None) -> bool:
+        return self._is_last_vit_stage_param(name, stage_index) or name.startswith(
+            self._last_backbone_stage_prefixes(model)
+        )
+
+    @staticmethod
+    def _is_attention_param(name: str) -> bool:
+        return ".attn." in name
+
     def _set_head_warmup_trainability(self, model: nn.Module, enabled: bool) -> None:
         """Freeze/unfreeze backbone parameters for head-only warmup."""
         for name, param in model.named_parameters():
@@ -1857,17 +2267,27 @@ class ReIDTrainer:
             module = getattr(model, module_name, None)
             if module is not None:
                 module.eval()
+        if getattr(model, "layers", None) is None:
+            blocks = getattr(model, "blocks", None)
+            if blocks is not None:
+                blocks.eval()
+        backbone = getattr(model, "backbone", None)
+        if backbone is not None:
+            backbone.eval()
 
     def _set_gradual_unfreeze_trainability(self, model: nn.Module, phase: str) -> None:
         """Apply staged CSL-TinyViT unfreeze trainability for the active phase."""
         last_stage_index = self._last_vit_stage_index(model)
         for name, param in model.named_parameters():
             if phase == "head":
-                trainable = self._is_head_or_neck_param(name)
+                trainable = self._is_reid_adaptation_param(name)
             elif phase == "stage":
                 trainable = (
-                    self._is_head_or_neck_param(name)
-                    or self._is_last_vit_stage_param(name, last_stage_index)
+                    self._is_reid_adaptation_param(name)
+                    or (
+                        self._is_last_stage_param(model, name, last_stage_index)
+                        and not self._is_attention_param(name)
+                    )
                 )
             else:
                 trainable = True
@@ -1880,27 +2300,95 @@ class ReIDTrainer:
         if patch_embed is not None:
             patch_embed.eval()
         layers = getattr(model, "layers", None)
-        if layers is None:
+        if layers is not None:
+            if phase == "head":
+                layers.eval()
+                return
+            for index, layer in enumerate(layers):
+                layer.train(index == last_stage_index)
+            return
+        blocks = getattr(model, "blocks", None)
+        if blocks is not None:
+            if phase == "head":
+                blocks.eval()
+                return
+            for index, block in enumerate(blocks):
+                block.train(index == last_stage_index)
+            return
+
+        backbone = getattr(model, "backbone", None)
+        if backbone is None:
             return
         if phase == "head":
-            layers.eval()
+            backbone.eval()
             return
-        for index, layer in enumerate(layers):
-            layer.train(index == last_stage_index)
+        for attr_name in ("stages", "blocks", "features"):
+            container = getattr(backbone, attr_name, None)
+            if isinstance(container, (nn.ModuleList, nn.Sequential)) and len(container) > 0:
+                backbone.eval()
+                last_index = len(container) - 1
+                for index, stage in enumerate(container):
+                    stage.train(index == last_index)
+                return
 
-    def _apply_head_warmup_lrs(self, optimizer) -> None:
+    def _apply_head_warmup_lrs(self, optimizer) -> list[float]:
         """Use zero LR for backbone groups and a boosted LR for head groups."""
+        original_lrs = [group["lr"] for group in optimizer.param_groups]
         for group in optimizer.param_groups:
             base_lr = group.get("_base_lr", group.get("lr", self.lr))
             group["lr"] = base_lr * self.head_warmup_lr_mult if group.get("is_head", False) else 0.0
+        return original_lrs
 
-    def _apply_gradual_backbone_lrs(self, optimizer) -> list[float]:
-        """Temporarily reduce backbone LR groups during early full-backbone epochs."""
+    @staticmethod
+    def _group_has_trainable_params(group: dict) -> bool:
+        """Return whether an optimizer group currently owns any trainable parameter."""
+        return any(param.requires_grad for param in group.get("params", ()))
+
+    def _apply_gradual_backbone_lrs(self, optimizer, epoch: int | None = None) -> list[float]:
+        """Zero frozen groups and temporarily reduce trainable backbone LR groups."""
         original_lrs = [group["lr"] for group in optimizer.param_groups]
+        backbone_lr_active = True if epoch is None else self._gradual_backbone_lr_active(epoch)
         for group in optimizer.param_groups:
-            if group.get("is_backbone", False):
+            if not self._group_has_trainable_params(group):
+                group["lr"] = 0.0
+            elif backbone_lr_active and group.get("is_backbone", False):
                 group["lr"] *= self.gradual_unfreeze_backbone_lr_mult
         return original_lrs
+
+    def _optimizer_lr_summary(self, optimizer) -> tuple[float, float, float]:
+        """Return max active LR plus active backbone/head LR summaries."""
+        active_lrs = []
+        backbone_lrs = []
+        head_lrs = []
+        for group in optimizer.param_groups:
+            if not self._group_has_trainable_params(group):
+                continue
+            lr = float(group["lr"])
+            if lr <= 0:
+                continue
+            active_lrs.append(lr)
+            if group.get("is_backbone", False):
+                backbone_lrs.append(lr)
+            if group.get("is_head", False):
+                head_lrs.append(lr)
+        fallback = float(optimizer.param_groups[0]["lr"]) if optimizer.param_groups else 0.0
+        return (
+            max(active_lrs, default=fallback),
+            max(backbone_lrs, default=0.0),
+            max(head_lrs, default=0.0),
+        )
+
+    @staticmethod
+    def _trainable_parameter_summary(model: nn.Module) -> tuple[int, int]:
+        """Return trainable and total parameter counts."""
+        total = 0
+        trainable = 0
+        for param in model.parameters():
+            count = param.numel()
+            total += count
+            if param.requires_grad:
+                trainable += count
+        return trainable, total
 
     def _metric_loss_for_features(self, criterion_metric, features, pids: torch.Tensor) -> torch.Tensor:
         """Compute metric loss for a tensor feature or branch feature dict."""
@@ -1909,6 +2397,26 @@ class ReIDTrainer:
                 key = self._effective_metric_feature()
                 selected = features.get(key, features["raw_mean"])
                 return criterion_metric(F.normalize(selected, p=2, dim=1), pids)
+
+            part_supervision_weights = self._part_supervision_weights(features)
+            if torch.is_tensor(part_supervision_weights):
+                global_features = features.get("global", features.get("raw_mean"))
+                global_loss = criterion_metric(F.normalize(global_features, p=2, dim=1), pids)
+                part_losses = []
+                part_weights = []
+                for index, key in enumerate(self._sorted_part_feature_keys(features)):
+                    if key not in features or index >= part_supervision_weights.shape[1]:
+                        continue
+                    branch_features = F.normalize(features[key], p=2, dim=1)
+                    part_losses.append(criterion_metric(branch_features, pids))
+                    part_weights.append(part_supervision_weights[:, index].mean().clamp(min=0.0))
+                if not part_losses:
+                    return global_loss
+                weights = torch.stack(part_weights)
+                part_loss = sum(loss * weight for loss, weight in zip(part_losses, weights)) / weights.sum().clamp(
+                    min=1e-12
+                )
+                return global_loss + self.branch_metric_part_weight * part_loss
 
             weighted_losses = []
             total_weight = 0.0
@@ -1938,6 +2446,113 @@ class ReIDTrainer:
 
         return criterion_metric(F.normalize(features, p=2, dim=1), pids)
 
+    def _evidence_auxiliary_loss(self, features, pids: torch.Tensor) -> torch.Tensor:
+        """Compute IET evidence alignment, null-token, and diversity losses."""
+        if not isinstance(features, dict):
+            return torch.zeros((), device=self.device)
+
+        total = torch.zeros((), device=self.device)
+        if self.evidence_alignment_loss_weight > 0:
+            total = total + self.evidence_alignment_loss_weight * self._evidence_alignment_loss(features, pids)
+        if self.evidence_null_loss_weight > 0:
+            total = total + self.evidence_null_loss_weight * self._evidence_null_loss(features)
+        if self.evidence_diversity_loss_weight > 0:
+            total = total + self.evidence_diversity_loss_weight * self._evidence_diversity_loss(features)
+        return total
+
+    def _evidence_alignment_loss(self, features: dict, pids: torch.Tensor) -> torch.Tensor:
+        """Batch evidence-set OT loss over same-ID positives and different-ID negatives."""
+        part_keys = self._sorted_part_feature_keys(features)
+        required = ("_visibility", "_rarity", "_role_logits", "_nullness")
+        if not part_keys or any(key not in features for key in required):
+            return torch.zeros((), device=self.device)
+
+        part_features = torch.stack(
+            [F.normalize(features[key], p=2, dim=1) for key in part_keys],
+            dim=1,
+        )
+        visibility = features["_visibility"].to(dtype=part_features.dtype)
+        rarity = features["_rarity"].to(dtype=part_features.dtype)
+        role_probs = F.softmax(features["_role_logits"].to(dtype=part_features.dtype), dim=-1)
+        nullness = features["_nullness"].to(dtype=part_features.dtype)
+        if visibility.shape[1] != part_features.shape[1]:
+            return torch.zeros((), device=self.device)
+
+        evidence_mass = (visibility * rarity * (1.0 - nullness)).clamp_min(1e-6)
+        evidence_mass = evidence_mass / evidence_mass.sum(dim=1, keepdim=True).clamp_min(1e-6)
+
+        part_similarity = torch.einsum("bkd,cld->bckl", part_features, part_features)
+        role_compatibility = torch.einsum("bkr,clr->bckl", role_probs, role_probs)
+        scores = part_similarity * role_compatibility
+        alignment = self._sinkhorn_alignment(
+            scores,
+            evidence_mass,
+            iters=self.evidence_sinkhorn_iters,
+            temperature=self.evidence_sinkhorn_temperature,
+        )
+
+        same_id = pids[:, None].eq(pids[None, :])
+        eye = torch.eye(pids.shape[0], device=pids.device, dtype=torch.bool)
+        positive_mask = same_id & ~eye
+        negative_mask = ~same_id
+
+        losses = []
+        if positive_mask.any():
+            losses.append((1.0 - alignment[positive_mask]).mean())
+        if negative_mask.any():
+            losses.append(F.relu(alignment[negative_mask] - self.evidence_alignment_margin).mean())
+        if not losses:
+            return torch.zeros((), device=self.device)
+        return sum(losses) / len(losses)
+
+    @staticmethod
+    def _sinkhorn_alignment(
+        scores: torch.Tensor,
+        evidence_mass: torch.Tensor,
+        *,
+        iters: int,
+        temperature: float,
+    ) -> torch.Tensor:
+        """Return pairwise optimal-transport evidence alignment scores."""
+        eps = torch.finfo(scores.dtype).eps
+        temperature = max(float(temperature), float(eps))
+        logits = (scores - scores.amax(dim=(-1, -2), keepdim=True)) / temperature
+        kernel = logits.exp().clamp_min(eps)
+        row_mass = evidence_mass[:, None, :]
+        col_mass = evidence_mass[None, :, :]
+        u = torch.ones_like(row_mass).expand(scores.shape[0], scores.shape[1], scores.shape[2])
+        v = torch.ones_like(col_mass).expand(scores.shape[0], scores.shape[1], scores.shape[3])
+        for _ in range(max(int(iters), 1)):
+            u = row_mass / torch.einsum("bckl,bcl->bck", kernel, v).clamp_min(eps)
+            v = col_mass / torch.einsum("bckl,bck->bcl", kernel, u).clamp_min(eps)
+        plan = u[..., :, None] * kernel * v[..., None, :]
+        return (plan * scores).sum(dim=(-1, -2))
+
+    def _evidence_null_loss(self, features: dict) -> torch.Tensor:
+        """Supervise the final semantic evidence token as the explicit null slot."""
+        nullness = features.get("_nullness")
+        if not torch.is_tensor(nullness) or nullness.shape[1] < 2:
+            return torch.zeros((), device=self.device)
+        target = torch.zeros_like(nullness)
+        target[:, -1] = 1.0
+        return F.binary_cross_entropy(nullness.clamp(1e-6, 1.0 - 1e-6), target)
+
+    def _evidence_diversity_loss(self, features: dict) -> torch.Tensor:
+        """Encourage evidence roles and descriptors to avoid token collapse."""
+        part_keys = self._sorted_part_feature_keys(features)
+        role_logits = features.get("_role_logits")
+        if len(part_keys) < 2 or not torch.is_tensor(role_logits):
+            return torch.zeros((), device=self.device)
+        role_probs = F.softmax(role_logits, dim=-1)
+        role_overlap = torch.einsum("bkr,blr->bkl", role_probs, role_probs)
+        part_features = torch.stack(
+            [F.normalize(features[key], p=2, dim=1) for key in part_keys],
+            dim=1,
+        )
+        feature_overlap = torch.einsum("bkd,bld->bkl", part_features, part_features).clamp_min(0.0)
+        mask = ~torch.eye(len(part_keys), device=role_overlap.device, dtype=torch.bool)
+        return 0.5 * (role_overlap[:, mask].mean() + feature_overlap[:, mask].mean())
+
     def _reduce_branch_losses(self, losses: list[torch.Tensor]) -> torch.Tensor:
         """Aggregate branch losses using mean (default) or sum."""
         if not losses:
@@ -1952,6 +2567,7 @@ class ReIDTrainer:
         logits,
         pids: torch.Tensor,
         epoch: int,
+        features=None,
     ) -> torch.Tensor:
         """Compute global CE plus relatively weighted auxiliary-head CE."""
         if not isinstance(logits, list):
@@ -1960,9 +2576,41 @@ class ReIDTrainer:
         if len(losses) == 1:
             return losses[0]
         aux_weight = self._aux_ce_weight_for_epoch(epoch)
-        weighted = losses[0] + aux_weight * sum(losses[1:])
-        normalizer = 1.0 + aux_weight * (len(losses) - 1)
+        weights = [torch.ones((), device=losses[0].device, dtype=losses[0].dtype)]
+        part_supervision_weights = self._part_supervision_weights(features) if isinstance(features, dict) else None
+        if torch.is_tensor(part_supervision_weights):
+            for index in range(1, len(losses)):
+                part_index = index - 1
+                if part_index < part_supervision_weights.shape[1]:
+                    weights.append(aux_weight * part_supervision_weights[:, part_index].mean().clamp(min=0.0))
+                else:
+                    weights.append(torch.as_tensor(aux_weight, device=losses[0].device, dtype=losses[0].dtype))
+        else:
+            weights.extend(
+                torch.as_tensor(aux_weight, device=losses[0].device, dtype=losses[0].dtype)
+                for _ in losses[1:]
+            )
+        weighted = sum(loss * weight for loss, weight in zip(losses, weights))
+        normalizer = torch.stack(weights).sum().clamp(min=1e-12)
         return weighted / normalizer
+
+    @staticmethod
+    def _part_supervision_weights(features: dict) -> torch.Tensor | None:
+        """Detached part weights for auxiliary CE/metric supervision.
+
+        Visibility decides whether a part should contribute. Nullness removes
+        explicit null/background evidence tokens from identity supervision.
+        Detaching prevents the part metadata heads from minimizing ID/metric
+        losses by simply lowering their own weights.
+        """
+        visibility = features.get("_visibility")
+        if not torch.is_tensor(visibility):
+            return None
+        weights = visibility
+        nullness = features.get("_nullness")
+        if torch.is_tensor(nullness) and nullness.shape == visibility.shape:
+            weights = weights * (1.0 - nullness)
+        return weights.detach().clamp(min=0.0)
 
     @staticmethod
     def _sorted_part_feature_keys(features: dict) -> list[str]:
@@ -2108,18 +2756,24 @@ class ReIDTrainer:
         backbone_freeze_active = self._backbone_freeze_active(epoch)
         gradual_unfreeze_phase = self._gradual_unfreeze_phase(epoch)
         gradual_backbone_original_lrs = None
+        head_warmup_original_lrs = None
         head_warmup_active = False
         if gradual_unfreeze_phase:
             self._set_gradual_unfreeze_trainability(model, gradual_unfreeze_phase)
             if epoch == 1:
                 LOGGER.info(
                     "Gradual unfreeze enabled: "
-                    f"head/neck through epoch {self.gradual_unfreeze_head_epochs}, "
+                    f"ReID modules through epoch {self.gradual_unfreeze_head_epochs}, "
                     f"last stage through epoch {self.gradual_unfreeze_stage_epochs}, "
-                    f"then full backbone with backbone_lr_mult="
-                    f"{self.gradual_unfreeze_backbone_lr_mult:g} for "
-                    f"{self.gradual_unfreeze_backbone_lr_epochs} epochs"
+                    "then full backbone"
                 )
+                if self.gradual_unfreeze_backbone_lr_epochs > 0:
+                    LOGGER.info(
+                        "Gradual unfreeze backbone LR drop active from epoch "
+                        f"{self.gradual_unfreeze_head_epochs + 1} through epoch "
+                        f"{self.gradual_unfreeze_stage_epochs + self.gradual_unfreeze_backbone_lr_epochs} "
+                        f"(backbone_lr_mult={self.gradual_unfreeze_backbone_lr_mult:g})"
+                    )
         elif backbone_freeze_active:
             self._set_backbone_freeze_trainability(model, True)
             if epoch == 1:
@@ -2137,21 +2791,28 @@ class ReIDTrainer:
                 )
             self._set_head_warmup_trainability(model, head_warmup_active)
 
-        if head_warmup_active:
-            self._apply_head_warmup_lrs(optimizer)
-            if epoch == 1:
+        if gradual_unfreeze_phase:
+            gradual_backbone_original_lrs = self._apply_gradual_backbone_lrs(optimizer, epoch)
+            if epoch in {
+                1,
+                self.gradual_unfreeze_head_epochs + 1,
+                self.gradual_unfreeze_stage_epochs + 1,
+            }:
+                trainable, total = self._trainable_parameter_summary(model)
+                active_lr, backbone_lr, head_lr = self._optimizer_lr_summary(optimizer)
+                LOGGER.info(
+                    f"Gradual unfreeze phase '{gradual_unfreeze_phase}': "
+                    f"trainable_params={trainable}/{total}, "
+                    f"active_lr={active_lr:.2e}, backbone_lr={backbone_lr:.2e}, head_lr={head_lr:.2e}"
+                )
+        elif head_warmup_active:
+            head_warmup_original_lrs = self._apply_head_warmup_lrs(optimizer)
+            if epoch == self._head_warmup_start_epoch():
                 LOGGER.info(
                     f"Head warmup enabled for {self.head_warmup_epochs} epochs "
                     f"(head_lr_mult={self.head_warmup_lr_mult:g})"
                 )
-        elif self._gradual_backbone_lr_active(epoch):
-            gradual_backbone_original_lrs = self._apply_gradual_backbone_lrs(optimizer)
-            if epoch == self.gradual_unfreeze_stage_epochs + 1:
-                LOGGER.info(
-                    "Gradual unfreeze backbone LR drop active for "
-                    f"{self.gradual_unfreeze_backbone_lr_epochs} epochs "
-                    f"(backbone_lr_mult={self.gradual_unfreeze_backbone_lr_mult:g})"
-                )
+        epoch_lr, epoch_backbone_lr, epoch_head_lr = self._optimizer_lr_summary(optimizer)
 
         id_loss_weight = self._effective_id_loss_weight(epoch)
         center_loss_weight = self._effective_center_loss_weight(epoch)
@@ -2180,7 +2841,7 @@ class ReIDTrainer:
 
                 # ID loss — CE uses model logits; margin classifiers use embeddings.
                 if self.classifier_loss == "ce":
-                    loss_id = self._classification_loss_for_logits(criterion_id, logits, pids, epoch)
+                    loss_id = self._classification_loss_for_logits(criterion_id, logits, pids, epoch, features)
                 else:
                     cls_features = self._classification_features(features)
                     if cls_features is None:
@@ -2198,6 +2859,9 @@ class ReIDTrainer:
                     loss_tri = self._metric_loss_for_features(criterion_metric, features, pids)
                     loss = loss + self.metric_loss_weight * loss_tri
 
+                loss_evidence = self._evidence_auxiliary_loss(features, pids)
+                loss = loss + loss_evidence
+
                 # Center loss — only on embeddings, never on logits
                 center_features = self._center_features(features)
                 loss_cen = torch.tensor(0.0, device=self.device)
@@ -2205,11 +2869,21 @@ class ReIDTrainer:
                     loss_cen = criterion_center(center_features, pids) * center_loss_weight
                     loss = loss + loss_cen
 
+            if not torch.isfinite(loss):
+                raise RuntimeError(
+                    f"Non-finite training loss at epoch {epoch}, batch {n_batches + 1}: "
+                    f"loss={loss.detach().item():.6g}, "
+                    f"id_loss={loss_id.detach().item():.6g}, "
+                    f"triplet_loss={loss_tri.detach().item():.6g}, "
+                    f"evidence_loss={loss_evidence.detach().item():.6g}, "
+                    f"center_loss={loss_cen.detach().item():.6g}"
+                )
+
             optimizer.zero_grad()
             optimizer_center.zero_grad()
             scaler.scale(loss).backward()
 
-            # Gradient clipping (ViT training stability)
+            # Gradient clipping (transformer training stability)
             if grad_clip > 0:
                 scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=grad_clip)
@@ -2257,6 +2931,9 @@ class ReIDTrainer:
         if gradual_backbone_original_lrs is not None:
             for group, lr in zip(optimizer.param_groups, gradual_backbone_original_lrs):
                 group["lr"] = lr
+        if head_warmup_original_lrs is not None:
+            for group, lr in zip(optimizer.param_groups, head_warmup_original_lrs):
+                group["lr"] = lr
 
         # Scheduler step
         if epoch > self.warmup_epochs:
@@ -2276,8 +2953,10 @@ class ReIDTrainer:
             id_loss=average_losses[1],
             triplet_loss=average_losses[2],
             center_loss=average_losses[3],
-            lr=optimizer.param_groups[0]["lr"],
+            lr=epoch_lr,
             elapsed_s=elapsed,
+            backbone_lr=epoch_backbone_lr,
+            head_lr=epoch_head_lr,
         )
 
     @torch.no_grad()
@@ -2293,12 +2972,45 @@ class ReIDTrainer:
         model.eval()
 
     def _validate(self, epoch, model, query_loader, gallery_loader) -> ValMetrics:
-        use_flip = self.flip_tta if self.flip_tta is not None else self._is_vit(model)
-        q_feats, q_pids, q_camids = extract_features(model, query_loader, self.device, desc="Query", flip_tta=use_flip)
-        g_feats, g_pids, g_camids = extract_features(
-            model, gallery_loader, self.device, desc="Gallery", flip_tta=use_flip
+        recipe = self._resolve_training_recipe(model)
+        use_flip = self.flip_tta if self.flip_tta is not None else recipe.default_flip_tta
+        visibility_distance = self.inference_feature == "visibility_weighted_parts"
+        evidence_distance = self.inference_feature == "evidence_sinkhorn"
+        structured_distance = visibility_distance or evidence_distance
+        q_feats, q_pids, q_camids = extract_features(
+            model,
+            query_loader,
+            self.device,
+            desc="Query",
+            flip_tta=use_flip,
+            normalize=not structured_distance,
         )
-        distmat = compute_distance_matrix(q_feats, g_feats)
+        g_feats, g_pids, g_camids = extract_features(
+            model,
+            gallery_loader,
+            self.device,
+            desc="Gallery",
+            flip_tta=use_flip,
+            normalize=not structured_distance,
+        )
+        distmat = compute_distance_matrix(
+            q_feats,
+            g_feats,
+            metric=(
+                "evidence_sinkhorn"
+                if evidence_distance
+                else "visibility_weighted_parts"
+                if visibility_distance
+                else "cosine"
+            ),
+            part_dim=self.feat_dim if structured_distance else None,
+            part_count=visibility_part_count(self.head_parts) if structured_distance else None,
+            role_count=self.evidence_num_roles if evidence_distance else None,
+            beta=self.branch_metric_part_weight,
+            topk=self.evidence_rerank_topk if evidence_distance else None,
+            sinkhorn_iters=self.evidence_sinkhorn_iters,
+            sinkhorn_temperature=self.evidence_sinkhorn_temperature,
+        )
         del q_feats, g_feats
         cmc, mAP = evaluate_ranking(distmat, q_pids, g_pids, q_camids, g_camids)
         del distmat, q_pids, g_pids, q_camids, g_camids
@@ -2323,8 +3035,14 @@ class ReIDTrainer:
 
     def _checkpoint_metadata(self, model: nn.Module) -> dict[str, Any]:
         """Return stable model/training metadata shared by all checkpoint types."""
-        return {
+        recipe = self._resolve_training_recipe(model)
+        metadata = {
             "model_name": self.model_name,
+            "model_family": recipe.family,
+            "training_family": recipe.family,
+            "training_recipe": recipe.name,
+            "is_vit": recipe.family == "transformer",
+            "is_transformer": recipe.family == "transformer",
             "dataset": self.dataset_name,
             "epochs": self.epochs,
             "warmup_epochs": self.warmup_epochs,
@@ -2334,7 +3052,13 @@ class ReIDTrainer:
             "loss_type": self.loss_type,
             "classifier_loss": self.classifier_loss,
             "inference_feature": self.inference_feature,
+            "timm_model_name": getattr(model, "timm_model_name", None),
+            "use_timm_head": getattr(model, "use_timm_head", None),
             "feature_fusion": self.feature_fusion,
+            "post_fusion_mixer": self.post_fusion_mixer,
+            "post_fusion_mixer_reduction": self.post_fusion_mixer_reduction,
+            "post_fusion_mixer_kernel": list(self.post_fusion_mixer_kernel),
+            "post_fusion_mixer_gamma_init": self.post_fusion_mixer_gamma_init,
             "feat_dim": self.feat_dim,
             "neck_dim": self.neck_dim,
             "drop_path_rate": self.drop_path_rate,
@@ -2344,6 +3068,8 @@ class ReIDTrainer:
             "attention_shift": self.attention_shift,
             "stage3_global": self.stage3_global,
             "vit_lr_profile": self.vit_lr_profile,
+            "optimizer_name": recipe.optimizer_name,
+            "grad_clip": recipe.grad_clip,
             "backbone_freeze_epochs": self.backbone_freeze_epochs,
             "gradual_unfreeze": self.gradual_unfreeze,
             "gradual_unfreeze_head_epochs": self.gradual_unfreeze_head_epochs,
@@ -2357,11 +3083,21 @@ class ReIDTrainer:
             "head_type": self.head_type,
             "part_pooling": self.part_pooling,
             "num_part_tokens": self.num_part_tokens,
+            "evidence_num_roles": self.evidence_num_roles,
             "decouple_patterns": self.decouple_patterns,
             "pattern_adapter_dim": self.pattern_adapter_dim,
             "stripe_visibility": self.stripe_visibility,
+            "drop_global_aux": self.drop_global_aux,
+            "drop_global_aux_ratio": self.drop_global_aux_ratio,
             "branch_aware_metric": self.branch_aware_metric,
             "branch_metric_part_weight": self.branch_metric_part_weight,
+            "evidence_alignment_loss_weight": self.evidence_alignment_loss_weight,
+            "evidence_alignment_margin": self.evidence_alignment_margin,
+            "evidence_sinkhorn_iters": self.evidence_sinkhorn_iters,
+            "evidence_sinkhorn_temperature": self.evidence_sinkhorn_temperature,
+            "evidence_rerank_topk": self.evidence_rerank_topk,
+            "evidence_null_loss_weight": self.evidence_null_loss_weight,
+            "evidence_diversity_loss_weight": self.evidence_diversity_loss_weight,
             "head_warmup_epochs": self.head_warmup_epochs,
             "head_warmup_lr_mult": self.head_warmup_lr_mult,
             "early_id_loss_weight": self.early_id_loss_weight,
@@ -2373,6 +3109,49 @@ class ReIDTrainer:
             "seed": self.seed,
             "deterministic": self.deterministic,
         }
+        metadata["model"] = {
+            "family": recipe.family,
+            "training_family": recipe.family,
+            "training_recipe": recipe.name,
+            "is_vit": recipe.family == "transformer",
+            "is_transformer": recipe.family == "transformer",
+            "feature_fusion": self.feature_fusion,
+            "timm_model_name": getattr(model, "timm_model_name", None),
+        }
+        if recipe.family == "transformer":
+            metadata["model"]["transformer"] = {
+                "drop_path_rate": self._max_drop_path(model),
+                "attention": {
+                    "window_layout": self.attention_window_layout,
+                    "bias": self.attention_bias,
+                    "mask": self.attention_mask,
+                    "shift": self.attention_shift,
+                    "stage3_global": self.stage3_global,
+                },
+                "reid_adapters": {
+                    "stages": list(self.reid_adapter_stages),
+                    "reduction": self.reid_adapter_reduction,
+                },
+                "lr_profile": self.vit_lr_profile,
+            }
+        else:
+            metadata["model"][recipe.family] = {
+                "timm_model_name": getattr(model, "timm_model_name", None),
+                "use_timm_head": getattr(model, "use_timm_head", None),
+                "feature_fusion": self.feature_fusion,
+            }
+        metadata["optimization"] = {
+            "recipe": recipe.name,
+            "optimizer": recipe.optimizer_name,
+            "lr": self.lr,
+            "weight_decay": self.weight_decay,
+            "warmup_epochs": self.warmup_epochs,
+            "grad_clip": recipe.grad_clip,
+            "layer_decay": recipe.layer_decay(self),
+        }
+        if self.data_specs:
+            metadata["data_specs"] = [dict(spec) for spec in self.data_specs]
+        return metadata
 
     def _save_checkpoint(
         self, model, path: Path, epoch: int, val: Optional[ValMetrics],
@@ -2433,6 +3212,8 @@ class ReIDTrainer:
                     "triplet_loss": round(m.triplet_loss, 5),
                     "center_loss": round(m.center_loss, 5),
                     "lr": round(m.lr, 8),
+                    "backbone_lr": round(m.backbone_lr, 8),
+                    "head_lr": round(m.head_lr, 8),
                 }
                 for m in history
             ],

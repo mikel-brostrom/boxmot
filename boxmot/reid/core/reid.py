@@ -207,8 +207,6 @@ class ReID:
         if boxes is not None:
             image = resolve_image(inputs)
             coerced = self._coerce_boxes(boxes)
-            if not hasattr(self.model, "get_crops"):
-                return {"mode": "image_boxes", "image": image, "boxes": coerced, "fallback": True}
             if coerced.size == 0:
                 empty = torch.empty(
                     (0, 3, *self.model.input_shape),
@@ -217,6 +215,8 @@ class ReID:
                 )
                 batch = self.model.inference_preprocess(empty)
                 return {"mode": "image_boxes", "batch": batch, "empty": True}
+            if not hasattr(self.model, "get_crops"):
+                return {"mode": "image_boxes", "image": image, "boxes": coerced, "fallback": True}
             batch = self.model.get_crops(coerced, image)
             batch = self.model.inference_preprocess(batch)
             return {"mode": "image_boxes", "batch": batch, "empty": False}

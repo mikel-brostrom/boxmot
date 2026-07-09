@@ -10,7 +10,6 @@ from typing import Any
 import yaml
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config
-from boxmot.reid.core import ReID
 from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import TRACKER_CONFIGS
 
@@ -85,19 +84,9 @@ TRACKER_DEFINITIONS = {
     ),
 }
 
-TRACKER_MAPPING = {
-    name: definition.class_path
-    for name, definition in TRACKER_DEFINITIONS.items()
-}
-REID_TRACKERS = [
-    name
-    for name, definition in TRACKER_DEFINITIONS.items()
-    if definition.needs_reid
-]
-TRACKER_CLASS_TO_NAME = {
-    definition.class_name.lower(): name
-    for name, definition in TRACKER_DEFINITIONS.items()
-}
+TRACKER_MAPPING = {name: definition.class_path for name, definition in TRACKER_DEFINITIONS.items()}
+REID_TRACKERS = [name for name, definition in TRACKER_DEFINITIONS.items() if definition.needs_reid]
+TRACKER_CLASS_TO_NAME = {definition.class_name.lower(): name for name, definition in TRACKER_DEFINITIONS.items()}
 
 
 def get_tracker_definition(tracker_type: str) -> TrackerDefinition:
@@ -164,6 +153,8 @@ def _build_reid_model(
 ):
     if reid_model is not None or reid_weights is None:
         return reid_model
+
+    from boxmot.reid.core import ReID
 
     return ReID(
         weights=reid_weights,

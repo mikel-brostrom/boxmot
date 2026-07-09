@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 
+from boxmot.detectors.base import Detections
 from boxmot.trackers.bbox.boosttrack import BoostTrack
 from boxmot.trackers.bbox.botsort import BotSort
 from boxmot.trackers.bbox.bytetrack import ByteTrack
@@ -18,15 +19,6 @@ from boxmot.trackers.bbox.sfsort import TrackState as SFSortTrackState
 from boxmot.trackers.bbox.strongsort import StrongSort
 from boxmot.trackers.common.detections import DetectionBatch
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
-from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
-from boxmot.trackers.common.tracking.protocol import TrackerProtocol
-from boxmot.trackers.common.tracking.track import (
-    TrackIdAllocator,
-    TrackLifecycleMixin,
-    TrackMeta,
-    TrackState,
-    sync_track_meta,
-)
 from boxmot.trackers.common.track_models.base import BoxTrack, SortBoxTrack
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker as BoostTrackBoxTrack
 from boxmot.trackers.common.track_models.botsort import BaseTrack as BotSortBaseTrack
@@ -38,6 +30,15 @@ from boxmot.trackers.common.track_models.bytetrack import TrackState as ByteTrac
 from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortBoxTrack
 from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker as HybridSortBoxTrack
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortBoxTrack
+from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
+from boxmot.trackers.common.tracking.protocol import TrackerProtocol
+from boxmot.trackers.common.tracking.track import (
+    TrackIdAllocator,
+    TrackLifecycleMixin,
+    TrackMeta,
+    TrackState,
+    sync_track_meta,
+)
 
 
 class DummyCMC:
@@ -387,6 +388,16 @@ def test_tracker_protocol_surface(name: str, factory: Callable[..., object]):
 def test_empty_input_shape_aabb(name: str, factory: Callable[..., object]):
     tracker = factory(min_hits=1)
     out = tracker.update(np.empty((0, 6), dtype=np.float32), _img(), _embs(0))
+
+    assert out.shape == (0, 8), name
+
+
+@pytest.mark.parametrize(("name", "factory"), AABB_TRACKERS)
+def test_detector_result_input_shape_aabb(name: str, factory: Callable[..., object]):
+    tracker = factory(min_hits=1)
+    result = Detections(dets=np.empty((0, 6), dtype=np.float32), orig_img=_img())
+
+    out = tracker.update(result, None, _embs(0))
 
     assert out.shape == (0, 8), name
 

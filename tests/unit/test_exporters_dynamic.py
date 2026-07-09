@@ -1,3 +1,4 @@
+import inspect
 import os
 import sys
 import types
@@ -157,6 +158,42 @@ def test_onnx_export_quiet_mode_uses_legacy_dynamic_axes(monkeypatch, tmp_path):
     assert export_args[0].shape[0] == 2
     assert "dynamic_axes" in export_kwargs
     assert "dynamic_shapes" not in export_kwargs
+
+
+def test_onnx_export_traces_single_input_inference_wrapper(monkeypatch, tmp_path):
+    _disable_dep_sync(monkeypatch)
+    _install_fake_onnx(monkeypatch)
+
+    class OptionalFeatureMapModel(torch.nn.Module):
+        def forward(self, x, return_featuremaps: bool = False):
+            if return_featuremaps:
+                return x
+            return x + 1
+
+    calls = []
+
+    def fake_export(model, args, f, **kwargs):
+        calls.append((model, args, kwargs))
+        assert list(inspect.signature(model.forward).parameters) == ["x"]
+        torch.testing.assert_close(model(args[0]), args[0] + 1)
+        Path(f).touch()
+
+    monkeypatch.setattr(torch.onnx, "export", fake_export)
+
+    image = torch.randn(2, 3, 8, 4)
+    exporter = ONNXExporter(
+        OptionalFeatureMapModel(),
+        image,
+        tmp_path / "feature_flag.pt",
+        opset=17,
+        dynamic=False,
+        half=False,
+        simplify=False,
+        verbose=False,
+    )
+
+    assert exporter.export() == tmp_path / "feature_flag.onnx"
+    assert len(calls) == 1
 
 
 def test_onnx_export_static_fallback_uses_legacy_exporter(monkeypatch, tmp_path):

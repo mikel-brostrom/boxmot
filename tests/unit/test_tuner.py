@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -314,6 +315,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
     assert captured["ray_init_kwargs"]["logging_level"] == logging.ERROR
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
+    assert os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] == "0"
     assert any(title == tune_reporting.TUNE_OPTIMIZE_STEP for title, _ in detail_updates)
     assert captured["fit"] is True
     assert workflow_state["stopped"] is True
@@ -776,6 +778,21 @@ def test_tuner_rejects_invalid_metric_names_before_ray_setup() -> None:
     assert "(did you mean IDSW, IDSW_rate?)" in message
     assert "Available maximize metrics: HOTA, MOTA, IDF1, AssA, AssRe" in message
     assert "Available minimize metrics: IDSW, IDs, IDSW_rate" in message
+
+
+def test_tuner_normalizes_metric_aliases_before_validation() -> None:
+    args = SimpleNamespace(
+        maximize=("hota",),
+        minimize=("id_switches",),
+        objectives=("hota", "id_switches"),
+    )
+    tuner = tuner_module.Tuner(args)
+
+    tuner._resolve_metrics()
+
+    assert args.objectives == ("HOTA", "IDSW")
+    assert args.maximize == ("HOTA",)
+    assert args.minimize == ("IDSW",)
 
 
 def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch, tmp_path):

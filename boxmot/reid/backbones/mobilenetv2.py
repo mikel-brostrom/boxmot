@@ -2,9 +2,12 @@
 
 from __future__ import absolute_import, division
 
-import torch.utils.model_zoo as model_zoo
 from torch import nn
 from torch.nn import functional as F
+
+from boxmot.reid.backbones.base import ReIDBackbone, format_reid_output
+from boxmot.reid.backbones.common import init_kaiming_reid, warn_manual_pretrained_download
+from boxmot.reid.backbones.registry import register_backbone
 
 __all__ = ["mobilenetv2_x1_0", "mobilenetv2_x1_4"]
 
@@ -64,7 +67,7 @@ class Bottleneck(nn.Module):
             return m
 
 
-class MobileNetV2(nn.Module):
+class MobileNetV2(ReIDBackbone):
     """MobileNetV2.
 
     Reference:
@@ -149,23 +152,9 @@ class MobileNetV2(nn.Module):
         return nn.Sequential(*layers)
 
     def _init_params(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.BatchNorm1d):
-                nn.init.constant_(m.weight, 1)
-                nn.init.constant_(m.bias, 0)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0, 0.01)
-                if m.bias is not None:
-                    nn.init.constant_(m.bias, 0)
+        init_kaiming_reid(self)
 
-    def featuremaps(self, x):
+    def forward_features(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
@@ -177,9 +166,8 @@ class MobileNetV2(nn.Module):
         x = self.conv9(x)
         return x
 
-    def forward(self, x):
-        f = self.featuremaps(x)
-        v = self.global_avgpool(f)
+    def forward_head(self, features):
+        v = self.global_avgpool(features)
         v = v.flatten(1)
 
         if self.fc is not None:
@@ -189,58 +177,38 @@ class MobileNetV2(nn.Module):
             return v
 
         y = self.classifier(v)
-
-        if self.loss == "softmax":
-            return y
-        elif self.loss == "triplet":
-            return y, v
-        else:
-            raise KeyError("Unsupported loss: {}".format(self.loss))
+        return format_reid_output(self.loss, y, v)
 
 
-def init_pretrained_weights(model, model_url):
-    """Initializes model with pretrained weights.
-
-    Layers that don't match with pretrained layers in name or size are kept unchanged.
-    """
-    pretrain_dict = model_zoo.load_url(model_url)
-    model_dict = model.state_dict()
-    pretrain_dict = {
-        k: v
-        for k, v in pretrain_dict.items()
-        if k in model_dict and model_dict[k].size() == v.size()
-    }
-    model_dict.update(pretrain_dict)
-    model.load_state_dict(model_dict)
-
-
-def mobilenetv2_x1_0(num_classes, loss, pretrained=True, **kwargs):
+@register_backbone(
+    "mobilenetv2_x1_0",
+    family="cnn",
+    default_recipe="cnn_reid",
+    default_img_size=(256, 128),
+    pretrained_source="imagenet",
+)
+def mobilenetv2_x1_0(num_classes, loss="softmax", pretrained=True, use_gpu=None, **kwargs):
+    del use_gpu
     model = MobileNetV2(
         num_classes, loss=loss, width_mult=1, fc_dims=None, dropout_p=None, **kwargs
     )
     if pretrained:
-        # init_pretrained_weights(model, model_urls['mobilenetv2_x1_0'])
-        import warnings
-
-        warnings.warn(
-            "The imagenet pretrained weights need to be manually downloaded from {}".format(
-                model_urls["mobilenetv2_x1_0"]
-            )
-        )
+        warn_manual_pretrained_download(model_urls["mobilenetv2_x1_0"])
     return model
 
 
-def mobilenetv2_x1_4(num_classes, loss, pretrained=True, **kwargs):
+@register_backbone(
+    "mobilenetv2_x1_4",
+    family="cnn",
+    default_recipe="cnn_reid",
+    default_img_size=(256, 128),
+    pretrained_source="imagenet",
+)
+def mobilenetv2_x1_4(num_classes, loss="softmax", pretrained=True, use_gpu=None, **kwargs):
+    del use_gpu
     model = MobileNetV2(
         num_classes, loss=loss, width_mult=1.4, fc_dims=None, dropout_p=None, **kwargs
     )
     if pretrained:
-        # init_pretrained_weights(model, model_urls['mobilenetv2_x1_4'])
-        import warnings
-
-        warnings.warn(
-            "The imagenet pretrained weights need to be manually downloaded from {}".format(
-                model_urls["mobilenetv2_x1_4"]
-            )
-        )
+        warn_manual_pretrained_download(model_urls["mobilenetv2_x1_4"])
     return model
