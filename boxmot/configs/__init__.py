@@ -382,6 +382,11 @@ def build_mode_namespace(
         if isinstance(ed, str):
             ed = [s.strip() for s in ed.split(",") if s.strip()]
         values["eval_datasets"] = list(ed)
+        if "backbone_freeze_epochs" not in explicit:
+            epochs = int(values.get("epochs", 0) or 0)
+            freeze_epochs = int(values.get("backbone_freeze_epochs", 0) or 0)
+            if epochs >= 0 and freeze_epochs > epochs:
+                values["backbone_freeze_epochs"] = epochs
         values.setdefault("train_explicit_keys", tuple(sorted(explicit)))
 
     return SimpleNamespace(**values)

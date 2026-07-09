@@ -64,7 +64,7 @@ class HybridReIDRecipe(TrainingRecipe):
         set_if_default("gaussian_blur", False, (True,))
         set_if_default("random_grayscale", 0.0, (0.1,))
         set_if_default("drop_path_rate", 0.0, (0.1,))
-        set_if_default("backbone_freeze_epochs", 10, (0,))
+        set_if_default("backbone_freeze_epochs", min(10, trainer.epochs), (0,))
         set_if_default("gradual_unfreeze", False, (True,))
         set_if_default("gradual_unfreeze_head_epochs", 0, (5,))
         set_if_default("gradual_unfreeze_stage_epochs", 0, (10, 20))

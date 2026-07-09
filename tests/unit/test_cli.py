@@ -874,6 +874,63 @@ def test_train_mobilenetv4_recipes_use_mobile_safe_baselines(monkeypatch):
         assert args.flip_tta is False
 
 
+def test_train_short_run_caps_inherited_backbone_freeze(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--model",
+            "mobilenetv2_x1_0",
+            "--data-dir",
+            ".",
+            "--epochs",
+            "1",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].epochs == 1
+    assert captured["args"].backbone_freeze_epochs == 1
+    assert "epochs" in set(captured["args"].train_explicit_keys)
+    assert "backbone_freeze_epochs" not in set(captured["args"].train_explicit_keys)
+
+
+def test_train_short_run_preserves_explicit_backbone_freeze(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--model",
+            "mobilenetv2_x1_0",
+            "--data-dir",
+            ".",
+            "--epochs",
+            "1",
+            "--backbone-freeze-epochs",
+            "10",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].epochs == 1
+    assert captured["args"].backbone_freeze_epochs == 10
+    assert {"epochs", "backbone_freeze_epochs"} <= set(captured["args"].train_explicit_keys)
+
+
 def test_train_csl_tinyvit_7m_recipe_keeps_small_model(monkeypatch):
     captured = {}
 
