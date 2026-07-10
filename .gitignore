@@ -28,10 +28,11 @@ weights/*.engine
 weights/*.tflite
 
 # runtime evaluation downloads
-data/benchmarks/
-data/trackeval/
-boxmot/engine/eval/trackeval/data/
-boxmot/engine/eval/trackeval/trackeval/
+data/
+boxmot/datasets/mot/*
+boxmot/datasets/reid/*
+!boxmot/datasets/mot/.gitkeep
+!boxmot/datasets/reid/.gitkeep
 
 # zip files
 *.zip

@@ -452,7 +452,7 @@ def test_run_eval_subprocess_keyboard_interrupt_terminates_process_group(monkeyp
     assert signals == [(456, research_module.signal.SIGTERM)]
 
 
-def test_run_eval_subprocess_preserves_rich_trackeval_feedback(monkeypatch):
+def test_run_eval_subprocess_preserves_rich_mot_feedback(monkeypatch):
     payload = {
         "ok": True,
         "summary_label": "all",

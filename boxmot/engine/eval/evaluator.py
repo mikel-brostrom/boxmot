@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
     from boxmot.engine.eval.motmetrics import _load_obb_gt_matrix
     from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
-    from boxmot.engine.eval.trackeval.results import (
+    from boxmot.engine.eval.results import (
         _select_plot_metrics_data,
         parse_mot_results,
     )
@@ -113,9 +113,9 @@ _LAZY_EXPORTS = {
         "boxmot.data.cache",
         "_existing_embedding_cache_path",
     ),
-    "_filter_obb_trackeval_results": (
-        "boxmot.engine.eval.trackeval.results",
-        "_filter_obb_trackeval_results",
+    "filter_obb_mot_results": (
+        "boxmot.engine.eval.results",
+        "filter_obb_mot_results",
     ),
     "_load_embedding_cache_array": (
         "boxmot.data.cache",
@@ -131,25 +131,16 @@ _LAZY_EXPORTS = {
         "boxmot.data.cache",
         "_saved_detection_column_count",
     ),
-    "_select_plot_metrics_data": (
-        "boxmot.engine.eval.trackeval.results",
-        "_select_plot_metrics_data",
-    ),
+    "_select_plot_metrics_data": ("boxmot.engine.eval.results", "_select_plot_metrics_data"),
     "generate_dets_embs_batched": (
         "boxmot.engine.eval.cache",
         "generate_dets_embs_batched",
     ),
-    "log_trackeval_report": (
-        "boxmot.engine.eval.trackeval.results",
-        "log_trackeval_report",
-    ),
+    "log_mot_report": ("boxmot.engine.eval.results", "log_mot_report"),
     "MetricsPlotter": ("boxmot.engine.eval.plots", "MetricsPlotter"),
-    "parse_mot_results": ("boxmot.engine.eval.trackeval.results", "parse_mot_results"),
+    "parse_mot_results": ("boxmot.engine.eval.results", "parse_mot_results"),
     "process_sequence": ("boxmot.engine.eval.replay", "process_sequence"),
-    "render_trackeval_report": (
-        "boxmot.engine.eval.trackeval.results",
-        "render_trackeval_report",
-    ),
+    "render_mot_report": ("boxmot.engine.eval.results", "render_mot_report"),
     "run_generate_dets_embs": ("boxmot.engine.eval.cache", "run_generate_dets_embs"),
     "run_generate_mot_results": (
         "boxmot.engine.eval.replay",
@@ -213,9 +204,9 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
     Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
     """
     collect_seq_info = _get_lazy_export("_collect_seq_info")
-    filter_obb_trackeval_results = _get_lazy_export("_filter_obb_trackeval_results")
-    log_trackeval_report_fn = _get_lazy_export("log_trackeval_report")
-    render_trackeval_report_fn = _get_lazy_export("render_trackeval_report")
+    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
+    log_mot_report_fn = _get_lazy_export("log_mot_report")
+    render_mot_report_fn = _get_lazy_export("render_mot_report")
     motmetrics_runner = _get_lazy_export("motmetrics_runner")
 
     seq_paths, seq_info = collect_seq_info(args.source)
@@ -278,7 +269,7 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
 
     single_class_mode = False
     if eval_box_type == "obb":
-        parsed_results, single_class_mode = filter_obb_trackeval_results(parsed_results, args, cfg.get("benchmark", {}))
+        parsed_results, single_class_mode = filter_obb_mot_results(parsed_results, args, cfg.get("benchmark", {}))
     elif getattr(args, "remapped_class_names", None):
         remapped_lower = {name.lower() for name in args.remapped_class_names}
         parsed_results = {key: value for key, value in parsed_results.items() if key.lower() in remapped_lower}
@@ -301,8 +292,8 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
     final_results = list(parsed_results.values())[0] if single_class_mode and parsed_results else parsed_results
 
     if verbose:
-        log_trackeval_report_fn(
-            render_trackeval_report_fn(
+        log_mot_report_fn(
+            render_mot_report_fn(
                 parsed_results,
                 args,
                 cfg,

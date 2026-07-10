@@ -557,7 +557,7 @@ def prepare_aabb_eval_gt(
     seq_info: dict[str, int],
 ) -> Path:
     """Create a run-local AABB GT tree so evaluation does not mutate source datasets."""
-    bridge_root = args.exp_dir / "trackeval_gt"
+    bridge_root = args.exp_dir / "motmetrics_gt"
     kept_by_seq = getattr(args, "seq_frame_nums", {}) or {}
     uses_flat_annotations = all((gt_folder / f"{seq}.txt").exists() for seq in seq_info)
 

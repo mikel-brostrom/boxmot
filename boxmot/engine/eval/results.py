@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 import re
-from typing import Any, Optional
+from typing import Any
 
 from boxmot.data.benchmark import (
     COCO_CLASSES,
@@ -15,7 +15,7 @@ from boxmot.utils.rich.core.ui import print_text
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
 SUMMARY_INT_COLUMNS = {"IDSW", "IDs"}
-TRACKEVAL_INTEGER_FIELDS = {
+MOT_REPORT_INTEGER_FIELDS = {
     "CLR_TP",
     "CLR_FN",
     "CLR_FP",
@@ -32,7 +32,7 @@ TRACKEVAL_INTEGER_FIELDS = {
     "IDs",
     "GT_IDs",
 }
-TRACKEVAL_METRIC_SPECS = {
+MOT_REPORT_METRIC_SPECS = {
     "HOTA": (
         "HOTA:",
         "HOTA",
@@ -95,8 +95,8 @@ SUMMARY_AGGREGATE_LABELS = {
 }
 
 
-def _match_header_class_name(raw_name: str, known_classes: Optional[list[str]] = None) -> str:
-    """Resolve a TrackEval header suffix to a class name, preserving hyphenated names."""
+def _match_header_class_name(raw_name: str, known_classes: list[str] | None = None) -> str:
+    """Resolve a fixed-width metric header suffix to a class name."""
     if known_classes:
         exact_matches = [name for name in known_classes if raw_name.endswith(name)]
         if exact_matches:
@@ -113,14 +113,14 @@ def _match_header_class_name(raw_name: str, known_classes: Optional[list[str]] =
 
 
 def _extract_metric_header_tracker_class(content: str, header_token: str) -> str:
-    """Return the TrackEval ``tracker-class`` prefix without splitting multi-word class names."""
+    """Return the tracker-class prefix without splitting multi-word class names."""
     content = content.strip()
     if not content:
         return ""
 
     match = re.search(rf"{re.escape(header_token)}(?=\s|$)", content)
     if match:
-        tracker_class = content[:match.start()].rstrip()
+        tracker_class = content[: match.start()].rstrip()
         if tracker_class:
             return tracker_class
 
@@ -136,50 +136,43 @@ def _extract_metric_header_tracker_class(content: str, header_token: str) -> str
     return first_word
 
 
-def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list[str]] = None) -> dict:
-    """
-    Extract COMBINED and per-sequence TrackEval summary metrics.
-    """
+def parse_mot_results(results: str, seq_names=None, known_classes: list[str] | None = None) -> dict:
+    """Extract COMBINED and per-sequence fixed-width MOT summary metrics."""
     parsed_results: dict = {}
     sorted_names = sorted(seq_names, key=len, reverse=True) if seq_names else None
-
-    lines = results.splitlines()
     current_class = None
     current_metric_type = None
 
-    for line in lines:
+    for line in results.splitlines():
         line = line.strip()
         if not line:
             continue
 
         is_header = False
-        for metric_name, (prefix, header_token, _) in TRACKEVAL_METRIC_SPECS.items():
+        for metric_name, (prefix, header_token, _) in MOT_REPORT_METRIC_SPECS.items():
             if line.startswith(prefix):
                 is_header = True
                 current_metric_type = metric_name
-
                 content = line[len(prefix):].strip()
                 tracker_class = _extract_metric_header_tracker_class(content, header_token)
                 if tracker_class:
                     current_class = _match_header_class_name(tracker_class, known_classes)
-                    if current_class not in parsed_results:
-                        parsed_results[current_class] = {"per_sequence": {}}
+                    parsed_results.setdefault(current_class, {"per_sequence": {}})
                 break
 
         if is_header:
             continue
-
         if not current_class or not current_metric_type:
             continue
 
-        _, _, fields = TRACKEVAL_METRIC_SPECS[current_metric_type]
+        _, _, fields = MOT_REPORT_METRIC_SPECS[current_metric_type]
         col_name = 35
         col_val = 10
 
         def _parse_values(rest: str, name_len: int) -> list[str]:
             pad = max(0, col_name - name_len)
             value_part = rest[pad:]
-            chunks = [value_part[i:i + col_val].strip() for i in range(0, len(value_part), col_val)]
+            chunks = [value_part[i: i + col_val].strip() for i in range(0, len(value_part), col_val)]
             return [chunk for chunk in chunks if chunk]
 
         if line.startswith("COMBINED"):
@@ -206,25 +199,14 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
         if not values:
             continue
 
-        if row_name == "COMBINED":
-            for idx, key in enumerate(fields):
-                if idx < len(values):
-                    val = values[idx]
-                    parsed_results[current_class][key] = max(
-                        0,
-                        int(val) if key in TRACKEVAL_INTEGER_FIELDS else float(val),
-                    )
-            continue
-
-        if row_name not in parsed_results[current_class]["per_sequence"]:
-            parsed_results[current_class]["per_sequence"][row_name] = {}
+        target = parsed_results[current_class] if row_name == "COMBINED" else parsed_results[current_class][
+            "per_sequence"
+        ].setdefault(row_name, {})
         for idx, key in enumerate(fields):
-            if idx < len(values):
-                val = values[idx]
-                parsed_results[current_class]["per_sequence"][row_name][key] = max(
-                    0,
-                    int(val) if key in TRACKEVAL_INTEGER_FIELDS else float(val),
-                )
+            if idx >= len(values):
+                continue
+            val = values[idx]
+            target[key] = max(0, int(val) if key in MOT_REPORT_INTEGER_FIELDS else float(val))
 
     return parsed_results
 
@@ -232,25 +214,24 @@ def parse_mot_results(results: str, seq_names=None, known_classes: Optional[list
 def _extract_numeric_metrics(metrics: dict) -> dict:
     numeric_metrics: dict = {}
     for key, value in metrics.items():
-        if key == "per_sequence":
-            continue
-        if isinstance(value, bool):
+        if key == "per_sequence" or isinstance(value, bool):
             continue
         if isinstance(value, (int, float)):
-            numeric_metrics[key] = int(value) if key in TRACKEVAL_INTEGER_FIELDS else float(value)
+            numeric_metrics[key] = int(value) if key in MOT_REPORT_INTEGER_FIELDS else float(value)
     return numeric_metrics
 
 
-def build_trackeval_feedback(results: dict) -> dict:
-    """Normalize TrackEval output into a stable payload for research/reflection."""
+def build_mot_feedback(results: dict) -> dict:
+    """Normalize MOT metric output into a stable payload for research/reflection."""
     summary_label, summary_metrics = _select_plot_metrics_data(results)
     summary = _extract_numeric_metrics(summary_metrics)
 
-    selected_view: dict = {}
     if summary_label == "single_class" and isinstance(results, dict):
         selected_view = results
     elif isinstance(results, dict):
         selected_view = results.get(summary_label, {}) or {}
+    else:
+        selected_view = {}
 
     per_sequence_metrics = {}
     for seq_name, seq_metrics in selected_view.get("per_sequence", {}).items():
@@ -274,7 +255,7 @@ def build_trackeval_feedback(results: dict) -> dict:
     }
 
 
-def _filter_obb_trackeval_results(
+def filter_obb_mot_results(
     parsed_results: dict,
     args: argparse.Namespace,
     bench_cfg: dict,
@@ -285,7 +266,6 @@ def _filter_obb_trackeval_results(
 
     selected_classes = resolve_obb_classes_to_eval(args, bench_cfg)
     ordered: dict = {}
-
     for class_name in selected_classes:
         actual_key = class_name if class_name in parsed_results else next(
             (key for key in parsed_results if key.lower() == class_name.lower()),
@@ -306,7 +286,6 @@ def _filter_obb_trackeval_results(
     fallback = {name: parsed_results[name] for name in preferred_order if name in parsed_results}
     if fallback:
         return fallback, "cls_comb_det_av" in fallback and len(fallback) == 1
-
     return parsed_results, len(parsed_results) == 1
 
 
@@ -335,7 +314,7 @@ def _load_report_cfg_from_args(args: Any) -> dict[str, Any]:
         return {}
 
 
-def _infer_single_class_report_name(args: Any, cfg: Optional[dict[str, Any]] = None) -> str:
+def _infer_single_class_report_name(args: Any, cfg: dict[str, Any] | None = None) -> str:
     if args is not None:
         remapped = getattr(args, "remapped_class_names", None)
         if remapped:
@@ -358,26 +337,19 @@ def _infer_single_class_report_name(args: Any, cfg: Optional[dict[str, Any]] = N
             indices = class_indices if isinstance(class_indices, list) else [class_indices]
             if len(indices) == 1:
                 return str(COCO_CLASSES[int(indices[0])])
-
     return "results"
 
 
 def normalize_report_results(
     raw: dict[str, Any],
     args: Any = None,
-    cfg: Optional[dict[str, Any]] = None,
+    cfg: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     if not isinstance(raw, dict) or not raw:
         return {}
-
     if _combined_summary_metrics(raw):
         return {_infer_single_class_report_name(args, cfg): raw}
-
-    normalized: dict[str, dict[str, Any]] = {}
-    for name, metrics in raw.items():
-        if isinstance(metrics, dict):
-            normalized[str(name)] = metrics
-    return normalized
+    return {str(name): metrics for name, metrics in raw.items() if isinstance(metrics, dict)}
 
 
 def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
@@ -401,7 +373,6 @@ def _select_plot_metrics_data(results: dict) -> tuple[str, dict]:
         name, metrics = next(iter(results.items()))
         if isinstance(metrics, dict):
             return name, metrics
-
     return "", {}
 
 
@@ -424,7 +395,6 @@ def _ansi_wrap(text: str, *codes: str, colorize: bool) -> str:
 def _colorize_delta(text: str, column: str, delta: float, *, colorize: bool) -> str:
     if not colorize or delta == 0:
         return text
-
     positive_is_better = column not in SUMMARY_INT_COLUMNS
     is_improvement = delta > 0 if positive_is_better else delta < 0
     color_code = "32" if is_improvement else "31"
@@ -441,7 +411,6 @@ def _format_summary_delta_only_cell(
 ) -> str:
     if baseline_value is None:
         return " " * width
-
     if column in SUMMARY_INT_COLUMNS:
         current = int(value or 0)
         baseline = int(baseline_value or 0)
@@ -461,7 +430,6 @@ def _format_summary_delta_only_cell(
 def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict) -> tuple[list[str], list[str]]:
     if not parsed_results:
         return [], []
-
     eval_box_type = resolve_eval_box_type(args, cfg)
     if eval_box_type != "obb":
         return list(parsed_results.keys()), []
@@ -484,9 +452,8 @@ def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict
     return primary_keys, aggregate_keys
 
 
-def _known_trackeval_class_names(args: argparse.Namespace, cfg: dict) -> list[str]:
+def _known_mot_class_names(args: argparse.Namespace, cfg: dict) -> list[str]:
     known: list[str] = []
-
     if getattr(args, "remapped_class_names", None):
         known.extend([str(name) for name in args.remapped_class_names])
 
@@ -519,7 +486,6 @@ def _render_summary_table(
     header_values = [name_header, *SUMMARY_COLUMNS]
     header_fmt = f"{{:<{name_width}}} " + " ".join(["{:>10}"] * len(SUMMARY_COLUMNS))
     compare_enabled = any(compare_metrics is not None for _, _, compare_metrics in rows)
-
     lines = [
         _ansi_wrap("=" * total_width, "36", colorize=colorize),
         _ansi_wrap(f"{title:^{total_width}}", "1", "36", colorize=colorize),
@@ -548,15 +514,15 @@ def _render_summary_table(
     return "\n".join(lines)
 
 
-def render_trackeval_report(
+def render_mot_report(
     parsed_results: dict[str, dict[str, Any]],
     args: Any = None,
-    cfg: Optional[dict[str, Any]] = None,
+    cfg: dict[str, Any] | None = None,
     *,
     title: str = "📊 RESULTS SUMMARY",
     include_sequences: bool = True,
     always_include_combined: bool = False,
-    compare_results: Optional[dict[str, dict[str, Any]]] = None,
+    compare_results: dict[str, dict[str, Any]] | None = None,
     colorize: bool = False,
 ) -> str:
     if not parsed_results:
@@ -564,7 +530,6 @@ def render_trackeval_report(
 
     cfg = cfg or _load_report_cfg_from_args(args)
     compare_results = compare_results or {}
-
     primary_keys, aggregate_keys = _summary_sort_keys(parsed_results, args or object(), cfg)
     if not primary_keys and not aggregate_keys:
         primary_keys = list(parsed_results.keys())
@@ -574,23 +539,22 @@ def render_trackeval_report(
         for metrics in parsed_results.values()
         if isinstance(metrics, dict)
     )
-
     all_names = [_display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
     for class_metrics in parsed_results.values():
         all_names.extend(class_metrics.get("per_sequence", {}).keys())
     all_names.extend([f"COMBINED ({_display_summary_name(name)})" for name in primary_keys])
-
     name_width = max(18, max((len(name) for name in all_names), default=18) + 2)
     total_width = name_width + 1 + (10 * len(SUMMARY_COLUMNS)) + (len(SUMMARY_COLUMNS) - 1)
 
     blocks = [
-        "\n".join([
-            _ansi_wrap("=" * total_width, "36", colorize=colorize),
-            _ansi_wrap(f"{title:^{total_width}}", "1", "36", colorize=colorize),
-            _ansi_wrap("=" * total_width, "36", colorize=colorize),
-        ])
+        "\n".join(
+            [
+                _ansi_wrap("=" * total_width, "36", colorize=colorize),
+                _ansi_wrap(f"{title:^{total_width}}", "1", "36", colorize=colorize),
+                _ansi_wrap("=" * total_width, "36", colorize=colorize),
+            ]
+        )
     ]
-
     if len(primary_keys) > 1:
         class_rows = [
             (_display_summary_name(name), parsed_results[name], compare_results.get(name))
@@ -606,7 +570,6 @@ def render_trackeval_report(
                 colorize=colorize,
             )
         )
-
         if aggregate_keys:
             aggregate_rows = [
                 (_display_summary_name(name), parsed_results[name], compare_results.get(name))
@@ -622,7 +585,6 @@ def render_trackeval_report(
                     colorize=colorize,
                 )
             )
-
         if include_sequences and (always_include_combined or not single_sequence):
             for class_name in primary_keys:
                 compare_class_metrics = compare_results.get(class_name)
@@ -691,14 +653,12 @@ def render_trackeval_report(
                     colorize=colorize,
                 )
             )
-
     return "\n".join(block for block in blocks if block)
 
 
-def log_trackeval_report(report: str) -> None:
-    if not report:
-        return
-    print_text(report)
+def log_mot_report(report: str) -> None:
+    if report:
+        print_text(report)
 
 
 def _print_summary_table(
@@ -716,21 +676,25 @@ def _print_summary_table(
         name_width=name_w,
         colorize=False,
     )
-    log_trackeval_report(report)
+    log_mot_report(report)
 
 
 __all__ = [
+    "MOT_REPORT_INTEGER_FIELDS",
+    "MOT_REPORT_METRIC_SPECS",
+    "SUMMARY_COLUMNS",
+    "SUMMARY_INT_COLUMNS",
     "_combined_summary_metrics",
     "_display_summary_name",
-    "build_trackeval_feedback",
-    "_filter_obb_trackeval_results",
-    "_known_trackeval_class_names",
-    "_print_summary_table",
+    "_known_mot_class_names",
     "_load_report_cfg_from_args",
+    "_print_summary_table",
     "_select_plot_metrics_data",
     "_summary_sort_keys",
-    "log_trackeval_report",
+    "build_mot_feedback",
+    "filter_obb_mot_results",
+    "log_mot_report",
     "normalize_report_results",
     "parse_mot_results",
-    "render_trackeval_report",
+    "render_mot_report",
 ]

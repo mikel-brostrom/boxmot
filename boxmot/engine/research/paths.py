@@ -8,8 +8,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from boxmot.utils import TRACKEVAL
-
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
     try:
@@ -69,9 +67,6 @@ def _workspace_copy_ignore(src: str, names: list[str]) -> set[str]:
         if name in common:
             ignored.add(name)
 
-    src_path = Path(src).resolve()
-    if src_path == TRACKEVAL.resolve() and "data" in names:
-        ignored.add("data")
     return ignored
 
 def _terminate_subprocess_tree(
@@ -113,4 +108,3 @@ def _terminate_subprocess_tree(
             except ProcessLookupError:
                 pass
         return proc.communicate(timeout=wait_timeout)
-

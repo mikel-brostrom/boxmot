@@ -28,7 +28,7 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_reid,
 )
 from boxmot.data.benchmark import build_gt_class_remap, load_benchmark_cfg_from_args, resolve_obb_eval_class_pairs
-from boxmot.engine.eval.trackeval.runner import build_dataset_eval_settings
+from boxmot.engine.eval.motmetrics import build_dataset_eval_settings
 
 
 def test_mot17_benchmark_uses_split_schema():
@@ -47,7 +47,7 @@ def test_mot17_benchmark_uses_split_schema():
     assert cfg["evaluation"] == {
         "box_type": "aabb",
         "layout": "mot",
-        "tracker_eval": "mot_challenge",
+        "metric_eval": "mot_challenge",
         "classes": {
             "eval": {1: "pedestrian"},
             "distractor": {
@@ -160,12 +160,12 @@ def test_dataset_config_loads_with_model_bindings():
     assert cfg["reid_config"] == "lmbn_n_duke"
 
 
-def test_obb_dataset_derives_trackeval_from_box_type():
+def test_obb_dataset_derives_metric_backend_from_box_type():
     cfg = load_dataset_cfg("mmot")
     assert cfg["layout"] == "mot"
     assert cfg["box_type"] == "obb"
-    assert cfg["trackeval"] == "mot_challenge_obb"
-    assert cfg["evaluation"]["tracker_eval"] == "mot_challenge_obb"
+    assert cfg["metric_backend"] == "mot_challenge_obb"
+    assert cfg["evaluation"]["metric_eval"] == "mot_challenge_obb"
 
 
 def test_all_benchmarks_define_explicit_class_bridge():
@@ -222,7 +222,7 @@ def test_mmot_obb_class_bridge_uses_detector_ids():
     ]
 
 
-def test_visdrone_trackeval_uses_explicit_ignore_dataset_ids():
+def test_visdrone_metric_backend_uses_explicit_ignore_dataset_ids():
     args = SimpleNamespace(
         benchmark="visdrone",
         benchmark_id=None,
@@ -247,7 +247,7 @@ def test_mmot_mini_uses_mmot_mini_root():
     assert cfg["path"] == "assets/mmot-mini"
     assert cfg["split"] == "train"
     assert cfg["train"] == "train/npy"
-    assert cfg["trackeval"] == "mot_challenge_obb"
+    assert cfg["metric_backend"] == "mot_challenge_obb"
 
 
 def test_detector_and_reid_component_configs_load_separately():
@@ -537,7 +537,7 @@ def test_sportsmot_benchmark_uses_split_schema():
     assert cfg["evaluation"] == {
         "box_type": "aabb",
         "layout": "mot",
-        "tracker_eval": "mot_challenge",
+        "metric_eval": "mot_challenge",
         "classes": {
             "eval": {1: "player"},
             "distractor": {},
@@ -561,7 +561,7 @@ def test_sportsmot_dataset_loads_with_model_bindings():
     assert cfg["path"] == "boxmot/datasets/mot/SportsMOT"
     assert cfg["box_type"] == "aabb"
     assert cfg["layout"] == "mot"
-    assert cfg["trackeval"] == "mot_challenge"
+    assert cfg["metric_backend"] == "mot_challenge"
     assert cfg["detector_config"] == "yolox_x_sportsmot"
     assert cfg["reid_config"] == "lmbn_n_duke"
 

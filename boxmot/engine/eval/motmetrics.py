@@ -1,9 +1,9 @@
 """In-repo MOT metrics used by the BoxMOT evaluator.
 
-The implementation mirrors the py-motmetrics/TrackEval metric contract BoxMOT
-uses in reports: HOTA, CLEAR, Identity, and Count summaries for AABB and OBB
-tracking result files. It is intentionally self-contained so evaluation does
-not download TrackEval or require an external ``motmetrics`` installation.
+The implementation mirrors BoxMOT's MOTChallenge report contract: HOTA, CLEAR,
+Identity, and Count summaries for AABB and OBB tracking result files. It is
+intentionally self-contained so evaluation does not require an external metrics
+package installation.
 """
 
 from __future__ import annotations

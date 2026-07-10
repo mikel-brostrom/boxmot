@@ -7,8 +7,6 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 """
 
 import concurrent.futures
-import re
-import shutil
 import subprocess
 import sys
 import threading
@@ -26,16 +24,6 @@ from boxmot.utils.rich.core.ui import print_text
 from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
 _download_status_state = threading.local()
-TRACKEVAL_REPO_URL = "https://github.com/JonathonLuiten/TrackEval"
-TRACKEVAL_DEFAULT_BRANCH = "master"
-TRACKEVAL_SOURCE_MARKER = ".boxmot_trackeval_source"
-TRACKEVAL_NUMPY_ALIAS_REPLACEMENTS = (
-    (r"\bnp\.float\b", "float"),
-    (r"\bnp\.int\b", "int"),
-    (r"\bnp\.bool\b", "bool"),
-    (r"\bnp\.object\b", "object"),
-    (r"\bnp\.str\b", "str"),
-)
 
 
 def set_download_status_fn(status_fn: Any) -> None:
@@ -66,52 +54,6 @@ def get_http_session(retries: int = 3, backoff_factor: float = 0.3) -> requests.
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
-
-
-def _is_trackeval_repo_root(path: Path) -> bool:
-    """Return True when *path* is a TrackEval repository root."""
-    return (path / "trackeval" / "__init__.py").is_file() and (path / "trackeval" / "eval.py").is_file()
-
-
-def _trackeval_source_marker_text(branch: str) -> str:
-    return f"repo={TRACKEVAL_REPO_URL}\nbranch={branch}\n"
-
-
-def _is_managed_trackeval_repo(path: Path, branch: str) -> bool:
-    marker = path / TRACKEVAL_SOURCE_MARKER
-    return (
-        _is_trackeval_repo_root(path)
-        and marker.is_file()
-        and marker.read_text() == _trackeval_source_marker_text(branch)
-    )
-
-
-def _patch_trackeval_numpy_aliases(repo_root: Path) -> None:
-    """Patch deprecated NumPy builtin aliases in a downloaded TrackEval repository."""
-    package_root = repo_root / "trackeval"
-    if not package_root.is_dir():
-        return
-
-    for py_file in package_root.rglob("*.py"):
-        content = py_file.read_text()
-        patched = content
-        for pattern, replacement in TRACKEVAL_NUMPY_ALIAS_REPLACEMENTS:
-            patched = re.sub(pattern, replacement, patched)
-        if patched != content:
-            py_file.write_text(patched)
-
-
-def _find_extracted_trackeval_repo(extract_parent: Path, branch: str) -> tuple[Path, Path] | None:
-    """Find an official TrackEval repo root in a GitHub archive extraction directory."""
-    expected_name = f"trackeval-{branch}".lower()
-    for archive_root in sorted(path for path in extract_parent.iterdir() if path.is_dir()):
-        if archive_root.name.lower() != expected_name:
-            continue
-
-        if _is_trackeval_repo_root(archive_root):
-            return archive_root, archive_root
-
-    return None
 
 
 def _has_workflow_bar(status_fn: Any) -> bool:
@@ -377,57 +319,6 @@ def extract_tar(
         except FileNotFoundError:
             pass
         raise
-
-
-def download_trackeval(dest: Path, branch: str = TRACKEVAL_DEFAULT_BRANCH, overwrite: bool = False) -> None:
-    """
-    Download and set up the TrackEval repository into the given destination folder.
-
-    Args:
-        dest (Path): target directory for the TrackEval source checkout
-        branch (str): Git branch to download (default "master")
-        overwrite (bool): if True, force re-download even if dest already exists
-    """
-    repo_root = dest / "trackeval"
-
-    if repo_root.exists() and not overwrite:
-        if _is_managed_trackeval_repo(repo_root, branch):
-            _patch_trackeval_numpy_aliases(repo_root)
-            LOGGER.debug("TrackEval already present")
-            return
-        LOGGER.info("Refreshing TrackEval from the official source...")
-
-    LOGGER.info("Downloading TrackEval (evaluation metrics library)...")
-    zip_url = f"{TRACKEVAL_REPO_URL}/archive/refs/heads/{branch}.zip"
-    zip_file = dest.parent / f"trackeval-{branch}.zip"
-
-    # Download the archive
-    zip_path = download_file(zip_url, zip_file, overwrite=overwrite)
-
-    # Extract into the parent folder
-    extract_zip(zip_path, dest.parent, overwrite=overwrite)
-
-    found = _find_extracted_trackeval_repo(dest.parent, branch)
-    if found is None:
-        raise RuntimeError(f"Couldn't locate TrackEval repository in downloaded archive for branch {branch!r}")
-
-    trackeval_src, archive_root = found
-    dest.mkdir(parents=True, exist_ok=True)
-    if repo_root.exists():
-        shutil.rmtree(repo_root)
-    shutil.move(str(trackeval_src), str(repo_root))
-    _patch_trackeval_numpy_aliases(repo_root)
-    (repo_root / TRACKEVAL_SOURCE_MARKER).write_text(_trackeval_source_marker_text(branch))
-    if archive_root.exists():
-        shutil.rmtree(archive_root)
-
-    # Clean up the downloaded zip
-    try:
-        zip_file.unlink()
-    except FileNotFoundError:
-        pass
-
-    LOGGER.debug("TrackEval setup complete")
 
 
 def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, status_fn: Any = None) -> None:

@@ -299,8 +299,8 @@ def _normalize_dataset_download(cfg: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
-def _trackeval_adapter_for_box_type(box_type: str) -> str:
-    """Map the configured box type to the TrackEval adapter used at runtime."""
+def _metric_backend_for_box_type(box_type: str) -> str:
+    """Map the configured box type to the MOT metric backend used at runtime."""
     normalized = str(box_type or "aabb").lower()
     return "mot_challenge_obb" if normalized == "obb" else "mot_challenge"
 
@@ -466,7 +466,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "layout", "box_type", "detector", "reid", "names", "classes",
         "distractors", "class_map", "download", "dataset_config",
         "detector_config", "reid_config", "seq_pattern",
-        "trackeval", "storage", "evaluation", "benchmark", "defaults",
+        "metric_backend", "storage", "evaluation", "benchmark", "defaults",
         "no_gt_splits",
     }
     for key, value in cfg.items():
@@ -477,7 +477,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
 
     box_type = cfg.get("box_type") or "aabb"
     layout = cfg.get("layout") or "mot"
-    trackeval_name = _trackeval_adapter_for_box_type(str(box_type).lower())
+    metric_backend = _metric_backend_for_box_type(str(box_type).lower())
 
     names = dict(cfg.get("classes") or cfg.get("names") or {})
     distractors = dict(cfg.get("distractors") or {})
@@ -505,7 +505,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "splits": dict(split_paths),
         "layout": str(layout),
         "box_type": str(box_type).lower(),
-        "trackeval": str(trackeval_name),
+        "metric_backend": str(metric_backend),
         "names": names,
         "distractors": distractors,
         "class_map": class_map,
@@ -524,7 +524,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
     normalized["evaluation"] = {
         "box_type": normalized["box_type"],
         "layout": normalized["layout"],
-        "tracker_eval": normalized["trackeval"],
+        "metric_eval": normalized["metric_backend"],
         "classes": {
             "eval": eval_names,
             "distractor": distractors,
@@ -538,7 +538,7 @@ def _normalize_benchmark_cfg(raw_cfg: dict[str, Any], cfg_path: Path) -> dict[st
         "split": str(split_paths.get(split_name) or split_name),
         "box_type": normalized["box_type"],
         "layout": normalized["layout"],
-        "tracker_eval": normalized["trackeval"],
+        "metric_eval": normalized["metric_backend"],
         "eval_classes": eval_names,
         "distractor_classes": distractors,
         "class_mapping": class_map,

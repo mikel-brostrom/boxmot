@@ -32,7 +32,6 @@ REID_DATASETS = DATASETS / "reid"
 
 WEIGHTS  = ROOT / "models"
 DATA = ROOT / "data"
-TRACKEVAL = DATA / "trackeval"
 BENCHMARK_DATA = MOT_DATASETS
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads

@@ -33,9 +33,7 @@ ignore = ["E731", "F405", "E402", "E741"]
 norecursedirs = [
   "boxmot/datasets/mot",
   "boxmot/datasets/reid",
-  "data/benchmarks",
-  "data/trackeval",
-  "boxmot/engine/eval/trackeval",
+  "data",
   "runs",
 ]
 

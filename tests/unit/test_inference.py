@@ -899,12 +899,18 @@ def test_ensure_model_extension_keeps_bare_reid_names_in_weights_dir():
 
 
 def test_parse_mot_results_preserves_multiword_class_names():
-    # TrackEval fixed-width format: name column %-35s, each value %-10s
+    # Legacy fixed-width format: name column %-35s, each value %-10s
     results = (
-        "\nHOTA: tracker-storage tank HOTA      DetA      AssA      DetRe     DetPr     AssRe     AssPr     LocA      OWTA      HOTA(0)   LocA(0)   HOTALocA(0)\n"
-        "COMBINED                           51.0      52.0      61.0      53.0      54.0      71.0      72.0      73.0      74.0      75.0      76.0      77.0      \n"
-        "CLEAR: tracker-storage tank MOTA      MOTP      MODA      CLR_Re    CLR_Pr    MTR       PTR       MLR       sMOTA     CLR_TP    CLR_FN    CLR_FP    IDSW      MT        PT        ML        Frag      \n"
-        "COMBINED                           41.0      42.0      43.0      44.0      45.0      46.0      47.0      48.0      52.0      49        50        51        3         4         5         6         7         \n"
+        "\nHOTA: tracker-storage tank HOTA      DetA      AssA      DetRe     DetPr     "
+        "AssRe     AssPr     LocA      OWTA      HOTA(0)   LocA(0)   HOTALocA(0)\n"
+        "COMBINED                           51.0      52.0      61.0      53.0      "
+        "54.0      71.0      72.0      73.0      74.0      75.0      76.0      77.0      \n"
+        "CLEAR: tracker-storage tank MOTA      MOTP      MODA      CLR_Re    CLR_Pr    "
+        "MTR       PTR       MLR       sMOTA     CLR_TP    CLR_FN    CLR_FP    IDSW      "
+        "MT        PT        ML        Frag      \n"
+        "COMBINED                           41.0      42.0      43.0      44.0      "
+        "45.0      46.0      47.0      48.0      52.0      49        50        51        "
+        "3         4         5         6         7         \n"
         "Identity: tracker-storage tank IDF1      IDR       IDP       IDTP      IDFN      IDFP      \n"
         "COMBINED                           31.0      32.0      33.0      34        35        36        \n"
         "Count: tracker-storage tank Dets      GT_Dets   IDs       GT_IDs    \n"
@@ -935,8 +941,8 @@ def test_parse_mot_results_preserves_multiword_class_names():
     assert parsed["storage tank"]["GT_IDs"] == 82
 
 
-def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
-    results_module = importlib.import_module("boxmot.engine.eval.trackeval.results")
+def test_build_mot_feedback_keeps_summary_and_per_sequence_metrics():
+    results_module = importlib.import_module("boxmot.engine.eval.results")
     raw = {
         "all": {
             "HOTA": 62.5,
@@ -959,7 +965,7 @@ def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
         },
     }
 
-    feedback = results_module.build_trackeval_feedback(raw)
+    feedback = results_module.build_mot_feedback(raw)
 
     assert feedback["summary_label"] == "all"
     assert feedback["summary"]["HOTA"] == 62.5
@@ -967,6 +973,17 @@ def test_build_trackeval_feedback_keeps_summary_and_per_sequence_metrics():
     assert feedback["per_sequence_metrics"]["MOT17-02"]["IDSW"] == 4
     assert feedback["per_class_metrics"]["all"]["MOTA"] == 70.0
     assert feedback["per_class_metrics"]["person"]["CLR_TP"] == 100
+
+
+def test_eval_runtime_metrics_are_generated_by_motmetrics_module():
+    forbidden_module = "track" + "eval"
+
+    assert evaluator_module._LAZY_EXPORTS["motmetrics_runner"] == (
+        "boxmot.engine.eval.motmetrics",
+        "run_motmetrics",
+    )
+    assert all(forbidden_module not in module.lower() for module, _ in evaluator_module._LAZY_EXPORTS.values())
+    assert not (Path(evaluator_module.__file__).parent / forbidden_module).exists()
 
 
 def test_ordered_benchmark_eval_class_names_preserve_multiword_names():

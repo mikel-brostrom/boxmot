@@ -27,7 +27,7 @@ The native runner is designed for the cached replay stage used by `boxmot eval`,
 
 1. Python generates detections into `runs/dets_n_embs/...`
 2. `botsort_replay` consumes cached detections and writes MOT result files
-3. Python still runs TrackEval on the generated results
+3. Python runs the in-repo MOT metrics on the generated results
 
 ReID support:
 

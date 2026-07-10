@@ -65,7 +65,7 @@ from pathlib import Path
 
 from boxmot.configs import build_mode_namespace
 from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_motmetrics
-from boxmot.engine.eval.trackeval.results import build_trackeval_feedback
+from boxmot.engine.eval.results import build_mot_feedback
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 
@@ -74,7 +74,7 @@ try:
     eval_setup(args)
     run_generate_dets_embs(args)
     run_generate_mot_results(args)
-    feedback = build_trackeval_feedback(run_motmetrics(args, verbose=False))
+    feedback = build_mot_feedback(run_motmetrics(args, verbose=False))
     print(json.dumps({"ok": True, **feedback}, sort_keys=True))
 except Exception as exc:
     print(

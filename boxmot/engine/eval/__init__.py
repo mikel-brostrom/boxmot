@@ -4,5 +4,6 @@ __all__ = (
     "cache",
     "evaluator",
     "motmetrics",
+    "results",
     "replay",
 )

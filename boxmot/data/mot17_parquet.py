@@ -37,6 +37,77 @@ def _require_hf():
     return snapshot_download, hf_hub_download
 
 
+def _frame_bounds(split: str, seq_length: int) -> tuple[int, int, int]:
+    if split == "ablation":
+        start = _ablation_start(seq_length)
+        end = seq_length
+    else:
+        start = 1
+        end = seq_length
+    return start, end, end - start + 1
+
+
+def _read_seq_length(seqinfo_path: Path) -> int | None:
+    if not seqinfo_path.is_file():
+        return None
+    for line in seqinfo_path.read_text().splitlines():
+        key, _, value = line.partition("=")
+        if key.strip().lower() == "seqlength":
+            try:
+                return int(value.strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _split_layout_complete(split_dir: Path) -> bool:
+    """Return True when a materialized MOT split has readable images for every frame."""
+    if not split_dir.is_dir():
+        return False
+
+    seq_dirs = sorted(path for path in split_dir.iterdir() if path.is_dir())
+    if not seq_dirs:
+        return False
+
+    for seq_dir in seq_dirs:
+        seq_length = _read_seq_length(seq_dir / "seqinfo.ini")
+        img1_dir = seq_dir / "img1"
+        if seq_length is None or not img1_dir.exists():
+            return False
+
+        readable_images = sum(1 for image_path in img1_dir.glob("*.jpg") if image_path.is_file())
+        if readable_images != seq_length:
+            return False
+
+    return True
+
+
+def _missing_source_images(
+    dest: Path,
+    img_split: str,
+    seq_info: Any,
+    split: str,
+    *,
+    sample_limit: int = 5,
+) -> tuple[int, list[Path]]:
+    missing_count = 0
+    examples: list[Path] = []
+
+    for _, row in seq_info.iterrows():
+        seq_name = row["sequence"]
+        frame_start, frame_end, _ = _frame_bounds(split, int(row["seq_length"]))
+        shared_img_dir = dest / "images" / img_split / seq_name / "img1"
+        for frame_id in range(frame_start, frame_end + 1):
+            image_path = shared_img_dir / f"{frame_id:06d}.jpg"
+            if image_path.is_file():
+                continue
+            missing_count += 1
+            if len(examples) < sample_limit:
+                examples.append(image_path)
+
+    return missing_count, examples
+
+
 def setup_mot17_from_parquet(
     dest: Path,
     split: str = "ablation",
@@ -66,20 +137,14 @@ def setup_mot17_from_parquet(
 
     split_dir = dest / split
     marker = split_dir / ".parquet_setup_complete"
-    if not overwrite and marker.exists():
+    if not overwrite and marker.exists() and _split_layout_complete(split_dir):
         LOGGER.debug(f"MOT17 parquet setup already done: {split_dir}")
         return
-
-    # If split directory already has sequences with images (legacy download), skip
-    if not overwrite and split_dir.is_dir():
-        for seq_dir in split_dir.iterdir():
-            if seq_dir.is_dir() and (seq_dir / "img1").exists():
-                LOGGER.debug(f"MOT17 split already populated: {split_dir}")
-                marker.touch()
-                return
+    if not overwrite and marker.exists():
+        LOGGER.info(f"MOT17 setup marker is stale; repairing incomplete split: {split_dir}")
+        marker.unlink(missing_ok=True)
 
     pd = _require_pd()
-    snapshot_download, hf_hub_download = _require_hf()
 
     msg = f"Setting up MOT17 {split} ({detector}) from parquet..."
     if status_fn:
@@ -91,10 +156,7 @@ def setup_mot17_from_parquet(
     # ablation uses train images; test uses test images.
     img_split = "train" if split in ("train", "ablation", "val") else "test"
 
-    # 1. Download images (deduplicated)
-    _download_images(dest, img_split, status_fn=status_fn)
-
-    # 2. Download parquet files we need
+    # 1. Download parquet files we need
     parquet_cache = dest / ".parquet_cache"
     parquet_cache.mkdir(parents=True, exist_ok=True)
 
@@ -119,10 +181,13 @@ def setup_mot17_from_parquet(
     det_path = _ensure_parquet(parquet_cache, det_parquet_name, required=False)
     det_df = pd.read_parquet(det_path) if det_path else None
 
-    # 3. Build MOTChallenge layout
     # Filter seqinfo to the relevant sequences
     seq_info = seqinfo_df[seqinfo_df["split"] == img_split]
 
+    # 2. Download images (deduplicated)
+    _download_images(dest, img_split, seq_info, split, status_fn=status_fn)
+
+    # 3. Build MOTChallenge layout
     split_dir.mkdir(parents=True, exist_ok=True)
 
     for _, row in seq_info.iterrows():
@@ -132,40 +197,44 @@ def setup_mot17_from_parquet(
         total_len = int(row["seq_length"])
 
         # Compute frame range for this split
-        if split == "ablation":
-            abl_start = _ablation_start(total_len)
-            frame_start = abl_start
-            frame_end = total_len
-            abl_length = frame_end - frame_start + 1
-        else:
-            frame_start = 1
-            frame_end = total_len
-            abl_length = total_len
+        frame_start, frame_end, split_length = _frame_bounds(split, total_len)
 
         seq_dir.mkdir(parents=True, exist_ok=True)
 
         # img1/ - for ablation, create individual symlinks with renumbered names
         img1_dir = seq_dir / "img1"
         shared_img_dir = dest / "images" / img_split / seq_name / "img1"
-        if not img1_dir.exists():
-            if split == "ablation":
-                # Create renumbered symlinks: 000001.jpg -> original_frame.jpg
-                img1_dir.mkdir(parents=True, exist_ok=True)
-                for new_frame_idx in range(1, abl_length + 1):
-                    orig_frame = frame_start + new_frame_idx - 1
-                    src = shared_img_dir / f"{orig_frame:06d}.jpg"
-                    dst = img1_dir / f"{new_frame_idx:06d}.jpg"
-                    if src.exists() and not dst.exists():
-                        dst.symlink_to(src.resolve())
+        if split == "ablation":
+            # Create/repair renumbered symlinks: 000001.jpg -> original_frame.jpg
+            img1_dir.mkdir(parents=True, exist_ok=True)
+            missing_sources: list[Path] = []
+            for new_frame_idx in range(1, split_length + 1):
+                orig_frame = frame_start + new_frame_idx - 1
+                src = shared_img_dir / f"{orig_frame:06d}.jpg"
+                dst = img1_dir / f"{new_frame_idx:06d}.jpg"
+                if dst.is_symlink() and not dst.exists():
+                    dst.unlink()
+                if dst.exists():
+                    continue
+                if not src.is_file():
+                    missing_sources.append(src)
+                    continue
+                dst.symlink_to(src.resolve())
+            if missing_sources:
+                examples = ", ".join(str(path) for path in missing_sources[:5])
+                raise RuntimeError(
+                    f"MOT17 {split} layout is incomplete: missing {len(missing_sources)} source images "
+                    f"for {seq_full}. Examples: {examples}"
+                )
+        elif not img1_dir.exists():
+            # For train/test, symlink the whole directory
+            if shared_img_dir.exists():
+                img1_dir.symlink_to(shared_img_dir.resolve())
             else:
-                # For train/test, symlink the whole directory
-                if shared_img_dir.exists():
-                    img1_dir.symlink_to(shared_img_dir.resolve())
-                else:
-                    LOGGER.warning(f"Image dir not found: {shared_img_dir}")
+                LOGGER.warning(f"Image dir not found: {shared_img_dir}")
 
         # seqinfo.ini
-        _write_seqinfo(seq_dir / "seqinfo.ini", seq_full, row, abl_length)
+        _write_seqinfo(seq_dir / "seqinfo.ini", seq_full, row, split_length)
 
         # gt/gt.txt (with renumbered frames for ablation)
         if gt_df is not None:
@@ -195,16 +264,25 @@ def setup_mot17_from_parquet(
     if det_df is not None:
         _create_det_npy_cache(dest, split, detector, det_df, seq_info)
 
+    if not _split_layout_complete(split_dir):
+        raise RuntimeError(f"MOT17 parquet setup produced an incomplete split layout: {split_dir}")
+
     marker.touch()
     LOGGER.info(f"MOT17 parquet setup complete: {split_dir}")
 
 
-def _download_images(dest: Path, img_split: str, status_fn: Any = None) -> None:
+def _download_images(dest: Path, img_split: str, seq_info: Any, split: str, status_fn: Any = None) -> None:
     """Download deduplicated images for the given split."""
     images_dir = dest / "images" / img_split
     marker = images_dir / ".hf_download_complete"
-    if marker.exists():
+    missing_count, missing_examples = _missing_source_images(dest, img_split, seq_info, split)
+    if marker.exists() and missing_count == 0:
         return
+    if marker.exists():
+        LOGGER.info(
+            f"MOT17 image download marker is stale; {missing_count} required images are missing under {images_dir}"
+        )
+        marker.unlink(missing_ok=True)
 
     snapshot_download, _ = _require_hf()
 
@@ -222,6 +300,15 @@ def _download_images(dest: Path, img_split: str, status_fn: Any = None) -> None:
     )
 
     images_dir.mkdir(parents=True, exist_ok=True)
+
+    missing_count, missing_examples = _missing_source_images(dest, img_split, seq_info, split)
+    if missing_count:
+        examples = ", ".join(str(path) for path in missing_examples)
+        raise RuntimeError(
+            f"MOT17 image download incomplete: {missing_count} required images are still missing. "
+            f"Examples: {examples}"
+        )
+
     marker.touch()
 
 

@@ -24,9 +24,9 @@ evaluation:
 download:
   # SportsMOT official split contents:
   #   train: has images + seqinfo.ini + gt/gt.txt
-  #          usable for training and local TrackEval evaluation
+  #          usable for training and local MOT metrics evaluation
   #   val:   has images + seqinfo.ini + gt/gt.txt
-  #          usable for validation/local TrackEval evaluation
+  #          usable for validation/local MOT metrics evaluation
   #   test:  has images + seqinfo.ini only
   #          no public GT; use for inference/submission generation only
   dataset:
