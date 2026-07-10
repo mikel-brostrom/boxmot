@@ -15,7 +15,7 @@ _PROPOSAL_API_KEY_ENV_BY_PROVIDER = {
     "openrouter": "OPENROUTER_API_KEY",
     "xai": "XAI_API_KEY",
 }
-TRACKEVAL_METRIC_GLOSSARY = {
+MOT_METRIC_GLOSSARY = {
     "HOTA": "Higher is better. Overall tracking quality balancing detection and association.",
     "DetA": "Higher is better. Detection accuracy within the HOTA family.",
     "AssA": "Higher is better. Association accuracy; rewards stable identities over time.",
@@ -24,8 +24,8 @@ TRACKEVAL_METRIC_GLOSSARY = {
     "AssRe": "Higher is better. Association recall within the HOTA family.",
     "AssPr": "Higher is better. Association precision within the HOTA family.",
     "LocA": "Higher is better. Localization quality for matched detections.",
-    "OWTA": "Higher is better. Additional HOTA-family summary reported by TrackEval.",
-    "HOTA(0)": "Higher is better. HOTA at the loosest TrackEval alpha threshold.",
+    "OWTA": "Higher is better. Additional HOTA-family summary reported by the evaluator.",
+    "HOTA(0)": "Higher is better. HOTA at the loosest evaluator alpha threshold.",
     "LocA(0)": "Higher is better. Localization accuracy at the loosest HOTA alpha threshold.",
     "HOTALocA(0)": "Higher is better. Product of HOTA(0) and LocA(0).",
     "MOTA": "Higher is better. CLEAR overall score combining FN, FP, and ID switches.",
@@ -36,7 +36,7 @@ TRACKEVAL_METRIC_GLOSSARY = {
     "MTR": "Higher is better. Ratio of ground-truth trajectories that are mostly tracked.",
     "PTR": "Higher is better. Ratio of ground-truth trajectories that are partially tracked.",
     "MLR": "Lower is better. Ratio of ground-truth trajectories that are mostly lost.",
-    "sMOTA": "Higher is better. Soft MOTA variant reported by TrackEval.",
+    "sMOTA": "Higher is better. Soft MOTA variant reported by the evaluator.",
     "CLR_TP": "Context count. Number of matched detections.",
     "CLR_FN": "Lower is better. Number of missed detections.",
     "CLR_FP": "Lower is better. Number of false detections.",
@@ -64,7 +64,7 @@ import traceback
 from pathlib import Path
 
 from boxmot.configs import build_mode_namespace
-from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_trackeval
+from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_motmetrics
 from boxmot.engine.eval.trackeval.results import build_trackeval_feedback
 
 payload = json.loads(Path(sys.argv[1]).read_text())
@@ -74,7 +74,7 @@ try:
     eval_setup(args)
     run_generate_dets_embs(args)
     run_generate_mot_results(args)
-    feedback = build_trackeval_feedback(run_trackeval(args, verbose=False))
+    feedback = build_trackeval_feedback(run_motmetrics(args, verbose=False))
     print(json.dumps({"ok": True, **feedback}, sort_keys=True))
 except Exception as exc:
     print(

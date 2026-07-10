@@ -1,12 +1,4 @@
-"""Tracker package public API.
-
-Package layout:
-- ``bbox``: concrete box/OBB tracker algorithms.
-- ``mask``: mask-native tracker bases.
-- ``hybrid``: bbox + mask tracker algorithms.
-- ``common``: shared detection, association, motion, geometry, lifecycle, and
-  track-model helpers.
-"""
+"""Tracker package public API."""
 
 from __future__ import annotations
 
@@ -14,30 +6,10 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from boxmot.trackers.bbox.boosttrack import BoostTrack
-    from boxmot.trackers.bbox.botsort import BotSort
-    from boxmot.trackers.bbox.bytetrack import ByteTrack
-    from boxmot.trackers.bbox.deepocsort import DeepOcSort
-    from boxmot.trackers.bbox.hybridsort import HybridSort
-    from boxmot.trackers.bbox.occluboost import OccluBoost
-    from boxmot.trackers.bbox.ocsort import OcSort
-    from boxmot.trackers.bbox.sfsort import SFSORT
-    from boxmot.trackers.bbox.strongsort import StrongSort
-    from boxmot.trackers.hybrid.sam2mot.sam2mot import Sam2Mot
-    from boxmot.trackers.results import TrackResults
+    from boxmot.trackers.bbox.occluboost import OccluBoost as OccluBoost
 
 _EXPORTS = {
-    "BoostTrack": ("boxmot.trackers.bbox.boosttrack", "BoostTrack"),
-    "BotSort": ("boxmot.trackers.bbox.botsort", "BotSort"),
-    "ByteTrack": ("boxmot.trackers.bbox.bytetrack", "ByteTrack"),
-    "DeepOcSort": ("boxmot.trackers.bbox.deepocsort", "DeepOcSort"),
-    "HybridSort": ("boxmot.trackers.bbox.hybridsort", "HybridSort"),
-    "OccluBoost": ("boxmot.trackers.bbox.occluboost", "OccluBoost"),
-    "OcSort": ("boxmot.trackers.bbox.ocsort", "OcSort"),
-    "Sam2Mot": ("boxmot.trackers.hybrid.sam2mot.sam2mot", "Sam2Mot"),
-    "SFSORT": ("boxmot.trackers.bbox.sfsort", "SFSORT"),
-    "StrongSort": ("boxmot.trackers.bbox.strongsort", "StrongSort"),
-    "TrackResults": ("boxmot.trackers.results", "TrackResults"),
+    "OccluBoost": ("boxmot.trackers.occluboost", "OccluBoost"),
 }
 
 __all__ = tuple(_EXPORTS)

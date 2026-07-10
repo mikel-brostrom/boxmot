@@ -1,6 +1,10 @@
+# BoxMOT AGPL-3.0 license
+
+"""High-level BoxMOT pipeline facade."""
+
 from __future__ import annotations
 
-from collections.abc import Sequence as SequenceABC
+from collections.abc import Mapping, Sequence as SequenceABC
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Sequence
@@ -39,7 +43,7 @@ def _validate_generate_inputs(*, benchmark: str | Path | None, source: str | Pat
     has_benchmark = benchmark is not None and str(benchmark) != ""
     has_source = source is not None and str(source) != ""
     if has_benchmark == has_source:
-        raise ValueError("Provide exactly one of benchmark=... or source=... when calling Boxmot.generate().")
+        raise ValueError("Provide exactly one of benchmark=... or source=... when calling BoxMOT.generate().")
 
 
 def _normalize_classes(classes: Any) -> list[int] | None:
@@ -142,6 +146,24 @@ def _matches_train_default(key: str, value: Any) -> bool:
 _UNSET = _DefaultArg()
 
 
+def _normalize_component_kwargs(value: Mapping[str, Any] | None, name: str) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError(f"{name} must be a mapping of keyword arguments.")
+    return dict(value)
+
+
+def _reject_kwargs_with_initialized_component(component_name: str, component: Any, kwargs: dict[str, Any]) -> None:
+    if not kwargs:
+        return
+    if component is _UNSET or component is None or isinstance(component, (str, Path, type)):
+        return
+    raise ValueError(
+        f"{component_name}_kwargs cannot be supplied with an initialized {component_name} component."
+    )
+
+
 def _workflow_support():
     from boxmot.engine.workflows import support
 
@@ -154,7 +176,7 @@ def _api_args():
     return _args
 
 
-class Boxmot:
+class BoxMOT:
     def __init__(
         self,
         detector: Any = _UNSET,
@@ -163,9 +185,20 @@ class Boxmot:
         classes: Any = None,
         project: str | Path = BOXMOT_DEFAULTS.track.project,
         *,
+        detector_kwargs: Mapping[str, Any] | None = None,
+        reid_kwargs: Mapping[str, Any] | None = None,
+        tracker_kwargs: Mapping[str, Any] | None = None,
         model: str | None = None,
         recipe: str | None = None,
     ) -> None:
+        self.detector_kwargs = _normalize_component_kwargs(detector_kwargs, "detector_kwargs")
+        self.reid_kwargs = _normalize_component_kwargs(reid_kwargs, "reid_kwargs")
+        self.tracker_kwargs = _normalize_component_kwargs(tracker_kwargs, "tracker_kwargs")
+
+        _reject_kwargs_with_initialized_component("detector", detector, self.detector_kwargs)
+        _reject_kwargs_with_initialized_component("reid", reid, self.reid_kwargs)
+        _reject_kwargs_with_initialized_component("tracker", tracker, self.tracker_kwargs)
+
         train_model = model
         train_recipe = recipe
         if train_model is not None and train_recipe is not None:
@@ -211,6 +244,15 @@ class Boxmot:
                     train_model = train_name
                     train_recipe = None
 
+        if train_model is None and train_recipe is None and reid is not _UNSET and reid is not None:
+            train_spec = _resolve_reid_weight_train_spec(reid)
+            if train_spec is not None:
+                train_kind, train_name = train_spec
+                if train_kind == "model":
+                    train_model = train_name
+                else:
+                    train_recipe = train_name
+
         self._detector_explicit = detector is not _UNSET and detector is not None
         self._reid_explicit = reid is not _UNSET and reid is not None
         self._tracker_explicit = tracker is not _UNSET and tracker is not None
@@ -225,58 +267,6 @@ class Boxmot:
         self.classes = _normalize_classes(classes)
         self.project = Path(project)
 
-    @classmethod
-    def reid(
-        cls,
-        weights: str | Path,
-        *,
-        project: str | Path = BOXMOT_DEFAULTS.track.project,
-        model: str | None = None,
-        recipe: str | None = None,
-    ) -> "Boxmot":
-        """Create a ReID-focused facade bound to a weight file or model name."""
-        if model is None and recipe is None:
-            train_spec = _resolve_reid_weight_train_spec(weights)
-            if train_spec is not None:
-                train_kind, train_name = train_spec
-                if train_kind == "model":
-                    model = train_name
-                else:
-                    recipe = train_name
-        return cls(reid=weights, project=project, model=model, recipe=recipe)
-
-    @classmethod
-    def detector(
-        cls,
-        model: str | Path,
-        *,
-        device: str = BOXMOT_DEFAULTS.track.device,
-        imgsz=None,
-        conf: float | None = None,
-        iou: float = BOXMOT_DEFAULTS.track.iou,
-        classes: Any = None,
-        agnostic_nms: bool = False,
-        half: bool = BOXMOT_DEFAULTS.track.half,
-        batch: int = 1,
-        vid_stride: int = 1,
-    ):
-        """Create a public detector runtime for standalone prediction."""
-        from boxmot.detectors import Detector
-
-        detector = Detector(
-            path=_workflow_support().detector_path_from_spec(model),
-            device=device,
-            imgsz=imgsz,
-            conf=conf,
-            iou=iou,
-            classes=_normalize_classes(classes),
-            agnostic_nms=agnostic_nms,
-            batch=batch,
-            vid_stride=vid_stride,
-        )
-        detector.half = bool(half)
-        return detector
-
     def _detector_path(self, required: bool = True) -> Path | None:
         return _workflow_support().detector_path_from_spec(self.detector, required=required)
 
@@ -290,7 +280,15 @@ class Boxmot:
         return _workflow_support().tracker_backend_from_spec(self.tracker, required=required)
 
     def _tracker_config_from_spec(self) -> dict[str, Any] | None:
-        return _workflow_support().tracker_config_from_spec(self.tracker)
+        tracker_config = _workflow_support().tracker_config_from_spec(self.tracker)
+        tracker_kwargs = getattr(self, "tracker_kwargs", None)
+        if not tracker_kwargs:
+            return tracker_config
+
+        if tracker_config is None:
+            tracker_config = _workflow_support().default_tracker_config(self.tracker)
+        tracker_config.update(tracker_kwargs)
+        return tracker_config
 
     def _base_eval_args(
         self,
@@ -365,6 +363,9 @@ class Boxmot:
             reid_spec=self.reid,
             tracker_spec=self.tracker,
             classes=self.classes,
+            detector_kwargs=getattr(self, "detector_kwargs", None),
+            reid_kwargs=getattr(self, "reid_kwargs", None),
+            tracker_kwargs=getattr(self, "tracker_kwargs", None),
             drawer=drawer,
             show_trajectories=show_trajectories,
         )
@@ -860,3 +861,6 @@ class Boxmot:
         from boxmot.engine.reid import evaluator as reid_evaluator_module
 
         return reid_evaluator_module.main(args)
+
+
+__all__ = ("BoxMOT",)

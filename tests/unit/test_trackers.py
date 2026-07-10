@@ -5,25 +5,24 @@ import numpy as np
 import pytest
 import yaml
 
+import boxmot.trackers.registry as tracker_registry
 from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.reid.core import ReID
-from boxmot.trackers import (
-    DeepOcSort,
-    OcSort,
-    StrongSort,
-)
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.bbox.botsort import BotSort
 from boxmot.trackers.bbox.bytetrack import ByteTrack
+from boxmot.trackers.bbox.deepocsort import DeepOcSort
 from boxmot.trackers.bbox.hybridsort import HybridSort
+from boxmot.trackers.bbox.ocsort import OcSort
 from boxmot.trackers.bbox.sfsort import SFSORT
+from boxmot.trackers.bbox.strongsort import StrongSort
 from boxmot.trackers.common.association.matching import iou_distance
-from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.common.track_models.botsort import STrack as BotSortTrack
 from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTrack
 from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
+from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.registry import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
@@ -588,6 +587,60 @@ def test_tracker_with_no_detections(tracker_type, dets):
 
     output = tracker.update(dets, rgb, embs)
     assert output.size == 0, "Output should be empty when no detections are provided"
+
+
+def test_create_tracker_uses_precomputed_reid_without_loading_model(monkeypatch):
+    def fail_build_reid_model(**kwargs):
+        raise AssertionError("precomputed ReID replay must not load a live ReID model")
+
+    monkeypatch.setattr(tracker_registry, "_build_reid_model", fail_build_reid_model)
+    tracker = create_tracker(
+        tracker_type="occluboost",
+        tracker_config=get_tracker_config("occluboost"),
+        reid_weights=Path("unused.pt"),
+        device="cpu",
+        half=False,
+        per_class=False,
+        tracker_kwargs={
+            "use_cmc": False,
+            "with_reid": True,
+            "min_hits": 1,
+            "confirm_hits": 1,
+            "instant_confirm_thresh": 0.0,
+            "new_track_thresh": 0.1,
+            "gta_enabled": False,
+        },
+        precomputed_reid=True,
+    )
+
+    assert tracker.with_reid is True
+    assert tracker.reid_model is None
+
+    rgb = np.zeros((64, 64, 3), dtype=np.uint8)
+    det = np.array([[10, 10, 30, 40, 0.9, 0]], dtype=np.float32)
+    embs = np.ones((1, 4), dtype=np.float32)
+
+    output = tracker.update(det, rgb, embs)
+
+    assert output.shape == (1, 8)
+
+
+def test_create_tracker_disables_optional_reid_without_model_or_precomputed_embeddings():
+    tracker = create_tracker(
+        tracker_type="occluboost",
+        tracker_config=get_tracker_config("occluboost"),
+        reid_weights=None,
+        device="cpu",
+        half=False,
+        per_class=False,
+        tracker_kwargs={
+            "use_cmc": False,
+            "with_reid": True,
+        },
+    )
+
+    assert tracker.with_reid is False
+    assert tracker.reid_model is None
 
 
 @pytest.mark.parametrize("tracker_type", PER_CLASS_TRACKERS)

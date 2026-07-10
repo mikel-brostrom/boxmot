@@ -18,6 +18,9 @@ class TrackerProtocol(Protocol):
         img: np.ndarray | None = None,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
+        *,
+        image: np.ndarray | None = None,
+        embeddings: np.ndarray | None = None,
     ) -> np.ndarray:
         """Update the tracker and return public track rows."""
         ...

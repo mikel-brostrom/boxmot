@@ -103,8 +103,8 @@ class BoostTrack(BaseTracker):
         self.use_sb = use_sb
         self.use_vt = use_vt
 
-        self.with_reid = with_reid and reid_model is not None
-        self.reid_model = reid_model if self.with_reid else None
+        self.with_reid = bool(with_reid)
+        self.reid_model = reid_model
         self.adaptive_kf = bool(adaptive_kf)
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)

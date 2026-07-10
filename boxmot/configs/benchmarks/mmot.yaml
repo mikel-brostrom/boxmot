@@ -2,7 +2,7 @@ id: mmot
 
 dataset:
   id: mmot
-  root: "data/benchmarks/MMOT-OBB"
+  root: "boxmot/datasets/mot/MMOT-OBB"
   layout: mot
   box_type: obb
   splits:

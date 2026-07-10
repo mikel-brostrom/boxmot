@@ -61,6 +61,22 @@ def parse_tracker_spec(
 
         return TrackerSpec(name=raw_spec.lower(), backend=normalized_default_backend)
 
+    if isinstance(spec, type):
+        tracker_backend = normalize_tracker_backend(
+            getattr(spec, "tracker_backend", None),
+            default=normalized_default_backend,
+        )
+        if class_to_name is not None:
+            tracker_name = class_to_name.get(spec.__name__.lower())
+            if tracker_name is not None:
+                return TrackerSpec(name=tracker_name, backend=tracker_backend)
+
+        tracker_name = getattr(spec, "tracker_name", None)
+        if tracker_name is not None:
+            return TrackerSpec(name=str(tracker_name).strip().lower(), backend=tracker_backend)
+
+        raise ValueError("Could not infer a registered tracker name from the provided tracker class.")
+
     tracker_backend = normalize_tracker_backend(
         getattr(spec, "tracker_backend", None),
         default=normalized_default_backend,

@@ -1,32 +1,38 @@
-# High-level API
+# Python API Reference
 
-Auto-generated reference for the high-level Python surface: the `Boxmot` facade, the composable `track(...)` and `evaluate(...)` entry points, and the structured result objects returned by every workflow.
+Auto-generated reference for the public Python surface: the `BoxMOT` facade, runtime wrappers, explicit workflow helpers, and structured result objects.
 
-## Boxmot facade
+## BoxMOT facade
 
-::: boxmot.Boxmot
+::: boxmot.BoxMOT
 
-## Composable entry points
+## Runtime wrappers
 
-::: boxmot.track
+::: boxmot.Detector
 
-::: boxmot.evaluate
+::: boxmot.ReIDModel
+
+## Workflow helpers
+
+::: boxmot.api.functional.track
+
+::: boxmot.api.functional.evaluate
 
 ## Result objects
 
-::: boxmot.TrackRunResult
+::: boxmot.api.results.TrackRunResult
 
-::: boxmot.GenerateResult
+::: boxmot.api.results.GenerateResult
 
-::: boxmot.ValidationResult
+::: boxmot.api.results.ValidationResult
 
-::: boxmot.TuneResult
+::: boxmot.api.results.TuneResult
 
-::: boxmot.TuneTrialResult
+::: boxmot.api.results.TuneTrialResult
 
-::: boxmot.ResearchResult
+::: boxmot.api.results.ResearchResult
 
-::: boxmot.ExportResult
+::: boxmot.api.results.ExportResult
 
 ::: boxmot.engine.tracking.results.Results
 

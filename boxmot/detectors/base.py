@@ -31,6 +31,30 @@ class Detections:
     names: dict = field(default_factory=dict)
     masks: np.ndarray | None = None
 
+    def __post_init__(self) -> None:
+        dets = np.asarray(self.dets, dtype=np.float32)
+        if dets.ndim == 1 and dets.size > 0:
+            dets = dets.reshape(1, -1)
+        elif dets.size == 0:
+            cols = dets.shape[1] if dets.ndim == 2 else 6
+            dets = dets.reshape(0, cols)
+        self.dets = dets
+
+    def __array__(self, dtype=None, copy=None) -> np.ndarray:
+        if copy is None:
+            return np.asarray(self.dets, dtype=dtype)
+        return np.array(self.dets, dtype=dtype, copy=copy)
+
+    def __len__(self) -> int:
+        return int(self.dets.shape[0])
+
+    def __getitem__(self, item):
+        return self.dets[item]
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        return self.dets.shape
+
     @property
     def is_obb(self) -> bool:
         return self.dets.ndim == 2 and self.dets.shape[1] == 7
@@ -40,12 +64,26 @@ class Detections:
         return self.dets[:, :4]
 
     @property
+    def xyxy(self) -> np.ndarray:
+        return self.dets[:, :4]
+
+    @property
+    def xywha(self) -> np.ndarray:
+        if self.is_obb:
+            return self.dets[:, :5]
+        return np.empty((len(self), 0), dtype=np.float32)
+
+    @property
     def conf(self) -> np.ndarray:
         return self.dets[:, 5] if self.is_obb else self.dets[:, 4]
 
     @property
     def classes(self) -> np.ndarray:
         return (self.dets[:, 6] if self.is_obb else self.dets[:, 5]).astype(int)
+
+    @property
+    def cls(self) -> np.ndarray:
+        return self.classes
 
 
 def resolve_image(image: Union[np.ndarray, str]) -> np.ndarray:

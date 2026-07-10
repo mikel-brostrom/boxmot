@@ -50,6 +50,27 @@ def normalize_class_names(class_names: Any) -> dict[int, str]:
     return {}
 
 
+def _component_kwargs(kwargs: Mapping[str, Any] | None, name: str) -> dict[str, Any]:
+    if kwargs is None:
+        return {}
+    if not isinstance(kwargs, Mapping):
+        raise TypeError(f"{name} must be a mapping of keyword arguments.")
+    return dict(kwargs)
+
+
+def tracker_reid_model_from_spec(spec: Any) -> Any:
+    """Return a tracker-compatible ReID model from an initialized ReID spec."""
+
+    if spec is None or isinstance(spec, (str, Path)):
+        return None
+    if hasattr(spec, "get_features"):
+        return spec
+    model = getattr(spec, "model", None)
+    if model is not None and hasattr(model, "get_features"):
+        return model
+    return None
+
+
 def tracker_class_metadata_from_detector_config(
     detector_cfg: dict | None,
 ) -> tuple[tuple[int, ...] | None, dict[int, str] | None]:
@@ -247,16 +268,37 @@ def build_detector_from_spec(
     imgsz=None,
     conf=None,
     iou: float = BOXMOT_DEFAULTS.track.iou,
+    detector_kwargs: Mapping[str, Any] | None = None,
 ):
+    runtime_kwargs = _component_kwargs(detector_kwargs, "detector_kwargs")
     if isinstance(spec, (str, Path)):
-        return PublicDetector(
+        legacy_kwargs = sorted(set(runtime_kwargs) & {"conf", "imgsz"})
+        if legacy_kwargs:
+            names = ", ".join(legacy_kwargs)
+            raise ValueError(
+                f"Unsupported detector_kwargs: {names}. Use confidence=... and image_size=... instead."
+            )
+        resolved_device = runtime_kwargs.pop("device", device)
+        resolved_imgsz = runtime_kwargs.pop("image_size", imgsz)
+        resolved_conf = runtime_kwargs.pop("confidence", conf)
+        resolved_iou = runtime_kwargs.pop("iou", iou)
+        resolved_classes = runtime_kwargs.pop("classes", classes)
+        half = runtime_kwargs.pop("half", None)
+        detector = PublicDetector(
             path=ensure_model_path(spec),
-            device=device,
-            imgsz=imgsz,
-            conf=conf,
-            iou=iou,
-            classes=classes,
+            device=resolved_device,
+            imgsz=resolved_imgsz,
+            conf=resolved_conf,
+            iou=resolved_iou,
+            classes=resolved_classes,
+            **runtime_kwargs,
         )
+        if half is not None:
+            detector.half = bool(half)
+        return detector
+
+    if runtime_kwargs:
+        raise ValueError("detector_kwargs cannot be supplied with an initialized detector.")
 
     current_device = getattr(spec, "device", None)
     if current_device is not None and str(current_device) != str(device):
@@ -281,12 +323,32 @@ def build_reid_from_spec(
     *,
     device: str = BOXMOT_DEFAULTS.track.device,
     half: bool = BOXMOT_DEFAULTS.track.half,
+    reid_kwargs: Mapping[str, Any] | None = None,
 ):
+    runtime_kwargs = _component_kwargs(reid_kwargs, "reid_kwargs")
     if spec is None:
+        if runtime_kwargs:
+            raise ValueError("reid_kwargs cannot be supplied when ReID is disabled.")
         return None
 
     if isinstance(spec, (str, Path)):
-        return PublicReID(ensure_model_path(spec), device=device, half=half)
+        if "preprocess_name" in runtime_kwargs:
+            raise ValueError("Unsupported reid_kwargs: preprocess_name. Use preprocess=... instead.")
+        resolved_device = runtime_kwargs.pop("device", device)
+        resolved_half = runtime_kwargs.pop("half", half)
+        preprocess_name = runtime_kwargs.pop("preprocess", None)
+        if runtime_kwargs:
+            unknown = ", ".join(sorted(runtime_kwargs))
+            raise ValueError(f"Unknown reid_kwargs: {unknown}")
+        return PublicReID(
+            ensure_model_path(spec),
+            device=resolved_device,
+            half=resolved_half,
+            preprocess_name=preprocess_name,
+        )
+
+    if runtime_kwargs:
+        raise ValueError("reid_kwargs cannot be supplied with an initialized ReID model.")
 
     current_device = getattr(spec, "device", None)
     if current_device is not None and str(current_device) != str(device):
@@ -304,11 +366,16 @@ def build_tracker_from_spec(
     half: bool = BOXMOT_DEFAULTS.track.half,
     tracker_backend: str | None = None,
     reid_weights=None,
+    reid_model=None,
     reid_preprocess: str | None = None,
     class_ids: tuple[int, ...] | None = None,
     class_names: dict[int, str] | None = None,
+    tracker_kwargs: Mapping[str, Any] | None = None,
 ):
-    if not isinstance(spec, str):
+    runtime_kwargs = _component_kwargs(tracker_kwargs, "tracker_kwargs")
+    if not isinstance(spec, (str, type)):
+        if runtime_kwargs:
+            raise ValueError("tracker_kwargs cannot be supplied with an initialized tracker.")
         if hasattr(spec, "configure_class_catalog") and (class_ids is not None or class_names is not None):
             spec.configure_class_catalog(class_ids=class_ids, class_names=class_names)
         return spec
@@ -331,8 +398,10 @@ def build_tracker_from_spec(
         sig = inspect.signature(native_backend.create_tracker)
         if "reid_device" in sig.parameters:
             native_kwargs["reid_device"] = str(device) if device else None
+        native_config = default_tracker_config(spec)
+        native_config.update(runtime_kwargs)
         return native_backend.create_tracker(
-            default_tracker_config(spec),
+            native_config,
             **native_kwargs,
         )
 
@@ -345,6 +414,8 @@ def build_tracker_from_spec(
         per_class=False,
         class_ids=class_ids,
         class_names=class_names,
+        tracker_kwargs=runtime_kwargs,
+        reid_model=reid_model,
     )
 
 
@@ -355,6 +426,7 @@ def build_tracker_with_reid_spec(
     *,
     device: str = BOXMOT_DEFAULTS.track.device,
     half: bool = BOXMOT_DEFAULTS.track.half,
+    reid_kwargs: Mapping[str, Any] | None = None,
 ):
     tracker_name = tracker_name_from_spec(tracker_spec, required=False)
     if tracker_name not in REID_TRACKERS:
@@ -371,7 +443,7 @@ def build_tracker_with_reid_spec(
         if tracker_backend is not None:
             return TrackerReIDAdapter(tracker_backend)
 
-    return build_reid_from_spec(reid_spec, device=device, half=half)
+    return build_reid_from_spec(reid_spec, device=device, half=half, reid_kwargs=reid_kwargs)
 
 
 def resolve_output_fps(source: Any, *, fallback: float = 30.0, cv2_module=cv2) -> float:
@@ -420,6 +492,7 @@ __all__ = (
     "resolve_output_fps",
     "resolve_output_stem",
     "resolve_track_output_dir",
+    "tracker_reid_model_from_spec",
     "tracker_backend_from_spec",
     "tracker_config_from_spec",
     "tracker_name_from_spec",

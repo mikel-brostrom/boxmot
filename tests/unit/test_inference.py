@@ -471,6 +471,24 @@ def test_configure_benchmark_runtime_uses_explicit_component_configs_without_ben
     assert runtime_cfg["box_type"] == "obb"
 
 
+def test_apply_class_remap_skips_obb_without_loading_aabb_mapping(monkeypatch):
+    def fail_remap(*_args, **_kwargs):
+        raise AssertionError("OBB eval must not run AABB class remapping")
+
+    monkeypatch.setattr(evaluator_module, "build_gt_class_remap", fail_remap)
+    args = SimpleNamespace(
+        eval_box_type="obb",
+        benchmark_id=None,
+        dataset_id=None,
+        benchmark="local-mmot",
+        data="/tmp/local-mmot.yaml",
+    )
+
+    evaluator_module.apply_class_remap(args, {"id": "yolo11l_3ch"})
+
+    assert not hasattr(args, "gt_class_remap")
+
+
 def test_iter_source_expands_globs(tmp_path):
     img = np.zeros((8, 8, 3), dtype=np.uint8)
     img_path = tmp_path / "000001.jpg"
@@ -1312,13 +1330,13 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
         if progress_callback
         else None,
     )
-    trackeval_calls = []
+    motmetrics_calls = []
 
-    def fake_run_trackeval(args, verbose=True):
-        trackeval_calls.append(verbose)
+    def fake_run_motmetrics(args, verbose=True):
+        motmetrics_calls.append(verbose)
         return {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
 
-    monkeypatch.setattr(evaluator_module, "run_trackeval", fake_run_trackeval)
+    monkeypatch.setattr(evaluator_module, "run_motmetrics", fake_run_motmetrics)
     monkeypatch.setattr(
         evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
     )
@@ -1336,7 +1354,7 @@ def test_run_eval_marks_workflow_steps_done(monkeypatch, tmp_path):
     result = evaluator_module.run_eval(args, verbose=False, pipeline=pipeline)
 
     assert result.summary == {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
-    assert trackeval_calls == [False]
+    assert motmetrics_calls == [False]
     # Pipeline.advance() calls workflow.transition(), which records (done, active, detail)
     assert actions[:11] == [
         ("done", evaluator_module.EVAL_SETUP_STEP),
@@ -1407,7 +1425,7 @@ def test_run_eval_advances_from_postprocess_to_evaluate(monkeypatch, tmp_path):
 
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", fake_run_generate_mot_results)
     monkeypatch.setattr(
-        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+        evaluator_module, "run_motmetrics", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
     )
     monkeypatch.setattr(
         evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
@@ -1487,7 +1505,7 @@ def test_run_eval_advances_through_tune_kf_step(monkeypatch, tmp_path):
         lambda *args, **kwargs: ({"std_weight_position": 0.1, "std_weight_velocity": 0.01}, None),
     )
     monkeypatch.setattr(
-        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+        evaluator_module, "run_motmetrics", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
     )
     monkeypatch.setattr(
         evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
@@ -1567,7 +1585,7 @@ def test_run_eval_suppresses_inner_logs_when_workflow_is_active(monkeypatch, tmp
     )
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+        evaluator_module, "run_motmetrics", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
     )
     monkeypatch.setattr(
         evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})
@@ -1699,7 +1717,7 @@ def test_run_eval_refreshes_workflow_fields_after_setup(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(evaluator_module, "run_generate_mot_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
-        evaluator_module, "run_trackeval", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
+        evaluator_module, "run_motmetrics", lambda args, verbose=True: {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0}
     )
     monkeypatch.setattr(
         evaluator_module, "extract_summary", lambda raw: ("all", {"HOTA": 1.0, "MOTA": 2.0, "IDF1": 3.0})

@@ -1,6 +1,6 @@
 # Evaluation and Postprocessing
 
-Use this guide when you need to interpret benchmark outputs from `boxmot eval`, `Boxmot.val(...)`, `tune`, or `research`.
+Use this guide when you need to interpret benchmark outputs from `boxmot eval`, `BoxMOT.val(...)`, `tune`, or `research`.
 
 For cache reuse, benchmark ids, and replay image-loading behavior, see [Benchmark Workflows](benchmarks.md).
 
@@ -18,7 +18,7 @@ For cache reuse, benchmark ids, and replay image-loading behavior, see [Benchmar
 - `tune` uses validation results to score parameter trials
 - `research` optimizes code changes against combined benchmark summaries
 
-For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts and timings but does not replace TrackEval ground-truth evaluation.
+For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts and timings but does not replace ground-truth MOT metric evaluation.
 
 ## Detection sources
 

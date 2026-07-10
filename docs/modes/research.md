@@ -24,9 +24,9 @@ Reference material:
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        result = Boxmot(tracker="bytetrack").research(
+        result = BoxMOT(tracker="bytetrack").research(
             benchmark="mot17",
             split="ablation",
             proposal_model="openai/gpt-5.4",

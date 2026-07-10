@@ -244,6 +244,7 @@ def process_sequence(
     else:
         reid_weights = None
         reid_key = None
+    precomputed_reid = reid_key is not None
 
     timing_stats = TimingStats()
 
@@ -255,6 +256,7 @@ def process_sequence(
         per_class=False,
         evolve_param_dict=cfg_dict,
         timing_stats=timing_stats,
+        precomputed_reid=precomputed_reid,
     )
 
     # Apply CLI --adaptive-kf override
@@ -268,6 +270,11 @@ def process_sequence(
     # Trackers with camera motion compensation need real image data
     tracker_obj = tracker_runtime.tracker
     needs_images = hasattr(tracker_obj, "cmc") and tracker_obj.cmc is not None
+    needs_precomputed_reid = (
+        precomputed_reid
+        and bool(getattr(tracker_obj, "with_reid", True))
+        and not bool(getattr(tracker_obj, "embedding_off", False))
+    )
 
     # Detect whether real frame files are available for this sequence
     _seq_img_dir = Path(mot_root) / seq_name / "img1"
@@ -331,6 +338,11 @@ def process_sequence(
                 raise ValueError(message)
 
             embs_arg = embs if embs.size else None
+            if embs_arg is None and needs_precomputed_reid:
+                raise ValueError(
+                    f"Cached ReID embeddings are missing for {seq_name} frame {frame_id}; "
+                    "regenerate the detection/embedding cache before replay."
+                )
             # When running on metadata-only sequences (no real frame files),
             # never pass None embeddings — that would trigger live ReID on
             # blank stub images, which is extremely slow and meaningless.
@@ -684,7 +696,7 @@ def run_generate_mot_results(
     )
     args.seq_frame_nums = seq_frame_nums
 
-    # TrackEval expects a per-sequence tracker txt file. When a sequence has
+    # The metrics evaluator expects a per-sequence tracker txt file. When a sequence has
     # no emitted rows (e.g. no usable cached inputs), keep an empty placeholder
     # so evaluation can proceed instead of failing hard on missing files.
     for seq_name in sequence_names:

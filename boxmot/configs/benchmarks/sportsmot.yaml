@@ -2,7 +2,7 @@ id: sportsmot
 
 dataset:
   id: sportsmot
-  root: "data/benchmarks/SportsMOT"
+  root: "boxmot/datasets/mot/SportsMOT"
   layout: mot
   box_type: aabb
   splits:

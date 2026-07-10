@@ -59,12 +59,12 @@ if TYPE_CHECKING:
         _saved_detection_column_count,
     )
     from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
+    from boxmot.engine.eval.motmetrics import _load_obb_gt_matrix
     from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
     from boxmot.engine.eval.trackeval.results import (
         _select_plot_metrics_data,
         parse_mot_results,
     )
-    from boxmot.engine.eval.trackeval.runner import _load_obb_gt_matrix
 
 _EVAL_DEPENDENCIES_READY = False
 
@@ -102,7 +102,7 @@ __all__ = [
     "run_eval",
     "run_generate_dets_embs",
     "run_generate_mot_results",
-    "run_trackeval",
+    "run_motmetrics",
 ]
 
 _LAZY_EXPORTS = {
@@ -117,17 +117,13 @@ _LAZY_EXPORTS = {
         "boxmot.engine.eval.trackeval.results",
         "_filter_obb_trackeval_results",
     ),
-    "_known_trackeval_class_names": (
-        "boxmot.engine.eval.trackeval.results",
-        "_known_trackeval_class_names",
-    ),
     "_load_embedding_cache_array": (
         "boxmot.data.cache",
         "_load_embedding_cache_array",
     ),
     "_load_numeric_cache_array": ("boxmot.data.cache", "_load_numeric_cache_array"),
     "_load_obb_gt_matrix": (
-        "boxmot.engine.eval.trackeval.runner",
+        "boxmot.engine.eval.motmetrics",
         "_load_obb_gt_matrix",
     ),
     "_max_frame_id": ("boxmot.data.cache", "_max_frame_id"),
@@ -159,8 +155,7 @@ _LAZY_EXPORTS = {
         "boxmot.engine.eval.replay",
         "run_generate_mot_results",
     ),
-    "trackeval_aabb": ("boxmot.engine.eval.trackeval.runner", "trackeval_aabb"),
-    "trackeval_obb": ("boxmot.engine.eval.trackeval.runner", "trackeval_obb"),
+    "motmetrics_runner": ("boxmot.engine.eval.motmetrics", "run_motmetrics"),
 }
 
 
@@ -213,18 +208,15 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
     )
 
 
-def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
+def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
     """
-    Evaluate tracking results via TrackEval and print a summary.
+    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
     """
     collect_seq_info = _get_lazy_export("_collect_seq_info")
     filter_obb_trackeval_results = _get_lazy_export("_filter_obb_trackeval_results")
-    known_trackeval_class_names = _get_lazy_export("_known_trackeval_class_names")
     log_trackeval_report_fn = _get_lazy_export("log_trackeval_report")
-    parse_mot_results_fn = _get_lazy_export("parse_mot_results")
     render_trackeval_report_fn = _get_lazy_export("render_trackeval_report")
-    trackeval_aabb_fn = _get_lazy_export("trackeval_aabb")
-    trackeval_obb_fn = _get_lazy_export("trackeval_obb")
+    motmetrics_runner = _get_lazy_export("motmetrics_runner")
 
     seq_paths, seq_info = collect_seq_info(args.source)
     annotations_dir = args.source.parent / "annotations"
@@ -278,16 +270,10 @@ def run_trackeval(args: argparse.Namespace, verbose: bool = True) -> dict:
                 cfg = {}
 
     if _resolve_eval_box_type(args, cfg) == "obb":
-        trackeval_results = trackeval_obb_fn(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
+        parsed_results = motmetrics_runner(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     else:
         gt_folder = prepare_aabb_eval_gt(args, gt_folder, seq_info)
-        trackeval_results = trackeval_aabb_fn(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
-
-    parsed_results = parse_mot_results_fn(
-        trackeval_results,
-        seq_names=set(seq_info.keys()),
-        known_classes=known_trackeval_class_names(args, cfg),
-    )
+        parsed_results = motmetrics_runner(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
     eval_box_type = _resolve_eval_box_type(args, cfg)
 
     single_class_mode = False
@@ -349,9 +335,15 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     """
     Remap GT class IDs to match detector output.
     """
+    if str(getattr(args, "eval_box_type", "")).lower() == "obb":
+        return
+
     bench_cfg: dict = {}
     benchmark_id = (
-        getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
+        getattr(args, "benchmark_id", None)
+        or getattr(args, "dataset_id", None)
+        or getattr(args, "benchmark", None)
+        or getattr(args, "data", None)
     )
     if benchmark_id:
         try:
@@ -490,7 +482,7 @@ def run_eval(
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --
-    raw_results = run_trackeval(args, verbose=verbose and not has_pipeline)
+    raw_results = run_motmetrics(args, verbose=verbose and not has_pipeline)
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),

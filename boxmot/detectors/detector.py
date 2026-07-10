@@ -233,6 +233,8 @@ class Detector:
                 except (TypeError, NotImplementedError):
                     pass
         if as_detections:
+            if isinstance(results, list) and len(results) == 1:
+                return results[0]
             return results
         if isinstance(results, Detections):
             if results.masks is not None:

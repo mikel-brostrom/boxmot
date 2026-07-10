@@ -6,7 +6,7 @@ BoxMOT organizes its workflows into one CLI command group plus a high-level Pyth
 | --- | --- | --- | --- | --- |
 | `track` | You want detector + tracker output on a live or saved source | `boxmot track` | Core install. `yolo` extra preinstalls common YOLO backends. | [Track](track.md) |
 | `generate` | You want reusable detections and embeddings | `boxmot generate` | Same as `track`. | [Generate](generate.md) |
-| `eval` | You want TrackEval metrics on a benchmark | `boxmot eval` | Same as `generate`; reuses cached detections and embeddings. | [Evaluate](eval.md) |
+| `eval` | You want MOT metrics on a benchmark | `boxmot eval` | Same as `generate`; reuses cached detections and embeddings. | [Evaluate](eval.md) |
 | `tune` | You want to optimize tracker hyperparameters | `boxmot tune` | Add the `evolve` extra. | [Tune](tune.md) |
 | `research` | You want GEPA to propose and score tracker code changes | `boxmot research` | Add the `research` extra. | [Research](research.md) |
 | `train` | You want to train a ReID backbone on a ReID dataset | `boxmot train` | Core install. | [Train ReID](train.md) |
@@ -67,4 +67,4 @@ See [CLI](../usage/index.md) for the high-level syntax. Each mode page below inc
 
 ## Python API path
 
-If you want the same tracking and benchmark modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.Boxmot`.
+If you want the same tracking and benchmark modes from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.BoxMOT`.

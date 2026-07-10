@@ -15,9 +15,9 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
+        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
         tuned = boxmot.tune(benchmark="mot17", split="ablation", n_trials=10)
         print(tuned)
         print(tuned.best_yaml)
@@ -91,9 +91,9 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
+        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
         tuned = boxmot.tune(
             benchmark="mot17",
             split="ablation",

@@ -12,6 +12,8 @@ import torch
 
 import boxmot
 import boxmot.api as api_module
+import boxmot.api.functional as api_functional_module
+import boxmot.api.results as api_results_module
 from boxmot.api import _args as api_args_module
 import boxmot.engine.tracking.results as results_module
 import boxmot.utils.rich.core.ui as ui_module
@@ -29,26 +31,46 @@ from boxmot.engine.tuning import tuner as tuner_module
 from boxmot.engine.workflows import reporting as reporting_module
 from boxmot.engine.workflows import support as workflow_support_module
 from boxmot.reid import ReID
+from boxmot.trackers import OccluBoost
 from boxmot.utils.timing import TimingStats
 
 _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
 
 def test_package_root_lazily_reexports_python_api():
-    assert "__version__" in boxmot.__all__
-    assert "Boxmot" in boxmot.__all__
-    assert "GenerateResult" in boxmot.__all__
-    assert "ResearchResult" in boxmot.__all__
-    assert "track" in boxmot.__all__
-    assert boxmot.Boxmot is api_module.Boxmot
-    assert boxmot.GenerateResult is api_module.GenerateResult
-    assert boxmot.ResearchResult is api_module.ResearchResult
-    assert boxmot.track is api_module.track
-    assert boxmot.ValidationResult is api_module.ValidationResult
+    assert isinstance(boxmot.__version__, str)
+    assert set(boxmot.__all__) == {"BoxMOT", "Detector", "ReIDModel"}
+    assert "BoxMOT" in boxmot.__all__
+    assert "Detector" in boxmot.__all__
+    assert "ReIDModel" in boxmot.__all__
+    assert not hasattr(boxmot, "Boxmot")
+    assert not hasattr(boxmot, "Detections")
+    assert not hasattr(boxmot, "track")
+    assert boxmot.BoxMOT is api_module.BoxMOT
+    assert boxmot.Detector is api_module.Detector
+    assert boxmot.ReIDModel is api_module.ReIDModel
+    assert importlib.import_module("boxmot.models.detector").Detector is api_module.Detector
+    assert importlib.import_module("boxmot.models.reid").ReIDModel is api_module.ReIDModel
+    assert importlib.import_module("boxmot.pipeline").BoxMOT is api_module.BoxMOT
+
+
+def test_api_module_exports_only_canonical_classes():
+    assert set(api_module.__all__) == {"BoxMOT", "Detector", "ReIDModel"}
+    assert not hasattr(api_module, "Boxmot")
+    assert not hasattr(api_module, "Detections")
+    assert not hasattr(api_module, "track")
+    assert not hasattr(api_module, "GenerateResult")
+
+
+def test_trackers_package_exports_occluboost_only():
+    trackers_module = importlib.import_module("boxmot.trackers")
+
+    assert trackers_module.__all__ == ("OccluBoost",)
+    assert trackers_module.OccluBoost is importlib.import_module("boxmot.trackers.occluboost").OccluBoost
 
 
 def test_boxmot_defaults_follow_shared_configs():
-    model = api_module.Boxmot()
+    model = api_module.BoxMOT()
 
     assert model.detector == DEFAULT_DETECTOR == BOXMOT_DEFAULTS.shared.detector
     assert model.reid == DEFAULT_REID == BOXMOT_DEFAULTS.shared.reid
@@ -56,8 +78,75 @@ def test_boxmot_defaults_follow_shared_configs():
     assert model.project == Path(get_mode_default("track", "project")) == BOXMOT_DEFAULTS.track.project
 
 
+def test_boxmot_accepts_grouped_component_kwargs_and_tracker_class(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_track(args, **kwargs):
+        captured["args"] = args
+        captured.update(kwargs)
+        return "run"
+
+    monkeypatch.setattr(tracker_module, "run_track", fake_run_track)
+
+    model = api_module.BoxMOT(
+        detector="yolox_x_MOT17_ablation",
+        reid="models/lmbn_n_duke.onnx",
+        tracker=OccluBoost,
+        detector_kwargs={"confidence": 0.25, "image_size": 640, "half": True},
+        reid_kwargs={"half": True},
+        tracker_kwargs={"with_reid": True},
+        project=tmp_path / "runs",
+    )
+
+    run = model.track(source="0")
+
+    assert run == "run"
+    assert model._tracker_name() == "occluboost"
+    assert captured["detector_spec"] == "yolox_x_MOT17_ablation"
+    assert captured["reid_spec"] == "models/lmbn_n_duke.onnx"
+    assert captured["tracker_spec"] is OccluBoost
+    assert captured["detector_kwargs"] == {"confidence": 0.25, "image_size": 640, "half": True}
+    assert captured["reid_kwargs"] == {"half": True}
+    assert captured["tracker_kwargs"] == {"with_reid": True}
+
+
+def test_boxmot_rejects_kwargs_with_initialized_components():
+    with pytest.raises(ValueError, match="tracker_kwargs"):
+        api_module.BoxMOT(tracker=object(), tracker_kwargs={"with_reid": True})
+
+    with pytest.raises(ValueError, match="detector_kwargs"):
+        api_module.BoxMOT(detector=object(), detector_kwargs={"confidence": 0.25})
+
+    with pytest.raises(ValueError, match="reid_kwargs"):
+        api_module.BoxMOT(reid=object(), reid_kwargs={"half": True})
+
+
+def test_component_kwargs_reject_internal_aliases():
+    with pytest.raises(ValueError, match="image_size"):
+        workflow_support_module.build_detector_from_spec("fake.pt", detector_kwargs={"imgsz": 640})
+
+    with pytest.raises(ValueError, match="confidence"):
+        workflow_support_module.build_detector_from_spec("fake.pt", detector_kwargs={"conf": 0.25})
+
+    with pytest.raises(ValueError, match="preprocess"):
+        workflow_support_module.build_reid_from_spec("fake.pt", reid_kwargs={"preprocess_name": "resize"})
+
+
+def test_boxmot_tracker_kwargs_override_eval_tracker_config():
+    model = api_module.BoxMOT(
+        tracker="occluboost",
+        tracker_kwargs={"with_reid": True, "max_age": 42},
+    )
+
+    tracker_config = model._tracker_config_from_spec()
+
+    assert tracker_config["with_reid"] is True
+    assert tracker_config["max_age"] == 42
+    assert "iou_threshold" in tracker_config
+
+
 def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_path):
-    model = api_module.Boxmot(reid=None, project=tmp_path / "runs")
+    model = api_module.BoxMOT(reid=None, project=tmp_path / "runs")
 
     args = model._base_eval_args("mot17-mini")
 
@@ -65,7 +154,7 @@ def test_boxmot_eval_namespace_uses_shared_reid_default_when_reid_is_none(tmp_pa
 
 
 def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
-    model = api_module.Boxmot()
+    model = api_module.BoxMOT()
 
     args = model._base_eval_args("mot17-mini")
 
@@ -79,7 +168,7 @@ def test_boxmot_eval_namespace_treats_inherited_defaults_as_non_explicit():
 
 
 def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
-    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+    model = api_module.BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 
     args = model._base_eval_args("mot17-mini")
 
@@ -89,7 +178,7 @@ def test_boxmot_eval_namespace_preserves_explicit_constructor_overrides():
 
 
 def test_boxmot_val_namespace_accepts_explicit_split():
-    model = api_module.Boxmot(
+    model = api_module.BoxMOT(
         detector="yolox_n",
         reid="models/lmbn_n_duke.pt",
         tracker="occluboost",
@@ -115,7 +204,7 @@ def test_boxmot_val_namespace_accepts_explicit_split():
 
 
 def test_boxmot_tune_namespace_accepts_explicit_split():
-    model = api_module.Boxmot(
+    model = api_module.BoxMOT(
         detector="yolox_x_MOT17_ablation",
         reid="models/lmbn_n_duke.pt",
         tracker="occluboost",
@@ -140,7 +229,7 @@ def test_boxmot_tune_namespace_accepts_explicit_split():
 
 
 def test_boxmot_constructor_keeps_detector_positional_for_detector_names():
-    model = api_module.Boxmot("yolov8n")
+    model = api_module.BoxMOT("yolov8n")
 
     assert model.detector == "yolov8n"
     assert model.train_model is None
@@ -149,7 +238,7 @@ def test_boxmot_constructor_keeps_detector_positional_for_detector_names():
 
 
 def test_boxmot_constructor_accepts_training_model_positional():
-    model = api_module.Boxmot("mobilenetv4")
+    model = api_module.BoxMOT("mobilenetv4")
 
     assert model.detector == DEFAULT_DETECTOR
     assert model.train_model is None
@@ -158,8 +247,8 @@ def test_boxmot_constructor_accepts_training_model_positional():
     assert model._train_recipe_explicit is True
 
 
-def test_boxmot_reid_factory_accepts_weight_and_training_profile():
-    model = api_module.Boxmot.reid("mobilenetv4.pt")
+def test_boxmot_constructor_accepts_reid_weight_and_training_profile():
+    model = api_module.BoxMOT(reid="mobilenetv4.pt")
 
     assert model.detector == DEFAULT_DETECTOR
     assert model.reid == "mobilenetv4.pt"
@@ -171,7 +260,7 @@ def test_boxmot_reid_factory_accepts_weight_and_training_profile():
 
 
 def test_boxmot_eval_namespace_uses_explicit_tracker_backend():
-    model = api_module.Boxmot(tracker="botsort")
+    model = api_module.BoxMOT(tracker="botsort")
 
     args = model._base_eval_args("mot17-mini", tracker_backend="cpp")
 
@@ -181,7 +270,7 @@ def test_boxmot_eval_namespace_uses_explicit_tracker_backend():
 
 def test_boxmot_eval_namespace_allows_benchmark_runtime_to_override_inherited_defaults(monkeypatch):
     evaluator_module = importlib.import_module("boxmot.engine.eval.evaluator")
-    model = api_module.Boxmot()
+    model = api_module.BoxMOT()
     args = model._base_eval_args("mot17-mini")
 
     monkeypatch.setattr(
@@ -372,7 +461,7 @@ def test_public_detector_and_reid_allow_stage_overrides(monkeypatch):
     np.testing.assert_array_equal(reid_output, np.full((1, 4), 3.0, dtype=np.float32))
 
 
-def test_boxmot_detector_factory_predicts_with_public_detector(monkeypatch):
+def test_public_detector_predicts_with_public_constructor_names(monkeypatch):
     class _FakeDetectorBackend:
         def __init__(self, model, device, imgsz):
             self.model = model
@@ -382,18 +471,118 @@ def test_boxmot_detector_factory_predicts_with_public_detector(monkeypatch):
         def __call__(self, images, conf, iou, classes, agnostic_nms):
             return [Detections(dets=np.array([[1, 2, 3, 4, conf, 0]], dtype=np.float32), orig_img=images[0])]
 
-    monkeypatch.setattr(Detector, "_get_backend_class", classmethod(lambda cls, path: _FakeDetectorBackend))
+    monkeypatch.setattr(api_module.Detector, "_get_backend_class", classmethod(lambda cls, path: _FakeDetectorBackend))
 
-    detector = api_module.Boxmot.detector("fake.pt", conf=0.25, imgsz=640, half=True)
+    detector = api_module.Detector("fake.pt", confidence=0.25, image_size=640, half=True)
     predictions = detector.predict(_DUMMY_IMG)
 
-    assert detector.conf == 0.25
-    assert detector.imgsz == 640
+    assert detector.confidence == 0.25
+    assert detector.image_size == 640
     assert detector.half is True
     np.testing.assert_array_equal(
-        predictions,
+        predictions.dets,
         np.array([[1, 2, 3, 4, 0.25, 0]], dtype=np.float32),
     )
+
+
+def test_public_root_detector_returns_detections(monkeypatch):
+    class _FakeDetectorBackend:
+        def __init__(self, model, device, imgsz):
+            self.model = model
+            self.device = device
+            self.imgsz = imgsz
+
+        def __call__(self, images, conf, iou, classes, agnostic_nms):
+            return [Detections(dets=np.array([[1, 2, 3, 4, conf, 0]], dtype=np.float32), orig_img=images[0])]
+
+    monkeypatch.setattr(api_module.Detector, "_get_backend_class", classmethod(lambda cls, path: _FakeDetectorBackend))
+
+    detector = api_module.Detector("fake", confidence=0.25, image_size=640, half=True)
+    detections = detector.predict(_DUMMY_IMG)
+
+    assert isinstance(detections, Detections)
+    assert detector.confidence == 0.25
+    assert detector.image_size == 640
+    assert detector.half is True
+    assert detections.shape == (1, 6)
+    np.testing.assert_array_equal(detections.xyxy, np.array([[1, 2, 3, 4]], dtype=np.float32))
+    np.testing.assert_array_equal(np.asarray(detections), detections.dets)
+
+
+def test_public_reid_model_embed_export_and_tracker_contract(monkeypatch, tmp_path):
+    calls = {}
+
+    class _FakeModel:
+        def __init__(self):
+            self.device = torch.device("cpu")
+            self.half = False
+            self.input_shape = (8, 4)
+            self.mean_array = torch.zeros((1, 3, 1, 1), dtype=torch.float32)
+            self.std_array = torch.ones((1, 3, 1, 1), dtype=torch.float32)
+
+        def get_features(self, boxes, image):
+            return np.full((len(boxes), 2), image.shape[0], dtype=np.float32)
+
+        def inference_preprocess(self, batch):
+            return batch
+
+        def forward(self, batch):
+            return torch.ones((batch.shape[0], 3), dtype=torch.float32)
+
+        def inference_postprocess(self, features):
+            return features.cpu().numpy()
+
+    def fake_boxmot_export(self, **kwargs):
+        calls["boxmot_reid"] = self.reid
+        exported_path = tmp_path / "fake_reid.onnx"
+        exported_path.touch()
+        return SimpleNamespace(embedding_weights=exported_path, half=bool(kwargs["half"]))
+
+    monkeypatch.setattr(ReID, "get_backend", lambda self: _FakeModel())
+    monkeypatch.setattr(api_module.BoxMOT, "export", fake_boxmot_export)
+
+    reid = api_module.ReIDModel("fake_reid.pt")
+    boxes = np.array([[0, 0, 10, 10]], dtype=np.float32)
+
+    embeddings = reid.embed(_DUMMY_IMG, boxes=boxes)
+    tracker_features = reid.get_features(boxes, _DUMMY_IMG)
+    exported = reid.export(format="onnx", half=True)
+
+    assert embeddings.shape == (1, 2)
+    np.testing.assert_array_equal(embeddings, tracker_features)
+    assert isinstance(exported, api_module.ReIDModel)
+    assert calls["boxmot_reid"] == reid.path
+    assert exported.path.name == "fake_reid.onnx"
+    assert exported.half is True
+
+
+def test_tracker_update_accepts_image_and_embeddings_aliases():
+    from boxmot.trackers.base import BaseTracker
+
+    class _AliasTracker(BaseTracker):
+        def __init__(self):
+            super().__init__(det_thresh=0.1)
+            self.captured = None
+
+        def _update_impl(self, dets, img, embs=None, masks=None):
+            self.captured = (dets, img, embs, masks)
+            return np.empty((0, 8), dtype=np.float32)
+
+    detections = Detections(
+        dets=np.array([[1, 2, 3, 4, 0.9, 0]], dtype=np.float32),
+        orig_img=_DUMMY_IMG,
+    )
+    embeddings = np.ones((1, 2), dtype=np.float32)
+
+    tracker = _AliasTracker()
+    tracks = tracker.update(detections, image=_DUMMY_IMG, embeddings=embeddings)
+
+    assert tracks.shape == (0, 8)
+    captured_dets, captured_img, captured_embs, captured_masks = tracker.captured
+    np.testing.assert_array_equal(captured_dets, detections.dets)
+    assert captured_img is _DUMMY_IMG
+    assert captured_embs is embeddings
+    assert captured_masks is None
 
 
 def test_public_detector_predict_normalizes_none_to_empty_detections(monkeypatch):
@@ -408,11 +597,11 @@ def test_public_detector_predict_normalizes_none_to_empty_detections(monkeypatch
 
     monkeypatch.setattr(Detector, "_get_backend_class", classmethod(lambda cls, path: _NoneDetectorBackend))
 
-    detector = api_module.Boxmot.detector("fake.pt")
+    detector = api_module.Detector("fake.pt")
     predictions = detector.predict(_DUMMY_IMG)
 
     assert predictions.shape == (0, 6)
-    assert predictions.dtype == np.float32
+    assert predictions.dets.dtype == np.float32
 
 
 def test_results_save_summary_and_evaluate(tmp_path):
@@ -441,7 +630,7 @@ def test_results_save_summary_and_evaluate(tmp_path):
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
     # Test iteration and FrameResult properties
-    results = api_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_functional_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
     first = next(iter(results))
 
     results.drawer = lambda frame, tracks: np.full_like(frame, 127)
@@ -463,12 +652,12 @@ def test_results_save_summary_and_evaluate(tmp_path):
     assert summary["unique_tracks"] == 2
 
     # Fresh Results for full save + evaluate
-    results2 = api_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results2 = api_functional_module.track(tmp_path, _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
     output_path2 = tmp_path / "tracks2.txt"
     results2.save(output_path2)
     assert output_path2.read_text(encoding="utf-8").count("\n") == 2
 
-    evaluation = api_module.evaluate([results2], metrics=True, speed=True)
+    evaluation = api_functional_module.evaluate([results2], metrics=True, speed=True)
     assert evaluation["metrics"]["frames"] == 2
     assert evaluation["metrics"]["tracks"] == 2
 
@@ -511,7 +700,7 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
 
     monkeypatch.setattr(workflow_support_module.cv2, "VideoWriter", _FakeVideoWriter)
 
-    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, save=True, save_txt=True)
 
     assert run.source == tmp_path
@@ -569,7 +758,7 @@ def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monk
 
     monkeypatch.setattr(workflow_support_module, "build_reid_from_spec", fail_build_track_reid)
 
-    model = api_module.Boxmot(
+    model = api_module.BoxMOT(
         detector="yolov8n",
         reid="lmbn_n_duke",
         tracker="botsort",
@@ -632,7 +821,7 @@ def test_boxmot_track_keeps_live_sources_lazy(monkeypatch, tmp_path):
     fake_results = _FakeResults()
     monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
-    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source="0")
 
     assert fake_results.materialized is False
@@ -671,7 +860,7 @@ def test_results_summary_does_not_resume_live_source_after_partial_iteration(mon
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_functional_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
     summary = results.summary()
@@ -706,7 +895,7 @@ def test_results_streaming_does_not_cache_frames(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_functional_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
     assert first.frame_idx == 1
@@ -764,7 +953,7 @@ def test_boxmot_track_eagerly_consumes_finite_sources_for_uniform_cli_behavior(m
     fake_results = _FakeResults()
     monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
-    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     assert fake_results.iterated is True
@@ -795,7 +984,7 @@ def test_boxmot_track_returns_summary_for_eagerly_consumed_finite_sources(tmp_pa
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     summary = run.summary
@@ -881,7 +1070,7 @@ def test_boxmot_track_show_flag_displays_results(monkeypatch, tmp_path):
     fake_results = _FakeResults()
     monkeypatch.setattr(tracker_module, "Results", lambda *args, **kwargs: fake_results)
 
-    model = api_module.Boxmot(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=object(), reid=object(), tracker=object(), project=tmp_path / "runs")
     run = model.track(source=tmp_path, show=True)
 
     assert len(shown_frames) == 1
@@ -918,7 +1107,7 @@ def test_results_keyboard_interrupt_stops_live_tracking_cleanly(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = api_module.track("0", _InterruptingDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_functional_module.track("0", _InterruptingDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     output = list(results)
     summary = results.summary()
@@ -954,7 +1143,7 @@ def test_tracks_show_stops_live_results_on_q(monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    results = api_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
+    results = api_functional_module.track("0", _FakeDetector(), _FakeReID(), _FakeTracker(), verbose=False)
 
     first = next(iter(results))
 
@@ -987,7 +1176,7 @@ def test_track_run_result_formats_summary_block(tmp_path, monkeypatch):
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     summary_text = run.format_summary()
@@ -1024,7 +1213,7 @@ def test_track_run_result_renderable_uses_rich_summary_layout(tmp_path, monkeypa
             self.count += 1
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
-    model = api_module.Boxmot(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs")
     run = model.track(source=tmp_path)
 
     rendered = ui_module.capture_renderable(run.renderable(), width=120)
@@ -1062,7 +1251,7 @@ def test_results_summary_splits_tracker_owned_reid_time(tmp_path, monkeypatch):
     perf_counter_values = iter([0.0, 0.010, 0.010, 0.020])
     monkeypatch.setattr(results_module.time, "perf_counter", lambda: next(perf_counter_values))
 
-    results = api_module.track(tmp_path, _FakeDetector(), None, _FakeNativeTracker(), verbose=False)
+    results = api_functional_module.track(tmp_path, _FakeDetector(), None, _FakeNativeTracker(), verbose=False)
     list(results)  # consume the stream
     summary = results.summary()
 
@@ -1103,7 +1292,7 @@ def test_validation_result_formats_sequence_and_combined_report():
             },
         },
     }
-    result = api_module.ValidationResult(
+    result = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw=raw,
         summary_label="single_class",
@@ -1121,7 +1310,7 @@ def test_validation_result_formats_sequence_and_combined_report():
 
 
 def test_validation_result_str_renders_cli_style_report():
-    result = api_module.ValidationResult(
+    result = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
@@ -1167,7 +1356,7 @@ def test_validation_result_str_renders_cli_style_report():
 
 
 def test_validation_result_str_keeps_multiclass_obb_sections():
-    result = api_module.ValidationResult(
+    result = api_results_module.ValidationResult(
         benchmark="mmot-mini",
         raw={
             "plane": {
@@ -1242,7 +1431,7 @@ def test_validation_result_str_keeps_multiclass_obb_sections():
 
 
 def test_tune_result_formats_best_report():
-    metrics = api_module.ValidationResult(
+    metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
@@ -1267,11 +1456,11 @@ def test_tune_result_formats_best_report():
         summary_label="single_class",
         summary={"HOTA": 69.445, "MOTA": 78.243, "IDF1": 81.937},
     )
-    tune = api_module.TuneResult(
+    tune = api_results_module.TuneResult(
         benchmark="mot17-mini",
         tracker="botsort",
         trials=[],
-        best=api_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(69.445, 78.243, 81.937)),
+        best=api_results_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(69.445, 78.243, 81.937)),
         best_config={},
         best_yaml=Path("best.yaml"),
     )
@@ -1284,7 +1473,7 @@ def test_tune_result_formats_best_report():
 
 
 def test_tune_results_expose_validation_like_accessors():
-    metrics = api_module.ValidationResult(
+    metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={"all": {"HOTA": 69.445}},
         summary_label="all",
@@ -1293,13 +1482,13 @@ def test_tune_results_expose_validation_like_accessors():
         exp_dir=Path("runs/eval"),
         args=SimpleNamespace(device="cpu"),
     )
-    trial = api_module.TuneTrialResult(
+    trial = api_results_module.TuneTrialResult(
         index=2,
         config={"track_buffer": 40},
         metrics=metrics,
         score=(69.445, 78.243, 81.937),
     )
-    tune = api_module.TuneResult(
+    tune = api_results_module.TuneResult(
         benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[trial],
@@ -1336,7 +1525,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
-    baseline_metrics = api_module.ValidationResult(
+    baseline_metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 66.0,
@@ -1371,7 +1560,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         summary={"HOTA": 66.0, "MOTA": 77.0, "IDF1": 78.0},
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
-    best_metrics = api_module.ValidationResult(
+    best_metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 67.5,
@@ -1406,9 +1595,9 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
         summary={"HOTA": 67.5, "MOTA": 78.2, "IDF1": 80.0},
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
-    baseline_trial = api_module.TuneTrialResult(index=1, config={"track_buffer": 30}, metrics=baseline_metrics, score=(66.0,))
-    best_trial = api_module.TuneTrialResult(index=2, config={"track_buffer": 40}, metrics=best_metrics, score=(67.5,))
-    tune = api_module.TuneResult(
+    baseline_trial = api_results_module.TuneTrialResult(index=1, config={"track_buffer": 30}, metrics=baseline_metrics, score=(66.0,))
+    best_trial = api_results_module.TuneTrialResult(index=2, config={"track_buffer": 40}, metrics=best_metrics, score=(67.5,))
+    tune = api_results_module.TuneResult(
         benchmark="mot17-mini",
         tracker="bytetrack",
         trials=[baseline_trial, best_trial],
@@ -1430,7 +1619,7 @@ def test_tune_result_str_shows_delta_vs_baseline(monkeypatch):
 
 
 def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
-    baseline_metrics = api_module.ValidationResult(
+    baseline_metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "person": {
@@ -1458,7 +1647,7 @@ def test_validation_result_renderable_shows_delta_vs_baseline() -> None:
         summary={"HOTA": 66.0, "MOTA": 78.0, "IDF1": 79.0},
         args=SimpleNamespace(remapped_class_names=["person"], eval_box_type=None, classes=None),
     )
-    best_metrics = api_module.ValidationResult(
+    best_metrics = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "person": {
@@ -1511,7 +1700,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
     monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
 
-    result = api_module.ValidationResult(
+    result = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
@@ -1556,7 +1745,7 @@ def test_validation_result_str_colorizes_base_table_when_tty(monkeypatch):
 
 
 def test_validation_result_print_report_matches_cli_style(capsys):
-    result = api_module.ValidationResult(
+    result = api_results_module.ValidationResult(
         benchmark="mot17-mini",
         raw={
             "HOTA": 69.445,
@@ -1653,7 +1842,7 @@ def test_track_run_result_str_and_print_summary_use_plain_stdout(monkeypatch, ca
         def stop(self, reason=None):
             return None
 
-    run = api_module.TrackRunResult(
+    run = api_results_module.TrackRunResult(
         source=tmp_path,
         results=_FakeResults(),
         video_path=None,
@@ -1673,7 +1862,7 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
 
     def fake_run_eval(args, *, evolve_config=None, **kwargs):
         calls["eval"] = (args, evolve_config, kwargs)
-        return api_module.ValidationResult(
+        return api_results_module.ValidationResult(
             benchmark=str(args.benchmark),
             raw={"all": {"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0}},
             summary_label="all",
@@ -1685,7 +1874,7 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
 
     def fake_run_tune(args, *, baseline_config=None):
         calls["tune"] = (args, baseline_config)
-        metrics = api_module.ValidationResult(
+        metrics = api_results_module.ValidationResult(
             benchmark=str(args.benchmark),
             raw={"all": {"HOTA": 53.0, "MOTA": 48.0, "IDF1": 43.0}},
             summary_label="all",
@@ -1694,13 +1883,13 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
             timings={},
             args=args,
         )
-        best_trial = api_module.TuneTrialResult(
+        best_trial = api_results_module.TuneTrialResult(
             index=1,
             config={"track_buffer": 40},
             metrics=metrics,
             score=(53.0,),
         )
-        return api_module.TuneResult(
+        return api_results_module.TuneResult(
             benchmark=str(args.benchmark),
             tracker=args.tracker,
             trials=[best_trial],
@@ -1711,13 +1900,13 @@ def test_boxmot_val_tune_and_export_facades(monkeypatch, tmp_path):
 
     def fake_run_export(args):
         calls["export"] = args
-        return api_module.ExportResult(weights=Path(args.weights), files={"onnx": tmp_path / "exported.onnx"})
+        return api_results_module.ExportResult(weights=Path(args.weights), files={"onnx": tmp_path / "exported.onnx"})
 
     monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
     monkeypatch.setattr(tuner_module, "run_tune", fake_run_tune)
     monkeypatch.setattr(export_module, "run_export", fake_run_export)
 
-    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", classes=[0, 1], project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", classes=[0, 1], project=tmp_path / "runs")
 
     metrics = model.val(benchmark="mot17-mini", device="cpu")
 
@@ -1777,7 +1966,7 @@ def test_boxmot_export_accepts_format_alias_and_half_flag(monkeypatch, tmp_path)
 
     def fake_run_export(args):
         calls["export"] = args
-        return api_module.ExportResult(
+        return api_results_module.ExportResult(
             weights=Path(args.weights),
             files={"onnx": tmp_path / "mobilenetv4.onnx"},
             half=args.half,
@@ -1799,7 +1988,7 @@ def test_boxmot_export_accepts_format_alias_and_half_flag(monkeypatch, tmp_path)
     monkeypatch.setattr(export_module, "run_export", fake_run_export)
     monkeypatch.setattr(reid_module, "ReID", FakeReID)
 
-    model = api_module.Boxmot.reid("mobilenetv4.pt", project=tmp_path / "runs")
+    model = api_module.BoxMOT(reid="mobilenetv4.pt", project=tmp_path / "runs")
     model = model.export(format="onnx", half=True)
     embeddings = model.embed(source=tmp_path / "image.jpg")
 
@@ -1839,7 +2028,7 @@ def test_export_result_embed_prefers_exported_onnx(monkeypatch, tmp_path):
 
     monkeypatch.setattr(reid_module, "ReID", FakeReID)
 
-    result = api_module.ExportResult(
+    result = api_results_module.ExportResult(
         weights=tmp_path / "lmbn_n_duke.pt",
         files={"onnx": tmp_path / "lmbn_n_duke.onnx"},
         half=True,
@@ -1872,7 +2061,7 @@ def test_export_result_embed_falls_back_to_source_weights(monkeypatch, tmp_path)
 
     monkeypatch.setattr(reid_module, "ReID", FakeReID)
 
-    result = api_module.ExportResult(weights=tmp_path / "lmbn_n_duke.pt", files={})
+    result = api_results_module.ExportResult(weights=tmp_path / "lmbn_n_duke.pt", files={})
     embeddings = result.embed(source=tmp_path / "image.jpg", half=False)
 
     assert embeddings is expected
@@ -1907,7 +2096,7 @@ def test_boxmot_embed_uses_reid_factory_weight(monkeypatch, tmp_path):
     monkeypatch.setattr(reid_module, "ReID", FakeReID)
 
     image = tmp_path / "image.jpg"
-    model = api_module.Boxmot.reid("mobilenetv4.pt", project=tmp_path / "runs")
+    model = api_module.BoxMOT(reid="mobilenetv4.pt", project=tmp_path / "runs")
     embeddings = model.embed(
         source=image,
         boxes=np.array([[0, 0, 16, 16]], dtype=np.float32),
@@ -1930,7 +2119,7 @@ def test_boxmot_embed_uses_reid_factory_weight(monkeypatch, tmp_path):
 def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     calls = {}
 
-    expected_train = api_module.TrainResult(
+    expected_train = api_results_module.TrainResult(
         best_epoch=1,
         best_mAP=0.75,
         best_rank1=0.50,
@@ -1955,7 +2144,7 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
     monkeypatch.setattr(reid_trainer_module, "main", fake_train_main)
     monkeypatch.setattr(reid_evaluator_module, "main", fake_eval_reid_main)
 
-    model = api_module.Boxmot(project=tmp_path / "runs")
+    model = api_module.BoxMOT(project=tmp_path / "runs")
 
     trained = model.train(
         model="mobilenetv2_x1_0",
@@ -2025,7 +2214,7 @@ def test_boxmot_train_and_eval_reid_facades(monkeypatch, tmp_path):
 
 def test_boxmot_train_accepts_training_cfg(monkeypatch, tmp_path):
     calls = {}
-    expected_train = api_module.TrainResult(
+    expected_train = api_results_module.TrainResult(
         best_epoch=1,
         best_mAP=0.75,
         best_rank1=0.50,
@@ -2062,7 +2251,7 @@ def test_boxmot_train_accepts_training_cfg(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    model = api_module.Boxmot(project=tmp_path / "runs")
+    model = api_module.BoxMOT(project=tmp_path / "runs")
     trained = model.train(cfg=train_cfg, epochs=2)
 
     assert trained is expected_train
@@ -2080,7 +2269,7 @@ def test_boxmot_train_accepts_training_cfg(monkeypatch, tmp_path):
 
 def test_boxmot_train_applies_constructor_training_profile_to_cfg(monkeypatch, tmp_path):
     calls = {}
-    expected_train = api_module.TrainResult(
+    expected_train = api_results_module.TrainResult(
         best_epoch=1,
         best_mAP=0.75,
         best_rank1=0.50,
@@ -2111,7 +2300,7 @@ def test_boxmot_train_applies_constructor_training_profile_to_cfg(monkeypatch, t
         encoding="utf-8",
     )
 
-    model = api_module.Boxmot("mobilenetv4", project=tmp_path / "runs")
+    model = api_module.BoxMOT("mobilenetv4", project=tmp_path / "runs")
     trained = model.train(cfg=train_cfg, epochs=2)
 
     assert trained is expected_train
@@ -2128,7 +2317,7 @@ def test_boxmot_train_applies_constructor_training_profile_to_cfg(monkeypatch, t
 
 def test_boxmot_train_accepts_reid_data_yaml_list(monkeypatch, tmp_path):
     calls = {}
-    expected_train = api_module.TrainResult(
+    expected_train = api_results_module.TrainResult(
         best_epoch=1,
         best_mAP=0.75,
         best_rank1=0.50,
@@ -2151,7 +2340,7 @@ def test_boxmot_train_accepts_reid_data_yaml_list(monkeypatch, tmp_path):
     market_yaml.write_text(f"dataset: market1501\npath: {market_root}\n", encoding="utf-8")
     duke_yaml.write_text(f"dataset: duke\npath: {duke_root}\n", encoding="utf-8")
 
-    model = api_module.Boxmot(project=tmp_path / "runs")
+    model = api_module.BoxMOT(project=tmp_path / "runs")
     trained = model.train(
         model="mobilenetv2_x1_0",
         data=[market_yaml, duke_yaml],
@@ -2214,7 +2403,7 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
         return workflow
 
     def fake_run_eval(args, *, evolve_config=None, **kwargs):
-        return api_module.ValidationResult(
+        return api_results_module.ValidationResult(
             benchmark=str(args.benchmark),
             raw={"all": {"HOTA": 50.0, "MOTA": 45.0, "IDF1": 40.0}},
             summary_label="all",
@@ -2227,7 +2416,7 @@ def test_boxmot_val_logs_cli_like_intro_without_printing_report(monkeypatch, tmp
     monkeypatch.setattr(evaluator_module.ui, "create_workflow_progress", fake_create_workflow_progress)
     monkeypatch.setattr(evaluator_module, "run_eval", fake_run_eval)
 
-    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="botsort", project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="botsort", project=tmp_path / "runs")
 
     metrics = model.val(benchmark="mot17-mini", device="cpu")
 
@@ -2280,7 +2469,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
     monkeypatch.setattr(cache_module, "run_generate", fake_run_generate)
     monkeypatch.setattr(research_engine_module, "run_research", fake_run_research)
 
-    model = api_module.Boxmot(tracker="bytetrack", project=tmp_path / "runs")
+    model = api_module.BoxMOT(tracker="bytetrack", project=tmp_path / "runs")
 
     generated = model.generate(benchmark="mot17-mini", device="cpu", batch_size=8, resume=False)
 
@@ -2316,7 +2505,7 @@ def test_boxmot_generate_and_research_facades(monkeypatch, tmp_path):
 
 
 def test_boxmot_generate_requires_exactly_one_input(tmp_path):
-    model = api_module.Boxmot(project=tmp_path / "runs")
+    model = api_module.BoxMOT(project=tmp_path / "runs")
 
     with pytest.raises(ValueError, match="exactly one of benchmark=... or source=..."):
         model.generate()
@@ -2331,7 +2520,7 @@ def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_pat
     def fake_run_tune(args, *, baseline_config=None):
         captured["args"] = args
         captured["baseline_config"] = baseline_config
-        metrics = api_module.ValidationResult(
+        metrics = api_results_module.ValidationResult(
             benchmark=str(args.benchmark),
             raw={},
             summary_label="all",
@@ -2340,8 +2529,8 @@ def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_pat
             timings={},
             args=args,
         )
-        trial = api_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(51.0, -0.2))
-        return api_module.TuneResult(
+        trial = api_results_module.TuneTrialResult(index=1, config={}, metrics=metrics, score=(51.0, -0.2))
+        return api_results_module.TuneResult(
             benchmark=str(args.benchmark),
             tracker=args.tracker,
             trials=[trial],
@@ -2351,7 +2540,7 @@ def test_boxmot_tune_forwards_optimization_targets_and_seed(monkeypatch, tmp_pat
         )
 
     monkeypatch.setattr(tuner_module, "run_tune", fake_run_tune)
-    model = api_module.Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
+    model = api_module.BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack", project=tmp_path / "runs")
 
     tuned = model.tune(
         benchmark="mot17-mini",

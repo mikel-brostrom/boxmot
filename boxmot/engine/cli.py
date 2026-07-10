@@ -22,6 +22,7 @@ from boxmot.configs import (
 )
 from boxmot.configs.benchmark import resolve_benchmark_cfg_path
 from boxmot.reid.core.preprocessing import PREPROCESS_REGISTRY
+from boxmot.trackers.registry import TRACKER_MAPPING
 from boxmot.utils.misc import parse_imgsz
 
 RUNTIME_DEFAULTS = BOXMOT_DEFAULTS.eval
@@ -33,6 +34,7 @@ TRAIN_DEFAULTS = BOXMOT_DEFAULTS.train
 SHARED_DEFAULTS = BOXMOT_DEFAULTS.shared
 
 _TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
+_TRACKER_HELP = ", ".join(TRACKER_MAPPING)
 
 
 def _click_imgsz_default(value):
@@ -185,7 +187,7 @@ def core_options(func):
         click.option('--ci', is_flag=True, default=RUNTIME_DEFAULTS.ci,
                      help='reuse existing runs in CI (no UI)'),
         click.option('--tracker', type=str, default=RUNTIME_DEFAULTS.tracker, show_default=True,
-                     help='deepocsort, botsort, strongsort, ...'),
+                     help=f'one of: {_TRACKER_HELP}'),
         click.option('--verbose', is_flag=True, default=RUNTIME_DEFAULTS.verbose,
                      help='print detailed logs'),
         click.option('--show-timing/--hide-timing', default=RUNTIME_DEFAULTS.show_timing, show_default=True,
@@ -623,7 +625,7 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, train, export]")
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
-            formatter.write_text("       --tracker selects one of [deepocsort, botsort, bytetrack, strongsort, ocsort, hybridsort, boosttrack, sfsort]")
+            formatter.write_text(f"       --tracker selects one of [{_TRACKER_HELP}]")
             formatter.write_text("       OPTIONS (optional) flags like '--source 0' for tracking inputs or '--benchmark mot17 --split ablation' for benchmark-driven eval/tune/research runs.")
             formatter.write_text("       Benchmark configs select their dataset, detector, and ReID profiles.")
             formatter.write_text("          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'")

@@ -129,18 +129,31 @@ def _resolve_tracker_args(
 def _resolve_native_tracker_args(
     tracker_config: str | Path | None,
     evolve_param_dict: dict[str, Any] | None,
+    tracker_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     if evolve_param_dict is not None:
-        return evolve_param_dict.copy()
-    if tracker_config is not None:
-        return _load_config_defaults(tracker_config)
-    return None
+        cfg_dict = evolve_param_dict.copy()
+    elif tracker_config is not None:
+        cfg_dict = _load_config_defaults(tracker_config)
+    else:
+        cfg_dict = None
+
+    if tracker_kwargs:
+        cfg_dict = {} if cfg_dict is None else cfg_dict
+        cfg_dict.update(tracker_kwargs)
+    return cfg_dict
 
 
 def _load_tracker_class(definition: TrackerDefinition):
     module_path, class_name = definition.class_path.rsplit(".", 1)
     module = importlib.import_module(module_path)
     return getattr(module, class_name)
+
+
+def get_tracker_class(tracker_type: str):
+    """Return the registered tracker class for a tracker type."""
+
+    return _load_tracker_class(get_tracker_definition(tracker_type))
 
 
 def _build_reid_model(
@@ -171,13 +184,14 @@ def _create_native_tracker(
     tracker_config=None,
     reid_weights=None,
     evolve_param_dict=None,
+    tracker_kwargs=None,
     reid_preprocess=None,
 ):
     # Lazy import keeps ``boxmot.native`` optional for pure-Python users.
     from boxmot.native.registry import get_native_live_backend
 
     native = get_native_live_backend(tracker_type)
-    cfg_dict = _resolve_native_tracker_args(tracker_config, evolve_param_dict)
+    cfg_dict = _resolve_native_tracker_args(tracker_config, evolve_param_dict, tracker_kwargs)
     kwargs = {}
     if definition is not None and definition.needs_reid:
         kwargs["reid_weights"] = reid_weights
@@ -196,9 +210,11 @@ def create_tracker(
     class_ids=None,
     class_names=None,
     evolve_param_dict=None,
+    tracker_kwargs=None,
     reid_preprocess=None,
     reid_model=None,
     tracker_backend="python",
+    precomputed_reid: bool = False,
 ):
     """
     Creates and returns an instance of the specified tracker type.
@@ -214,6 +230,7 @@ def create_tracker(
     - class_ids: Optional detector class IDs allowed by this tracker.
     - class_names: Optional detector class names keyed by detector class ID.
     - evolve_param_dict: A dictionary of parameters for evolving the tracker.
+    - tracker_kwargs: Constructor overrides applied after default YAML config resolution.
     - reid_preprocess: Preprocessing method for the ReID backend (only used when building from ``reid_weights``).
     - reid_model: Pre-built ReID backend (e.g., ``ReID(...).model``). Takes
         precedence over ``reid_weights`` and lets callers share a single backend across trackers.
@@ -222,6 +239,9 @@ def create_tracker(
         delegates to the registered native (C++) live backend via
         :func:`boxmot.native.registry.get_native_live_backend`. The native
         backend is built on demand if it isn't already compiled.
+    - precomputed_reid: Whether appearance embeddings will be supplied by the
+        caller. When enabled, ReID-capable trackers keep appearance matching
+        active without constructing a live ReID backend from ``reid_weights``.
 
     Returns:
     - An instance of the selected tracker.
@@ -241,11 +261,14 @@ def create_tracker(
             tracker_config=tracker_config,
             reid_weights=reid_weights,
             evolve_param_dict=evolve_param_dict,
+            tracker_kwargs=tracker_kwargs,
             reid_preprocess=reid_preprocess,
         )
 
     definition = get_tracker_definition(tracker_type)
     tracker_args = _resolve_tracker_args(definition, tracker_config, evolve_param_dict)
+    if tracker_kwargs:
+        tracker_args.update(tracker_kwargs)
     tracker_args["per_class"] = per_class
     if class_ids is not None:
         tracker_args["class_ids"] = class_ids
@@ -253,13 +276,18 @@ def create_tracker(
         tracker_args["class_names"] = class_names
 
     if definition.needs_reid:
-        tracker_args["reid_model"] = _build_reid_model(
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
-            reid_model=reid_model,
-        )
+        if precomputed_reid:
+            tracker_args["reid_model"] = reid_model
+        else:
+            tracker_args["reid_model"] = _build_reid_model(
+                reid_weights=reid_weights,
+                device=device,
+                half=half,
+                reid_preprocess=reid_preprocess,
+                reid_model=reid_model,
+            )
+            if tracker_args["reid_model"] is None and "with_reid" in tracker_args:
+                tracker_args["with_reid"] = False
 
     if not definition.accepts_per_class:
         tracker_args.pop("per_class", None)
@@ -279,5 +307,6 @@ __all__ = (
     "TrackerDefinition",
     "create_tracker",
     "get_tracker_config",
+    "get_tracker_class",
     "get_tracker_definition",
 )

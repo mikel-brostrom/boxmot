@@ -129,11 +129,23 @@ class BaseTracker(
     def update(
         self,
         dets: np.ndarray,
-        img: np.ndarray,
+        img: np.ndarray = None,
         embs: np.ndarray = None,
         masks: np.ndarray = None,
+        *,
+        image: np.ndarray = None,
+        embeddings: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with one frame of detections."""
+        if image is not None:
+            if img is not None:
+                raise ValueError("Use only one of img=... or image=...")
+            img = image
+        if embeddings is not None:
+            if embs is not None:
+                raise ValueError("Use only one of embs=... or embeddings=...")
+            embs = embeddings
+
         if hasattr(dets, "dets"):
             if img is None:
                 img = getattr(dets, "orig_img", None)

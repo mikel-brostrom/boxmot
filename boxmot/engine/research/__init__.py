@@ -31,7 +31,7 @@ from .candidates import (
     _validate_candidate_content,
     _validate_candidate_keys,
 )
-from .constants import DEFAULT_PROPOSAL_MODEL, RESEARCH_METRICS, TRACKEVAL_METRIC_GLOSSARY
+from .constants import DEFAULT_PROPOSAL_MODEL, MOT_METRIC_GLOSSARY, RESEARCH_METRICS
 from .metrics import _aggregate_metrics, _metric_delta, _nested_metric_delta
 from .models import RegressionPenalties, ResearchConfig, ResearchResult
 from .paths import (
@@ -89,7 +89,7 @@ __all__ = [
     "DEFAULT_PROPOSAL_MODEL",
     "ROOT",
     "RESEARCH_METRICS",
-    "TRACKEVAL_METRIC_GLOSSARY",
+    "MOT_METRIC_GLOSSARY",
     "RegressionPenalties",
     "ResearchConfig",
     "ResearchResult",

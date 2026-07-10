@@ -60,7 +60,7 @@ Trackers that need image data during replay, such as camera-motion-compensation 
 Benchmark workflows write reusable detection and embedding caches under the project run directory, plus tracker outputs and evaluation artifacts for the selected mode.
 
 - `generate` writes the cache only.
-- `eval` writes tracker outputs and TrackEval summaries.
+- `eval` writes tracker outputs and MOT metric summaries.
 - `tune` writes trial outputs and the best parameter set.
 - `research` writes benchmark summaries for each evaluated code proposal.
 

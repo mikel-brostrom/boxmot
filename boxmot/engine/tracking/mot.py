@@ -259,7 +259,7 @@ def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarr
 
 
 def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarray:
-    """Convert OBB tracker output ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` to MMOT TrackEval format."""
+    """Convert OBB tracker output ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` to MMOT format."""
     if results.size == 0:
         return np.empty((0, 13), dtype=np.float32)
 

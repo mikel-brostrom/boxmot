@@ -4,13 +4,13 @@ This page shows the main data flow from input frames to output track rows for th
 
 ## Python live tracking
 
-Use this path when the tracker backend is `python`, which is the default for `boxmot track` and `Boxmot.track(...)`.
+Use this path when the tracker backend is `python`, which is the default for `boxmot track` and `BoxMOT.track(...)`.
 
 ```text
 User / CLI / Python API
         |
         v
-boxmot track / Boxmot.track(...)
+boxmot track / BoxMOT.track(...)
         |
         v
 run_track(...)
@@ -75,7 +75,7 @@ Use this path when BoxMOT still owns the source, detector, output handling, and 
 User selects native tracker backend
         |
         +--> boxmot track --tracker-backend cpp
-        +--> Boxmot(..., tracker="bytetrack").track(..., tracker_backend="cpp")
+        +--> BoxMOT(..., tracker="bytetrack").track(..., tracker_backend="cpp")
         |
         v
 build_tracker_from_spec(...)
@@ -199,7 +199,7 @@ run_generate_mot_results(...)
 optional postprocessing
         |
         v
-TrackEval metrics and workflow summary
+MOT metrics and workflow summary
 ```
 
 ## Related pages

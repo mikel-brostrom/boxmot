@@ -18,9 +18,9 @@ Detector and ReID defaults are defined alongside the dataset in the same benchma
 
 ## Geometry and evaluation
 
-TrackEval selection is derived from `box_type`:
+Metric geometry is derived from `box_type`:
 
-- `aabb` uses the MOTChallenge-style runner
-- `obb` uses the OBB runner for RGB image sequences
+- `aabb` uses MOTChallenge-style axis-aligned IoU
+- `obb` uses rotated IoU for RGB image sequences
 
 OBB ground truth is expected in 13-column corner format on disk.

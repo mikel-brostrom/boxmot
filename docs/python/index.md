@@ -1,19 +1,19 @@
 # Python API
 
-Use `boxmot` for the high-level workflow facade, and explicit modules such as `boxmot.detectors`, `boxmot.reid`, and `boxmot.trackers.registry` when you want lower-level control.
+Use `boxmot` for the high-level workflow facade and runtime wrappers, and explicit modules such as `boxmot.trackers.registry` or `boxmot.trackers.bbox` when you want lower-level control.
 
 ## High-level facade
 
-Use `Boxmot` when you want the Python equivalent of the CLI with minimal boilerplate:
+Use `BoxMOT` when you want the Python equivalent of the CLI with minimal boilerplate:
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
 run = boxmot.track(source="video.mp4", save=True)
 print(run)
 
-cache = Boxmot().generate(benchmark="mot17-mini")
+cache = BoxMOT().generate(benchmark="mot17-mini")
 print(cache.cache_dir)
 
 metrics = boxmot.val(benchmark="mot17-mini")
@@ -23,12 +23,57 @@ tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 print(tuned)
 ```
 
+Component strings have component-specific meanings: detector strings resolve model names or artifacts, ReID strings resolve model names or paths, and tracker strings resolve registered tracker algorithms. Keep component-specific settings grouped so options such as `half` and `max_age` do not become ambiguous:
+
+```python
+from boxmot import BoxMOT
+
+model = BoxMOT(
+    detector="yolox_x_MOT17_ablation",
+    reid="models/lmbn_n_duke.onnx",
+    tracker="occluboost",
+    detector_kwargs={
+        "confidence": 0.25,
+        "image_size": 640,
+        "half": True,
+    },
+    reid_kwargs={
+        "half": True,
+    },
+    tracker_kwargs={
+        "with_reid": True,
+    },
+)
+```
+
+Tracker selection supports the three public forms:
+
+```python
+from boxmot import BoxMOT
+from boxmot.trackers import OccluBoost
+
+simple = BoxMOT(tracker="occluboost")
+
+configured = BoxMOT(
+    tracker="occluboost",
+    tracker_kwargs={"with_reid": True},
+)
+
+by_class = BoxMOT(
+    tracker=OccluBoost,
+    tracker_kwargs={"with_reid": True},
+)
+
+tracker = OccluBoost(reid_model=my_reid, with_reid=True)
+injected = BoxMOT(tracker=tracker)
+```
+
 ReID lifecycle workflows are available from the same facade:
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-api = Boxmot()
+api = BoxMOT()
 train_result = api.train(
     model="mobilenetv2_x1_0",
     dataset="market1501",
@@ -52,9 +97,9 @@ You can also bind the facade to a ReID weight file and use the same object for
 training, export, and direct embedding extraction:
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-reid = Boxmot.reid("models/lmbn_n_duke.pt")
+reid = BoxMOT(reid="models/lmbn_n_duke.pt")
 reid.train(cfg="custom_config.yaml")
 reid = reid.export(format="onnx", half=True)
 embeddings = reid.embed(source="path/to/image.jpg")
@@ -69,12 +114,12 @@ Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned result
 Use `tracker_backend="cpp"` when the selected tracker has a native backend:
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-native_track = Boxmot(detector="yolov8n", tracker="bytetrack")
+native_track = BoxMOT(detector="yolov8n", tracker="bytetrack")
 run = native_track.track(source="video.mp4", tracker_backend="cpp")
 
-native_eval = Boxmot(tracker="ocsort")
+native_eval = BoxMOT(tracker="ocsort")
 metrics = native_eval.val(benchmark="mot17", split="ablation", tracker_backend="cpp")
 ```
 
@@ -85,9 +130,9 @@ Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort
 When you want per-frame access to tracks, detections, and embeddings, iterate the results yourself instead of passing `show=True` or `save=True`:
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-model = Boxmot(detector="yolov8l.pt", reid="lmbn_n_duke.pt", tracker="occluboost")
+model = BoxMOT(detector="yolov8l.pt", reid="lmbn_n_duke.pt", tracker="occluboost")
 results = model.track(source=0)
 
 for frame_result in results:
@@ -124,36 +169,30 @@ frame_result.close_vid()                  # finalize the video file
 If you need more control, compose the detector, ReID runtime, and tracker explicitly:
 
 ```python
-from boxmot import track
-from boxmot.reid import ReID
-from boxmot.trackers import StrongSort
-from boxmot.detectors import Detector
+import cv2
 
+from boxmot import Detector, ReIDModel
+from boxmot.trackers import OccluBoost
+
+image = cv2.imread("image.jpg")
 detector = Detector("yolov8n.pt", device="cpu")
-reid = ReID("osnet_x0_25_msmt17.pt", device="cpu")
-tracker = StrongSort(reid_weights="osnet_x0_25_msmt17.pt", device="cpu", half=False)
+reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
+tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-results = track("video.mp4", detector, reid, tracker, verbose=False)
-print(results.summary())
+detections = detector.predict(image)
+embeddings = reid.embed(image, boxes=detections.xyxy)
+tracks = tracker.update(detections, image=image, embeddings=embeddings)
 ```
 
 ## Importing trackers directly
 
-Every tracker class is exported from `boxmot.trackers`, so you can import any of them into your own project:
+`OccluBoost` is the package-level tracker export:
 
 ```python
-from boxmot.trackers import (
-    BoostTrack,
-    BotSort,
-    ByteTrack,
-    DeepOcSort,
-    HybridSort,
-    OccluBoost,
-    OcSort,
-    SFSORT,
-    StrongSort,
-)
+from boxmot.trackers import OccluBoost
 ```
+
+Use the registry for string-based construction, or import other concrete tracker classes from `boxmot.trackers.bbox.<name>`.
 
 ### Using the tracker factory
 
@@ -180,7 +219,7 @@ Import the class and pass parameters yourself for full control:
 
 ```python
 import numpy as np
-from boxmot.trackers import ByteTrack
+from boxmot.trackers.bbox.bytetrack import ByteTrack
 
 tracker = ByteTrack(
     track_high_thresh=0.6,
@@ -198,13 +237,14 @@ For ReID-aware trackers, supply a ReID model:
 
 ```python
 from boxmot.trackers import OccluBoost
-from boxmot.reid.core import ReID
+from boxmot import ReIDModel
 
-reid = ReID(weights="osnet_x0_25_msmt17.pt", device="cpu", half=False)
+reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu", half=False)
 
-tracker = OccluBoost(reid_model=reid.model)
+tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-tracks = tracker.update(dets, img)
+embeddings = reid.embed(img, boxes=dets[:, :4])
+tracks = tracker.update(dets, image=img, embeddings=embeddings)
 
 # tracks is a TrackResults array (M, 8) with columns:
 # [x1, y1, x2, y2, id, conf, cls, det_ind]
@@ -217,15 +257,15 @@ print(tracks.conf)  # confidences
 
 | Import name | String key | Uses ReID |
 | --- | --- | --- |
-| `ByteTrack` | `bytetrack` | No |
-| `BotSort` | `botsort` | Yes |
-| `StrongSort` | `strongsort` | Yes |
-| `OcSort` | `ocsort` | No |
-| `DeepOcSort` | `deepocsort` | Yes |
-| `HybridSort` | `hybridsort` | Yes |
-| `BoostTrack` | `boosttrack` | Yes |
+| `boxmot.trackers.bbox.bytetrack.ByteTrack` | `bytetrack` | No |
+| `boxmot.trackers.bbox.botsort.BotSort` | `botsort` | Yes |
+| `boxmot.trackers.bbox.strongsort.StrongSort` | `strongsort` | Yes |
+| `boxmot.trackers.bbox.ocsort.OcSort` | `ocsort` | No |
+| `boxmot.trackers.bbox.deepocsort.DeepOcSort` | `deepocsort` | Yes |
+| `boxmot.trackers.bbox.hybridsort.HybridSort` | `hybridsort` | Yes |
+| `boxmot.trackers.bbox.boosttrack.BoostTrack` | `boosttrack` | Yes |
 | `OccluBoost` | `occluboost` | Yes |
-| `SFSORT` | `sfsort` | No |
+| `boxmot.trackers.bbox.sfsort.SFSORT` | `sfsort` | No |
 
 !!! tip "Custom config overrides"
     Pass `tracker_config` to `create_tracker` to load a non-default YAML, or
@@ -243,5 +283,5 @@ print(tracks.conf)  # confidences
 
 ## Reference pages
 
-- [High-level API](high-level.md) — `Boxmot` facade, `track(...)`, `evaluate(...)`, and result objects
+- [High-level API](high-level.md) — `BoxMOT`, `Detector`, `ReIDModel`, explicit workflow helpers, and result objects
 - [Low-level API](low-level.md) — `Detector`, `ReID`, and the tracker factory

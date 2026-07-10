@@ -34,9 +34,9 @@
         Use the high-level Python API:
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         run = boxmot.track(source="video.mp4", save=True)
         print(run)
 

@@ -26,12 +26,12 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        benchmark_cache = Boxmot().generate(benchmark="mot17", split="ablation")
+        benchmark_cache = BoxMOT().generate(benchmark="mot17", split="ablation")
         print(benchmark_cache.cache_dir)
 
-        direct_cache = Boxmot(
+        direct_cache = BoxMOT(
             detector="yolov8n",
             reid="osnet_x0_25_msmt17",
         ).generate(source="path/to/dataset")

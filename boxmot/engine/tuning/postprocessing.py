@@ -6,11 +6,11 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from rich.markup import escape as _escape_markup
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config, normalize_trial_config
 from boxmot.engine.workflows.reporting import SUMMARY_COLUMNS
 from boxmot.utils import logger as LOGGER
-from rich.markup import escape as _escape_markup
 
 # Metrics that must be summed across classes (not averaged), because they are counts
 METRIC_SUM = frozenset({"IDSW", "IDs"})
@@ -24,7 +24,7 @@ ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 # ---------------------------------------------------------------------------
 
 def aggregate_results(results: dict) -> dict:
-    """Aggregate per-class trackeval results into a single flat dict.
+    """Aggregate per-class MOT metric results into a single flat dict.
 
     Ratio metrics are averaged; count metrics (IDSW, IDs) are summed.
     """

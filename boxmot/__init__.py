@@ -1,52 +1,31 @@
-"""BoxMOT package metadata and lazy Python API re-exports.
-
-The package root stays intentionally small so CLI/docs tooling can import
-``boxmot`` without immediately pulling in the runtime stack. Public Python API
-symbols are re-exported lazily from ``boxmot.api`` so both ``import boxmot.api``
-and ``from boxmot import Boxmot`` remain supported.
-"""
+"""BoxMOT package metadata and lazy public API exports."""
 
 from importlib import import_module
 from typing import TYPE_CHECKING
 
 __version__ = "19.0.0"
 
-_API_EXPORTS = (
-    "Boxmot",
-    "ExportResult",
-    "GenerateResult",
-    "ResearchResult",
-    "TrackRunResult",
-    "TrainResult",
-    "TuneResult",
-    "TuneTrialResult",
-    "ValidationResult",
-    "evaluate",
-    "track",
-)
+_EXPORTS = {
+    "BoxMOT": ("boxmot.pipeline", "BoxMOT"),
+    "Detector": ("boxmot.models.detector", "Detector"),
+    "ReIDModel": ("boxmot.models.reid", "ReIDModel"),
+}
 
-__all__ = ("__version__", *_API_EXPORTS)
+__all__ = tuple(_EXPORTS)
 
 
 if TYPE_CHECKING:
-    from boxmot.api.client import Boxmot
-    from boxmot.api.functional import evaluate, track
-    from boxmot.engine.research.models import ResearchResult
-    from boxmot.engine.workflows.results import (
-        ExportResult,
-        GenerateResult,
-        TrackRunResult,
-        TuneResult,
-        TuneTrialResult,
-        ValidationResult,
-    )
-    from boxmot.reid.training.trainer import TrainResult
+    from boxmot.models.detector import Detector
+    from boxmot.models.reid import ReIDModel
+    from boxmot.pipeline import BoxMOT
 
 
 def __getattr__(name: str):
-    if name in _API_EXPORTS:
-        api_module = import_module("boxmot.api")
-        return getattr(api_module, name)
+    if name in _EXPORTS:
+        module_name, attr_name = _EXPORTS[name]
+        value = getattr(import_module(module_name), attr_name)
+        globals()[name] = value
+        return value
     raise AttributeError(f"module 'boxmot' has no attribute {name!r}")
 
 

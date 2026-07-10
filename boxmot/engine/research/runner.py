@@ -39,9 +39,9 @@ from .constants import (
     _EVAL_SNIPPET,
     _PREFLIGHT_SNIPPET,
     _RESEARCH_ROOT,
+    MOT_METRIC_GLOSSARY,
     RESEARCH_EXTRA,
     RESEARCH_METRICS,
-    TRACKEVAL_METRIC_GLOSSARY,
 )
 from .metrics import _metric_delta, _nested_metric_delta
 from .models import ResearchConfig, ResearchResult
@@ -419,7 +419,7 @@ class TrackerResearcher:
         if not result["ok"]:
             side_info = {
                 "scores": {"score": 0.0},
-                "TrackEval Summary Label": result.get("summary_label", self.baseline_summary_label),
+                "MOT Metrics Summary Label": result.get("summary_label", self.baseline_summary_label),
                 "Sequences": list(self.selected_sequences),
                 "Combined Metrics": result["summary"],
                 "Baseline Metrics": self.baseline_summary or {metric: 0.0 for metric in RESEARCH_METRICS},
@@ -437,7 +437,7 @@ class TrackerResearcher:
                     result.get("per_class_metrics", {}),
                     self.baseline_per_class_metrics,
                 ),
-                "Metric Glossary": TRACKEVAL_METRIC_GLOSSARY,
+                "Metric Glossary": MOT_METRIC_GLOSSARY,
                 "Changed Files": change_summary,
                 "Error": result["error"],
                 "Validation": result.get("static_errors", []),
@@ -452,7 +452,7 @@ class TrackerResearcher:
 
         side_info = {
             "scores": {"score": score},
-            "TrackEval Summary Label": result.get("summary_label", self.baseline_summary_label),
+            "MOT Metrics Summary Label": result.get("summary_label", self.baseline_summary_label),
             "Sequences": list(self.selected_sequences),
             "Combined Metrics": summary,
             "Baseline Metrics": self.baseline_summary,
@@ -467,7 +467,7 @@ class TrackerResearcher:
                 result.get("per_class_metrics", {}),
                 self.baseline_per_class_metrics,
             ),
-            "Metric Glossary": TRACKEVAL_METRIC_GLOSSARY,
+            "Metric Glossary": MOT_METRIC_GLOSSARY,
             "Penalty Breakdown": penalty_breakdown,
             "Changed Files": change_summary,
             "Stdout": result.get("stdout", ""),
@@ -508,7 +508,7 @@ class TrackerResearcher:
             "Default research scope is code-first: prioritize tracker implementation changes "
             "over standalone config tuning.\n"
             "Use the existing BoxMOT evaluation pipeline: generate detections/embeddings, run the tracker, "
-            "then score with TrackEval over the full selected benchmark sequence set on every candidate "
+            "then score with BoxMOT's MOT metrics over the full selected benchmark sequence set on every candidate "
             "evaluation. The scalar search score is combined HOTA minus penalties for any combined IDF1 or "
             "MOTA regression versus the baseline benchmark run. Keep imports minimal, preserve file paths, and "
             "avoid introducing new dependencies."

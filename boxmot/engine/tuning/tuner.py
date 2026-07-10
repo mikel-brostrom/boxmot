@@ -27,13 +27,12 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
-from boxmot.engine.eval.evaluator import eval_setup, run_eval, run_generate_dets_embs
 from boxmot.engine.tuning.backends import (  # noqa: F401
     SEARCH_BACKENDS,
     build_search_backend,
     resolve_search_backend,
 )
-from boxmot.engine.tuning.backends import (
+from boxmot.engine.tuning.backends import (  # noqa: F401
     resolve_search_backend as _resolve_search_backend,
 )
 from boxmot.engine.tuning.backends.hyperopt_backend import (  # noqa: F401
@@ -57,25 +56,25 @@ from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     save_all_results,
     score_summary,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     aggregate_results as _aggregate_results,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     best_trial_data as _best_trial_data,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     collect_trial_data as _collect_trial_data,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     find_pareto_front as _find_pareto_front,
 )
 from boxmot.engine.tuning.postprocessing import (
     save_all_results as _save_all_results,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     save_results_csv as _save_results_csv,
 )
-from boxmot.engine.tuning.postprocessing import (
+from boxmot.engine.tuning.postprocessing import (  # noqa: F401
     write_trial_yaml as _write_trial_yaml,
 )
 
@@ -88,25 +87,25 @@ from boxmot.engine.tuning.search_space import (
     load_yaml_config,
     normalize_trial_config,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     default_tune_config as _default_tune_config,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     flatten_yaml_config as _flatten_yaml_config,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     is_valid_search_param as _is_valid_search_param,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     normalize_trial_config as _normalize_trial_config,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     to_builtin_value as _to_builtin_value,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     unpack_nested_dict as _unpack_nested_dict,
 )
-from boxmot.engine.tuning.search_space import (
+from boxmot.engine.tuning.search_space import (  # noqa: F401
     yaml_to_tune_space as yaml_to_search_space,
 )
 from boxmot.engine.workflows.reporting import (
@@ -147,6 +146,27 @@ _TUNE_METRIC_ALIASES = {
     "idswitch_rate": "IDSW_rate",
     "idswitches_rate": "IDSW_rate",
 }
+
+
+def eval_setup(*args: Any, **kwargs: Any) -> Any:
+    """Lazily import evaluator setup when tuning actually starts."""
+    from boxmot.engine.eval.evaluator import eval_setup as _eval_setup
+
+    return _eval_setup(*args, **kwargs)
+
+
+def run_generate_dets_embs(*args: Any, **kwargs: Any) -> Any:
+    """Lazily import cache generation when tuning actually starts."""
+    from boxmot.engine.eval.evaluator import run_generate_dets_embs as _run_generate_dets_embs
+
+    return _run_generate_dets_embs(*args, **kwargs)
+
+
+def run_eval(*args: Any, **kwargs: Any) -> Any:
+    """Lazily import evaluation inside Ray trial execution."""
+    from boxmot.engine.eval.evaluator import run_eval as _run_eval
+
+    return _run_eval(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -213,9 +233,7 @@ class Tuner:
 
     def fit(self):
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
-        _sync_tuning_requirements(verbose=bool(getattr(self.args, "verbose", False)))
         self._resolve_metrics()
-        self._setup_ray()
         return self._run()
 
     # ------------------------------------------------------------------
@@ -258,12 +276,8 @@ class Tuner:
         ray.init(**init_kwargs)
 
     def _run(self):
-        from ray import tune
-        from ray.tune import RunConfig
-
         args = self.args
         maximize, minimize = self._maximize, self._minimize
-        self._configure_warning_filters()
 
         args.detector = [Path(y).resolve() for y in args.detector]
         args.reid = [Path(r).resolve() for r in args.reid]
@@ -288,113 +302,127 @@ class Tuner:
         opt_metrics = maximize + minimize
         opt_modes = ["max"] * len(maximize) + ["min"] * len(minimize)
 
-        search_alg, param_space = build_search_backend(
-            backend=search_backend,
-            yaml_cfg=yaml_cfg,
-            tune=tune,
-            opt_metrics=opt_metrics,
-            opt_modes=opt_modes,
-            baseline_config=baseline,
-            seed=getattr(args, "seed", None),
-            max_concurrent=max_concurrent,
-        )
-
         # Pipeline and callback
         pipeline = TuneWorkflowReporter(args, maximize=maximize, minimize=minimize).pipeline(auto_start=False)
         tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
         set_tune_progress_workflow(pipeline.workflow)
 
         try:
-          with pipeline:
-            with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-                eval_setup(args, pipeline=pipeline)
+            with pipeline:
+                pipeline.update("Initializing tuning runtime...")
+                pipeline.start()
 
-            pipeline.refresh_fields(build_tune_workflow_fields(args, maximize=maximize, minimize=minimize))
+                self._configure_warning_filters()
+                _sync_tuning_requirements(verbose=bool(getattr(args, "verbose", False)))
 
-            tune_dir = self._resolve_tune_dir()
-            tune_name = tune_dir.name
-            resume_tune = getattr(args, "resume_tune", None) or None
+                pipeline.update("Initializing Ray...")
+                self._setup_ray()
 
-            ray_dir = tune_dir.parent
-            if ray_dir.name != "ray" and ray_dir.parent.name == "ray":
-                ray_dir = ray_dir.parent
-            if resume_tune and ray_dir.name == "ray":
-                inferred_project = ray_dir.parent
-                if inferred_project != Path(args.project).resolve():
-                    args.project = str(inferred_project)
+                pipeline.update("Loading Ray Tune...")
+                from ray import tune
+                from ray.tune import RunConfig
 
-            pipeline.advance("Preparing benchmark cache...")
-            pipeline.start()
-
-            with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-                try:
-                    run_generate_dets_embs(args)
-                except Exception as exc:
-                    raise RuntimeError(
-                        f"Failed to prepare detection/embedding cache: {exc}"
-                    ) from exc
-
-            # KF calibration (once, before trials start)
-            if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
-                from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
-
-                pipeline.advance("Calibrating Kalman filter noise...")
-                kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
-                if kf_type:
-                    kf_result, kf_log = run_kf_tuning(args, kf_type, capture=True)
-                    if kf_result is not None:
-                        kf_result["kf_type"] = kf_type
-                        args.kf_tuning = kf_result
-                        pipeline.update(
-                            "KF tuning applied "
-                            f"({kf_type}): "
-                            f"std_pos={kf_result['std_weight_position']:.6f}, "
-                            f"std_vel={kf_result['std_weight_velocity']:.6f}"
-                        )
-                    elif kf_log:
-                        pipeline.update(f"KF tuning skipped or failed ({kf_type}).")
-                    else:
-                        pipeline.update(f"KF tuning skipped ({kf_type}).")
-                else:
-                    pipeline.update(f"KF tuning skipped: tracker '{args.tracker}' has no registered KF type.")
-
-            elif getattr(args, "tune_kf", False):
-                pipeline.advance("Kalman filter tuning already available.")
-                kf_result = getattr(args, "kf_tuning", None) or {}
-                kf_type = kf_result.get("kf_type", "unknown")
-                pipeline.update(
-                    "KF tuning already applied "
-                    f"({kf_type}): "
-                    f"std_pos={kf_result.get('std_weight_position', 'n/a')}, "
-                    f"std_vel={kf_result.get('std_weight_velocity', 'n/a')}"
+                pipeline.update("Building search space...")
+                search_alg, param_space = build_search_backend(
+                    backend=search_backend,
+                    yaml_cfg=yaml_cfg,
+                    tune=tune,
+                    opt_metrics=opt_metrics,
+                    opt_modes=opt_modes,
+                    baseline_config=baseline,
+                    seed=getattr(args, "seed", None),
+                    max_concurrent=max_concurrent,
                 )
 
-            pipeline.advance(format_initial_tune_progress(int(args.n_trials)))
+                pipeline.update("Preparing evaluation setup...")
+                with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+                    eval_setup(args, pipeline=pipeline)
 
-            objective = TrackerObjective(self._make_safe_namespace())
+                pipeline.refresh_fields(build_tune_workflow_fields(args, maximize=maximize, minimize=minimize))
 
-            def tune_wrapper(cfg):
-                return objective(normalize_trial_config(cfg))
+                tune_dir = self._resolve_tune_dir()
+                tune_name = tune_dir.name
+                resume_tune = getattr(args, "resume_tune", None) or None
 
-            n_threads = int(args.n_threads)
-            trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
+                ray_dir = tune_dir.parent
+                if ray_dir.name != "ray" and ray_dir.parent.name == "ray":
+                    ray_dir = ray_dir.parent
+                if resume_tune and ray_dir.name == "ray":
+                    inferred_project = ray_dir.parent
+                    if inferred_project != Path(args.project).resolve():
+                        args.project = str(inferred_project)
 
-            # Build or restore the Ray Tuner
-            tuner = self._build_or_restore_tuner(
-                trainable, tune, RunConfig, tune_callback, pipeline,
-                param_space, search_alg, tune_dir, tune_name, max_concurrent,
-            )
+                pipeline.advance("Preparing benchmark cache...")
 
-            # Execute
-            result_grid, interrupted = self._execute_tuner(tuner)
+                with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+                    try:
+                        run_generate_dets_embs(args)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            f"Failed to prepare detection/embedding cache: {exc}"
+                        ) from exc
 
-            # Post-process
-            saved_artifacts = self._post_process(result_grid, tune_dir, yaml_cfg, maximize, minimize)
+                # KF calibration (once, before trials start)
+                if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
+                    from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
 
-            # Final UI
-            self._finalize_ui(pipeline, saved_artifacts, baseline, maximize, minimize, tune_dir, interrupted)
+                    pipeline.advance("Calibrating Kalman filter noise...")
+                    kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
+                    if kf_type:
+                        kf_result, kf_log = run_kf_tuning(args, kf_type, capture=True)
+                        if kf_result is not None:
+                            kf_result["kf_type"] = kf_type
+                            args.kf_tuning = kf_result
+                            pipeline.update(
+                                "KF tuning applied "
+                                f"({kf_type}): "
+                                f"std_pos={kf_result['std_weight_position']:.6f}, "
+                                f"std_vel={kf_result['std_weight_velocity']:.6f}"
+                            )
+                        elif kf_log:
+                            pipeline.update(f"KF tuning skipped or failed ({kf_type}).")
+                        else:
+                            pipeline.update(f"KF tuning skipped ({kf_type}).")
+                    else:
+                        pipeline.update(f"KF tuning skipped: tracker '{args.tracker}' has no registered KF type.")
 
-            return result_grid, tune_dir, maximize, minimize
+                elif getattr(args, "tune_kf", False):
+                    pipeline.advance("Kalman filter tuning already available.")
+                    kf_result = getattr(args, "kf_tuning", None) or {}
+                    kf_type = kf_result.get("kf_type", "unknown")
+                    pipeline.update(
+                        "KF tuning already applied "
+                        f"({kf_type}): "
+                        f"std_pos={kf_result.get('std_weight_position', 'n/a')}, "
+                        f"std_vel={kf_result.get('std_weight_velocity', 'n/a')}"
+                    )
+
+                pipeline.advance(format_initial_tune_progress(int(args.n_trials)))
+
+                objective = TrackerObjective(self._make_safe_namespace())
+
+                def tune_wrapper(cfg):
+                    return objective(normalize_trial_config(cfg))
+
+                n_threads = int(args.n_threads)
+                trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
+
+                # Build or restore the Ray Tuner
+                tuner = self._build_or_restore_tuner(
+                    trainable, tune, RunConfig, tune_callback, pipeline,
+                    param_space, search_alg, tune_dir, tune_name, max_concurrent,
+                )
+
+                # Execute
+                result_grid, interrupted = self._execute_tuner(tuner)
+
+                # Post-process
+                saved_artifacts = self._post_process(result_grid, tune_dir, yaml_cfg, maximize, minimize)
+
+                # Final UI
+                self._finalize_ui(pipeline, saved_artifacts, baseline, maximize, minimize, tune_dir, interrupted)
+
+                return result_grid, tune_dir, maximize, minimize
         finally:
             set_tune_progress_workflow(None)
 
@@ -600,7 +628,12 @@ class Tuner:
             os.environ["PYTHONWARNINGS"] = ",".join(filter(None, [existing, _TUNE_WARNING_FILTER]))
         os.environ.setdefault("RAY_AIR_NEW_OUTPUT", "0")
         warnings.filterwarnings("ignore", message=r"Tip: In future versions of Ray.*", category=FutureWarning)
-        warnings.filterwarnings("ignore", message=r"The distribution is specified by.*", category=UserWarning, module=r"optuna\.distributions")
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The distribution is specified by.*",
+            category=UserWarning,
+            module=r"optuna\.distributions",
+        )
 
         try:
             import optuna.logging as optuna_logging

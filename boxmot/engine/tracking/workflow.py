@@ -17,6 +17,7 @@ from boxmot.engine.workflows.support import (
     resolve_tracker_class_metadata,
     resolve_output_fps,
     resolve_track_output_dir,
+    tracker_reid_model_from_spec,
 )
 from boxmot.utils.misc import suppress_boxmot_logs
 from boxmot.utils.rich.reporters.track import TRACK_RUN_STEP, TRACK_SETUP_STEP, TrackWorkflowReporter
@@ -46,7 +47,12 @@ def _consume_run(result: TrackRunResult) -> None:
     result.refresh()
 
 
-def _build_detector(args, detector_spec: Any, classes: list[int] | None):
+def _build_detector(
+    args,
+    detector_spec: Any,
+    classes: list[int] | None,
+    detector_kwargs: dict[str, Any] | None,
+):
     spec = detector_spec if detector_spec is not None else first_value(getattr(args, "detector", None))
     return build_detector_from_spec(
         spec,
@@ -55,37 +61,62 @@ def _build_detector(args, detector_spec: Any, classes: list[int] | None):
         imgsz=getattr(args, "imgsz", None),
         conf=getattr(args, "conf", None),
         iou=float(getattr(args, "iou", get_mode_default("track", "iou"))),
+        detector_kwargs=detector_kwargs,
     )
 
 
 def _build_tracker(
     args,
     tracker_spec: Any,
+    reid_spec: Any,
     *,
     class_ids: tuple[int, ...] | None = None,
     class_names: dict[int, str] | None = None,
+    reid_kwargs: dict[str, Any] | None = None,
+    tracker_kwargs: dict[str, Any] | None = None,
 ):
     spec = tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker"))
-    reid_weights = reid_path_from_spec(first_value(getattr(args, "reid", None)), required=False)
+    resolved_reid_spec = reid_spec if reid_spec is not None else first_value(getattr(args, "reid", None))
+    reid_weights = reid_path_from_spec(resolved_reid_spec, required=False)
+    reid_model = tracker_reid_model_from_spec(resolved_reid_spec)
+    runtime_reid_kwargs = dict(reid_kwargs or {})
+    if "preprocess_name" in runtime_reid_kwargs:
+        raise ValueError("Unsupported reid_kwargs: preprocess_name. Use preprocess=... instead.")
+    unknown_reid_kwargs = set(runtime_reid_kwargs) - {"device", "half", "preprocess"}
+    if unknown_reid_kwargs:
+        unknown = ", ".join(sorted(unknown_reid_kwargs))
+        raise ValueError(f"Unknown reid_kwargs: {unknown}")
+    reid_device = runtime_reid_kwargs.get("device", getattr(args, "device", get_mode_default("track", "device")))
+    reid_half = runtime_reid_kwargs.get("half", bool(getattr(args, "half", get_mode_default("track", "half"))))
+    reid_preprocess = runtime_reid_kwargs.get("preprocess", getattr(args, "reid_preprocess", None))
     return build_tracker_from_spec(
         spec,
-        device=getattr(args, "device", get_mode_default("track", "device")),
-        half=bool(getattr(args, "half", get_mode_default("track", "half"))),
+        device=reid_device,
+        half=bool(reid_half),
         tracker_backend=getattr(args, "tracker_backend", None),
         reid_weights=reid_weights,
-        reid_preprocess=getattr(args, "reid_preprocess", None),
+        reid_model=reid_model,
+        reid_preprocess=reid_preprocess,
         class_ids=class_ids,
         class_names=class_names,
+        tracker_kwargs=tracker_kwargs,
     )
 
 
-def _build_reid(args, tracker: Any, reid_spec: Any, tracker_spec: Any):
+def _build_reid(
+    args,
+    tracker: Any,
+    reid_spec: Any,
+    tracker_spec: Any,
+    reid_kwargs: dict[str, Any] | None,
+):
     return build_tracker_with_reid_spec(
         tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker")),
         tracker,
         reid_spec if reid_spec is not None else first_value(getattr(args, "reid", None)),
         device=getattr(args, "device", get_mode_default("track", "device")),
         half=bool(getattr(args, "half", get_mode_default("track", "half"))),
+        reid_kwargs=reid_kwargs,
     )
 
 
@@ -99,6 +130,9 @@ def run_track(
     reid_spec: Any = None,
     tracker_spec: Any = None,
     classes: list[int] | None = None,
+    detector_kwargs: dict[str, Any] | None = None,
+    reid_kwargs: dict[str, Any] | None = None,
+    tracker_kwargs: dict[str, Any] | None = None,
     drawer=None,
     show_trajectories: bool = False,
     pipeline: PipelineTracker | None = None,
@@ -107,16 +141,32 @@ def run_track(
     verbose = bool(getattr(args, "verbose", get_mode_default("track", "verbose")))
 
     with suppress_boxmot_logs((not verbose) or pipeline is not None, level="WARNING"):
-        detector_runtime = detector if detector is not None else _build_detector(args, detector_spec, classes)
+        detector_runtime = (
+            detector
+            if detector is not None
+            else _build_detector(args, detector_spec, classes, detector_kwargs)
+        )
         class_ids, class_names = resolve_tracker_class_metadata(args, detector_runtime)
         tracker_runtime = (
             tracker
             if tracker is not None
-            else _build_tracker(args, tracker_spec, class_ids=class_ids, class_names=class_names)
+            else _build_tracker(
+                args,
+                tracker_spec,
+                reid_spec,
+                class_ids=class_ids,
+                class_names=class_names,
+                reid_kwargs=reid_kwargs,
+                tracker_kwargs=tracker_kwargs,
+            )
         )
         if tracker is not None and hasattr(tracker_runtime, "configure_class_catalog"):
             tracker_runtime.configure_class_catalog(class_ids=class_ids, class_names=class_names)
-        reid_runtime = reid if reid is not None else _build_reid(args, tracker_runtime, reid_spec, tracker_spec)
+        reid_runtime = (
+            reid
+            if reid is not None
+            else _build_reid(args, tracker_runtime, reid_spec, tracker_spec, reid_kwargs)
+        )
 
     if show_trajectories and drawer is None:
         drawer = lambda frame, tracks: tracker_runtime.plot_results(frame, show_trajectories=True)

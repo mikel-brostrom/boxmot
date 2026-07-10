@@ -27,7 +27,7 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_detector,
     should_use_benchmark_reid,
 )
-from boxmot.data.benchmark import build_gt_class_remap, resolve_obb_eval_class_pairs
+from boxmot.data.benchmark import build_gt_class_remap, load_benchmark_cfg_from_args, resolve_obb_eval_class_pairs
 from boxmot.engine.eval.trackeval.runner import build_dataset_eval_settings
 
 
@@ -88,6 +88,56 @@ def test_benchmark_yaml_supports_inline_dataset_detector_reid_blocks():
     assert cfg["dataset_config"] == "mot17-mini"
     assert cfg["detector"]["id"] == "yolox_x_mot17_ablation"
     assert cfg["reid"]["id"] == "lmbn_n_duke"
+
+
+def test_load_benchmark_cfg_from_args_falls_back_to_data_path(tmp_path):
+    cfg_path = tmp_path / "local-mmot.yaml"
+    cfg_path.write_text(
+        """
+id: local-mmot
+dataset:
+  id: local-mmot
+  root: /tmp/local-mmot
+  layout: mot
+  box_type: obb
+  splits:
+    test: test/npy
+  default_split: test
+  classes:
+    1: car
+evaluation:
+  classes:
+    - {name: car, dataset_id: 1, detector_id: 0, detector_name: car}
+download:
+  runs: ""
+detector:
+  id: yolo11l_3ch
+  model: yolo11l_3ch.pt
+  box_type: obb
+  imgsz: [1280, 1280]
+  conf: 0.2
+reid:
+  id: lmbn_n_duke
+  model: models/lmbn_n_duke.pt
+  half: true
+  preprocess: resize
+""",
+        encoding="utf-8",
+    )
+    args = SimpleNamespace(
+        benchmark_id=None,
+        dataset_id=None,
+        benchmark="local-mmot",
+        data=str(cfg_path),
+    )
+
+    cfg = load_benchmark_cfg_from_args(args)
+
+    assert cfg["id"] == "local-mmot"
+    assert cfg["detector"]["id"] == "yolo11l_3ch"
+    assert cfg["detector"]["default_model"] == "yolo11l_3ch.pt"
+    assert cfg["reid"]["id"] == "lmbn_n_duke"
+    assert cfg["benchmark"]["box_type"] == "obb"
 
 
 def test_dataset_path_stays_dataset_yaml():

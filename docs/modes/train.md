@@ -106,19 +106,19 @@ When training finishes, BoxMOT reports the best checkpoint path along with the b
 
 ## Scope
 
-`train` is available from both the CLI and the high-level `Boxmot.train(...)` Python facade.
+`train` is available from both the CLI and the high-level `BoxMOT.train(...)` Python facade.
 
 ```python
-from boxmot import Boxmot
+from boxmot import BoxMOT
 
-model = Boxmot("mobilenetv4")
+model = BoxMOT("mobilenetv4")
 model.train(cfg="mobilenetv4_custom.yaml")
 ```
 
-When the first positional argument matches a registered ReID training recipe or backbone, it is used as the training profile; detector names still configure tracking detectors. A ReID weight filename can also seed the training profile while binding the object to that weight for later export or embedding via `Boxmot.reid(...)`:
+When the first positional argument matches a registered ReID training recipe or backbone, it is used as the training profile; detector names still configure tracking detectors. A ReID weight filename can also seed the training profile while binding the object to that weight for later export or embedding:
 
 ```python
-reid = Boxmot.reid("mobilenetv4.pt")
+reid = BoxMOT(reid="mobilenetv4.pt")
 reid.train(cfg="custom_config.yaml")
 ```
 

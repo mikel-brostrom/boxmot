@@ -1,6 +1,6 @@
 # Evaluate
 
-Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed metrics.
+Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MOT metrics.
 
 ## Examples
 
@@ -15,9 +15,9 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17", split="ablation")
         print(metrics)
         ```
@@ -40,9 +40,9 @@ Use `eval` to score tracking runs on MOT-style datasets with TrackEval-backed me
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
+        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
         metrics = boxmot.val(benchmark="mot17", split="ablation")
         print(metrics)
         ```
@@ -101,7 +101,7 @@ For runtime adaptation without ground truth, use `--adaptive-kf` instead, which 
 
     === "Python"
 
-        `Boxmot.val(...)` is the Python-facing validation entry point. Postprocessing details and metric interpretation are the same as in the CLI evaluation pipeline.
+        `BoxMOT.val(...)` is the Python-facing validation entry point. Postprocessing details and metric interpretation are the same as in the CLI evaluation pipeline.
 
 !!! warning "Chained steps overwrite in place"
     When chaining multiple postprocessing steps, each step reads the MOT result files, transforms them, and writes back to the same directory. The second step operates on the output of the first.

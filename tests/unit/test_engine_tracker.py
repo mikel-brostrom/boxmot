@@ -4,9 +4,11 @@ from types import SimpleNamespace
 
 import pytest
 
+import boxmot.engine.tracking.runtime as tracker_runtime_module
 import boxmot.engine.tracking.workflow as tracker_module
 import boxmot.utils.rich.core.ui as ui_module
 from boxmot.engine.workflows import support as workflow_support_module
+from boxmot.trackers import OccluBoost
 
 
 def test_should_consume_result_for_finite_sources_without_output():
@@ -80,6 +82,32 @@ def test_should_consume_result_keeps_live_and_output_sources_lazy():
         )
         is False
     )
+
+
+def test_tracker_runtime_forwards_precomputed_reid(monkeypatch):
+    seen = {}
+
+    class _FakeTracker:
+        def update(self, dets, img, **kwargs):
+            return []
+
+    def fake_create_tracker(**kwargs):
+        seen.update(kwargs)
+        return _FakeTracker()
+
+    monkeypatch.setattr(tracker_runtime_module, "create_tracker", fake_create_tracker)
+
+    runtime = tracker_runtime_module.TrackerRuntime.create(
+        tracker_name="occluboost",
+        reid_weights="unused.pt",
+        device="cpu",
+        half=False,
+        per_class=False,
+        precomputed_reid=True,
+    )
+
+    assert isinstance(runtime, tracker_runtime_module.TrackerRuntime)
+    assert seen["precomputed_reid"] is True
 
 
 def test_workflow_support_routes_cpp_live_tracker_backend(monkeypatch):
@@ -207,6 +235,43 @@ def test_build_tracker_from_spec_forwards_class_metadata(monkeypatch):
     assert tracker == "tracker"
     assert seen["class_ids"] == (0, 7)
     assert seen["class_names"] == {0: "car", 7: "awning-bike"}
+
+
+def test_build_tracker_from_spec_accepts_tracker_class_and_kwargs(monkeypatch):
+    seen = {}
+
+    def fake_create_tracker(**kwargs):
+        seen.update(kwargs)
+        return "tracker"
+
+    monkeypatch.setattr(workflow_support_module, "create_tracker", fake_create_tracker)
+    monkeypatch.setattr(workflow_support_module, "select_device", lambda device: device)
+
+    tracker = workflow_support_module.build_tracker_from_spec(
+        OccluBoost,
+        reid_model="reid-runtime",
+        tracker_kwargs={"with_reid": True, "max_age": 30},
+    )
+
+    assert tracker == "tracker"
+    assert seen["tracker_type"] == "occluboost"
+    assert seen["reid_model"] == "reid-runtime"
+    assert seen["tracker_kwargs"] == {"with_reid": True, "max_age": 30}
+
+
+def test_build_tracker_from_spec_rejects_kwargs_for_initialized_tracker():
+    with pytest.raises(ValueError, match="tracker_kwargs"):
+        workflow_support_module.build_tracker_from_spec(object(), tracker_kwargs={"with_reid": True})
+
+
+def test_tracker_reid_model_from_spec_prefers_get_features_object():
+    class ReIDRuntime:
+        def get_features(self, boxes, image):
+            return None
+
+    runtime = ReIDRuntime()
+
+    assert workflow_support_module.tracker_reid_model_from_spec(runtime) is runtime
 
 
 def test_workflow_support_rejects_unsupported_cpp_live_tracker_backend():

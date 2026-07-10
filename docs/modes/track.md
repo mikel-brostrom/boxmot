@@ -20,9 +20,9 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+        boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
         run = boxmot.track(source="video.mp4", save=True)
         print(run)
         ```
@@ -64,19 +64,19 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
+        boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
         saved = boxmot.track(source="video.mp4", save=True, save_txt=True)
         print(saved.video_path)
         print(saved.text_path)
 
-        filtered = Boxmot(detector="yolov8s", tracker="bytetrack", classes=[16, 17])
+        filtered = BoxMOT(detector="yolov8s", tracker="bytetrack", classes=[16, 17])
         webcam_run = filtered.track(source=0, verbose=False)
         print(webcam_run.summary)
         ```
 
-        Class filtering in Python is configured on `Boxmot(...)` via `classes=[...]`, not passed to `track(...)` directly.
+        Class filtering in Python is configured on `BoxMOT(...)` via `classes=[...]`, not passed to `track(...)` directly.
 
 ## Outputs
 

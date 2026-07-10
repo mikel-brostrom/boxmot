@@ -7,17 +7,9 @@ from __future__ import annotations
 from importlib import import_module
 
 _EXPORTS = {
-    "Boxmot": ("boxmot.api.client", "Boxmot"),
-    "evaluate": ("boxmot.api.functional", "evaluate"),
-    "track": ("boxmot.api.functional", "track"),
-    "ExportResult": ("boxmot.api.results", "ExportResult"),
-    "GenerateResult": ("boxmot.api.results", "GenerateResult"),
-    "ResearchResult": ("boxmot.api.results", "ResearchResult"),
-    "TrackRunResult": ("boxmot.api.results", "TrackRunResult"),
-    "TrainResult": ("boxmot.api.results", "TrainResult"),
-    "TuneResult": ("boxmot.api.results", "TuneResult"),
-    "TuneTrialResult": ("boxmot.api.results", "TuneTrialResult"),
-    "ValidationResult": ("boxmot.api.results", "ValidationResult"),
+    "BoxMOT": ("boxmot.pipeline", "BoxMOT"),
+    "Detector": ("boxmot.models.detector", "Detector"),
+    "ReIDModel": ("boxmot.models.reid", "ReIDModel"),
 }
 
 __all__ = tuple(_EXPORTS)

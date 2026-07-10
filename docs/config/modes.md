@@ -32,4 +32,4 @@ export:
   include: [onnx]
 ```
 
-The CLI and the high-level `Boxmot` facade both resolve defaults through this file.
+The CLI and the high-level `BoxMOT` facade both resolve defaults through this file.

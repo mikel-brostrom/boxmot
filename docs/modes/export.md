@@ -46,13 +46,13 @@ TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` 
     === "Python"
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(reid="osnet_x0_25_msmt17")
+        boxmot = BoxMOT(reid="osnet_x0_25_msmt17")
         exported = boxmot.export(include=("onnx", "engine"), dynamic=True)
         print(exported.files)
 
-        reid = Boxmot.reid("models/lmbn_n_duke.pt")
+        reid = BoxMOT(reid="models/lmbn_n_duke.pt")
         reid = reid.export(format="onnx", half=True)
         embeddings = reid.embed(source="path/to/image.jpg")
         ```

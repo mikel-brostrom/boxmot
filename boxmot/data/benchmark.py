@@ -22,9 +22,7 @@ from boxmot.configs.benchmark import (
     should_use_benchmark_reid,
 )
 from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
-from boxmot.utils import TRACKEVAL
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.download import download_trackeval
 from boxmot.utils.misc import resolve_model_path
 
 COCO_CLASSES = [
@@ -41,18 +39,19 @@ COCO_CLASSES = [
 
 
 def load_benchmark_cfg_from_args(args: argparse.Namespace) -> dict:
-    benchmark = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", None)
-    )
-    if not benchmark:
-        return {}
-
-    try:
-        return load_benchmark_cfg(benchmark) or {}
-    except FileNotFoundError:
-        return {}
+    for benchmark in (
+        getattr(args, "benchmark_id", None),
+        getattr(args, "dataset_id", None),
+        getattr(args, "benchmark", None),
+        getattr(args, "data", None),
+    ):
+        if not benchmark:
+            continue
+        try:
+            return load_benchmark_cfg(benchmark) or {}
+        except FileNotFoundError:
+            continue
+    return {}
 
 
 def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
@@ -298,12 +297,12 @@ def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> l
 
 
 def resolve_obb_classes_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[str]:
-    """Resolve class names for the OBB TrackEval runner."""
+    """Resolve class names for OBB evaluation."""
     return [name for name, _ in resolve_obb_eval_class_pairs(args, bench_cfg)]
 
 
 def resolve_obb_class_ids_to_eval(args: argparse.Namespace, bench_cfg: dict) -> list[int]:
-    """Resolve zero-based class IDs for the OBB TrackEval runner."""
+    """Resolve zero-based class IDs for OBB evaluation."""
     return [class_id for _, class_id in resolve_obb_eval_class_pairs(args, bench_cfg)]
 
 
@@ -588,13 +587,10 @@ def prepare_aabb_eval_gt(
 
 def eval_init(
     args: argparse.Namespace,
-    trackeval_dest: Path = TRACKEVAL,
-    branch: str = "master",
     overwrite: bool = False,
     status_fn: Callable[[str], None] | None = None,
 ) -> None:
-    """Common initialization: download TrackEval and benchmark data, then canonicalize paths."""
-    download_trackeval(dest=trackeval_dest, branch=branch, overwrite=overwrite)
+    """Common initialization: apply benchmark data config, then canonicalize paths."""
     apply_benchmark_config(args, overwrite=overwrite, status_fn=status_fn)
 
     args.source = Path(args.source).resolve()

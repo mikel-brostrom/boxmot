@@ -74,9 +74,9 @@ The generated build files are kept under `build/native/<tracker>/`.
         Smoke-test the Python API:
 
         ```python
-        from boxmot import Boxmot
+        from boxmot import BoxMOT
 
-        boxmot = Boxmot(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
+        boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
         print(boxmot)
         ```
 
