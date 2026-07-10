@@ -12,6 +12,7 @@ from typing import Any
 import numpy as np
 
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.download import snapshot_download_hf_subfolder
 
 PARQUET_REPO = "Lekim89/mot17-parquet"
 
@@ -284,19 +285,18 @@ def _download_images(dest: Path, img_split: str, seq_info: Any, split: str, stat
         )
         marker.unlink(missing_ok=True)
 
-    snapshot_download, _ = _require_hf()
-
     msg = f"Downloading MOT17 images ({img_split})..."
     if status_fn:
         status_fn(msg)
     else:
         LOGGER.info(msg)
 
-    snapshot_download(
-        repo_id=PARQUET_REPO,
-        repo_type="dataset",
-        local_dir=str(dest),
-        allow_patterns=[f"images/{img_split}/**"],
+    snapshot_download_hf_subfolder(
+        PARQUET_REPO,
+        f"images/{img_split}",
+        dest,
+        status_fn=status_fn,
+        description=msg,
     )
 
     images_dir.mkdir(parents=True, exist_ok=True)

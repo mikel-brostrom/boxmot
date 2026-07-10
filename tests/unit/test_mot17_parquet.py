@@ -38,22 +38,17 @@ def test_mot17_image_download_refreshes_stale_marker(monkeypatch, tmp_path):
     marker.touch()
     calls = []
 
-    def fake_snapshot_download(**kwargs):
-        calls.append(kwargs)
+    def fake_snapshot_download(repo_id, subfolder, dest_root, *, status_fn=None, description=None):
+        calls.append((repo_id, subfolder, dest_root, status_fn, description))
         (img_dir / "000001.jpg").write_bytes(b"image")
         (img_dir / "000002.jpg").write_bytes(b"image")
 
-    monkeypatch.setattr(mot17_parquet, "_require_hf", lambda: (fake_snapshot_download, None))
+    monkeypatch.setattr(mot17_parquet, "snapshot_download_hf_subfolder", fake_snapshot_download)
 
     mot17_parquet._download_images(tmp_path, "train", seq_info, "train")
 
     assert calls == [
-        {
-            "repo_id": mot17_parquet.PARQUET_REPO,
-            "repo_type": "dataset",
-            "local_dir": str(tmp_path),
-            "allow_patterns": ["images/train/**"],
-        }
+        (mot17_parquet.PARQUET_REPO, "images/train", tmp_path, None, "Downloading MOT17 images (train)...")
     ]
     assert marker.exists()
 
@@ -66,9 +61,9 @@ def test_mot17_image_download_trusts_marker_when_required_images_exist(monkeypat
     (img_dir / "000002.jpg").write_bytes(b"image")
     (tmp_path / "images" / "train" / ".hf_download_complete").touch()
 
-    def fail_snapshot_download(**_kwargs):
+    def fail_snapshot_download(*_args, **_kwargs):
         raise AssertionError("complete image cache should not be downloaded")
 
-    monkeypatch.setattr(mot17_parquet, "_require_hf", lambda: (fail_snapshot_download, None))
+    monkeypatch.setattr(mot17_parquet, "snapshot_download_hf_subfolder", fail_snapshot_download)
 
     mot17_parquet._download_images(tmp_path, "train", seq_info, "train")
