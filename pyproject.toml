@@ -31,6 +31,8 @@ ignore = ["E731", "F405", "E402", "E741"]
 
 [tool.pytest.ini_options]
 norecursedirs = [
+  "boxmot/datasets/mot",
+  "boxmot/datasets/reid",
   "data/benchmarks",
   "data/trackeval",
   "boxmot/engine/eval/trackeval",

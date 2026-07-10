@@ -384,7 +384,7 @@ def download_trackeval(dest: Path, branch: str = TRACKEVAL_DEFAULT_BRANCH, overw
     Download and set up the TrackEval repository into the given destination folder.
 
     Args:
-        dest (Path): target directory for TrackEval (e.g. data/trackeval)
+        dest (Path): target directory for the TrackEval source checkout
         branch (str): Git branch to download (default "master")
         overwrite (bool): if True, force re-download even if dest already exists
     """
@@ -741,7 +741,7 @@ def download_eval_data(
     status_fn: Callable[[str], None] | None = None,
 ) -> None:
     """
-    Download & extract TrackEval evaluation data.
+    Download and extract benchmark evaluation data.
     If `runs_url` is truthy, downloads+unzips runs.zip; otherwise skips it.
     If `runs_check_path` exists, skips the runs download entirely.
     Always downloads+unzips the benchmark data.

@@ -126,16 +126,16 @@ def _summarize_alpha_rows(rows: Sequence[Mapping[str, Any]]) -> dict[str, float]
 
 def _read_csv_matrix(path: Path) -> np.ndarray:
     if not path.exists() or path.stat().st_size == 0:
-        return np.empty((0, 0), dtype=np.float32)
+        return np.empty((0, 0), dtype=float)
     try:
         data = np.loadtxt(path, delimiter=",")
     except ValueError:
-        return np.empty((0, 0), dtype=np.float32)
+        return np.empty((0, 0), dtype=float)
     if data.size == 0:
-        return np.empty((0, 0), dtype=np.float32)
+        return np.empty((0, 0), dtype=float)
     if data.ndim == 1:
         data = data.reshape(1, -1)
-    return data.astype(np.float32, copy=False)
+    return data.astype(float, copy=False)
 
 
 def _frame_count(seq_info: Mapping[str, int | None], seq_name: str, *arrays: np.ndarray) -> int:
@@ -291,7 +291,7 @@ def _build_sequence_data(
         tracker_ids = np.asarray(tracker_ids, dtype=int)
         gt_ids_by_frame.append(gt_ids)
         tracker_ids_by_frame.append(tracker_ids)
-        similarity_scores.append(np.asarray(similarity, dtype=np.float32))
+        similarity_scores.append(np.asarray(similarity, dtype=float))
         num_gt_dets += len(gt_ids)
         num_tracker_dets += len(tracker_ids)
 

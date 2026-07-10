@@ -368,7 +368,7 @@ def test_apply_benchmark_config_preserves_runtime_benchmark_name(monkeypatch):
     assert args.benchmark_id == "dancetrack"
     assert args.dataset_id == "dancetrack"
     assert args.benchmark == "dancetrack"
-    assert args.source == Path("data/benchmarks/test1/val")
+    assert args.source == Path("boxmot/datasets/mot/test1/val")
 
 
 def test_apply_benchmark_config_normalizes_benchmark_name_to_lowercase(monkeypatch):
@@ -437,17 +437,17 @@ def test_apply_benchmark_config_ignores_source_without_data(monkeypatch):
 
 
 def test_find_dataset_cfg_for_nested_source_path():
-    cfg = find_dataset_cfg_for_source("data/benchmarks/MMOT-OBB/train/data44-3/img1")
+    cfg = find_dataset_cfg_for_source("boxmot/datasets/mot/MMOT-OBB/train/data44-3/img1")
 
     assert cfg is not None
     assert cfg["id"] == "mmot"
-    assert cfg["path"] == "data/benchmarks/MMOT-OBB"
+    assert cfg["path"] == "boxmot/datasets/mot/MMOT-OBB"
 
 
 def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
     calls = {}
     monkeypatch.setattr(benchmark_config, "download_eval_data", lambda **kwargs: calls.update(kwargs))
-    source = "data/benchmarks/MMOT-OBB/train/data44-3/img1"
+    source = "boxmot/datasets/mot/MMOT-OBB/train/data44-3/img1"
     real_exists = Path.exists
 
     def fake_exists(self):
@@ -466,13 +466,13 @@ def test_ensure_dataset_source_available_downloads_missing_dataset(monkeypatch):
 
     assert cfg is not None
     assert cfg["id"] == "mmot"
-    assert args.source == "data/benchmarks/MMOT-OBB/train/data44-3/img1"
+    assert args.source == "boxmot/datasets/mot/MMOT-OBB/train/data44-3/img1"
     assert args.dataset_id == "mmot"
     assert args.eval_box_type == "obb"
     assert calls == {
         "runs_url": "",
         "dataset_url": "https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip",
-        "dataset_dest": Path("data/benchmarks/MMOT-OBB.zip"),
+        "dataset_dest": Path("boxmot/datasets/mot/MMOT-OBB.zip"),
         "overwrite": False,
         "runs_check_path": None,
         "status_fn": None,
@@ -524,14 +524,14 @@ def test_sportsmot_benchmark_uses_split_schema():
     cfg = load_benchmark_only_cfg("sportsmot")
     assert cfg["id"] == "sportsmot"
     assert cfg["dataset_config"] == "sportsmot"
-    assert cfg["path"] == "data/benchmarks/SportsMOT"
+    assert cfg["path"] == "boxmot/datasets/mot/SportsMOT"
     assert cfg["split"] == "val"
     assert cfg["train"] == "train"
     assert cfg["test"] == "test"
     assert cfg["detector_config"] == "yolox_x_sportsmot"
     assert cfg["reid_config"] == "lmbn_n_duke"
     assert cfg["storage"] == {
-        "root": "data/benchmarks/SportsMOT",
+        "root": "boxmot/datasets/mot/SportsMOT",
         "split": "val",
     }
     assert cfg["evaluation"] == {
@@ -558,7 +558,7 @@ def test_sportsmot_benchmark_uses_split_schema():
 def test_sportsmot_dataset_loads_with_model_bindings():
     cfg = load_dataset_cfg("sportsmot")
     assert cfg["id"] == "sportsmot"
-    assert cfg["path"] == "data/benchmarks/SportsMOT"
+    assert cfg["path"] == "boxmot/datasets/mot/SportsMOT"
     assert cfg["box_type"] == "aabb"
     assert cfg["layout"] == "mot"
     assert cfg["trackeval"] == "mot_challenge"
@@ -580,7 +580,7 @@ def test_apply_benchmark_config_resolves_sportsmot(monkeypatch):
     assert cfg["id"] == "sportsmot"
     assert args.benchmark_id == "sportsmot"
     assert args.dataset_id == "sportsmot"
-    assert args.source == Path("data/benchmarks/SportsMOT/val")
+    assert args.source == Path("boxmot/datasets/mot/SportsMOT/val")
     assert calls["runs_url"] == "hf://Lekim89/runs/runs/dets_n_embs/sportsmot/val"
     assert calls["runs_check_path"] == Path("runs/dets_n_embs/sportsmot/val")
 
@@ -602,7 +602,7 @@ def test_apply_benchmark_config_resolves_sportsmot_test_runs_url(monkeypatch):
 
 def test_apply_benchmark_config_skips_dataset_download_when_split_is_populated(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
-    split_dir = tmp_path / "data" / "benchmarks" / "SportsMOT" / "val"
+    split_dir = tmp_path / "boxmot" / "datasets" / "mot" / "SportsMOT" / "val"
     (split_dir / "SNMOT-001" / "img1").mkdir(parents=True)
 
     calls = {}
@@ -616,19 +616,19 @@ def test_apply_benchmark_config_skips_dataset_download_when_split_is_populated(m
     apply_benchmark_config(args)
 
     assert calls["dataset_url"] == ""
-    assert calls["dataset_dest"] == Path("data/benchmarks/SportsMOT")
-    assert args.source == Path("data/benchmarks/SportsMOT/val")
+    assert calls["dataset_dest"] == Path("boxmot/datasets/mot/SportsMOT")
+    assert args.source == Path("boxmot/datasets/mot/SportsMOT/val")
 
 
 def test_find_dataset_cfg_for_sportsmot_source():
-    cfg = find_dataset_cfg_for_source("data/benchmarks/SportsMOT/test/SNMOT-001/img1")
+    cfg = find_dataset_cfg_for_source("boxmot/datasets/mot/SportsMOT/test/SNMOT-001/img1")
     assert cfg is not None
     assert cfg["id"] == "sportsmot"
-    assert cfg["path"] == "data/benchmarks/SportsMOT"
+    assert cfg["path"] == "boxmot/datasets/mot/SportsMOT"
 
 
 @pytest.mark.skipif(
-    not Path("data/benchmarks/MOT17/train").is_dir(),
+    not Path("boxmot/datasets/mot/MOT17/train").is_dir(),
     reason="MOT17 train data not available",
 )
 def test_mot17_ablation_split_resolves_to_ablation_dir(monkeypatch):
@@ -637,7 +637,7 @@ def test_mot17_ablation_split_resolves_to_ablation_dir(monkeypatch):
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    assert args.source == Path("data/benchmarks/MOT17/ablation")
+    assert args.source == Path("boxmot/datasets/mot/MOT17/ablation")
     # Verify the dir only contains FRCNN sequences
     seq_names = [p.name for p in args.source.iterdir() if p.is_dir()]
     assert all(name.endswith("-FRCNN") for name in seq_names)
@@ -645,7 +645,7 @@ def test_mot17_ablation_split_resolves_to_ablation_dir(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not Path("data/benchmarks/MOT17/train").is_dir(),
+    not Path("boxmot/datasets/mot/MOT17/train").is_dir(),
     reason="MOT17 train data not available",
 )
 def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
@@ -657,6 +657,6 @@ def test_mot17_ablation_split_respects_cli_detection_source(monkeypatch):
     cfg = apply_benchmark_config(args)
     assert cfg["id"] == "mot17"
     assert args.split == "ablation"
-    assert args.source == Path("data/benchmarks/MOT17/ablation")
+    assert args.source == Path("boxmot/datasets/mot/MOT17/ablation")
     # CLI --detection-source takes precedence
     assert args.detection_source == "public"

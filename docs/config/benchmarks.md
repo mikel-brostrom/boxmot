@@ -13,6 +13,9 @@ Each benchmark YAML is a self-contained benchmark definition that includes:
 
 Built-in examples include `mot17`, `sportsmot`, `mmot`, and `mmot-mini`.
 
+Downloaded MOT-style benchmark data is stored under `boxmot/datasets/mot/`.
+Downloaded ReID datasets should use `boxmot/datasets/reid/`.
+
 ## Example
 
 ```yaml
@@ -20,7 +23,7 @@ id: mot17
 
 dataset:
   id: mot17
-  root: "data/benchmarks/MOT17"
+  root: "boxmot/datasets/mot/MOT17"
   splits:
     train: "train"
     val: "val"

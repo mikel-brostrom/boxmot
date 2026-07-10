@@ -19,7 +19,6 @@ _local_root = Path.cwd()
 if (_local_root / "pyproject.toml").is_file() and (_local_root / "boxmot").is_dir():
     ROOT = _local_root
 
-DATA = ROOT / "data"
 TOML = ROOT / "pyproject.toml"
 
 BOXMOT     = ROOT / "boxmot"
@@ -27,10 +26,14 @@ ENGINE     = BOXMOT / "engine"
 CONFIGS    = BOXMOT / "configs"
 TRACKER_CONFIGS   = CONFIGS / "trackers"
 BENCHMARK_CONFIGS = CONFIGS / "benchmarks"
+DATASETS = BOXMOT / "datasets"
+MOT_DATASETS = DATASETS / "mot"
+REID_DATASETS = DATASETS / "reid"
 
 WEIGHTS  = ROOT / "models"
+DATA = ROOT / "data"
 TRACKEVAL = DATA / "trackeval"
-BENCHMARK_DATA = DATA / "benchmarks"
+BENCHMARK_DATA = MOT_DATASETS
 
 NUM_THREADS = min(8, max(1, os.cpu_count() - 1))  # number of multiprocessing threads
 

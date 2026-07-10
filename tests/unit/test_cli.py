@@ -14,7 +14,7 @@ def test_eval_requires_benchmark():
 
 
 def test_eval_rejects_source_option():
-    result = CliRunner().invoke(boxmot, ["eval", "--source", "data/benchmarks/MOT17-mini/train"])
+    result = CliRunner().invoke(boxmot, ["eval", "--source", "boxmot/datasets/mot/MOT17-mini/train"])
     assert result.exit_code != 0
     assert "No such option" in result.output and "--source" in result.output
 
@@ -1185,7 +1185,7 @@ def test_generate_requires_data_or_source():
 def test_generate_rejects_data_and_source_together():
     result = CliRunner().invoke(
         boxmot,
-        ["generate", "--benchmark", "mot17-mini", "--source", "data/benchmarks/MOT17-mini/train"],
+        ["generate", "--benchmark", "mot17-mini", "--source", "boxmot/datasets/mot/MOT17-mini/train"],
     )
     assert result.exit_code != 0
     assert "accepts either --benchmark <benchmark.yaml> or --source <dataset-path>, not both" in result.output
@@ -1222,7 +1222,7 @@ def test_tune_requires_benchmark():
 
 
 def test_tune_rejects_source_option():
-    result = CliRunner().invoke(boxmot, ["tune", "--source", "data/benchmarks/MOT17-mini/train"])
+    result = CliRunner().invoke(boxmot, ["tune", "--source", "boxmot/datasets/mot/MOT17-mini/train"])
     assert result.exit_code != 0
     assert "No such option" in result.output and "--source" in result.output
 
