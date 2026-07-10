@@ -39,7 +39,7 @@ def _install_fake_onnx(monkeypatch):
         __version__="0.0-test",
         defs=types.SimpleNamespace(onnx_opset_version=lambda: 18),
         checker=types.SimpleNamespace(check_model=lambda _m: None),
-        load=lambda _p: fake_onnx_model,
+        load=lambda _p, **_kwargs: fake_onnx_model,
         save=lambda _m, _p: None,
     )
     monkeypatch.setitem(sys.modules, "onnx", fake_onnx)
@@ -243,6 +243,57 @@ def test_ensure_onnx_export_reuses_current_file(monkeypatch, tmp_path):
     monkeypatch.setattr(onnx_exporter_module, "ONNXExporter", FailingExporter)
 
     assert ensure_onnx_export(object(), object(), weights, verbose=False) == onnx_file
+
+
+def test_ensure_onnx_export_refreshes_static_file_when_dynamic_requested(monkeypatch, tmp_path):
+    weights = tmp_path / "model.pt"
+    onnx_file = tmp_path / "model.onnx"
+    weights.write_bytes(b"weights")
+    onnx_file.write_bytes(b"onnx")
+    os.utime(weights, (1, 1))
+    os.utime(onnx_file, (2, 2))
+    calls = []
+
+    static_batch_dim = types.SimpleNamespace(dim_value=1, dim_param="")
+    fake_input = types.SimpleNamespace(
+        type=types.SimpleNamespace(
+            tensor_type=types.SimpleNamespace(
+                shape=types.SimpleNamespace(dim=[static_batch_dim, 3, 384, 128])
+            )
+        )
+    )
+    fake_onnx_model = types.SimpleNamespace(graph=types.SimpleNamespace(input=[fake_input]))
+    monkeypatch.setitem(
+        sys.modules,
+        "onnx",
+        types.SimpleNamespace(load=lambda _p, **_kwargs: fake_onnx_model),
+    )
+
+    class FakeExporter:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def export(self):
+            onnx_file.write_bytes(b"dynamic")
+            return onnx_file
+
+    monkeypatch.setattr(onnx_exporter_module, "ONNXExporter", FakeExporter)
+
+    result = ensure_onnx_export("model", "image", weights, dynamic=True, verbose=False)
+
+    assert result == onnx_file
+    assert calls == [
+        {
+            "model": "model",
+            "im": "image",
+            "file": weights,
+            "opset": None,
+            "dynamic": True,
+            "half": False,
+            "simplify": False,
+            "verbose": False,
+        }
+    ]
 
 
 def test_ensure_onnx_export_refreshes_stale_file(monkeypatch, tmp_path):

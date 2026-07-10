@@ -125,7 +125,7 @@ class ReIDModel:
         device: str = BOXMOT_DEFAULTS.export.device,
         half: bool = BOXMOT_DEFAULTS.export.half,
         optimize: bool = BOXMOT_DEFAULTS.export.optimize,
-        dynamic: bool = BOXMOT_DEFAULTS.export.dynamic,
+        dynamic: bool = True,
         simplify: bool = BOXMOT_DEFAULTS.export.simplify,
         opset: int = BOXMOT_DEFAULTS.export.opset,
         workspace: int = BOXMOT_DEFAULTS.export.workspace,

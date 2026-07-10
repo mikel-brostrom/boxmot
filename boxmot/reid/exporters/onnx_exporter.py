@@ -22,7 +22,7 @@ def ensure_onnx_export(
     """Return a fresh ONNX export path, creating it when needed."""
     source_path = Path(file)
     onnx_path = source_path.with_suffix(".onnx")
-    if _onnx_export_is_current(source_path, onnx_path):
+    if _onnx_export_is_current(source_path, onnx_path, dynamic=dynamic):
         if verbose:
             LOGGER.info(f"Using existing ONNX export: {onnx_path}")
         return onnx_path
@@ -40,12 +40,36 @@ def ensure_onnx_export(
     return Path(exporter.export())
 
 
-def _onnx_export_is_current(source_path: Path, onnx_path: Path) -> bool:
+def _onnx_export_is_current(source_path: Path, onnx_path: Path, *, dynamic: bool = False) -> bool:
     if not onnx_path.is_file():
         return False
     if not source_path.is_file() or source_path.resolve() == onnx_path.resolve():
         return True
-    return onnx_path.stat().st_mtime >= source_path.stat().st_mtime
+    if onnx_path.stat().st_mtime < source_path.stat().st_mtime:
+        return False
+    return not dynamic or _onnx_has_dynamic_batch(onnx_path)
+
+
+def _onnx_has_dynamic_batch(onnx_path: Path) -> bool:
+    try:
+        import onnx
+
+        try:
+            model_onnx = onnx.load(str(onnx_path), load_external_data=False)
+        except TypeError:
+            model_onnx = onnx.load(str(onnx_path))
+        inputs = list(getattr(getattr(model_onnx, "graph", None), "input", []) or [])
+        if not inputs:
+            return False
+        dims = list(inputs[0].type.tensor_type.shape.dim)
+        if not dims:
+            return False
+        batch_dim = dims[0]
+        dim_param = str(getattr(batch_dim, "dim_param", "") or "")
+        dim_value = int(getattr(batch_dim, "dim_value", 0) or 0)
+        return bool(dim_param) or dim_value <= 0
+    except Exception:
+        return False
 
 
 class ONNXExporter(BaseExporter):

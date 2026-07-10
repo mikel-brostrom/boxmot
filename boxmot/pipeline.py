@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence as SequenceABC
+from collections.abc import Mapping
+from collections.abc import Sequence as SequenceABC
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Sequence
@@ -204,7 +205,13 @@ class BoxMOT:
         if train_model is not None and train_recipe is not None:
             raise ValueError("Provide only one of model=... or recipe=... when selecting a training profile.")
 
-        if detector is not _UNSET and reid is _UNSET and tracker is _UNSET and train_model is None and train_recipe is None:
+        if (
+            detector is not _UNSET
+            and reid is _UNSET
+            and tracker is _UNSET
+            and train_model is None
+            and train_recipe is None
+        ):
             train_spec = _resolve_reid_weight_train_spec(detector)
             if train_spec is not None:
                 train_kind, train_name = train_spec
@@ -566,7 +573,7 @@ class BoxMOT:
         device: str = BOXMOT_DEFAULTS.export.device,
         half: bool = BOXMOT_DEFAULTS.export.half,
         optimize: bool = BOXMOT_DEFAULTS.export.optimize,
-        dynamic: bool = BOXMOT_DEFAULTS.export.dynamic,
+        dynamic: bool = True,
         simplify: bool = BOXMOT_DEFAULTS.export.simplify,
         opset: int = BOXMOT_DEFAULTS.export.opset,
         workspace: int = BOXMOT_DEFAULTS.export.workspace,

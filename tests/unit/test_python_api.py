@@ -534,6 +534,7 @@ def test_public_reid_model_embed_export_and_tracker_contract(monkeypatch, tmp_pa
 
     def fake_boxmot_export(self, **kwargs):
         calls["boxmot_reid"] = self.reid
+        calls["export_kwargs"] = kwargs
         exported_path = tmp_path / "fake_reid.onnx"
         exported_path.touch()
         return SimpleNamespace(embedding_weights=exported_path, half=bool(kwargs["half"]))
@@ -552,6 +553,7 @@ def test_public_reid_model_embed_export_and_tracker_contract(monkeypatch, tmp_pa
     np.testing.assert_array_equal(embeddings, tracker_features)
     assert isinstance(exported, api_module.ReIDModel)
     assert calls["boxmot_reid"] == reid.path
+    assert calls["export_kwargs"]["dynamic"] is True
     assert exported.path.name == "fake_reid.onnx"
     assert exported.half is True
 
@@ -1998,6 +2000,7 @@ def test_boxmot_export_accepts_format_alias_and_half_flag(monkeypatch, tmp_path)
     assert export_args.weights == Path.cwd() / "models" / "mobilenetv4.pt"
     assert export_args.include == ("onnx",)
     assert export_args.half is True
+    assert export_args.dynamic is True
     assert calls["reid"] == {
         "path": tmp_path / "mobilenetv4.onnx",
         "device": "cpu",
