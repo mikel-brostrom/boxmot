@@ -13,6 +13,7 @@ import numpy as np
 
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import (
+    ema_update_embedding,
     resolve_batch_embeddings,
 )
 from boxmot.trackers.common.association.hybrid import (
@@ -30,6 +31,7 @@ from boxmot.trackers.common.association.hybrid import (
 )
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker, k_previous_obs
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OBBKalmanBoxTracker
 
 ASSO_FUNCS = {
     "iou": iou_batch,
@@ -42,6 +44,8 @@ ASSO_FUNCS = {
 
 
 class HybridSort(BaseTracker):
+    supports_obb = True
+
     """Initialize the HybridSort tracker.
 
     Args:
@@ -171,6 +175,8 @@ class HybridSort(BaseTracker):
         Returns: ndarray [M,8]: [x1,y1,x2,y2,track_id,conf,cls,det_ind]
         """
         self.check_inputs(dets, img, embs)
+        if self.is_obb:
+            return self._update_obb(dets, img, embs, masks)
         self.frame_count += 1
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
@@ -442,6 +448,76 @@ class HybridSort(BaseTracker):
             if trk.time_since_update > self.max_age:
                 self.active_tracks.pop(i)
 
+        return self.format_output_rows(outputs, dtype=np.float32)
+
+    def _update_obb(self, dets, img, embs=None, masks=None):
+        """HybridSORT adaptation using oriented DIoU, ReID, and XYWHA motion state."""
+        self.frame_count += 1
+        batch = self.make_detection_batch(dets, embs=embs, masks=masks)
+        high, low = batch.split_by_confidence(high_thresh=self.det_thresh, low_thresh=self.low_thresh)
+        high_dets = high.as_indexed_detections(dtype=dets.dtype)
+        low_dets = low.as_indexed_detections(dtype=dets.dtype)
+        high_embs = resolve_batch_embeddings(high, img, model=self.model, enabled=self.with_reid, placeholder_value=0.0)
+
+        predicted = [track.predict()[0][:5] for track in self.active_tracks]
+        predicted = np.asarray(predicted, dtype=np.float32).reshape(-1, 5)
+
+        unmatched_dets = np.arange(len(high_dets))
+        unmatched_tracks = np.arange(len(self.active_tracks))
+        if len(high_dets) and len(predicted):
+            similarity = self.asso_func(high.boxes, predicted)
+            embedding_cost = None
+            if self.with_reid:
+                track_embs = np.asarray([track.smooth_feat for track in self.active_tracks])
+                embedding_cost = embedding_distance(track_embs, high_embs).T
+            assignment_cost = -similarity
+            if embedding_cost is not None:
+                assignment_cost += self.EG_weight_high_score * embedding_cost
+            pairs = linear_assignment(assignment_cost)
+            accepted = []
+            for det_index, track_index in pairs:
+                poor_geometry = similarity[det_index, track_index] < self.iou_threshold
+                poor_appearance = (
+                    embedding_cost is not None
+                    and embedding_cost[det_index, track_index] > self.longterm_reid_correction_thresh
+                )
+                if not (poor_geometry and poor_appearance):
+                    accepted.append((det_index, track_index))
+            for det_index, track_index in accepted:
+                track = self.active_tracks[track_index]
+                track.update(high_dets[det_index, :6], high.clss[det_index], high.det_inds[det_index])
+                track.smooth_feat = ema_update_embedding(track.smooth_feat, high_embs[det_index], alpha=self.alpha)
+                track.conf = high.confs[det_index]
+            unmatched_dets = np.setdiff1d(unmatched_dets, [pair[0] for pair in accepted])
+            unmatched_tracks = np.setdiff1d(unmatched_tracks, [pair[1] for pair in accepted])
+
+        if len(low_dets) and len(unmatched_tracks):
+            similarity = self.asso_func(low.boxes, predicted[unmatched_tracks])
+            pairs = linear_assignment(-similarity)
+            accepted = [(d, t) for d, t in pairs if similarity[d, t] >= self.iou_threshold]
+            for det_index, relative_track in accepted:
+                track_index = unmatched_tracks[relative_track]
+                self.active_tracks[track_index].update(
+                    low_dets[det_index, :6], low.clss[det_index], low.det_inds[det_index]
+                )
+            unmatched_tracks = np.setdiff1d(unmatched_tracks, [unmatched_tracks[pair[1]] for pair in accepted])
+
+        for track_index in unmatched_tracks:
+            self.active_tracks[track_index].update(None, None, None)
+        for det_index in unmatched_dets:
+            track = OBBKalmanBoxTracker(
+                high_dets[det_index, :6], high.clss[det_index], high.det_inds[det_index],
+                delta_t=self.delta_t, max_obs=self.max_obs, is_obb=True, id_allocator=self.id_allocator,
+            )
+            track.smooth_feat = high_embs[det_index]
+            self.active_tracks.append(track)
+
+        outputs = []
+        for track in self.active_tracks[::-1]:
+            box = track.last_observation[:5] if track.last_observation.sum() >= 0 else track.get_state()[0][:5]
+            if track.time_since_update < 1 and (track.hit_streak >= self.min_hits or self.frame_count <= self.min_hits):
+                outputs.append(self.format_output_row(box, track.id, track.conf, track.cls, track.det_ind))
+        self.active_tracks = [track for track in self.active_tracks if track.time_since_update <= self.max_age]
         return self.format_output_rows(outputs, dtype=np.float32)
 
     def reset(self):

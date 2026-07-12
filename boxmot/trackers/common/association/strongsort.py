@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.association.matching import chi2inv95
 
 INFTY_COST = 1e5
@@ -46,9 +47,14 @@ def iou_cost(tracks, detections, track_indices=None, detection_indices=None):
             cost_matrix[row, :] = INFTY_COST
             continue
 
-        bbox = tracks[track_idx].to_tlwh()
+        track = tracks[track_idx]
         candidates = np.asarray([detections[i].tlwh for i in detection_indices])
-        cost_matrix[row, :] = 1.0 - iou(bbox, candidates)
+        if track.is_obb:
+            cost_matrix[row, :] = 1.0 - AssociationFunction.iou_batch_obb(
+                track.xywha.reshape(1, 5), candidates
+            )[0]
+        else:
+            cost_matrix[row, :] = 1.0 - iou(track.to_tlwh(), candidates)
     return cost_matrix
 
 
@@ -225,8 +231,8 @@ def gate_cost_matrix(
         Returns the modified cost matrix.
     """
 
-    gating_threshold = chi2inv95[4]
-    measurements = np.asarray([detections[i].to_xyah() for i in detection_indices])
+    measurements = np.asarray([detections[i].to_measurement() for i in detection_indices])
+    gating_threshold = chi2inv95[measurements.shape[1]]
     for row, track_idx in enumerate(track_indices):
         track = tracks[track_idx]
         gating_distance = track.kf.gating_distance(track.mean, track.covariance, measurements, only_position)

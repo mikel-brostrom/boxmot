@@ -9,9 +9,11 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
+from boxmot.trackers.common.geometry.obb import normalize_angle
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
-from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.base import SortBoxTrack
+from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OBBKalmanBoxTracker
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -213,3 +215,53 @@ class KalmanBoxTracker(SortBoxTrack):
     def mahalanobis(self, bbox):
         """Should be run after a predict() call for accuracy."""
         return self.kf.md_for_measurement(self.bbox_to_z_func(bbox))
+
+
+class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
+    """OC-SORT oriented motion state extended with DeepOCSORT appearance state."""
+
+    def __init__(self, det, *, emb, alpha, delta_t, max_obs, Q_xy_scaling, Q_s_scaling, id_allocator):
+        super().__init__(
+            det[:6], det[6], det[7], delta_t=delta_t, max_obs=max_obs,
+            Q_xy_scaling=Q_xy_scaling, Q_s_scaling=Q_s_scaling,
+            Q_a_scaling=Q_s_scaling, is_obb=True, id_allocator=id_allocator,
+        )
+        self.emb = emb
+        self.alpha = alpha
+        self.frozen = False
+
+    def update(self, det):
+        if det is None:
+            super().update(None, None, None)
+            self.frozen = True
+            return
+        super().update(det[:6], det[6], det[7])
+        self.frozen = False
+
+    def update_emb(self, emb, alpha=0.9):
+        self.emb = ema_update_embedding(self.emb, emb, alpha=alpha)
+
+    def get_emb(self):
+        return self.emb
+
+    def apply_affine_correction(self, affine):
+        """Warp OBB centres/state without interpreting width and height as points."""
+        transform = np.asarray(affine, dtype=float)
+        linear = transform[:, :2]
+        translation = transform[:, 2]
+        scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
+        rotation = float(np.arctan2(linear[1, 0], linear[0, 0]))
+
+        def warp_obb(box):
+            warped = np.asarray(box, dtype=float).copy()
+            warped[:2] = linear @ warped[:2] + translation
+            warped[2:4] = np.maximum(warped[2:4] * scale, 1e-4)
+            warped[4] = normalize_angle(warped[4] + rotation)
+            return warped
+
+        if self.last_observation.sum() > 0:
+            self.last_observation[:5] = warp_obb(self.last_observation[:5])
+        for age, observation in self.observations.items():
+            self.observations[age][:5] = warp_obb(observation[:5])
+        state_box = warp_obb(self.get_state()[0])
+        self.kf.x[:5] = self.motion_model.to_measurement(state_box)

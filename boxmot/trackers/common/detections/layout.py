@@ -22,7 +22,13 @@ class DetectionLayout:
         return self.box_cols + 1
 
     def association_mode_name(self, base_name: str) -> str:
-        return f"{base_name}_obb" if self.is_obb else base_name
+        if not self.is_obb:
+            return base_name
+        if base_name == "centroid":
+            return "centroid_obb"
+        if base_name == "diou":
+            return "diou_obb"
+        return "iou_obb"
 
     def empty_dets(self, dtype=np.float32) -> np.ndarray:
         return np.empty((0, self.det_cols), dtype=dtype)

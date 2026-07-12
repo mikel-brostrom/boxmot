@@ -9,12 +9,13 @@ of ``update()``.
 """
 
 from collections import deque
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import List, Optional, Tuple
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.hybrid.base import HybridBaseTracker
 from boxmot.utils import logger as LOGGER
 
@@ -55,6 +56,7 @@ class _Track:
     skip_memory_current: bool = False
     cls: int = 0
     det_ind: int = -1
+    obb: Optional[np.ndarray] = None
 
 
 # ---------------------------------------------------------------------------
@@ -160,7 +162,7 @@ class _CrossObjectInteraction:
 
     def detect_and_resolve(self, tracks: List[_Track]) -> List[int]:
         """Return IDs of tracks that should skip memory (occluded).
-        
+
         Uses bbox overlap as a pre-filter to avoid expensive mask IoU on
         all O(n²) pairs.
         """
@@ -215,7 +217,7 @@ class Sam2Mot(HybridBaseTracker):
     """
 
     supports_masks = True
-    supports_obb = False
+    supports_obb = True
 
     def __init__(
         self,
@@ -302,10 +304,16 @@ class Sam2Mot(HybridBaseTracker):
         frame_id = self._frame_count
         H, W = img.shape[:2]
 
-        # Build detection list
-        det_bboxes = dets[:, :4] if len(dets) > 0 else np.zeros((0, 4))
-        det_confs = dets[:, 4] if len(dets) > 0 else np.zeros(0)
-        det_classes = dets[:, 5].astype(int) if len(dets) > 0 else np.zeros(0, dtype=int)
+        # Mask operations use enclosing AABBs while OBB geometry is preserved for output.
+        det_obbs = dets[:, :5].copy() if self.is_obb and len(dets) else None
+        det_bboxes = (
+            xywha_to_xyxy(det_obbs) if det_obbs is not None
+            else dets[:, :4] if len(dets) else np.zeros((0, 4))
+        )
+        conf_col = 5 if self.is_obb else 4
+        cls_col = 6 if self.is_obb else 5
+        det_confs = dets[:, conf_col] if len(dets) > 0 else np.zeros(0)
+        det_classes = dets[:, cls_col].astype(int) if len(dets) > 0 else np.zeros(0, dtype=int)
         n_dets = len(dets)
 
         # Masks array (may be at a different resolution than the image)
@@ -395,6 +403,7 @@ class Sam2Mot(HybridBaseTracker):
                 track.velocity = new_vel
 
             track.bbox = bbox.copy()
+            track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
             track.confidence = conf
             track.conf_history.append(conf)
             track.last_seen_frame = frame_id
@@ -425,6 +434,7 @@ class Sam2Mot(HybridBaseTracker):
                 track.mask = det_masks[det_idx]
             track.state = TrackState.RELIABLE
             track.bbox = det_bboxes[det_idx].copy()
+            track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
             track.confidence = det_confs[det_idx]
             track.conf_history.append(det_confs[det_idx])
             track.det_ind = det_idx
@@ -447,6 +457,7 @@ class Sam2Mot(HybridBaseTracker):
                 density = self._compute_density(det_idx, det_bboxes)
                 fo_track.state = TrackState.RELIABLE
                 fo_track.bbox = bbox.copy()
+                fo_track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
                 fo_track.confidence = conf
                 fo_track.conf_history.append(conf)
                 fo_track.last_seen_frame = frame_id
@@ -510,6 +521,7 @@ class Sam2Mot(HybridBaseTracker):
                     is_dense=density > self.frame_out_d_thre,
                     cls=det_classes[det_idx],
                     det_ind=det_idx,
+                    obb=det_obbs[det_idx].copy() if det_obbs is not None else None,
                 )
                 new_track.conf_history.append(conf)
                 self._tracks.append(new_track)
@@ -528,9 +540,10 @@ class Sam2Mot(HybridBaseTracker):
                 continue
             if track.age < self.min_hits and self._frame_count > self.min_hits:
                 continue
+            box = track.obb if self.is_obb else track.bbox
             row = np.array([
-                track.bbox[0], track.bbox[1], track.bbox[2], track.bbox[3],
-                track.id, track.confidence, track.cls, track.det_ind
+                *box,
+                track.id, track.confidence, track.cls, track.det_ind,
             ], dtype=np.float64)
             output_tracks.append(row)
             output_masks_list.append(track.mask)
@@ -547,7 +560,7 @@ class Sam2Mot(HybridBaseTracker):
                 return tracks_array, out_masks
             return tracks_array, None
         else:
-            return np.empty((0, 8)), None
+            return np.empty((0, 9 if self.is_obb else 8)), None
 
     # ------------------------------------------------------------------
     # Matching helpers
@@ -556,15 +569,13 @@ class Sam2Mot(HybridBaseTracker):
     @staticmethod
     def _iou_matrix(bboxes_a: np.ndarray, bboxes_b: np.ndarray) -> np.ndarray:
         """Compute IoU matrix between two sets of bboxes (vectorized).
-        
+
         Args:
             bboxes_a: (M, 4) array [x1, y1, x2, y2]
             bboxes_b: (N, 4) array [x1, y1, x2, y2]
         Returns:
             (M, N) IoU matrix
         """
-        m = bboxes_a.shape[0]
-        n = bboxes_b.shape[0]
         # Broadcast: (M, 1, 4) vs (1, N, 4)
         a = bboxes_a[:, None, :]  # (M, 1, 4)
         b = bboxes_b[None, :, :]  # (1, N, 4)

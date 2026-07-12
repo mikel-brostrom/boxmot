@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+from collections import deque
 
 import numpy as np
 
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
+from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
 from boxmot.trackers.common.association.matching import chi2inv95
 from boxmot.trackers.common.association.strongsort import (
@@ -15,6 +17,7 @@ from boxmot.trackers.common.association.strongsort import (
     matching_cascade,
     min_cost_matching,
 )
+from boxmot.trackers.common.geometry.obb import normalize_angle, smooth_obb_corners
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 
@@ -43,12 +46,13 @@ class Detection:
 
     """
 
-    def __init__(self, tlwh, conf, cls, det_ind, feat):
-        self.tlwh = tlwh
+    def __init__(self, box, conf, cls, det_ind, feat, is_obb=False):
+        self.tlwh = np.asarray(box, dtype=np.float32)
         self.conf = conf
         self.cls = cls
         self.det_ind = det_ind
         self.feat = feat
+        self.is_obb = bool(is_obb)
 
     def to_xyah(self):
         """Convert bounding box to `(center x, center y, aspect ratio, height)`."""
@@ -56,6 +60,9 @@ class Detection:
         ret[:2] += ret[2:] / 2
         ret[2] /= ret[3]
         return ret
+
+    def to_measurement(self):
+        return self.tlwh.copy() if self.is_obb else self.to_xyah()
 
 
 class TrackState:
@@ -86,9 +93,11 @@ class Track:
         n_init,
         max_age,
         ema_alpha,
+        is_obb=False,
     ):
         self.id = id
-        self.bbox = detection.to_xyah()
+        self.is_obb = bool(is_obb)
+        self.bbox = detection.to_measurement()
         self.conf = detection.conf
         self.cls = detection.cls
         self.det_ind = detection.det_ind
@@ -100,7 +109,8 @@ class Track:
         # start with confirmed in Ci as test expect equal amount of outputs as inputs
         self.state = (
             TrackState.Confirmed
-            if (os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("GITHUB_JOB") != "mot-metrics-benchmark")
+            if n_init <= 1
+            or (os.getenv("GITHUB_ACTIONS") == "true" and os.getenv("GITHUB_JOB") != "mot-metrics-benchmark")
             else TrackState.Tentative
         )
         self.features = []
@@ -110,8 +120,10 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = KalmanFilterXYAH()
+        self.kf = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         self.mean, self.covariance = self.kf.initiate(self.bbox)
+        self.history_observations = deque(maxlen=max_age)
+        self._plot_angle = None
 
     def to_tlwh(self):
         """Get current position in `(top left x, top left y, width, height)`."""
@@ -126,7 +138,23 @@ class Track:
         ret[2:] = ret[:2] + ret[2:]
         return ret
 
+    @property
+    def xywha(self):
+        if not self.is_obb:
+            raise AttributeError("xywha is only available for OBB tracks")
+        return self.mean[:5].copy()
+
     def camera_update(self, warp_matrix):
+        if self.is_obb:
+            transform = np.asarray(warp_matrix, dtype=float)
+            linear = transform[:, :2]
+            translation = transform[:, 2]
+            scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
+            rotation = float(np.arctan2(linear[1, 0], linear[0, 0]))
+            self.mean[:2] = linear @ self.mean[:2] + translation
+            self.mean[2:4] = np.maximum(self.mean[2:4] * scale, 1e-4)
+            self.mean[4] = normalize_angle(self.mean[4] + rotation)
+            return
         [a, b] = warp_matrix
         warp_matrix = np.array([a, b, [0, 0, 1]])
         warp_matrix = warp_matrix.tolist()
@@ -149,11 +177,14 @@ class Track:
 
     def update(self, detection):
         """Perform Kalman filter measurement update and update the feature cache."""
-        self.bbox = detection.to_xyah()
+        self.bbox = detection.to_measurement()
         self.conf = detection.conf
         self.cls = detection.cls
         self.det_ind = detection.det_ind
         self.mean, self.covariance = self.kf.update(self.mean, self.covariance, self.bbox, self.conf)
+        if self.is_obb:
+            corners, self._plot_angle = smooth_obb_corners(self.xywha, self._plot_angle)
+            self.history_observations.append(corners)
 
         smooth_feat = ema_update_embedding(
             self.features[-1],
@@ -215,6 +246,7 @@ class Tracker:
         ema_alpha=0.9,
         mc_lambda=0.995,
         id_allocator=None,
+        is_obb=False,
     ):
         self.metric = metric
         self.max_iou_dist = max_iou_dist
@@ -226,6 +258,7 @@ class Tracker:
 
         self.tracks = []
         self.id_allocator = id_allocator or TrackIdAllocator()
+        self.is_obb = bool(is_obb)
         self._next_id = self.id_allocator.next_id
         self.cmc = create_cmc("ecc")
 
@@ -316,6 +349,7 @@ class Tracker:
                 self.n_init,
                 self.max_age,
                 self.ema_alpha,
+                is_obb=detection.is_obb,
             )
         )
 

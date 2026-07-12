@@ -13,6 +13,7 @@ from boxmot.trackers.common.association import (
 from boxmot.trackers.common.association.boost import associate as boost_associate
 from boxmot.trackers.common.association.boost import iou_batch as boost_iou_batch
 from boxmot.trackers.common.association.hybrid import iou_batch as hybrid_iou_batch
+from boxmot.trackers.common.detections import OBB_DETECTIONS
 
 
 def test_association_stage_solves_matches_and_unmatched_indices():
@@ -159,3 +160,24 @@ def test_generic_association_primitives_live_under_common_root():
 
     np.testing.assert_allclose(AssociationFunction.iou_batch(boxes, boxes), np.array([[1.0]]))
     np.testing.assert_allclose(iou_distance(boxes, boxes), np.array([[0.0]], dtype=np.float32))
+
+
+def test_obb_diou_is_one_for_identical_boxes():
+    box = np.array([[20.0, 30.0, 12.0, 6.0, 0.4]], dtype=np.float32)
+    np.testing.assert_allclose(AssociationFunction.diou_batch_obb(box, box), np.array([[1.0]]), atol=1e-6)
+
+
+def test_obb_diou_uses_rotated_overlap_and_center_distance():
+    reference = np.array([[20.0, 30.0, 16.0, 4.0, 0.0]], dtype=np.float32)
+    rotated = np.array([[20.0, 30.0, 16.0, 4.0, np.pi / 2.0]], dtype=np.float32)
+    displaced = np.array([[28.0, 30.0, 16.0, 4.0, 0.0]], dtype=np.float32)
+    rotated_iou = AssociationFunction.iou_batch_obb(reference, rotated)[0, 0]
+    rotated_diou = AssociationFunction.diou_batch_obb(reference, rotated)[0, 0]
+    displaced_diou = AssociationFunction.diou_batch_obb(reference, displaced)[0, 0]
+
+    np.testing.assert_allclose(rotated_diou, (rotated_iou + 1.0) / 2.0, atol=1e-6)
+    assert displaced_diou < 1.0
+
+
+def test_obb_detection_layout_routes_diou_to_rotated_diou():
+    assert OBB_DETECTIONS.association_mode_name("diou") == "diou_obb"

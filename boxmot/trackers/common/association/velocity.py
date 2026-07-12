@@ -5,10 +5,14 @@ import numpy as np
 from boxmot.trackers.common.association.iou import AssociationFunction
 
 
-def speed_direction_batch(dets, tracks):
+def speed_direction_batch(dets, tracks, *, is_obb=False):
     tracks = tracks[..., np.newaxis]
-    CX1, CY1 = (dets[:, 0] + dets[:, 2]) / 2.0, (dets[:, 1] + dets[:, 3]) / 2.0
-    CX2, CY2 = (tracks[:, 0] + tracks[:, 2]) / 2.0, (tracks[:, 1] + tracks[:, 3]) / 2.0
+    if is_obb:
+        CX1, CY1 = dets[:, 0], dets[:, 1]
+        CX2, CY2 = tracks[:, 0], tracks[:, 1]
+    else:
+        CX1, CY1 = (dets[:, 0] + dets[:, 2]) / 2.0, (dets[:, 1] + dets[:, 3]) / 2.0
+        CX2, CY2 = (tracks[:, 0] + tracks[:, 2]) / 2.0, (tracks[:, 1] + tracks[:, 3]) / 2.0
     dx = CX1 - CX2
     dy = CY1 - CY2
     norm = np.sqrt(dx**2 + dy**2) + 1e-6
@@ -66,6 +70,7 @@ def associate(
     w_assoc_emb=None,
     aw_off=None,
     aw_param=None,
+    is_obb=False,
 ):
     if len(trackers) == 0:
         return (
@@ -74,7 +79,7 @@ def associate(
             np.empty((0, 5), dtype=int),
         )
 
-    Y, X = speed_direction_batch(detections, previous_obs)
+    Y, X = speed_direction_batch(detections, previous_obs, is_obb=is_obb)
     inertia_Y, inertia_X = velocities[:, 0], velocities[:, 1]
     inertia_Y = np.repeat(inertia_Y[:, np.newaxis], Y.shape[1], axis=1)
     inertia_X = np.repeat(inertia_X[:, np.newaxis], X.shape[1], axis=1)

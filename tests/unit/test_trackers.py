@@ -9,7 +9,6 @@ import boxmot.trackers.registry as tracker_registry
 from boxmot.engine.tuning.search_space import flatten_yaml_config
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.reid.core import ReID
-from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.bbox.botsort import BotSort
 from boxmot.trackers.bbox.bytetrack import ByteTrack
 from boxmot.trackers.bbox.deepocsort import DeepOcSort
@@ -23,6 +22,7 @@ from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTra
 from boxmot.trackers.common.track_models.deepocsort import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.hybrid.sam2mot.sam2mot import Sam2Mot
 from boxmot.trackers.registry import create_tracker, get_tracker_config
 from boxmot.utils import WEIGHTS
 from tests.test_config import (
@@ -317,15 +317,71 @@ def test_class_names_define_tracker_class_catalog():
     assert tracker.get_class_tracks(7, "active")
 
 
-def test_strongsort_rejects_obb_with_shared_error_message():
-    tracker = StrongSort.__new__(StrongSort)
-    BaseTracker.__init__(tracker, asso_func="iou")
-
+def test_strongsort_supports_obb_outputs():
+    tracker = StrongSort(reid_model=None, n_init=1)
     rgb = np.random.randint(255, size=(64, 64, 3), dtype=np.uint8)
     det = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
 
-    with pytest.raises(AssertionError, match="StrongSort does not support OBB detections"):
-        tracker.update(det, rgb)
+    output = tracker.update(det, rgb, embs=np.ones((1, 8), dtype=np.float32))
+
+    assert output.shape == (1, 9)
+    np.testing.assert_allclose(output[0, :5], det[0, :5], atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    "tracker",
+    [
+        DeepOcSort(reid_model=None, min_hits=1, embedding_off=True, cmc_off=True),
+        HybridSort(reid_model=None, min_hits=1, with_reid=False),
+    ],
+)
+def test_remaining_bbox_trackers_support_obb_outputs(tracker):
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    detection = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
+
+    output = tracker.update(detection, image)
+
+    assert tracker.supports_obb is True
+    assert output.shape == (1, 9)
+    np.testing.assert_allclose(output[0, :5], detection[0, :5], atol=1e-4)
+
+
+def test_hybridsort_obb_keeps_track_id_when_iou_is_strong_but_embedding_changes():
+    tracker = HybridSort(reid_model=None, min_hits=1, with_reid=True, asso_func="diou")
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    detection = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
+    first = tracker.update(detection, image, embs=np.array([[1.0, 0.0]], dtype=np.float32))
+    second = tracker.update(detection, image, embs=np.array([[-1.0, 0.0]], dtype=np.float32))
+
+    assert first.shape == second.shape == (1, 9)
+    assert second[0, 5] == first[0, 5]
+
+
+def test_deepocsort_obb_cmc_translates_center_without_corrupting_size():
+    tracker = DeepOcSort(reid_model=None, min_hits=1, embedding_off=True, cmc_off=False)
+    tracker.cmc = DummyCMC(np.array([[1.0, 0.0, 8.0], [0.0, 1.0, -4.0]], dtype=np.float32))
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    first_detection = np.array([[24, 28, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
+    second_detection = first_detection.copy()
+    second_detection[0, :2] += np.array([8.0, -4.0], dtype=np.float32)
+    first = tracker.update(first_detection, image)
+    second = tracker.update(second_detection, image)
+
+    assert first.shape == second.shape == (1, 9)
+    assert second[0, 5] == first[0, 5]
+    np.testing.assert_allclose(second[0, 2:4], first_detection[0, 2:4], atol=1e-3)
+
+
+def test_sam2mot_supports_obb_outputs_with_masks():
+    tracker = Sam2Mot(det_thresh=0.1, new_track_thresh=0.1, min_hits=1)
+    image = np.zeros((64, 64, 3), dtype=np.uint8)
+    detection = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
+    masks = np.ones((1, 64, 64), dtype=np.uint8)
+    output = tracker.update(detection, image, masks=masks)
+
+    assert tracker.supports_obb is True
+    assert output.shape == (1, 9)
+    np.testing.assert_allclose(output[0, :5], detection[0, :5], atol=1e-4)
 
 
 def test_botsort_supports_obb_without_reid():
