@@ -205,20 +205,6 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>46.25</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
-    <tr>
-      <td align="left"><sub>sam2mot</sub></td>
-      <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>–</sub></td>
-      <td align="right"><sub>45.86</sub></td>
-      <td align="right"><sub>40.26</sub></td>
-      <td align="right"><sub>49.63</sub></td>
-      <td align="center"><sub>✅</sub></td>
-    </tr>
   </tbody>
 </table>
 <!-- END TRACKER TABLE -->
