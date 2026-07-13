@@ -63,7 +63,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <th rowspan="2" align="center"><sub>Status</sub></th>
       <th colspan="3" align="center"><sub>MOT17 ablation</sub></th>
       <th colspan="3" align="center"><sub>SportsMOT val</sub></th>
-      <th colspan="3" align="center"><sub>MMOT test</sub></th>
+      <th colspan="3" align="center"><sub>MMOT OBB test</sub></th>
       <th rowspan="2" align="center"><sub>OBB</sub></th>
     </tr>
     <tr>
@@ -222,6 +222,8 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
   </tbody>
 </table>
 <!-- END TRACKER TABLE -->
+
+<sub>MMOT OBB results report the TrackEval <code>Class Avg (Cls)</code> across all eight categories on the 5,466-frame test split, using <code>yolo11l_3ch</code> detections and <code>lmbn_n_duke</code> ReID features. All trackers use their Python backend.</sub>
 
 <sub>Py (C++); <code>—</code> unavailable. See <a href="docs/guides/benchmarks.md">Benchmark Workflows</a>.</sub>
 

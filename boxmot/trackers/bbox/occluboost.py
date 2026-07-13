@@ -41,8 +41,8 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.association.boost import associate, iou_batch
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
-from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker
+from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
 
 class OccluBoost(BoostTrack):
@@ -101,6 +101,14 @@ class OccluBoost(BoostTrack):
         gta_max_gap: int = 60,
         # ---- Adaptive KF ----
         adaptive_kf: bool = False,
+        # ---- OBB-specific operating point ----
+        obb_det_thresh: float = 0.2,
+        obb_iou_threshold: float = 0.15,
+        obb_new_track_thresh: float = 0.3,
+        obb_instant_confirm_thresh: float = 0.5,
+        obb_max_age: int = 30,
+        obb_recovery_max_age: int = 15,
+        obb_second_iou_thresh: float = 0.3,
         **kwargs: Any,
     ):
         super().__init__(reid_model=reid_model, **kwargs)
@@ -128,6 +136,16 @@ class OccluBoost(BoostTrack):
         self.confirm_hits = max(int(confirm_hits), 1)
         self.instant_confirm_thresh = instant_confirm_thresh
         self.tentative_max_age = max(int(tentative_max_age), 0)
+        # The MOT-tuned AABB defaults are too restrictive for multi-class OBB
+        # detections. Keep a separate OBB operating point so AABB behaviour is
+        # unchanged while oriented tracks can start and recover reliably.
+        self.obb_det_thresh = max(float(obb_det_thresh), 0.0)
+        self.obb_iou_threshold = float(np.clip(obb_iou_threshold, 0.0, 1.0))
+        self.obb_new_track_thresh = max(float(obb_new_track_thresh), self.obb_det_thresh)
+        self.obb_instant_confirm_thresh = max(float(obb_instant_confirm_thresh), self.obb_new_track_thresh)
+        self.obb_max_age = max(int(obb_max_age), 0)
+        self.obb_recovery_max_age = max(int(obb_recovery_max_age), 0)
+        self.obb_second_iou_thresh = float(np.clip(obb_second_iou_thresh, 0.0, 1.0))
         # ---- Duplicate-track suppression ----
         # IoU threshold above which two co-existing tracks are considered
         # duplicates; the younger one (lower ``age``) is dropped.

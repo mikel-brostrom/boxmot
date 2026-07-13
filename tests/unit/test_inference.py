@@ -1147,6 +1147,49 @@ def test_evaluator_dependency_check_is_lazy(monkeypatch):
     assert calls == [("ultralytics",)]
 
 
+@pytest.mark.parametrize(
+    ("single_class_mode", "expected_include_sequences"),
+    [(False, False), (True, True)],
+)
+def test_run_motmetrics_only_expands_sequences_for_single_class(
+    monkeypatch, tmp_path, single_class_mode, expected_include_sequences
+):
+    source = tmp_path / "test"
+    source.mkdir()
+    parsed = {
+        "car": {"HOTA": 70.0, "per_sequence": {"seq": {"HOTA": 69.0}}},
+        "bike": {"HOTA": 50.0, "per_sequence": {"seq": {"HOTA": 49.0}}},
+    }
+    render_kwargs = {}
+
+    def render_report(*args, **kwargs):
+        render_kwargs.update(kwargs)
+        return "report"
+
+    dependencies = {
+        "_collect_seq_info": lambda _: ([source / "seq"], {"seq": 1}),
+        "filter_obb_mot_results": lambda results, args, cfg: (results, single_class_mode),
+        "log_mot_report": lambda report: None,
+        "render_mot_report": render_report,
+        "motmetrics_runner": lambda *args, **kwargs: parsed,
+    }
+    monkeypatch.setattr(evaluator_module, "_get_lazy_export", dependencies.__getitem__)
+    monkeypatch.setattr(evaluator_module, "_load_benchmark_cfg", lambda args: {"benchmark": {}})
+    monkeypatch.setattr(evaluator_module, "_resolve_eval_box_type", lambda args, cfg=None: "obb")
+
+    args = SimpleNamespace(
+        source=source,
+        project=tmp_path,
+        benchmark="mmot-mini",
+        name="run",
+        tracker="botsort",
+        ci=False,
+    )
+    evaluator_module.run_motmetrics(args, verbose=True)
+
+    assert render_kwargs["include_sequences"] is expected_include_sequences
+
+
 def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tmp_path, capsys):
     result = evaluator_module.ValidationResult(
         benchmark="mot17-mini",
@@ -2548,6 +2591,43 @@ def test_build_validation_cli_renderable_keeps_multiclass_obb_sections():
     assert "tennis court" in rendered
     assert "Class Avg (Det)" in rendered
     assert "COMBINED (plane)" in rendered
+
+
+def test_build_validation_cli_renderable_compacts_multiclass_without_sequences():
+    raw = {
+        "car": {
+            "HOTA": 70.0,
+            "MOTA": 75.0,
+            "IDF1": 80.0,
+            "per_sequence": {"seq-1": {"HOTA": 69.0, "MOTA": 74.0, "IDF1": 79.0}},
+        },
+        "bike": {
+            "HOTA": 50.0,
+            "MOTA": 55.0,
+            "IDF1": 60.0,
+            "per_sequence": {"seq-1": {"HOTA": 49.0, "MOTA": 54.0, "IDF1": 59.0}},
+        },
+        "cls_comb_det_av": {"HOTA": 60.0, "MOTA": 65.0, "IDF1": 70.0},
+    }
+
+    renderable = workflow_reporting_module.build_validation_cli_renderable(
+        raw,
+        title=None,
+        include_sequences=False,
+        args=SimpleNamespace(
+            remapped_class_names=None,
+            translated_benchmark_class_names=None,
+            eval_box_type="obb",
+            classes=None,
+            benchmark="mmot-mini",
+        ),
+    )
+    rendered = ui_module.capture_renderable(renderable, width=140)
+
+    assert "Per-Class Combined Metrics" in rendered
+    assert "Aggregate Groups" in rendered
+    assert "seq-1" not in rendered
+    assert "COMBINED (car)" not in rendered
 
 
 def test_run_generate_mot_results_nonquiet_mode_uses_manager_queue(tmp_path, monkeypatch):

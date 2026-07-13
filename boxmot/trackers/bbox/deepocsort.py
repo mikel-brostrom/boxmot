@@ -34,7 +34,7 @@ class DeepOcSort(BaseTracker):
     """Initialize the DeepOcSort tracker.
 
     Args:
-        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        reid_model (Any | None): Pre-built ReID backend model (e.g. ``ReID(...).model``).
         delta_t (int): Time window used for motion estimation.
         inertia (float): Motion-consistency weight.
         w_association_emb (float): Weight applied to appearance distance during
@@ -47,7 +47,7 @@ class DeepOcSort(BaseTracker):
         aw_off (bool): Whether to disable adaptive appearance weighting.
         Q_xy_scaling (float): Process-noise scaling for position coordinates.
         Q_s_scaling (float): Process-noise scaling for scale coordinates.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
+        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
             ``asso_func``, and ``is_obb``.

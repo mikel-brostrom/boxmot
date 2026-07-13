@@ -49,7 +49,7 @@ class HybridSort(BaseTracker):
     """Initialize the HybridSort tracker.
 
     Args:
-        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        reid_model (Any | None): Pre-built ReID backend model (e.g. ``ReID(...).model``).
         cmc_method (str): Camera-motion compensation method.
         with_reid (bool): Whether to enable appearance features.
         low_thresh (float): Low-confidence threshold for second-pass matching.
@@ -79,7 +79,7 @@ class HybridSort(BaseTracker):
         longterm_reid_correction_thresh_low (float): Correction threshold for
             low-score detections.
         dataset (str): Dataset hint used by the association logic.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
         with_reid (bool): Whether appearance features are enabled.

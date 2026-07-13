@@ -240,8 +240,10 @@ def build_validation_cli_renderable(
                 )
             )
 
-    if len(primary_keys) > 1:
+    if len(primary_keys) > 1 and include_sequences:
         detail_keys = primary_keys
+    elif len(primary_keys) > 1:
+        detail_keys = []
     else:
         detail_keys = (
             [*primary_keys, *aggregate_keys]

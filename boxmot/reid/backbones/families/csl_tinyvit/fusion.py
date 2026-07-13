@@ -22,6 +22,17 @@ class CSLTinyViTFeatureFusion(nn.Module):
         "last3",
         "last4_layer0_target",
         "last3_stage2_target",
+        "last3_stage1_concat",
+        "global_final_parts_stage1_concat",
+        "global_final_parts_fpn_layer0",
+        "last3_fpn_stage1_add",
+        "last3_fpn_stage1_split",
+        "last3_panet_stage1_split",
+        "last3_panet_stage1_shared",
+        "last3_panet_stage1_scale_aware",
+        "last3_bifpn_stage1_split",
+        "last3_bifpn_stage1_branch_aware",
+        "global_final_parts_hierarchical_fpn",
         "last3_fpn_stage2",
         "last3_pafpn_stage2",
         "last4_fpn_layer0_target",
@@ -45,6 +56,13 @@ class CSLTinyViTFeatureFusion(nn.Module):
         "pafpn",
         "split_global_local",
         "late_concat",
+        "concat_compress",
+        "split_stage1_concat",
+        "split_fpn_layer0",
+        "fpn_topdown",
+        "panet",
+        "bifpn",
+        "hierarchical_fpn",
     }
 
     def __init__(
@@ -54,12 +72,13 @@ class CSLTinyViTFeatureFusion(nn.Module):
         path_channels: dict[int, int],
         out_channels: int,
         target_stage_index: int | None = None,
+        mode: str | None = None,
     ):
         super().__init__()
         self.fusion_type = str(fusion_type).lower()
         if self.fusion_type not in self._VALID_FUSION_TYPES:
             raise ValueError(f"Unsupported CSL-TinyViT feature fusion type: {fusion_type}")
-        self.mode = self.fusion_type
+        self.mode = str(mode or self.fusion_type).lower()
         self.stage_indices = tuple(stage_indices)
         self.target_stage_index = target_stage_index
         if self.fusion_type == "final" and self.stage_indices:
@@ -76,6 +95,13 @@ class CSLTinyViTFeatureFusion(nn.Module):
         self.pafpn = self.fusion_type == "pafpn"
         self.split_global_local = self.fusion_type == "split_global_local"
         self.late_concat = self.fusion_type == "late_concat"
+        self.concat_compress = self.fusion_type == "concat_compress"
+        self.split_stage1_concat = self.fusion_type == "split_stage1_concat"
+        self.split_fpn_layer0 = self.fusion_type == "split_fpn_layer0"
+        self.fpn_topdown = self.fusion_type == "fpn_topdown"
+        self.panet = self.fusion_type == "panet"
+        self.bifpn = self.fusion_type == "bifpn"
+        self.hierarchical_fpn = self.fusion_type == "hierarchical_fpn"
         self.use_scale_token = self.fusion_type == "dynamic_scale_token"
 
         missing = [index for index in self.stage_indices if index not in path_channels]
@@ -94,7 +120,11 @@ class CSLTinyViTFeatureFusion(nn.Module):
         self.residual_scales = nn.ParameterDict(
             {
                 str(index): nn.Parameter(torch.zeros(()))
-                for index in (self.stage_indices if self.fusion_type in {"residual", "split_global_local"} else ())
+                for index in (
+                    self.stage_indices
+                    if self.fusion_type in {"residual", "split_global_local", "split_stage1_concat", "split_fpn_layer0", "hierarchical_fpn"}
+                    else ()
+                )
             }
         )
         if self.weighted:
@@ -148,6 +178,98 @@ class CSLTinyViTFeatureFusion(nn.Module):
             self.pafpn_top_down = nn.ModuleDict()
             self.pafpn_bottom_up = nn.ModuleDict()
 
+        if self.concat_compress or self.split_stage1_concat:
+            self.concat_projection = nn.Sequential(
+                nn.Conv2d(out_channels * (1 + len(self.stage_indices)), out_channels, kernel_size=1, bias=False),
+                LayerNorm2d(out_channels),
+                nn.GELU(),
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                LayerNorm2d(out_channels),
+                nn.GELU(),
+            )
+        else:
+            self.concat_projection = nn.Identity()
+
+        if self.fpn_topdown:
+            if self.stage_indices != (2, 1) or self.target_stage_index != 1:
+                raise ValueError("Top-down FPN currently supports Stage-1 additive modes only")
+            self.fpn_global_output = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                LayerNorm2d(out_channels), nn.GELU(),
+            )
+            self.fpn_output = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                LayerNorm2d(out_channels),
+                nn.GELU(),
+            )
+        else:
+            self.fpn_global_output = nn.Identity()
+            self.fpn_output = nn.Identity()
+
+        if self.split_fpn_layer0:
+            if self.stage_indices != (2, 1, 0) or self.target_stage_index != 0:
+                raise ValueError("Layer-0 split FPN requires final -> Stage 2 -> Stage 1 -> Stage 0")
+            self.layer0_fpn_outputs = nn.ModuleDict({
+                str(index): nn.Sequential(
+                    nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                    LayerNorm2d(out_channels), nn.GELU(),
+                ) for index in (2, 1, 0)
+            })
+        else:
+            self.layer0_fpn_outputs = nn.ModuleDict()
+
+        if self.panet:
+            if self.stage_indices != (2, 1) or self.target_stage_index != 1:
+                raise ValueError("PANet currently supports the Stage-1 split/shared modes only")
+            self.panet_downsample = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=2, padding=1, bias=False),
+                LayerNorm2d(out_channels), nn.GELU(),
+            )
+            self.panet_output = nn.Sequential(
+                nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
+                LayerNorm2d(out_channels), nn.GELU(),
+            )
+            self.panet_scale_gate = nn.Conv2d(out_channels * 2, out_channels, kernel_size=1)
+            nn.init.zeros_(self.panet_scale_gate.weight)
+            nn.init.constant_(self.panet_scale_gate.bias, math.log(0.7 / 0.3))
+        else:
+            self.panet_downsample = nn.Identity()
+            self.panet_output = nn.Identity()
+            self.panet_scale_gate = nn.Identity()
+
+        if self.bifpn:
+            if self.stage_indices != (2, 1) or self.target_stage_index != 1:
+                raise ValueError("BiFPN currently supports last3_bifpn_stage1_split only")
+            self.bifpn_weights = nn.ParameterDict({
+                "top_low": nn.Parameter(torch.ones(2)), "top_high": nn.Parameter(torch.ones(2)),
+                "bottom_low": nn.Parameter(torch.ones(3)),
+            })
+            self.bifpn_blocks = nn.ModuleDict({key: self._make_bifpn_block(out_channels) for key in self.bifpn_weights})
+            if self.mode == "last3_bifpn_stage1_branch_aware":
+                self.bifpn_branch_weights = nn.ParameterDict({
+                    "global": nn.Parameter(torch.ones(3)),
+                    "local": nn.Parameter(torch.ones(3)),
+                })
+                self.bifpn_branch_blocks = nn.ModuleDict({
+                    "global": self._make_bifpn_block(out_channels),
+                    "local": self._make_bifpn_block(out_channels),
+                })
+            else:
+                self.bifpn_branch_weights = nn.ParameterDict()
+                self.bifpn_branch_blocks = nn.ModuleDict()
+        else:
+            self.bifpn_weights = nn.ParameterDict()
+            self.bifpn_blocks = nn.ModuleDict()
+            self.bifpn_branch_weights = nn.ParameterDict()
+            self.bifpn_branch_blocks = nn.ModuleDict()
+
+        if self.hierarchical_fpn:
+            self.layer0_fpn_outputs = nn.ModuleDict({
+                str(index): nn.Sequential(
+                    nn.Conv2d(out_channels, out_channels, 3, padding=1, bias=False), LayerNorm2d(out_channels), nn.GELU()
+                ) for index in (2, 1, 0)
+            })
+
     @classmethod
     def from_mode(
         cls,
@@ -162,6 +284,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
             path_channels=path_channels,
             out_channels=out_channels,
             target_stage_index=cls.target_stage_for_mode(normalized_mode),
+            mode=normalized_mode,
         )
         module.mode = normalized_mode
         return module
@@ -193,6 +316,20 @@ class CSLTinyViTFeatureFusion(nn.Module):
             return "split_global_local"
         if mode == "late_concat_stage2":
             return "late_concat"
+        if mode == "last3_stage1_concat":
+            return "concat_compress"
+        if mode == "global_final_parts_stage1_concat":
+            return "split_stage1_concat"
+        if mode == "global_final_parts_fpn_layer0":
+            return "split_fpn_layer0"
+        if mode in {"last3_fpn_stage1_add", "last3_fpn_stage1_split"}:
+            return "fpn_topdown"
+        if mode in {"last3_panet_stage1_split", "last3_panet_stage1_shared", "last3_panet_stage1_scale_aware"}:
+            return "panet"
+        if mode in {"last3_bifpn_stage1_split", "last3_bifpn_stage1_branch_aware"}:
+            return "bifpn"
+        if mode == "global_final_parts_hierarchical_fpn":
+            return "hierarchical_fpn"
         return "residual"
 
     @staticmethod
@@ -203,16 +340,20 @@ class CSLTinyViTFeatureFusion(nn.Module):
             return (1, 2)
         if mode == "last4_layer0_target":
             return (0, 1, 2)
-        if mode == "last3_stage2_target":
+        if mode in {"last3_stage2_target", "last3_stage1_concat", "global_final_parts_stage1_concat"}:
             return (1, 2)
         if mode == "last3_fpn_stage2":
             # FPN-style semantic order: final, stage 2, then stage 1 resized to stage 2.
+            return (2, 1)
+        if mode in {"last3_fpn_stage1_add", "last3_fpn_stage1_split", "last3_panet_stage1_split", "last3_panet_stage1_shared", "last3_panet_stage1_scale_aware", "last3_bifpn_stage1_split", "last3_bifpn_stage1_branch_aware"}:
             return (2, 1)
         if mode == "last3_pafpn_stage2":
             # PAFPN-style semantic order: final -> stage 2 -> stage 1, then bottom-up to stage 2.
             return (2, 1)
         if mode == "last4_fpn_layer0_target":
             # FPN-style semantic order: final, stage 2, stage 1, then stage 0 at layer0 resolution.
+            return (2, 1, 0)
+        if mode in {"global_final_parts_fpn_layer0", "global_final_parts_hierarchical_fpn"}:
             return (2, 1, 0)
         if mode == "global_final_parts_stage2":
             return (1, 2)
@@ -232,14 +373,32 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if mode in {
             "last4_layer0_target",
             "last3_stage2_target",
+            "last3_stage1_concat",
+            "global_final_parts_stage1_concat",
+            "last3_fpn_stage1_add",
+            "last3_fpn_stage1_split",
+            "last3_panet_stage1_split",
+            "last3_panet_stage1_shared",
+            "last3_panet_stage1_scale_aware",
+            "last3_bifpn_stage1_split",
+            "last3_bifpn_stage1_branch_aware",
             "last3_fpn_stage2",
             "last3_pafpn_stage2",
             "last4_fpn_layer0_target",
             "global_final_parts_stage2",
+            "global_final_parts_fpn_layer0",
+            "global_final_parts_hierarchical_fpn",
             "late_concat_stage2",
         }:
-            if mode in {"last4_layer0_target", "last4_fpn_layer0_target"}:
+            if mode in {"last4_layer0_target", "last4_fpn_layer0_target", "global_final_parts_fpn_layer0", "global_final_parts_hierarchical_fpn"}:
                 return 0
+            if mode in {
+                "last3_stage1_concat", "global_final_parts_stage1_concat", "last3_fpn_stage1_add",
+                "last3_fpn_stage1_split",
+                "last3_panet_stage1_split", "last3_panet_stage1_shared", "last3_bifpn_stage1_split",
+                "last3_panet_stage1_scale_aware", "last3_bifpn_stage1_branch_aware",
+            }:
+                return 1
             return 2
         return None
 
@@ -289,6 +448,21 @@ class CSLTinyViTFeatureFusion(nn.Module):
         )
 
     @staticmethod
+    def _make_bifpn_block(out_channels: int) -> nn.Sequential:
+        return nn.Sequential(
+            nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, groups=out_channels, bias=False),
+            LayerNorm2d(out_channels), nn.GELU(),
+            nn.Conv2d(out_channels, out_channels, kernel_size=1, bias=False),
+            LayerNorm2d(out_channels), nn.GELU(),
+        )
+
+    @staticmethod
+    def _fast_normalized_fusion(features: list[torch.Tensor], weights: torch.Tensor, epsilon: float = 1e-4) -> torch.Tensor:
+        positive_weights = F.relu(weights)
+        normalized_weights = positive_weights / (positive_weights.sum() + epsilon)
+        return sum(weight * feature for weight, feature in zip(normalized_weights, features, strict=True))
+
+    @staticmethod
     def _resize_feature(feature: torch.Tensor, output_size: tuple[int, int]) -> torch.Tensor:
         if feature.shape[-2:] == output_size:
             return feature
@@ -302,6 +476,27 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if self.target_stage_index is None:
             return final_feature.shape[-2:]
         return path_features[self.target_stage_index].shape[-2:]
+
+    @staticmethod
+    def _half_size(size: tuple[int, int]) -> tuple[int, int]:
+        """Return the next coarser pyramid level for ReID feature maps."""
+        return max(size[0] // 2, 1), max(size[1] // 2, 1)
+
+    def _stage2_pyramid_inputs(
+        self,
+        final_feature: torch.Tensor,
+        path_features: dict[int, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, tuple[int, int]]:
+        """Build the semantic 12x4 level below the native Stage-1 24x8 map.
+
+        CSL-TinyViT preserves spatial resolution across its last stages. The
+        detector necks adapted here require an actual coarser semantic level,
+        so both final and Stage-2 maps are resized to one half of Stage 1.
+        """
+        low_size = self._half_size(path_features[1].shape[-2:])
+        final_low = self._resize_feature(final_feature, low_size)
+        stage2_low = self._project_path(2, path_features[2], low_size)
+        return final_low, stage2_low, low_size
 
     @staticmethod
     def _pooled_descriptor(feature: torch.Tensor) -> torch.Tensor:
@@ -368,6 +563,31 @@ class CSLTinyViTFeatureFusion(nn.Module):
             )
             return global_feature, local_feature
 
+        if self.split_stage1_concat:
+            global_size = self._half_size(path_features[1].shape[-2:])
+            global_feature = self._residual_fuse_to_size(final_feature, path_features, global_size)
+            output_size = path_features[self.target_stage_index].shape[-2:]
+            local_features = [self._resize_feature(final_feature, output_size), *[
+                self._project_path(stage_index, path_features[stage_index], output_size)
+                for stage_index in self.stage_indices
+            ]]
+            return global_feature, self.concat_projection(torch.cat(local_features, dim=1))
+
+        if self.split_fpn_layer0:
+            global_size = self._half_size(path_features[1].shape[-2:])
+            global_feature = self._resize_feature(final_feature, global_size)
+            for stage_index in (1, 2):
+                projected = self._project_path(stage_index, path_features[stage_index], global_size)
+                global_feature = global_feature + self.residual_scales[str(stage_index)] * projected
+            final_low, stage2_low, _ = self._stage2_pyramid_inputs(final_feature, path_features)
+            pyramid = self.layer0_fpn_outputs["2"](final_low + stage2_low)
+            for stage_index in (1, 0):
+                stage = self._project_path(stage_index, path_features[stage_index], path_features[stage_index].shape[-2:])
+                pyramid = self.layer0_fpn_outputs[str(stage_index)](
+                    stage + self._resize_feature(pyramid, stage.shape[-2:])
+                )
+            return global_feature, pyramid
+
         if self.late_concat:
             local_feature = self._project_path(
                 self.target_stage_index,
@@ -421,6 +641,78 @@ class CSLTinyViTFeatureFusion(nn.Module):
             return self.pafpn_bottom_up["2"](
                 torch.cat([top_down_stage2, self._resize_feature(top_down_stage1, top_down_stage2.shape[-2:])], dim=1)
             )
+
+        if self.concat_compress:
+            return self.concat_projection(torch.cat(self._ordered_features(final_feature, path_features), dim=1))
+
+        if self.fpn_topdown:
+            final_low, stage2, _ = self._stage2_pyramid_inputs(final_feature, path_features)
+            pyramid2 = stage2 + final_low
+            stage1 = self._project_path(1, path_features[1], path_features[1].shape[-2:])
+            pyramid1 = stage1 + self._resize_feature(pyramid2, stage1.shape[-2:])
+            if self.mode == "last3_fpn_stage1_split":
+                return self.fpn_global_output(pyramid2), self.fpn_output(pyramid1)
+            return self.fpn_output(pyramid1)
+
+        if self.panet:
+            final_low, stage2, _ = self._stage2_pyramid_inputs(final_feature, path_features)
+            pyramid2 = stage2 + final_low
+            stage1 = self._project_path(1, path_features[1], path_features[1].shape[-2:])
+            pyramid1 = stage1 + self._resize_feature(pyramid2, stage1.shape[-2:])
+            bottom_up = self.panet_downsample(pyramid1) if pyramid1.shape[-2:] != pyramid2.shape[-2:] else pyramid1
+            bottom_up = self._resize_feature(bottom_up, pyramid2.shape[-2:])
+            semantic_global = self.panet_output(pyramid2 + bottom_up)
+            if self.mode == "last3_panet_stage1_shared":
+                return semantic_global
+            if self.mode == "last3_panet_stage1_scale_aware":
+                semantic_local = self._resize_feature(semantic_global, pyramid1.shape[-2:])
+                gate = torch.sigmoid(self.panet_scale_gate(torch.cat([pyramid1, semantic_local], dim=1)))
+                return semantic_global, gate * pyramid1 + (1.0 - gate) * semantic_local
+            return semantic_global, pyramid1
+
+        if self.bifpn:
+            final_low, stage2, _ = self._stage2_pyramid_inputs(final_feature, path_features)
+            stage1 = self._project_path(1, path_features[1], path_features[1].shape[-2:])
+            if self.mode == "last3_bifpn_stage1_branch_aware":
+                stage1_low = self._resize_feature(stage1, stage2.shape[-2:])
+                global_feature = self.bifpn_branch_blocks["global"](self._fast_normalized_fusion(
+                    [final_low, stage2, stage1_low], self.bifpn_branch_weights["global"]
+                ))
+                local_feature = self.bifpn_branch_blocks["local"](self._fast_normalized_fusion(
+                    [
+                        self._resize_feature(final_low, stage1.shape[-2:]),
+                        self._resize_feature(stage2, stage1.shape[-2:]),
+                        stage1,
+                    ],
+                    self.bifpn_branch_weights["local"],
+                ))
+                return global_feature, local_feature
+            top_low = self.bifpn_blocks["top_low"](self._fast_normalized_fusion(
+                [stage2, final_low], self.bifpn_weights["top_low"]
+            ))
+            top_high = self.bifpn_blocks["top_high"](self._fast_normalized_fusion(
+                [stage1, self._resize_feature(top_low, stage1.shape[-2:])], self.bifpn_weights["top_high"]
+            ))
+            bottom_up = (
+                F.max_pool2d(top_high, kernel_size=3, stride=2, padding=1)
+                if top_high.shape[-2:] != stage2.shape[-2:]
+                else top_high
+            )
+            bottom_up = self._resize_feature(bottom_up, stage2.shape[-2:])
+            bottom_low = self.bifpn_blocks["bottom_low"](self._fast_normalized_fusion(
+                [stage2, top_low, bottom_up],
+                self.bifpn_weights["bottom_low"],
+            ))
+            return bottom_low, top_high
+
+        if self.hierarchical_fpn:
+            final_low, stage2_low, _ = self._stage2_pyramid_inputs(final_feature, path_features)
+            coarse = self.layer0_fpn_outputs["2"](final_low + stage2_low)
+            stage1 = self._project_path(1, path_features[1], path_features[1].shape[-2:])
+            coarse = self.layer0_fpn_outputs["1"](stage1 + self._resize_feature(coarse, stage1.shape[-2:]))
+            stage0 = self._project_path(0, path_features[0], path_features[0].shape[-2:])
+            fine = self.layer0_fpn_outputs["0"](stage0 + self._resize_feature(coarse, stage0.shape[-2:]))
+            return final_low + self.residual_scales["1"] * self._project_path(1, path_features[1], final_low.shape[-2:]) + self.residual_scales["2"] * stage2_low, coarse, fine
 
         output_size = self._output_size(final_feature, path_features)
         fused = self._resize_feature(final_feature, output_size)

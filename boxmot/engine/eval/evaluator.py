@@ -298,7 +298,7 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
                 args,
                 cfg,
                 title="📊 RESULTS SUMMARY",
-                include_sequences=True,
+                include_sequences=single_class_mode,
                 colorize=False,
             )
         )
@@ -490,7 +490,10 @@ def run_eval(
         pipeline.complete_step()
         pipeline.set_detail_renderable(
             pipeline.current_step,
-            result.renderable(include_timings=include_timings),
+            result.renderable(
+                include_sequences=summary_label == "single_class",
+                include_timings=include_timings,
+            ),
         )
 
     return result

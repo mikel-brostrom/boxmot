@@ -1974,6 +1974,166 @@ def test_csl_tinyvit_last3_stage2_target_fuses_at_stage2_resolution():
     torch.testing.assert_close(output, expected)
 
 
+def test_csl_tinyvit_last3_stage1_concat_fuses_at_24x8_and_compresses_channels():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_stage1_concat",
+        path_channels={1: 6, 2: 8},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {
+        1: torch.randn(2, 6, 6, 4),
+        2: torch.randn(2, 8, 3, 2),
+    }
+
+    output = module(final_feature, path_features)
+
+    assert module.mode == "last3_stage1_concat"
+    assert module.fusion_type == "concat_compress"
+    assert module.stage_indices == (1, 2)
+    assert module.target_stage_index == 1
+    assert module.concat_projection[0].in_channels == 12
+    assert module.concat_projection[0].out_channels == 4
+    assert output.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_last3_stage1_concat_model_outputs_24x8_feature_map():
+    model = csl_tinyvit_7m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="last3_stage1_concat",
+        neck_dim=32,
+        feat_dim=16,
+    )
+    model.eval()
+
+    with torch.no_grad():
+        feature_map = model.forward_features(torch.randn(1, 3, 384, 128))
+
+    assert model._fusion_stage_indices == (1, 2)
+    assert feature_map.shape == (1, 32, 24, 8)
+
+
+def test_csl_tinyvit_last3_fpn_stage1_add_uses_recursive_top_down_addition():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_fpn_stage1_add",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+    output = module(final_feature, path_features)
+    assert module.mode == "last3_fpn_stage1_add"
+    assert module.fusion_type == "fpn_topdown"
+    assert module.stage_indices == (2, 1)
+    assert module.target_stage_index == 1
+    assert output.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_last3_fpn_stage1_split_routes_p2_global_and_p1_parts():
+    module = CSLTinyViTFeatureFusion.from_mode("last3_fpn_stage1_split", path_channels={1: 4, 2: 4}, out_channels=4)
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+    global_feature, local_feature = module(final_feature, path_features)
+    assert global_feature.shape == (2, 4, 3, 2)
+    assert local_feature.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_last3_panet_stage1_split_returns_low_res_global_and_high_res_parts():
+    module = CSLTinyViTFeatureFusion.from_mode("last3_panet_stage1_split", path_channels={1: 4, 2: 4}, out_channels=4)
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+    global_map, local_map = module(final_feature, path_features)
+    assert module.fusion_type == "panet"
+    assert module.panet_downsample[0].stride == (2, 2)
+    assert global_map.shape == (2, 4, 3, 2)
+    assert local_map.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_last3_panet_stage1_shared_returns_final_panet_map():
+    module = CSLTinyViTFeatureFusion.from_mode("last3_panet_stage1_shared", path_channels={1: 4, 2: 4}, out_channels=4)
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+    shared_map = module(final_feature, path_features)
+    assert isinstance(shared_map, torch.Tensor)
+    assert shared_map.shape == (2, 4, 3, 2)
+
+
+def test_csl_tinyvit_panet_constructs_coarser_semantic_level_from_equal_resolution_stages():
+    module = CSLTinyViTFeatureFusion.from_mode("last3_panet_stage1_split", path_channels={1: 4, 2: 4}, out_channels=4)
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 3, 2), 2: torch.randn(2, 4, 3, 2)}
+    global_map, local_map = module(final_feature, path_features)
+    assert global_map.shape == (2, 4, 1, 1)
+    assert local_map.shape == (2, 4, 3, 2)
+
+
+def test_csl_tinyvit_last3_bifpn_stage1_split_learns_normalized_bidirectional_fusion():
+    module = CSLTinyViTFeatureFusion.from_mode("last3_bifpn_stage1_split", path_channels={1: 4, 2: 4}, out_channels=4)
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+    global_map, local_map = module(final_feature, path_features)
+    assert module.fusion_type == "bifpn"
+    assert module.bifpn_blocks["top_high"][0].groups == 4
+    assert global_map.shape == (2, 4, 3, 2)
+    assert local_map.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_best_global_layer0_fpn_parts_uses_high_resolution_local_map():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_fpn_layer0", path_channels={0: 5, 1: 6, 2: 8}, out_channels=4
+    )
+    final_feature = torch.randn(2, 4, 3, 1)
+    path_features = {
+        0: torch.randn(2, 5, 12, 4), 1: torch.randn(2, 6, 6, 2), 2: torch.randn(2, 8, 3, 1)
+    }
+    global_feature, local_feature = module(final_feature, path_features)
+    assert global_feature.shape == (2, 4, 3, 1)
+    assert local_feature.shape == (2, 4, 12, 4)
+
+
+def test_csl_tinyvit_panet_scale_aware_gates_semantic_and_detailed_stripes():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_panet_stage1_scale_aware", path_channels={1: 4, 2: 4}, out_channels=4
+    )
+    global_map, local_map = module(
+        torch.randn(2, 4, 3, 2),
+        {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)},
+    )
+    torch.testing.assert_close(torch.sigmoid(module.panet_scale_gate.bias), torch.full((4,), 0.7))
+    assert global_map.shape == (2, 4, 3, 2)
+    assert local_map.shape == (2, 4, 6, 4)
+
+
+def test_csl_tinyvit_branch_aware_bifpn_has_independent_node_weights():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_bifpn_stage1_branch_aware", path_channels={1: 4, 2: 4}, out_channels=4
+    )
+    global_map, local_map = module(
+        torch.randn(2, 4, 3, 2),
+        {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)},
+    )
+    assert tuple(module.bifpn_branch_weights) == ("global", "local")
+    assert module.bifpn_branch_weights["global"] is not module.bifpn_branch_weights["local"]
+    assert global_map.shape == (2, 4, 3, 2)
+    assert local_map.shape == (2, 4, 6, 4)
+
+
+def test_hierarchical_head_routes_scales_and_keeps_compact_descriptor():
+    head = MultiBranchHead(
+        8, feat_dim=32, num_classes=3, inference_feature="raw_concat",
+        head_parts=(1, 2, 4), hierarchical_scales=True,
+    )
+    head.eval()
+    with torch.no_grad():
+        descriptor = head((
+            torch.randn(2, 8, 3, 1),
+            torch.randn(2, 8, 6, 2),
+            torch.randn(2, 8, 12, 4),
+        ))
+    assert descriptor.shape == (2, 96)
+
+
 def test_csl_tinyvit_last4_layer0_target_fuses_at_layer0_resolution():
     module = CSLTinyViTFeatureFusion.from_mode(
         "last4_layer0_target",

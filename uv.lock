@@ -356,7 +356,7 @@ wheels = [
 
 [[package]]
 name = "boxmot"
-version = "21.0.0"
+version = "22.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

@@ -21,7 +21,7 @@ class StrongSort(BaseTracker):
     """Initialize the StrongSort tracker.
 
     Args:
-        reid_model: Pre-built ReID backend model (e.g. ``ReID(...).model``).
+        reid_model (Any | None): Pre-built ReID backend model (e.g. ``ReID(...).model``).
         min_conf (float): Minimum confidence threshold for detections.
         max_cos_dist (float): Maximum cosine distance accepted by the
             nearest-neighbor metric.
@@ -32,7 +32,7 @@ class StrongSort(BaseTracker):
         mc_lambda (float): Motion-consistency weight used by StrongSORT.
         ema_alpha (float): Exponential moving average coefficient for
             appearance features.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
         model: ReID model used for appearance extraction.

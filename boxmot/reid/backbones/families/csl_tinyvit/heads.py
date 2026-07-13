@@ -49,6 +49,7 @@ class MultiBranchHead(nn.Module):
         drop_global_aux: bool = False,
         drop_global_aux_ratio: float = 0.25,
         evidence_num_roles: int = 8,
+        hierarchical_scales: bool = False,
     ):
         super().__init__()
         self.metric_feature = metric_feature
@@ -67,9 +68,12 @@ class MultiBranchHead(nn.Module):
             raise ValueError(f"Unsupported CSL-TinyViT part_pooling: {part_pooling}")
         self.num_part_tokens = int(num_part_tokens)
         self.evidence_num_roles = int(evidence_num_roles)
+        self.hierarchical_scales = bool(hierarchical_scales)
         if self.evidence_num_roles < 1:
             raise ValueError(f"evidence_num_roles must be positive, got {evidence_num_roles}")
         self.head_parts = self._normalize_head_parts(head_parts)
+        if self.hierarchical_scales and self.head_parts != (1, 2, 4):
+            raise ValueError("hierarchical FPN requires head_parts=(1, 2, 4)")
         if self.part_pooling == "tokens":
             if self.num_part_tokens < 1:
                 raise ValueError(f"num_part_tokens must be positive, got {num_part_tokens}")
@@ -124,8 +128,11 @@ class MultiBranchHead(nn.Module):
         self.dse_descriptor_pool = DSELitePool((1, 1))
         self.set_pooling(head_pool)
 
-        for key, _, _ in self.branch_specs:
-            setattr(self, self._bn_attr(key), BNNeck3(in_ch, num_classes, feat_dim, return_f=True))
+        for key, granularity, _ in self.branch_specs:
+            branch_dim = feat_dim
+            if self.hierarchical_scales:
+                branch_dim = feat_dim if granularity == 1 else feat_dim // granularity
+            setattr(self, self._bn_attr(key), BNNeck3(in_ch, num_classes, branch_dim, return_f=True))
         if self.drop_global_aux_enabled:
             self.drop_global_aux = SpatialTopDrop(h_ratio=self.drop_global_aux_ratio)
             self.bn_drop_global_aux = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
@@ -271,12 +278,17 @@ class MultiBranchHead(nn.Module):
 
     def forward(self, x):
         # x: (B, C, H, W) or (global_map, local_map) for split-map ablations.
-        if isinstance(x, tuple):
+        fine_source = None
+        if isinstance(x, tuple) and len(x) == 3:
+            global_source, local_source, fine_source = x
+        elif isinstance(x, tuple):
             global_source, local_source = x
         else:
             global_source = local_source = x
         global_feature = self.global_adapter(global_source)
         local_feature = self.local_adapter(local_source)
+        if fine_source is not None:
+            fine_source = self.local_adapter(fine_source)
         pooled_by_granularity = {1: self.global_pool(global_feature)}
         token_parts = None
         semantic_parts = None
@@ -299,12 +311,14 @@ class MultiBranchHead(nn.Module):
                 {
                     granularity: (
                         self._pool_overlap_stripes(
-                            local_feature,
+                            fine_source if fine_source is not None and granularity >= 4 else local_feature,
                             granularity,
                             getattr(self, self._pool_attr(granularity)),
                         )
                         if self.part_pooling == "overlap_stripes"
-                        else getattr(self, self._pool_attr(granularity))(local_feature)
+                        else getattr(self, self._pool_attr(granularity))(
+                            fine_source if fine_source is not None and granularity >= 4 else local_feature
+                        )
                     )
                     for granularity in self.head_parts
                     if granularity > 1
@@ -374,8 +388,12 @@ class MultiBranchHead(nn.Module):
         if semantic_nullness is not None:
             raw_features["_nullness"] = semantic_nullness
 
-        bn_features = torch.stack(bn_features_list, dim=2).flatten(1, 2)
-        raw_features["raw_mean"] = torch.stack(raw_features_list, dim=0).mean(dim=0)
+        bn_features = torch.cat(bn_features_list, dim=1)
+        raw_features["raw_mean"] = (
+            raw_features_list[0]
+            if self.hierarchical_scales
+            else torch.stack(raw_features_list, dim=0).mean(dim=0)
+        )
         raw_features["raw_concat"] = torch.cat(normalized_raw_features_list, dim=1)
         raw_features["concat_bn"] = bn_features
         raw_features["norm_concat_bn"] = F.normalize(

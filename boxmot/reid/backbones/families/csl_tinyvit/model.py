@@ -274,6 +274,7 @@ class CSLTinyViT(ReIDBackbone):
                 drop_global_aux_ratio=drop_global_aux_ratio,
                 evidence_num_roles=self.evidence_num_roles,
                 branch_metric=branch_metric,
+                hierarchical_scales=self.feature_fusion == "global_final_parts_hierarchical_fpn",
             )
 
         # Initialize weights

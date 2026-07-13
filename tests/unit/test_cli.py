@@ -496,6 +496,32 @@ def test_train_accepts_pafpn_feature_fusion(monkeypatch):
     assert "feature_fusion" in set(captured["args"].train_explicit_keys)
 
 
+def test_train_accepts_stage1_ablation_feature_fusions(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+    modes = (
+        "last3_stage1_concat",
+        "last3_fpn_stage1_split",
+        "last3_panet_stage1_split",
+        "last3_panet_stage1_shared",
+        "last3_bifpn_stage1_split",
+        "global_final_parts_stage1_concat",
+        "global_final_parts_fpn_layer0",
+        "last3_panet_stage1_scale_aware",
+        "last3_bifpn_stage1_branch_aware",
+        "global_final_parts_hierarchical_fpn",
+    )
+
+    for mode in modes:
+        result = CliRunner().invoke(boxmot, ["train", "--data-dir", ".", "--feature-fusion", mode])
+        assert result.exit_code == 0, result.output
+        assert captured["args"].feature_fusion == mode
+
+
 def test_train_accepts_gradual_unfreeze_options(monkeypatch):
     captured = {}
 
@@ -766,6 +792,21 @@ def test_train_recipe_can_supply_data_dir(monkeypatch):
     assert args.gradual_unfreeze_stage_epochs == 0
     assert args.early_id_loss_weight == 0.0
     assert args.center_loss_ramp_start_epoch == 0
+
+
+def test_train_can_disable_recipe_flip_tta(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_11m", "--no-flip-tta"])
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].flip_tta is False
+    assert "flip_tta" in captured["args"].train_explicit_keys
 
 
 def test_train_mobilenetv4_recipes_use_mobile_safe_baselines(monkeypatch):
