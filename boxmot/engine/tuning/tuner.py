@@ -604,18 +604,10 @@ class Tuner:
         return slug.strip("._-") or fallback
 
     def _make_safe_namespace(self) -> SimpleNamespace:
-        try:
-            from ray import cloudpickle
-        except Exception:
-            try:
-                import cloudpickle  # noqa: F811
-            except Exception:
-                return SimpleNamespace(**vars(self.args))
-
         safe: dict[str, Any] = {}
         for key, value in vars(self.args).items():
             try:
-                cloudpickle.dumps(value)
+                _ray_pickle_dumps(value)
                 safe[key] = value
             except Exception:
                 pass
@@ -720,18 +712,22 @@ def _sync_tuning_requirements(*, verbose: bool) -> None:
 def _is_ray_pickle_safe(value: Any) -> bool:
     """Return True if *value* is serializable with Ray's cloudpickle."""
     try:
-        from ray import cloudpickle
-
-        cloudpickle.dumps(value)
+        _ray_pickle_dumps(value)
         return True
     except Exception:
-        try:
-            import cloudpickle  # type: ignore
+        return False
 
-            cloudpickle.dumps(value)
-            return True
-        except Exception:
-            return False
+
+def _ray_pickle_dumps(value: Any) -> bytes:
+    """Serialize with Ray/cloudpickle when available, otherwise stdlib pickle."""
+    try:
+        from ray import cloudpickle as serializer
+    except ImportError:
+        try:
+            import cloudpickle as serializer  # type: ignore[no-redef]
+        except ImportError:
+            import pickle as serializer  # type: ignore[no-redef]
+    return serializer.dumps(value)
 
 
 def _resolve_tune_dir(args, resume: bool = False) -> Path:

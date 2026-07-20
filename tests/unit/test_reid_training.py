@@ -2572,7 +2572,9 @@ def test_stage0_semantic_fine_optimized_execution_matches_reference():
     assert projection_calls == {"optimized": 1, "reference": 2}
     assert semantic_input_shapes == {"optimized": (6, 2), "reference": (12, 4)}
     for optimized_map, reference_map in zip(optimized_maps, reference_maps, strict=True):
-        torch.testing.assert_close(optimized_map, reference_map, rtol=1e-5, atol=1e-6)
+        # Projection and bilinear interpolation commute mathematically, but the
+        # optimized order accumulates floating-point products differently.
+        torch.testing.assert_close(optimized_map, reference_map, rtol=2e-4, atol=1e-5)
 
 
 def test_csl_tinyvit_stage0_semantic_fine_builds_compact_hierarchical_head():

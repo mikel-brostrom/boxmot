@@ -975,15 +975,15 @@ def test_build_mot_feedback_keeps_summary_and_per_sequence_metrics():
     assert feedback["per_class_metrics"]["person"]["CLR_TP"] == 100
 
 
-def test_eval_runtime_metrics_are_generated_by_motmetrics_module():
-    forbidden_module = "track" + "eval"
-
+def test_eval_runtime_uses_internal_metrics_with_optional_trackeval_reference():
     assert evaluator_module._LAZY_EXPORTS["motmetrics_runner"] == (
         "boxmot.engine.eval.motmetrics",
         "run_motmetrics",
     )
-    assert all(forbidden_module not in module.lower() for module, _ in evaluator_module._LAZY_EXPORTS.values())
-    assert not (Path(evaluator_module.__file__).parent / forbidden_module).exists()
+    assert evaluator_module._LAZY_EXPORTS["trackeval_runner"] == (
+        "boxmot.engine.eval.trackeval_reference",
+        "evaluate_trackeval_motchallenge",
+    )
 
 
 def test_ordered_benchmark_eval_class_names_preserve_multiword_names():

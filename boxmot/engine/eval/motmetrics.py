@@ -976,7 +976,8 @@ def _summary_from_bundle(bundle: MetricBundle) -> dict[str, Any]:
     for field in _CLEAR_FLOAT_FIELDS:
         summary[field] = _percent(clear[field])
     for field in _CLEAR_INTEGER_FIELDS:
-        summary[field] = _count(clear[field])
+        if field in clear:
+            summary[field] = _count(clear[field])
     summary["MOTP_sum"] = float(clear.get("MOTP_sum", 0.0))
 
     for field in _IDENTITY_FLOAT_FIELDS:
