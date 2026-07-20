@@ -79,6 +79,18 @@ def make_spatial_conv(
 class CSLTinyViTFeatureFusion(nn.Module):
     """Swappable spatial feature fusion module for CSL-TinyViT stage outputs."""
 
+    HIERARCHICAL_SCALE_MODES = frozenset(
+        {
+            "global_final_parts_stage2_hierarchical_control",
+            "global_final_parts_stage0_semantic_fine_reference",
+            "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_panet_lite",
+            "global_final_parts_stage0_bifpn_lite",
+            "global_final_parts_stage0_native_pyramid",
+            "global_final_parts_hierarchical_fpn",
+        }
+    )
+
     _VALID_MODES = {
         "final",
         "last2",
@@ -547,6 +559,16 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if mode not in cls._VALID_MODES:
             raise ValueError(f"Unsupported CSL-TinyViT feature_fusion: {mode}")
         return mode
+
+    @classmethod
+    def uses_hierarchical_scales(cls, mode: str) -> bool:
+        """Return whether a fusion mode routes distinct global/coarse/fine maps."""
+        return cls.normalize_mode(mode) in cls.HIERARCHICAL_SCALE_MODES
+
+    @classmethod
+    def uses_final_global_branch(cls, mode: str) -> bool:
+        """Return whether global pooling must use the backbone's final semantic head."""
+        return cls.normalize_mode(mode).startswith("global_final_parts_")
 
     @staticmethod
     def normalize_resize_mode(mode: str) -> str:

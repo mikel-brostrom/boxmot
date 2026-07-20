@@ -1018,6 +1018,41 @@ def test_train_mobilenetv4_recipes_use_mobile_safe_baselines(monkeypatch):
         assert args.flip_tta is False
 
 
+def test_train_mobilenetv4_a11k_recipe_transfers_scale_balanced_procedure(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["train", "--recipe", "mobilenetv4_conv_small_a11k", "--data-dir", "."],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.model == "mobilenetv4_conv_small"
+    assert args.feature_fusion == "global_final_parts_stage0_semantic_fine_reference"
+    assert args.head_pool == "gelu_gem"
+    assert args.head_parts == (1, 2, 4)
+    assert args.feat_dim == 384
+    assert args.neck_dim == 384
+    assert args.scale_balanced_branches is True
+    assert args.metric_feature == "raw_concat"
+    assert args.inference_feature == "norm_concat_bn"
+    assert args.p_ids == 12
+    assert args.k_instances == 8
+    assert args.epochs == 200
+    assert args.lr == 5e-4
+    assert args.weight_decay == 1e-4
+    assert args.backbone_freeze_epochs == 10
+    assert args.warmup_epochs == 20
+    assert args.ema_decay == 0.999
+    assert args.flip_tta is False
+
+
 def test_train_accepts_csl_tinyvit_speed_architecture_options(monkeypatch):
     captured = {}
 

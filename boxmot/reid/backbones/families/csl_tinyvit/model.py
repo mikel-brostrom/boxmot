@@ -408,16 +408,7 @@ class CSLTinyViT(ReIDBackbone):
                 scale_balanced_branches=self.scale_balanced_branches,
                 compact_deployment_head=self.compact_deployment_head,
                 specialist_mode=self.head_type,
-                hierarchical_scales=self.feature_fusion
-                in {
-                    "global_final_parts_stage2_hierarchical_control",
-                    "global_final_parts_stage0_semantic_fine_reference",
-                    "global_final_parts_stage0_semantic_fine",
-                    "global_final_parts_stage0_panet_lite",
-                    "global_final_parts_stage0_bifpn_lite",
-                    "global_final_parts_stage0_native_pyramid",
-                    "global_final_parts_hierarchical_fpn",
-                },
+                hierarchical_scales=CSLTinyViTFeatureFusion.uses_hierarchical_scales(self.feature_fusion),
             )
 
         # Initialize weights

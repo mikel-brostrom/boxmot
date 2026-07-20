@@ -102,18 +102,29 @@ def _feature_channels(backbone: nn.Module) -> list[int]:
     return [int(item["num_chs"]) for item in feature_info]
 
 
-def _fusion_path_channels(feature_fusion: str, channels: Sequence[int]) -> dict[int, int]:
+def _fusion_source_indices() -> dict[int, int]:
+    """Map shared fusion roles onto MobileNetV4 pyramid endpoints.
+
+    MobileNetV4 exposes stride-8 C3, stride-16 C4, and stride-32 C5 maps.
+    The Stage-0 semantic-fine ReID head uses C3 for its 48x16 fine branch,
+    C4 for its 24x8 coarse branch, and the timm C5 head for global semantics.
+    Stage 1 also uses C3 as the intermediate semantic residual because timm
+    exposes one endpoint per stride, unlike CSL-TinyViT's two stride-16 stages.
+    """
+    return {0: -3, 1: -3, 2: -2}
+
+
+def _fusion_path_channels(
+    feature_fusion: str,
+    channels: Sequence[int],
+    source_indices: dict[int, int],
+) -> dict[int, int]:
     stage_indices = CSLTinyViTFeatureFusion.stage_indices_for_mode(feature_fusion)
     path_channels: dict[int, int] = {}
     for stage_index in stage_indices:
-        if stage_index == 0:
-            source_index = -4
-        elif stage_index == 1:
-            source_index = -3
-        elif stage_index == 2:
-            source_index = -2
-        else:
+        if stage_index not in source_indices:
             raise ValueError(f"Unsupported MobileNetV4 fusion stage index: {stage_index}")
+        source_index = source_indices[stage_index]
         try:
             path_channels[stage_index] = int(channels[source_index])
         except IndexError as exc:
@@ -160,6 +171,8 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         metric_feature: str = "auto",
         inference_feature: str = "concat_bn",
         feature_fusion: str = "final",
+        pyramid_resize_mode: str = "bilinear",
+        spatial_conv_mode: str = "standard",
         post_fusion_mixer: str = "none",
         post_fusion_mixer_reduction: int = 4,
         post_fusion_mixer_kernel: tuple[int, int] = (5, 3),
@@ -176,6 +189,7 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         drop_global_aux: bool = False,
         drop_global_aux_ratio: float = 0.25,
         branch_metric: bool = False,
+        scale_balanced_branches: bool = False,
         drop_path_rate: float = 0.0,
         use_timm_head: bool = True,
         **kwargs: Any,
@@ -187,6 +201,8 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         self.loss = loss
         self.img_size = tuple(int(value) for value in img_size)
         self.feature_fusion = CSLTinyViTFeatureFusion.normalize_mode(feature_fusion)
+        self.pyramid_resize_mode = CSLTinyViTFeatureFusion.normalize_resize_mode(pyramid_resize_mode)
+        self.spatial_conv_mode = CSLTinyViTFeatureFusion.normalize_spatial_conv_mode(spatial_conv_mode)
         self.post_fusion_mixer = self._normalize_post_fusion_mixer(post_fusion_mixer)
         self.post_fusion_mixer_reduction = int(post_fusion_mixer_reduction)
         self.post_fusion_mixer_kernel = self._normalize_pair(post_fusion_mixer_kernel)
@@ -194,6 +210,11 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         self.head_type = str(head_type).lower()
         if self.head_type not in {"standard", "gpc_lite"}:
             raise ValueError("MobileNetV4 ReID head_type must be one of: standard, gpc_lite")
+        self.scale_balanced_branches = bool(scale_balanced_branches)
+        if self.scale_balanced_branches and self.head_type != "standard":
+            raise ValueError("MobileNetV4 scale-balanced branches require head_type='standard'")
+        if self.scale_balanced_branches and branch_metric:
+            raise ValueError("MobileNetV4 scale-balanced branches use one selected metric descriptor")
         if drop_global_aux and self.head_type != "standard":
             raise ValueError("drop_global_aux requires MobileNetV4 head_type='standard'")
 
@@ -226,14 +247,20 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         global_input_channels = self.timm_head_channels if self.use_timm_head else final_channels
         self.neck = _cnn_projection(global_input_channels, neck_dim)
         self.spatial_neck = _cnn_projection(final_channels, neck_dim)
-        fusion_path_channels = _fusion_path_channels(self.feature_fusion, channels)
+        self._fusion_source_indices = _fusion_source_indices()
+        fusion_path_channels = _fusion_path_channels(
+            self.feature_fusion,
+            channels,
+            self._fusion_source_indices,
+        )
         self.feature_fusion_module = CSLTinyViTFeatureFusion.from_mode(
             mode=self.feature_fusion,
             path_channels=fusion_path_channels,
             out_channels=neck_dim,
+            resize_mode=self.pyramid_resize_mode,
+            spatial_conv_mode=self.spatial_conv_mode,
         )
         self._fusion_stage_indices = self.feature_fusion_module.stage_indices
-        self._fusion_source_indices = {0: -4, 1: -3, 2: -2}
 
         if self.post_fusion_mixer == "dwconv":
             self.post_fusion_mixer_module = PostFusionLocalMixer(
@@ -277,6 +304,8 @@ class TimmMobileNetV4ReID(ReIDBackbone):
                 drop_global_aux=drop_global_aux,
                 drop_global_aux_ratio=drop_global_aux_ratio,
                 branch_metric=branch_metric,
+                scale_balanced_branches=self.scale_balanced_branches,
+                hierarchical_scales=CSLTinyViTFeatureFusion.uses_hierarchical_scales(self.feature_fusion),
             )
         self.pretrained_source = "huggingface/pytorch-image-models (timm)"
         LOGGER.info(
@@ -341,7 +370,11 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         if not self._fusion_stage_indices:
             fused = final
         else:
-            fusion_final = final if self.feature_fusion_module.split_global_local else spatial_final
+            fusion_final = (
+                final
+                if CSLTinyViTFeatureFusion.uses_final_global_branch(self.feature_fusion)
+                else spatial_final
+            )
             fused = self.feature_fusion_module(fusion_final, path_features)
         if isinstance(fused, tuple):
             return tuple(self.post_fusion_mixer_module(feature) for feature in fused)

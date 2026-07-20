@@ -1476,6 +1476,51 @@ def test_mobilenetv4_global_final_parts_stage2_uses_final_global_and_stage2_part
     assert train_features.shape == (2, 1536)
 
 
+def test_mobilenetv4_stage0_semantic_fine_uses_c3_c4_and_scale_balanced_head(monkeypatch):
+    _install_fake_timm(monkeypatch)
+
+    model = mobilenetv4_conv_small(
+        num_classes=4,
+        loss="triplet",
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine_reference",
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        feat_dim=384,
+        neck_dim=384,
+        head_pool="gelu_gem",
+        head_parts=(1, 2, 4),
+        part_pooling="stripes",
+        scale_balanced_branches=True,
+    )
+
+    model.eval()
+    with torch.no_grad():
+        global_map, coarse_map, fine_map = model.forward_features(torch.randn(2, 3, 64, 32))
+        eval_features = model(torch.randn(2, 3, 64, 32))
+
+    assert model._fusion_source_indices == {0: -3, 1: -3, 2: -2}
+    assert model.feature_fusion_module.stage0_fine_projection[0].in_channels == 40
+    assert model.feature_fusion_module.projections["1"][0].in_channels == 40
+    assert model.feature_fusion_module.projections["2"][0].in_channels == 80
+    assert global_map.shape == (2, 384, 1, 1)
+    assert coarse_map.shape == (2, 384, 4, 2)
+    assert fine_map.shape == (2, 384, 8, 4)
+    assert model.head.hierarchical_scales is True
+    assert model.head.scale_balanced_branches is True
+    assert [
+        getattr(model.head, model.head._bn_attr(key)).reduction.out_channels
+        for key, _, _ in model.head.branch_specs
+    ] == [384, 192, 192, 96, 96, 96, 96]
+    assert eval_features.shape == (2, 1152)
+
+    model.train()
+    logits, train_features = model(torch.randn(2, 3, 64, 32))
+
+    assert len(logits) == 7
+    assert train_features.shape == (2, 1152)
+
+
 def test_mobilenetv4_gradual_unfreeze_handles_timm_backbone_blocks(monkeypatch, tmp_path):
     _install_fake_timm(monkeypatch)
     trainer = _trainer(
