@@ -1,9 +1,16 @@
 """BoxMOT package metadata and lazy public API exports."""
 
 from importlib import import_module
+from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
-__version__ = "19.0.0"
+try:
+    __version__ = version("boxmot")
+except PackageNotFoundError:
+    # Source trees can be imported before the project is installed. Release
+    # versions live exclusively in pyproject.toml and are exposed through the
+    # installed distribution metadata.
+    __version__ = "0+unknown"
 
 _EXPORTS = {
     "BoxMOT": ("boxmot.pipeline", "BoxMOT"),
@@ -15,9 +22,9 @@ __all__ = tuple(_EXPORTS)
 
 
 if TYPE_CHECKING:
-    from boxmot.models.detector import Detector
-    from boxmot.models.reid import ReIDModel
-    from boxmot.pipeline import BoxMOT
+    from boxmot.models.detector import Detector as Detector
+    from boxmot.models.reid import ReIDModel as ReIDModel
+    from boxmot.pipeline import BoxMOT as BoxMOT
 
 
 def __getattr__(name: str):

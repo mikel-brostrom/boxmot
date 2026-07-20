@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 from contextlib import nullcontext
+from importlib.metadata import version
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,9 +15,9 @@ import boxmot
 import boxmot.api as api_module
 import boxmot.api.functional as api_functional_module
 import boxmot.api.results as api_results_module
-from boxmot.api import _args as api_args_module
 import boxmot.engine.tracking.results as results_module
 import boxmot.utils.rich.core.ui as ui_module
+from boxmot.api import _args as api_args_module
 from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, get_mode_default
 from boxmot.detectors import Detector
 from boxmot.detectors.base import Detections
@@ -38,7 +39,7 @@ _DUMMY_IMG = np.zeros((32, 32, 3), dtype=np.uint8)
 
 
 def test_package_root_lazily_reexports_python_api():
-    assert isinstance(boxmot.__version__, str)
+    assert boxmot.__version__ == version("boxmot")
     assert set(boxmot.__all__) == {"BoxMOT", "Detector", "ReIDModel"}
     assert "BoxMOT" in boxmot.__all__
     assert "Detector" in boxmot.__all__

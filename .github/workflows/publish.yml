@@ -42,35 +42,24 @@ jobs:
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel uv poetry
+          python -m pip install --upgrade pip setuptools wheel uv
           uv sync
 
-      - name: Increase uv path version and add
+      - name: Bump project version
         id: get_version
         run: |
-          source .venv/bin/activate
           git config --local user.email yolov5.deepsort.pytorch@gmail.com
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
-          commit_message=$(poetry version $bump_type)
-          new_version=$(echo $commit_message | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$')
-          git add pyproject.toml
+          old_version=$(uv version --short)
+          uv version --bump "$bump_type"
+          new_version=$(uv version --short)
+          commit_message="Bump version from $old_version to $new_version"
+          git add pyproject.toml uv.lock
           uv build --no-sources
           echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
           echo "new_version=$new_version" >> $GITHUB_OUTPUT
           du -sh dist/*
-        if: ${{ success() }}
-
-      - name: Update __init__.py version and add
-        run: |
-          sed -i "s/__version__ = '.*'/__version__ = '${{ steps.get_version.outputs.new_version }}'/" boxmot/__init__.py
-          git add boxmot/__init__.py
-        if: ${{ success() }}
-
-      - name: Update citation pkg version and add
-        run: |
-          sed -i "s/^version: .*/version: ${{ steps.get_version.outputs.new_version }}/" CITATION.cff
-          git add CITATION.cff
         if: ${{ success() }}
 
       - name: Commit and push updated version
