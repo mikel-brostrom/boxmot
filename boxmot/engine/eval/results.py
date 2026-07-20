@@ -20,6 +20,9 @@ MOT_REPORT_INTEGER_FIELDS = {
     "CLR_FN",
     "CLR_FP",
     "IDSW",
+    "IDt",
+    "IDa",
+    "IDm",
     "MT",
     "PT",
     "ML",
@@ -479,6 +482,7 @@ def _render_summary_table(
     total_width: int,
     name_width: int,
     colorize: bool,
+    compare_label: str | None = None,
 ) -> str:
     if not rows:
         return ""
@@ -509,7 +513,7 @@ def _render_summary_table(
                 )
                 for column in SUMMARY_COLUMNS
             )
-            lines.append(f"{'':<{name_width}} {delta_vals}")
+            lines.append(f"{(compare_label or ''):<{name_width}} {delta_vals}")
     lines.append(_ansi_wrap("=" * total_width, "36", colorize=colorize))
     return "\n".join(lines)
 
@@ -523,6 +527,7 @@ def render_mot_report(
     include_sequences: bool = True,
     always_include_combined: bool = False,
     compare_results: dict[str, dict[str, Any]] | None = None,
+    compare_label: str | None = None,
     colorize: bool = False,
 ) -> str:
     if not parsed_results:
@@ -568,6 +573,7 @@ def render_mot_report(
                 total_width=total_width,
                 name_width=name_width,
                 colorize=colorize,
+                compare_label=compare_label,
             )
         )
         if aggregate_keys:
@@ -583,6 +589,7 @@ def render_mot_report(
                     total_width=total_width,
                     name_width=name_width,
                     colorize=colorize,
+                    compare_label=compare_label,
                 )
             )
         if include_sequences and (always_include_combined or not single_sequence):
@@ -615,6 +622,7 @@ def render_mot_report(
                         total_width=total_width,
                         name_width=name_width,
                         colorize=colorize,
+                        compare_label=compare_label,
                     )
                 )
     else:
@@ -651,6 +659,7 @@ def render_mot_report(
                     total_width=total_width,
                     name_width=name_width,
                     colorize=colorize,
+                    compare_label=compare_label,
                 )
             )
     return "\n".join(block for block in blocks if block)

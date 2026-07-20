@@ -74,6 +74,19 @@ This is most useful for trackers with Kalman-filter-based motion models. It requ
 
 For runtime adaptation without ground truth, use `--adaptive-kf` instead, which estimates noise online via the Mehra (1970) method.
 
+## Compare with TrackEval
+
+Install the optional TrackEval reference implementation and request an independent comparison:
+
+```bash
+uv sync --extra yolo --extra trackeval
+boxmot eval --benchmark mot17 --split ablation \
+  --tracker boosttrack \
+  --compare-trackeval
+```
+
+The report shows BoxMOT's in-repo metrics followed by `Δ vs TrackEval` rows. TrackEval reads the generated MOT files and runs its own MOTChallenge preprocessing, including distractor removal. This comparison currently supports AABB MOT15, MOT16, MOT17, and MOT20 benchmarks.
+
 ## Postprocessing
 
 !!! example

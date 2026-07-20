@@ -10,7 +10,14 @@ For cache reuse, benchmark ids, and replay image-loading behavior, see [Benchmar
 - `MOTA` for CLEAR-style summary quality
 - `IDF1` for identity consistency
 - `AssA` and `AssRe` for association quality
-- `IDSW` and `IDs` for identity-switch context
+- `IDSW` for ground-truth identities switching tracker IDs
+- `IDt` for tracker IDs transferring to another ground-truth identity
+- `IDa` for switches to a previously unmatched tracker ID
+- `IDm` for transfers to a previously unmatched ground-truth identity
+- `IDs` and `GT_IDs` for the number of tracker and ground-truth identities
+
+The default console summary remains compact. The `IDt`, `IDa`, and `IDm`
+diagnostics are available in returned metrics dictionaries and CI JSON output.
 
 ## Where metrics appear
 
@@ -19,6 +26,12 @@ For cache reuse, benchmark ids, and replay image-loading behavior, see [Benchmar
 - `research` optimizes code changes against combined benchmark summaries
 
 For raw runtime summaries from the Python API, `evaluate(...)` aggregates counts and timings but does not replace ground-truth MOT metric evaluation.
+
+Metric evaluation runs independent sequences in separate worker processes. Its
+worker count is the smaller of the sequence count and the computer's logical CPU
+count minus two, with at least one worker. This is independent of `--n-threads`.
+A single sequence is evaluated in the calling process, and results retain
+deterministic sequence order.
 
 ## Detection sources
 

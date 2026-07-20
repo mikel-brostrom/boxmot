@@ -134,6 +134,8 @@ docs = [
 #############################
 
 [project.optional-dependencies]
+trackeval = ["trackeval==1.3.0"]
+
 yolo = [
   "ultralytics>=8.4.58",
   "yolox==0.3.0",

@@ -144,6 +144,8 @@ class ValidationResult:
     timings: dict[str, Any] = field(default_factory=dict)
     args: Any = None
     workflow_rendered: bool = False
+    reference_raw: dict[str, Any] | None = None
+    reference_name: str | None = None
 
     def __str__(self) -> str:
         if self.workflow_rendered:
@@ -160,13 +162,23 @@ class ValidationResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> str:
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
         return reporting.render_validation_cli_report(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=reporting.CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            title=report_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def renderable(
@@ -178,15 +190,21 @@ class ValidationResult:
         compare_raw: dict[str, Any] | None = None,
         compare_args: Any = None,
     ) -> RenderableType:
+        resolved_compare_raw = self.reference_raw if compare_raw is None else compare_raw
+        resolved_compare_args = self.args if compare_args is None else compare_args
+        resolved_title = title
+        if resolved_title is None and self.reference_raw is not None and self.reference_name:
+            resolved_title = f"📊 BOXMOT vs {self.reference_name.upper()}"
         return reporting.build_validation_cli_renderable(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=title,
+            title=resolved_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
-            compare_raw=compare_raw,
-            compare_args=compare_args,
+            compare_raw=resolved_compare_raw,
+            compare_args=resolved_compare_args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def format_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
@@ -205,13 +223,23 @@ class ValidationResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
         reporting.print_validation_cli_report(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=reporting.CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            title=report_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
@@ -224,6 +252,9 @@ class ValidationResult:
         }
         if include_raw:
             payload["raw"] = self.raw
+            if self.reference_raw is not None:
+                payload["reference_raw"] = self.reference_raw
+                payload["reference_name"] = self.reference_name
         return payload
 
 

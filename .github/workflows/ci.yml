@@ -208,6 +208,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
+
+      - name: Check metric parity with TrackEval
+        shell: bash
+        run: |
+          uv sync --extra yolo --extra trackeval
+          .venv/bin/python -m pytest -q -s tests/unit/test_trackeval_parity.py
+
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate

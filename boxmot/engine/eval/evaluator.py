@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -103,6 +104,7 @@ __all__ = [
     "run_generate_dets_embs",
     "run_generate_mot_results",
     "run_motmetrics",
+    "run_trackeval_reference",
 ]
 
 _LAZY_EXPORTS = {
@@ -147,6 +149,10 @@ _LAZY_EXPORTS = {
         "run_generate_mot_results",
     ),
     "motmetrics_runner": ("boxmot.engine.eval.motmetrics", "run_motmetrics"),
+    "trackeval_runner": (
+        "boxmot.engine.eval.trackeval_reference",
+        "evaluate_trackeval_motchallenge",
+    ),
 }
 
 
@@ -199,16 +205,8 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
     )
 
 
-def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
-    """
-    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
-    """
+def _collect_eval_sequences(args: argparse.Namespace) -> tuple[list[Path], dict[str, int], Path]:
     collect_seq_info = _get_lazy_export("_collect_seq_info")
-    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
-    log_mot_report_fn = _get_lazy_export("log_mot_report")
-    render_mot_report_fn = _get_lazy_export("render_mot_report")
-    motmetrics_runner = _get_lazy_export("motmetrics_runner")
-
     seq_paths, seq_info = collect_seq_info(args.source)
     annotations_dir = args.source.parent / "annotations"
     gt_folder = annotations_dir if annotations_dir.exists() else args.source
@@ -234,6 +232,19 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
                         seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
             except (ValueError, OSError) as exc:
                 LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference: {exc}")
+    return seq_paths, seq_info, gt_folder
+
+
+def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
+    """
+    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
+    """
+    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
+    log_mot_report_fn = _get_lazy_export("log_mot_report")
+    render_mot_report_fn = _get_lazy_export("render_mot_report")
+    motmetrics_runner = _get_lazy_export("motmetrics_runner")
+
+    seq_paths, seq_info, gt_folder = _collect_eval_sequences(args)
 
     if getattr(args, "benchmark", None):
         save_dir = Path(args.project) / args.benchmark / args.name
@@ -308,6 +319,44 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
             outfile.write(json.dumps(final_results))
 
     return final_results
+
+
+def _resolve_trackeval_benchmark(args: argparse.Namespace, cfg: dict) -> str:
+    candidates = [
+        cfg.get("id") if isinstance(cfg, dict) else None,
+        (cfg.get("dataset") or {}).get("id") if isinstance(cfg, dict) else None,
+        getattr(args, "benchmark_id", None),
+        getattr(args, "dataset_id", None),
+        getattr(args, "benchmark", None),
+        getattr(args, "data", None),
+    ]
+    for candidate in candidates:
+        match = re.search(r"mot[-_ ]?(15|16|17|20)", str(candidate or ""), flags=re.IGNORECASE)
+        if match:
+            return f"MOT{match.group(1)}"
+    raise ValueError(
+        "--compare-trackeval supports MOT15, MOT16, MOT17, and MOT20 benchmark configurations only"
+    )
+
+
+def run_trackeval_reference(args: argparse.Namespace) -> dict:
+    """Run an independent TrackEval comparison over the generated MOT files."""
+    cfg = _load_benchmark_cfg(args)
+    if _resolve_eval_box_type(args, cfg) != "aabb":
+        raise ValueError("--compare-trackeval supports AABB MOTChallenge evaluation only")
+
+    _, seq_info, gt_folder = _collect_eval_sequences(args)
+    prepared_gt = prepare_aabb_eval_gt(args, gt_folder, seq_info)
+    expected_gt = [prepared_gt / seq_name / "gt" / "gt_temp.txt" for seq_name in seq_info]
+    if any(not path.exists() for path in expected_gt):
+        raise ValueError("--compare-trackeval requires the standard MOTChallenge sequence/gt layout")
+
+    return _get_lazy_export("trackeval_runner")(
+        gt_folder=prepared_gt,
+        tracker_folder=Path(args.exp_dir),
+        seq_info=seq_info,
+        benchmark=_resolve_trackeval_benchmark(args, cfg),
+    )
 
 
 def eval_setup(args, pipeline: PipelineTracker | None = None) -> None:
@@ -473,7 +522,12 @@ def run_eval(
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --
-    raw_results = run_motmetrics(args, verbose=verbose and not has_pipeline)
+    compare_trackeval = bool(getattr(args, "compare_trackeval", False))
+    raw_results = run_motmetrics(
+        args,
+        verbose=verbose and not has_pipeline and not compare_trackeval,
+    )
+    reference_results = run_trackeval_reference(args) if compare_trackeval else None
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
@@ -484,7 +538,11 @@ def run_eval(
         timings=timing_summary_from_stats(timing_stats),
         args=args,
         workflow_rendered=has_pipeline,
+        reference_raw=reference_results,
+        reference_name="TrackEval" if reference_results is not None else None,
     )
+    if verbose and not has_pipeline and reference_results is not None:
+        result.print_report(include_sequences=summary_label == "single_class")
     if pipeline is not None:
         include_timings = bool(getattr(args, "show_timing", False))
         pipeline.complete_step()
