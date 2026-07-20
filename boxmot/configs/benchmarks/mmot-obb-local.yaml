@@ -1,0 +1,61 @@
+id: mmot-obb
+
+dataset:
+  id: mmot-obb
+  root: /Volumes/Data/MMOT/data
+  layout: mot
+  box_type: obb
+  splits:
+    train: train/npy
+    test: test/npy
+  default_split: test
+  classes:
+    1: car
+    2: bike
+    3: pedestrian
+    4: van
+    5: truck
+    6: bus
+    7: tricycle
+    8: awning-bike
+
+evaluation:
+  classes:
+    - {name: car, dataset_id: 1, detector_id: 0, detector_name: car}
+    - {name: bike, dataset_id: 2, detector_id: 1, detector_name: bike}
+    - {name: pedestrian, dataset_id: 3, detector_id: 2, detector_name: pedestrian}
+    - {name: van, dataset_id: 4, detector_id: 3, detector_name: van}
+    - {name: truck, dataset_id: 5, detector_id: 4, detector_name: truck}
+    - {name: bus, dataset_id: 6, detector_id: 5, detector_name: bus}
+    - {name: tricycle, dataset_id: 7, detector_id: 6, detector_name: tricycle}
+    - {name: awning-bike, dataset_id: 8, detector_id: 7, detector_name: awning-bike}
+
+download:
+  dataset: https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip
+  runs:
+    test: hf://Lekim89/runs/runs/dets_n_embs/mmot/test
+
+detector:
+  id: yolo11l_3ch
+  model: models/yolo11l_3ch.pt
+  url: https://drive.google.com/uc?id=15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR
+  box_type: obb
+  imgsz: [1280, 1280]
+  conf: 0.2
+  classes:
+    0: car
+    1: bike
+    2: pedestrian
+    3: van
+    4: truck
+    5: bus
+    6: tricycle
+    7: awning-bike
+
+reid:
+  id: lmbn_n_duke
+  model: models/lmbn_n_duke.pt
+  url: https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt
+  device: ""
+  half: true
+  preprocess: resize
