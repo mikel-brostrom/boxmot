@@ -19,6 +19,7 @@ from boxmot.trackers.bbox.sfsort import TrackState as SFSortTrackState
 from boxmot.trackers.bbox.strongsort import StrongSort
 from boxmot.trackers.common.detections import DetectionBatch
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
+from boxmot.trackers.common.track_models import strongsort as strongsort_track_model
 from boxmot.trackers.common.track_models.base import BoxTrack, SortBoxTrack
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker as BoostTrackBoxTrack
 from boxmot.trackers.common.track_models.botsort import BaseTrack as BotSortBaseTrack
@@ -519,10 +520,19 @@ def test_strongsort_score_filter_preserves_embedding_alignment():
 
     tracker.update(dets, _img(), embs)
 
-    assert len(tracker.tracker.tracks) == 1
-    np.testing.assert_allclose(tracker.tracker.tracks[0].features[0], before[1] / 2.0)
+    assert len(tracker.tracks) == 1
+    np.testing.assert_allclose(tracker.tracks[0].features[0], before[1] / 2.0)
     np.testing.assert_allclose(embs, before)
-    assert tracker.tracker.tracks[0].det_ind == 1
+    assert tracker.tracks[0].det_ind == 1
+    assert not hasattr(tracker, "tracker")
+
+
+def test_strongsort_track_model_module_only_owns_single_track_state():
+    assert set(strongsort_track_model.__all__) == {"Track", "TrackState"}
+    assert hasattr(strongsort_track_model, "Track")
+    assert hasattr(strongsort_track_model, "TrackState")
+    assert not hasattr(strongsort_track_model, "Detection")
+    assert not hasattr(strongsort_track_model, "Tracker")
 
 
 def test_deepocsort_score_filter_preserves_embedding_alignment():

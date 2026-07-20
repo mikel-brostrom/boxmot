@@ -43,7 +43,7 @@ class PerClassUpdateMixin:
 
     class_track_collection_attrs = TRACK_COLLECTION_ATTRS
 
-    def _update_per_class(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
+    def _track_per_class(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
         """Run one frame with class-local tracker collections."""
         self._ensure_class_track_states()
         per_class_tracks = []
@@ -69,7 +69,7 @@ class PerClassUpdateMixin:
                 self._load_class_track_state(cls_id)
                 self.frame_count = frame_count
 
-                result = self._update_impl(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
+                result = self._track_detections(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
                 if isinstance(result, tuple):
                     tracks, track_masks = result
                 else:

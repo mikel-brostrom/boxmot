@@ -12,7 +12,7 @@ class MockTracker(BaseTracker):
         self.lost_tracks = []
         self.removed_tracks = []
 
-    def _update_impl(self, dets, img, embs=None):
+    def _track_detections(self, dets, img, embs=None, masks=None):
         return self.empty_output()
 
 
@@ -20,7 +20,7 @@ class InferredMockTracker(BaseTracker):
     def __init__(self):
         super().__init__()
 
-    def _update_impl(self, dets, img, embs=None):
+    def _track_detections(self, dets, img, embs=None, masks=None):
         return self.empty_output()
 
 

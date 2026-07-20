@@ -345,6 +345,7 @@ class BoxMOT:
         show: bool = BOXMOT_DEFAULTS.track.show,
         drawer=None,
         show_trajectories: bool = False,
+        show_kf_preds: bool = False,
         verbose: bool = BOXMOT_DEFAULTS.track.verbose,
         tracker_backend: str | None = None,
     ) -> TrackRunResult:
@@ -375,6 +376,7 @@ class BoxMOT:
             tracker_kwargs=getattr(self, "tracker_kwargs", None),
             drawer=drawer,
             show_trajectories=show_trajectories,
+            show_kf_preds=show_kf_preds,
         )
 
     def generate(

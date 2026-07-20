@@ -42,11 +42,11 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
 
     === "CLI"
 
-        Track with trajectories:
+        Track with trajectories and Kalman-filter predictions during missed detections:
 
         ```bash
         boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort \
-          --source video.mp4 --show-trajectories --save
+          --source video.mp4 --show-trajectories --show-kf-preds --save
         ```
 
         Track selected classes only:
@@ -67,7 +67,13 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
-        saved = boxmot.track(source="video.mp4", save=True, save_txt=True)
+        saved = boxmot.track(
+            source="video.mp4",
+            save=True,
+            save_txt=True,
+            show_trajectories=True,
+            show_kf_preds=True,
+        )
         print(saved.video_path)
         print(saved.text_path)
 

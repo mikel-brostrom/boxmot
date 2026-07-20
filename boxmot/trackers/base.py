@@ -29,7 +29,7 @@ class BaseTracker(
     """Shared public tracker contract.
 
     ``update`` owns input normalization and output wrapping. Concrete trackers
-    implement ``_update_impl`` with their algorithm-specific association and
+    implement ``_track_detections`` with their algorithm-specific association and
     lifecycle logic.
     """
 
@@ -137,6 +137,38 @@ class BaseTracker(
         embeddings: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with one frame of detections."""
+        dets, img, embs, masks = self._prepare_update_inputs(
+            dets=dets,
+            img=img,
+            embs=embs,
+            masks=masks,
+            image=image,
+            embeddings=embeddings,
+        )
+        self._validate_update_inputs(dets, masks)
+
+        if self.per_class:
+            result = self._track_per_class(dets=dets, img=img, embs=embs, masks=masks)
+        else:
+            result = self._track_detections(dets=dets, img=img, embs=embs, masks=masks)
+
+        if isinstance(result, tuple):
+            raw, output_masks = result
+        else:
+            raw, output_masks = result, None
+        return TrackResults(raw, masks=output_masks)
+
+    def _prepare_update_inputs(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray = None,
+        embs: np.ndarray = None,
+        masks: np.ndarray = None,
+        *,
+        image: np.ndarray = None,
+        embeddings: np.ndarray = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+        """Normalize aliases, unwrap detections, and initialize frame context."""
         if image is not None:
             if img is not None:
                 raise ValueError("Use only one of img=... or image=...")
@@ -153,17 +185,6 @@ class BaseTracker(
                 masks = getattr(dets, "masks", None)
             dets = dets.dets
 
-        dets, img = self._preprocess(dets, img)
-        masks = self._preprocess_masks(dets, masks)
-        result = self._do_update(dets, img, embs, masks)
-        if isinstance(result, tuple):
-            raw, output_masks = result
-        else:
-            raw, output_masks = result, None
-        return TrackResults(raw, masks=output_masks)
-
-    def _preprocess(self, dets: np.ndarray, img: np.ndarray):
-        """Unwrap inputs, infer detection layout, and initialize frame context."""
         if hasattr(dets, "data"):
             dets = dets.data
 
@@ -186,10 +207,14 @@ class BaseTracker(
             self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
             self._first_frame_processed = True
 
-        return dets, img
+        masks = self._prepare_update_masks(dets, masks)
+        if dets is None or len(dets) == 0:
+            dets = self.empty_detections()
+            masks = None
+        return dets, img, embs, masks
 
-    def _preprocess_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
-        """Validate optional segmentation masks."""
+    def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray | None:
+        """Normalize optional masks and discard them for unsupported trackers."""
         if masks is None:
             return None
 
@@ -199,32 +224,24 @@ class BaseTracker(
                 self._masks_warning_issued = True
             return None
 
-        masks = np.asarray(masks)
-        if masks.ndim != 3:
-            raise ValueError(f"Masks must be 3D (N, H, W), got shape {masks.shape}")
+        return np.asarray(masks)
 
-        n_dets = len(dets) if dets is not None else 0
-        if masks.shape[0] != n_dets:
-            raise ValueError(f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})")
-
-        return masks
-
-    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
-        """Dispatch to single-class or class-separated tracking."""
-        if dets is None or len(dets) == 0:
-            dets = self.empty_detections()
-            masks = None
-
+    def _validate_update_inputs(self, dets: np.ndarray, masks: np.ndarray = None) -> None:
+        """Validate canonical detections, class IDs, and aligned masks."""
         self.detection_layout.validate_dets(dets)
         self.class_catalog.validate_detections(dets, self.detection_layout)
 
-        if not self.per_class:
-            return self._update_impl(dets=dets, img=img, embs=embs, masks=masks)
+        if masks is None:
+            return
+        if masks.ndim != 3:
+            raise ValueError(f"Masks must be 3D (N, H, W), got shape {masks.shape}")
 
-        return self._update_per_class(dets=dets, img=img, embs=embs, masks=masks)
+        n_dets = len(dets)
+        if masks.shape[0] != n_dets:
+            raise ValueError(f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})")
 
     @abstractmethod
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,
@@ -232,7 +249,7 @@ class BaseTracker(
         masks: np.ndarray = None,
     ) -> np.ndarray:
         """Run algorithm-specific tracking for one frame."""
-        raise NotImplementedError("The _update_impl method needs to be implemented by the subclass.")
+        raise NotImplementedError("The _track_detections method needs to be implemented by the subclass.")
 
     def _set_detection_mode(self, is_obb: bool) -> None:
         """Update detection layout and association function mode."""

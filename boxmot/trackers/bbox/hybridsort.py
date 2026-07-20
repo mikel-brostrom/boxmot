@@ -161,7 +161,7 @@ class HybridSort(BaseTracker):
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

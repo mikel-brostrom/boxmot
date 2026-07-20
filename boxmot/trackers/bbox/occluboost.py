@@ -187,7 +187,7 @@ class OccluBoost(BoostTrack):
         # ---- Adaptive KF ----
         self.adaptive_kf = bool(adaptive_kf)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

@@ -110,6 +110,62 @@ def test_boxmot_accepts_grouped_component_kwargs_and_tracker_class(monkeypatch, 
     assert captured["tracker_kwargs"] == {"with_reid": True}
 
 
+def test_boxmot_track_forwards_visualization_options(monkeypatch):
+    captured = {}
+
+    def fake_run_track(args, **kwargs):
+        captured.update(kwargs)
+        return "run"
+
+    monkeypatch.setattr(tracker_module, "run_track", fake_run_track)
+
+    model = api_module.BoxMOT(detector=object(), reid=object(), tracker=object())
+    run = model.track(source="0", show_trajectories=True, show_kf_preds=True)
+
+    assert run == "run"
+    assert captured["show_trajectories"] is True
+    assert captured["show_kf_preds"] is True
+
+
+@pytest.mark.parametrize(
+    ("show_trajectories", "show_kf_preds"),
+    [(True, False), (False, True), (True, True)],
+)
+def test_track_workflow_installs_requested_visualization_drawer(
+    tmp_path,
+    show_trajectories,
+    show_kf_preds,
+):
+    calls = []
+
+    class FakeTracker:
+        def plot_results(self, frame, show_trajectories, *, show_kf_preds):
+            calls.append((show_trajectories, show_kf_preds))
+            return frame
+
+    args = SimpleNamespace(
+        source="0",
+        verbose=False,
+        show=False,
+        save=False,
+        save_txt=False,
+        show_trajectories=show_trajectories,
+        show_kf_preds=show_kf_preds,
+        project=tmp_path,
+    )
+    run = tracker_module.run_track(
+        args,
+        detector=object(),
+        reid=object(),
+        tracker=FakeTracker(),
+    )
+
+    assert run.results.drawer is not None
+    rendered = run.results.drawer(_DUMMY_IMG.copy(), None)
+    assert rendered.shape == _DUMMY_IMG.shape
+    assert calls == [(show_trajectories, show_kf_preds)]
+
+
 def test_boxmot_rejects_kwargs_with_initialized_components():
     with pytest.raises(ValueError, match="tracker_kwargs"):
         api_module.BoxMOT(tracker=object(), tracker_kwargs={"with_reid": True})
@@ -566,7 +622,7 @@ def test_tracker_update_accepts_image_and_embeddings_aliases():
             super().__init__(det_thresh=0.1)
             self.captured = None
 
-        def _update_impl(self, dets, img, embs=None, masks=None):
+        def _track_detections(self, dets, img, embs=None, masks=None):
             self.captured = (dets, img, embs, masks)
             return np.empty((0, 8), dtype=np.float32)
 

@@ -162,7 +162,7 @@ class BotSort(BaseTracker):
             return
         self._apply_aabb_camera_motion_compensation(dets, img, strack_pool, unconfirmed)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

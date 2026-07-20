@@ -223,7 +223,7 @@ class SFSORT(BaseTracker):
         self.active_tracks: list[Track] = []
         self.lost_tracks: list[Track] = []
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

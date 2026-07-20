@@ -135,6 +135,7 @@ def run_track(
     tracker_kwargs: dict[str, Any] | None = None,
     drawer=None,
     show_trajectories: bool = False,
+    show_kf_preds: bool = False,
     pipeline: PipelineTracker | None = None,
 ) -> TrackRunResult:
     source = getattr(args, "source", get_mode_default("track", "source"))
@@ -168,8 +169,14 @@ def run_track(
             else _build_reid(args, tracker_runtime, reid_spec, tracker_spec, reid_kwargs)
         )
 
-    if show_trajectories and drawer is None:
-        drawer = lambda frame, tracks: tracker_runtime.plot_results(frame, show_trajectories=True)
+    show_trajectories = bool(show_trajectories or getattr(args, "show_trajectories", False))
+    show_kf_preds = bool(show_kf_preds or getattr(args, "show_kf_preds", False))
+    if (show_trajectories or show_kf_preds) and drawer is None:
+        drawer = lambda frame, tracks: tracker_runtime.plot_results(
+            frame,
+            show_trajectories=show_trajectories,
+            show_kf_preds=show_kf_preds,
+        )
 
     if pipeline is not None:
         pipeline.advance("Starting tracker...")

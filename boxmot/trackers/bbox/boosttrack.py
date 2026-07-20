@@ -109,7 +109,7 @@ class BoostTrack(BaseTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

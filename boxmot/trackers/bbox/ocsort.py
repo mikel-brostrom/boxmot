@@ -76,7 +76,7 @@ class OcSort(BaseTracker):
         # Initialize tracker collections
         self.active_tracks: list = []
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

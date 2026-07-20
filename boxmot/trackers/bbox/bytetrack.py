@@ -74,7 +74,7 @@ class ByteTrack(BaseTracker):
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = []  # type: list[STrack]
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray = None,

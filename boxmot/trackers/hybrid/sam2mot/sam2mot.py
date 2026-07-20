@@ -285,7 +285,7 @@ class Sam2Mot(HybridBaseTracker):
     # Core update
     # ------------------------------------------------------------------
 
-    def _update_impl(self, dets: np.ndarray, img: np.ndarray,
+    def _track_detections(self, dets: np.ndarray, img: np.ndarray,
                      embs: np.ndarray = None, masks: np.ndarray = None):
         """Process one frame.
 
