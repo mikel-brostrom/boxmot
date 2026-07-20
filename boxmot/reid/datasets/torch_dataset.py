@@ -30,3 +30,9 @@ class ReIDImageDataset(Dataset):
         if self.transform is not None:
             img = self.transform(img)
         return img, sample.pid, sample.camid
+
+    def set_epoch(self, epoch: int) -> None:
+        """Forward epoch boundaries to stateful training transforms."""
+        setter = getattr(self.transform, "set_epoch", None)
+        if callable(setter):
+            setter(epoch)

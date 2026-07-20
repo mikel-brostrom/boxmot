@@ -73,6 +73,55 @@ class TripletLoss(nn.Module):
         return self.ranking_loss(dist_an, dist_ap, y)
 
 
+class WeightedRegularizedTripletLoss(nn.Module):
+    """Triplet loss with soft weighting over every valid in-batch pair.
+
+    Harder positives receive larger weights according to their distance, while
+    closer negatives receive larger weights according to their inverse
+    distance. Unlike batch-hard mining, this keeps informative gradients from
+    every pair and prevents one outlier from solely determining an anchor's
+    metric-learning update.
+
+    Reference:
+        Ye et al. "Deep Learning for Person Re-identification: A Survey and
+        Outlook." TPAMI 2022 (AGW weighted regularization triplet loss).
+    """
+
+    def forward(self, inputs: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        if inputs.ndim != 2:
+            raise ValueError(f"inputs must have shape (batch, features), got {tuple(inputs.shape)}")
+        if targets.ndim != 1 or targets.shape[0] != inputs.shape[0]:
+            raise ValueError("targets must have shape (batch,) and match inputs")
+
+        distances = torch.cdist(inputs, inputs, p=2)
+        same_identity = targets[:, None].eq(targets[None, :])
+        positive_mask = same_identity.clone()
+        positive_mask.fill_diagonal_(False)
+        negative_mask = ~same_identity
+
+        valid_anchors = positive_mask.any(dim=1) & negative_mask.any(dim=1)
+        if not valid_anchors.any():
+            # Preserve a differentiable zero so unusual batches can still run
+            # through backward without special handling in the trainer.
+            return inputs.sum() * 0.0
+
+        distances = distances[valid_anchors]
+        positive_mask = positive_mask[valid_anchors]
+        negative_mask = negative_mask[valid_anchors]
+
+        positive_weights = F.softmax(
+            distances.masked_fill(~positive_mask, -torch.inf),
+            dim=1,
+        )
+        negative_weights = F.softmax(
+            (-distances).masked_fill(~negative_mask, -torch.inf),
+            dim=1,
+        )
+        weighted_positive = (positive_weights * distances).sum(dim=1)
+        weighted_negative = (negative_weights * distances).sum(dim=1)
+        return F.softplus(weighted_positive - weighted_negative).mean()
+
+
 class MultiSimilarityLoss(nn.Module):
     """Multi-Similarity loss for metric learning.
 
@@ -250,6 +299,7 @@ class CosFaceLoss(nn.Module):
 # Registry of metric losses (beyond CE).  Maps name → (class, default kwargs).
 METRIC_LOSS_REGISTRY: dict[str, type] = {
     "triplet": TripletLoss,
+    "wrt": WeightedRegularizedTripletLoss,
     "ms": MultiSimilarityLoss,
     "circle": CircleLoss,
 }

@@ -73,6 +73,8 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "source_balance": ("data", "sampler", "source_balance"),
         "num_workers": ("data", "num_workers"),
         "feature_fusion": ("model", "feature_fusion"),
+        "pyramid_resize_mode": ("model", "pyramid_resize_mode"),
+        "spatial_conv_mode": ("model", "spatial_conv_mode"),
         "post_fusion_mixer": ("model", "post_fusion_mixer", "mode"),
         "post_fusion_mixer_reduction": ("model", "post_fusion_mixer", "reduction"),
         "post_fusion_mixer_kernel": ("model", "post_fusion_mixer", "kernel"),
@@ -82,9 +84,16 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "drop_path_rate": ("model", "regularization", "drop_path_rate"),
         "attention_window_layout": ("model", "attention", "window_layout"),
         "attention_bias": ("model", "attention", "bias"),
+        "interpolate_pretrained_attention_bias": ("model", "attention", "interpolate_pretrained_bias"),
         "attention_mask": ("model", "attention", "mask"),
         "attention_shift": ("model", "attention", "shift"),
         "stage3_global": ("model", "attention", "stage3_global"),
+        "stage3_downsample": ("model", "speed", "stage3_downsample"),
+        "stage2_width_merge_after": ("model", "speed", "stage2_width_merge_after"),
+        "stage3_mlp_ratio": ("model", "speed", "stage3_mlp_ratio"),
+        "stage3_depth": ("model", "speed", "stage3_depth"),
+        "native_branch_widths": ("model", "speed", "native_branch_widths"),
+        "compact_deployment_head": ("model", "deployment", "compact_head"),
         "reid_adapter_stages": ("model", "reid_adapters", "stages"),
         "reid_adapter_reduction": ("model", "reid_adapters", "reduction"),
         "head_pool": ("model", "head", "pool"),
@@ -105,6 +114,7 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "branch_aware_metric": ("model", "branch", "aware_metric"),
         "branch_metric_part_weight": ("model", "branch", "metric_part_weight"),
         "branch_loss_agg": ("model", "branch", "loss_agg"),
+        "scale_balanced_branches": ("model", "branch", "scale_balanced"),
         "evidence_alignment_loss_weight": ("model", "evidence", "alignment_loss_weight"),
         "evidence_alignment_margin": ("model", "evidence", "alignment_margin"),
         "evidence_sinkhorn_iters": ("model", "evidence", "sinkhorn_iters"),
@@ -132,6 +142,9 @@ def _flatten_training_recipe_values(recipe_values: Mapping[str, Any]) -> dict[st
         "triplet_soft_margin": ("losses", "triplet", "soft_margin"),
         "id_loss_weight": ("losses", "weights", "id_loss_weight"),
         "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
+        "compact_metric_loss_weight": ("losses", "distillation", "metric_weight"),
+        "compact_cosine_distill_weight": ("losses", "distillation", "cosine_weight"),
+        "compact_pairwise_distill_weight": ("losses", "distillation", "pairwise_weight"),
         "center_loss_weight": ("losses", "weights", "center_loss_weight"),
         "early_id_loss_weight": ("losses", "schedules", "early_id_loss", "weight"),
         "early_id_loss_epochs": ("losses", "schedules", "early_id_loss", "epochs"),
@@ -355,6 +368,14 @@ def build_mode_namespace(
         recipe_name = values.pop("recipe", None)
         if cfg_values is not None and "recipe" not in explicit and cfg_values.get("recipe") is not None:
             recipe_name = cfg_values["recipe"]
+        effective_model = values.get("model")
+        if cfg_values is not None and "model" not in explicit and cfg_values.get("model") is not None:
+            effective_model = cfg_values["model"]
+        if recipe_name is None and effective_model == "csl_tinyvit_11m":
+            # The default 11M model owns a model-specific training preset. Keep
+            # generic mode defaults for other backbones while making bare 11M
+            # training reproduce its promoted architecture and loss policy.
+            recipe_name = "csl_tinyvit_11m"
         if recipe_name is not None:
             recipe_values = load_training_recipe(recipe_name)
             for key, val in recipe_values.items():
@@ -686,6 +707,9 @@ class TrainModeDefaults:
     center_loss_weight: float
     id_loss_weight: float
     metric_loss_weight: float
+    compact_metric_loss_weight: float
+    compact_cosine_distill_weight: float
+    compact_pairwise_distill_weight: float
     early_id_loss_weight: float
     early_id_loss_epochs: int
     center_loss_ramp_start_epoch: int
@@ -693,9 +717,12 @@ class TrainModeDefaults:
     aux_ce_weight: float
     aux_ce_drop_epoch: int
     branch_loss_agg: str
+    scale_balanced_branches: bool
     metric_feature: str
     inference_feature: str
     feature_fusion: str
+    pyramid_resize_mode: str
+    spatial_conv_mode: str
     post_fusion_mixer: str
     post_fusion_mixer_reduction: int
     post_fusion_mixer_kernel: tuple[int, int]
@@ -705,9 +732,16 @@ class TrainModeDefaults:
     drop_path_rate: float
     attention_window_layout: str
     attention_bias: str
+    interpolate_pretrained_attention_bias: bool
     attention_mask: bool
     attention_shift: bool
     stage3_global: bool
+    stage3_downsample: bool
+    stage2_width_merge_after: int
+    stage3_mlp_ratio: float
+    stage3_depth: int
+    native_branch_widths: bool
+    compact_deployment_head: bool
     reid_adapter_stages: tuple[int, ...]
     reid_adapter_reduction: int
     head_pool: str
@@ -792,6 +826,9 @@ class TrainModeDefaults:
             center_loss_weight=float(values.get("center_loss_weight", 5e-4)),
             id_loss_weight=float(values.get("id_loss_weight", 1.0)),
             metric_loss_weight=float(values.get("metric_loss_weight", 1.0)),
+            compact_metric_loss_weight=float(values.get("compact_metric_loss_weight", 1.0)),
+            compact_cosine_distill_weight=float(values.get("compact_cosine_distill_weight", 1.0)),
+            compact_pairwise_distill_weight=float(values.get("compact_pairwise_distill_weight", 1.0)),
             early_id_loss_weight=float(values.get("early_id_loss_weight", 0.0)),
             early_id_loss_epochs=int(values.get("early_id_loss_epochs", 0)),
             center_loss_ramp_start_epoch=int(values.get("center_loss_ramp_start_epoch", 0)),
@@ -799,9 +836,12 @@ class TrainModeDefaults:
             aux_ce_weight=float(values.get("aux_ce_weight", 1.0)),
             aux_ce_drop_epoch=int(values.get("aux_ce_drop_epoch", 0)),
             branch_loss_agg=str(values.get("branch_loss_agg", "mean")),
+            scale_balanced_branches=bool(values.get("scale_balanced_branches", False)),
             metric_feature=str(values.get("metric_feature", "auto")),
             inference_feature=str(values.get("inference_feature", "concat_bn")),
             feature_fusion=str(values.get("feature_fusion", "last3")),
+            pyramid_resize_mode=str(values.get("pyramid_resize_mode", "bilinear")),
+            spatial_conv_mode=str(values.get("spatial_conv_mode", "standard")),
             post_fusion_mixer=str(values.get("post_fusion_mixer", "none")),
             post_fusion_mixer_reduction=int(values.get("post_fusion_mixer_reduction", 4)),
             post_fusion_mixer_kernel=_normalize_int_pair(values.get("post_fusion_mixer_kernel", (5, 3))),
@@ -811,9 +851,18 @@ class TrainModeDefaults:
             drop_path_rate=float(values.get("drop_path_rate", 0.1)),
             attention_window_layout=str(values.get("attention_window_layout", "legacy")),
             attention_bias=str(values.get("attention_bias", "absolute")),
+            interpolate_pretrained_attention_bias=bool(
+                values.get("interpolate_pretrained_attention_bias", False)
+            ),
             attention_mask=bool(values.get("attention_mask", False)),
             attention_shift=bool(values.get("attention_shift", False)),
             stage3_global=bool(values.get("stage3_global", False)),
+            stage3_downsample=bool(values.get("stage3_downsample", False)),
+            stage2_width_merge_after=int(values.get("stage2_width_merge_after", 0)),
+            stage3_mlp_ratio=float(values.get("stage3_mlp_ratio", 4.0)),
+            stage3_depth=int(values.get("stage3_depth", 2)),
+            native_branch_widths=bool(values.get("native_branch_widths", False)),
+            compact_deployment_head=bool(values.get("compact_deployment_head", False)),
             reid_adapter_stages=_normalize_int_tuple(values.get("reid_adapter_stages", ())),
             reid_adapter_reduction=int(values.get("reid_adapter_reduction", 4)),
             head_pool=str(values.get("head_pool", "avg")),

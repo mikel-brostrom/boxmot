@@ -18,6 +18,7 @@ from boxmot.reid.training.losses import (
     CrossEntropyLabelSmooth,
     MultiSimilarityLoss,
     TripletLoss,
+    WeightedRegularizedTripletLoss,
 )
 
 __all__ = (
@@ -35,5 +36,6 @@ __all__ = (
     "ReIDTrainConfig",
     "RunConfig",
     "TripletLoss",
+    "WeightedRegularizedTripletLoss",
     "evaluate_ranking",
 )

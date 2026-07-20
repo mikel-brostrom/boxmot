@@ -16,9 +16,10 @@ from boxmot.reid.backbones.families.csl_tinyvit.pooling import (
     PatternAdapter,
     SemanticVisibilityPartPool,
     SpatialTopDrop,
+    SpatialTopSuppression,
     StripeVisibilityGate,
 )
-from boxmot.reid.backbones.heads.bnneck import BNNeck3
+from boxmot.reid.backbones.heads.bnneck import BNNeck, BNNeck3
 
 __all__ = ["GPCLiteMultiBranchHead", "LMBNStyleMultiBranchHead", "MultiBranchHead"]
 
@@ -31,6 +32,21 @@ class MultiBranchHead(nn.Module):
       - Inference: (B, feat_dim × num_branches) concatenated features
     """
 
+    SPECIALIST_MODES = {
+        "standard",
+        "stage2_channel2",
+        "stage2_pg",
+        "stage2_gpc_lite",
+        "stage2_gpc_lite_gate",
+        "stage2_pg_gate",
+        "suppressed_global",
+    }
+    SPECIALIST_DIM = 128
+    STAGE2_GLOBAL_WEIGHT = 0.25
+    STAGE2_CHANNEL_WEIGHT = 0.20
+    SUPPRESSED_GLOBAL_WEIGHT = 0.20
+    SPECIALIST_GATE_INIT = 0.225
+
     def __init__(
         self,
         in_ch,
@@ -40,6 +56,7 @@ class MultiBranchHead(nn.Module):
         inference_feature: str = "concat_bn",
         head_pool: str = "avg",
         branch_metric: bool = False,
+        scale_balanced_branches: bool = False,
         head_parts: tuple[int, ...] = (1, 2),
         part_pooling: str = "stripes",
         num_part_tokens: int = 4,
@@ -50,11 +67,22 @@ class MultiBranchHead(nn.Module):
         drop_global_aux_ratio: float = 0.25,
         evidence_num_roles: int = 8,
         hierarchical_scales: bool = False,
+        compact_deployment_head: bool = False,
+        specialist_mode: str = "standard",
     ):
         super().__init__()
+        if isinstance(in_ch, int):
+            global_in_ch = local_in_ch = fine_in_ch = int(in_ch)
+        else:
+            channel_values = tuple(int(value) for value in in_ch)
+            if len(channel_values) != 3 or any(value < 1 for value in channel_values):
+                raise ValueError(f"Expected positive (global, local, fine) input channels, got {in_ch!r}")
+            global_in_ch, local_in_ch, fine_in_ch = channel_values
+        self.branch_input_channels = (global_in_ch, local_in_ch, fine_in_ch)
         self.metric_feature = metric_feature
         self.inference_feature = inference_feature
         self.branch_metric = branch_metric
+        self.scale_balanced_branches = bool(scale_balanced_branches)
         self.drop_global_aux_enabled = bool(drop_global_aux)
         self.drop_global_aux_ratio = float(drop_global_aux_ratio)
         if not 0 < self.drop_global_aux_ratio <= 1:
@@ -69,11 +97,44 @@ class MultiBranchHead(nn.Module):
         self.num_part_tokens = int(num_part_tokens)
         self.evidence_num_roles = int(evidence_num_roles)
         self.hierarchical_scales = bool(hierarchical_scales)
+        self.compact_deployment_head = bool(compact_deployment_head)
+        self.head_parts = self._normalize_head_parts(head_parts)
+        self.specialist_mode = str(specialist_mode).lower()
+        if self.specialist_mode not in self.SPECIALIST_MODES:
+            raise ValueError(f"Unsupported CSL-TinyViT specialist head: {specialist_mode}")
+        self.has_stage2_pg = self.specialist_mode in {
+            "stage2_pg",
+            "stage2_pg_gate",
+            "stage2_gpc_lite",
+            "stage2_gpc_lite_gate",
+        }
+        self.has_stage2_channels = self.specialist_mode in {
+            "stage2_channel2",
+            "stage2_gpc_lite",
+            "stage2_gpc_lite_gate",
+        }
+        self.has_specialist_gate = self.specialist_mode in {
+            "stage2_pg_gate",
+            "stage2_gpc_lite_gate",
+        }
+        self.has_suppressed_global = self.specialist_mode == "suppressed_global"
+        self.has_specialists = self.specialist_mode != "standard"
+        if self.has_specialists:
+            if not self.hierarchical_scales or self.head_parts != (1, 2, 4):
+                raise ValueError("G/P/C specialists require hierarchical head_parts=(1, 2, 4)")
+            if self.part_pooling != "stripes":
+                raise ValueError("G/P/C specialists require fixed stripe pooling")
         if self.evidence_num_roles < 1:
             raise ValueError(f"evidence_num_roles must be positive, got {evidence_num_roles}")
-        self.head_parts = self._normalize_head_parts(head_parts)
+        if self.scale_balanced_branches and self.part_pooling not in {"stripes", "overlap_stripes"}:
+            raise ValueError("scale-balanced branches require fixed or overlapping stripe pooling")
         if self.hierarchical_scales and self.head_parts != (1, 2, 4):
             raise ValueError("hierarchical FPN requires head_parts=(1, 2, 4)")
+        if self.compact_deployment_head:
+            if not self.hierarchical_scales or self.head_parts != (1, 2, 4):
+                raise ValueError("compact deployment head requires hierarchical head_parts=(1, 2, 4)")
+            if self.part_pooling != "stripes":
+                raise ValueError("compact deployment head requires fixed stripe pooling")
         if self.part_pooling == "tokens":
             if self.num_part_tokens < 1:
                 raise ValueError(f"num_part_tokens must be positive, got {num_part_tokens}")
@@ -81,7 +142,7 @@ class MultiBranchHead(nn.Module):
                 ("global", 1, 0),
                 *[(f"part{index}", 0, index) for index in range(self.num_part_tokens)],
             ]
-            self.part_token_pool = LearnedPartTokenPool(in_ch, self.num_part_tokens)
+            self.part_token_pool = LearnedPartTokenPool(local_in_ch, self.num_part_tokens)
             self.semantic_part_pool = None
         elif self.part_pooling == "semantic_parts":
             semantic_part_count = self._semantic_part_count(self.head_parts)
@@ -91,7 +152,7 @@ class MultiBranchHead(nn.Module):
             ]
             self.part_token_pool = None
             self.semantic_part_pool = SemanticVisibilityPartPool(
-                in_ch,
+                local_in_ch,
                 semantic_part_count,
                 num_roles=self.evidence_num_roles,
             )
@@ -105,11 +166,13 @@ class MultiBranchHead(nn.Module):
         self.decouple_patterns = bool(decouple_patterns)
         self.pattern_adapter_dim = int(pattern_adapter_dim)
         if self.decouple_patterns:
-            self.global_adapter = PatternAdapter(in_ch, self.pattern_adapter_dim)
-            self.local_adapter = PatternAdapter(in_ch, self.pattern_adapter_dim)
+            self.global_adapter = PatternAdapter(global_in_ch, self.pattern_adapter_dim)
+            self.local_adapter = PatternAdapter(local_in_ch, self.pattern_adapter_dim)
+            self.fine_adapter = PatternAdapter(fine_in_ch, self.pattern_adapter_dim)
         else:
             self.global_adapter = nn.Identity()
             self.local_adapter = nn.Identity()
+            self.fine_adapter = nn.Identity()
         self.stripe_visibility = bool(stripe_visibility)
         if self.stripe_visibility:
             if self.part_pooling != "stripes":
@@ -121,7 +184,7 @@ class MultiBranchHead(nn.Module):
                     f"stripe_visibility requires exactly one local stripe granularity, got head_parts={self.head_parts}"
                 )
             self.visibility_granularity = granularities.pop()
-            self.visibility_gate = StripeVisibilityGate(in_ch, len(local_specs))
+            self.visibility_gate = StripeVisibilityGate(local_in_ch, len(local_specs))
         else:
             self.visibility_granularity = None
             self.visibility_gate = None
@@ -132,23 +195,106 @@ class MultiBranchHead(nn.Module):
             branch_dim = feat_dim
             if self.hierarchical_scales:
                 branch_dim = feat_dim if granularity == 1 else feat_dim // granularity
-            setattr(self, self._bn_attr(key), BNNeck3(in_ch, num_classes, branch_dim, return_f=True))
+            branch_in_ch = global_in_ch if granularity == 1 else (fine_in_ch if granularity >= 4 else local_in_ch)
+            setattr(self, self._bn_attr(key), BNNeck3(branch_in_ch, num_classes, branch_dim, return_f=True))
         if self.drop_global_aux_enabled:
             self.drop_global_aux = SpatialTopDrop(h_ratio=self.drop_global_aux_ratio)
-            self.bn_drop_global_aux = BNNeck3(in_ch, num_classes, feat_dim, return_f=True)
+            self.bn_drop_global_aux = BNNeck3(global_in_ch, num_classes, feat_dim, return_f=True)
         else:
             self.drop_global_aux = None
             self.bn_drop_global_aux = None
+        if self.has_stage2_pg:
+            self.stage2_pg_activation = nn.GELU()
+            self.stage2_pg_gem = GeM((1, 1))
+            self.stage2_pg_max = nn.AdaptiveMaxPool2d((1, 1))
+            self.bn_stage2_pg = BNNeck3(
+                local_in_ch,
+                num_classes,
+                self.SPECIALIST_DIM,
+                return_f=True,
+            )
+        else:
+            self.stage2_pg_activation = None
+            self.stage2_pg_gem = None
+            self.stage2_pg_max = None
+            self.bn_stage2_pg = None
+        if self.has_stage2_channels:
+            if local_in_ch % 2:
+                raise ValueError(f"Stage-2 channel specialists require even channels, got {local_in_ch}")
+            self.stage2_channel_pool = nn.AdaptiveAvgPool2d((1, 1))
+            self.stage2_channel_shared = nn.Sequential(
+                nn.Conv2d(local_in_ch // 2, self.SPECIALIST_DIM, kernel_size=1, bias=False),
+                nn.BatchNorm2d(self.SPECIALIST_DIM),
+                nn.GELU(),
+            )
+            # LightMBN-style sharing: both channel halves traverse the same
+            # projection, BN neck, and classifier. They remain two CE terms.
+            self.bn_stage2_channel_shared = BNNeck(
+                self.SPECIALIST_DIM,
+                num_classes,
+                return_f=True,
+            )
+        else:
+            self.stage2_channel_pool = None
+            self.stage2_channel_shared = None
+            self.bn_stage2_channel_shared = None
+        if self.has_specialist_gate:
+            self.specialist_gate = nn.Linear(global_in_ch + local_in_ch, 1)
+        else:
+            self.specialist_gate = None
+        if self.has_suppressed_global:
+            self.suppressed_global = SpatialTopSuppression(h_ratio=0.25)
+            self.suppressed_global_pool = nn.AdaptiveMaxPool2d((1, 1))
+            self.bn_suppressed_global = BNNeck3(
+                global_in_ch,
+                num_classes,
+                self.SPECIALIST_DIM,
+                return_f=True,
+            )
+        else:
+            self.suppressed_global = None
+            self.suppressed_global_pool = None
+            self.bn_suppressed_global = None
+        if self.compact_deployment_head:
+            compact_input_dim = sum(self.branch_input_channels)
+            self.compact_reduction = nn.Linear(compact_input_dim, feat_dim, bias=False)
+            self.compact_bn = nn.BatchNorm1d(feat_dim)
+            self.compact_bn.bias.requires_grad_(False)
+            self.compact_classifier = nn.Linear(feat_dim, num_classes, bias=False)
+            # Training-only decoder makes 512-D student directions directly
+            # comparable with the full 1536-D teacher descriptor. It is not
+            # traversed in eval/export mode.
+            self.compact_distill_decoder = nn.Linear(feat_dim, 3 * feat_dim, bias=False)
+        else:
+            self.compact_reduction = None
+            self.compact_bn = None
+            self.compact_classifier = None
+            self.compact_distill_decoder = None
+        if self.specialist_gate is not None:
+            nn.init.zeros_(self.specialist_gate.weight)
+            initial_logit = math.log(self.SPECIALIST_GATE_INIT / (1.0 - self.SPECIALIST_GATE_INIT))
+            nn.init.constant_(self.specialist_gate.bias, initial_logit)
 
     def reset_reid_initialization(self) -> None:
         """Restore ReID-specific head initialization after global model init."""
         for module in self.modules():
-            if isinstance(module, BNNeck3):
+            if isinstance(module, (BNNeck, BNNeck3)):
                 module.reset_reid_initialization()
         if self.semantic_part_pool is not None:
             self.semantic_part_pool.reset_metadata_initialization()
         if self.visibility_gate is not None:
             self.visibility_gate.reset_visibility_initialization()
+        if self.compact_deployment_head:
+            nn.init.kaiming_normal_(self.compact_reduction.weight, mode="fan_out")
+            nn.init.constant_(self.compact_bn.weight, 1.0)
+            nn.init.constant_(self.compact_bn.bias, 0.0)
+            nn.init.normal_(self.compact_classifier.weight, std=0.001)
+            nn.init.kaiming_normal_(self.compact_distill_decoder.weight, mode="fan_out")
+            self.compact_bn.bias.requires_grad_(False)
+        if self.specialist_gate is not None:
+            nn.init.zeros_(self.specialist_gate.weight)
+            initial_logit = math.log(self.SPECIALIST_GATE_INIT / (1.0 - self.SPECIALIST_GATE_INIT))
+            nn.init.constant_(self.specialist_gate.bias, initial_logit)
 
     @staticmethod
     def _normalize_head_parts(head_parts) -> tuple[int, ...]:
@@ -197,6 +343,12 @@ class MultiBranchHead(nn.Module):
         if granularity == 2:
             return "partial_pool"
         return f"part_pool_{granularity}"
+
+    def _descriptor_scale(self, granularity: int) -> float:
+        """Give every enabled spatial scale equal total descriptor energy."""
+        if not self.scale_balanced_branches:
+            return 1.0
+        return 1.0 / math.sqrt(granularity)
 
     @staticmethod
     def _make_pool(head_pool: str, output_size: tuple[int, int]) -> nn.Module:
@@ -276,6 +428,72 @@ class MultiBranchHead(nn.Module):
             dim=1,
         )
 
+    def _compact_descriptor(
+        self,
+        pooled_by_granularity: dict[int, torch.Tensor],
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor | None]:
+        """Build one deployment vector from global, coarse, and fine scales."""
+        if not self.compact_deployment_head:
+            raise RuntimeError("Compact descriptor requested while compact_deployment_head is disabled")
+        scale_vectors = [
+            pooled_by_granularity[1].flatten(1),
+            pooled_by_granularity[2].mean(dim=(2, 3)),
+            pooled_by_granularity[4].mean(dim=(2, 3)),
+        ]
+        raw = self.compact_reduction(torch.cat(scale_vectors, dim=1))
+        bn = self.compact_bn(raw)
+        logits = self.compact_classifier(bn) if self.training else None
+        return raw, bn, logits
+
+    @staticmethod
+    def _gated_branch_output(
+        module: BNNeck | BNNeck3,
+        pooled: torch.Tensor,
+        gate: torch.Tensor | None,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor]:
+        bn_feature, logits, raw_feature = module(pooled)
+        if gate is None:
+            return bn_feature, logits, raw_feature
+        gated_feature = bn_feature * gate
+        gated_logits = module.classifier(gated_feature) if module.training else None
+        return gated_feature, gated_logits, raw_feature
+
+    def _specialist_outputs(
+        self,
+        global_feature: torch.Tensor,
+        local_feature: torch.Tensor,
+    ) -> list[tuple[str, tuple[torch.Tensor, torch.Tensor | None, torch.Tensor], torch.Tensor | float]]:
+        """Return auxiliary CE/retrieval branches without entering the metric descriptor."""
+        if not self.has_specialists:
+            return []
+        gate = None
+        if self.specialist_gate is not None:
+            gate_input = torch.cat(
+                (global_feature.mean(dim=(2, 3)), local_feature.mean(dim=(2, 3))),
+                dim=1,
+            )
+            gate = self.specialist_gate(gate_input).sigmoid()
+
+        outputs = []
+        if self.has_stage2_pg:
+            activated = self.stage2_pg_activation(local_feature)
+            pooled = 0.5 * (self.stage2_pg_gem(activated) + self.stage2_pg_max(activated))
+            output = self._gated_branch_output(self.bn_stage2_pg, pooled, gate)
+            weight = gate if gate is not None else self.STAGE2_GLOBAL_WEIGHT
+            outputs.append(("stage2_pg", output, weight))
+        if self.has_stage2_channels:
+            pooled = self.stage2_channel_pool(local_feature)
+            for index, channel_half in enumerate(pooled.chunk(2, dim=1)):
+                projected = self.stage2_channel_shared(channel_half)
+                output = self._gated_branch_output(self.bn_stage2_channel_shared, projected, gate)
+                weight = gate if gate is not None else self.STAGE2_CHANNEL_WEIGHT
+                outputs.append((f"stage2_c{index + 1}", output, weight))
+        if self.has_suppressed_global:
+            pooled = self.suppressed_global_pool(self.suppressed_global(global_feature))
+            output = self.bn_suppressed_global(pooled)
+            outputs.append(("suppressed_global", output, self.SUPPRESSED_GLOBAL_WEIGHT))
+        return outputs
+
     def forward(self, x):
         # x: (B, C, H, W) or (global_map, local_map) for split-map ablations.
         fine_source = None
@@ -288,7 +506,7 @@ class MultiBranchHead(nn.Module):
         global_feature = self.global_adapter(global_source)
         local_feature = self.local_adapter(local_source)
         if fine_source is not None:
-            fine_source = self.local_adapter(fine_source)
+            fine_source = self.fine_adapter(fine_source)
         pooled_by_granularity = {1: self.global_pool(global_feature)}
         token_parts = None
         semantic_parts = None
@@ -340,11 +558,44 @@ class MultiBranchHead(nn.Module):
                 }
             )
 
+        compact_raw = compact_bn = compact_logits = None
+        if self.compact_deployment_head:
+            compact_raw, compact_bn, compact_logits = self._compact_descriptor(pooled_by_granularity)
+            if not self.training:
+                # Export/tracking traverses only this compact path. Teacher
+                # BNNecks, classifiers, and the distillation decoder are
+                # therefore absent from the exported execution graph.
+                return F.normalize(compact_bn, p=2, dim=1)
+
+        # Retrieval-only fast path for the common fixed-stripe descriptor. It
+        # deliberately avoids constructing raw/metric features, classifier
+        # lists, branch dictionaries, and means that are only consumed during
+        # training. Classifiers already remain inactive inside BNNeck3.eval().
+        if (
+            not self.training
+            and self.inference_feature == "norm_concat_bn"
+            and self.part_pooling in {"stripes", "overlap_stripes"}
+            and all(value is None for value in visibility_by_key.values())
+        ):
+            normalized_branches = []
+            for key, granularity, stripe_index in self.branch_specs:
+                pooled = pooled_by_granularity[granularity]
+                if granularity > 1:
+                    pooled = pooled[:, :, stripe_index : stripe_index + 1, :]
+                bn_feature = getattr(self, self._bn_attr(key))(pooled)[0]
+                normalized_branches.append(
+                    F.normalize(bn_feature, p=2, dim=1) * self._descriptor_scale(granularity)
+                )
+            for _, branch_output, weight in self._specialist_outputs(global_feature, local_feature):
+                normalized_branches.append(F.normalize(branch_output[0], p=2, dim=1) * weight)
+            return F.normalize(torch.cat(normalized_branches, dim=1), p=2, dim=1)
+
         branch_outputs = {}
         bn_features_list = []
         raw_features_list = []
         normalized_bn_features_list = []
         normalized_raw_features_list = []
+        coarse_normalized_raw_features_list = []
         cls_scores = []
         raw_features = {}
         base_normalized_bn_features = {}
@@ -373,12 +624,22 @@ class MultiBranchHead(nn.Module):
                 raw_feature = raw_feature * confidence
                 normalized_bn_feature = normalized_bn_feature * confidence
                 normalized_raw_feature = normalized_raw_feature * confidence
-            bn_features_list.append(bn_feature)
-            normalized_bn_features_list.append(normalized_bn_feature)
+            descriptor_scale = self._descriptor_scale(granularity)
+            bn_features_list.append(bn_feature * descriptor_scale)
+            normalized_bn_features_list.append(normalized_bn_feature * descriptor_scale)
             cls_scores.append(branch_output[1])
             raw_features_list.append(raw_feature)
-            normalized_raw_features_list.append(normalized_raw_feature)
+            normalized_raw_features_list.append(normalized_raw_feature * descriptor_scale)
+            if granularity in {1, 2}:
+                coarse_normalized_raw_features_list.append(normalized_raw_feature * descriptor_scale)
             raw_features[key] = raw_feature
+        specialist_normalized_bn_features = []
+        for key, branch_output, weight in self._specialist_outputs(global_feature, local_feature):
+            raw_features[key] = branch_output[2]
+            cls_scores.append(branch_output[1])
+            specialist_normalized_bn_features.append(
+                F.normalize(branch_output[0], p=2, dim=1) * weight
+            )
         if visibility_values is not None:
             raw_features["_visibility"] = visibility_values
         if semantic_rarity is not None:
@@ -395,13 +656,21 @@ class MultiBranchHead(nn.Module):
             else torch.stack(raw_features_list, dim=0).mean(dim=0)
         )
         raw_features["raw_concat"] = torch.cat(normalized_raw_features_list, dim=1)
+        raw_features["coarse_concat"] = torch.cat(coarse_normalized_raw_features_list, dim=1)
         raw_features["concat_bn"] = bn_features
         raw_features["norm_concat_bn"] = F.normalize(
-            torch.cat(normalized_bn_features_list, dim=1),
+            torch.cat(normalized_bn_features_list + specialist_normalized_bn_features, dim=1),
             p=2,
             dim=1,
         )
         self._add_dse_descriptors(raw_features, local_feature)
+
+        if self.compact_deployment_head:
+            raw_features["_compact_logits"] = compact_logits
+            raw_features["_compact_student"] = compact_raw
+            raw_features["_compact_student_bn"] = compact_bn
+            raw_features["_compact_teacher"] = raw_features["norm_concat_bn"].detach()
+            raw_features["_compact_decoded"] = self.compact_distill_decoder(compact_bn)
 
         if not self.training:
             if self.inference_feature == "concat_bn":
@@ -484,13 +753,15 @@ class MultiBranchHead(nn.Module):
                 return raw_features[self.inference_feature]
             raise ValueError(f"Unsupported CSL-TinyViT inference_feature: {self.inference_feature}")
 
-        if self.branch_metric:
+        if self.compact_deployment_head:
+            feats = raw_features
+        elif self.branch_metric:
             feats = raw_features
         elif self.metric_feature == "concat_bn":
             feats = bn_features
         elif self.metric_feature == "raw_concat":
             feats = raw_features["raw_concat"]
-        elif self.metric_feature in {"global", "dse_weighted", "dse_mix"}:
+        elif self.metric_feature in {"global", "coarse_concat", "dse_weighted", "dse_mix"}:
             feats = raw_features[self.metric_feature]
         else:
             feats = raw_features["raw_mean"]

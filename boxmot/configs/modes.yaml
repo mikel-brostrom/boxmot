@@ -134,6 +134,9 @@ train:
   center_loss_weight: 0.005
   id_loss_weight: 1.0
   metric_loss_weight: 1.0
+  compact_metric_loss_weight: 1.0
+  compact_cosine_distill_weight: 1.0
+  compact_pairwise_distill_weight: 1.0
   early_id_loss_weight: 0.0
   early_id_loss_epochs: 0
   center_loss_ramp_start_epoch: 0
@@ -141,9 +144,12 @@ train:
   aux_ce_weight: 1.0
   aux_ce_drop_epoch: 0
   branch_loss_agg: mean
+  scale_balanced_branches: false
   metric_feature: raw_concat
   inference_feature: norm_concat_bn
   feature_fusion: last2
+  pyramid_resize_mode: bilinear
+  spatial_conv_mode: standard
   post_fusion_mixer: none
   post_fusion_mixer_reduction: 4
   post_fusion_mixer_kernel: [5, 3]
@@ -153,9 +159,16 @@ train:
   drop_path_rate: 0.1
   attention_window_layout: legacy
   attention_bias: absolute
+  interpolate_pretrained_attention_bias: false
   attention_mask: false
   attention_shift: false
   stage3_global: false
+  stage3_downsample: false
+  stage2_width_merge_after: 0
+  stage3_mlp_ratio: 4.0
+  stage3_depth: 2
+  native_branch_widths: false
+  compact_deployment_head: false
   reid_adapter_stages: []
   reid_adapter_reduction: 4
   head_pool: gelu_gem

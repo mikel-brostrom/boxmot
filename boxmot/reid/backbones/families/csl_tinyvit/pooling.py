@@ -16,6 +16,7 @@ __all__ = [
     "PatternAdapter",
     "SemanticVisibilityPartPool",
     "SpatialTopDrop",
+    "SpatialTopSuppression",
     "StripeVisibilityGate",
 ]
 
@@ -93,6 +94,25 @@ class SpatialTopDrop(nn.Module):
             mask[i, top_rows[i]] = 0
         mask = mask.unsqueeze(1).unsqueeze(-1).expand(-1, c, -1, w)
         return x * mask
+
+
+class SpatialTopSuppression(nn.Module):
+    """Suppress the most active horizontal rows in both train and eval modes."""
+
+    def __init__(self, h_ratio: float = 0.25):
+        super().__init__()
+        if not 0 < h_ratio <= 1:
+            raise ValueError(f"h_ratio must satisfy 0 < value <= 1, got {h_ratio}")
+        self.h_ratio = float(h_ratio)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, _, height, _ = x.shape
+        rows_to_suppress = max(1, min(height, round(self.h_ratio * height)))
+        row_energy = x.square().sum(dim=1).amax(dim=2)
+        suppressed_rows = row_energy.topk(rows_to_suppress, dim=1).indices
+        row_mask = x.new_ones((x.shape[0], height))
+        row_mask.scatter_(1, suppressed_rows, 0)
+        return x * row_mask[:, None, :, None]
 
 
 class PatternAdapter(nn.Module):

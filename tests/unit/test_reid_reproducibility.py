@@ -4,10 +4,12 @@ from types import SimpleNamespace
 
 import numpy as np
 import torch
+from PIL import Image
 
 import boxmot.reid.training.trainer as trainer_module
 from boxmot.reid.datasets.base import ReIDSample
 from boxmot.reid.datasets.sampler import PKSampler, SourceBalancedPKSampler, parse_source_balance
+from boxmot.reid.datasets.transforms import EpochAwareCompose, RandomPatch
 from boxmot.reid.training.trainer import ReIDTrainer, _seed_data_worker
 
 
@@ -158,6 +160,57 @@ def test_epoch_seed_controls_sampler_augmentations_and_torch(tmp_path):
     assert actual[:3] == expected[:3]
     torch.testing.assert_close(actual[3], expected[3])
     torch.testing.assert_close(actual[4], expected[4])
+
+
+def test_epoch_seed_resets_stateful_augmentation_for_exact_resume(tmp_path):
+    trainer = ReIDTrainer(
+        model_name="csl_tinyvit_7m",
+        dataset_name="market1501",
+        data_dir=str(tmp_path),
+        seed=42,
+    )
+    patch = RandomPatch(min_sample_size=1)
+    patch.patchpool.append(object())
+    dataset = SimpleNamespace(transform=EpochAwareCompose([patch]))
+    dataset.set_epoch = lambda epoch: dataset.transform.set_epoch(epoch)
+    sampler = PKSampler(_samples(), p=4, k=4, seed=trainer.seed)
+    loader = SimpleNamespace(dataset=dataset, sampler=sampler)
+
+    trainer._seed_training_epoch(5, loader)
+
+    assert list(patch.patchpool) == []
+    assert sampler.epoch == 5
+
+
+def test_random_patch_epoch_stream_matches_fresh_resumed_transform():
+    uninterrupted = RandomPatch(
+        prob_happen=1.0,
+        min_sample_size=1,
+        prob_rotate=1.0,
+        prob_flip_leftright=1.0,
+    )
+    resumed = RandomPatch(
+        prob_happen=1.0,
+        min_sample_size=1,
+        prob_rotate=1.0,
+        prob_flip_leftright=1.0,
+    )
+    uninterrupted.patchpool.append(Image.new("RGB", (8, 8), (255, 0, 0)))
+    images = [Image.new("RGB", (32, 64), (value, value, value)) for value in (32, 96, 160)]
+
+    def run_epoch(transform):
+        random.seed(123)
+        transform.set_epoch(7)
+        return [np.asarray(transform(image)).copy() for image in images]
+
+    uninterrupted_outputs = run_epoch(uninterrupted)
+    resumed_outputs = run_epoch(resumed)
+
+    for uninterrupted_output, resumed_output in zip(
+        uninterrupted_outputs,
+        resumed_outputs,
+    ):
+        np.testing.assert_array_equal(uninterrupted_output, resumed_output)
 
 
 def test_cuda_train_loader_uses_seeded_nonpersistent_workers_and_generator(tmp_path):

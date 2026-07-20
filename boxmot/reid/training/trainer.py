@@ -27,7 +27,7 @@ from boxmot.reid.datasets.torch_dataset import ReIDImageDataset
 from boxmot.reid.datasets.transforms import build_test_transforms, build_train_transforms
 from boxmot.reid.training.base import BaseTrainer
 from boxmot.reid.training.checkpoint import CheckpointManager
-from boxmot.reid.training.config import ReIDTrainConfig
+from boxmot.reid.training.config import ReIDTrainConfig, load_train_hparams
 from boxmot.reid.training.evaluator import (
     compute_distance_matrix,
     evaluate_ranking,
@@ -45,6 +45,12 @@ from boxmot.reid.training.recipes import (
     TrainingRecipe,
     build_training_recipe,
     default_recipe_for_family,
+)
+from boxmot.reid.training.resume import (
+    build_resume_contract,
+    contract_differences,
+    contract_fingerprint,
+    run_fingerprint,
 )
 from boxmot.utils import logger as LOGGER
 
@@ -68,6 +74,7 @@ class TrainMetrics:
     center_loss: float
     lr: float
     elapsed_s: float
+    forward_elapsed_s: float = 0.0
     backbone_lr: float = 0.0
     head_lr: float = 0.0
 
@@ -202,6 +209,9 @@ class ReIDTrainer(BaseTrainer):
         center_loss_weight: float = 5e-4,
         id_loss_weight: float = 1.0,
         metric_loss_weight: float = 1.0,
+        compact_metric_loss_weight: float = 1.0,
+        compact_cosine_distill_weight: float = 1.0,
+        compact_pairwise_distill_weight: float = 1.0,
         early_id_loss_weight: float = 0.0,
         early_id_loss_epochs: int = 0,
         center_loss_ramp_start_epoch: int = 0,
@@ -232,6 +242,8 @@ class ReIDTrainer(BaseTrainer):
         metric_feature: str = "auto",
         inference_feature: str = "concat_bn",
         feature_fusion: str = "last3",
+        pyramid_resize_mode: str = "bilinear",
+        spatial_conv_mode: str = "standard",
         post_fusion_mixer: str = "none",
         post_fusion_mixer_reduction: int = 4,
         post_fusion_mixer_kernel: tuple[int, int] = (5, 3),
@@ -241,9 +253,16 @@ class ReIDTrainer(BaseTrainer):
         drop_path_rate: float = 0.1,
         attention_window_layout: str = "legacy",
         attention_bias: str = "absolute",
+        interpolate_pretrained_attention_bias: bool = False,
         attention_mask: bool = False,
         attention_shift: bool = False,
         stage3_global: bool = False,
+        stage3_downsample: bool = False,
+        stage2_width_merge_after: int = 0,
+        stage3_mlp_ratio: float = 4.0,
+        stage3_depth: int = 2,
+        native_branch_widths: bool = False,
+        compact_deployment_head: bool = False,
         vit_lr_profile: str = "layer_decay",
         backbone_freeze_epochs: int = 0,
         gradual_unfreeze: bool = False,
@@ -253,6 +272,7 @@ class ReIDTrainer(BaseTrainer):
         gradual_unfreeze_backbone_lr_epochs: int = 5,
         branch_aware_metric: bool = False,
         branch_metric_part_weight: float = 0.5,
+        scale_balanced_branches: bool = False,
         evidence_num_roles: int = 8,
         evidence_alignment_loss_weight: float = 0.0,
         evidence_alignment_margin: float = 0.2,
@@ -309,6 +329,9 @@ class ReIDTrainer(BaseTrainer):
         self.center_loss_weight = float(center_loss_weight)
         self.id_loss_weight = float(id_loss_weight)
         self.metric_loss_weight = float(metric_loss_weight)
+        self.compact_metric_loss_weight = float(compact_metric_loss_weight)
+        self.compact_cosine_distill_weight = float(compact_cosine_distill_weight)
+        self.compact_pairwise_distill_weight = float(compact_pairwise_distill_weight)
         self.early_id_loss_weight = float(early_id_loss_weight)
         self.early_id_loss_epochs = int(early_id_loss_epochs)
         self.center_loss_ramp_start_epoch = int(center_loss_ramp_start_epoch)
@@ -343,6 +366,8 @@ class ReIDTrainer(BaseTrainer):
         self.metric_feature = str(metric_feature).lower()
         self.inference_feature = str(inference_feature).lower()
         self.feature_fusion = str(feature_fusion).lower()
+        self.pyramid_resize_mode = str(pyramid_resize_mode).lower()
+        self.spatial_conv_mode = str(spatial_conv_mode).lower()
         self.post_fusion_mixer = self._normalize_post_fusion_mixer(post_fusion_mixer)
         self.post_fusion_mixer_reduction = int(post_fusion_mixer_reduction)
         self.post_fusion_mixer_kernel = self._normalize_int_pair(post_fusion_mixer_kernel)
@@ -352,9 +377,16 @@ class ReIDTrainer(BaseTrainer):
         self.drop_path_rate = float(drop_path_rate)
         self.attention_window_layout = str(attention_window_layout).lower()
         self.attention_bias = str(attention_bias).lower()
+        self.interpolate_pretrained_attention_bias = bool(interpolate_pretrained_attention_bias)
         self.attention_mask = bool(attention_mask)
         self.attention_shift = bool(attention_shift)
         self.stage3_global = bool(stage3_global)
+        self.stage3_downsample = bool(stage3_downsample)
+        self.stage2_width_merge_after = int(stage2_width_merge_after)
+        self.stage3_mlp_ratio = float(stage3_mlp_ratio)
+        self.stage3_depth = int(stage3_depth)
+        self.native_branch_widths = bool(native_branch_widths)
+        self.compact_deployment_head = bool(compact_deployment_head)
         self.vit_lr_profile = str(vit_lr_profile).lower()
         self.backbone_freeze_epochs = int(backbone_freeze_epochs)
         self.gradual_unfreeze = bool(gradual_unfreeze)
@@ -364,6 +396,7 @@ class ReIDTrainer(BaseTrainer):
         self.gradual_unfreeze_backbone_lr_epochs = int(gradual_unfreeze_backbone_lr_epochs)
         self.branch_aware_metric = bool(branch_aware_metric)
         self.branch_metric_part_weight = float(branch_metric_part_weight)
+        self.scale_balanced_branches = bool(scale_balanced_branches)
         self.evidence_num_roles = int(evidence_num_roles)
         self.evidence_alignment_loss_weight = float(evidence_alignment_loss_weight)
         self.evidence_alignment_margin = float(evidence_alignment_margin)
@@ -453,6 +486,9 @@ class ReIDTrainer(BaseTrainer):
             "center_loss_weight",
             "id_loss_weight",
             "metric_loss_weight",
+            "compact_metric_loss_weight",
+            "compact_cosine_distill_weight",
+            "compact_pairwise_distill_weight",
             "early_id_loss_weight",
             "aux_ce_weight",
         ):
@@ -484,6 +520,7 @@ class ReIDTrainer(BaseTrainer):
         valid_metric_features = {
             "auto",
             "global",
+            "coarse_concat",
             "raw_mean",
             "raw_concat",
             "concat_bn",
@@ -525,6 +562,13 @@ class ReIDTrainer(BaseTrainer):
             "last3_pafpn_stage2",
             "last4_fpn_layer0_target",
             "global_final_parts_stage2",
+            "global_final_parts_stage2_semantic_residual",
+            "global_final_parts_stage2_hierarchical_control",
+            "global_final_parts_stage0_semantic_fine_reference",
+            "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_panet_lite",
+            "global_final_parts_stage0_bifpn_lite",
+            "global_final_parts_stage0_native_pyramid",
             "late_concat_stage2",
             "weighted_last2",
             "weighted_last3",
@@ -535,6 +579,12 @@ class ReIDTrainer(BaseTrainer):
             "dpt_fpn",
         }:
             raise ValueError("Unsupported feature_fusion")
+        if self.pyramid_resize_mode not in {"bilinear", "pool_nearest"}:
+            raise ValueError("pyramid_resize_mode must be one of: bilinear, pool_nearest")
+        if self.spatial_conv_mode not in {"standard", "depthwise_separable", "bottleneck_depthwise"}:
+            raise ValueError(
+                "spatial_conv_mode must be one of: standard, depthwise_separable, bottleneck_depthwise"
+            )
         if self.post_fusion_mixer_reduction < 1:
             raise ValueError("post_fusion_mixer_reduction must be positive")
         if len(self.post_fusion_mixer_kernel) != 2 or any(value <= 0 for value in self.post_fusion_mixer_kernel):
@@ -545,8 +595,17 @@ class ReIDTrainer(BaseTrainer):
             raise ValueError("post_fusion_mixer_gamma_init must be finite")
         if self.head_pool not in {"avg", "gem", "dse", "gelu_gem", "relu_gem", "softplus_gem"}:
             raise ValueError("Unsupported head_pool")
-        if self.head_type not in {"standard", "gpc_lite"}:
-            raise ValueError("head_type must be one of: standard, gpc_lite")
+        standard_multiscale_head_types = {
+            "standard",
+            "stage2_channel2",
+            "stage2_pg",
+            "stage2_gpc_lite",
+            "stage2_gpc_lite_gate",
+            "stage2_pg_gate",
+            "suppressed_global",
+        }
+        if self.head_type not in {*standard_multiscale_head_types, "gpc_lite"}:
+            raise ValueError("Unsupported head_type")
         if self.feat_dim <= 0 or self.neck_dim <= 0:
             raise ValueError("feat_dim and neck_dim must be positive")
         if not self.head_parts or 1 not in self.head_parts or any(part <= 0 for part in self.head_parts):
@@ -557,6 +616,44 @@ class ReIDTrainer(BaseTrainer):
             raise ValueError("gpc_lite uses a shared backbone and does not support pattern decoupling")
         if self.head_type == "gpc_lite" and self.stripe_visibility:
             raise ValueError("gpc_lite does not support stripe visibility")
+        if self.scale_balanced_branches:
+            if self.head_type not in standard_multiscale_head_types:
+                raise ValueError("scale_balanced_branches requires a standard multi-scale head")
+            if self.part_pooling not in {"stripes", "overlap_stripes"}:
+                raise ValueError("scale_balanced_branches requires fixed or overlapping stripe pooling")
+            if self.branch_aware_metric:
+                raise ValueError("scale_balanced_branches uses one selected metric descriptor")
+            if self.classifier_loss != "ce":
+                raise ValueError("scale_balanced_branches requires classifier_loss='ce'")
+            if self._effective_metric_feature() not in {"raw_concat", "global", "coarse_concat"}:
+                raise ValueError(
+                    "scale_balanced_branches requires metric_feature='raw_concat', 'global', or 'coarse_concat'"
+                )
+            if self.inference_feature != "norm_concat_bn":
+                raise ValueError("scale_balanced_branches requires inference_feature='norm_concat_bn'")
+        if self.head_type in standard_multiscale_head_types - {"standard"}:
+            if self.model_name != "csl_tinyvit_11m":
+                raise ValueError("G/P/C specialist heads are currently validated only for csl_tinyvit_11m")
+            if self.feature_fusion not in {
+                "global_final_parts_stage0_semantic_fine_reference",
+                "global_final_parts_stage0_semantic_fine",
+            }:
+                raise ValueError("G/P/C specialist heads require Stage-0 semantic-fine fusion")
+            if self.head_parts != (1, 2, 4) or self.part_pooling != "stripes":
+                raise ValueError("G/P/C specialist heads require stripe head_parts=(1, 2, 4)")
+            if not self.scale_balanced_branches:
+                raise ValueError("G/P/C specialist heads require scale-balanced main branches")
+            if self._effective_metric_feature() != "raw_concat":
+                raise ValueError("G/P/C specialist heads keep triplet/center on the main raw_concat descriptor")
+            if self.inference_feature != "norm_concat_bn":
+                raise ValueError("G/P/C specialist heads require norm_concat_bn retrieval")
+        if self._effective_metric_feature() == "coarse_concat":
+            if self.head_type != "standard":
+                raise ValueError("metric_feature='coarse_concat' requires head_type='standard'")
+            if self.part_pooling not in {"stripes", "overlap_stripes"} or 2 not in self.head_parts:
+                raise ValueError(
+                    "metric_feature='coarse_concat' requires fixed or overlapping two-stripe pooling"
+                )
         if self.drop_global_aux and self.head_type != "standard":
             raise ValueError("drop_global_aux requires head_type='standard'")
         if self.drop_global_aux and self.classifier_loss != "ce":
@@ -575,8 +672,43 @@ class ReIDTrainer(BaseTrainer):
             raise ValueError("drop_path_rate must satisfy 0 <= value < 1")
         if self.attention_window_layout not in {"legacy", "rect"}:
             raise ValueError("Unsupported attention_window_layout")
+        if self.stage3_mlp_ratio <= 0:
+            raise ValueError("stage3_mlp_ratio must be positive")
+        if self.stage3_depth < 1:
+            raise ValueError("stage3_depth must be positive")
+        if self.stage2_width_merge_after < 0 or self.stage2_width_merge_after >= 6:
+            if self.stage2_width_merge_after != 0:
+                raise ValueError("stage2_width_merge_after must be zero or between 1 and 5")
+        if self.stage2_width_merge_after:
+            if self.stage3_downsample:
+                raise ValueError("stage2_width_merge_after and stage3_downsample are alternative reductions")
+            if self.attention_window_layout != "rect":
+                raise ValueError("stage2_width_merge_after requires rectangular attention windows")
+            if self.feature_fusion != "global_final_parts_stage0_semantic_fine":
+                raise ValueError("stage2_width_merge_after requires optimized Stage-0 semantic-fine fusion")
+        if self.native_branch_widths:
+            if not self.stage3_downsample:
+                raise ValueError("native_branch_widths requires stage3_downsample")
+            if self.feature_fusion != "global_final_parts_stage0_semantic_fine":
+                raise ValueError("native_branch_widths requires optimized Stage-0 semantic-fine fusion")
+            if self.head_parts != (1, 2, 4) or self.part_pooling != "stripes":
+                raise ValueError("native_branch_widths requires stripe head_parts=(1, 2, 4)")
+        if self.compact_deployment_head:
+            if self.model_name != "csl_tinyvit_11m":
+                raise ValueError("compact_deployment_head is currently validated only for csl_tinyvit_11m")
+            if self.head_type != "standard" or self.part_pooling != "stripes":
+                raise ValueError("compact_deployment_head requires the standard fixed-stripe head")
+            if self.head_parts != (1, 2, 4) or not self.scale_balanced_branches:
+                raise ValueError("compact_deployment_head requires scale-balanced head_parts=(1, 2, 4)")
+            if self.feature_fusion not in {
+                "global_final_parts_stage0_semantic_fine_reference",
+                "global_final_parts_stage0_semantic_fine",
+            }:
+                raise ValueError("compact_deployment_head requires Stage-0 semantic-fine fusion")
         if self.attention_bias not in {"absolute", "signed_factorized"}:
             raise ValueError("Unsupported attention_bias")
+        if self.interpolate_pretrained_attention_bias and self.attention_bias != "absolute":
+            raise ValueError("interpolate_pretrained_attention_bias requires attention_bias='absolute'")
         if self.vit_lr_profile not in {"layer_decay", "reid_lrd"}:
             raise ValueError("vit_lr_profile must be one of: layer_decay, reid_lrd")
         if self.backbone_freeze_epochs < 0 or self.backbone_freeze_epochs > self.epochs:
@@ -702,6 +834,9 @@ class ReIDTrainer(BaseTrainer):
         epoch_seed = self.seed + int(epoch)
         self._seed_everything(epoch_seed)
         self._train_generator.manual_seed(epoch_seed)
+        dataset = getattr(loader, "dataset", None)
+        if hasattr(dataset, "set_epoch"):
+            dataset.set_epoch(epoch)
         sampler = getattr(loader, "sampler", None)
         if hasattr(sampler, "set_epoch"):
             sampler.set_epoch(epoch)
@@ -883,7 +1018,14 @@ class ReIDTrainer(BaseTrainer):
         if pre_build_recipe is not None:
             pre_build_recipe.apply_pre_build_defaults(self)
             self._validate_config()
-        model = self._build_model(num_classes).to(self.device)
+        configured_pretrained = self.pretrained
+        if self.resume and configured_pretrained:
+            LOGGER.info("Resume requested: skipping redundant pretrained-weight initialization")
+            self.pretrained = False
+        try:
+            model = self._build_model(num_classes).to(self.device)
+        finally:
+            self.pretrained = configured_pretrained
         if hasattr(model, "img_size") and model.img_size != self.img_size:
             LOGGER.info(f"Syncing img_size with model architecture: {self.img_size} → {model.img_size}")
             self.img_size = model.img_size
@@ -1021,7 +1163,7 @@ class ReIDTrainer(BaseTrainer):
         )
 
     def _resolve_resume_path(self) -> Optional[Path]:
-        """Resolve a resume directory to its preferred checkpoint."""
+        """Resolve a resume directory to its resumable checkpoint."""
         if not self.resume:
             return None
         resume_path = Path(self.resume)
@@ -1029,8 +1171,10 @@ class ReIDTrainer(BaseTrainer):
             if (resume_path / "last.pt").exists():
                 return resume_path / "last.pt"
             if (resume_path / "best.pt").exists():
-                LOGGER.warning("last.pt not found, falling back to best.pt (optimizer state will be reset)")
-                return resume_path / "best.pt"
+                raise ValueError(
+                    f"Cannot resume {resume_path}: only best.pt exists, and best.pt is an "
+                    "inference-only checkpoint. Use it as pretrained weights or restore last.pt."
+                )
             raise FileNotFoundError(f"No checkpoint found in: {resume_path}")
         if not resume_path.exists():
             raise FileNotFoundError(f"Resume checkpoint not found: {resume_path}")
@@ -1050,11 +1194,42 @@ class ReIDTrainer(BaseTrainer):
 
         checkpoint = torch.load(resume_path, map_location=self.device, weights_only=False)
         resumable = checkpoint.get("resumable", "optimizer" in checkpoint)
-        model.model.load_state_dict(checkpoint["state_dict"], strict=resumable)
         if not resumable:
-            LOGGER.warning(
-                f"{resume_path} is a weights-only checkpoint; optimizer and scheduler state will be reset"
+            raise ValueError(
+                f"Cannot resume {resume_path}: checkpoint_type={checkpoint.get('checkpoint_type', 'unknown')!r} "
+                "does not contain a resumable training state"
             )
+        if checkpoint.get("checkpoint_precision") == "float16":
+            LOGGER.warning(
+                f"Resuming legacy lossy FP16 training state from {resume_path}. "
+                "The run remains seeded, but its first resumed step cannot be bit-exact. "
+                "New last.pt checkpoints preserve native training precision."
+            )
+        self._assert_resume_compatible(checkpoint, resume_path)
+        saved_num_classes = checkpoint.get("num_classes")
+        current_num_classes = self._get_num_classes(model.model)
+        if saved_num_classes is not None and int(saved_num_classes) != current_num_classes:
+            raise ValueError(
+                f"Cannot resume {resume_path}: checkpoint has {int(saved_num_classes)} classes, "
+                f"but the current dataset/model has {current_num_classes}"
+            )
+        required_state = {"optimizer", "optimizer_center", "rng_state"}
+        if self.center_loss_weight > 0:
+            required_state.add("center_loss_state_dict")
+        if self.classifier_loss != "ce":
+            required_state.add("classifier_loss_state_dict")
+        if self.ema_decay:
+            required_state.add("ema_state_dict")
+        if checkpoint.get("resume_contract") is not None:
+            required_state.add("scheduler")
+        if self.deterministic and self.device.type == "cuda":
+            required_state.add("grad_scaler")
+        missing_state = sorted(required_state - checkpoint.keys())
+        if missing_state:
+            raise ValueError(
+                f"Cannot resume {resume_path}: missing training state: {', '.join(missing_state)}"
+            )
+        model.model.load_state_dict(checkpoint["state_dict"], strict=resumable)
         self._restore_center_loss_state(
             checkpoint,
             losses.criterion_center,
@@ -1072,6 +1247,7 @@ class ReIDTrainer(BaseTrainer):
         if "optimizer_center" in checkpoint:
             optimization.optimizer_center.load_state_dict(checkpoint["optimizer_center"])
         resumed_epoch = int(checkpoint.get("epoch", 0))
+        self._assert_resume_metrics_consistent(resume_path, resumed_epoch)
         optimization.scheduler = self._build_resume_scheduler(
             optimization.optimizer,
             resumed_epoch,
@@ -1083,9 +1259,24 @@ class ReIDTrainer(BaseTrainer):
                 checkpoint.get("ema_state_dict", checkpoint["state_dict"]),
                 strict=resumable,
             )
+        scaler_state = checkpoint.get("grad_scaler")
+        if scaler_state is not None:
+            if not hasattr(self, "_scaler"):
+                self._scaler = torch.amp.GradScaler(
+                    "cuda",
+                    enabled=self.device.type == "cuda",
+                )
+            self._scaler.load_state_dict(scaler_state)
         self._restore_rng_state(checkpoint.get("rng_state"))
         best_mAP = float(checkpoint.get("best_mAP") or checkpoint.get("mAP", 0.0))
-        best_rank1 = float(checkpoint.get("rank1", 0.0))
+        best_rank1 = float(checkpoint.get("best_rank1", checkpoint.get("rank1", 0.0)))
+        best_epoch = int(checkpoint.get("best_epoch", 0))
+        if not best_epoch:
+            best_epoch, best_rank1 = self._legacy_best_state(
+                resume_path,
+                fallback_epoch=resumed_epoch,
+                fallback_rank1=best_rank1,
+            )
         LOGGER.info(
             f"Resumed from {resume_path} (epoch {resumed_epoch}, "
             f"mAP={best_mAP:.2%}, R1={best_rank1:.2%})"
@@ -1094,8 +1285,120 @@ class ReIDTrainer(BaseTrainer):
             start_epoch=resumed_epoch + 1,
             best_mAP=best_mAP,
             best_rank1=best_rank1,
-            best_epoch=resumed_epoch,
+            best_epoch=best_epoch,
         )
+
+    def _resolved_resume_values(self) -> dict[str, Any]:
+        """Return the effective semantic values used for compatibility checks."""
+        values = dict(vars(self))
+        recipe = self._resolve_training_recipe_for_model_name()
+        if recipe is not None:
+            values.update(
+                training_recipe=recipe.name,
+                optimizer=recipe.optimizer_name,
+                layer_decay=recipe.layer_decay(self),
+                grad_clip=recipe.grad_clip,
+                flip_tta=self.flip_tta if self.flip_tta is not None else recipe.default_flip_tta,
+            )
+        values["metric_feature"] = self._effective_metric_feature()
+        return values
+
+    def _resume_contract(self) -> dict[str, Any]:
+        """Return the canonical contract for exact ablation/resume matching."""
+        return build_resume_contract(self._resolved_resume_values())
+
+    @staticmethod
+    def _legacy_best_state(
+        resume_path: Path,
+        *,
+        fallback_epoch: int,
+        fallback_rank1: float,
+    ) -> tuple[int, float]:
+        """Recover best-model state from metrics written by older trainers."""
+        metrics_path = resume_path.parent / "metrics.json"
+        if metrics_path.exists():
+            try:
+                metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+                return (
+                    int(metrics.get("best_epoch", fallback_epoch)),
+                    float(metrics.get("best_rank1", fallback_rank1)),
+                )
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
+                pass
+        return fallback_epoch, fallback_rank1
+
+    def _assert_resume_compatible(self, checkpoint: dict[str, Any], resume_path: Path) -> None:
+        """Reject checkpoints whose learned-state contract differs from this run."""
+        requested = self._resume_contract()
+        saved = checkpoint.get("resume_contract")
+        legacy = saved is None
+        if legacy:
+            legacy_hparams = load_train_hparams(resume_path)
+            if not legacy_hparams:
+                raise ValueError(
+                    f"Cannot verify resume compatibility for legacy checkpoint {resume_path}: "
+                    "hparams.json is missing"
+                )
+            saved = build_resume_contract(legacy_hparams, partial=True)
+
+        differences = contract_differences(saved, requested, compare_common_only=legacy)
+        previous_epochs = self._resume_target_epochs(resume_path, checkpoint)
+        if previous_epochs is not None and self.epochs < previous_epochs:
+            differences.append(
+                f"target_epochs: saved={previous_epochs!r}, requested={self.epochs!r} "
+                "(resume may extend, but may not shorten a run)"
+            )
+        resumed_epoch = int(checkpoint.get("epoch", 0))
+        if resumed_epoch >= self.epochs:
+            differences.append(
+                f"checkpoint_epoch: saved={resumed_epoch!r}, requested target={self.epochs!r} "
+                "(run is already complete)"
+            )
+        if differences:
+            details = "\n  - ".join(differences[:20])
+            if len(differences) > 20:
+                details += f"\n  - ... and {len(differences) - 20} more"
+            raise ValueError(
+                f"Refusing incompatible resume from {resume_path}:\n  - {details}\n"
+                "Use matching arguments or start in a clean project/name directory."
+            )
+        if legacy:
+            LOGGER.warning(
+                f"Resume contract missing from {resume_path}; accepted after matching all "
+                "available legacy hparams. The next checkpoint will store an exact fingerprint."
+            )
+
+    @staticmethod
+    def _assert_resume_metrics_consistent(resume_path: Path, checkpoint_epoch: int) -> None:
+        """Reject checkpoint progress that cannot be represented by saved history."""
+        metrics_path = resume_path.parent / "metrics.json"
+        if not metrics_path.exists():
+            if checkpoint_epoch > 0:
+                raise ValueError(
+                    f"Cannot resume {resume_path}: metrics.json is missing for checkpoint epoch "
+                    f"{checkpoint_epoch}"
+                )
+            return
+        try:
+            metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+            train_history = metrics.get("train") or []
+            metrics_epoch = max(
+                (int(item.get("epoch", 0)) for item in train_history),
+                default=0,
+            )
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Cannot resume {resume_path}: invalid metrics.json: {exc}") from exc
+        if metrics_epoch < checkpoint_epoch:
+            raise ValueError(
+                f"Cannot resume {resume_path}: checkpoint is at epoch {checkpoint_epoch}, but "
+                f"metrics.json ends at epoch {metrics_epoch}. The missing history cannot be "
+                "reconstructed exactly."
+            )
+        if metrics_epoch > checkpoint_epoch:
+            LOGGER.warning(
+                f"metrics.json is ahead of last.pt ({metrics_epoch} > {checkpoint_epoch}); "
+                "discarding later metric entries and replaying those epochs deterministically"
+            )
 
     def _write_hparams(
         self,
@@ -1122,6 +1425,11 @@ class ReIDTrainer(BaseTrainer):
                 "margin": self.margin,
                 "soft_margin": losses.soft_margin,
             }
+        if self.loss_type == "wrt":
+            losses_hparams["weighted_regularized_triplet"] = {
+                "pair_weighting": "softmax",
+                "distance": "euclidean",
+            }
         if self.classifier_loss == "arcface":
             losses_hparams["arcface"] = {
                 "scale": self.arcface_scale,
@@ -1134,6 +1442,14 @@ class ReIDTrainer(BaseTrainer):
             }
         if losses.criterion_metric is not None:
             losses_hparams["weights"]["metric_loss_weight"] = self.metric_loss_weight
+        if self.compact_deployment_head:
+            losses_hparams["distillation"] = {
+                "id_weight": self.id_loss_weight,
+                "metric_weight": self.compact_metric_loss_weight,
+                "cosine_weight": self.compact_cosine_distill_weight,
+                "pairwise_weight": self.compact_pairwise_distill_weight,
+                "teacher_stop_gradient": True,
+            }
         if self.center_loss_weight > 0 and self.loss_type != "ms":
             losses_hparams["weights"]["center_loss_weight"] = self.center_loss_weight
         loss_schedules = {}
@@ -1181,6 +1497,8 @@ class ReIDTrainer(BaseTrainer):
                 "training_recipe": recipe.name,
                 "timm_model_name": getattr(models.model, "timm_model_name", None),
                 "feature_fusion": self.feature_fusion,
+                "pyramid_resize_mode": self.pyramid_resize_mode,
+                "spatial_conv_mode": self.spatial_conv_mode,
                 "post_fusion_mixer": {
                     "mode": self.post_fusion_mixer,
                     "reduction": self.post_fusion_mixer_reduction,
@@ -1192,9 +1510,21 @@ class ReIDTrainer(BaseTrainer):
                 "attention": {
                     "window_layout": self.attention_window_layout,
                     "bias": self.attention_bias,
+                    "interpolate_pretrained_bias": self.interpolate_pretrained_attention_bias,
                     "mask": self.attention_mask,
                     "shift": self.attention_shift,
                     "stage3_global": self.stage3_global,
+                },
+                "speed": {
+                    "stage3_downsample": self.stage3_downsample,
+                    "stage2_width_merge_after": self.stage2_width_merge_after,
+                    "stage3_mlp_ratio": self.stage3_mlp_ratio,
+                    "stage3_depth": self.stage3_depth,
+                    "native_branch_widths": self.native_branch_widths,
+                },
+                "deployment": {
+                    "compact_head": self.compact_deployment_head,
+                    "descriptor_dim": self.feat_dim if self.compact_deployment_head else None,
                 },
                 "reid_adapters": {
                     "stages": list(self.reid_adapter_stages),
@@ -1223,6 +1553,7 @@ class ReIDTrainer(BaseTrainer):
                     "aware_metric": self.branch_aware_metric,
                     "metric_part_weight": self.branch_metric_part_weight,
                     "loss_agg": self.branch_loss_agg,
+                    "scale_balanced": self.scale_balanced_branches,
                 },
                 "evidence": {
                     "alignment_loss_weight": self.evidence_alignment_loss_weight,
@@ -1287,6 +1618,13 @@ class ReIDTrainer(BaseTrainer):
                 "n_params": sum(parameter.numel() for parameter in models.model.parameters()),
             },
         }
+        resume_contract = self._resume_contract()
+        hparams["resume"] = {
+            "contract": resume_contract,
+            "fingerprint": contract_fingerprint(resume_contract),
+            "run_fingerprint": run_fingerprint(resume_contract, self.epochs),
+            "target_epochs": self.epochs,
+        }
         if recipe.family == "transformer":
             hparams["model"]["transformer"] = {
                 "drop_path_rate": self._max_drop_path(models.model),
@@ -1303,7 +1641,7 @@ class ReIDTrainer(BaseTrainer):
         if self.data_specs:
             hparams["data"]["data_specs"] = [dict(spec) for spec in self.data_specs]
         path = save_dir / "hparams.json"
-        path.write_text(json.dumps(hparams, indent=2))
+        self._write_json_atomic(path, hparams)
         LOGGER.info(f"Saved hyperparameters to {path}")
 
     def _restore_history(
@@ -1372,6 +1710,21 @@ class ReIDTrainer(BaseTrainer):
         """Return a stable average for optional timing samples."""
         return sum(values) / len(values) if values else 0.0
 
+    @staticmethod
+    def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+        """Durably replace one JSON artifact without exposing partial content."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            with temporary.open("w", encoding="utf-8") as handle:
+                json.dump(payload, handle, indent=2)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
     def _fit(
         self,
         *,
@@ -1398,6 +1751,7 @@ class ReIDTrainer(BaseTrainer):
             None,
         )
         epoch_durations_s: list[float] = []
+        forward_durations_s: list[float] = []
         eval_durations_s: list[float] = []
         epoch_bar = tqdm(
             range(state.start_epoch, self.epochs + 1),
@@ -1434,6 +1788,7 @@ class ReIDTrainer(BaseTrainer):
                 ) from exc
             history.append(metrics)
             epoch_durations_s.append(metrics.elapsed_s)
+            forward_durations_s.append(metrics.forward_elapsed_s)
             self._clear_memory(threshold=self.MEMORY_CLEAR_THRESHOLD)
             epoch_bar.set_postfix(
                 loss=f"{metrics.loss:.4f}",
@@ -1482,6 +1837,8 @@ class ReIDTrainer(BaseTrainer):
                         criterion_center=losses.criterion_center,
                         criterion_classifier=losses.criterion_id,
                         best_mAP=state.best_mAP,
+                        best_epoch=state.best_epoch,
+                        best_rank1=state.best_rank1,
                     )
                     tqdm.write(
                         f"  ✓ New best model (mAP={val.mAP:.2%}, "
@@ -1515,6 +1872,18 @@ class ReIDTrainer(BaseTrainer):
                 self._clear_memory(threshold=self.MEMORY_CLEAR_THRESHOLD)
 
             if epoch % 10 == 0 or epoch == self.epochs:
+                self._save_metrics(
+                    save_dir,
+                    history,
+                    val_history,
+                    state.best_epoch,
+                    state.best_mAP,
+                    state.best_rank1,
+                    average_epoch_time_s=self._average_duration(epoch_durations_s),
+                    average_forward_time_s=self._average_duration(forward_durations_s),
+                    average_eval_time_s=self._average_duration(eval_durations_s),
+                    total_end_to_end_time_s=time.monotonic() - run_started_at,
+                )
                 self.checkpoint_manager.save_last(
                     save_dir / "last.pt",
                     model=models.model,
@@ -1526,17 +1895,10 @@ class ReIDTrainer(BaseTrainer):
                     criterion_classifier=losses.criterion_id,
                     ema_model=models.ema_model,
                     best_mAP=state.best_mAP,
-                )
-                self._save_metrics(
-                    save_dir,
-                    history,
-                    val_history,
-                    state.best_epoch,
-                    state.best_mAP,
-                    state.best_rank1,
-                    average_epoch_time_s=self._average_duration(epoch_durations_s),
-                    average_eval_time_s=self._average_duration(eval_durations_s),
-                    total_end_to_end_time_s=time.monotonic() - run_started_at,
+                    scheduler=optimization.scheduler,
+                    grad_scaler=getattr(self, "_scaler", None),
+                    best_epoch=state.best_epoch,
+                    best_rank1=state.best_rank1,
                 )
 
         self._save_metrics(
@@ -1547,6 +1909,7 @@ class ReIDTrainer(BaseTrainer):
             state.best_mAP,
             state.best_rank1,
             average_epoch_time_s=self._average_duration(epoch_durations_s),
+            average_forward_time_s=self._average_duration(forward_durations_s),
             average_eval_time_s=self._average_duration(eval_durations_s),
             total_end_to_end_time_s=time.monotonic() - run_started_at,
         )
@@ -1575,6 +1938,8 @@ class ReIDTrainer(BaseTrainer):
             img_size=self.img_size,
             inference_feature=self.inference_feature,
             feature_fusion=self.feature_fusion,
+            pyramid_resize_mode=self.pyramid_resize_mode,
+            spatial_conv_mode=self.spatial_conv_mode,
             post_fusion_mixer=self.post_fusion_mixer,
             post_fusion_mixer_reduction=self.post_fusion_mixer_reduction,
             post_fusion_mixer_kernel=self.post_fusion_mixer_kernel,
@@ -1584,9 +1949,16 @@ class ReIDTrainer(BaseTrainer):
             drop_path_rate=self.drop_path_rate,
             attention_window_layout=self.attention_window_layout,
             attention_bias=self.attention_bias,
+            interpolate_pretrained_attention_bias=self.interpolate_pretrained_attention_bias,
             attention_mask=self.attention_mask,
             attention_shift=self.attention_shift,
             stage3_global=self.stage3_global,
+            stage3_downsample=self.stage3_downsample,
+            stage2_width_merge_after=self.stage2_width_merge_after,
+            stage3_mlp_ratio=self.stage3_mlp_ratio,
+            stage3_depth=self.stage3_depth,
+            native_branch_widths=self.native_branch_widths,
+            compact_deployment_head=self.compact_deployment_head,
             reid_adapter_stages=self.reid_adapter_stages,
             reid_adapter_reduction=self.reid_adapter_reduction,
             head_pool=self.head_pool,
@@ -1601,6 +1973,7 @@ class ReIDTrainer(BaseTrainer):
             drop_global_aux_ratio=self.drop_global_aux_ratio,
             evidence_num_roles=self.evidence_num_roles,
             branch_metric=self.branch_aware_metric,
+            scale_balanced_branches=self.scale_balanced_branches,
         )
         if hasattr(model, "head") and hasattr(model.head, "metric_feature"):
             model.head.metric_feature = self._effective_metric_feature()
@@ -1648,7 +2021,10 @@ class ReIDTrainer(BaseTrainer):
             f"stripe_visibility={getattr(head, 'stripe_visibility', None)}, "
             f"drop_global_aux={getattr(head, 'drop_global_aux_enabled', None)}, "
             f"drop_global_aux_ratio={getattr(head, 'drop_global_aux_ratio', None)}, "
+            f"scale_balanced_branches={getattr(head, 'scale_balanced_branches', None)}, "
             f"feature_fusion={getattr(model, 'feature_fusion', None)}, "
+            f"pyramid_resize_mode={getattr(model, 'pyramid_resize_mode', None)}, "
+            f"spatial_conv_mode={getattr(model, 'spatial_conv_mode', None)}, "
             f"post_fusion_mixer={getattr(model, 'post_fusion_mixer', None)}, "
             f"post_fusion_mixer_kernel={getattr(model, 'post_fusion_mixer_kernel', None)}, "
             f"post_fusion_mixer_gamma_init={getattr(model, 'post_fusion_mixer_gamma_init', None)}, "
@@ -1656,9 +2032,17 @@ class ReIDTrainer(BaseTrainer):
             f"reid_adapter_reduction={getattr(model, 'reid_adapter_reduction', None)}, "
             f"attention_window_layout={getattr(model, 'attention_window_layout', None)}, "
             f"attention_bias={getattr(model, 'attention_bias', None)}, "
+            "interpolate_pretrained_attention_bias="
+            f"{getattr(model, 'interpolate_pretrained_attention_bias', None)}, "
             f"attention_mask={getattr(model, 'attention_mask', None)}, "
             f"attention_shift={getattr(model, 'attention_shift', None)}, "
             f"stage3_global={getattr(model, 'stage3_global', None)}, "
+            f"stage3_downsample={getattr(model, 'stage3_downsample', None)}, "
+            f"stage2_width_merge_after={getattr(model, 'stage2_width_merge_after', None)}, "
+            f"stage3_mlp_ratio={getattr(model, 'stage3_mlp_ratio', None)}, "
+            f"stage3_depth={getattr(model, 'stage3_depth', None)}, "
+            f"native_branch_widths={getattr(model, 'native_branch_widths', None)}, "
+            f"compact_deployment_head={getattr(model, 'compact_deployment_head', None)}, "
             f"windows={block_windows}"
         )
         match_count = getattr(model, "pretrained_match_count", None)
@@ -1721,6 +2105,16 @@ class ReIDTrainer(BaseTrainer):
                 f"to {self.epochs}: continuing from checkpoint LR over "
                 f"{remaining_epochs} epochs"
             )
+            return scheduler
+
+        if "scheduler" in ckpt:
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=max(self.epochs - self.warmup_epochs, 1),
+                eta_min=self.eta_min,
+            )
+            scheduler.load_state_dict(ckpt["scheduler"])
+            LOGGER.info(f"Restored exact scheduler state from epoch {resumed_epoch}")
             return scheduler
 
         if self.warmup_epochs > 0 and resumed_epoch < self.warmup_epochs:
@@ -1810,7 +2204,7 @@ class ReIDTrainer(BaseTrainer):
         return DataLoader(query_ds, **loader_kwargs), DataLoader(gallery_ds, **loader_kwargs)
 
     def _probe_feat_dim(self, model: nn.Module) -> int:
-        """Run a dummy forward to determine the training embedding dimension."""
+        """Run a dummy forward to determine the center-loss embedding dimension."""
         was_training = model.training
         model.train()
         dummy = torch.randn(2, 3, *self.img_size, device=self.device)
@@ -1819,12 +2213,9 @@ class ReIDTrainer(BaseTrainer):
         if not was_training:
             model.eval()
         _, features = self._split_model_output(out)
-        if isinstance(features, dict):
-            return features["global"].shape[1]
-        if isinstance(features, (list, tuple)) and len(features) > 0:
-            return features[0].shape[1]
-        if isinstance(features, torch.Tensor):
-            return features.shape[1]
+        center_features = self._center_features(features)
+        if isinstance(center_features, torch.Tensor):
+            return center_features.shape[1]
         if isinstance(out, list) and len(out) > 0 and isinstance(out[0], torch.Tensor):
             return out[0].shape[1]  # multi-branch softmax: list of logits
         return out.shape[1]
@@ -2401,6 +2792,38 @@ class ReIDTrainer(BaseTrainer):
                 trainable += count
         return trainable, total
 
+    @staticmethod
+    @torch.no_grad()
+    def _update_ema_model(ema_model: nn.Module, model: nn.Module, decay: float) -> None:
+        """Update EMA parameters and persistent buffers by state-dict key.
+
+        Some backbones create non-persistent inference caches dynamically. Such
+        buffers can differ between the live and EMA module trees and must not
+        shift positional parameter/buffer pairing. They are intentionally
+        absent from ``state_dict`` and are regenerated by the owning module.
+        """
+        ema_state = ema_model.state_dict(keep_vars=True)
+        model_state = model.state_dict(keep_vars=True)
+        if ema_state.keys() != model_state.keys():
+            missing = sorted(model_state.keys() - ema_state.keys())
+            unexpected = sorted(ema_state.keys() - model_state.keys())
+            raise RuntimeError(
+                "EMA state structure differs from the live model: "
+                f"missing={missing[:5]}, unexpected={unexpected[:5]}"
+            )
+
+        for name, ema_value in ema_state.items():
+            model_value = model_state[name].detach()
+            if ema_value.shape != model_value.shape:
+                raise RuntimeError(
+                    f"EMA state shape mismatch for {name}: "
+                    f"{tuple(ema_value.shape)} != {tuple(model_value.shape)}"
+                )
+            if ema_value.is_floating_point():
+                ema_value.mul_(decay).add_(model_value, alpha=1.0 - decay)
+            else:
+                ema_value.copy_(model_value)
+
     def _metric_loss_for_features(self, criterion_metric, features, pids: torch.Tensor) -> torch.Tensor:
         """Compute metric loss for a tensor feature or branch feature dict."""
         if isinstance(features, dict):
@@ -2456,6 +2879,67 @@ class ReIDTrainer(BaseTrainer):
             return self._reduce_branch_losses(losses)
 
         return criterion_metric(F.normalize(features, p=2, dim=1), pids)
+
+    def _compact_student_losses(
+        self,
+        criterion_metric,
+        features,
+        pids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return compact triplet, cosine, and pairwise distillation losses."""
+        zero = torch.zeros((), device=self.device)
+        if not self.compact_deployment_head:
+            return zero, zero, zero
+        if not isinstance(features, dict):
+            raise RuntimeError("Compact deployment training requires the head feature dictionary")
+        required = {
+            "_compact_student",
+            "_compact_student_bn",
+            "_compact_teacher",
+            "_compact_decoded",
+        }
+        missing = sorted(required.difference(features))
+        if missing:
+            raise RuntimeError(f"Compact deployment head did not return training features: {missing}")
+
+        student = F.normalize(features["_compact_student"], p=2, dim=1)
+        student_bn = F.normalize(features["_compact_student_bn"], p=2, dim=1)
+        teacher = F.normalize(features["_compact_teacher"].detach(), p=2, dim=1)
+        decoded = F.normalize(features["_compact_decoded"], p=2, dim=1)
+
+        metric = zero
+        if criterion_metric is not None and self.compact_metric_loss_weight > 0:
+            metric = criterion_metric(student, pids)
+        cosine = 1.0 - torch.sum(decoded * teacher, dim=1).mean()
+
+        if student.shape[0] < 2:
+            pairwise = zero
+        else:
+            student_distances = 1.0 - student_bn @ student_bn.transpose(0, 1)
+            teacher_distances = 1.0 - teacher @ teacher.transpose(0, 1)
+            off_diagonal = ~torch.eye(
+                student.shape[0],
+                device=student.device,
+                dtype=torch.bool,
+            )
+            pairwise = F.smooth_l1_loss(
+                student_distances[off_diagonal],
+                teacher_distances[off_diagonal],
+            )
+        return metric, cosine, pairwise
+
+    def _compact_student_id_loss(
+        self,
+        criterion_id: nn.Module,
+        features,
+        pids: torch.Tensor,
+    ) -> torch.Tensor:
+        """Apply the existing ID criterion without changing teacher CE allocation."""
+        if not self.compact_deployment_head:
+            return torch.zeros((), device=self.device)
+        if not isinstance(features, dict) or not torch.is_tensor(features.get("_compact_logits")):
+            raise RuntimeError("Compact deployment head did not return student classifier logits")
+        return criterion_id(features["_compact_logits"], pids)
 
     def _evidence_auxiliary_loss(self, features, pids: torch.Tensor) -> torch.Tensor:
         """Compute IET evidence alignment, null-token, and diversity losses."""
@@ -2587,6 +3071,8 @@ class ReIDTrainer(BaseTrainer):
         if len(losses) == 1:
             return losses[0]
         aux_weight = self._aux_ce_weight_for_epoch(epoch)
+        if self.scale_balanced_branches:
+            return self._scale_balanced_classification_loss(losses, aux_weight)
         weights = [torch.ones((), device=losses[0].device, dtype=losses[0].dtype)]
         part_supervision_weights = self._part_supervision_weights(features) if isinstance(features, dict) else None
         if torch.is_tensor(part_supervision_weights):
@@ -2604,6 +3090,47 @@ class ReIDTrainer(BaseTrainer):
         weighted = sum(loss * weight for loss, weight in zip(losses, weights))
         normalizer = torch.stack(weights).sum().clamp(min=1e-12)
         return weighted / normalizer
+
+    def _scale_balanced_classification_loss(
+        self,
+        losses: list[torch.Tensor],
+        aux_weight: float,
+    ) -> torch.Tensor:
+        """Average CE within each granularity before averaging spatial scales."""
+        local_granularities = tuple(granularity for granularity in self.head_parts if granularity > 1)
+        branch_count = 1 + sum(local_granularities)
+        if len(losses) < branch_count:
+            raise RuntimeError(
+                "scale-balanced CE received fewer classifier outputs than head_parts requires: "
+                f"got {len(losses)}, expected at least {branch_count} for {self.head_parts}"
+            )
+
+        dtype = losses[0].dtype
+        device = losses[0].device
+        aux = torch.as_tensor(aux_weight, dtype=dtype, device=device)
+
+        # Classifiers after the configured main global/stripe branches are
+        # auxiliary specialists (dropped-global or Stage-2 G/P/C branches).
+        # Average that group before combining scales so adding specialists
+        # cannot inflate the normalized ID-loss magnitude.
+        global_losses = losses[:1] + losses[branch_count:]
+        global_weights = [torch.ones((), dtype=dtype, device=device)] + [
+            aux for _ in global_losses[1:]
+        ]
+        global_loss = sum(loss * weight for loss, weight in zip(global_losses, global_weights, strict=True))
+        global_loss = global_loss / torch.stack(global_weights).sum().clamp(min=1e-12)
+
+        scale_losses = [global_loss]
+        scale_weights = [torch.ones((), dtype=dtype, device=device)]
+        offset = 1
+        for granularity in local_granularities:
+            group = losses[offset : offset + granularity]
+            scale_losses.append(sum(group) / granularity)
+            scale_weights.append(aux)
+            offset += granularity
+
+        weighted = sum(loss * weight for loss, weight in zip(scale_losses, scale_weights, strict=True))
+        return weighted / torch.stack(scale_weights).sum().clamp(min=1e-12)
 
     @staticmethod
     def _part_supervision_weights(features: dict) -> torch.Tensor | None:
@@ -2637,10 +3164,12 @@ class ReIDTrainer(BaseTrainer):
             key=part_index,
         )
 
-    @staticmethod
-    def _center_features(features):
-        """Use the global raw branch for center loss when branch metrics are enabled."""
+    def _center_features(self, features):
+        """Select the center-loss descriptor for the active branch policy."""
         if isinstance(features, dict):
+            if self.scale_balanced_branches:
+                key = self._effective_metric_feature()
+                return features.get(key, features.get("raw_mean", features.get("global")))
             return features.get("global", features.get("raw_mean"))
         if isinstance(features, (list, tuple)):
             return features[0] if len(features) > 0 else None
@@ -2830,6 +3359,8 @@ class ReIDTrainer(BaseTrainer):
 
         running_losses = torch.zeros(4, device=self.device)
         n_batches = 0
+        forward_elapsed_s = 0.0
+        forward_events: list[tuple[Any, Any]] = []
         t0 = time.monotonic()
 
         # AMP: mixed precision on CUDA for ~2x throughput, skip on CPU/MPS
@@ -2847,7 +3378,24 @@ class ReIDTrainer(BaseTrainer):
             pids = pids.to(self.device)
 
             with torch.amp.autocast("cuda", enabled=use_amp):
-                output = model(imgs)
+                if self.device.type == "cuda":
+                    forward_start = torch.cuda.Event(enable_timing=True)
+                    forward_end = torch.cuda.Event(enable_timing=True)
+                    forward_start.record()
+                    output = model(imgs)
+                    forward_end.record()
+                    forward_events.append((forward_start, forward_end))
+                elif self.device.type == "mps" and hasattr(torch.mps, "Event"):
+                    forward_start = torch.mps.Event(enable_timing=True)
+                    forward_end = torch.mps.Event(enable_timing=True)
+                    forward_start.record()
+                    output = model(imgs)
+                    forward_end.record()
+                    forward_events.append((forward_start, forward_end))
+                else:
+                    forward_started_at = time.monotonic()
+                    output = model(imgs)
+                    forward_elapsed_s += time.monotonic() - forward_started_at
                 logits, features = self._split_model_output(output)
 
                 # ID loss — CE uses model logits; margin classifiers use embeddings.
@@ -2862,6 +3410,10 @@ class ReIDTrainer(BaseTrainer):
                         )
                     loss_id = criterion_id(cls_features, pids)
                 loss = id_loss_weight * loss_id
+                compact_id = self._compact_student_id_loss(criterion_id, features, pids)
+                if self.compact_deployment_head:
+                    loss_id = loss_id + compact_id
+                    loss = loss + id_loss_weight * compact_id
 
                 # Triplet loss — L2-normalize features so Euclidean distance in
                 # triplet loss aligns with cosine distance used at evaluation.
@@ -2869,6 +3421,18 @@ class ReIDTrainer(BaseTrainer):
                 if criterion_metric is not None and features is not None:
                     loss_tri = self._metric_loss_for_features(criterion_metric, features, pids)
                     loss = loss + self.metric_loss_weight * loss_tri
+
+                compact_tri, compact_cosine, compact_pairwise = self._compact_student_losses(
+                    criterion_metric,
+                    features,
+                    pids,
+                )
+                if self.compact_deployment_head:
+                    weighted_compact_tri = self.compact_metric_loss_weight * compact_tri
+                    loss_tri = loss_tri + weighted_compact_tri
+                    loss = loss + weighted_compact_tri
+                    loss = loss + self.compact_cosine_distill_weight * compact_cosine
+                    loss = loss + self.compact_pairwise_distill_weight * compact_pairwise
 
                 loss_evidence = self._evidence_auxiliary_loss(features, pids)
                 loss = loss + loss_evidence
@@ -2886,6 +3450,8 @@ class ReIDTrainer(BaseTrainer):
                     f"loss={loss.detach().item():.6g}, "
                     f"id_loss={loss_id.detach().item():.6g}, "
                     f"triplet_loss={loss_tri.detach().item():.6g}, "
+                    f"compact_cosine={compact_cosine.detach().item():.6g}, "
+                    f"compact_pairwise={compact_pairwise.detach().item():.6g}, "
                     f"evidence_loss={loss_evidence.detach().item():.6g}, "
                     f"center_loss={loss_cen.detach().item():.6g}"
                 )
@@ -2916,14 +3482,7 @@ class ReIDTrainer(BaseTrainer):
             # statistics match the EMA model's feature distribution.
             # Integer buffers (num_batches_tracked, index tensors) are copied.
             if ema_model is not None:
-                decay = self.ema_decay
-                for ema_p, model_p in zip(ema_model.parameters(), model.parameters()):
-                    ema_p.data.mul_(decay).add_(model_p.data, alpha=1.0 - decay)
-                for ema_b, model_b in zip(ema_model.buffers(), model.buffers()):
-                    if ema_b.is_floating_point():
-                        ema_b.data.mul_(decay).add_(model_b.data, alpha=1.0 - decay)
-                    else:
-                        ema_b.data.copy_(model_b.data)
+                self._update_ema_model(ema_model, model, self.ema_decay)
 
             running_losses.add_(
                 torch.stack(
@@ -2956,6 +3515,15 @@ class ReIDTrainer(BaseTrainer):
                 base_lr = pg.get("_base_lr", self.lr)
                 pg["lr"] = base_lr * warmup_factor
 
+        if forward_events:
+            if self.device.type == "cuda":
+                torch.cuda.synchronize(self.device)
+            elif self.device.type == "mps":
+                torch.mps.synchronize()
+            forward_elapsed_s = sum(
+                float(start.elapsed_time(end)) for start, end in forward_events
+            ) / 1000.0
+
         elapsed = time.monotonic() - t0
         average_losses = (running_losses / max(n_batches, 1)).cpu().tolist()
         return TrainMetrics(
@@ -2966,6 +3534,7 @@ class ReIDTrainer(BaseTrainer):
             center_loss=average_losses[3],
             lr=epoch_lr,
             elapsed_s=elapsed,
+            forward_elapsed_s=forward_elapsed_s,
             backbone_lr=epoch_backbone_lr,
             head_lr=epoch_head_lr,
         )
@@ -3047,6 +3616,7 @@ class ReIDTrainer(BaseTrainer):
     def _checkpoint_metadata(self, model: nn.Module) -> dict[str, Any]:
         """Return stable model/training metadata shared by all checkpoint types."""
         recipe = self._resolve_training_recipe(model)
+        resume_contract = self._resume_contract()
         metadata = {
             "model_name": self.model_name,
             "model_family": recipe.family,
@@ -3066,6 +3636,8 @@ class ReIDTrainer(BaseTrainer):
             "timm_model_name": getattr(model, "timm_model_name", None),
             "use_timm_head": getattr(model, "use_timm_head", None),
             "feature_fusion": self.feature_fusion,
+            "pyramid_resize_mode": self.pyramid_resize_mode,
+            "spatial_conv_mode": self.spatial_conv_mode,
             "post_fusion_mixer": self.post_fusion_mixer,
             "post_fusion_mixer_reduction": self.post_fusion_mixer_reduction,
             "post_fusion_mixer_kernel": list(self.post_fusion_mixer_kernel),
@@ -3075,9 +3647,19 @@ class ReIDTrainer(BaseTrainer):
             "drop_path_rate": self.drop_path_rate,
             "attention_window_layout": self.attention_window_layout,
             "attention_bias": self.attention_bias,
+            "interpolate_pretrained_attention_bias": self.interpolate_pretrained_attention_bias,
             "attention_mask": self.attention_mask,
             "attention_shift": self.attention_shift,
             "stage3_global": self.stage3_global,
+            "stage3_downsample": self.stage3_downsample,
+            "stage2_width_merge_after": self.stage2_width_merge_after,
+            "stage3_mlp_ratio": self.stage3_mlp_ratio,
+            "stage3_depth": self.stage3_depth,
+            "native_branch_widths": self.native_branch_widths,
+            "compact_deployment_head": self.compact_deployment_head,
+            "compact_metric_loss_weight": self.compact_metric_loss_weight,
+            "compact_cosine_distill_weight": self.compact_cosine_distill_weight,
+            "compact_pairwise_distill_weight": self.compact_pairwise_distill_weight,
             "vit_lr_profile": self.vit_lr_profile,
             "optimizer_name": recipe.optimizer_name,
             "grad_clip": recipe.grad_clip,
@@ -3102,6 +3684,7 @@ class ReIDTrainer(BaseTrainer):
             "drop_global_aux_ratio": self.drop_global_aux_ratio,
             "branch_aware_metric": self.branch_aware_metric,
             "branch_metric_part_weight": self.branch_metric_part_weight,
+            "scale_balanced_branches": self.scale_balanced_branches,
             "evidence_alignment_loss_weight": self.evidence_alignment_loss_weight,
             "evidence_alignment_margin": self.evidence_alignment_margin,
             "evidence_sinkhorn_iters": self.evidence_sinkhorn_iters,
@@ -3119,6 +3702,9 @@ class ReIDTrainer(BaseTrainer):
             "aux_ce_drop_epoch": self.aux_ce_drop_epoch,
             "seed": self.seed,
             "deterministic": self.deterministic,
+            "resume_contract": resume_contract,
+            "resume_fingerprint": contract_fingerprint(resume_contract),
+            "run_fingerprint": run_fingerprint(resume_contract, self.epochs),
         }
         metadata["model"] = {
             "family": recipe.family,
@@ -3127,6 +3713,8 @@ class ReIDTrainer(BaseTrainer):
             "is_vit": recipe.family == "transformer",
             "is_transformer": recipe.family == "transformer",
             "feature_fusion": self.feature_fusion,
+            "pyramid_resize_mode": self.pyramid_resize_mode,
+            "spatial_conv_mode": self.spatial_conv_mode,
             "timm_model_name": getattr(model, "timm_model_name", None),
         }
         if recipe.family == "transformer":
@@ -3135,9 +3723,21 @@ class ReIDTrainer(BaseTrainer):
                 "attention": {
                     "window_layout": self.attention_window_layout,
                     "bias": self.attention_bias,
+                    "interpolate_pretrained_bias": self.interpolate_pretrained_attention_bias,
                     "mask": self.attention_mask,
                     "shift": self.attention_shift,
                     "stage3_global": self.stage3_global,
+                },
+                "speed": {
+                    "stage3_downsample": self.stage3_downsample,
+                    "stage2_width_merge_after": self.stage2_width_merge_after,
+                    "stage3_mlp_ratio": self.stage3_mlp_ratio,
+                    "stage3_depth": self.stage3_depth,
+                    "native_branch_widths": self.native_branch_widths,
+                },
+                "deployment": {
+                    "compact_head": self.compact_deployment_head,
+                    "descriptor_dim": self.feat_dim if self.compact_deployment_head else None,
                 },
                 "reid_adapters": {
                     "stages": list(self.reid_adapter_stages),
@@ -3169,7 +3769,7 @@ class ReIDTrainer(BaseTrainer):
         optimizer=None, optimizer_center=None,
         criterion_center: Optional[CenterLoss] = None,
         criterion_classifier: Optional[nn.Module] = None,
-        ema_model=None, best_mAP: float = 0.0,
+        ema_model=None, scheduler=None, best_mAP: float = 0.0,
     ):
         self.checkpoint_manager.save(
             path,
@@ -3181,6 +3781,8 @@ class ReIDTrainer(BaseTrainer):
             criterion_center=criterion_center,
             criterion_classifier=criterion_classifier,
             ema_model=ema_model,
+            scheduler=scheduler,
+            grad_scaler=getattr(self, "_scaler", None),
             best_mAP=best_mAP,
             resumable=optimizer is not None,
         )
@@ -3191,6 +3793,7 @@ class ReIDTrainer(BaseTrainer):
         val_history: List[ValMetrics],
         best_epoch: int, best_mAP: float, best_rank1: float,
         average_epoch_time_s: float = 0.0,
+        average_forward_time_s: float = 0.0,
         average_eval_time_s: float = 0.0,
         total_end_to_end_time_s: float = 0.0,
     ):
@@ -3214,6 +3817,7 @@ class ReIDTrainer(BaseTrainer):
             "best_mAP": round(best_mAP, 4),
             "best_rank1": round(best_rank1, 4),
             "average_epoch_time_s": round(average_epoch_time_s, 4),
+            "average_forward_time_s": round(average_forward_time_s, 4),
             "average_eval_time_s": round(average_eval_time_s, 4),
             "total_end_to_end_time_s": round(total_end_to_end_time_s, 4),
             "train": [
@@ -3231,7 +3835,7 @@ class ReIDTrainer(BaseTrainer):
             "val": list(val_by_epoch.values()),
         }
         path = save_dir / "metrics.json"
-        path.write_text(json.dumps(data, indent=2))
+        self._write_json_atomic(path, data)
         LOGGER.info(f"Saved training metrics to {path}")
 
     def _save_training_plots(

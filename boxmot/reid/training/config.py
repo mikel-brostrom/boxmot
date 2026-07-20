@@ -18,6 +18,7 @@ TRAIN_HPARAM_SECTIONS = frozenset(
         "evaluation",
         "system",
         "derived",
+        "resume",
     }
 )
 
@@ -48,6 +49,9 @@ TRAIN_HPARAM_TO_ARG = {
     "center_loss_weight": "center_loss_weight",
     "id_loss_weight": "id_loss_weight",
     "metric_loss_weight": "metric_loss_weight",
+    "compact_metric_loss_weight": "compact_metric_loss_weight",
+    "compact_cosine_distill_weight": "compact_cosine_distill_weight",
+    "compact_pairwise_distill_weight": "compact_pairwise_distill_weight",
     "early_id_loss_weight": "early_id_loss_weight",
     "early_id_loss_epochs": "early_id_loss_epochs",
     "center_loss_ramp_start_epoch": "center_loss_ramp_start_epoch",
@@ -55,9 +59,12 @@ TRAIN_HPARAM_TO_ARG = {
     "aux_ce_weight": "aux_ce_weight",
     "aux_ce_drop_epoch": "aux_ce_drop_epoch",
     "branch_loss_agg": "branch_loss_agg",
+    "scale_balanced_branches": "scale_balanced_branches",
     "metric_feature": "metric_feature",
     "inference_feature": "inference_feature",
     "feature_fusion": "feature_fusion",
+    "pyramid_resize_mode": "pyramid_resize_mode",
+    "spatial_conv_mode": "spatial_conv_mode",
     "post_fusion_mixer": "post_fusion_mixer",
     "post_fusion_mixer_reduction": "post_fusion_mixer_reduction",
     "post_fusion_mixer_kernel": "post_fusion_mixer_kernel",
@@ -67,9 +74,16 @@ TRAIN_HPARAM_TO_ARG = {
     "drop_path_rate": "drop_path_rate",
     "attention_window_layout": "attention_window_layout",
     "attention_bias": "attention_bias",
+    "interpolate_pretrained_attention_bias": "interpolate_pretrained_attention_bias",
     "attention_mask": "attention_mask",
     "attention_shift": "attention_shift",
     "stage3_global": "stage3_global",
+    "stage3_downsample": "stage3_downsample",
+    "stage2_width_merge_after": "stage2_width_merge_after",
+    "stage3_mlp_ratio": "stage3_mlp_ratio",
+    "stage3_depth": "stage3_depth",
+    "native_branch_widths": "native_branch_widths",
+    "compact_deployment_head": "compact_deployment_head",
     "reid_adapter_stages": "reid_adapter_stages",
     "reid_adapter_reduction": "reid_adapter_reduction",
     "head_pool": "head_pool",
@@ -153,6 +167,8 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "num_workers": ("data", "num_workers"),
         "is_vit": ("model", "is_vit"),
         "feature_fusion": ("model", "feature_fusion"),
+        "pyramid_resize_mode": ("model", "pyramid_resize_mode"),
+        "spatial_conv_mode": ("model", "spatial_conv_mode"),
         "post_fusion_mixer": ("model", "post_fusion_mixer", "mode"),
         "post_fusion_mixer_reduction": ("model", "post_fusion_mixer", "reduction"),
         "post_fusion_mixer_kernel": ("model", "post_fusion_mixer", "kernel"),
@@ -161,9 +177,16 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "neck_dim": ("model", "neck_dim"),
         "attention_window_layout": ("model", "attention", "window_layout"),
         "attention_bias": ("model", "attention", "bias"),
+        "interpolate_pretrained_attention_bias": ("model", "attention", "interpolate_pretrained_bias"),
         "attention_mask": ("model", "attention", "mask"),
         "attention_shift": ("model", "attention", "shift"),
         "stage3_global": ("model", "attention", "stage3_global"),
+        "stage3_downsample": ("model", "speed", "stage3_downsample"),
+        "stage2_width_merge_after": ("model", "speed", "stage2_width_merge_after"),
+        "stage3_mlp_ratio": ("model", "speed", "stage3_mlp_ratio"),
+        "stage3_depth": ("model", "speed", "stage3_depth"),
+        "native_branch_widths": ("model", "speed", "native_branch_widths"),
+        "compact_deployment_head": ("model", "deployment", "compact_head"),
         "reid_adapter_stages": ("model", "reid_adapters", "stages"),
         "reid_adapter_reduction": ("model", "reid_adapters", "reduction"),
         "head_pool": ("model", "head", "pool"),
@@ -184,6 +207,7 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "branch_aware_metric": ("model", "branch", "aware_metric"),
         "branch_metric_part_weight": ("model", "branch", "metric_part_weight"),
         "branch_loss_agg": ("model", "branch", "loss_agg"),
+        "scale_balanced_branches": ("model", "branch", "scale_balanced"),
         "evidence_alignment_loss_weight": ("model", "evidence", "alignment_loss_weight"),
         "evidence_alignment_margin": ("model", "evidence", "alignment_margin"),
         "evidence_sinkhorn_iters": ("model", "evidence", "sinkhorn_iters"),
@@ -217,6 +241,9 @@ def flatten_train_hparams(hparams: dict[str, Any]) -> dict[str, Any]:
         "soft_margin_triplet": ("losses", "triplet", "soft_margin"),
         "id_loss_weight": ("losses", "weights", "id_loss_weight"),
         "metric_loss_weight": ("losses", "weights", "metric_loss_weight"),
+        "compact_metric_loss_weight": ("losses", "distillation", "metric_weight"),
+        "compact_cosine_distill_weight": ("losses", "distillation", "cosine_weight"),
+        "compact_pairwise_distill_weight": ("losses", "distillation", "pairwise_weight"),
         "center_loss_weight": ("losses", "weights", "center_loss_weight"),
         "early_id_loss_weight": ("losses", "schedules", "early_id_loss", "weight"),
         "early_id_loss_epochs": ("losses", "schedules", "early_id_loss", "epochs"),
@@ -329,6 +356,13 @@ def trainer_kwargs_from_args(
         "center_loss_weight": value("center_loss_weight", "center_loss_weight", 5e-4),
         "id_loss_weight": value("id_loss_weight", "id_loss_weight", 1.0),
         "metric_loss_weight": value("metric_loss_weight", "metric_loss_weight", 1.0),
+        "compact_metric_loss_weight": value("compact_metric_loss_weight", "compact_metric_loss_weight", 1.0),
+        "compact_cosine_distill_weight": value(
+            "compact_cosine_distill_weight", "compact_cosine_distill_weight", 1.0
+        ),
+        "compact_pairwise_distill_weight": value(
+            "compact_pairwise_distill_weight", "compact_pairwise_distill_weight", 1.0
+        ),
         "early_id_loss_weight": value("early_id_loss_weight", "early_id_loss_weight", 0.0),
         "early_id_loss_epochs": value("early_id_loss_epochs", "early_id_loss_epochs", 0),
         "center_loss_ramp_start_epoch": value(
@@ -344,9 +378,12 @@ def trainer_kwargs_from_args(
         "aux_ce_weight": value("aux_ce_weight", "aux_ce_weight", 1.0),
         "aux_ce_drop_epoch": value("aux_ce_drop_epoch", "aux_ce_drop_epoch", 0),
         "branch_loss_agg": value("branch_loss_agg", "branch_loss_agg", "mean"),
+        "scale_balanced_branches": value("scale_balanced_branches", "scale_balanced_branches", False),
         "metric_feature": value("metric_feature", "metric_feature", "auto"),
         "inference_feature": value("inference_feature", "inference_feature", "concat_bn"),
         "feature_fusion": value("feature_fusion", "feature_fusion", "last3"),
+        "pyramid_resize_mode": value("pyramid_resize_mode", "pyramid_resize_mode", "bilinear"),
+        "spatial_conv_mode": value("spatial_conv_mode", "spatial_conv_mode", "standard"),
         "post_fusion_mixer": value("post_fusion_mixer", "post_fusion_mixer", "none"),
         "post_fusion_mixer_reduction": value(
             "post_fusion_mixer_reduction",
@@ -368,9 +405,20 @@ def trainer_kwargs_from_args(
         "drop_path_rate": value("drop_path_rate", "drop_path_rate", 0.1),
         "attention_window_layout": value("attention_window_layout", "attention_window_layout", "legacy"),
         "attention_bias": value("attention_bias", "attention_bias", "absolute"),
+        "interpolate_pretrained_attention_bias": value(
+            "interpolate_pretrained_attention_bias",
+            "interpolate_pretrained_attention_bias",
+            False,
+        ),
         "attention_mask": value("attention_mask", "attention_mask", False),
         "attention_shift": value("attention_shift", "attention_shift", False),
         "stage3_global": value("stage3_global", "stage3_global", False),
+        "stage3_downsample": value("stage3_downsample", "stage3_downsample", False),
+        "stage2_width_merge_after": value("stage2_width_merge_after", "stage2_width_merge_after", 0),
+        "stage3_mlp_ratio": value("stage3_mlp_ratio", "stage3_mlp_ratio", 4.0),
+        "stage3_depth": value("stage3_depth", "stage3_depth", 2),
+        "native_branch_widths": value("native_branch_widths", "native_branch_widths", False),
+        "compact_deployment_head": value("compact_deployment_head", "compact_deployment_head", False),
         "reid_adapter_stages": value("reid_adapter_stages", "reid_adapter_stages", ()),
         "reid_adapter_reduction": value("reid_adapter_reduction", "reid_adapter_reduction", 4),
         "head_pool": value("head_pool", "head_pool", "avg"),
@@ -491,6 +539,8 @@ class ModelConfig:
     metric_feature: str = "auto"
     inference_feature: str = "concat_bn"
     feature_fusion: str = "last3"
+    pyramid_resize_mode: str = "bilinear"
+    spatial_conv_mode: str = "standard"
     post_fusion_mixer: str = "none"
     post_fusion_mixer_reduction: int = 4
     post_fusion_mixer_kernel: tuple[int, int] | list[int] = (5, 3)
@@ -500,13 +550,21 @@ class ModelConfig:
     drop_path_rate: float = 0.1
     attention_window_layout: str = "legacy"
     attention_bias: str = "absolute"
+    interpolate_pretrained_attention_bias: bool = False
     attention_mask: bool = False
     attention_shift: bool = False
     stage3_global: bool = False
+    stage3_downsample: bool = False
+    stage2_width_merge_after: int = 0
+    stage3_mlp_ratio: float = 4.0
+    stage3_depth: int = 2
+    native_branch_widths: bool = False
+    compact_deployment_head: bool = False
     reid_adapter_stages: tuple[int, ...] | list[int] = ()
     reid_adapter_reduction: int = 4
     branch_aware_metric: bool = False
     branch_metric_part_weight: float = 0.5
+    scale_balanced_branches: bool = False
     evidence_num_roles: int = 8
     head_pool: str = "avg"
     head_parts: tuple[int, ...] | list[int] = (1, 2)
@@ -538,6 +596,9 @@ class LossConfig:
     center_loss_weight: float = 5e-4
     id_loss_weight: float = 1.0
     metric_loss_weight: float = 1.0
+    compact_metric_loss_weight: float = 1.0
+    compact_cosine_distill_weight: float = 1.0
+    compact_pairwise_distill_weight: float = 1.0
     early_id_loss_weight: float = 0.0
     early_id_loss_epochs: int = 0
     center_loss_ramp_start_epoch: int = 0
@@ -642,6 +703,8 @@ class ReIDTrainConfig:
                 metric_feature=values.get("metric_feature", "auto"),
                 inference_feature=values.get("inference_feature", "concat_bn"),
                 feature_fusion=values.get("feature_fusion", "last3"),
+                pyramid_resize_mode=values.get("pyramid_resize_mode", "bilinear"),
+                spatial_conv_mode=values.get("spatial_conv_mode", "standard"),
                 post_fusion_mixer=values.get("post_fusion_mixer", "none"),
                 post_fusion_mixer_reduction=values.get("post_fusion_mixer_reduction", 4),
                 post_fusion_mixer_kernel=values.get("post_fusion_mixer_kernel", (5, 3)),
@@ -651,13 +714,24 @@ class ReIDTrainConfig:
                 drop_path_rate=values.get("drop_path_rate", 0.1),
                 attention_window_layout=values.get("attention_window_layout", "legacy"),
                 attention_bias=values.get("attention_bias", "absolute"),
+                interpolate_pretrained_attention_bias=values.get(
+                    "interpolate_pretrained_attention_bias",
+                    False,
+                ),
                 attention_mask=values.get("attention_mask", False),
                 attention_shift=values.get("attention_shift", False),
                 stage3_global=values.get("stage3_global", False),
+                stage3_downsample=values.get("stage3_downsample", False),
+                stage2_width_merge_after=values.get("stage2_width_merge_after", 0),
+                stage3_mlp_ratio=values.get("stage3_mlp_ratio", 4.0),
+                stage3_depth=values.get("stage3_depth", 2),
+                native_branch_widths=values.get("native_branch_widths", False),
+                compact_deployment_head=values.get("compact_deployment_head", False),
                 reid_adapter_stages=values.get("reid_adapter_stages", ()),
                 reid_adapter_reduction=values.get("reid_adapter_reduction", 4),
                 branch_aware_metric=values.get("branch_aware_metric", False),
                 branch_metric_part_weight=values.get("branch_metric_part_weight", 0.5),
+                scale_balanced_branches=values.get("scale_balanced_branches", False),
                 evidence_num_roles=values.get("evidence_num_roles", 8),
                 head_pool=values.get("head_pool", "avg"),
                 head_parts=values.get("head_parts", (1, 2)),
@@ -685,6 +759,9 @@ class ReIDTrainConfig:
                 center_loss_weight=values.get("center_loss_weight", 5e-4),
                 id_loss_weight=values.get("id_loss_weight", 1.0),
                 metric_loss_weight=values.get("metric_loss_weight", 1.0),
+                compact_metric_loss_weight=values.get("compact_metric_loss_weight", 1.0),
+                compact_cosine_distill_weight=values.get("compact_cosine_distill_weight", 1.0),
+                compact_pairwise_distill_weight=values.get("compact_pairwise_distill_weight", 1.0),
                 early_id_loss_weight=values.get("early_id_loss_weight", 0.0),
                 early_id_loss_epochs=values.get("early_id_loss_epochs", 0),
                 center_loss_ramp_start_epoch=values.get("center_loss_ramp_start_epoch", 0),

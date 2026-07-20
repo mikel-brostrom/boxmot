@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import boxmot.reid.backbones.families.csl_tinyvit.pretrained as csl_tinyvit_pretrained
 import boxmot.reid.backbones.lmbn_ain_n as lmbn_ain_n_module
 import boxmot.reid.backbones.lmbn_n as lmbn_n_module
 from boxmot.engine.reid import trainer as workflow_trainer
@@ -19,6 +20,7 @@ from boxmot.reid.backbones.families.csl_tinyvit import (
     GPCLiteMultiBranchHead,
     LMBNStyleMultiBranchHead,
     MultiBranchHead,
+    NormPreservingWidthMerge,
     PostFusionLocalMixer,
     ReIDResidualAdapter,
     TinyViTBlock,
@@ -39,7 +41,15 @@ from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.datasets import build_combined_dataset, build_dataset
 from boxmot.reid.training.base import BaseTrainer
 from boxmot.reid.training.config import ReIDTrainConfig
-from boxmot.reid.training.losses import ArcFaceLoss, CenterLoss, CircleLoss, CosFaceLoss, TripletLoss
+from boxmot.reid.training.losses import (
+    METRIC_LOSS_REGISTRY,
+    ArcFaceLoss,
+    CenterLoss,
+    CircleLoss,
+    CosFaceLoss,
+    TripletLoss,
+    WeightedRegularizedTripletLoss,
+)
 from boxmot.reid.training.trainer import (
     DatasetBundle,
     LoaderBundle,
@@ -809,6 +819,11 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
                 },
                 "model": {
                     "feature_fusion": "last2",
+                    "attention": {
+                        "window_layout": "rect",
+                        "bias": "absolute",
+                        "interpolate_pretrained_bias": True,
+                    },
                     "reid_adapters": {"stages": [3], "reduction": 4},
                     "head": {
                         "pool": "gem",
@@ -875,6 +890,8 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
     assert captured["seed"] == 73
     assert captured["deterministic"] is False
     assert captured["feature_fusion"] == "last2"
+    assert captured["attention_window_layout"] == "rect"
+    assert captured["interpolate_pretrained_attention_bias"] is True
     assert captured["head_pool"] == "gem"
     assert captured["head_parts"] == [1, 2, 4]
     assert captured["part_pooling"] == "tokens"
@@ -927,9 +944,9 @@ def test_reid_checkpoint_saves_center_loss_state(tmp_path):
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
 
     assert "center_loss_state_dict" in ckpt
-    assert ckpt["checkpoint_precision"] == "float16"
-    assert ckpt["center_loss_state_dict"]["centers"].dtype == torch.float16
-    torch.testing.assert_close(ckpt["center_loss_state_dict"]["centers"], expected_centers.half())
+    assert ckpt["checkpoint_precision"] == "native"
+    assert ckpt["center_loss_state_dict"]["centers"].dtype == torch.float32
+    torch.testing.assert_close(ckpt["center_loss_state_dict"]["centers"], expected_centers)
     assert ckpt["seed"] == trainer.seed
     assert ckpt["deterministic"] is trainer.deterministic
     assert {"python", "numpy", "torch"} <= set(ckpt["rng_state"])
@@ -943,6 +960,8 @@ def test_last_checkpoint_keeps_live_and_ema_weights_separate(tmp_path):
         live_model.weight.fill_(1.0)
         ema_model.weight.fill_(2.0)
     optimizer = torch.optim.AdamW(live_model.parameters(), lr=0.1)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=10)
+    grad_scaler = torch.amp.GradScaler("cuda", enabled=False)
     loss = live_model(torch.ones(2, 2)).sum()
     loss.backward()
     optimizer.step()
@@ -961,14 +980,18 @@ def test_last_checkpoint_keeps_live_and_ema_weights_separate(tmp_path):
         criterion_classifier=nn.Identity(),
         ema_model=ema_model,
         best_mAP=0.7,
+        scheduler=scheduler,
+        grad_scaler=grad_scaler,
+        best_epoch=3,
+        best_rank1=0.8,
     )
 
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
-    assert checkpoint["checkpoint_precision"] == "float16"
-    torch.testing.assert_close(checkpoint["state_dict"]["weight"], live_model.weight.half())
-    torch.testing.assert_close(checkpoint["ema_state_dict"]["weight"], ema_model.weight.half())
-    assert checkpoint["state_dict"]["weight"].dtype == torch.float16
-    assert checkpoint["ema_state_dict"]["weight"].dtype == torch.float16
+    assert checkpoint["checkpoint_precision"] == "native"
+    torch.testing.assert_close(checkpoint["state_dict"]["weight"], live_model.weight)
+    torch.testing.assert_close(checkpoint["ema_state_dict"]["weight"], ema_model.weight)
+    assert checkpoint["state_dict"]["weight"].dtype == torch.float32
+    assert checkpoint["ema_state_dict"]["weight"].dtype == torch.float32
     optimizer_tensors = [
         tensor
         for state in checkpoint["optimizer"]["state"].values()
@@ -976,10 +999,65 @@ def test_last_checkpoint_keeps_live_and_ema_weights_separate(tmp_path):
         if torch.is_tensor(tensor) and torch.is_floating_point(tensor)
     ]
     assert optimizer_tensors
-    assert {tensor.dtype for tensor in optimizer_tensors} == {torch.float16}
+    assert {tensor.dtype for tensor in optimizer_tensors} == {torch.float32}
     assert checkpoint["checkpoint_type"] == "last"
     assert checkpoint["resumable"] is True
     assert checkpoint["best_mAP"] == 0.7
+    assert checkpoint["best_epoch"] == 3
+    assert checkpoint["best_rank1"] == 0.8
+    assert checkpoint["scheduler"] == scheduler.state_dict()
+    assert checkpoint["grad_scaler"] == grad_scaler.state_dict()
+
+
+def test_native_last_checkpoint_replays_next_adamw_step_exactly(tmp_path):
+    trainer = _trainer(tmp_path)
+    torch.manual_seed(37)
+    live_model = nn.Linear(3, 2)
+    live_optimizer = torch.optim.AdamW(live_model.parameters(), lr=3e-4)
+    first_inputs = torch.randn(5, 3)
+    first_targets = torch.randn(5, 2)
+    second_inputs = torch.randn(5, 3)
+    second_targets = torch.randn(5, 2)
+
+    first_loss = nn.functional.mse_loss(live_model(first_inputs), first_targets)
+    first_loss.backward()
+    live_optimizer.step()
+    live_optimizer.zero_grad(set_to_none=True)
+
+    path = tmp_path / "last.pt"
+    trainer.checkpoint_manager.save_last(
+        path,
+        model=live_model,
+        epoch=1,
+        val=None,
+        optimizer=live_optimizer,
+        optimizer_center=None,
+        criterion_center=None,
+        criterion_classifier=None,
+        ema_model=None,
+        best_mAP=0.0,
+    )
+    checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+
+    resumed_model = nn.Linear(3, 2)
+    resumed_optimizer = torch.optim.AdamW(resumed_model.parameters(), lr=3e-4)
+    resumed_model.load_state_dict(checkpoint["state_dict"])
+    resumed_optimizer.load_state_dict(checkpoint["optimizer"])
+
+    for model, optimizer in (
+        (live_model, live_optimizer),
+        (resumed_model, resumed_optimizer),
+    ):
+        loss = nn.functional.mse_loss(model(second_inputs), second_targets)
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+
+    for live_parameter, resumed_parameter in zip(
+        live_model.parameters(),
+        resumed_model.parameters(),
+    ):
+        assert torch.equal(live_parameter, resumed_parameter)
 
 
 def test_last_checkpoint_keeps_train_only_classifier_weights_for_resume(tmp_path):
@@ -1002,8 +1080,8 @@ def test_last_checkpoint_keeps_train_only_classifier_weights_for_resume(tmp_path
 
     checkpoint = torch.load(path, map_location="cpu", weights_only=False)
 
-    assert checkpoint["state_dict"]["backbone.weight"].dtype == torch.float16
-    assert checkpoint["state_dict"]["classifier.weight"].dtype == torch.float16
+    assert checkpoint["state_dict"]["backbone.weight"].dtype == torch.float32
+    assert checkpoint["state_dict"]["classifier.weight"].dtype == torch.float32
 
 
 def test_best_checkpoint_records_metric_and_is_weights_only(tmp_path):
@@ -1040,7 +1118,7 @@ def test_best_checkpoint_records_metric_and_is_weights_only(tmp_path):
     assert "rng_state" not in checkpoint
 
 
-def test_weights_only_resume_syncs_ema_and_falls_back_to_map(tmp_path):
+def test_weights_only_checkpoint_is_rejected_for_resume(tmp_path):
     checkpoint_path = tmp_path / "best.pt"
     source_model = _ClassifierToyModel()
     with torch.no_grad():
@@ -1068,8 +1146,6 @@ def test_weights_only_resume_syncs_ema_and_falls_back_to_map(tmp_path):
     )
     live_model = _ClassifierToyModel()
     ema_model = _ClassifierToyModel()
-    live_classifier_before = live_model.classifier.weight.detach().clone()
-    ema_classifier_before = ema_model.classifier.weight.detach().clone()
     model_bundle = ModelBundle(
         model=live_model,
         ema_model=ema_model,
@@ -1094,17 +1170,8 @@ def test_weights_only_resume_syncs_ema_and_falls_back_to_map(tmp_path):
         grad_clip=0.0,
     )
 
-    state = trainer._restore_if_needed(model_bundle, loaders, losses, optimization)
-
-    torch.testing.assert_close(live_model.backbone.weight, source_model.backbone.weight)
-    torch.testing.assert_close(ema_model.backbone.weight, source_model.backbone.weight)
-    torch.testing.assert_close(live_model.classifier.weight, live_classifier_before)
-    torch.testing.assert_close(ema_model.classifier.weight, ema_classifier_before)
-    assert live_model.backbone.weight.dtype == torch.float32
-    assert ema_model.backbone.weight.dtype == torch.float32
-    assert state.start_epoch == 5
-    assert state.best_mAP == 0.77
-    assert state.best_rank1 == 0.88
+    with pytest.raises(ValueError, match="does not contain a resumable training state"):
+        trainer._restore_if_needed(model_bundle, loaders, losses, optimization)
 
 
 def test_checkpoint_fp16_compaction_clamps_non_finite_weights(tmp_path):
@@ -1553,6 +1620,10 @@ def test_registry_reads_pattern_head_checkpoint_kwargs(tmp_path):
             "stripe_visibility": True,
             "drop_global_aux": True,
             "drop_global_aux_ratio": 0.25,
+            "scale_balanced_branches": True,
+            "pyramid_resize_mode": "pool_nearest",
+            "spatial_conv_mode": "depthwise_separable",
+            "interpolate_pretrained_attention_bias": True,
             "post_fusion_mixer": "dwconv",
             "post_fusion_mixer_reduction": 4,
             "post_fusion_mixer_kernel": [5, 3],
@@ -1573,6 +1644,10 @@ def test_registry_reads_pattern_head_checkpoint_kwargs(tmp_path):
     assert kwargs["stripe_visibility"] is True
     assert kwargs["drop_global_aux"] is True
     assert kwargs["drop_global_aux_ratio"] == 0.25
+    assert kwargs["scale_balanced_branches"] is True
+    assert kwargs["pyramid_resize_mode"] == "pool_nearest"
+    assert kwargs["spatial_conv_mode"] == "depthwise_separable"
+    assert kwargs["interpolate_pretrained_attention_bias"] is True
     assert kwargs["post_fusion_mixer"] == "dwconv"
     assert kwargs["post_fusion_mixer_reduction"] == 4
     assert kwargs["post_fusion_mixer_kernel"] == (5, 3)
@@ -1598,6 +1673,44 @@ def test_circle_loss_accepts_pk_batch():
 
     assert loss.ndim == 0
     assert torch.isfinite(loss)
+
+
+def test_weighted_regularized_triplet_matches_soft_pair_weighting():
+    features = torch.tensor(
+        [[0.0, 0.0], [1.0, 0.0], [3.0, 0.0], [10.0, 0.0], [11.0, 0.0], [13.0, 0.0]],
+        requires_grad=True,
+    )
+    pids = torch.tensor([0, 0, 0, 1, 1, 1])
+
+    loss = WeightedRegularizedTripletLoss()(features, pids)
+
+    distances = torch.cdist(features, features)
+    expected_losses = []
+    for anchor in range(features.shape[0]):
+        positive_mask = pids.eq(pids[anchor])
+        positive_mask[anchor] = False
+        positive_distances = distances[anchor][positive_mask]
+        negative_distances = distances[anchor][~pids.eq(pids[anchor])]
+        weighted_positive = (F.softmax(positive_distances, dim=0) * positive_distances).sum()
+        weighted_negative = (F.softmax(-negative_distances, dim=0) * negative_distances).sum()
+        expected_losses.append(F.softplus(weighted_positive - weighted_negative))
+    expected = torch.stack(expected_losses).mean()
+
+    torch.testing.assert_close(loss, expected)
+    loss.backward()
+    assert torch.isfinite(features.grad).all()
+    assert METRIC_LOSS_REGISTRY["wrt"] is WeightedRegularizedTripletLoss
+
+
+def test_weighted_regularized_triplet_ignores_anchors_without_positive_pairs():
+    features = torch.randn(3, 8, requires_grad=True)
+    pids = torch.tensor([0, 1, 1])
+
+    loss = WeightedRegularizedTripletLoss()(features, pids)
+
+    assert torch.isfinite(loss)
+    loss.backward()
+    assert torch.isfinite(features.grad).all()
 
 
 def test_margin_classifier_losses_accept_embeddings():
@@ -1738,6 +1851,44 @@ def test_csl_tinyvit_rectangular_shifted_attention_config():
     assert model.layers[3].blocks[-1].window_size == (24, 8)
     assert model.layers[1].blocks[0].attn.bias_mode == "signed_factorized"
     assert model.layers[1].blocks[0].attention_mask is True
+
+
+def test_csl_tinyvit_interpolates_pretrained_absolute_attention_biases(monkeypatch):
+    source = csl_tinyvit_7m(num_classes=4, pretrained=False)
+    source_biases = {
+        key: torch.arange(value.numel(), dtype=value.dtype).reshape_as(value)
+        for key, value in source.state_dict().items()
+        if key.endswith("attention_biases")
+    }
+    target = csl_tinyvit_7m(
+        num_classes=4,
+        pretrained=False,
+        attention_window_layout="rect",
+        interpolate_pretrained_attention_bias=True,
+    )
+    monkeypatch.setattr(
+        csl_tinyvit_pretrained,
+        "load_hub_checkpoint",
+        lambda *args, **kwargs: source_biases,
+    )
+
+    csl_tinyvit_pretrained.load_pretrained_tinyvit(target, "test://tinyvit")
+
+    assert len(source_biases) == 10
+    assert target.pretrained_match_count == 10
+    assert set(target.pretrained_interpolated_attention_biases) == set(source_biases)
+    target_state = target.state_dict()
+    target_resolutions = {
+        f"{name}.attention_biases": module.resolution
+        for name, module in target.named_modules()
+        if isinstance(module, Attention) and module.bias_mode == "absolute"
+    }
+    for key, source_bias in source_biases.items():
+        expected = csl_tinyvit_pretrained._resize_absolute_attention_bias(
+            source_bias,
+            target_resolutions[key],
+        )
+        torch.testing.assert_close(target_state[key], expected)
 
 
 def test_reid_residual_adapter_is_identity_at_initialization():
@@ -2039,6 +2190,86 @@ def test_csl_tinyvit_last3_fpn_stage1_split_routes_p2_global_and_p1_parts():
     assert local_feature.shape == (2, 4, 6, 4)
 
 
+def test_csl_tinyvit_pool_nearest_uses_pooling_down_and_nearest_up():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_fpn_stage1_split",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+        resize_mode="pool_nearest",
+    )
+    high_resolution = torch.arange(48, dtype=torch.float32).reshape(1, 2, 6, 4)
+    low_resolution = high_resolution[:, :, :3, :2]
+
+    downsampled = module._resize_feature(high_resolution, (3, 2))
+    upsampled = module._resize_feature(low_resolution, (6, 4))
+
+    torch.testing.assert_close(downsampled, F.adaptive_avg_pool2d(high_resolution, (3, 2)))
+    torch.testing.assert_close(upsampled, F.interpolate(low_resolution, size=(6, 4), mode="nearest"))
+
+
+def test_csl_tinyvit_depthwise_separable_neck_and_fpn_preserve_branch_shapes():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "last3_fpn_stage1_split",
+        path_channels={1: 4, 2: 4},
+        out_channels=4,
+        spatial_conv_mode="depthwise_separable",
+    )
+    final_feature = torch.randn(2, 4, 3, 2)
+    path_features = {1: torch.randn(2, 4, 6, 4), 2: torch.randn(2, 4, 3, 2)}
+
+    global_feature, local_feature = module(final_feature, path_features)
+
+    assert isinstance(module.fpn_output[0], nn.Sequential)
+    assert module.fpn_output[0][0].groups == 4
+    assert module.fpn_output[0][1].kernel_size == (1, 1)
+    assert global_feature.shape == (2, 4, 3, 2)
+    assert local_feature.shape == (2, 4, 6, 4)
+
+
+def test_trainer_builds_efficient_csl_tinyvit_fpn(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        feature_fusion="last3_fpn_stage1_split",
+        pyramid_resize_mode="pool_nearest",
+        spatial_conv_mode="depthwise_separable",
+        neck_dim=32,
+        feat_dim=16,
+    )
+
+    model = trainer._build_model(num_classes=4)
+
+    assert model.pyramid_resize_mode == "pool_nearest"
+    assert model.spatial_conv_mode == "depthwise_separable"
+    assert isinstance(model.neck[2], nn.Sequential)
+    assert model.neck[2][0].groups == 32
+    assert model.feature_fusion_module.resize_mode == "pool_nearest"
+    assert model.feature_fusion_module.spatial_conv_mode == "depthwise_separable"
+    metadata = trainer._checkpoint_metadata(model)
+    assert metadata["pyramid_resize_mode"] == "pool_nearest"
+    assert metadata["spatial_conv_mode"] == "depthwise_separable"
+    assert metadata["model"]["pyramid_resize_mode"] == "pool_nearest"
+    assert metadata["model"]["spatial_conv_mode"] == "depthwise_separable"
+
+
+def test_trainer_records_pretrained_attention_bias_interpolation(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        attention_window_layout="rect",
+        interpolate_pretrained_attention_bias=True,
+        neck_dim=32,
+        feat_dim=16,
+    )
+
+    model = trainer._build_model(num_classes=4)
+    metadata = trainer._checkpoint_metadata(model)
+
+    assert model.interpolate_pretrained_attention_bias is True
+    assert metadata["interpolate_pretrained_attention_bias"] is True
+    assert metadata["model"]["transformer"]["attention"]["interpolate_pretrained_bias"] is True
+
+
 def test_csl_tinyvit_last3_panet_stage1_split_returns_low_res_global_and_high_res_parts():
     module = CSLTinyViTFeatureFusion.from_mode("last3_panet_stage1_split", path_channels={1: 4, 2: 4}, out_channels=4)
     final_feature = torch.randn(2, 4, 3, 2)
@@ -2088,6 +2319,7 @@ def test_csl_tinyvit_best_global_layer0_fpn_parts_uses_high_resolution_local_map
         0: torch.randn(2, 5, 12, 4), 1: torch.randn(2, 6, 6, 2), 2: torch.randn(2, 8, 3, 1)
     }
     global_feature, local_feature = module(final_feature, path_features)
+    assert set(module.residual_scales) == {"1", "2"}
     assert global_feature.shape == (2, 4, 3, 1)
     assert local_feature.shape == (2, 4, 12, 4)
 
@@ -2105,7 +2337,7 @@ def test_csl_tinyvit_panet_scale_aware_gates_semantic_and_detailed_stripes():
     assert local_map.shape == (2, 4, 6, 4)
 
 
-def test_csl_tinyvit_branch_aware_bifpn_has_independent_node_weights():
+def test_csl_tinyvit_branch_aware_bifpn_uses_bidirectional_and_branch_nodes():
     module = CSLTinyViTFeatureFusion.from_mode(
         "last3_bifpn_stage1_branch_aware", path_channels={1: 4, 2: 4}, out_channels=4
     )
@@ -2117,6 +2349,670 @@ def test_csl_tinyvit_branch_aware_bifpn_has_independent_node_weights():
     assert module.bifpn_branch_weights["global"] is not module.bifpn_branch_weights["local"]
     assert global_map.shape == (2, 4, 3, 2)
     assert local_map.shape == (2, 4, 6, 4)
+
+    (global_map.square().mean() + local_map.square().mean()).backward()
+
+    assert all(parameter.grad is not None for parameter in module.bifpn_weights.values())
+    assert all(parameter.grad is not None for parameter in module.bifpn_blocks.parameters())
+    assert all(parameter.grad is not None for parameter in module.bifpn_branch_weights.values())
+    assert all(parameter.grad is not None for parameter in module.bifpn_branch_blocks.parameters())
+
+
+def test_hierarchical_control_matches_stage2_aggregation_and_head_contract():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage2_hierarchical_control",
+        path_channels={1: 6, 2: 8},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 6, 2)
+    path_features = {
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    global_map, local_map, fine_map = module(final_feature, path_features)
+
+    assert set(module.residual_scales) == {"1", "2"}
+    assert global_map.shape == local_map.shape == (2, 4, 6, 2)
+    assert fine_map.shape == (2, 4, 12, 4)
+    torch.testing.assert_close(fine_map, module._resize_feature(local_map, (12, 4)))
+
+
+def test_stage2_semantic_residual_preserves_baseline_at_zero_gate_and_refines_only_parts():
+    torch.manual_seed(0)
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage2_semantic_residual",
+        path_channels={1: 6, 2: 8},
+        out_channels=4,
+    )
+    control = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage2",
+        path_channels={1: 6, 2: 8},
+        out_channels=4,
+    )
+    control.projections.load_state_dict(module.projections.state_dict())
+    control.residual_scales.load_state_dict(module.residual_scales.state_dict())
+    final_feature = torch.randn(2, 4, 6, 2)
+    path_features = {
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    global_map, local_map = module(final_feature, path_features)
+    control_global, control_local = control(final_feature, path_features)
+
+    assert module.local_semantic_residual is True
+    assert module.local_semantic_adapter[0][0].groups == 4
+    torch.testing.assert_close(module.local_semantic_gate, torch.zeros(4))
+    torch.testing.assert_close(global_map, control_global)
+    torch.testing.assert_close(local_map, control_local)
+
+    with torch.no_grad():
+        module.local_semantic_gate.fill_(1.0)
+    refined_global, refined_local = module(final_feature, path_features)
+
+    torch.testing.assert_close(refined_global, control_global)
+    assert not torch.allclose(refined_local, control_local)
+
+
+def test_hierarchical_fpn_routes_global_coarse_and_fine_maps_without_dead_scale():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_hierarchical_fpn",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=4,
+    )
+    final_feature = torch.randn(2, 4, 6, 2)
+    path_features = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    global_map, coarse_map, fine_map = module(final_feature, path_features)
+
+    assert set(module.residual_scales) == {"1", "2"}
+    assert global_map.shape == (2, 4, 3, 1)
+    assert coarse_map.shape == (2, 4, 6, 2)
+    assert fine_map.shape == (2, 4, 12, 4)
+
+
+def test_stage0_semantic_fine_preserves_baseline_branches_and_zero_gates_fine_detail():
+    torch.manual_seed(0)
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_semantic_fine",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    control = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage2_hierarchical_control",
+        path_channels={1: 6, 2: 8},
+        out_channels=8,
+    )
+    control.projections.load_state_dict({key: value for key, value in module.projections.state_dict().items()})
+    control.residual_scales.load_state_dict(module.residual_scales.state_dict())
+    final_feature = torch.randn(2, 8, 6, 2)
+    path_features = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    global_map, local_map, fine_map = module(final_feature, path_features)
+    control_global, control_local, control_fine = control(
+        final_feature,
+        {index: path_features[index] for index in (1, 2)},
+    )
+
+    assert set(module.projections) == {"1", "2"}
+    assert set(module.residual_scales) == {"1", "2"}
+    torch.testing.assert_close(module.stage0_fine_gate, torch.zeros(8))
+    torch.testing.assert_close(global_map, control_global)
+    torch.testing.assert_close(local_map, control_local)
+    torch.testing.assert_close(fine_map, control_fine)
+    assert global_map.shape == local_map.shape == (2, 8, 6, 2)
+    assert fine_map.shape == (2, 8, 12, 4)
+
+
+def test_stage0_semantic_fine_optimized_execution_matches_reference():
+    torch.manual_seed(0)
+    optimized = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_semantic_fine",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    reference = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_semantic_fine_reference",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    with torch.no_grad():
+        optimized.stage0_fine_gate.fill_(0.2)
+    reference.load_state_dict(optimized.state_dict())
+    final_feature = torch.randn(2, 8, 6, 2)
+    paths = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+    projection_calls = {"optimized": 0, "reference": 0}
+    semantic_input_shapes = {}
+
+    def count_projection(_module, _args, *, execution):
+        projection_calls[execution] += 1
+
+    def record_semantic_shape(_module, args, *, execution):
+        semantic_input_shapes[execution] = args[0].shape[-2:]
+
+    handles = [
+        optimized.projections["2"].register_forward_pre_hook(
+            lambda module, args: count_projection(module, args, execution="optimized")
+        ),
+        reference.projections["2"].register_forward_pre_hook(
+            lambda module, args: count_projection(module, args, execution="reference")
+        ),
+        optimized.stage0_semantic_projection[0].register_forward_pre_hook(
+            lambda module, args: record_semantic_shape(module, args, execution="optimized")
+        ),
+        reference.stage0_semantic_projection[0].register_forward_pre_hook(
+            lambda module, args: record_semantic_shape(module, args, execution="reference")
+        ),
+    ]
+    try:
+        optimized_maps = optimized(final_feature, paths)
+        reference_maps = reference(final_feature, paths)
+    finally:
+        for handle in handles:
+            handle.remove()
+
+    assert projection_calls == {"optimized": 1, "reference": 2}
+    assert semantic_input_shapes == {"optimized": (6, 2), "reference": (12, 4)}
+    for optimized_map, reference_map in zip(optimized_maps, reference_maps, strict=True):
+        torch.testing.assert_close(optimized_map, reference_map, rtol=1e-5, atol=1e-6)
+
+
+def test_csl_tinyvit_stage0_semantic_fine_builds_compact_hierarchical_head():
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        head_parts=(1, 2, 4),
+        neck_dim=32,
+        feat_dim=16,
+        scale_balanced_branches=True,
+    )
+
+    assert model.feature_fusion_module.stage_indices == (1, 2, 0)
+    assert model.feature_fusion_module.stage0_fine_projection[0].out_channels == 8
+    assert model.head.hierarchical_scales is True
+    assert model.head.scale_balanced_branches is True
+
+
+def test_csl_tinyvit_global_only_stage3_downsample_preserves_local_resolution():
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        stage3_downsample=True,
+    ).eval()
+
+    with torch.inference_mode():
+        global_map, local_map, fine_map = model.forward_features(torch.randn(1, 3, 384, 128))
+
+    assert global_map.shape == (1, 512, 12, 4)
+    assert local_map.shape == (1, 512, 24, 8)
+    assert fine_map.shape == (1, 512, 48, 16)
+    assert model.layers[2].downsample.stride == 2
+    assert {block.window_size for block in model.layers[3].blocks} == {(12, 4)}
+
+
+def test_norm_preserving_width_merge_uses_activation_norm_weights():
+    merge = NormPreservingWidthMerge(eps=1e-12)
+    tokens = torch.tensor(
+        [[[[3.0, 0.0], [0.0, 4.0], [1.0, 0.0], [2.0, 0.0]]]],
+    ).reshape(1, 4, 2)
+
+    merged, size = merge(tokens, (1, 4))
+    merged = merged.view(1, 1, 2, 2)
+
+    assert size == (1, 2)
+    torch.testing.assert_close(torch.linalg.vector_norm(merged, dim=-1), torch.tensor([[[4.0, 2.0]]]))
+    expected_direction = torch.tensor([3.0 * 3.0 / 7.0, 4.0 * 4.0 / 7.0])
+    torch.testing.assert_close(
+        F.normalize(merged[0, 0, 0], dim=0),
+        F.normalize(expected_direction, dim=0),
+    )
+    zero, _ = merge(torch.zeros(1, 4, 2), (1, 4))
+    assert torch.isfinite(zero).all()
+    assert torch.count_nonzero(zero) == 0
+
+
+def test_csl_tinyvit_late_width_merge_preserves_fine_and_coarse_taps():
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        stage2_width_merge_after=2,
+        neck_dim=32,
+        feat_dim=16,
+    ).eval()
+
+    with torch.inference_mode():
+        global_map, local_map, fine_map = model.forward_features(torch.randn(1, 3, 384, 128))
+
+    assert global_map.shape == (1, 32, 24, 4)
+    assert local_map.shape == (1, 32, 24, 8)
+    assert fine_map.shape == (1, 32, 48, 16)
+    assert model.layers[2].width_merge_after_blocks == 2
+    assert [block.window_size for block in model.layers[2].blocks] == [
+        (12, 8),
+        (12, 8),
+        (12, 4),
+        (12, 4),
+        (12, 4),
+        (12, 4),
+    ]
+    assert {block.window_size for block in model.layers[3].blocks} == {(12, 4)}
+    assert model.feature_fusion_module.projections["2"][0].in_channels == model.layers[2].dim
+
+
+def test_csl_tinyvit_native_branch_widths_preserve_seven_branch_descriptor():
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        stage3_downsample=True,
+        native_branch_widths=True,
+        neck_dim=32,
+        feat_dim=16,
+    ).eval()
+
+    with torch.inference_mode():
+        maps = model.forward_features(torch.randn(1, 3, 384, 128))
+        descriptor = model.forward_head(maps)
+
+    assert [feature.shape for feature in maps] == [
+        (1, 32, 12, 4),
+        (1, 16, 24, 8),
+        (1, 8, 48, 16),
+    ]
+    assert descriptor.shape == (1, 48)  # 16 + 2x8 + 4x4
+    assert model.head.branch_input_channels == (32, 16, 8)
+
+
+def test_multibranch_norm_concat_fast_path_matches_full_descriptor_formula():
+    torch.manual_seed(0)
+    head = MultiBranchHead(
+        8,
+        feat_dim=8,
+        num_classes=4,
+        inference_feature="norm_concat_bn",
+        head_pool="avg",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        hierarchical_scales=True,
+    ).eval()
+    sources = (torch.randn(2, 8, 6, 2), torch.randn(2, 8, 6, 2), torch.randn(2, 8, 12, 4))
+
+    with torch.inference_mode():
+        actual = head(sources)
+        pooled = {
+            1: head.global_pool(sources[0]),
+            2: head.partial_pool(sources[1]),
+            4: head.part_pool_4(sources[2]),
+        }
+        branches = []
+        for key, granularity, stripe_index in head.branch_specs:
+            branch = pooled[granularity]
+            if granularity > 1:
+                branch = branch[:, :, stripe_index : stripe_index + 1, :]
+            bn_feature = getattr(head, head._bn_attr(key))(branch)[0]
+            branches.append(F.normalize(bn_feature, p=2, dim=1) * head._descriptor_scale(granularity))
+        expected = F.normalize(torch.cat(branches, dim=1), p=2, dim=1)
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_compact_deployment_head_trains_with_teacher_and_skips_it_at_inference():
+    head = MultiBranchHead(
+        8,
+        feat_dim=8,
+        num_classes=4,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_pool="avg",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        hierarchical_scales=True,
+        compact_deployment_head=True,
+    )
+    sources = (torch.randn(4, 8, 6, 2), torch.randn(4, 8, 6, 2), torch.randn(4, 8, 12, 4))
+
+    head.train()
+    logits, features = head(sources)
+    assert len(logits) == 7
+    assert features["_compact_logits"].shape == (4, 4)
+    assert features["raw_concat"].shape == (4, 24)
+    assert features["_compact_student"].shape == (4, 8)
+    assert features["_compact_decoded"].shape == (4, 24)
+
+    teacher_calls = []
+    hooks = [
+        getattr(head, head._bn_attr(key)).register_forward_hook(
+            lambda *_args, key=key: teacher_calls.append(key)
+        )
+        for key, _, _ in head.branch_specs
+    ]
+    try:
+        head.eval()
+        with torch.inference_mode():
+            descriptor = head(sources)
+    finally:
+        for hook in hooks:
+            hook.remove()
+
+    assert descriptor.shape == (4, 8)
+    torch.testing.assert_close(torch.linalg.vector_norm(descriptor, dim=1), torch.ones(4))
+    assert teacher_calls == []
+
+
+def test_compact_student_losses_distill_direction_and_pairwise_geometry(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        model_name="csl_tinyvit_11m",
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        compact_deployment_head=True,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+    )
+    teacher = torch.randn(4, 24, requires_grad=True)
+    features = {
+        "_compact_logits": torch.randn(4, 2, requires_grad=True),
+        "_compact_student": torch.randn(4, 8, requires_grad=True),
+        "_compact_student_bn": torch.randn(4, 8, requires_grad=True),
+        "_compact_teacher": teacher,
+        "_compact_decoded": torch.randn(4, 24, requires_grad=True),
+    }
+    pids = torch.tensor([0, 0, 1, 1])
+    compact_id = trainer._compact_student_id_loss(nn.CrossEntropyLoss(), features, pids)
+    metric, cosine, pairwise = trainer._compact_student_losses(
+        TripletLoss(margin=0.3, soft_margin=True),
+        features,
+        pids,
+    )
+
+    total = compact_id + metric + cosine + pairwise
+    assert torch.isfinite(total)
+    total.backward()
+    assert features["_compact_student"].grad is not None
+    assert features["_compact_student_bn"].grad is not None
+    assert features["_compact_decoded"].grad is not None
+    assert features["_compact_logits"].grad is not None
+    assert teacher.grad is None
+
+
+def test_csl_tinyvit_stage3_capacity_and_bottleneck_neck_options():
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        head_parts=(1, 2, 4),
+        scale_balanced_branches=True,
+        stage3_downsample=True,
+        native_branch_widths=True,
+        stage3_mlp_ratio=3.0,
+        stage3_depth=1,
+        spatial_conv_mode="bottleneck_depthwise",
+    )
+
+    assert len(model.layers[3].blocks) == 1
+    assert model.layers[3].blocks[0].mlp.fc1.out_features == 448 * 3
+    spatial_neck = model.neck[2]
+    sample = torch.randn(2, 512, 5, 3)
+    torch.testing.assert_close(spatial_neck(sample), sample)
+
+
+def test_trainer_records_scale_balancing_for_checkpoint_retrieval(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        head_parts=(1, 2, 4),
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        scale_balanced_branches=True,
+        neck_dim=32,
+        feat_dim=16,
+    )
+
+    model = trainer._build_model(num_classes=4)
+    metadata = trainer._checkpoint_metadata(model)
+
+    assert model.head.metric_feature == "raw_concat"
+    assert model.head.inference_feature == "norm_concat_bn"
+    assert model.head.scale_balanced_branches is True
+    assert metadata["scale_balanced_branches"] is True
+
+
+def test_checkpoint_reconstructs_width_merge_and_compact_deployment_head(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        model_name="csl_tinyvit_11m",
+        pretrained=False,
+        img_size=(384, 128),
+        feature_fusion="global_final_parts_stage0_semantic_fine",
+        attention_window_layout="rect",
+        attention_mask=True,
+        head_parts=(1, 2, 4),
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        scale_balanced_branches=True,
+        stage2_width_merge_after=2,
+        compact_deployment_head=True,
+        neck_dim=32,
+        feat_dim=16,
+    )
+    model = trainer._build_model(num_classes=4)
+    metadata = trainer._checkpoint_metadata(model)
+    weights = tmp_path / "compact_widthmerge.pt"
+    torch.save({**metadata, "state_dict": model.state_dict()}, weights)
+
+    kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(weights)
+    assert metadata["stage2_width_merge_after"] == 2
+    assert metadata["compact_deployment_head"] is True
+    assert metadata["model"]["transformer"]["speed"]["stage2_width_merge_after"] == 2
+    assert metadata["model"]["transformer"]["deployment"] == {
+        "compact_head": True,
+        "descriptor_dim": 16,
+    }
+    assert kwargs["stage2_width_merge_after"] == 2
+    assert kwargs["compact_deployment_head"] is True
+
+
+def test_stage0_panet_lite_matches_lite_fpn_at_zero_bottom_up_gate():
+    torch.manual_seed(0)
+    panet = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_panet_lite",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    fpn = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_semantic_fine",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    fpn.projections.load_state_dict(panet.projections.state_dict())
+    fpn.residual_scales.load_state_dict(panet.residual_scales.state_dict())
+    fpn.stage0_fine_projection.load_state_dict(panet.stage0_fine_projection.state_dict())
+    fpn.stage0_semantic_projection.load_state_dict(panet.stage0_semantic_projection.state_dict())
+    fpn.stage0_fine_mixer.load_state_dict(panet.stage0_fine_mixer.state_dict())
+    fpn.stage0_fine_gate.data.copy_(panet.stage0_fine_gate.data)
+    final_feature = torch.randn(2, 8, 6, 2)
+    paths = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    panet_maps = panet(final_feature, paths)
+    fpn_maps = fpn(final_feature, paths)
+
+    torch.testing.assert_close(panet.stage0_panet_gate, torch.zeros(8))
+    for panet_map, fpn_map in zip(panet_maps, fpn_maps, strict=True):
+        torch.testing.assert_close(panet_map, fpn_map)
+
+
+def test_stage0_bifpn_lite_starts_from_matched_hierarchical_control():
+    torch.manual_seed(0)
+    bifpn = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_bifpn_lite",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    control = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage2_hierarchical_control",
+        path_channels={1: 6, 2: 8},
+        out_channels=8,
+    )
+    control.projections.load_state_dict(bifpn.projections.state_dict())
+    control.residual_scales.load_state_dict(bifpn.residual_scales.state_dict())
+    final_feature = torch.randn(2, 8, 6, 2)
+    paths = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    bifpn_maps = bifpn(final_feature, paths)
+    control_maps = control(final_feature, {index: paths[index] for index in (1, 2)})
+
+    assert set(bifpn.stage0_bifpn_weights) == {"top_down", "bottom_up"}
+    assert all(torch.count_nonzero(gate) == 0 for gate in bifpn.stage0_bifpn_gates.values())
+    for bifpn_map, control_map in zip(bifpn_maps, control_maps, strict=True):
+        torch.testing.assert_close(bifpn_map, control_map)
+
+
+def test_stage0_native_pyramid_only_projects_the_fine_map_before_head_pooling():
+    module = CSLTinyViTFeatureFusion.from_mode(
+        "global_final_parts_stage0_native_pyramid",
+        path_channels={0: 5, 1: 6, 2: 8},
+        out_channels=8,
+    )
+    final_feature = torch.randn(2, 8, 6, 2)
+    paths = {
+        0: torch.randn(2, 5, 12, 4),
+        1: torch.randn(2, 6, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    global_map, local_map, fine_map = module(final_feature, paths)
+    expected_fine = module.projections["0"](paths[0])
+
+    assert global_map.shape == local_map.shape == (2, 8, 6, 2)
+    assert fine_map.shape == (2, 8, 12, 4)
+    torch.testing.assert_close(fine_map, expected_fine)
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        "global_final_parts_stage0_semantic_fine_reference",
+        "global_final_parts_stage0_panet_lite",
+        "global_final_parts_stage0_bifpn_lite",
+        "global_final_parts_stage0_native_pyramid",
+    ),
+)
+def test_csl_tinyvit_compact_stage0_modes_build_hierarchical_head(mode):
+    model = csl_tinyvit_11m(
+        num_classes=4,
+        pretrained=False,
+        feature_fusion=mode,
+        head_parts=(1, 2, 4),
+        neck_dim=32,
+        feat_dim=16,
+    )
+
+    assert model.feature_fusion_module.stage_indices == (1, 2, 0)
+    assert model.head.hierarchical_scales is True
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        "global_final_parts_stage0_semantic_fine_reference",
+        "global_final_parts_stage0_semantic_fine",
+        "global_final_parts_stage0_panet_lite",
+        "global_final_parts_stage0_bifpn_lite",
+        "global_final_parts_stage0_native_pyramid",
+    ),
+)
+def test_compact_stage0_fusions_stay_below_parameter_budget(mode):
+    stage_indices = CSLTinyViTFeatureFusion.stage_indices_for_mode(mode)
+    module = CSLTinyViTFeatureFusion.from_mode(
+        mode,
+        path_channels={0: 128, 1: 256, 2: 448},
+        out_channels=512,
+    )
+
+    assert stage_indices == (1, 2, 0)
+    assert sum(parameter.numel() for parameter in module.parameters()) < 750_000
+
+
+@pytest.mark.parametrize(
+    "mode",
+    (
+        "last3_stage1_concat",
+        "last3_fpn_stage1_split",
+        "global_final_parts_stage1_concat",
+        "global_final_parts_fpn_layer0",
+        "last3_panet_stage1_scale_aware",
+        "last3_bifpn_stage1_branch_aware",
+        "global_final_parts_stage2_semantic_residual",
+        "global_final_parts_stage2_hierarchical_control",
+        "global_final_parts_stage0_semantic_fine_reference",
+        "global_final_parts_stage0_semantic_fine",
+        "global_final_parts_stage0_panet_lite",
+        "global_final_parts_stage0_bifpn_lite",
+        "global_final_parts_stage0_native_pyramid",
+        "global_final_parts_hierarchical_fpn",
+    ),
+)
+def test_feature_aggregation_modes_have_no_trainable_parameters_outside_the_forward_graph(mode):
+    stage_indices = CSLTinyViTFeatureFusion.stage_indices_for_mode(mode)
+    module = CSLTinyViTFeatureFusion.from_mode(
+        mode,
+        path_channels={index: 8 for index in stage_indices},
+        out_channels=8,
+    )
+    final_feature = torch.randn(2, 8, 6, 2)
+    all_paths = {
+        0: torch.randn(2, 8, 12, 4),
+        1: torch.randn(2, 8, 6, 2),
+        2: torch.randn(2, 8, 6, 2),
+    }
+
+    output = module(final_feature, {index: all_paths[index] for index in stage_indices})
+    outputs = output if isinstance(output, tuple) else (output,)
+    sum(feature.square().mean() for feature in outputs).backward()
+
+    missing_gradients = [
+        name
+        for name, parameter in module.named_parameters()
+        if parameter.requires_grad and parameter.grad is None
+    ]
+    assert missing_gradients == []
 
 
 def test_hierarchical_head_routes_scales_and_keeps_compact_descriptor():
@@ -2132,6 +3028,117 @@ def test_hierarchical_head_routes_scales_and_keeps_compact_descriptor():
             torch.randn(2, 8, 12, 4),
         ))
     assert descriptor.shape == (2, 96)
+
+
+def test_scale_balanced_hierarchical_head_uses_all_branches_with_equal_scale_energy():
+    torch.manual_seed(0)
+    head = MultiBranchHead(
+        8,
+        feat_dim=32,
+        num_classes=3,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+        hierarchical_scales=True,
+        scale_balanced_branches=True,
+    )
+    features = (
+        torch.randn(2, 8, 3, 1),
+        torch.randn(2, 8, 6, 2),
+        torch.randn(2, 8, 12, 4),
+    )
+    chunk_sizes = (32, 16, 16, 8, 8, 8, 8)
+
+    head.train()
+    logits, metric_descriptor = head(features)
+    metric_chunks = torch.split(metric_descriptor, chunk_sizes, dim=1)
+
+    assert len(logits) == 7
+    torch.testing.assert_close(
+        torch.stack([chunk.norm(dim=1) for chunk in metric_chunks], dim=1),
+        torch.tensor([[1.0, 2**-0.5, 2**-0.5, 0.5, 0.5, 0.5, 0.5]]).expand(2, -1),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+
+    head.eval()
+    with torch.no_grad():
+        retrieval_descriptor = head(features)
+    retrieval_chunks = torch.split(retrieval_descriptor, chunk_sizes, dim=1)
+    expected_scale_norms = torch.tensor(
+        [[3**-0.5, 6**-0.5, 6**-0.5, 12**-0.5, 12**-0.5, 12**-0.5, 12**-0.5]]
+    ).expand(2, -1)
+
+    torch.testing.assert_close(retrieval_descriptor.norm(dim=1), torch.ones(2), atol=1e-5, rtol=1e-5)
+    torch.testing.assert_close(
+        torch.stack([chunk.norm(dim=1) for chunk in retrieval_chunks], dim=1),
+        expected_scale_norms,
+        atol=1e-5,
+        rtol=1e-5,
+    )
+
+
+def test_scale_balanced_hierarchical_head_can_train_global_metric_and_retrieve_all_branches():
+    head = MultiBranchHead(
+        8,
+        feat_dim=32,
+        num_classes=3,
+        metric_feature="global",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+        hierarchical_scales=True,
+        scale_balanced_branches=True,
+    )
+    features = (
+        torch.randn(2, 8, 3, 1),
+        torch.randn(2, 8, 6, 2),
+        torch.randn(2, 8, 12, 4),
+    )
+
+    head.train()
+    logits, metric_descriptor = head(features)
+    assert len(logits) == 7
+    assert metric_descriptor.shape == (2, 32)
+
+    head.eval()
+    with torch.no_grad():
+        retrieval_descriptor = head(features)
+    assert retrieval_descriptor.shape == (2, 96)
+
+
+def test_scale_balanced_hierarchical_head_can_train_coarse_metric_and_retrieve_all_branches():
+    head = MultiBranchHead(
+        8,
+        feat_dim=32,
+        num_classes=3,
+        metric_feature="coarse_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+        hierarchical_scales=True,
+        scale_balanced_branches=True,
+    )
+    features = (
+        torch.randn(2, 8, 3, 1),
+        torch.randn(2, 8, 6, 2),
+        torch.randn(2, 8, 12, 4),
+    )
+
+    head.train()
+    logits, metric_descriptor = head(features)
+    metric_chunks = torch.split(metric_descriptor, (32, 16, 16), dim=1)
+    assert len(logits) == 7
+    assert metric_descriptor.shape == (2, 64)
+    torch.testing.assert_close(
+        torch.stack([chunk.norm(dim=1) for chunk in metric_chunks], dim=1),
+        torch.tensor([[1.0, 2**-0.5, 2**-0.5]]).expand(2, -1),
+        atol=1e-5,
+        rtol=1e-5,
+    )
+
+    head.eval()
+    with torch.no_grad():
+        retrieval_descriptor = head(features)
+    assert retrieval_descriptor.shape == (2, 96)
 
 
 def test_csl_tinyvit_last4_layer0_target_fuses_at_layer0_resolution():
@@ -2269,7 +3276,11 @@ def test_csl_tinyvit_last4_fpn_layer0_target_captures_layer0_feature_map():
 
 
 def test_csl_tinyvit_split_global_local_modes_return_1536d_embeddings():
-    for fusion in ("global_final_parts_stage2", "late_concat_stage2"):
+    for fusion in (
+        "global_final_parts_stage2",
+        "global_final_parts_stage2_semantic_residual",
+        "late_concat_stage2",
+    ):
         model = csl_tinyvit_7m(
             num_classes=4,
             pretrained=False,
@@ -2538,7 +3549,16 @@ def test_multibranch_head_metric_feature_shapes():
     branch_head = MultiBranchHead(8, feat_dim=4, num_classes=3, branch_metric=True)
     branch_head.train()
     _, branch_features = branch_head(x)
-    assert set(branch_features) == {"global", "part0", "part1", "raw_mean", "raw_concat", "concat_bn", "norm_concat_bn"}
+    assert set(branch_features) == {
+        "global",
+        "part0",
+        "part1",
+        "raw_mean",
+        "raw_concat",
+        "coarse_concat",
+        "concat_bn",
+        "norm_concat_bn",
+    }
     assert branch_features["global"].shape == (4, 4)
     assert branch_features["raw_concat"].shape == (4, 12)
     assert branch_features["concat_bn"].shape == (4, 12)
@@ -3035,6 +4055,97 @@ def test_trainer_aux_ce_weight_preserves_default_and_can_drop(tmp_path):
     torch.testing.assert_close(after_drop, criterion(logits[0], pids))
 
 
+def test_trainer_scale_balanced_ce_averages_within_each_scale_and_uses_every_output(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        scale_balanced_branches=True,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+    )
+    logits = [
+        torch.full((2, 1), value, requires_grad=True)
+        for value in (3.0, 1.0, 3.0, 2.0, 4.0, 6.0, 8.0)
+    ]
+
+    def criterion(logit, pids):
+        del pids
+        return logit.mean()
+
+    loss = trainer._classification_loss_for_logits(
+        criterion,
+        logits,
+        torch.tensor([0, 1]),
+        epoch=1,
+    )
+    loss.backward()
+
+    # (global=3 + mean(two-stripe)=2 + mean(four-stripe)=5) / 3
+    torch.testing.assert_close(loss.detach(), torch.tensor(10.0 / 3.0))
+    assert all(logit.grad is not None and torch.count_nonzero(logit.grad) > 0 for logit in logits)
+
+
+def test_trainer_scale_balanced_center_loss_uses_the_full_retrieval_structure(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        scale_balanced_branches=True,
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+    )
+    features = {
+        "global": torch.randn(2, 32),
+        "raw_mean": torch.randn(2, 32),
+        "raw_concat": torch.randn(2, 96),
+    }
+
+    center_features = trainer._center_features(features)
+
+    assert center_features is features["raw_concat"]
+    assert center_features.shape == (2, 96)
+
+
+def test_trainer_scale_balanced_global_metric_routes_center_loss_to_global(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        scale_balanced_branches=True,
+        metric_feature="global",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+    )
+    features = {
+        "global": torch.randn(2, 32),
+        "raw_mean": torch.randn(2, 32),
+        "raw_concat": torch.randn(2, 96),
+    }
+
+    center_features = trainer._center_features(features)
+
+    assert center_features is features["global"]
+    assert center_features.shape == (2, 32)
+
+
+def test_trainer_scale_balanced_coarse_metric_routes_center_loss_to_coarse_descriptor(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        scale_balanced_branches=True,
+        metric_feature="coarse_concat",
+        inference_feature="norm_concat_bn",
+        head_parts=(1, 2, 4),
+    )
+    features = {
+        "global": torch.randn(2, 32),
+        "coarse_concat": torch.randn(2, 64),
+        "raw_mean": torch.randn(2, 32),
+        "raw_concat": torch.randn(2, 96),
+    }
+
+    center_features = trainer._center_features(features)
+
+    assert center_features is features["coarse_concat"]
+    assert center_features.shape == (2, 64)
+
+
 def test_trainer_aux_ce_ignores_null_evidence_token_without_metadata_grad(tmp_path):
     trainer = _trainer(tmp_path, aux_ce_weight=1.0)
     logits = [
@@ -3090,6 +4201,13 @@ def test_trainer_uses_embedding_model_contract_for_margin_classifier(tmp_path):
     trainer = _trainer(tmp_path, loss_type="softmax", classifier_loss="arcface")
 
     assert trainer._model_loss_type() == "triplet"
+
+
+def test_trainer_uses_embedding_model_contract_for_wrt(tmp_path):
+    trainer = _trainer(tmp_path, loss_type="wrt")
+
+    assert trainer._model_loss_type() == "triplet"
+    assert trainer._effective_metric_feature() == "raw_mean"
 
 
 def test_trainer_triplet_soft_margin_can_be_forced(tmp_path):
@@ -3193,6 +4311,33 @@ def test_resume_scheduler_inside_warmup_keeps_linear_warmup_lr(tmp_path):
     assert optimizer.param_groups[0]["initial_lr"] == pytest.approx(7e-4)
     assert optimizer.param_groups[0]["_base_lr"] == pytest.approx(7e-4)
     assert optimizer.param_groups[0]["lr"] == pytest.approx(3.5e-4)
+
+
+def test_resume_scheduler_restores_exact_saved_state(tmp_path):
+    trainer = _trainer(tmp_path, epochs=200, warmup_epochs=20, eta_min=1e-7)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    parameter = nn.Parameter(torch.ones(()))
+    optimizer = torch.optim.AdamW([parameter], lr=7e-4)
+    original = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=180,
+        eta_min=1e-7,
+    )
+    for _ in range(7):
+        optimizer.step()
+        original.step()
+    saved_state = original.state_dict()
+
+    restored = trainer._build_resume_scheduler(
+        optimizer,
+        resumed_epoch=27,
+        resume_path=run_dir / "last.pt",
+        ckpt={"epochs": 200, "optimizer": {}, "scheduler": saved_state},
+    )
+
+    assert restored.state_dict() == saved_state
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(original.get_last_lr()[0])
 
 
 def test_trainer_normalizes_head_parts_from_string(tmp_path):
@@ -3365,8 +4510,68 @@ def test_train_epoch_restores_head_warmup_lrs_before_scheduler(tmp_path):
 
     assert metrics.backbone_lr == 0.0
     assert metrics.head_lr == pytest.approx(0.4)
+    assert metrics.forward_elapsed_s > 0.0
+    assert metrics.forward_elapsed_s <= metrics.elapsed_s
     assert optimizer.param_groups[0]["lr"] > 0.0
     assert optimizer.param_groups[1]["lr"] > 0.0
+
+
+def test_save_metrics_records_average_forward_time_beside_epoch_time(tmp_path):
+    trainer = _trainer(tmp_path, epochs=30)
+
+    trainer._save_metrics(
+        tmp_path,
+        history=[],
+        val_history=[],
+        best_epoch=0,
+        best_mAP=0.0,
+        best_rank1=0.0,
+        average_epoch_time_s=12.34567,
+        average_forward_time_s=4.56789,
+    )
+
+    metrics = json.loads((tmp_path / "metrics.json").read_text())
+    keys = list(metrics)
+    assert metrics["average_epoch_time_s"] == 12.3457
+    assert metrics["average_forward_time_s"] == 4.5679
+    assert keys.index("average_forward_time_s") == keys.index("average_epoch_time_s") + 1
+
+
+def test_ema_update_uses_names_and_ignores_dynamic_nonpersistent_buffers(tmp_path):
+    trainer = _trainer(tmp_path)
+
+    class DynamicBufferModel(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.cache_owner = nn.Module()
+            self.cache_owner.register_buffer("indexes", torch.arange(2), persistent=False)
+            self.linear = nn.Linear(3, 3, bias=False)
+            self.bn = nn.BatchNorm1d(128)
+
+    live_model = DynamicBufferModel()
+    ema_model = DynamicBufferModel()
+    ema_model.load_state_dict(live_model.state_dict())
+    live_model.cache_owner.register_buffer("ab", torch.ones(2, 48, 48), persistent=False)
+
+    with torch.no_grad():
+        live_model.linear.weight.fill_(4.0)
+        ema_model.linear.weight.zero_()
+        live_model.bn.running_mean.fill_(2.0)
+        ema_model.bn.running_mean.zero_()
+        live_model.bn.num_batches_tracked.fill_(7)
+        ema_model.bn.num_batches_tracked.zero_()
+
+    assert any(
+        live_buffer.shape != ema_buffer.shape
+        for live_buffer, ema_buffer in zip(live_model.buffers(), ema_model.buffers())
+    )
+
+    trainer._update_ema_model(ema_model, live_model, decay=0.5)
+
+    torch.testing.assert_close(ema_model.linear.weight, torch.full_like(ema_model.linear.weight, 2.0))
+    torch.testing.assert_close(ema_model.bn.running_mean, torch.ones_like(ema_model.bn.running_mean))
+    assert ema_model.bn.num_batches_tracked.item() == 7
+    assert not hasattr(ema_model.cache_owner, "ab")
 
 
 def test_trainer_reid_lrd_uses_requested_stage_lr_scales(tmp_path):

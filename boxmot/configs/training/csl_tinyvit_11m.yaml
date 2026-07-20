@@ -16,14 +16,16 @@
     "num_classes": 751,
     "batch_size": 64,
     "sampler": {
-      "p": 16,
-      "k": 4
+      "p": 8,
+      "k": 8
     },
     "num_workers": 4
   },
   "model": {
     "is_vit": true,
-    "feature_fusion": "last2",
+    "feature_fusion": "global_final_parts_stage0_semantic_fine_reference",
+    "pyramid_resize_mode": "bilinear",
+    "spatial_conv_mode": "standard",
     "post_fusion_mixer": {
       "mode": "none",
       "reduction": 4,
@@ -35,10 +37,17 @@
     },
     "feat_dim": 512,
     "neck_dim": 512,
+    "speed": {
+      "stage3_downsample": false,
+      "stage3_mlp_ratio": 4.0,
+      "stage3_depth": 2,
+      "native_branch_widths": false
+    },
     "attention": {
-      "window_layout": "legacy",
+      "window_layout": "rect",
       "bias": "absolute",
-      "mask": false,
+      "interpolate_pretrained_bias": true,
+      "mask": true,
       "shift": false,
       "stage3_global": false
     },
@@ -50,7 +59,8 @@
       "pool": "gelu_gem",
       "parts": [
         1,
-        2
+        2,
+        4
       ],
       "head_type": "standard",
       "part_pooling": "stripes",
@@ -70,7 +80,8 @@
     "branch": {
       "aware_metric": false,
       "metric_part_weight": 0.5,
-      "loss_agg": "mean"
+      "loss_agg": "mean",
+      "scale_balanced": true
     },
     "regularization": {
       "drop_path_rate": 0.1
@@ -126,7 +137,7 @@
   "evaluation": {
     "eval_interval": 10,
     "eval_datasets": [],
-    "flip_tta": true
+    "flip_tta": false
   },
   "system": {
     "device": "mps"
@@ -134,6 +145,6 @@
   "derived": {
     "metric_dim": 1536,
     "classifier_dim": 1536,
-    "n_params": 15311239
+    "n_params": 15607141
   }
 }

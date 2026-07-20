@@ -145,6 +145,18 @@ class RandomPatch:
         self.patchpool: deque = deque(maxlen=pool_capacity)
         self.min_sample_size = min_sample_size
 
+    def set_epoch(self, epoch: int) -> None:
+        """Reset mutable augmentation state at an explicit epoch boundary.
+
+        A patch pool that spans epochs cannot be reconstructed by an epoch
+        checkpoint without serializing thousands of image crops. Keeping the
+        pool epoch-local gives uninterrupted and resumed training identical
+        augmentation state while retaining cross-image patch sampling within
+        each epoch.
+        """
+        del epoch
+        self.patchpool.clear()
+
     def _generate_wh(self, W: int, H: int):
         area = W * H
         for _ in range(100):
@@ -192,6 +204,17 @@ class RandomPatch:
         return f"{self.__class__.__name__}(p={self.prob_happen}, pool={self.patchpool.maxlen})"
 
 
+class EpochAwareCompose(T.Compose):
+    """Compose transforms and forward deterministic epoch boundaries."""
+
+    def set_epoch(self, epoch: int) -> None:
+        """Reset stateful child transforms before an epoch is iterated."""
+        for transform in self.transforms:
+            setter = getattr(transform, "set_epoch", None)
+            if callable(setter):
+                setter(epoch)
+
+
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 
 
@@ -206,7 +229,7 @@ def build_train_transforms(
     random_patch: bool = True,
     random_crop_scale: float = 1.05,
     color_augmentation: bool = True,
-) -> T.Compose:
+) -> EpochAwareCompose:
     """Build the standard ReID training augmentation pipeline.
 
     Pipeline (torchreid-inspired, with aspect-preserving resize):
@@ -242,7 +265,7 @@ def build_train_transforms(
             p=random_erasing, scale=(0.02, 0.2), ratio=(0.3, 3.33),
             value=IMAGENET_MEAN,
         ))
-    return T.Compose(ops)
+    return EpochAwareCompose(ops)
 
 
 def build_test_transforms(

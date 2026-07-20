@@ -1,6 +1,14 @@
 from pathlib import Path
 
-from boxmot.configs import BOXMOT_DEFAULTS, DEFAULT_DETECTOR, DEFAULT_REID, build_mode_namespace, ensure_model_extension, get_mode_default, get_mode_defaults
+from boxmot.configs import (
+    BOXMOT_DEFAULTS,
+    DEFAULT_DETECTOR,
+    DEFAULT_REID,
+    build_mode_namespace,
+    ensure_model_extension,
+    get_mode_default,
+    get_mode_defaults,
+)
 from boxmot.utils import WEIGHTS
 
 
@@ -52,9 +60,42 @@ def test_boxmot_defaults_bundle_exposes_typed_mode_defaults():
     assert BOXMOT_DEFAULTS.export.include == tuple(get_mode_default("export", "include"))
 
 
+def test_default_11m_training_uses_promoted_scale_balanced_recipe():
+    args = build_mode_namespace("train", {"data_dir": "."}, explicit_keys={"data_dir"})
+
+    assert args.model == "csl_tinyvit_11m"
+    assert args.feature_fusion == "global_final_parts_stage0_semantic_fine_reference"
+    assert args.head_parts == (1, 2, 4)
+    assert args.scale_balanced_branches is True
+    assert args.p_ids == 8
+    assert args.k_instances == 8
+    assert args.attention_window_layout == "rect"
+    assert args.interpolate_pretrained_attention_bias is True
+    assert args.attention_mask is True
+    assert args.flip_tta is False
+
+
+def test_explicit_non_11m_training_model_keeps_generic_defaults():
+    args = build_mode_namespace(
+        "train",
+        {"data_dir": ".", "model": "csl_tinyvit_7m"},
+        explicit_keys={"data_dir", "model"},
+    )
+
+    assert args.model == "csl_tinyvit_7m"
+    assert args.feature_fusion == "last2"
+    assert args.head_parts == (1, 2)
+    assert args.scale_balanced_branches is False
+    assert args.attention_window_layout == "legacy"
+
+
 def test_build_mode_namespace_normalizes_track_and_export_models():
     track_args = build_mode_namespace("track", {"source": "0"}, explicit_keys=set())
-    export_args = build_mode_namespace("export", {"weights": "osnet_x0_25_msmt17", "include": ["onnx"]}, explicit_keys={"weights", "include"})
+    export_args = build_mode_namespace(
+        "export",
+        {"weights": "osnet_x0_25_msmt17", "include": ["onnx"]},
+        explicit_keys={"weights", "include"},
+    )
 
     assert track_args.detector == DEFAULT_DETECTOR
     assert track_args.reid == DEFAULT_REID

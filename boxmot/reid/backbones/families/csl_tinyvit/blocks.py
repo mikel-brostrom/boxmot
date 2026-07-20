@@ -16,6 +16,7 @@ __all__ = [
     "DropPath",
     "LayerNorm2d",
     "MBConv",
+    "NormPreservingWidthMerge",
     "PatchEmbed",
     "PatchMerging",
     "ReIDResidualAdapter",
@@ -108,15 +109,20 @@ class MBConv(nn.Module):
 class PatchMerging(nn.Module):
     """Downsampling layer between stages."""
 
-    def __init__(self, input_resolution, dim, out_dim, activation):
+    def __init__(self, input_resolution, dim, out_dim, activation, stride: int | None = None):
         super().__init__()
         self.input_resolution = input_resolution
         self.dim = dim
         self.out_dim = out_dim
         self.act = activation()
         self.conv1 = Conv2d_BN(dim, out_dim, 1, 1, 0)
-        # No spatial downsample for last two stages (320, 448, 576 dims)
-        stride_c = 1 if out_dim in (320, 448, 576) else 2
+        # TinyViT normally preserves resolution before its final stage. ReID
+        # speed variants can explicitly downsample only that global path while
+        # retaining the pre-merge Stage-2 tokens for local stripes.
+        stride_c = (1 if out_dim in (320, 448, 576) else 2) if stride is None else int(stride)
+        if stride_c not in {1, 2}:
+            raise ValueError(f"PatchMerging stride must be 1 or 2, got {stride_c}")
+        self.stride = stride_c
         self.conv2 = Conv2d_BN(out_dim, out_dim, 3, stride_c, 1, groups=out_dim)
         self.conv3 = Conv2d_BN(out_dim, out_dim, 1, 1, 0)
 
@@ -133,6 +139,40 @@ class PatchMerging(nn.Module):
         return x, out_size
 
 
+class NormPreservingWidthMerge(nn.Module):
+    """Merge adjacent columns using activation-norm weights.
+
+    The weighted average keeps the direction selected by the two input tokens,
+    then restores the larger input norm so discriminative activations are not
+    contracted merely because the spatial sequence was shortened.
+    """
+
+    def __init__(self, eps: float = 1e-6):
+        super().__init__()
+        self.eps = float(eps)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        hw_size: tuple[int, int],
+    ) -> tuple[torch.Tensor, tuple[int, int]]:
+        batch, tokens, channels = x.shape
+        height, width = hw_size
+        if tokens != height * width:
+            raise ValueError(f"Expected {height * width} tokens for {hw_size}, got {tokens}")
+        if width % 2 != 0:
+            raise ValueError(f"Norm-preserving width merge requires an even width, got {width}")
+
+        pairs = x.view(batch, height, width // 2, 2, channels)
+        norms = torch.sqrt(torch.sum(pairs * pairs, dim=-1, keepdim=True))
+        weights = norms / norms.sum(dim=3, keepdim=True).clamp_min(self.eps)
+        merged = torch.sum(weights * pairs, dim=3)
+        merged_norm = torch.sqrt(torch.sum(merged * merged, dim=-1, keepdim=True))
+        target_norm = norms.amax(dim=3)
+        merged = merged * (target_norm / merged_norm.clamp_min(self.eps))
+        return merged.view(batch, height * (width // 2), channels), (height, width // 2)
+
+
 class ConvLayer(nn.Module):
     """Convolutional stage (MBConv blocks)."""
 
@@ -147,6 +187,7 @@ class ConvLayer(nn.Module):
         use_checkpoint=False,
         out_dim=None,
         conv_expand_ratio=4.0,
+        downsample_stride: int | None = None,
     ):
         super().__init__()
         self.dim = dim
@@ -164,7 +205,13 @@ class ConvLayer(nn.Module):
         )
 
         if downsample is not None:
-            self.downsample = downsample(input_resolution, dim=dim, out_dim=out_dim, activation=activation)
+            self.downsample = downsample(
+                input_resolution,
+                dim=dim,
+                out_dim=out_dim,
+                activation=activation,
+                stride=downsample_stride,
+            )
         else:
             self.downsample = None
 
@@ -458,12 +505,21 @@ class BasicLayer(nn.Module):
         attention_bias: str = "absolute",
         attention_mask: bool = False,
         adapter_reduction_ratio: int | None = None,
+        downsample_stride: int | None = None,
+        width_merge_after_blocks: int = 0,
     ):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
+        self.width_merge_after_blocks = int(width_merge_after_blocks)
+        if self.width_merge_after_blocks < 0 or self.width_merge_after_blocks >= depth:
+            if self.width_merge_after_blocks != 0:
+                raise ValueError(
+                    "width_merge_after_blocks must be zero (disabled) or fall before the final block; "
+                    f"got {self.width_merge_after_blocks} for depth={depth}"
+                )
         block_window_sizes = _expand_block_values(window_size, depth)
         block_shift_sizes = _expand_block_values(shift_size, depth)
 
@@ -493,11 +549,25 @@ class BasicLayer(nn.Module):
         )
 
         if downsample is not None:
-            self.downsample = downsample(input_resolution, dim=dim, out_dim=out_dim, activation=activation)
+            self.downsample = downsample(
+                input_resolution,
+                dim=dim,
+                out_dim=out_dim,
+                activation=activation,
+                stride=downsample_stride,
+            )
         else:
             self.downsample = None
+        self.width_merge = NormPreservingWidthMerge() if self.width_merge_after_blocks else None
 
-    def forward(self, x, out_size):
+    def forward(
+        self,
+        x,
+        out_size,
+        return_pre_downsample: bool = False,
+        return_pre_width_merge: bool = False,
+    ):
+        pre_width_merge = None
         for index, blk in enumerate(self.blocks):
             if self.use_checkpoint:
                 x = checkpoint.checkpoint(blk, x, out_size, use_reentrant=False)
@@ -505,8 +575,18 @@ class BasicLayer(nn.Module):
                 x = blk(x, out_size)
             if self.reid_adapters:
                 x = self.reid_adapters[index](x, out_size)
+            if self.width_merge is not None and index + 1 == self.width_merge_after_blocks:
+                pre_width_merge = (x, out_size)
+                x, out_size = self.width_merge(x, out_size)
+        pre_downsample = (x, out_size)
         if self.downsample is not None:
             x, out_size = self.downsample(x, out_size)
+        if return_pre_downsample:
+            return x, out_size, pre_downsample[0], pre_downsample[1]
+        if return_pre_width_merge:
+            if pre_width_merge is None:
+                raise RuntimeError("Requested pre-width-merge tokens from a layer without width merging")
+            return x, out_size, pre_width_merge[0], pre_width_merge[1]
         return x, out_size
 
 

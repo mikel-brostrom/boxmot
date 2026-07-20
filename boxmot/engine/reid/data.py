@@ -167,7 +167,8 @@ def resolve_reid_train_data(args: Any) -> Any:
     args.data = items
     args.dataset = ",".join(names)
     args.data_specs = tuple(specs)
-    if specs and not base_data_dir:
+    explicit = set(getattr(args, "train_explicit_keys", ()))
+    if specs and (not base_data_dir or "data_dir" not in explicit):
         common = _common_root(tuple(specs))
         if common:
             args.data_dir = common
