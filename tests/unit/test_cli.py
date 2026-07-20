@@ -47,6 +47,23 @@ def test_eval_accepts_tracker_option(monkeypatch):
     assert captured["args"].tracker == "boosttrack"
 
 
+def test_eval_accepts_trackeval_comparison(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--benchmark", "mot17-mini", "--compare-trackeval"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].compare_trackeval is True
+
+
 def test_eval_accepts_tracker_backend_option(monkeypatch):
     captured = {}
 
@@ -80,6 +97,24 @@ def test_track_accepts_tracker_backend_option(monkeypatch):
     assert captured["args"].tracker == "botsort"
     assert captured["args"].tracker_backend == "cpp"
     assert captured["args"].show is True
+
+
+def test_track_accepts_visualization_flags(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.workflow", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["track", "--source", "0", "--show-trajectories", "--show-kf-preds"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].show_trajectories is True
+    assert captured["args"].show_kf_preds is True
 
 
 def test_track_live_source_keeps_show_false_when_save_is_explicit(monkeypatch):
@@ -351,6 +386,10 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
             "global",
             "--feature-fusion",
             "normpres_last3",
+            "--pyramid-resize-mode",
+            "pool_nearest",
+            "--spatial-conv-mode",
+            "depthwise_separable",
             "--post-fusion-mixer",
             "dwconv",
             "--post-fusion-mixer-reduction",
@@ -409,6 +448,8 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
     assert args.inference_feature == "dse_mix"
     assert args.metric_feature == "global"
     assert args.feature_fusion == "normpres_last3"
+    assert args.pyramid_resize_mode == "pool_nearest"
+    assert args.spatial_conv_mode == "depthwise_separable"
     assert args.post_fusion_mixer == "dwconv"
     assert args.post_fusion_mixer_reduction == 4
     assert args.post_fusion_mixer_kernel == (5, 3)
@@ -441,6 +482,8 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
         "inference_feature",
         "metric_feature",
         "feature_fusion",
+        "pyramid_resize_mode",
+        "spatial_conv_mode",
         "post_fusion_mixer",
         "post_fusion_mixer_reduction",
         "post_fusion_mixer_kernel",
@@ -513,6 +556,13 @@ def test_train_accepts_stage1_ablation_feature_fusions(monkeypatch):
         "global_final_parts_fpn_layer0",
         "last3_panet_stage1_scale_aware",
         "last3_bifpn_stage1_branch_aware",
+        "global_final_parts_stage2_semantic_residual",
+        "global_final_parts_stage2_hierarchical_control",
+        "global_final_parts_stage0_semantic_fine_reference",
+        "global_final_parts_stage0_semantic_fine",
+        "global_final_parts_stage0_panet_lite",
+        "global_final_parts_stage0_bifpn_lite",
+        "global_final_parts_stage0_native_pyramid",
         "global_final_parts_hierarchical_fpn",
     )
 
@@ -642,6 +692,24 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
     } <= set(args.train_explicit_keys)
 
 
+def test_train_accepts_weighted_regularized_triplet(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["train", "--data-dir", ".", "--loss", "wrt"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].loss == "wrt"
+    assert "loss" in captured["args"].train_explicit_keys
+
+
 def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
     captured = {}
 
@@ -759,6 +827,41 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
     assert "head_warmup_lr_mult" not in explicit
     assert "label_smooth" not in explicit
     assert "random_grayscale" not in explicit
+
+
+def test_train_accepts_scale_balanced_branch_training_and_retrieval(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--model",
+            "csl_tinyvit_11m",
+            "--head-parts",
+            "1,2,4",
+            "--metric-feature",
+            "raw_concat",
+            "--inference-feature",
+            "norm_concat_bn",
+            "--scale-balanced-branches",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.scale_balanced_branches is True
+    assert args.head_parts == (1, 2, 4)
+    assert args.metric_feature == "raw_concat"
+    assert args.inference_feature == "norm_concat_bn"
+    assert "scale_balanced_branches" in args.train_explicit_keys
 
 
 def test_train_recipe_can_supply_data_dir(monkeypatch):
@@ -915,6 +1018,108 @@ def test_train_mobilenetv4_recipes_use_mobile_safe_baselines(monkeypatch):
         assert args.flip_tta is False
 
 
+def test_train_accepts_csl_tinyvit_speed_architecture_options(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--attention-window-layout",
+            "rect",
+            "--stage3-downsample",
+            "--stage3-mlp-ratio",
+            "3",
+            "--stage3-depth",
+            "1",
+            "--native-branch-widths",
+            "--spatial-conv-mode",
+            "bottleneck_depthwise",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.attention_window_layout == "rect"
+    assert args.stage3_downsample is True
+    assert args.stage3_mlp_ratio == 3.0
+    assert args.stage3_depth == 1
+    assert args.native_branch_widths is True
+    assert args.spatial_conv_mode == "bottleneck_depthwise"
+    assert {
+        "attention_window_layout",
+        "stage3_downsample",
+        "stage3_mlp_ratio",
+        "stage3_depth",
+        "native_branch_widths",
+        "spatial_conv_mode",
+    } <= set(args.train_explicit_keys)
+
+
+def test_train_accepts_pretrained_attention_bias_interpolation(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--attention-window-layout",
+            "rect",
+            "--interpolate-pretrained-attention-bias",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].interpolate_pretrained_attention_bias is True
+
+
+def test_train_accepts_width_merge_and_compact_distillation_options(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "train",
+            "--data-dir",
+            ".",
+            "--stage2-width-merge-after",
+            "2",
+            "--compact-deployment-head",
+            "--compact-metric-loss-weight",
+            "0.75",
+            "--compact-cosine-distill-weight",
+            "0.5",
+            "--compact-pairwise-distill-weight",
+            "0.25",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.stage2_width_merge_after == 2
+    assert args.compact_deployment_head is True
+    assert args.compact_metric_loss_weight == 0.75
+    assert args.compact_cosine_distill_weight == 0.5
+    assert args.compact_pairwise_distill_weight == 0.25
+
+
 def test_train_short_run_caps_inherited_backbone_freeze(monkeypatch):
     captured = {}
 
@@ -1024,17 +1229,21 @@ def test_train_default_model_is_csl_tinyvit_11m(monkeypatch):
     assert args.feat_dim == 512
     assert args.neck_dim == 512
     assert args.head_pool == "gelu_gem"
-    assert args.head_parts == (1, 2)
+    assert args.head_parts == (1, 2, 4)
     assert args.metric_feature == "raw_concat"
     assert args.inference_feature == "norm_concat_bn"
-    assert args.feature_fusion == "last2"
+    assert args.feature_fusion == "global_final_parts_stage0_semantic_fine_reference"
+    assert args.scale_balanced_branches is True
+    assert args.p_ids == 8
+    assert args.k_instances == 8
     assert args.post_fusion_mixer == "none"
     assert args.post_fusion_mixer_reduction == 4
     assert args.post_fusion_mixer_kernel == (5, 3)
     assert args.post_fusion_mixer_gamma_init == 0.0
-    assert args.attention_window_layout == "legacy"
+    assert args.attention_window_layout == "rect"
     assert args.attention_bias == "absolute"
-    assert args.attention_mask is False
+    assert args.interpolate_pretrained_attention_bias is True
+    assert args.attention_mask is True
     assert args.attention_shift is False
     assert args.stage3_global is False
     assert args.backbone_freeze_epochs == 10
@@ -1049,6 +1258,8 @@ def test_train_default_model_is_csl_tinyvit_11m(monkeypatch):
     assert args.center_loss_ramp_end_epoch == 0
     assert args.drop_global_aux is False
     assert args.drop_global_aux_ratio == 0.25
+    assert args.flip_tta is False
+    assert args.epochs == 200
     assert args.seed == 0
     assert args.deterministic is True
 
@@ -1067,15 +1278,21 @@ def test_train_csl_tinyvit_11m_recipe_is_normal_model(monkeypatch):
     args = captured["args"]
     assert args.model == "csl_tinyvit_11m"
     assert args.head_pool == "gelu_gem"
-    assert args.head_parts == (1, 2)
+    assert args.head_parts == (1, 2, 4)
     assert args.metric_feature == "raw_concat"
     assert args.inference_feature == "norm_concat_bn"
-    assert args.feature_fusion == "last2"
+    assert args.feature_fusion == "global_final_parts_stage0_semantic_fine_reference"
+    assert args.pyramid_resize_mode == "bilinear"
+    assert args.spatial_conv_mode == "standard"
+    assert args.scale_balanced_branches is True
+    assert args.p_ids == 8
+    assert args.k_instances == 8
     assert args.post_fusion_mixer == "none"
     assert args.drop_global_aux is False
-    assert args.attention_window_layout == "legacy"
+    assert args.attention_window_layout == "rect"
     assert args.attention_bias == "absolute"
-    assert args.attention_mask is False
+    assert args.interpolate_pretrained_attention_bias is True
+    assert args.attention_mask is True
     assert args.attention_shift is False
     assert args.stage3_global is False
     assert args.branch_aware_metric is False
@@ -1086,6 +1303,7 @@ def test_train_csl_tinyvit_11m_recipe_is_normal_model(monkeypatch):
     assert args.gradual_unfreeze_stage_epochs == 0
     assert args.gradual_unfreeze_backbone_lr_mult == 1.0
     assert args.gradual_unfreeze_backbone_lr_epochs == 0
+    assert args.flip_tta is False
     assert args.early_id_loss_weight == 0.0
     assert args.early_id_loss_epochs == 0
     assert args.center_loss_ramp_start_epoch == 0
