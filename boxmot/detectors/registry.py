@@ -1,26 +1,44 @@
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 
-import yaml
-
-from boxmot.utils import BENCHMARK_CONFIGS
+from boxmot.detectors.config import (
+    detector_config_to_runtime,
+    iter_detector_config_paths,
+    load_detector_config,
+)
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.config import ConfigurationError
 
 checker = RequirementsChecker()
 
-ULTRALYTICS_MODELS = {"yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "yolo26", "sam"}
-RTDETR_MODELS = {"rtdetr_v2_r50vd", "rtdetr_v2_r18vd", "rtdetr_v2_r101vd"}
-YOLOX_MODELS = {"yolox_n", "yolox_s", "yolox_m", "yolox_l", "yolox_x"}
-
-# Suffixes/keywords that indicate a segmentation (mask-producing) model
-_SEG_MARKERS = {"-seg", "_seg", "seg."}
+ULTRALYTICS_MODELS = ("yolov8", "yolov9", "yolov10", "yolo11", "yolo12", "yolo26", "sam")
+RTDETR_MODELS = ("rtdetr_v2_r50vd", "rtdetr_v2_r18vd", "rtdetr_v2_r101vd")
+YOLOX_MODELS = ("yolox_n", "yolox_s", "yolox_m", "yolox_l", "yolox_x")
 
 
-def _check_model(name, markers):
-    """Check if model name contains any of the markers."""
-    return any(marker in str(name) for marker in markers)
+@dataclass(frozen=True)
+class DetectorBackendSpec:
+    """Lazy import and optional-dependency metadata for one detector family."""
+
+    matches: Callable[[str | Path], bool]
+    module: str
+    class_name: str
+    requirements: tuple[str, ...] = ()
+    requirement_args: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+
+def _model_name(name: str | Path) -> str:
+    """Return a case-insensitive filename for family routing."""
+    return Path(str(name)).name.lower()
+
+
+def _check_model(name: str | Path, markers: tuple[str, ...]) -> bool:
+    return any(marker in _model_name(name) for marker in markers)
 
 
 def is_seg_model(name) -> bool:
@@ -30,7 +48,7 @@ def is_seg_model(name) -> bool:
     Segmentation: yolo11n-seg.pt, yolov8l-seg.pt
     """
     stem = Path(str(name)).stem.lower()
-    return any(marker in stem or stem.endswith(marker.rstrip(".")) for marker in _SEG_MARKERS)
+    return "-seg" in stem or "_seg" in stem
 
 
 def _detector_name_key(name) -> str:
@@ -38,137 +56,121 @@ def _detector_name_key(name) -> str:
     return Path(str(name)).stem.lower().replace("-", "").replace("_", "")
 
 
-def is_ultralytics_model(yolo_name):
-    return _check_model(yolo_name, ULTRALYTICS_MODELS)
+def is_ultralytics_model(model: str | Path) -> bool:
+    return _check_model(model, ULTRALYTICS_MODELS)
 
 
-def is_yolox_model(yolo_name):
-    return _check_model(yolo_name, YOLOX_MODELS)
+def is_yolox_model(model: str | Path) -> bool:
+    return _check_model(model, YOLOX_MODELS)
 
 
-def is_rtdetr_model(yolo_name):
-    return _check_model(yolo_name, RTDETR_MODELS)
+def is_rtdetr_model(model: str | Path) -> bool:
+    return _check_model(model, RTDETR_MODELS)
 
 
-def resolve_detector_cfg_path(yolo_name):
-    """Return the detector-config YAML path whose detector model matches ``yolo_name``."""
-    model_key = _detector_name_key(yolo_name)
+DETECTOR_BACKENDS = (
+    DetectorBackendSpec(
+        matches=is_yolox_model,
+        module="boxmot.detectors.yolox",
+        class_name="YoloXDetector",
+        requirements=("yolox", "tabulate", "thop"),
+        requirement_args={"yolox": ("--no-deps",)},
+    ),
+    DetectorBackendSpec(
+        matches=is_ultralytics_model,
+        module="boxmot.detectors.ultralytics",
+        class_name="UltralyticsDetector",
+    ),
+    DetectorBackendSpec(
+        matches=is_rtdetr_model,
+        module="boxmot.detectors.rtdetr",
+        class_name="RTDetrDetector",
+        requirements=("transformers[torch]", "timm"),
+    ),
+)
+
+
+def _matching_detector_configs(model: str | Path) -> list[tuple[Path, dict, str]]:
+    """Return validated detector profiles/checkpoints matching a model stem."""
+    model_key = _detector_name_key(model)
     if not model_key:
-        return None
+        return []
 
-    matches: list[Path] = []
-    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
+    matches: list[tuple[Path, dict, str]] = []
+    for config_path in iter_detector_config_paths():
         try:
-            with open(cfg_path, "r") as handle:
-                cfg = yaml.safe_load(handle) or {}
-        except Exception:
+            config = load_detector_config(config_path)
+        except (ConfigurationError, FileNotFoundError, OSError):
             continue
-        detector_cfg = cfg.get("detector")
-        if not isinstance(detector_cfg, dict):
-            continue
-        detector_model = detector_cfg.get("model") or detector_cfg.get("default_model")
-        if detector_model and _detector_name_key(detector_model) == model_key:
-            matches.append(cfg_path)
-
-    if matches:
-        return matches[0]
-
-    return None
+        for checkpoint_name, checkpoint in config["checkpoints"].items():
+            if _detector_name_key(checkpoint["path"]) == model_key:
+                matches.append((config_path, config, checkpoint_name))
+    return matches
 
 
-def load_detector_cfg(yolo_name):
+def resolve_detector_cfg_path(model: str | Path) -> Path | None:
+    """Return the detector profile whose checkpoint model matches ``model``."""
+    matches = _matching_detector_configs(model)
+    return matches[0][0] if matches else None
+
+
+def load_detector_cfg(model: str | Path) -> dict:
     """Load a detector config matching the detector model stem."""
-    cfg_path = resolve_detector_cfg_path(yolo_name)
-    if cfg_path is None:
+    matches = _matching_detector_configs(model)
+    if not matches:
         return {}
-
-    with open(cfg_path, "r") as handle:
-        cfg = yaml.safe_load(handle) or {}
-    if not isinstance(cfg, dict):
-        return {}
-
-    if isinstance(cfg.get("detector"), dict):
-        detector_cfg = dict(cfg["detector"])
-        detector_cfg.setdefault("id", detector_cfg.get("id") or f"{Path(cfg_path).stem}_detector")
-        return detector_cfg
-
-    return dict(cfg)
+    _, config, checkpoint_name = matches[0]
+    return detector_config_to_runtime(config, checkpoint_name)
 
 
-def get_detector_url(yolo_name):
+def get_detector_url(model: str | Path) -> str | None:
     """Return the configured detector download URL for a detector model, if any."""
-    detector_cfg = load_detector_cfg(yolo_name)
-    model_url = detector_cfg.get("model_url") or detector_cfg.get("url")
+    model_url = load_detector_cfg(model).get("model_url")
     return str(model_url) if model_url else None
 
 
-def get_runtime_detector_cfg(yolo_name, detector_cfg=None):
+def get_runtime_detector_cfg(model: str | Path, detector_cfg: dict | None = None) -> dict:
     """Return runtime detector settings, letting detector-config defaults override benchmark values."""
     runtime_cfg = dict(detector_cfg) if isinstance(detector_cfg, dict) else {}
-    model_cfg = load_detector_cfg(yolo_name)
+    model_cfg = load_detector_cfg(model)
     if model_cfg:
         runtime_cfg.update(model_cfg)
     return runtime_cfg
 
 
-def default_imgsz(yolo_name):
+def default_imgsz(model: str | Path) -> list[int]:
     """Return the detector fallback image size when no benchmark config is active."""
-    detector_cfg = load_detector_cfg(yolo_name)
+    detector_cfg = load_detector_cfg(model)
     if "imgsz" in detector_cfg:
         return list(detector_cfg["imgsz"])
-    if is_yolox_model(yolo_name):
+    if is_yolox_model(model):
         return [1080, 1920]
     return [640, 640]
 
 
-def default_conf(yolo_name):
+def default_conf(model: str | Path) -> float:
     """Return the detector fallback confidence threshold when no benchmark config is active."""
-    detector_cfg = load_detector_cfg(yolo_name)
+    detector_cfg = load_detector_cfg(model)
     if "conf" in detector_cfg:
         return float(detector_cfg["conf"])
     return 0.01
 
 
-def get_detector_class(yolo_model):
+def get_detector_class(model: str | Path):
     """Return the detector backend class that matches the provided model reference."""
-    model_name = str(yolo_model)
+    model_name = str(model)
 
-    detectors = [
-        (
-            is_yolox_model,
-            ("yolox", "tabulate", "thop"),
-            {"yolox": ["--no-deps"]},
-            "boxmot.detectors.yolox",
-            "YoloXDetector",
-        ),
-        (
-            is_ultralytics_model,
-            (),
-            {},
-            "boxmot.detectors.ultralytics",
-            "UltralyticsDetector",
-        ),
-        (
-            is_rtdetr_model,
-            ("transformers[torch]", "timm"),
-            {},
-            "boxmot.detectors.rtdetr",
-            "RTDetrDetector",
-        ),
-    ]
-
-    for check_func, packages, extra_args, module_path, class_name in detectors:
-        if check_func(model_name):
-            for package in packages:
+    for backend in DETECTOR_BACKENDS:
+        if backend.matches(model_name):
+            for package in backend.requirements:
                 try:
                     pkg_name = package.split("[")[0].split("=")[0]
                     __import__(pkg_name)
                 except ImportError:
-                    args = extra_args.get(pkg_name, [])
+                    args = backend.requirement_args.get(pkg_name, ())
                     checker.check_packages((package,), extra_args=args)
 
-            module = __import__(module_path, fromlist=[class_name])
-            return getattr(module, class_name)
+            return getattr(import_module(backend.module), backend.class_name)
 
     LOGGER.error(f"Failed to infer inference mode from yolo model name: {model_name}")
     LOGGER.error("Supported models must contain one of the following:")
@@ -177,7 +179,8 @@ def get_detector_class(yolo_model):
     LOGGER.error(f"  YOLOX: {YOLOX_MODELS}")
     LOGGER.error(
         "By using these names, the default COCO-trained models will be downloaded automatically. "
-        "For custom models, the filename must include one of these substrings to route it to the correct package and architecture."
+        "For custom models, the filename must include one of these substrings to route it to the "
+        "correct package and architecture."
     )
     raise SystemExit(1)
 

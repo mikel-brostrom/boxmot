@@ -1,90 +1,99 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
+from collections.abc import Iterable
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
 import torch
 from PIL import Image
-from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
 
-from boxmot.detectors.base import BaseDetectorBackend, Detections
+from boxmot.detectors.base import BaseDetectorBackend, Detections, as_numpy, ensure_image_batch, filter_detections
 from boxmot.utils import logger as LOGGER
 
 
-class RTDetrDetector(BaseDetectorBackend):
+def _transformers_classes():
+    """Import the optional RT-DETR dependencies only when this backend is built."""
+    from transformers import RTDetrImageProcessor, RTDetrV2ForObjectDetection
 
-    pt = False
-    stride = 32
-    fp16 = False
-    triton = False
+    return RTDetrImageProcessor, RTDetrV2ForObjectDetection
+
+
+class RTDetrDetector(BaseDetectorBackend):
+    """Hugging Face RT-DETR v2 backend with a batch-preserving staged pipeline."""
+
     ch = 3
 
-    def __init__(self, model, device, args=None, imgsz=None):
-        # args/imgsz accepted for a consistent constructor signature; RTDetr uses its own processor
+    def __init__(self, model: str | Path, device: str | torch.device, imgsz: Any = None) -> None:
         self.device = device
+        self.imgsz = imgsz  # RT-DETR's image processor owns resize policy.
+        self.model_id = self._model_id(model)
 
-        model = Path(str(model)).name
-        while model.endswith(".pt"):
-            model = model[:-3]
-        if not model.startswith("PekingU/"):
-            model = f"PekingU/{model}"
+        LOGGER.info(f"Loading RT-DETR model: {self.model_id}")
+        processor_class, model_class = _transformers_classes()
+        self.image_processor = processor_class.from_pretrained(self.model_id)
+        self.model = model_class.from_pretrained(self.model_id).to(device).eval()
+        self.names = dict(self.model.config.id2label)
+        self._images: list[np.ndarray] = []
+        self._target_sizes: torch.Tensor | None = None
 
-        LOGGER.info(f"Loading RTDetr model: {model}")
+    @staticmethod
+    def _model_id(model: str | Path) -> str:
+        model_reference = str(model)
+        while model_reference.lower().endswith(".pt"):
+            model_reference = model_reference[:-3]
+        if model_reference.startswith("PekingU/"):
+            return model_reference
+        return f"PekingU/{Path(model_reference).name}"
 
-        self.image_processor = RTDetrImageProcessor.from_pretrained(model)
-        self.model = RTDetrV2ForObjectDetection.from_pretrained(model).to(device)
-        self.names = self.model.config.id2label
-        self._im0s = []
-
-    def preprocess(self, images: list):
-        """Convert BGR numpy images to PIL RGB and run image_processor."""
-        assert isinstance(images, list)
-        self._im0s = images
-        pil_images = [Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB)) for img in images]
-        self._sizes = torch.tensor([(img.height, img.width) for img in pil_images], device=self.device)
+    def preprocess(self, images: list[np.ndarray], **kwargs: Any) -> Any:
+        """Convert BGR arrays to RGB PIL images and build processor inputs."""
+        self._images = ensure_image_batch(images)
+        pil_images = [Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)) for image in self._images]
+        self._target_sizes = torch.tensor(
+            [(image.height, image.width) for image in pil_images],
+            device=self.device,
+        )
         return self.image_processor(images=pil_images, return_tensors="pt").to(self.device)
 
-    @torch.no_grad()
-    def process(self, preprocessed) -> torch.Tensor:
-        """
-        Run RT-DETR inference on preprocessed inputs.
-        Returns raw detections tensor of shape (B, N, 6): [x1, y1, x2, y2, conf, cls].
-        """
-        outputs = self.model(**preprocessed)
+    @torch.inference_mode()
+    def process(self, preprocessed: Any, **kwargs: Any) -> Any:
+        """Run the model forward pass without mixing images in the batch."""
+        return self.model(**preprocessed)
 
-        # threshold=0.0: collect all; conf filtering happens in postprocess
-        results = self.image_processor.post_process_object_detection(
-            outputs,
-            target_sizes=self._sizes,
+    def postprocess(
+        self,
+        predictions: Any,
+        conf: float = 0.25,
+        iou: float = 0.7,
+        classes: int | Iterable[int] | None = None,
+        agnostic_nms: bool = False,
+        **kwargs: Any,
+    ) -> list[Detections]:
+        """Decode, filter, and preserve one result for every input image."""
+        if self._target_sizes is None:
+            raise RuntimeError("RT-DETR postprocess called before preprocess.")
+
+        decoded = self.image_processor.post_process_object_detection(
+            predictions,
+            target_sizes=self._target_sizes,
             threshold=0.0,
         )
+        if len(decoded) != len(self._images):
+            raise ValueError(f"RT-DETR decoded {len(decoded)} results for {len(self._images)} input images.")
 
-        detections = []
-        for r in results:
-            for box, score, label in zip(r["boxes"], r["scores"], r["labels"]):
-                detections.append([*box.cpu().tolist(), score.item(), float(label.item())])
-
-        if not detections:
-            return torch.zeros((1, 0, 6), device=self.device)
-
-        return torch.tensor(detections, device=self.device).unsqueeze(0)
-
-    def postprocess(self, detections, conf, classes, **kwargs) -> list:
-        results = []
-        for i, det in enumerate(detections):
-            orig_img = self._im0s[i] if i < len(self._im0s) else None
-
-            if det is None or len(det) == 0:
-                results.append(Detections(dets=np.empty((0, 6)), orig_img=orig_img, names=self.names))
-                continue
-
-            det_np = det.cpu().numpy() if isinstance(det, torch.Tensor) else det
-            det_np = det_np[det_np[:, 4] >= conf]
-
-            if classes:
-                det_np = det_np[np.isin(det_np[:, 5].astype(int), classes)]
-
-            results.append(Detections(dets=det_np, orig_img=orig_img, names=self.names))
-
+        results: list[Detections] = []
+        for image, result in zip(self._images, decoded):
+            boxes = as_numpy(result["boxes"]).reshape(-1, 4)
+            scores = as_numpy(result["scores"]).reshape(-1, 1)
+            labels = as_numpy(result["labels"]).reshape(-1, 1)
+            detections = np.concatenate((boxes, scores, labels), axis=1)
+            detections = filter_detections(detections, confidence=conf, classes=classes)
+            results.append(Detections(dets=detections, orig_img=image, names=self.names))
         return results
+
+
+__all__ = ("RTDetrDetector",)

@@ -4,9 +4,9 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from boxmot.detectors.base import Detections
-    from boxmot.detectors.detector import Detector
-    from boxmot.detectors.registry import (
+    from boxmot.detectors.base import Detections  # noqa: F401
+    from boxmot.detectors.detector import Detector  # noqa: F401
+    from boxmot.detectors.registry import (  # noqa: F401
         default_conf,
         default_imgsz,
         get_detector_class,
