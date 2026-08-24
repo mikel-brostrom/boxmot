@@ -103,9 +103,10 @@ class OptunaBackend(BaseTuneBackend):
         if self.seed is not None:
             kwargs["seed"] = self.seed
 
-        baseline = self.baseline_config
-        if baseline is None:
-            baseline = default_tune_config(self.yaml_cfg) or None
+        baseline = default_tune_config(
+            self.yaml_cfg,
+            defaults=self.baseline_config,
+        ) or None
         if baseline:
             kwargs["points_to_evaluate"] = [baseline]
 

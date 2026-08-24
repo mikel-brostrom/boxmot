@@ -9,6 +9,7 @@ import click
 from boxmot.engine.tuning.backends.base import BaseTuneBackend
 from boxmot.engine.tuning.search_space import (
     conditional_yaml_tree,
+    default_tune_config,
     flatten_yaml_config,
     is_valid_search_param,
 )
@@ -187,10 +188,13 @@ class HyperOptBackend(BaseTuneBackend):
         if child_params:
             return None
 
-        baseline: dict[str, Any] = {}
-        for param, details in flat.items():
-            if not isinstance(details, dict) or "default" not in details:
-                continue
-            baseline[param] = details["default"]
+        source = self.baseline_config
+        if source is None:
+            source = default_tune_config(self.yaml_cfg, unconditional=True)
+        baseline = {
+            param: source[param]
+            for param in flat
+            if param in source
+        }
 
         return baseline if baseline else None

@@ -1,38 +1,23 @@
 """YAML config parsing and search-space helpers shared across all backends."""
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-import yaml
 
-from boxmot.utils import TRACKER_CONFIGS
+from boxmot.trackers.config import load_tracker_defaults, load_tracker_schema
 from boxmot.utils import logger as LOGGER
-
 
 # ---------------------------------------------------------------------------
 # YAML loading
 # ---------------------------------------------------------------------------
 
 def load_yaml_config(tracker_name: str) -> dict:
-    config_path = TRACKER_CONFIGS / f"{tracker_name}.yaml"
-    if not config_path.exists():
-        available = sorted(p.stem for p in TRACKER_CONFIGS.glob("*.yaml"))
-        raise FileNotFoundError(
-            f"Tracker config not found: {config_path}\n"
-            f"Available trackers: {', '.join(available) or '(none)'}"
-        )
-    try:
-        with open(config_path, "r") as file:
-            cfg = yaml.safe_load(file)
-    except yaml.YAMLError as exc:
-        raise ValueError(
-            f"Failed to parse tracker config {config_path}: {exc}"
-        ) from exc
-    if not isinstance(cfg, dict) or not cfg:
-        raise ValueError(
-            f"Tracker config {config_path} is empty or not a valid YAML mapping."
-        )
+    """Load and validate the tuning metadata from a combined tracker YAML."""
+
+    cfg = load_tracker_schema(tracker_name)
+    validate_tuning_config(tracker_name, cfg)
     return cfg
 
 
@@ -133,6 +118,29 @@ def is_valid_search_param(param: str, details: dict, *, warn: bool = True) -> bo
     return False
 
 
+def validate_tuning_config(tracker_name: str, config: dict) -> None:
+    """Validate that search metadata is complete and targets runtime parameters."""
+    flat = flatten_yaml_config(config)
+    runtime_keys = set(load_tracker_defaults(tracker_name))
+    unknown = sorted(set(flat) - runtime_keys)
+    if unknown:
+        raise ValueError(
+            f"Tuning config for {tracker_name} contains parameters absent from its runtime defaults: "
+            f"{', '.join(unknown)}"
+        )
+
+    allowed_fields = {"type", "default", "range", "options", "values", "activates"}
+    for param, details in flat.items():
+        if not is_valid_search_param(param, details, warn=False):
+            raise ValueError(f"Tuning config for {tracker_name} has invalid search metadata for {param!r}.")
+        unsupported = sorted(set(details) - allowed_fields)
+        if unsupported:
+            raise ValueError(
+                f"Tuning config for {tracker_name} has unsupported metadata for {param!r}: "
+                f"{', '.join(unsupported)}"
+            )
+
+
 # ---------------------------------------------------------------------------
 # Flat Ray Tune search space (used by HyperOpt and random backends)
 # ---------------------------------------------------------------------------
@@ -146,7 +154,9 @@ def yaml_to_tune_space(config: dict, tune) -> dict:
     space = {}
     for param, details in flat.items():
         if not isinstance(details, dict):
-            LOGGER.warning(f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}")
+            LOGGER.warning(
+                f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}"
+            )
             continue
         t = details.get("type")
         rng = details.get("range")
@@ -196,51 +206,58 @@ def default_tune_config(
     yaml_cfg: dict,
     search_space: dict | None = None,
     *,
+    defaults: Mapping[str, Any] | None = None,
     unconditional: bool = False,
 ) -> dict[str, Any]:
-    """Return a flat default point.
+    """Return a flat baseline point for the selected search parameters.
 
     By default, children of inactive parents are excluded (Optuna mode).
     Set ``unconditional=True`` to include all defaults regardless of parent
-    state (needed for flat search spaces like HyperOpt/random).
+    state (needed for flat search spaces like HyperOpt/random). Defaults are
+    read from the combined tracker YAML; ``defaults`` may override them for a
+    selected runtime preset or caller-provided baseline.
     """
     flat = flatten_yaml_config(yaml_cfg)
     parents_with_children, child_params, child_to_parent = conditional_yaml_tree(yaml_cfg)
     keys = list(search_space) if search_space is not None else list(flat)
+    runtime_defaults = dict(defaults or {})
+
+    def _default_value(param: str) -> tuple[bool, Any]:
+        if param in runtime_defaults:
+            return True, runtime_defaults[param]
+        details = flat.get(param)
+        if isinstance(details, dict) and "default" in details:
+            return True, details["default"]
+        return False, None
 
     def _active_by_default(param: str) -> bool:
         parent = child_to_parent.get(param)
         while parent is not None:
-            parent_details = flat.get(parent, {})
-            parent_default = (
-                parent_details.get("default")
-                if isinstance(parent_details, dict)
-                else None
-            )
+            _, parent_default = _default_value(parent)
             if not bool(parent_default):
                 return False
             parent = child_to_parent.get(parent)
         return True
 
-    defaults: dict[str, Any] = {}
+    baseline: dict[str, Any] = {}
     for param in keys:
-        details = flat.get(param)
-        if not isinstance(details, dict) or "default" not in details:
+        has_default, value = _default_value(param)
+        if not has_default:
             continue
 
         if not unconditional and param in child_params and not _active_by_default(param):
             continue
 
-        defaults[param] = details["default"]
+        baseline[param] = value
 
     # Ensure parent defaults are present even if the search-space key set came
     # from a backend-specific representation.
     for parent in parents_with_children:
-        details = flat.get(parent)
-        if isinstance(details, dict) and "default" in details and parent not in defaults:
-            defaults[parent] = details["default"]
+        has_default, value = _default_value(parent)
+        if has_default and parent not in baseline:
+            baseline[parent] = value
 
-    return defaults
+    return baseline
 
 
 # ---------------------------------------------------------------------------

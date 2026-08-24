@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import yaml
 from rich.markup import escape as _escape_markup
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config, normalize_trial_config
@@ -68,55 +69,26 @@ def find_pareto_front(rows: list, maximize: list, minimize: list) -> list:
     return pareto
 
 
-# ---------------------------------------------------------------------------
-# YAML writing
-# ---------------------------------------------------------------------------
+def write_trial_yaml(
+    yaml_cfg: dict,
+    config: dict,
+    path: Path,
+    *,
+    base_config: dict | None = None,
+):
+    """Write a reusable scalar tracker config for one tuning trial.
 
-def _format_yaml_value(v):
-    """Format a value for YAML output, preserving Python-style bools and flow-style lists."""
-    if isinstance(v, bool):
-        return str(v)
-    if isinstance(v, float):
-        return str(v)
-    if isinstance(v, int):
-        return str(v)
-    if isinstance(v, list):
-        return "[" + ", ".join(_format_yaml_value(x) for x in v) + "]"
-    if v == "":
-        return '""'
-    return str(v)
+    Search metadata is deliberately excluded. When supplied, ``base_config``
+    provides the full runtime config and the trial values overlay it.
+    """
 
-
-def write_trial_yaml(yaml_cfg: dict, config: dict, path: Path):
-    """Write a YAML config with ``default`` values replaced by trial values."""
-    known_keys = ("type", "default", "range", "options", "choices", "values")
-
-    def _append_entries(entries: dict, lines: list[str], *, indent: int) -> None:
-        prefix = " " * indent
-        child_prefix = " " * (indent + 2)
-        for param, details in entries.items():
-            if not isinstance(details, dict):
-                lines.append(f"{prefix}{param}: {_format_yaml_value(details)}")
-                continue
-
-            lines.append(f"{prefix}{param}:")
-            for key in known_keys:
-                if key not in details:
-                    continue
-                value = config[param] if key == "default" and param in config else details[key]
-                lines.append(f"{child_prefix}{key}: {_format_yaml_value(value)}")
-
-            children = details.get("activates")
-            if isinstance(children, dict):
-                lines.append(f"{child_prefix}activates:")
-                _append_entries(children, lines, indent=indent + 4)
-
-            if indent == 0:
-                lines.append("")
-
-    lines: list[str] = []
-    _append_entries(yaml_cfg, lines, indent=0)
-    path.write_text("\n".join(lines))
+    del yaml_cfg  # retained in the public signature for tuning callers
+    resolved = normalize_trial_config(base_config)
+    resolved.update(normalize_trial_config(config))
+    path.write_text(
+        yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -310,7 +282,7 @@ def generate_summary(
     lines.append(f"| {metric_header} |")
     lines.append(f"| {metric_sep} |")
     lines.append(f"| {metric_vals} |")
-    lines.append(f"\nConfig saved to: `best_{tracker_name}.yaml`\n")
+    lines.append("\nConfig saved to: `best.yaml`\n")
 
     # Pareto Front
     if is_pareto:
@@ -413,6 +385,7 @@ def save_all_results(
     minimize: list,
     args,
     *,
+    base_config: dict | None = None,
     emit_logs: bool = True,
 ) -> dict | None:
     """Post-processing after tuner.fit(): per-trial YAMLs, CSV, best config, summary."""
@@ -429,7 +402,7 @@ def save_all_results(
         if trial_dir.exists():
             try:
                 yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
-                write_trial_yaml(yaml_cfg, td["config"], yaml_path)
+                write_trial_yaml(yaml_cfg, td["config"], yaml_path, base_config=base_config)
             except OSError as exc:
                 LOGGER.debug(f"Failed to write trial YAML for {td['trial_id']}: {exc}")
 
@@ -447,9 +420,9 @@ def save_all_results(
     best = best_trial_data(trial_data, maximize=maximize, minimize=minimize)
     if best is None:
         return None
-    best_yaml_path = tune_dir / f"best_{tracker_name}.yaml"
+    best_yaml_path = tune_dir / "best.yaml"
     try:
-        write_trial_yaml(yaml_cfg, best["config"], best_yaml_path)
+        write_trial_yaml(yaml_cfg, best["config"], best_yaml_path, base_config=base_config)
         if emit_logs:
             LOGGER.info(f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]")
     except OSError as exc:

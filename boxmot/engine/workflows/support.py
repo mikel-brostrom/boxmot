@@ -7,22 +7,23 @@ from typing import Any
 from urllib.parse import urlparse
 
 import cv2
-import yaml
 
-from boxmot.configs import BOXMOT_DEFAULTS
 from boxmot.data import VIDEO_EXTS
 from boxmot.detectors import Detector as PublicDetector
-from boxmot.engine.tuning.search_space import flatten_yaml_config
+from boxmot.engine.config import BOXMOT_DEFAULTS
 from boxmot.native import get_native_live_backend
 from boxmot.reid import ReID as PublicReID
-from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
+from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.registry import (
     REID_TRACKERS as REGISTERED_REID_TRACKERS,
+)
+from boxmot.trackers.registry import (
     TRACKER_CLASS_TO_NAME,
     TRACKER_MAPPING,
     create_tracker,
     get_tracker_config,
 )
+from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.utils.misc import increment_path, resolve_model_path
 from boxmot.utils.torch_utils import select_device
 
@@ -228,35 +229,26 @@ def tracker_config_from_spec(spec: Any) -> dict[str, Any] | None:
     if tracker_name is None:
         return None
 
-    with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-        config = yaml.safe_load(handle) or {}
-    flat_config = flatten_yaml_config(config)
-
-    resolved: dict[str, Any] = {}
-    for key, details in flat_config.items():
+    resolved = load_tracker_defaults(tracker_name)
+    for key in tuple(resolved):
         if hasattr(spec, key):
             resolved[key] = getattr(spec, key)
-        else:
-            resolved[key] = details.get("default")
     return resolved
 
 
 def load_tracker_search_space(tracker_spec: Any) -> dict[str, Any]:
+    from boxmot.engine.tuning.search_space import load_yaml_config
+
     tracker_name = tracker_name_from_spec(tracker_spec, required=True)
-    with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-        return yaml.safe_load(handle) or {}
+    return load_yaml_config(tracker_name)
 
 
 def default_tracker_config(tracker_spec: Any) -> dict[str, Any]:
     existing = tracker_config_from_spec(tracker_spec)
     if existing is not None:
         return existing
-    search_space = load_tracker_search_space(tracker_spec)
-    flat_search_space = flatten_yaml_config(search_space)
-    return {
-        key: details.get("default")
-        for key, details in flat_search_space.items()
-    }
+    tracker_name = tracker_name_from_spec(tracker_spec, required=True)
+    return load_tracker_defaults(tracker_name)
 
 
 
@@ -368,6 +360,7 @@ def build_tracker_from_spec(
     reid_weights=None,
     reid_model=None,
     reid_preprocess: str | None = None,
+    per_class: bool = False,
     class_ids: tuple[int, ...] | None = None,
     class_names: dict[int, str] | None = None,
     tracker_kwargs: Mapping[str, Any] | None = None,
@@ -388,6 +381,11 @@ def build_tracker_from_spec(
             default=resolved_backend or "python",
         )
     if resolved_backend == "cpp":
+        if per_class:
+            raise NotImplementedError(
+                "Native live trackers do not yet provide class-separated state. "
+                "Use tracker_backend='python' with per_class=True."
+            )
         native_backend = get_native_live_backend(tracker_name)
         native_kwargs: dict[str, Any] = {
             "reid_weights": reid_weights,
@@ -400,10 +398,13 @@ def build_tracker_from_spec(
             native_kwargs["reid_device"] = str(device) if device else None
         native_config = default_tracker_config(spec)
         native_config.update(runtime_kwargs)
-        return native_backend.create_tracker(
+        tracker = native_backend.create_tracker(
             native_config,
             **native_kwargs,
         )
+        if hasattr(tracker, "configure_class_catalog"):
+            tracker.configure_class_catalog(class_ids=class_ids, class_names=class_names)
+        return tracker
 
     return create_tracker(
         tracker_type=tracker_name,
@@ -411,7 +412,7 @@ def build_tracker_from_spec(
         reid_weights=reid_weights,
         device=select_device(device),
         half=half,
-        per_class=False,
+        per_class=per_class,
         class_ids=class_ids,
         class_names=class_names,
         tracker_kwargs=runtime_kwargs,
