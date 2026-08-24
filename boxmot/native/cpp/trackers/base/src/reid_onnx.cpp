@@ -8,16 +8,290 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
+#include <fstream>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace boxmot::trackers::base {
 
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+
+// ONNX uses protobuf, but the native tracker intentionally does not depend on
+// the ONNX protobuf library. This small, bounds-checked reader extracts only
+// ModelProto.graph.input[*].type.tensor_type.shape. Unknown fields are skipped
+// according to the protobuf wire format, so it remains compatible with newer
+// ONNX producers.
+struct ProtoField {
+    std::uint32_t number = 0;
+    std::uint32_t wire_type = 0;
+    std::uint64_t varint = 0;
+    std::string_view bytes;
+};
+
+class ProtoReader {
+public:
+    explicit ProtoReader(std::string_view data)
+        : cursor_(reinterpret_cast<const std::uint8_t*>(data.data())),
+          end_(cursor_ + data.size()) {}
+
+    bool Next(ProtoField& field) {
+        if (cursor_ == end_) {
+            return false;
+        }
+
+        const std::uint64_t key = ReadVarint();
+        field = ProtoField{};
+        field.number = static_cast<std::uint32_t>(key >> 3U);
+        field.wire_type = static_cast<std::uint32_t>(key & 0x07U);
+        if (field.number == 0) {
+            throw std::runtime_error("Invalid zero field number in ONNX protobuf.");
+        }
+
+        switch (field.wire_type) {
+            case 0:
+                field.varint = ReadVarint();
+                break;
+            case 1:
+                Skip(8);
+                break;
+            case 2: {
+                const std::uint64_t length = ReadVarint();
+                if (length > static_cast<std::uint64_t>(end_ - cursor_)) {
+                    throw std::runtime_error("Truncated length-delimited ONNX protobuf field.");
+                }
+                field.bytes = std::string_view(
+                    reinterpret_cast<const char*>(cursor_),
+                    static_cast<std::size_t>(length));
+                cursor_ += static_cast<std::ptrdiff_t>(length);
+                break;
+            }
+            case 5:
+                Skip(4);
+                break;
+            default:
+                throw std::runtime_error("Unsupported ONNX protobuf wire type.");
+        }
+        return true;
+    }
+
+private:
+    std::uint64_t ReadVarint() {
+        std::uint64_t value = 0;
+        for (int shift = 0; shift < 64; shift += 7) {
+            if (cursor_ == end_) {
+                throw std::runtime_error("Truncated ONNX protobuf varint.");
+            }
+            const std::uint8_t byte = *cursor_++;
+            value |= static_cast<std::uint64_t>(byte & 0x7FU) << shift;
+            if ((byte & 0x80U) == 0) {
+                return value;
+            }
+        }
+        throw std::runtime_error("Oversized ONNX protobuf varint.");
+    }
+
+    void Skip(std::ptrdiff_t count) {
+        if (count < 0 || count > end_ - cursor_) {
+            throw std::runtime_error("Truncated fixed-width ONNX protobuf field.");
+        }
+        cursor_ += count;
+    }
+
+    const std::uint8_t* cursor_;
+    const std::uint8_t* end_;
+};
+
+struct OnnxInputSpec {
+    cv::Size size;
+    int batch_size = 0;  // 0 means dynamic
+};
+
+std::int64_t ParseDimension(std::string_view message) {
+    ProtoReader reader(message);
+    ProtoField field;
+    while (reader.Next(field)) {
+        if (field.number == 1 && field.wire_type == 0) {
+            if (field.varint <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())) {
+                const auto value = static_cast<std::int64_t>(field.varint);
+                return value > 0 ? value : -1;
+            }
+            return -1;
+        }
+        if (field.number == 2 && field.wire_type == 2 && !field.bytes.empty()) {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+std::vector<std::int64_t> ParseTensorShape(std::string_view message) {
+    std::vector<std::int64_t> dimensions;
+    ProtoReader reader(message);
+    ProtoField field;
+    while (reader.Next(field)) {
+        if (field.number == 1 && field.wire_type == 2) {
+            dimensions.push_back(ParseDimension(field.bytes));
+        }
+    }
+    return dimensions;
+}
+
+std::vector<std::int64_t> ParseTensorType(std::string_view message) {
+    ProtoReader reader(message);
+    ProtoField field;
+    while (reader.Next(field)) {
+        if (field.number == 2 && field.wire_type == 2) {
+            return ParseTensorShape(field.bytes);
+        }
+    }
+    return {};
+}
+
+std::vector<std::int64_t> ParseValueInfo(std::string_view message) {
+    ProtoReader reader(message);
+    ProtoField field;
+    while (reader.Next(field)) {
+        if (field.number != 2 || field.wire_type != 2) {
+            continue;
+        }
+        ProtoReader type_reader(field.bytes);
+        ProtoField type_field;
+        while (type_reader.Next(type_field)) {
+            if (type_field.number == 1 && type_field.wire_type == 2) {
+                return ParseTensorType(type_field.bytes);
+            }
+        }
+    }
+    return {};
+}
+
+std::optional<std::vector<std::int64_t>> ParseGraphInput(std::string_view message) {
+    ProtoReader reader(message);
+    ProtoField field;
+    while (reader.Next(field)) {
+        if (field.number == 11 && field.wire_type == 2) {
+            std::vector<std::int64_t> shape = ParseValueInfo(field.bytes);
+            if (shape.size() == 4 && (shape[1] == 3 || shape[1] < 0)) {
+                return shape;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+OnnxInputSpec InspectOnnxInput(const fs::path& model_path) {
+    std::ifstream stream(model_path, std::ios::binary | std::ios::ate);
+    if (!stream) {
+        throw std::runtime_error("Failed to open native ReID ONNX model: " + model_path.string());
+    }
+    const std::streampos end = stream.tellg();
+    if (end <= 0) {
+        throw std::runtime_error("Native ReID ONNX model is empty: " + model_path.string());
+    }
+    if (static_cast<std::uintmax_t>(end) > std::numeric_limits<std::size_t>::max()) {
+        throw std::runtime_error("Native ReID ONNX model is too large to inspect.");
+    }
+
+    std::string model(static_cast<std::size_t>(end), '\0');
+    stream.seekg(0, std::ios::beg);
+    if (!stream.read(model.data(), static_cast<std::streamsize>(model.size()))) {
+        throw std::runtime_error("Failed to read native ReID ONNX model: " + model_path.string());
+    }
+
+    ProtoReader reader(model);
+    ProtoField field;
+    std::optional<std::vector<std::int64_t>> shape;
+    while (reader.Next(field)) {
+        if (field.number == 7 && field.wire_type == 2) {
+            shape = ParseGraphInput(field.bytes);
+            break;
+        }
+    }
+    if (!shape.has_value()) {
+        throw std::runtime_error(
+            "Native ReID ONNX model has no rank-4 image input in NCHW layout: " +
+            model_path.string());
+    }
+
+    const auto& dims = *shape;
+    if (dims[1] != 3) {
+        throw std::runtime_error(
+            "Native ReID ONNX input must have three statically-known channels.");
+    }
+    if (dims[2] <= 0 || dims[3] <= 0) {
+        throw std::runtime_error(
+            "Native ReID ONNX input height and width must be static positive dimensions.");
+    }
+    if (dims[2] > std::numeric_limits<int>::max() ||
+        dims[3] > std::numeric_limits<int>::max() ||
+        dims[0] > std::numeric_limits<int>::max()) {
+        throw std::runtime_error("Native ReID ONNX input dimensions exceed supported integer sizes.");
+    }
+
+    OnnxInputSpec spec;
+    spec.size = cv::Size(static_cast<int>(dims[3]), static_cast<int>(dims[2]));
+    spec.batch_size = dims[0] > 0 ? static_cast<int>(dims[0]) : 0;
+    return spec;
+}
+
+double WrapCentered(double angle, double period) {
+    const double half_period = period * 0.5;
+    double wrapped = std::fmod(angle + half_period, period);
+    if (wrapped < 0.0) {
+        wrapped += period;
+    }
+    wrapped -= half_period;
+    if (std::abs(wrapped) <= 1.0e-6) {
+        return 0.0;
+    }
+    return wrapped;
+}
+
+Eigen::Matrix<double, 5, 1> CanonicalizeObbForInput(
+    const Eigen::Matrix<double, 5, 1>& xywha,
+    const cv::Size& input_size
+) {
+    Eigen::Matrix<double, 5, 1> canonical = xywha;
+    double& width = canonical[2];
+    double& height = canonical[3];
+    double& angle = canonical[4];
+    for (int index = 0; index < 5; ++index) {
+        if (!std::isfinite(canonical[index])) {
+            throw std::runtime_error("Native ReID OBB crop coordinates must be finite.");
+        }
+    }
+    if (width <= 0.0 || height <= 0.0) {
+        throw std::runtime_error("Native ReID OBB crop width and height must be positive.");
+    }
+
+    // ReID models are normally portrait, so align the box's longer physical
+    // side with the input tensor's longer axis. A square input deliberately
+    // uses the vertical axis as a deterministic tie-break.
+    const bool target_long_axis_is_vertical = input_size.height >= input_size.width;
+    const bool box_long_axis_is_vertical = height > width;
+    if (target_long_axis_is_vertical != box_long_axis_is_vertical) {
+        std::swap(width, height);
+        angle += kPi * 0.5;
+    }
+
+    constexpr double kSquareRelativeTolerance = 1.0e-3;
+    const bool nearly_square = std::abs(width - height) <=
+        1.0e-6 + kSquareRelativeTolerance * std::abs(height);
+    // Center the undirected rectangle angle around zero. Besides making
+    // equivalent encodings identical, this avoids a 180-degree crop flip
+    // when detector jitter crosses the modulo boundary.
+    angle = WrapCentered(angle, nearly_square ? kPi * 0.5 : kPi);
+    return canonical;
+}
 
 std::string EnvOr(const char* name, const std::string& fallback) {
     const char* value = std::getenv(name);
@@ -113,7 +387,6 @@ OnnxReIdModel::OnnxReIdModel(
     ReIdDevice device
 ) : model_path_(std::move(model_path)),
     preprocess_name_(std::move(preprocess_name)),
-    input_size_(LooksLikeLmbnModel(model_path_) ? cv::Size(128, 384) : cv::Size(128, 256)),
     mean_(0.485, 0.456, 0.406),
     std_(0.229, 0.224, 0.225),
     backend_(ResolveBackend(backend)),
@@ -128,7 +401,11 @@ OnnxReIdModel::OnnxReIdModel(
         throw std::runtime_error("Native ReID currently supports ONNX models only: " + model_path_.string());
     }
 
-    inference_ = MakeReIdInferenceBackend(model_path_, backend_, device_, input_size_);
+    const OnnxInputSpec input_spec = InspectOnnxInput(model_path_);
+    input_size_ = input_spec.size;
+    input_batch_size_ = input_spec.batch_size;
+    inference_ = MakeReIdInferenceBackend(
+        model_path_, backend_, device_, input_size_, input_batch_size_);
     if (!inference_) {
         throw std::runtime_error("Failed to initialise native ReID inference backend.");
     }
@@ -167,27 +444,60 @@ OnnxReIdModel::RawFeatures OnnxReIdModel::Process(const CropBatch& crops) const 
         return raw;
     }
 
-    // The OpenCV DNN backend mishandles N>1 for these exported ReID heads
-    // (collapses batch into the feature dim before the final Gemm), so we
-    // forward each crop individually. The ORT backend does the same to keep
-    // outputs identical across backends.
+    // Dynamic and batch-1 graphs are forwarded crop-by-crop because OpenCV
+    // DNN mishandles N>1 for some exported ReID heads. A graph with a fixed
+    // batch greater than one cannot accept a single crop, so chunks are
+    // zero-padded to that exact batch and only their logical rows are kept.
     const int per_crop_floats = 3 * input_size_.height * input_size_.width;
-    const int dims_single[] = {1, 3, input_size_.height, input_size_.width};
+    const int execution_batch = input_batch_size_ > 0 ? input_batch_size_ : 1;
+    const int dims_execution[] = {
+        execution_batch, 3, input_size_.height, input_size_.width};
 
-    for (std::size_t i = 0; i < crops.count; ++i) {
-        cv::Mat single(4, dims_single, CV_32F,
-                       reinterpret_cast<float*>(crops.blob.data) +
-                           static_cast<std::ptrdiff_t>(i) * per_crop_floats);
-        std::vector<float> feature = inference_->Forward(single);
+    for (std::size_t offset = 0; offset < crops.count;
+         offset += static_cast<std::size_t>(execution_batch)) {
+        const std::size_t logical_count = std::min(
+            static_cast<std::size_t>(execution_batch), crops.count - offset);
+
+        cv::Mat execution_blob;
+        if (execution_batch == 1) {
+            execution_blob = cv::Mat(
+                4, dims_execution, CV_32F,
+                reinterpret_cast<float*>(crops.blob.data) +
+                    static_cast<std::ptrdiff_t>(offset) * per_crop_floats);
+        } else {
+            execution_blob = cv::Mat(4, dims_execution, CV_32F, cv::Scalar(0));
+            const std::size_t logical_floats =
+                logical_count * static_cast<std::size_t>(per_crop_floats);
+            const float* source = reinterpret_cast<const float*>(crops.blob.data) +
+                static_cast<std::ptrdiff_t>(offset) * per_crop_floats;
+            std::copy(source, source + logical_floats,
+                      reinterpret_cast<float*>(execution_blob.data));
+        }
+
+        std::vector<float> feature = inference_->Forward(execution_blob);
+        if (feature.size() % static_cast<std::size_t>(execution_batch) != 0) {
+            throw std::runtime_error(
+                "Native ReID output size is not divisible by the fixed ONNX batch size.");
+        }
+        const std::size_t current_feature_dim =
+            feature.size() / static_cast<std::size_t>(execution_batch);
         if (raw.feature_dim == 0) {
-            raw.feature_dim = feature.size();
+            raw.feature_dim = current_feature_dim;
             raw.data.resize(raw.feature_dim * crops.count);
-        } else if (feature.size() != raw.feature_dim) {
+        } else if (current_feature_dim != raw.feature_dim) {
             throw std::runtime_error(
                 "Native ReID returned a feature dimension that changed mid-batch.");
         }
-        std::copy(feature.begin(), feature.end(),
-                  raw.data.begin() + static_cast<std::ptrdiff_t>(i * raw.feature_dim));
+
+        for (std::size_t row = 0; row < logical_count; ++row) {
+            const auto source_begin = feature.begin() +
+                static_cast<std::ptrdiff_t>(row * raw.feature_dim);
+            const auto destination_begin = raw.data.begin() +
+                static_cast<std::ptrdiff_t>((offset + row) * raw.feature_dim);
+            std::copy(source_begin,
+                      source_begin + static_cast<std::ptrdiff_t>(raw.feature_dim),
+                      destination_begin);
+        }
     }
     return raw;
 }
@@ -245,11 +555,19 @@ cv::Mat OnnxReIdModel::ExtractObbCrop(
     if (image.empty()) {
         return cv::Mat(input_size_, CV_8UC3, cv::Scalar(0, 0, 0));
     }
-    const double cx = xywha[0];
-    const double cy = xywha[1];
-    const int dst_w = std::max(1, static_cast<int>(std::round(xywha[2])));
-    const int dst_h = std::max(1, static_cast<int>(std::round(xywha[3])));
-    const double angle_deg = xywha[4] * 180.0 / 3.14159265358979323846;
+    const Eigen::Matrix<double, 5, 1> canonical =
+        CanonicalizeObbForInput(xywha, input_size_);
+    const double cx = canonical[0];
+    const double cy = canonical[1];
+    const double max_output_side = static_cast<double>(
+        std::max(input_size_.height, input_size_.width));
+    const double scale = std::min(
+        1.0, max_output_side / std::max(canonical[2], canonical[3]));
+    const int dst_w = std::max(
+        1, static_cast<int>(std::round(canonical[2] * scale)));
+    const int dst_h = std::max(
+        1, static_cast<int>(std::round(canonical[3] * scale)));
+    const double angle_deg = canonical[4] * 180.0 / kPi;
 
     // ``warpAffine`` performs ``dst(x,y) = src(M * [x,y,1]^T)`` so we need a
     // matrix that takes a destination pixel (x,y) in the axis-aligned crop and
@@ -259,7 +577,7 @@ cv::Mat OnnxReIdModel::ExtractObbCrop(
     cv::Mat rotation = cv::getRotationMatrix2D(
         cv::Point2f(static_cast<float>(cx), static_cast<float>(cy)),
         angle_deg,
-        1.0
+        scale
     );
     rotation.at<double>(0, 2) += (dst_w * 0.5) - cx;
     rotation.at<double>(1, 2) += (dst_h * 0.5) - cy;
@@ -326,18 +644,15 @@ cv::Mat OnnxReIdModel::BuildInputBlob(const std::vector<cv::Mat>& processed_crop
 Eigen::VectorXf OnnxReIdModel::NormalizeFeature(const float* data, int size) {
     Eigen::VectorXf feature(size);
     for (int index = 0; index < size; ++index) {
-        feature[index] = data[index];
+        feature[index] = std::isfinite(data[index]) ? data[index] : 0.0F;
     }
     const float norm = feature.norm();
-    if (norm > 1.0e-12F) {
+    if (std::isfinite(norm) && norm > 1.0e-12F) {
         feature /= norm;
+    } else if (!std::isfinite(norm)) {
+        feature.setZero();
     }
     return feature;
-}
-
-bool OnnxReIdModel::LooksLikeLmbnModel(const fs::path& model_path) {
-    const std::string name = model_path.filename().string();
-    return name.find("lmbn") != std::string::npos;
 }
 
 cv::Mat OnnxReIdModel::ResizePad(const cv::Mat& crop, const cv::Size& target_size) {
@@ -349,8 +664,9 @@ cv::Mat OnnxReIdModel::ResizePad(const cv::Mat& crop, const cv::Size& target_siz
         static_cast<double>(target_size.width) / static_cast<double>(crop.cols),
         static_cast<double>(target_size.height) / static_cast<double>(crop.rows)
     );
-    const int resized_width = std::max(1, static_cast<int>(std::round(crop.cols * scale)));
-    const int resized_height = std::max(1, static_cast<int>(std::round(crop.rows * scale)));
+    // Match Python's ``int(value)`` semantics exactly (positive-value floor).
+    const int resized_width = std::max(1, static_cast<int>(crop.cols * scale));
+    const int resized_height = std::max(1, static_cast<int>(crop.rows * scale));
 
     cv::Mat resized;
     cv::resize(crop, resized, cv::Size(resized_width, resized_height), 0.0, 0.0, cv::INTER_LINEAR);
@@ -363,7 +679,9 @@ cv::Mat OnnxReIdModel::ResizePad(const cv::Mat& crop, const cv::Size& target_siz
     cv::Mat padded;
     cv::copyMakeBorder(
         resized, padded, pad_top, pad_bottom, pad_left, pad_right,
-        cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0)
+        // Crops are still BGR here. Python pads with ImageNet's BGR mean
+        // before converting the complete image to RGB.
+        cv::BORDER_CONSTANT, cv::Scalar(104, 116, 124)
     );
     return padded;
 }

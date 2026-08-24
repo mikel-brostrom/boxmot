@@ -13,9 +13,8 @@ Notes
   the live tracker behavior). For embedding-cache generation this is slower
   than the bucketed Python path on small per-frame det counts, but the cost is
   paid once and cached to ``dets_n_embs/.../embs/<reid>/<preprocess>/<seq>.npy``.
-* OBB detections (5-column ``cxcywh-theta``) are converted to enclosing AABB
-  rects on the Python side before being handed to the C ABI, matching what the
-  C++ trackers do internally.
+* OBB detections (5-column ``cxcywh-theta``) stay oriented across the C ABI and
+  use the same rectified crop implementation as the native trackers.
 """
 
 from __future__ import annotations
@@ -67,12 +66,13 @@ def _candidate_libraries() -> list[Path]:
     )
 
 
-def _build_library() -> Path:
+def _build_library(*, force_rebuild: bool = False) -> Path:
     """Configure + build the ``reid_capi`` shared library if it's missing."""
     with _BUILD_LOCK:
-        for candidate in _candidate_libraries():
-            if candidate.exists():
-                return candidate
+        if not force_rebuild:
+            for candidate in _candidate_libraries():
+                if candidate.exists():
+                    return candidate
 
         source_dir = _source_dir()
         build_dir = _build_dir()
@@ -81,9 +81,10 @@ def _build_library() -> Path:
         # Cross-process lock: serialize CMake invocations from concurrent
         # worker subprocesses so they don't corrupt each other's build cache.
         with _common._cross_process_build_lock(build_dir):
-            for candidate in _candidate_libraries():
-                if candidate.exists():
-                    return candidate
+            if not force_rebuild:
+                for candidate in _candidate_libraries():
+                    if candidate.exists():
+                        return candidate
 
             configure_cmd = [
                 "cmake",
@@ -140,7 +141,7 @@ def ensure_reid_capi_library(force_rebuild: bool = False) -> Path:
         for candidate in _candidate_libraries():
             if candidate.exists():
                 return candidate
-    return _build_library()
+    return _build_library(force_rebuild=force_rebuild)
 
 
 class _ReidLibrary:
@@ -172,6 +173,15 @@ class _ReidLibrary:
         ]
         self._library.boxmot_reid_capi_feature_dim.restype = ctypes.c_int
 
+        self._library.boxmot_reid_capi_input_spec.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_int),  # batch (0 == dynamic)
+            ctypes.POINTER(ctypes.c_int),  # channels
+            ctypes.POINTER(ctypes.c_int),  # height
+            ctypes.POINTER(ctypes.c_int),  # width
+        ]
+        self._library.boxmot_reid_capi_input_spec.restype = ctypes.c_int
+
         self._library.boxmot_reid_capi_compute_features.argtypes = [
             ctypes.c_void_p,            # handle
             ctypes.c_void_p,            # boxes_xyxy
@@ -195,6 +205,17 @@ class _ReidLibrary:
             ctypes.c_int,               # image_channels
         ]
         self._library.boxmot_reid_capi_preprocess.restype = ctypes.c_int
+
+        self._library.boxmot_reid_capi_preprocess_obb.argtypes = [
+            ctypes.c_void_p,            # handle
+            ctypes.c_void_p,            # boxes_xywha
+            ctypes.c_int,               # n_boxes
+            ctypes.c_void_p,            # image_data
+            ctypes.c_int,               # image_rows
+            ctypes.c_int,               # image_cols
+            ctypes.c_int,               # image_channels
+        ]
+        self._library.boxmot_reid_capi_preprocess_obb.restype = ctypes.c_int
 
         self._library.boxmot_reid_capi_process.argtypes = [ctypes.c_void_p]
         self._library.boxmot_reid_capi_process.restype = ctypes.c_int
@@ -238,6 +259,22 @@ class _ReidLibrary:
             raise RuntimeError(self.last_error())
         return int(out_dim.value)
 
+    def input_spec(self, handle: ctypes.c_void_p) -> tuple[int, int, int, int]:
+        batch = ctypes.c_int(0)
+        channels = ctypes.c_int(0)
+        height = ctypes.c_int(0)
+        width = ctypes.c_int(0)
+        ok = self._library.boxmot_reid_capi_input_spec(
+            handle,
+            ctypes.byref(batch),
+            ctypes.byref(channels),
+            ctypes.byref(height),
+            ctypes.byref(width),
+        )
+        if ok == 0:
+            raise RuntimeError(self.last_error())
+        return int(batch.value), int(channels.value), int(height.value), int(width.value)
+
     def compute_features(
         self,
         handle: ctypes.c_void_p,
@@ -263,13 +300,18 @@ class _ReidLibrary:
     def preprocess(
         self,
         handle: ctypes.c_void_p,
-        boxes_xyxy: np.ndarray,
+        boxes: np.ndarray,
         image: np.ndarray,
     ) -> None:
-        n = int(boxes_xyxy.shape[0])
-        ok = self._library.boxmot_reid_capi_preprocess(
+        n = int(boxes.shape[0])
+        preprocess = (
+            self._library.boxmot_reid_capi_preprocess_obb
+            if boxes.shape[1] == 5
+            else self._library.boxmot_reid_capi_preprocess
+        )
+        ok = preprocess(
             handle,
-            None if n == 0 else ctypes.c_void_p(boxes_xyxy.ctypes.data),
+            None if n == 0 else ctypes.c_void_p(boxes.ctypes.data),
             n,
             ctypes.c_void_p(image.ctypes.data),
             int(image.shape[0]),
@@ -300,43 +342,6 @@ def _get_library() -> _ReidLibrary:
         if _LIBRARY is None:
             _LIBRARY = _ReidLibrary(ensure_reid_capi_library())
         return _LIBRARY
-
-
-# ---------------------------------------------------------------------------
-# Box helpers
-# ---------------------------------------------------------------------------
-
-def _obb_to_enclosing_xyxy(xywha: np.ndarray) -> np.ndarray:
-    """Convert OBB rows (cx, cy, w, h, theta) to enclosing AABBs."""
-    if xywha.size == 0:
-        return np.empty((0, 4), dtype=np.float32)
-
-    cx = xywha[:, 0]
-    cy = xywha[:, 1]
-    w = np.maximum(xywha[:, 2], 1e-4)
-    h = np.maximum(xywha[:, 3], 1e-4)
-    theta = xywha[:, 4]
-
-    cos_t = np.cos(theta)
-    sin_t = np.sin(theta)
-
-    # Half extents for each oriented rectangle
-    half_w = w / 2.0
-    half_h = h / 2.0
-
-    # 4 corners offsets in the oriented frame: (+/-w/2, +/-h/2)
-    dx = np.stack([half_w, half_w, -half_w, -half_w], axis=1)
-    dy = np.stack([half_h, -half_h, half_h, -half_h], axis=1)
-    rx = dx * cos_t[:, None] - dy * sin_t[:, None]
-    ry = dx * sin_t[:, None] + dy * cos_t[:, None]
-
-    xs = cx[:, None] + rx
-    ys = cy[:, None] + ry
-    x1 = xs.min(axis=1)
-    y1 = ys.min(axis=1)
-    x2 = xs.max(axis=1)
-    y2 = ys.max(axis=1)
-    return np.stack([x1, y1, x2, y2], axis=1).astype(np.float32, copy=False)
 
 
 # ---------------------------------------------------------------------------
@@ -380,9 +385,15 @@ class CppOnnxReID:
         self._library = _get_library()
         self._handle = self._library.create(self.weights, self.preprocess_name)
         self._feature_dim: int | None = None
-        # Probed lazily on first use so ``input_shape`` reads can occur before
-        # the first frame without forcing a dummy forward pass.
-        self._input_shape: tuple[int, int] | None = None
+        batch, channels, height, width = self._library.input_spec(self._handle)
+        if channels != 3 or height <= 0 or width <= 0:
+            self.close()
+            raise RuntimeError(
+                "Native ReID returned an invalid ONNX input specification: "
+                f"N={batch}, C={channels}, H={height}, W={width}."
+            )
+        self._input_shape = (height, width)
+        self.input_batch_size: int | None = batch or None
 
         # ``DetectorReIDPipeline`` wraps ``backend.model`` via ``TimedReIDModel``;
         # for the Python backends ``ReID().model`` is a ``BaseModelBackend``
@@ -417,18 +428,18 @@ class CppOnnxReID:
     def _normalise_boxes(xyxys: np.ndarray) -> np.ndarray:
         boxes = np.asarray(xyxys, dtype=np.float32)
         if boxes.size == 0:
-            return np.empty((0, 4), dtype=np.float32)
+            cols = boxes.shape[1] if boxes.ndim == 2 else 4
+            return np.empty((0, 5 if cols in {5, 7, 9} else 4), dtype=np.float32)
         if boxes.ndim == 1:
             boxes = boxes.reshape(1, -1)
-        if boxes.ndim != 2 or boxes.shape[1] not in {4, 5}:
+        if boxes.ndim != 2 or boxes.shape[1] not in {4, 5, 6, 7, 8, 9}:
             raise ValueError(
-                "CppOnnxReID expects detections as (N, 4) AABB or (N, 5) OBB, "
+                "CppOnnxReID expects AABB rows with 4/6/8 columns or OBB rows "
+                "with 5/7/9 columns, "
                 f"got shape {boxes.shape}"
             )
-        if boxes.shape[1] == 5:
-            boxes = _obb_to_enclosing_xyxy(boxes)
-        else:
-            boxes = boxes[:, :4].astype(np.float32, copy=False)
+        box_cols = 5 if boxes.shape[1] in {5, 7, 9} else 4
+        boxes = boxes[:, :box_cols]
         return np.ascontiguousarray(boxes, dtype=np.float32)
 
     @staticmethod
@@ -452,17 +463,6 @@ class CppOnnxReID:
 
     @property
     def input_shape(self) -> tuple[int, int]:
-        # Cached after the first ``feature_dim`` probe / forward pass. For
-        # callers that need it before that, fall back to a sensible default
-        # (LMBN models use 384x128, others 256x128) inferred from the filename
-        # to mirror the native side's heuristic.
-        if self._input_shape is not None:
-            return self._input_shape
-        name = self.weights.name.lower()
-        if "lmbn" in name:
-            self._input_shape = (384, 128)
-        else:
-            self._input_shape = (256, 128)
         return self._input_shape
 
     def get_crops(self, xyxys: np.ndarray, img: np.ndarray):

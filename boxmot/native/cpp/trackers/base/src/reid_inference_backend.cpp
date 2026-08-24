@@ -79,10 +79,11 @@ public:
     OnnxRuntimeInferenceBackend(
         const fs::path& model_path,
         ReIdDevice requested_device,
-        const cv::Size& input_size
+        const cv::Size& input_size,
+        int input_batch_size
     )
         : env_(ORT_LOGGING_LEVEL_WARNING, "boxmot_reid"),
-          input_shape_{1, 3,
+          input_shape_{input_batch_size > 0 ? input_batch_size : 1, 3,
                        static_cast<int64_t>(input_size.height),
                        static_cast<int64_t>(input_size.width)} {
         options_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
@@ -121,8 +122,13 @@ public:
     }
 
     std::vector<float> Forward(const cv::Mat& blob) const override {
-        const size_t element_count = static_cast<size_t>(input_shape_[2]) *
+        const size_t element_count = static_cast<size_t>(input_shape_[0]) *
+                                     static_cast<size_t>(input_shape_[2]) *
                                      static_cast<size_t>(input_shape_[3]) * 3UL;
+        if (blob.total() != element_count) {
+            throw std::runtime_error(
+                "Native ReID input blob does not match the ONNX input shape.");
+        }
 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
             OrtArenaAllocator, OrtMemTypeDefault);
@@ -171,14 +177,15 @@ std::unique_ptr<ReIdInferenceBackend> MakeReIdInferenceBackend(
     const fs::path& model_path,
     ReIdBackend requested_backend,
     ReIdDevice requested_device,
-    const cv::Size& input_size
+    const cv::Size& input_size,
+    int input_batch_size
 ) {
     std::unique_ptr<ReIdInferenceBackend> backend;
 
     if (requested_backend == ReIdBackend::kOnnxRuntime) {
 #if defined(BOXMOT_HAS_ONNXRUNTIME)
         backend = std::make_unique<OnnxRuntimeInferenceBackend>(
-            model_path, requested_device, input_size);
+            model_path, requested_device, input_size, input_batch_size);
 #else
         // ORT not compiled in: fall back to OpenCV DNN.
         (void)requested_device;
@@ -186,6 +193,7 @@ std::unique_ptr<ReIdInferenceBackend> MakeReIdInferenceBackend(
 #endif
     } else {
         (void)input_size;
+        (void)input_batch_size;
         (void)requested_device;
         backend = std::make_unique<OpenCvDnnInferenceBackend>(model_path);
     }

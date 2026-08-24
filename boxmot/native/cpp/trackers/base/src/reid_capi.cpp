@@ -54,6 +54,18 @@ std::vector<cv::Rect> BuildBoxes(const float* boxes_xyxy, int n_boxes, const cv:
     return boxes;
 }
 
+std::vector<Eigen::Matrix<double, 5, 1>> BuildObbBoxes(const float* boxes_xywha, int n_boxes) {
+    std::vector<Eigen::Matrix<double, 5, 1>> boxes;
+    boxes.reserve(static_cast<std::size_t>(n_boxes));
+    for (int i = 0; i < n_boxes; ++i) {
+        const float* row = boxes_xywha + static_cast<std::ptrdiff_t>(i) * 5;
+        Eigen::Matrix<double, 5, 1> box;
+        box << row[0], row[1], row[2], row[3], row[4];
+        boxes.push_back(box);
+    }
+    return boxes;
+}
+
 }  // namespace
 
 struct BoxMOTReIdHandle {
@@ -121,6 +133,33 @@ int boxmot_reid_capi_feature_dim(void* handle, int* out_feature_dim) {
         },
         g_last_error,
         "Unknown native ReID feature-dim probe failure");
+}
+
+int boxmot_reid_capi_input_spec(
+    void* handle,
+    int* out_batch,
+    int* out_channels,
+    int* out_height,
+    int* out_width
+) {
+    return ::boxmot::trackers::base::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ReID handle is null.");
+            }
+            if (out_batch == nullptr || out_channels == nullptr ||
+                out_height == nullptr || out_width == nullptr) {
+                throw std::runtime_error("Native ReID input-spec output pointer is null.");
+            }
+            const auto* state = static_cast<const BoxMOTReIdHandle*>(handle);
+            const cv::Size size = state->reid->input_size();
+            *out_batch = state->reid->input_batch_size();
+            *out_channels = 3;
+            *out_height = size.height;
+            *out_width = size.width;
+        },
+        g_last_error,
+        "Unknown native ReID input-spec query failure");
 }
 
 int boxmot_reid_capi_compute_features(
@@ -230,6 +269,40 @@ int boxmot_reid_capi_preprocess(
         },
         g_last_error,
         "Unknown native ReID preprocess failure");
+}
+
+int boxmot_reid_capi_preprocess_obb(
+    void* handle,
+    const float* boxes_xywha,
+    int n_boxes,
+    const std::uint8_t* image_data,
+    int image_rows,
+    int image_cols,
+    int image_channels
+) {
+    return ::boxmot::trackers::base::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ReID handle is null.");
+            }
+            auto* state = static_cast<BoxMOTReIdHandle*>(handle);
+            state->staged_crops = OnnxReIdModel::CropBatch{};
+            state->staged_raw = OnnxReIdModel::RawFeatures{};
+            if (n_boxes < 0) {
+                throw std::runtime_error("Negative box count is not allowed.");
+            }
+            if (n_boxes == 0) {
+                return;
+            }
+            if (boxes_xywha == nullptr) {
+                throw std::runtime_error("boxes_xywha pointer is null.");
+            }
+
+            cv::Mat image = WrapImage(image_data, image_rows, image_cols, image_channels);
+            state->staged_crops = state->reid->PreprocessObb(BuildObbBoxes(boxes_xywha, n_boxes), image);
+        },
+        g_last_error,
+        "Unknown native ReID OBB preprocess failure");
 }
 
 int boxmot_reid_capi_process(void* handle) {

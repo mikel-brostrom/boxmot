@@ -85,6 +85,9 @@ public:
     [[nodiscard]] const fs::path& model_path() const { return model_path_; }
     [[nodiscard]] const std::string& preprocess_name() const { return preprocess_name_; }
     [[nodiscard]] cv::Size input_size() const { return input_size_; }
+    // ``0`` denotes a dynamic ONNX batch dimension. Positive values are the
+    // fixed batch required by the graph and are honoured by ``Process``.
+    [[nodiscard]] int input_batch_size() const { return input_batch_size_; }
     [[nodiscard]] ReIdBackend backend() const { return backend_; }
     [[nodiscard]] ReIdDevice device() const { return device_; }
 
@@ -129,12 +132,12 @@ private:
     cv::Mat ExtractObbCrop(const Eigen::Matrix<double, 5, 1>& xywha, const cv::Mat& image) const;
     cv::Mat BuildInputBlob(const std::vector<cv::Mat>& processed_crops) const;
     static Eigen::VectorXf NormalizeFeature(const float* data, int size);
-    static bool LooksLikeLmbnModel(const fs::path& model_path);
     static cv::Mat ResizePad(const cv::Mat& crop, const cv::Size& target_size);
 
     fs::path model_path_;
     std::string preprocess_name_;
     cv::Size input_size_;
+    int input_batch_size_ = 0;
     cv::Scalar mean_;
     cv::Scalar std_;
     ReIdBackend backend_ = ReIdBackend::kAuto;

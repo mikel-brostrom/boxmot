@@ -40,6 +40,7 @@ std::unique_ptr<ReIdInferenceBackend> MakeReIdInferenceBackend(
     const fs::path& model_path,
     ReIdBackend requested_backend,
     ReIdDevice requested_device,
-    const cv::Size& input_size);
+    const cv::Size& input_size,
+    int input_batch_size);
 
 }  // namespace boxmot::trackers::base
