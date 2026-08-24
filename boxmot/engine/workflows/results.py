@@ -535,6 +535,8 @@ class ExportResult:
         """Return the preferred exported model for embedding inference."""
         if "onnx" in self.files:
             return Path(self.files["onnx"])
+        if "coreml" in self.files:
+            return Path(self.files["coreml"])
         return Path(self.weights)
 
     def embed(

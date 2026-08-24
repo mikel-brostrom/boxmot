@@ -1,0 +1,33 @@
+id: sportsmot
+
+format:
+  layout: mot
+  box_type: aabb
+
+storage:
+  root: boxmot/datasets/mot/SportsMOT
+
+default_split: val
+
+splits:
+  train:
+    path: train
+    has_ground_truth: true
+  val:
+    path: val
+    has_ground_truth: true
+  test:
+    path: test
+    has_ground_truth: false
+
+classes:
+  target:
+    player: 1
+
+resources:
+  dataset:
+    type: per_split
+    uris:
+      train: hf://Lekim89/sportsmot/train
+      val: hf://Lekim89/sportsmot/val
+      test: hf://Lekim89/sportsmot/test

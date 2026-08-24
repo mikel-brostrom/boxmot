@@ -46,7 +46,7 @@ class RegressionPenalties:
 @dataclass(frozen=True, slots=True)
 class ResearchConfig:
     tracker: str
-    benchmark: str
+    experiment: str
     source: Path | None = None
     detector: Path | None = None
     reid: Path | None = None
@@ -68,7 +68,7 @@ class ResearchConfig:
 
     @classmethod
     def from_namespace(cls, args: argparse.Namespace) -> ResearchConfig:
-        benchmark = getattr(args, "benchmark", None) or getattr(args, "data", "")
+        experiment = getattr(args, "experiment", "")
         detector = None
         if getattr(args, "detector_explicit", False) and getattr(args, "detector", None):
             detector = Path(args.detector[0])
@@ -91,7 +91,7 @@ class ResearchConfig:
 
         return cls(
             tracker=str(getattr(args, "tracker", "")),
-            benchmark=str(benchmark),
+            experiment=str(experiment),
             source=Path(getattr(args, "source")) if getattr(args, "source", None) else None,
             detector=detector,
             reid=reid,

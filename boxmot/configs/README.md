@@ -1,24 +1,61 @@
-# Configs
+# BoxMOT configuration assets
 
-This directory contains the YAML configs used by BoxMOT's config-driven
-`generate`, `eval`, and `tune` flows.
+This directory is the single source of truth for the version-controlled YAML
+assets used by BoxMOT's tracking-by-detection workflows.
 
-The primary config split is:
+## Layout
 
-- `modes.yaml`: shared defaults consumed by both the CLI and the high-level Python API
-- `benchmarks/`: self-contained benchmark bundles (dataset + detector + ReID + download config)
-- `trackers/`: tracker hyperparameters and tuning ranges
+- `runtime.yaml` contains shared CLI/API defaults plus mode-specific defaults
+  for `track`, `generate`, `eval`, `tune`, and `research`.
+- `datasets/` describes dataset format, storage, splits, ground-truth
+  availability, classes, and dataset download resources.
+- `artifacts/` describes public detections and precomputed
+  detection/embedding runs, including their producer lineage.
+- `detectors/` describes detector classes, box type, inference defaults, and
+  checkpoints.
+- `reid/` describes ReID weights, runtime defaults, and preprocessing.
+- `trackers/<tracker>.yaml` contains each tracker's runtime defaults and tuning
+  search metadata.
+- `trackers/presets/` contains named runtime parameter profiles produced for a
+  particular dataset or split.
+- `experiments/` contains the user-facing compositions that select a dataset
+  split, detection source, optional ReID profile, and evaluation class map.
 
-Example:
+## Ownership rules
 
-```bash
-boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
+Each fact belongs to exactly one asset. Experiments reference reusable assets
+by identifier; they do not copy dataset, detector, ReID, artifact, or tracker
+definitions. Tracker selection remains an independent runtime choice rather
+than being embedded in a dataset or experiment.
+
+For example, an experiment may compose:
+
+```yaml
+dataset:
+  ref: mot17
+  split: ablation
+detections:
+  source: model
+  model:
+    ref: yolox-x-mot17
+    checkpoint: ablation
+reid:
+  ref: lmbn-n-duke
 ```
 
-In this layout:
+Configuration loading and validation live with the owning Python domain; this
+directory contains declarative assets only. ReID training recipes and export
+defaults intentionally remain under `boxmot/reid/` because they are not
+tracking runtime profiles.
 
-- `boxmot/configs/modes.yaml` provides the shared defaults for `track`, `generate`, `eval`, `tune`, and `export`
-- `--benchmark mot17 --split ablation` resolves `boxmot/configs/benchmarks/mot17.yaml`
-- the benchmark config contains dataset, detector, and ReID settings in one file
-- `--tracker boosttrack` loads `boxmot/configs/trackers/boosttrack.yaml`
-- `--split test` overrides the default split defined in the dataset config
+## References
+
+Catalog references resolve by unique ID, filename, or explicit YAML path.
+Built-in IDs use kebab-case, and built-in asset paths must be portable
+repository-relative paths rather than workstation-specific absolute paths.
+
+Use `--experiment` to select an experiment ID or YAML, for example:
+
+```bash
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack
+```

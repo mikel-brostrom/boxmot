@@ -1,0 +1,24 @@
+id: mot17-mini
+
+format:
+  layout: mot
+  box_type: aabb
+
+storage:
+  root: assets/MOT17-mini
+
+default_split: train
+
+splits:
+  train:
+    path: train
+    has_ground_truth: true
+
+classes:
+  target:
+    pedestrian: 1
+  ignore:
+    person_on_vehicle: 2
+    static_person: 7
+    distractor: 8
+    reflection: 12

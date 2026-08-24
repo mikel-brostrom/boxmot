@@ -1,0 +1,43 @@
+id: mot17
+
+format:
+  layout: mot
+  box_type: aabb
+
+storage:
+  root: boxmot/datasets/mot/MOT17
+
+default_split: ablation
+
+splits:
+  train:
+    path: train
+    has_ground_truth: true
+  val:
+    path: val
+    has_ground_truth: true
+  test:
+    path: test
+    has_ground_truth: false
+  ablation:
+    path: ablation
+    has_ground_truth: true
+
+classes:
+  target:
+    pedestrian: 1
+  ignore:
+    person_on_vehicle: 2
+    static_person: 7
+    distractor: 8
+    reflection: 12
+
+resources:
+  dataset:
+    type: per_split
+    backend: mot17_parquet
+    repository: Lekim89/mot17-parquet
+    uris:
+      train: hf://Lekim89/mot17-parquet/images/train
+      test: hf://Lekim89/mot17-parquet/images/test
+      ablation: hf://Lekim89/mot17-parquet/images/train

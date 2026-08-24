@@ -4,8 +4,8 @@ import os
 import signal
 import subprocess
 
-from boxmot.configs.benchmark import (
-    apply_benchmark_config,
+from boxmot.engine.workflows.benchmark import (
+    apply_evaluation_config,
     resolve_required_reid_model,
     resolve_required_yolo_model,
 )
@@ -54,22 +54,22 @@ from .proposal import (
 from .runner import TrackerResearcher, main, run_research
 
 
-def _resolve_benchmark_runtime(*args, **kwargs):
+def _resolve_experiment_runtime(*args, **kwargs):
     old = (
-        _benchmarks.apply_benchmark_config,
+        _benchmarks.apply_evaluation_config,
         _benchmarks.resolve_required_yolo_model,
         _benchmarks.resolve_required_reid_model,
         _benchmarks.resolve_model_path,
     )
-    _benchmarks.apply_benchmark_config = apply_benchmark_config
+    _benchmarks.apply_evaluation_config = apply_evaluation_config
     _benchmarks.resolve_required_yolo_model = resolve_required_yolo_model
     _benchmarks.resolve_required_reid_model = resolve_required_reid_model
     _benchmarks.resolve_model_path = resolve_model_path
     try:
-        return _benchmarks._resolve_benchmark_runtime(*args, **kwargs)
+        return _benchmarks._resolve_experiment_runtime(*args, **kwargs)
     finally:
         (
-            _benchmarks.apply_benchmark_config,
+            _benchmarks.apply_evaluation_config,
             _benchmarks.resolve_required_yolo_model,
             _benchmarks.resolve_required_reid_model,
             _benchmarks.resolve_model_path,
@@ -119,7 +119,7 @@ __all__ = [
     "_proposal_log_summary",
     "_raw_text",
     "_read_candidate",
-    "_resolve_benchmark_runtime",
+    "_resolve_experiment_runtime",
     "_resolve_proposal_api_key_env",
     "_run_instruction_proposal_signature",
     "_select_examples",
@@ -129,7 +129,7 @@ __all__ = [
     "_validate_candidate_content",
     "_validate_candidate_keys",
     "_workspace_copy_ignore",
-    "apply_benchmark_config",
+    "apply_evaluation_config",
     "main",
     "os",
     "resolve_model_path",

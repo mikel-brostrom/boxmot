@@ -1,0 +1,15 @@
+id: yolox-x-mot20
+
+box_type: aabb
+
+classes:
+  0: person
+
+inference:
+  image_size: [800, 1440]
+  confidence_threshold: 0.01
+
+checkpoints:
+  ablation:
+    path: models/yolox_x_MOT20_ablation.pt
+    uri: https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_MOT20_ablation.pt

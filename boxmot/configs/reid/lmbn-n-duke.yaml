@@ -1,0 +1,13 @@
+id: lmbn-n-duke
+
+weights:
+  path: models/lmbn_n_duke.pt
+  uri: https://github.com/mikel-brostrom/boxmot/releases/download/v21.0.0/lmbn_n_duke.pt
+
+runtime:
+  device: auto
+  precision: fp16
+
+preprocessing:
+  mode: resize
+  image_size: [384, 128]

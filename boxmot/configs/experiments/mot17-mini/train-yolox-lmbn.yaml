@@ -1,0 +1,18 @@
+id: mot17-mini-train-yolox-lmbn
+
+dataset:
+  ref: mot17-mini
+  split: train
+
+detections:
+  source: model
+  model:
+    ref: yolox-x-mot17
+    checkpoint: ablation
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map:
+    pedestrian: person

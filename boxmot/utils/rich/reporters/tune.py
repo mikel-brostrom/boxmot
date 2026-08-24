@@ -65,7 +65,7 @@ def build_tune_workflow_fields(args: Any, *, maximize: list[str], minimize: list
         ("Tracker", getattr(args, "tracker", None)),
         ("Detector", first_value(getattr(args, "detector", None))),
         ("ReID", first_value(getattr(args, "reid", None))),
-        ("Dataset", getattr(args, "data", getattr(args, "benchmark", None))),
+        ("Experiment", getattr(args, "experiment", None) or getattr(args, "benchmark", None)),
         ("Trials", getattr(args, "n_trials", None)),
         ("Objective", _format_tune_objective(maximize=maximize, minimize=minimize)),
     ]

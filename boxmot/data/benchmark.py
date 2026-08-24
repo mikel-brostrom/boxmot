@@ -2,28 +2,12 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import numpy as np
 from rich.markup import escape as _escape_markup
 
-from boxmot.configs.benchmark import (
-    apply_benchmark_config,
-    apply_reid_runtime_defaults,
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    get_benchmark_detector_cfg,
-    get_benchmark_reid_cfg,
-    load_benchmark_cfg,
-    load_runtime_reid_component_cfg,
-    resolve_required_reid_model,
-    resolve_required_yolo_model,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
-)
-from boxmot.detectors import default_conf, default_imgsz, get_runtime_detector_cfg
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.misc import resolve_model_path
 
 COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
@@ -38,20 +22,6 @@ COCO_CLASSES = [
 ]
 
 
-def load_benchmark_cfg_from_args(args: argparse.Namespace) -> dict:
-    for benchmark in (
-        getattr(args, "benchmark_id", None),
-        getattr(args, "dataset_id", None),
-        getattr(args, "benchmark", None),
-        getattr(args, "data", None),
-    ):
-        if not benchmark:
-            continue
-        try:
-            return load_benchmark_cfg(benchmark) or {}
-        except FileNotFoundError:
-            continue
-    return {}
 
 
 def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
@@ -77,180 +47,8 @@ def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = 
     return str(box_type).lower() if box_type else "aabb"
 
 
-def _matches_benchmark_model_reference(
-    current_model: str | Path | None,
-    benchmark_model: str | Path | None,
-    *,
-    normalize_stem: bool = False,
-) -> bool:
-    """Return True when the current runtime model points at the benchmark-selected artifact."""
-    if current_model in (None, "") or benchmark_model in (None, ""):
-        return False
-
-    current_path = resolve_model_path(current_model)
-    benchmark_path = Path(benchmark_model)
-
-    if current_path.name.lower() == benchmark_path.name.lower():
-        return True
-
-    if normalize_stem:
-        current_stem = current_path.stem.lower().replace("-", "").replace("_", "")
-        benchmark_stem = benchmark_path.stem.lower().replace("-", "").replace("_", "")
-        if current_stem == benchmark_stem:
-            return True
-
-    return False
 
 
-def configure_benchmark_runtime(
-    args: argparse.Namespace,
-    *,
-    load_benchmark_cfg_fn: Callable[[argparse.Namespace], dict] = load_benchmark_cfg_from_args,
-    should_use_benchmark_detector_fn: Callable[[argparse.Namespace, dict], bool] = should_use_benchmark_detector,
-    should_use_benchmark_reid_fn: Callable[[argparse.Namespace, dict], bool] = should_use_benchmark_reid,
-    ensure_benchmark_detector_model_fn: Callable[[dict], Optional[Path]] = ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model_fn: Callable[[dict], Optional[Path]] = ensure_benchmark_reid_model,
-) -> tuple[dict, dict, dict]:
-    """Apply benchmark-driven detector and ReID defaults to the current args namespace."""
-    benchmark_bundle = load_benchmark_cfg_fn(args)
-    benchmark_cfg = benchmark_bundle.get("benchmark", {})
-    verbose = bool(getattr(args, "verbose", False))
-
-    use_benchmark_detector = should_use_benchmark_detector_fn(args, benchmark_bundle)
-    use_benchmark_reid = should_use_benchmark_reid_fn(args, benchmark_bundle)
-    benchmark_detector_cfg = get_benchmark_detector_cfg(benchmark_bundle) if use_benchmark_detector else {}
-
-    required_yolo_model = resolve_required_yolo_model(benchmark_bundle)
-    required_reid_model = resolve_required_reid_model(benchmark_bundle)
-
-    # Resolve which artefacts (if any) need to be downloaded so the two
-    # ensure_* calls can run concurrently when both downloads are pending.
-    detector_needs_download = False
-    detector_current: Path | None = None
-    if required_yolo_model and use_benchmark_detector:
-        detector_current = resolve_model_path(args.detector[0]) if getattr(args, "detector", None) else None
-        if not (
-            detector_current is not None
-            and detector_current.exists()
-            and _matches_benchmark_model_reference(
-                detector_current, required_yolo_model, normalize_stem=True
-            )
-        ):
-            detector_needs_download = True
-
-    reid_needs_download = False
-    reid_current: Path | None = None
-    if required_reid_model and use_benchmark_reid:
-        reid_current = resolve_model_path(args.reid[0]) if getattr(args, "reid", None) else None
-        if not (
-            reid_current is not None
-            and reid_current.exists()
-            and _matches_benchmark_model_reference(reid_current, required_reid_model)
-        ):
-            reid_needs_download = True
-
-    detector_resolved: Path | None = None
-    reid_resolved: Path | None = None
-
-    if detector_needs_download and reid_needs_download:
-        import concurrent.futures
-
-        from boxmot.utils.download import (
-            get_download_status_fn,
-            set_download_status_fn,
-        )
-
-        parent_status_fn = get_download_status_fn()
-        descriptions = [
-            f"Downloading {Path(required_yolo_model).name}",
-            f"Downloading {Path(required_reid_model).name}",
-        ]
-
-        def _worker(ensure_fn, per_task_cb):
-            # Worker threads have their own thread-local: install the
-            # per-task callback so download_file routes its progress into
-            # the shared parallel-bars panel instead of falling back to
-            # tqdm (which would corrupt the Rich Live region).
-            if per_task_cb is not None:
-                set_download_status_fn(per_task_cb)
-            try:
-                return ensure_fn(benchmark_bundle)
-            finally:
-                set_download_status_fn(None)
-
-        if parent_status_fn is not None and callable(
-            getattr(parent_status_fn, "parallel_bars", None)
-        ):
-            with parent_status_fn.parallel_bars(descriptions, unit="B") as task_callbacks:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                    det_future = ex.submit(
-                        _worker, ensure_benchmark_detector_model_fn, task_callbacks[0]
-                    )
-                    reid_future = ex.submit(
-                        _worker, ensure_benchmark_reid_model_fn, task_callbacks[1]
-                    )
-                    detector_resolved = det_future.result() or resolve_model_path(required_yolo_model)
-                    reid_resolved = reid_future.result() or resolve_model_path(required_reid_model)
-        else:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-                det_future = ex.submit(_worker, ensure_benchmark_detector_model_fn, None)
-                reid_future = ex.submit(_worker, ensure_benchmark_reid_model_fn, None)
-                detector_resolved = det_future.result() or resolve_model_path(required_yolo_model)
-                reid_resolved = reid_future.result() or resolve_model_path(required_reid_model)
-    else:
-        if detector_needs_download:
-            detector_resolved = (
-                ensure_benchmark_detector_model_fn(benchmark_bundle)
-                or resolve_model_path(required_yolo_model)
-            )
-        if reid_needs_download:
-            reid_resolved = (
-                ensure_benchmark_reid_model_fn(benchmark_bundle)
-                or resolve_model_path(required_reid_model)
-            )
-
-    if required_yolo_model and use_benchmark_detector:
-        required_model = detector_resolved if detector_resolved is not None else detector_current
-        if verbose and args.detector[0] != required_model:
-            LOGGER.info(f"Using benchmark-default detector: {required_model}")
-        args.detector = [required_model]
-
-    if required_reid_model and use_benchmark_reid:
-        required_model = reid_resolved if reid_resolved is not None else reid_current
-        if verbose and args.reid[0] != required_model:
-            LOGGER.info(f"Using benchmark-default ReID: {required_model}")
-        args.reid = [required_model]
-
-    runtime_reid_cfg = (
-        get_benchmark_reid_cfg(benchmark_bundle)
-        if use_benchmark_reid
-        else (load_runtime_reid_component_cfg(args.reid[0]) if args.reid else {})
-    )
-    apply_reid_runtime_defaults(args, {"reid": runtime_reid_cfg}, use_config=bool(runtime_reid_cfg))
-
-    dataset_detector_cfg = get_runtime_detector_cfg(args.detector[0], benchmark_detector_cfg)
-    args.dataset_detector_cfg = dataset_detector_cfg or None
-
-    if not getattr(args, "eval_box_type", None):
-        box_type = benchmark_cfg.get("box_type") or dataset_detector_cfg.get("box_type")
-        if box_type:
-            args.eval_box_type = str(box_type).lower()
-
-    if args.imgsz is None:
-        args.imgsz = (
-            list(dataset_detector_cfg["imgsz"])
-            if "imgsz" in dataset_detector_cfg
-            else default_imgsz(args.detector[0])
-        )
-
-    if args.conf is None:
-        args.conf = (
-            float(dataset_detector_cfg["conf"])
-            if "conf" in dataset_detector_cfg
-            else default_conf(args.detector[0])
-        )
-
-    return benchmark_bundle, benchmark_cfg, dataset_detector_cfg
 
 
 def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> list[tuple[str, int]]:
@@ -585,17 +383,6 @@ def prepare_aabb_eval_gt(
     return bridge_root
 
 
-def eval_init(
-    args: argparse.Namespace,
-    overwrite: bool = False,
-    status_fn: Callable[[str], None] | None = None,
-) -> None:
-    """Common initialization: apply benchmark data config, then canonicalize paths."""
-    apply_benchmark_config(args, overwrite=overwrite, status_fn=status_fn)
-
-    args.source = Path(args.source).resolve()
-    args.project = Path(args.project).resolve()
-    args.project.mkdir(parents=True, exist_ok=True)
 
 
 __all__ = [
@@ -603,9 +390,6 @@ __all__ = [
     "_ordered_benchmark_eval_class_names",
     "apply_gt_class_remap",
     "build_gt_class_remap",
-    "configure_benchmark_runtime",
-    "eval_init",
-    "load_benchmark_cfg_from_args",
     "prepare_aabb_eval_gt",
     "resolve_eval_box_type",
     "resolve_obb_class_ids_to_eval",

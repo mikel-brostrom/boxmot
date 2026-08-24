@@ -1,0 +1,18 @@
+id: dancetrack-val-yolox-lmbn
+
+dataset:
+  ref: dancetrack
+  split: val
+
+detections:
+  source: model
+  model:
+    ref: yolox-x-dancetrack
+    checkpoint: default
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map:
+    pedestrian: person

@@ -1,0 +1,17 @@
+id: mmot-obb-mini-train-yolo11l-lmbn
+
+dataset:
+  ref: mmot-mini
+  split: train
+
+detections:
+  source: model
+  model:
+    ref: yolo11l-mmot-obb
+    checkpoint: default
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map: auto

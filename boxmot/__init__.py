@@ -13,18 +13,18 @@ except PackageNotFoundError:
     __version__ = "0+unknown"
 
 _EXPORTS = {
-    "BoxMOT": ("boxmot.pipeline", "BoxMOT"),
-    "Detector": ("boxmot.models.detector", "Detector"),
-    "ReIDModel": ("boxmot.models.reid", "ReIDModel"),
+    "BoxMOT": ("boxmot.api.pipeline", "BoxMOT"),
+    "Detector": ("boxmot.api.runtime", "Detector"),
+    "ReIDModel": ("boxmot.api.runtime", "ReIDModel"),
 }
 
 __all__ = tuple(_EXPORTS)
 
 
 if TYPE_CHECKING:
-    from boxmot.models.detector import Detector as Detector
-    from boxmot.models.reid import ReIDModel as ReIDModel
-    from boxmot.pipeline import BoxMOT as BoxMOT
+    from boxmot.api.pipeline import BoxMOT as BoxMOT
+    from boxmot.api.runtime import Detector as Detector
+    from boxmot.api.runtime import ReIDModel as ReIDModel
 
 
 def __getattr__(name: str):

@@ -1,0 +1,16 @@
+id: mot17-ablation-frcnn-lmbn
+
+dataset:
+  ref: mot17
+  split: ablation
+
+detections:
+  source: public
+  name: frcnn
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map:
+    pedestrian: person

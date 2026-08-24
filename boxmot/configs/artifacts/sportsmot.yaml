@@ -1,0 +1,20 @@
+id: sportsmot
+
+artifacts:
+  precomputed:
+    val:
+      uri: hf://Lekim89/runs/runs/dets_n_embs/sportsmot/val
+      contains:
+        - detections
+        - embeddings
+      produced_by:
+        detector: yolox-x-sportsmot/default
+        reid: lmbn-n-duke
+    test:
+      uri: hf://Lekim89/runs/runs/dets_n_embs/sportsmot/test
+      contains:
+        - detections
+        - embeddings
+      produced_by:
+        detector: yolox-x-sportsmot/default
+        reid: lmbn-n-duke

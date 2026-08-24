@@ -1,0 +1,12 @@
+id: mmot
+
+artifacts:
+  precomputed:
+    test:
+      uri: hf://Lekim89/runs/runs/dets_n_embs/mmot/test
+      contains:
+        - detections
+        - embeddings
+      produced_by:
+        detector: yolo11l-mmot-obb/default
+        reid: lmbn-n-duke

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from boxmot.trackers.bbox.occluboost import OccluBoost as OccluBoost
 
 _EXPORTS = {
-    "OccluBoost": ("boxmot.trackers.occluboost", "OccluBoost"),
+    "OccluBoost": ("boxmot.trackers.bbox.occluboost", "OccluBoost"),
 }
 
 __all__ = tuple(_EXPORTS)

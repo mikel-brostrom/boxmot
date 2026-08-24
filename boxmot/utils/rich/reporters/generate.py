@@ -29,7 +29,11 @@ def _build_generate_workflow_fields(args: argparse.Namespace) -> list[tuple[str,
     if reid:
         fields.append(("ReID", first_value(reid)))
 
-    dataset = getattr(args, "data", None) or getattr(args, "benchmark", None) or getattr(args, "source", None)
+    dataset = (
+        getattr(args, "experiment", None)
+        or getattr(args, "benchmark", None)
+        or getattr(args, "source", None)
+    )
     if dataset:
         fields.append(("Dataset", dataset))
 

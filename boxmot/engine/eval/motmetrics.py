@@ -21,15 +21,13 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.configs.benchmark import load_benchmark_cfg
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
-    load_benchmark_cfg_from_args,
     resolve_eval_box_type,
     resolve_obb_eval_class_pairs,
 )
-from boxmot.utils import BENCHMARK_CONFIGS
+from boxmot.engine.workflows.benchmark import find_dataset_cfg_for_source, load_evaluation_config_from_args
 from boxmot.utils import logger as LOGGER
 
 HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange(0.05, 0.99, 0.05))
@@ -575,11 +573,14 @@ def _hota_association_scores(
     squared_counts = match_counts * match_counts
 
     def _aggregate(denominator: np.ndarray) -> np.ndarray:
-        return np.bincount(
-            alpha_indices,
-            weights=squared_counts / np.maximum(1, denominator),
-            minlength=len(true_positives),
-        ) / tp_denominator
+        return (
+            np.bincount(
+                alpha_indices,
+                weights=squared_counts / np.maximum(1, denominator),
+                minlength=len(true_positives),
+            )
+            / tp_denominator
+        )
 
     ass_a = _aggregate(gt_id_count[gt_indices] + tracker_id_count[tracker_indices] - match_counts)
     ass_re = _aggregate(gt_id_count[gt_indices])
@@ -820,9 +821,7 @@ def _eval_identity(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]
         matches_mask = np.greater_equal(similarity, threshold)
         match_idx_gt, match_idx_tracker = np.nonzero(matches_mask)
         if len(match_idx_gt):
-            encoded_edges.append(
-                gt_ids_t[match_idx_gt] * data.num_tracker_ids + tracker_ids_t[match_idx_tracker]
-            )
+            encoded_edges.append(gt_ids_t[match_idx_gt] * data.num_tracker_ids + tracker_ids_t[match_idx_tracker])
 
     if encoded_edges:
         potential_matches_count = np.bincount(
@@ -1009,11 +1008,7 @@ def build_dataset_eval_settings(
     del gt_folder
     cfg: dict[str, Any] = {}
     try:
-        benchmark_id = (
-            getattr(args, "benchmark_id", None) or getattr(args, "dataset_id", None) or getattr(args, "benchmark", None)
-        )
-        if benchmark_id:
-            cfg = load_benchmark_cfg(benchmark_id)
+        cfg = load_evaluation_config_from_args(args)
     except FileNotFoundError:
         cfg = {}
     except Exception as exc:  # noqa: BLE001
@@ -1091,22 +1086,14 @@ def build_dataset_eval_settings(
 
 
 def _load_eval_cfg(args: argparse.Namespace) -> dict[str, Any]:
-    cfg = load_benchmark_cfg_from_args(args)
+    cfg = load_evaluation_config_from_args(args)
     if cfg:
         return cfg
 
-    cfg_name = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", str(Path(args.source).parent.name))
-    )
-    try:
-        return load_benchmark_cfg(cfg_name)
-    except FileNotFoundError:
-        for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
-            if config_file.stem in str(args.source):
-                return load_benchmark_cfg(config_file.stem)
-    LOGGER.warning(f"Could not find benchmark config for {cfg_name}. Class filtering might be incorrect.")
+    cfg = find_dataset_cfg_for_source(args.source) or {}
+    if cfg:
+        return cfg
+    LOGGER.warning(f"Could not infer a dataset config for {args.source}. Class filtering might be incorrect.")
     return {}
 
 

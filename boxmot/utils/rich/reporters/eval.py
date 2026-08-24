@@ -10,8 +10,8 @@ from rich.console import Group, RenderableType
 from rich.text import Text
 
 import boxmot.utils.rich.core.ui as ui
-from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.trackers.registry import get_tracker_config
+from boxmot.trackers.specs import normalize_tracker_backend, parse_tracker_spec
 from boxmot.utils.rich.workflow.fields import bool_glyph, compact_model_name, image_size_text, panel_field
 from boxmot.utils.rich.workflow.reporting import RichWorkflowReporter
 from boxmot.utils.rich.workflow.steps import (
@@ -49,11 +49,14 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
     Instead of dumping every tracker parameter, each subsystem gets a
     compact one-line summary with only the most relevant settings.
     """
+    dataset_ref = getattr(args, "dataset", None)
+    experiment_ref = getattr(args, "experiment", None)
     dataset = (
-        getattr(args, "data", None)
+        dataset_ref
+        or experiment_ref
         or getattr(args, "benchmark", None)
         or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark_id", None)
+        or getattr(args, "experiment_id", None)
         or getattr(args, "source", None)
     )
 
@@ -109,7 +112,8 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
     # ── Dataset card ──────────────────────────────────────────────
     dataset_items: list[tuple[str, object]] = []
     if dataset:
-        dataset_items.append(("Benchmark", dataset))
+        label = "Dataset" if dataset_ref else ("Experiment" if experiment_ref else "Benchmark")
+        dataset_items.append((label, dataset))
     split = getattr(args, "split", None)
     if split:
         dataset_items.append(("Split", split))
@@ -152,21 +156,29 @@ def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType |
     Each entry is a ``file://`` link so the user can click to open it.
     Returns ``None`` when no config files can be resolved.
     """
-    from boxmot.configs.benchmark import (
-        resolve_benchmark_cfg_path,
+    from boxmot.engine.workflows.benchmark import (
+        resolve_dataset_cfg_path,
         resolve_detector_cfg_path,
+        resolve_experiment_cfg_path,
         resolve_reid_cfg_path,
     )
 
     lines: list[Text] = []
     lines.append(Text("  Configs used in this pipeline:", style=ui.STYLE_TEXT_STRONG))
 
-    # Benchmark / dataset config
-    benchmark = getattr(args, "data", None) or getattr(args, "benchmark", None)
-    if benchmark:
+    # Experiment / dataset config
+    dataset = getattr(args, "dataset", None)
+    experiment = getattr(args, "experiment", None)
+    if dataset:
         try:
-            path = resolve_benchmark_cfg_path(str(benchmark))
-            lines.append(_config_link("Benchmark", path))
+            path = resolve_dataset_cfg_path(str(dataset))
+            lines.append(_config_link("Dataset", path))
+        except Exception:
+            pass
+    elif experiment:
+        try:
+            path = resolve_experiment_cfg_path(str(experiment))
+            lines.append(_config_link("Experiment", path))
         except Exception:
             pass
 
@@ -174,15 +186,15 @@ def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType |
     det_cfg_ref = getattr(args, "detector_config", None)
     if det_cfg_ref is None:
         try:
-            from boxmot.configs.benchmark import load_benchmark_only_cfg
+            from boxmot.engine.workflows.benchmark import load_experiment_only_cfg
 
-            bench = load_benchmark_only_cfg(str(benchmark)) if benchmark else {}
+            bench = load_experiment_only_cfg(str(experiment)) if experiment else {}
             det_cfg_ref = bench.get("detector_config") or bench.get("detector")
         except Exception:
             pass
     if det_cfg_ref:
         try:
-            path = resolve_detector_cfg_path(str(det_cfg_ref), benchmark=str(benchmark) if benchmark else None)
+            path = resolve_detector_cfg_path(str(det_cfg_ref))
             lines.append(_config_link("Detector", path))
         except Exception:
             pass
@@ -191,15 +203,15 @@ def build_setup_configs_renderable(args: argparse.Namespace) -> RenderableType |
     reid_cfg_ref = getattr(args, "reid_config", None)
     if reid_cfg_ref is None:
         try:
-            from boxmot.configs.benchmark import load_benchmark_only_cfg
+            from boxmot.engine.workflows.benchmark import load_experiment_only_cfg
 
-            bench = load_benchmark_only_cfg(str(benchmark)) if benchmark else {}
+            bench = load_experiment_only_cfg(str(experiment)) if experiment else {}
             reid_cfg_ref = bench.get("reid_config") or bench.get("reid")
         except Exception:
             pass
     if reid_cfg_ref:
         try:
-            path = resolve_reid_cfg_path(str(reid_cfg_ref), benchmark=str(benchmark) if benchmark else None)
+            path = resolve_reid_cfg_path(str(reid_cfg_ref))
             lines.append(_config_link("ReID", path))
         except Exception:
             pass

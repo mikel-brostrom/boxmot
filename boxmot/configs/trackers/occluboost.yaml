@@ -219,3 +219,38 @@ adaptive_kf:
   type: choice
   default: False
   options: [False, True]
+
+obb_det_thresh:
+  type: uniform
+  default: 0.2
+  range: [0.05, 0.8]
+
+obb_iou_threshold:
+  type: uniform
+  default: 0.15
+  range: [0.01, 0.8]
+
+obb_new_track_thresh:
+  type: uniform
+  default: 0.3
+  range: [0.05, 0.9]
+
+obb_instant_confirm_thresh:
+  type: uniform
+  default: 0.5
+  range: [0.1, 0.95]
+
+obb_max_age:
+  type: randint
+  default: 30
+  range: [1, 200]
+
+obb_recovery_max_age:
+  type: randint
+  default: 15
+  range: [1, 120]
+
+obb_second_iou_thresh:
+  type: uniform
+  default: 0.3
+  range: [0.05, 0.9]

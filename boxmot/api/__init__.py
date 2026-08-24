@@ -5,11 +5,17 @@
 from __future__ import annotations
 
 from importlib import import_module
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from boxmot.api.pipeline import BoxMOT as BoxMOT
+    from boxmot.api.runtime import Detector as Detector
+    from boxmot.api.runtime import ReIDModel as ReIDModel
 
 _EXPORTS = {
-    "BoxMOT": ("boxmot.pipeline", "BoxMOT"),
-    "Detector": ("boxmot.models.detector", "Detector"),
-    "ReIDModel": ("boxmot.models.reid", "ReIDModel"),
+    "BoxMOT": ("boxmot.api.pipeline", "BoxMOT"),
+    "Detector": ("boxmot.api.runtime", "Detector"),
+    "ReIDModel": ("boxmot.api.runtime", "ReIDModel"),
 }
 
 __all__ = tuple(_EXPORTS)

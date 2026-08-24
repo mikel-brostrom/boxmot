@@ -7,8 +7,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
-from boxmot.configs import BOXMOT_DEFAULTS
 from boxmot.detectors.detector import Detector as _Detector
+from boxmot.engine.config import BOXMOT_DEFAULTS
 from boxmot.reid.core import ReID
 from boxmot.utils.misc import resolve_model_path
 
@@ -132,6 +132,11 @@ class ReIDModel:
         verbose: bool = False,
         batch_size: int = BOXMOT_DEFAULTS.export.batch_size,
         imgsz=None,
+        coreml_batch_buckets: tuple[int, ...] = BOXMOT_DEFAULTS.export.coreml_batch_buckets,
+        coreml_minimum_deployment_target: str = BOXMOT_DEFAULTS.export.coreml_minimum_deployment_target,
+        coreml_compute_units: str = BOXMOT_DEFAULTS.export.coreml_compute_units,
+        coreml_timeout: float = BOXMOT_DEFAULTS.export.coreml_timeout,
+        coreml_max_memory_gb: float = BOXMOT_DEFAULTS.export.coreml_max_memory_gb,
         tflite_quantize: str = BOXMOT_DEFAULTS.export.tflite_quantize,
         tflite_calibration_data=None,
         tflite_calibration_samples: int = BOXMOT_DEFAULTS.export.tflite_calibration_samples,
@@ -140,7 +145,7 @@ class ReIDModel:
         tflite_calibration_update: str = BOXMOT_DEFAULTS.export.tflite_calibration_update,
         tflite_static_activation_bits: int = BOXMOT_DEFAULTS.export.tflite_static_activation_bits,
     ) -> "ReIDModel":
-        from boxmot.pipeline import BoxMOT
+        from boxmot.api.pipeline import BoxMOT
 
         result = BoxMOT(reid=self.path).export(
             format=format,
@@ -155,6 +160,11 @@ class ReIDModel:
             verbose=verbose,
             batch_size=batch_size,
             imgsz=imgsz,
+            coreml_batch_buckets=coreml_batch_buckets,
+            coreml_minimum_deployment_target=coreml_minimum_deployment_target,
+            coreml_compute_units=coreml_compute_units,
+            coreml_timeout=coreml_timeout,
+            coreml_max_memory_gb=coreml_max_memory_gb,
             tflite_quantize=tflite_quantize,
             tflite_calibration_data=tflite_calibration_data,
             tflite_calibration_samples=tflite_calibration_samples,

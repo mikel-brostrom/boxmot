@@ -30,7 +30,7 @@ def _build_research_workflow_fields(args: argparse.Namespace) -> list[tuple[str,
     if tracker:
         fields.append(("Tracker", tracker))
 
-    benchmark = getattr(args, "benchmark", None) or getattr(args, "data", None)
+    benchmark = getattr(args, "benchmark", None) or getattr(args, "experiment", None)
     if benchmark:
         fields.append(("Benchmark", benchmark))
 

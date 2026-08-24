@@ -7,10 +7,10 @@ from typing import Any
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
-    load_benchmark_cfg_from_args,
     resolve_eval_box_type,
     resolve_obb_classes_to_eval,
 )
+from boxmot.engine.workflows.benchmark import load_evaluation_config_from_args
 from boxmot.utils.rich.core.ui import print_text
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
@@ -312,7 +312,7 @@ def _load_report_cfg_from_args(args: Any) -> dict[str, Any]:
     if args is None:
         return {}
     try:
-        return load_benchmark_cfg_from_args(args) or {}
+        return load_evaluation_config_from_args(args) or {}
     except Exception:
         return {}
 
