@@ -6,6 +6,9 @@ import numpy as np
 
 from boxmot.detectors.base import Detections
 
+MIN_DETECTION_AREA = 10.0
+MAX_OBB_SIDE_IMAGE_DIAGONALS = 2.0
+
 
 def as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
     arr = np.asarray(values, dtype=np.float32)
@@ -42,6 +45,68 @@ def extract_masks(output: Any) -> np.ndarray | None:
     return None
 
 
+def detection_validity_mask(
+    dets: np.ndarray,
+    *,
+    image_shape: tuple[int, ...] | None = None,
+    min_area: float = MIN_DETECTION_AREA,
+) -> np.ndarray:
+    """Return rows safe for geometry, ReID cropping, and tracker ingestion."""
+    arr = as_2d_array(dets)
+    if arr.ndim != 2:
+        raise ValueError(f"Detections must be a 2D array, got shape {arr.shape}")
+    if arr.shape[1] not in (6, 7):
+        raise ValueError(f"Expected AABB/OBB detections with 6 or 7 columns, got {arr.shape}")
+    if len(arr) == 0:
+        return np.empty((0,), dtype=bool)
+
+    valid = np.isfinite(arr).all(axis=1)
+    geometry = arr[:, :5].astype(np.float64, copy=False)
+    if arr.shape[1] == 7:
+        width, height = geometry[:, 2], geometry[:, 3]
+        valid &= (width > 0.0) & (height > 0.0) & ((width * height) >= float(min_area))
+
+        if image_shape is not None and len(image_shape) >= 2:
+            image_height, image_width = float(image_shape[0]), float(image_shape[1])
+            max_side = MAX_OBB_SIDE_IMAGE_DIAGONALS * np.hypot(image_height, image_width)
+            valid &= (width <= max_side) & (height <= max_side)
+            center_x, center_y = geometry[:, 0], geometry[:, 1]
+            valid &= (
+                (center_x >= -max_side)
+                & (center_x <= image_width + max_side)
+                & (center_y >= -max_side)
+                & (center_y <= image_height + max_side)
+            )
+    else:
+        x1, y1, x2, y2 = (geometry[:, index] for index in range(4))
+        valid &= (x2 > x1) & (y2 > y1) & (((x2 - x1) * (y2 - y1)) >= float(min_area))
+    return valid
+
+
+def sanitize_detections(
+    dets: np.ndarray,
+    masks: np.ndarray | None = None,
+    *,
+    image_shape: tuple[int, ...] | None = None,
+    min_area: float = MIN_DETECTION_AREA,
+) -> tuple[np.ndarray, np.ndarray | None, np.ndarray]:
+    """Filter detections and aligned masks with one shared validity mask."""
+    arr = as_2d_array(dets)
+    valid = detection_validity_mask(arr, image_shape=image_shape, min_area=min_area)
+
+    filtered_masks = None
+    if masks is not None:
+        masks_arr = np.asarray(masks)
+        if masks_arr.ndim == 0:
+            raise ValueError(f"Masks must have a leading detection dimension, got {masks_arr.shape}")
+        if len(masks_arr) != len(arr):
+            raise ValueError(
+                f"Masks must be aligned with detections: masks={len(masks_arr)} dets={len(arr)}"
+            )
+        filtered_masks = masks_arr[valid]
+    return arr[valid], filtered_masks, valid
+
+
 def prepare_detections(result: Detections) -> np.ndarray:
     """
     Extract detections from a result and sanitize them for downstream use.
@@ -56,23 +121,18 @@ def prepare_detections(result: Detections) -> np.ndarray:
     no valid detections remain.
     """
     dets = result.dets
-    if dets is None or len(dets) == 0:
-        n_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else 6
-        return np.empty((0, n_cols))
-
-    if result.is_obb:
-        w, h = dets[:, 2], dets[:, 3]
-        valid = (w > 0) & (h > 0) & (w * h >= 10.0)
-    else:
-        x1, y1, x2, y2 = dets[:, 0], dets[:, 1], dets[:, 2], dets[:, 3]
-        valid = (x2 > x1) & (y2 > y1) & ((x2 - x1) * (y2 - y1) >= 10.0)
-
-    return dets[valid]
+    if dets is None:
+        return np.empty((0, 6), dtype=np.float32)
+    image_shape = getattr(getattr(result, "orig_img", None), "shape", None)
+    sanitized, _, _ = sanitize_detections(dets, image_shape=image_shape)
+    return sanitized
 
 
 __all__ = (
     "as_2d_array",
+    "detection_validity_mask",
     "extract_detection_array",
     "extract_masks",
     "prepare_detections",
+    "sanitize_detections",
 )

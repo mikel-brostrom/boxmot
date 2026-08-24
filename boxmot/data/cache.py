@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -83,6 +85,64 @@ def _load_numeric_cache_array(path: Path) -> np.ndarray:
 
 # Tokens accepted by ``BOXMOT_REID_BACKEND`` (matches the C++ runtime selector).
 _OPENCV_RUNTIME_TOKENS = {"opencv", "cv", "dnn", "opencv_dnn"}
+REID_CROP_SCHEMA_VERSION = 2
+
+
+def _artifact_signature(path: Path) -> tuple[tuple[str, int, int, int], ...] | None:
+    """Return a cacheable signature for a file or directory artifact."""
+    try:
+        if path.is_file():
+            stat = path.stat()
+            return ((path.name, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns),)
+        if path.is_dir():
+            entries = []
+            for artifact_file in sorted(item for item in path.rglob("*") if item.is_file()):
+                stat = artifact_file.stat()
+                entries.append(
+                    (
+                        artifact_file.relative_to(path).as_posix(),
+                        stat.st_size,
+                        stat.st_mtime_ns,
+                        stat.st_ctime_ns,
+                    )
+                )
+            return tuple(entries)
+    except OSError:
+        return None
+    return None
+
+
+@lru_cache(maxsize=64)
+def _artifact_sha256(
+    resolved_path: str,
+    signature: tuple[tuple[str, int, int, int], ...],
+) -> str:
+    """Hash artifact bytes, caching only while its complete stat signature matches."""
+    del signature  # The signature is intentionally part of the cache key.
+    path = Path(resolved_path)
+    files = [path] if path.is_file() else sorted(item for item in path.rglob("*") if item.is_file())
+    digest = hashlib.sha256()
+    for artifact_file in files:
+        relative = artifact_file.name if path.is_file() else artifact_file.relative_to(path).as_posix()
+        encoded = relative.encode("utf-8")
+        digest.update(len(encoded).to_bytes(4, "big"))
+        digest.update(encoded)
+        with artifact_file.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _reid_artifact_token(path: Path) -> str:
+    """Return a short content token for an existing ReID artifact."""
+    signature = _artifact_signature(path)
+    if signature is None:
+        return ""
+    try:
+        digest = _artifact_sha256(str(path.resolve()), signature)
+    except OSError:
+        return ""
+    return f"_w{digest[:16]}"
 
 
 def _onnx_runtime_token() -> str:
@@ -119,22 +179,157 @@ def reid_cache_key(
     *,
     tracker_backend: str | None = None,
 ) -> str:
-    """Return the directory key used to bucket cached ReID embeddings.
+    """Return the producer/model portion of a ReID embedding cache path.
 
-    Format: ``<stem>_<ext-no-dot>_<runtime>_<stack>``. Examples:
+    The producer is the effective implementation that generated the vectors,
+    not the tracker algorithm consuming them. Keeping it as the first path
+    component makes Python and native cache provenance immediately visible::
 
-    * ``lmbn_n_duke.pt`` (Python)               → ``lmbn_n_duke_pt_pytorch_py``
-    * ``lmbn_n_duke.onnx`` (Python, ORT)        → ``lmbn_n_duke_onnx_ort_py``
-    * ``lmbn_n_duke.onnx`` (Python, OpenCV-DNN) → ``lmbn_n_duke_onnx_opencv_py``
-    * ``lmbn_n_duke.onnx`` (C++, ORT)           → ``lmbn_n_duke_onnx_ort_cpp``
-    * ``lmbn_n_duke.pt`` (C++, OpenCV-DNN)      → ``lmbn_n_duke_pt_opencv_cpp``
+        python/lmbn_n_duke-pt-pytorch-w0123456789abcdef
+        cpp/lmbn_n_duke-onnx-ort-w0123456789abcdef
+
+    Crop semantics are deliberately kept in :func:`reid_preprocess_cache_key`
+    so model identity and preprocessing identity are separate path levels.
     """
     p = Path(reid_model)
-    name = p.name if p.suffix else str(reid_model)
+    stem = p.stem or p.name or str(reid_model)
+    model_format = p.suffix.lower().lstrip(".") or "model"
+    runtime = _resolve_reid_runtime(p.suffix, tracker_backend=tracker_backend)
+    producer = "cpp" if (tracker_backend and str(tracker_backend).lower() == "cpp") else "python"
+    artifact = _reid_artifact_token(p).replace("_w", "-w", 1)
+    return f"{producer}/{stem}-{model_format}-{runtime}{artifact}"
+
+
+def reid_preprocess_cache_key(reid_preprocess: str | None = None) -> str:
+    """Return the versioned preprocessing portion of an embedding cache path."""
+    if not reid_preprocess:
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
+        reid_preprocess = DEFAULT_PREPROCESS
+    name = str(reid_preprocess).strip().replace("/", "-").replace("\\", "-")
+    return f"{name}-cropv{REID_CROP_SCHEMA_VERSION}"
+
+
+def _flat_reid_cache_key(
+    reid_model: str | os.PathLike,
+    *,
+    tracker_backend: str | None,
+    include_artifact: bool,
+    include_crop_schema: bool,
+) -> str:
+    """Return a cache key emitted by the previous flattened layout."""
+    p = Path(reid_model)
+    name = p.name or str(reid_model)
     base = name.replace(".", "_")
     runtime = _resolve_reid_runtime(p.suffix, tracker_backend=tracker_backend)
     stack = "cpp" if (tracker_backend and str(tracker_backend).lower() == "cpp") else "py"
-    return f"{base}_{runtime}_{stack}"
+    artifact = _reid_artifact_token(p) if include_artifact else ""
+    crop_schema = f"_cropv{REID_CROP_SCHEMA_VERSION}" if include_crop_schema else ""
+    return f"{base}_{runtime}_{stack}{artifact}{crop_schema}"
+
+
+def reid_cache_dir_candidates(
+    embeddings_root: str | os.PathLike,
+    reid_model: str | os.PathLike,
+    *,
+    reid_preprocess: str | None = None,
+    tracker_backend: str | None = None,
+    allow_legacy: bool = False,
+) -> tuple[Path, ...]:
+    """Return canonical and compatible embedding directories in priority order.
+
+    Fingerprinted, crop-versioned layouts are always considered compatible.
+    Unversioned layouts are returned only when the caller has independently
+    established trusted artifact provenance via ``allow_legacy``.
+    """
+    root = Path(embeddings_root)
+    preprocess = str(reid_preprocess or "").strip()
+    if not preprocess:
+        from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
+        preprocess = DEFAULT_PREPROCESS
+
+    candidates = [
+        root / reid_cache_key(reid_model, tracker_backend=tracker_backend) / reid_preprocess_cache_key(preprocess),
+        root
+        / _flat_reid_cache_key(
+            reid_model,
+            tracker_backend=tracker_backend,
+            include_artifact=True,
+            include_crop_schema=True,
+        )
+        / preprocess,
+    ]
+
+    if allow_legacy:
+        candidates.append(
+            root
+            / _flat_reid_cache_key(
+                reid_model,
+                tracker_backend=tracker_backend,
+                include_artifact=False,
+                include_crop_schema=True,
+            )
+            / preprocess
+        )
+        candidates.append(
+            root
+            / _flat_reid_cache_key(
+                reid_model,
+                tracker_backend=tracker_backend,
+                include_artifact=False,
+                include_crop_schema=False,
+            )
+            / preprocess
+        )
+        if not tracker_backend or str(tracker_backend).lower() != "cpp":
+            candidates.append(root / Path(reid_model).stem / preprocess)
+
+    return tuple(dict.fromkeys(candidates))
+
+
+def find_existing_reid_cache_file(
+    embeddings_root: str | os.PathLike,
+    reid_model: str | os.PathLike,
+    sequence_name: str,
+    *,
+    reid_preprocess: str | None = None,
+    tracker_backend: str | None = None,
+    expected_rows: int | None = None,
+    allow_legacy: bool = False,
+) -> Path | None:
+    """Find the highest-priority valid embedding file for one sequence.
+
+    When ``expected_rows`` is supplied, incomplete or corrupt higher-priority
+    files are skipped. This lets a complete trusted legacy file win over a
+    partial canonical file left by an interrupted migration.
+    """
+    if _artifact_signature(Path(reid_model)) is None and not allow_legacy:
+        return None
+
+    filename = f"{Path(sequence_name).stem}.npy"
+    for directory in reid_cache_dir_candidates(
+        embeddings_root,
+        reid_model,
+        reid_preprocess=reid_preprocess,
+        tracker_backend=tracker_backend,
+        allow_legacy=allow_legacy,
+    ):
+        candidate = directory / filename
+        if not candidate.is_file():
+            continue
+        try:
+            array = np.load(candidate, mmap_mode="r")
+        except Exception:  # noqa: BLE001 - a broken cache is a miss, not fatal
+            continue
+        if array.ndim != 2:
+            continue
+        if array.shape[0] > 0 and array.shape[1] == 0:
+            continue
+        if expected_rows is not None and int(array.shape[0]) != int(expected_rows):
+            continue
+        return candidate
+    return None
 
 
 class AppendableNpyWriter:
@@ -304,6 +499,7 @@ def _serialize_eval_detections(dets: np.ndarray, frame_id: int) -> tuple[np.ndar
 
 __all__ = [
     "AppendableNpyWriter",
+    "REID_CROP_SCHEMA_VERSION",
     "_clear_device_cache",
     "_collect_seq_info",
     "_count_embedding_rows",
@@ -315,5 +511,8 @@ __all__ = [
     "_sequence_img_dir",
     "_sequence_name_from_img_dir",
     "_serialize_eval_detections",
+    "find_existing_reid_cache_file",
+    "reid_cache_dir_candidates",
     "reid_cache_key",
+    "reid_preprocess_cache_key",
 ]

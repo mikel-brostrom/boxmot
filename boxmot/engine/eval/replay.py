@@ -15,7 +15,10 @@ import numpy as np
 
 from boxmot.data import MOTDataset
 from boxmot.detectors import default_conf
-from boxmot.engine.tracking.mot import write_mot_results
+from boxmot.engine.experiment import write_experiment_snapshots
+from boxmot.engine.tracking.detections import sanitize_detections
+from boxmot.engine.tracking.inference import resolve_reid_producer_backend
+from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
 from boxmot.engine.tracking.runtime import TrackerRuntime
 from boxmot.native import get_native_replay_backend
 from boxmot.trackers.specs import normalize_tracker_backend
@@ -111,6 +114,7 @@ def _build_task_args(
     progress_queue,
 ) -> list[tuple]:
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
     masks_dir = getattr(args, "masks_dir", None)
     kf_tuning = getattr(args, "kf_tuning", None)
@@ -132,11 +136,82 @@ def _build_task_args(
             getattr(args, "split", None),
             masks_dir,
             kf_tuning,
+            _resolve_embedding_cache_dir(args, cache_project_root, seq_name),
             progress_queue,
             adaptive_kf,
         )
         for seq_name in sequence_names
     ]
+
+
+def _resolve_embedding_cache_dir(
+    args: argparse.Namespace,
+    cache_project_root: str | Path,
+    sequence_name: str,
+) -> str | None:
+    """Resolve the exact row-aligned embedding directory used by one replay task."""
+    if not getattr(args, "reid", None):
+        return None
+
+    from boxmot.data.cache import find_existing_reid_cache_file, reid_cache_dir_candidates
+    from boxmot.engine.eval.cache import _allow_legacy_reid_cache
+    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
+    detector_model = Path(args.detector[0])
+    reid_model = Path(args.reid[0])
+    tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
+    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+    expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
+
+    det_emb_root = Path(cache_project_root) / "dets_n_embs"
+    if getattr(args, "benchmark", None):
+        det_emb_root = det_emb_root / args.benchmark
+    if getattr(args, "split", None):
+        det_emb_root = det_emb_root / args.split
+    detector_root = det_emb_root / detector_model.stem
+    det_path = detector_root / "dets" / f"{sequence_name}.npy"
+    embeddings_root = detector_root / "embs"
+
+    expected_rows = None
+    detection_cache_valid = False
+    if det_path.is_file():
+        try:
+            detections = np.load(det_path, mmap_mode="r")
+            if detections.ndim == 2 and detections.shape[1] == expected_det_cols:
+                expected_rows = int(detections.shape[0])
+                detection_cache_valid = True
+        except Exception:  # noqa: BLE001 - generation will report a corrupt det cache
+            pass
+
+    allow_legacy = _allow_legacy_reid_cache(
+        args,
+        detector_model,
+        reid_model,
+        expected_det_cols=expected_det_cols,
+        tracker_backend=tracker_backend,
+    )
+    existing = None
+    if detection_cache_valid:
+        existing = find_existing_reid_cache_file(
+            embeddings_root,
+            reid_model,
+            sequence_name,
+            reid_preprocess=preprocess_name,
+            tracker_backend=tracker_backend,
+            expected_rows=expected_rows,
+            allow_legacy=allow_legacy,
+        )
+    if existing is not None:
+        return str(existing.parent)
+
+    canonical = reid_cache_dir_candidates(
+        embeddings_root,
+        reid_model,
+        reid_preprocess=preprocess_name,
+        tracker_backend=tracker_backend,
+        allow_legacy=False,
+    )[0]
+    return str(canonical)
 
 
 def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
@@ -151,16 +226,17 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
 
     if kf_type in ("xywh", "xyah", "xysr"):
         from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+
         if std_pos is not None:
             BaseKalmanFilter._tuned_std_weight_position = std_pos
         if std_vel is not None:
             BaseKalmanFilter._tuned_std_weight_velocity = std_vel
         LOGGER.info(
-            f"KF tuning applied to BaseKalmanFilter: "
-            f"_std_weight_position={std_pos}, _std_weight_velocity={std_vel}"
+            f"KF tuning applied to BaseKalmanFilter: _std_weight_position={std_pos}, _std_weight_velocity={std_vel}"
         )
     elif kf_type == "xyhr":
         from boxmot.motion.kalman_filters.xyhr import ConstantNoiseXYHR
+
         Q = kf_tuning.get("Q")
         R = kf_tuning.get("R")
         Q_vel_diag = kf_tuning.get("Q_vel_diag")
@@ -172,7 +248,7 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
         # Global tuned noise → key -1
         if Q is not None:
             _raw_q = np.asarray(Q, dtype=float)
-            _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[:_raw_q.shape[0] // 2])
+            _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[: _raw_q.shape[0] // 2])
             if Q_vel_diag is not None:
                 _tuned_q_vel_diag = np.abs(np.asarray(Q_vel_diag, dtype=float))
             else:
@@ -207,10 +283,7 @@ def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
 
         ConstantNoiseXYHR._per_class_noise = registry
         n_classes = len([k for k in registry if k >= 0])
-        LOGGER.info(
-            f"KF tuning applied to ConstantNoiseXYHR: "
-            f"global Q/R + {n_classes} per-class entries"
-        )
+        LOGGER.info(f"KF tuning applied to ConstantNoiseXYHR: global Q/R + {n_classes} per-class entries")
 
 
 def process_sequence(
@@ -229,22 +302,19 @@ def process_sequence(
     split: Optional[str] = None,
     masks_dir: Optional[str] = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: Optional[str] = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
     """Run a tracker over cached detections and embeddings for one sequence."""
-    from boxmot.data.cache import reid_cache_key
-
     detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
     if reid_name:
         reid_weights = Path(reid_name)
-        reid_key = reid_cache_key(reid_name, tracker_backend=None)
         if not reid_weights.suffix:
             reid_weights = reid_weights.with_suffix(".pt")
     else:
         reid_weights = None
-        reid_key = None
-    precomputed_reid = reid_key is not None
+    precomputed_reid = reid_weights is not None
 
     timing_stats = TimingStats()
 
@@ -289,10 +359,11 @@ def process_sequence(
         mot_root=mot_root,
         det_emb_root=str(det_emb_root),
         model_name=detector_key,
-        reid_name=reid_key,
+        reid_name=None,
         target_fps=target_fps,
         reid_preprocess=preprocess_name,
         masks_dir=masks_dir,
+        embedding_cache_dir=embedding_cache_dir,
     )
     sequence = dataset.get_sequence(
         seq_name,
@@ -320,6 +391,19 @@ def process_sequence(
         kept_frame_ids.append(frame_id)
         num_frames += 1
 
+        if embs.size and len(embs) != len(dets):
+            raise ValueError(
+                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
+                f"dets={len(dets)} embs={len(embs)}"
+            )
+        dets, masks, valid_geometry = sanitize_detections(
+            dets,
+            masks,
+            image_shape=img.shape,
+        )
+        if embs.size:
+            embs = embs[valid_geometry]
+
         if dets.size and conf_threshold > 0:
             conf_col = 5 if dets.shape[1] == 7 else 4
             mask = dets[:, conf_col] >= conf_threshold
@@ -328,47 +412,45 @@ def process_sequence(
             if masks is not None:
                 masks = masks[mask]
 
-        if dets.size:
-            if embs.size and dets.shape[0] != embs.shape[0]:
-                message = (
-                    f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
-                    f"dets={dets.shape[0]} embs={embs.shape[0]}"
-                )
-                LOGGER.error(message)
-                raise ValueError(message)
+        if embs.size and dets.shape[0] != embs.shape[0]:
+            message = (
+                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
+                f"dets={dets.shape[0]} embs={embs.shape[0]}"
+            )
+            LOGGER.error(message)
+            raise ValueError(message)
 
-            embs_arg = embs if embs.size else None
-            if embs_arg is None and needs_precomputed_reid:
-                raise ValueError(
-                    f"Cached ReID embeddings are missing for {seq_name} frame {frame_id}; "
-                    "regenerate the detection/embedding cache before replay."
-                )
-            # When running on metadata-only sequences (no real frame files),
-            # never pass None embeddings — that would trigger live ReID on
-            # blank stub images, which is extremely slow and meaningless.
-            if embs_arg is None and not _has_real_frames:
-                embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
-            masks_arg = masks if (masks is not None and masks.size) else None
-            try:
-                tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
-            except Exception as exc:
-                LOGGER.warning(
-                    f"Tracker update failed on {seq_name} frame {frame_id}: {exc}"
-                )
-                continue
-            frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
-            total_reid_time_ms += frame_reid_time_ms
-            total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
+        embs_arg = embs if embs.size else None
+        if dets.size and embs_arg is None and needs_precomputed_reid:
+            raise ValueError(
+                f"Cached ReID embeddings are missing for {seq_name} frame {frame_id}; "
+                "regenerate the detection/embedding cache before replay."
+            )
+        # When running on metadata-only sequences (no real frame files),
+        # never pass None embeddings for detections — that would trigger live
+        # ReID on blank stub images, which is slow and meaningless. Empty frames
+        # still need a tracker update for aging, prediction, and CMC state.
+        if dets.size and embs_arg is None and not _has_real_frames:
+            embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
+        masks_arg = masks if (masks is not None and masks.size) else None
+        try:
+            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
+        except Exception as exc:
+            LOGGER.warning(f"Tracker update failed on {seq_name} frame {frame_id}: {exc}")
+            continue
+        frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
+        total_reid_time_ms += frame_reid_time_ms
+        total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
 
-            if tracks.size:
-                all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
+        if tracks.size:
+            all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
 
     # Flush Online GTA: append gap-fill entries (if tracker supports it)
     tracker_obj = tracker_runtime.tracker
     if hasattr(tracker_obj, "flush_gta"):
         gta_entries = tracker_obj.flush_gta()
         if gta_entries.size:
-            all_tracks.append(gta_entries)
+            all_tracks.append(format_frame_tagged_tracks_for_mot(gta_entries))
 
     out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
@@ -396,9 +478,7 @@ def _resolve_backend_selection(args: argparse.Namespace) -> tuple[str, str]:
         return "cpp", "thread"
 
     if tracking_backend not in {"process", "thread"}:
-        raise ValueError(
-            f"Unsupported tracking backend '{tracking_backend}'. Expected 'process', 'thread', or 'cpp'."
-        )
+        raise ValueError(f"Unsupported tracking backend '{tracking_backend}'. Expected 'process', 'thread', or 'cpp'.")
 
     return normalize_tracker_backend(explicit_tracker_backend, default="python"), tracking_backend
 
@@ -493,8 +573,7 @@ def _run_tracking_tasks(
 
         if first_error is not None:
             raise RuntimeError(
-                f"Tracking failed for {len(failed_seqs)} sequence(s): "
-                f"{', '.join(failed_seqs)}"
+                f"Tracking failed for {len(failed_seqs)} sequence(s): {', '.join(failed_seqs)}"
             ) from first_error
 
     if tracking_backend == "process":
@@ -504,9 +583,7 @@ def _run_tracking_tasks(
         with manager_context as manager:
             progress_queue = None if quiet else manager.Queue()
             bound_task_args = (
-                task_args
-                if progress_queue is None
-                else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
+                task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
             )
 
             with concurrent.futures.ProcessPoolExecutor(
@@ -518,9 +595,7 @@ def _run_tracking_tasks(
     else:
         progress_queue = None if quiet else queue.Queue()
         bound_task_args = (
-            task_args
-            if progress_queue is None
-            else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
+            task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
         )
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
@@ -565,7 +640,7 @@ def _run_cpp_tracking_tasks(
     bound_task_args = (
         task_args
         if progress_queue is None
-        else [task[:-1] + (progress_queue,) for task in task_args]
+        else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
     )
 
     def _log_progress() -> None:
@@ -590,8 +665,7 @@ def _run_cpp_tracking_tasks(
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
         futures = {
-            executor.submit(native_backend.process_sequence, *task_arg): task_arg[0]
-            for task_arg in bound_task_args
+            executor.submit(native_backend.process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args
         }
         pending = set(futures)
         first_error: BaseException | None = None
@@ -628,8 +702,7 @@ def _run_cpp_tracking_tasks(
 
         if first_error is not None:
             raise RuntimeError(
-                f"Tracking failed for {len(failed_seqs)} sequence(s): "
-                f"{', '.join(failed_seqs)}"
+                f"Tracking failed for {len(failed_seqs)} sequence(s): {', '.join(failed_seqs)}"
             ) from first_error
 
     if not quiet and prev_display_lines > 0:
@@ -664,12 +737,15 @@ def run_generate_mot_results(
     cache_project = Path(getattr(args, "cache_project", args.project))
     verbose = bool(getattr(args, "verbose", False))
     base = args.project / "mot"
-    if getattr(args, "benchmark", None):
-        base = base / args.benchmark
+    experiment_id = getattr(args, "experiment_id", None)
+    benchmark_name = experiment_id or getattr(args, "benchmark", None)
+    if benchmark_name:
+        base = base / benchmark_name
     base = base / f"{args.detector[0].stem}_{args.reid[0].stem if args.reid else 'noreid'}_{args.tracker}"
     exp_dir = increment_path(base, sep="_", exist_ok=False)
     exp_dir.mkdir(parents=True, exist_ok=True)
     args.exp_dir = exp_dir
+    write_experiment_snapshots(args, exp_dir, tracker_config=evolve_config)
 
     sequence_names = MOTDataset(
         mot_root=str(args.source),
@@ -727,9 +803,7 @@ def run_generate_mot_results(
     valid_steps = set(supported_postprocessors())
     for s in pp_steps:
         if s not in valid_steps:
-            raise ValueError(
-                f"Unknown postprocessing step '{s}'. Valid options: {sorted(valid_steps)}"
-            )
+            raise ValueError(f"Unknown postprocessing step '{s}'. Valid options: {sorted(valid_steps)}")
 
     # Collect sequence names from result files for postprocessing progress
     pp_seq_names = sorted(f.stem for f in exp_dir.glob("*.txt"))
@@ -746,9 +820,7 @@ def run_generate_mot_results(
             total_seqs = len(pp_seq_names)
 
             def _emit() -> None:
-                done = sum(
-                    1 for c, t in seq_progress.values() if t > 0 and c >= t
-                )
+                done = sum(1 for c, t in seq_progress.values() if t > 0 and c >= t)
                 header = f"{label}: {done}/{total_seqs} sequences done"
                 seq_display = _format_seq_progress(pp_seq_names, seq_progress)
                 message = "\n".join([header] + ([seq_display] if seq_display else []))
@@ -761,14 +833,13 @@ def run_generate_mot_results(
             def _cb(seq_name: str, current: int, total: int) -> None:
                 seq_progress[seq_name] = (current, total)
                 _emit()
+
             return _cb
 
         if pp_step != "gta":
             postprocessor = create_postprocessor(pp_step)
             if verbose:
-                LOGGER.info(
-                    f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing..."
-                )
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing...")
 
             postprocessor.run(
                 mot_results_folder=exp_dir,
@@ -779,12 +850,7 @@ def run_generate_mot_results(
         if pp_step == "gta":
             postprocessor = create_postprocessor(pp_step)
             if verbose:
-                LOGGER.info(
-                    f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing..."
-                )
-            from boxmot.data.cache import reid_cache_key
-            from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
-
+                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing...")
             # Resolve cached embeddings/detections directory
             det_emb_root = cache_project / "dets_n_embs"
             if getattr(args, "benchmark", None):
@@ -795,20 +861,21 @@ def run_generate_mot_results(
             dets_dir = det_emb_root / detector_key / "dets"
             embs_dir = None
             if args.reid:
-                preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
                 embs_root = det_emb_root / detector_key / "embs"
-                tracker_backend = getattr(args, "tracker_backend", None)
-
-                key = reid_cache_key(args.reid[0], tracker_backend=tracker_backend)
-                candidate_dir = embs_root / key / preprocess_name
-                if candidate_dir.exists():
-                    embs_dir = candidate_dir
-
-                if embs_dir is None:
+                resolved_dirs = {
+                    Path(_resolve_embedding_cache_dir(args, cache_project, seq_name))
+                    for seq_name in sequence_names
+                }
+                existing_dirs = {directory for directory in resolved_dirs if directory.is_dir()}
+                if len(existing_dirs) == 1:
+                    embs_dir = existing_dirs.pop()
+                elif len(existing_dirs) > 1:
                     LOGGER.warning(
-                        f"GTA: Could not find embedding cache under {embs_root}. "
-                        f"Tried key: {key}"
+                        "GTA: sequences use multiple compatible embedding cache directories; "
+                        "consolidate them into the canonical cache before postprocessing."
                     )
+                else:
+                    LOGGER.warning(f"GTA: Could not find a complete embedding cache under {embs_root}.")
             else:
                 tracker_name = getattr(args, "tracker", "this tracker")
                 skip_msg = (

@@ -12,13 +12,6 @@ import cv2
 import numpy as np
 import torch
 
-from boxmot.configs.benchmark import (
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
-)
-from boxmot.data.benchmark import configure_benchmark_runtime, load_benchmark_cfg_from_args
 from boxmot.data.cache import (
     AppendableNpyWriter,
     _clear_device_cache,
@@ -28,12 +21,22 @@ from boxmot.data.cache import (
     _read_image_cv2,
     _saved_detection_column_count,
     _serialize_eval_detections,
+    find_existing_reid_cache_file,
     reid_cache_key,
+    reid_preprocess_cache_key,
 )
 from boxmot.data.dataset import _list_sequence_frames, _sequence_img_dir, _sequence_name_from_img_dir
 from boxmot.detectors import default_imgsz
-from boxmot.engine.tracking.detections import prepare_detections
-from boxmot.engine.tracking.inference import DetectorReIDPipeline
+from boxmot.engine.tracking.detections import sanitize_detections
+from boxmot.engine.tracking.inference import DetectorReIDPipeline, resolve_reid_producer_backend
+from boxmot.engine.workflows.benchmark import (
+    configure_benchmark_runtime,
+    ensure_benchmark_detector_model,
+    ensure_benchmark_reid_model,
+    load_evaluation_config_from_args,
+    should_use_benchmark_detector,
+    should_use_benchmark_reid,
+)
 from boxmot.utils import WEIGHTS
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.callbacks import safe_progress_callback
@@ -60,14 +63,14 @@ __all__ = (
 )
 
 
-def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
-    return load_benchmark_cfg_from_args(args)
+def _load_evaluation_cfg(args: argparse.Namespace) -> dict:
+    return load_evaluation_config_from_args(args)
 
 
 def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, dict]:
     return configure_benchmark_runtime(
         args,
-        load_benchmark_cfg_fn=_load_benchmark_cfg,
+        load_evaluation_cfg_fn=_load_evaluation_cfg,
         should_use_benchmark_detector_fn=should_use_benchmark_detector,
         should_use_benchmark_reid_fn=should_use_benchmark_reid,
         ensure_benchmark_detector_model_fn=ensure_benchmark_detector_model,
@@ -85,6 +88,52 @@ def _normalize_generate_args(args: argparse.Namespace) -> None:
     args.project = Path(args.project)
     args.detector = _ensure_model_list(args.detector)
     args.reid = _ensure_model_list(args.reid)
+
+
+def _allow_legacy_reid_cache(
+    args: argparse.Namespace,
+    detector_model: Path,
+    reid_model: Path,
+    *,
+    expected_det_cols: int,
+    tracker_backend: str | None,
+) -> bool:
+    """Return whether an unversioned embedding bucket has trusted provenance."""
+    if expected_det_cols != 7:
+        return False
+
+    explicit = getattr(args, "allow_legacy_reid_cache", None)
+    if explicit is not None:
+        return bool(explicit)
+
+    resolved = getattr(args, "resolved_experiment_config", None)
+    if not isinstance(resolved, dict):
+        runtime_cfg = getattr(args, "runtime_evaluation_config", None)
+        resolved = runtime_cfg.get("resolved") if isinstance(runtime_cfg, dict) else None
+    if not isinstance(resolved, dict):
+        return False
+
+    dataset = resolved.get("dataset") or {}
+    split = str(getattr(args, "split", None) or dataset.get("split") or "")
+    artifact = ((dataset.get("artifacts") or {}).get("precomputed") or {}).get(split) or {}
+    contains = {str(item) for item in artifact.get("contains") or []}
+    produced_by = artifact.get("produced_by") or {}
+    detector_cfg = resolved.get("detector") or {}
+    reid_cfg = resolved.get("reid") or {}
+
+    detector_id = str(detector_cfg.get("id") or "")
+    checkpoint = str(detector_cfg.get("checkpoint") or "")
+    expected_detector = f"{detector_id}/{checkpoint}" if checkpoint else detector_id
+    configured_detector = Path(str(detector_cfg.get("model") or ""))
+    configured_reid = Path(str(reid_cfg.get("model") or ""))
+
+    return (
+        "embeddings" in contains
+        and str(produced_by.get("detector") or "") == expected_detector
+        and str(produced_by.get("reid") or "") == str(reid_cfg.get("id") or "")
+        and configured_detector.resolve() == Path(detector_model).resolve()
+        and configured_reid.resolve() == Path(reid_model).resolve()
+    )
 
 
 def _format_generate_seq_progress(sequence_names: list[str], seq_progress: dict[str, tuple[int, int]]) -> str:
@@ -137,26 +186,21 @@ def _build_reid_only_models(
 
     Mirrors the selection logic used by ``DetectorReIDPipeline._init_reid_models``
     so the cpp ReID C ABI is honoured when ``--tracker-backend cpp`` is set.
-    Returns a dict ``{<reid_filename>: <object exposing get_features(boxes, img)>}``.
+    Returns a dict ``{<full-model-identifier>: <object exposing get_features>}``.
     """
     models: dict[str, Any] = {}
+    tracker_backend = resolve_reid_producer_backend(tracker_backend)
     use_cpp_reid = (tracker_backend or "").lower() == "cpp"
     cpp_factory = None
     if use_cpp_reid:
-        try:
-            from boxmot.native.reid import CppOnnxReID
-            cpp_factory = CppOnnxReID
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning(
-                f"--tracker-backend cpp requested but native ReID C ABI is unavailable: "
-                f"{exc}. Falling back to the Python ReID backend for the embeddings-only fill."
-            )
-            cpp_factory = None
+        from boxmot.native.reid import CppOnnxReID
+
+        cpp_factory = CppOnnxReID
     for reid_path in reid_paths:
         reid_path = Path(reid_path)
         if cpp_factory is not None:
             backend = cpp_factory(weights=reid_path, preprocess_name=preprocess_name)
-            models[reid_path.name] = backend.model
+            models[str(reid_path)] = backend.model
         else:
             from boxmot.reid.core import ReID
             backend = ReID(
@@ -165,7 +209,7 @@ def _build_reid_only_models(
                 half=half,
                 preprocess_name=preprocess_name,
             )
-            models[reid_path.name] = backend.model
+            models[str(reid_path)] = backend.model
     return models
 
 
@@ -198,6 +242,10 @@ def _run_embeddings_only_fill(
         for key in state["missing_keys"]:
             if key in key_to_path:
                 continue
+            state_reid_paths = state.get("reid_paths") or {}
+            if key in state_reid_paths:
+                key_to_path[key] = Path(state_reid_paths[key])
+                continue
             for reid_path in args.reid:
                 if reid_cache_key(reid_path, tracker_backend=tracker_backend) == key:
                     key_to_path[key] = Path(reid_path)
@@ -220,8 +268,57 @@ def _run_embeddings_only_fill(
     )
     # Map each missing cache key back to its loaded ReID model.
     key_to_model = {
-        key: reid_models[Path(reid_path).name] for key, reid_path in key_to_path.items()
+        key: reid_models[str(reid_path)] for key, reid_path in key_to_path.items()
     }
+
+    actual_key_by_planned = {
+        key: reid_cache_key(reid_path, tracker_backend=tracker_backend)
+        for key, reid_path in key_to_path.items()
+    }
+    if any(actual != planned for planned, actual in actual_key_by_planned.items()):
+        remapped_models: dict[str, Any] = {}
+        completed_states: list[str] = []
+        preprocess_key = reid_preprocess_cache_key(preprocess_name)
+        for seq_name, state in embed_only_states.items():
+            remapped_keys: list[str] = []
+            remapped_paths: dict[str, Path] = {}
+            det_rows = _count_embedding_rows(Path(state["dets_path"]))
+            for planned_key in state["missing_keys"]:
+                actual_key = actual_key_by_planned[planned_key]
+                old_path = Path(state["emb_paths"][planned_key])
+                embeddings_root = state.get("embs_root")
+                if embeddings_root is None:
+                    embeddings_root = old_path.parents[len(Path(planned_key).parts) + 1]
+                actual_path = Path(embeddings_root) / actual_key / preprocess_key / f"{seq_name}.npy"
+                existing = find_existing_reid_cache_file(
+                    embeddings_root,
+                    key_to_path[planned_key],
+                    seq_name,
+                    reid_preprocess=preprocess_name,
+                    tracker_backend=tracker_backend,
+                    expected_rows=det_rows,
+                    allow_legacy=False,
+                )
+                if existing is not None:
+                    continue
+                if actual_path.exists():
+                    actual_path.unlink()
+                remapped_keys.append(actual_key)
+                remapped_paths[actual_key] = actual_path
+                remapped_models[actual_key] = key_to_model[planned_key]
+            state["missing_keys"] = remapped_keys
+            state["emb_paths"] = remapped_paths
+            if not remapped_keys:
+                completed_states.append(seq_name)
+        for seq_name in completed_states:
+            embed_only_states.pop(seq_name)
+        key_to_model = remapped_models
+        if not embed_only_states:
+            for model in list(reid_models.values()):
+                close = getattr(model, "close", None)
+                if callable(close):
+                    close()
+            return
 
     is_obb = expected_det_cols == 8
     box_end = 6 if is_obb else 5  # cols [1:box_end] are the ReID box coords
@@ -290,7 +387,8 @@ def _run_embeddings_only_fill(
                         # Should not happen for healthy caches, but guard anyway.
                         i = j
                         continue
-                    for key, model in key_to_model.items():
+                    for key in missing_keys:
+                        model = key_to_model[key]
                         feats = model.get_features(boxes, img)
                         feats = np.asarray(feats, dtype=np.float32)
                         if feats.ndim == 1:
@@ -469,6 +567,7 @@ def generate_dets_embs_batched(
     from boxmot.detectors.registry import is_seg_model
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
+    preprocess_key = reid_preprocess_cache_key(preprocess_name)
 
     # Determine if the detector produces masks (seg model)
     _is_seg = is_seg_model(y)
@@ -480,15 +579,24 @@ def generate_dets_embs_batched(
         from fnmatch import fnmatch
         mot_folder_paths = [p for p in mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
+    tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
     seq_states = {}
     embed_only_states: dict[str, dict] = {}
     cached_seq_names: list[str] = []
     det_writers: dict[str, AppendableNpyWriter] = {}
     mask_writers: dict[str, AppendableNpyWriter] = {}
-    tracker_backend = getattr(args, "tracker_backend", None)
-    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {
-        reid_cache_key(reid, tracker_backend=tracker_backend): {} for reid in args.reid
+    reid_writer_keys = {
+        str(Path(reid)): reid_cache_key(reid, tracker_backend=tracker_backend)
+        for reid in args.reid
     }
+    reid_paths_by_writer_key = {
+        key: Path(model_identifier)
+        for model_identifier, key in reid_writer_keys.items()
+    }
+    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {
+        key: {} for key in reid_writer_keys.values()
+    }
+    reported_compatible_dirs: set[Path] = set()
     total_frames = 0
     initial_done = 0
 
@@ -503,35 +611,54 @@ def generate_dets_embs_batched(
         dets_path = dets_folder / f"{seq_name}.npy"
         cached_dets_path = _existing_cache_path(dets_path)
         processed = 0
+        det_rows = _count_embedding_rows(cached_dets_path) if (resume and cached_dets_path is not None) else 0
+        det_max_frame = _max_frame_id(cached_dets_path) if (resume and cached_dets_path is not None) else 0
+        det_col_count = (
+            _saved_detection_column_count(cached_dets_path)
+            if (resume and cached_dets_path is not None)
+            else 0
+        )
 
         emb_paths = {}
         cached_emb_paths = {}
         any_emb_cached = False
         for reid_model in args.reid:
-            key = reid_cache_key(reid_model, tracker_backend=tracker_backend)
-            emb_path = embs_root / key / preprocess_name / f"{seq_name}.npy"
+            key = reid_writer_keys[str(Path(reid_model))]
+            emb_path = embs_root / key / preprocess_key / f"{seq_name}.npy"
             emb_paths[key] = emb_path
-            cached_emb_path = _existing_cache_path(emb_path)
+            allow_legacy = _allow_legacy_reid_cache(
+                args,
+                y,
+                Path(reid_model),
+                expected_det_cols=expected_det_cols,
+                tracker_backend=tracker_backend,
+            )
+            cached_emb_path = find_existing_reid_cache_file(
+                embs_root,
+                reid_model,
+                seq_name,
+                reid_preprocess=preprocess_name,
+                tracker_backend=tracker_backend,
+                expected_rows=det_rows if cached_dets_path is not None else None,
+                allow_legacy=allow_legacy,
+            )
             cached_emb_paths[key] = cached_emb_path
             if cached_emb_path is not None:
                 any_emb_cached = True
+                if cached_emb_path != emb_path and cached_emb_path.parent not in reported_compatible_dirs:
+                    LOGGER.info(
+                        "Reusing compatible embedding cache at "
+                        f"{cached_emb_path.parent} (canonical: {emb_path.parent})."
+                    )
+                    reported_compatible_dirs.add(cached_emb_path.parent)
 
         expected_files = False
         rows_match = False
-        det_rows = 0
-        det_max_frame = 0
         emb_rows: dict[str, int] = {}
 
         if resume:
-            det_rows = _count_embedding_rows(cached_dets_path) if cached_dets_path is not None else 0
-            det_max_frame = _max_frame_id(cached_dets_path) if cached_dets_path is not None else 0
-            det_col_count = _saved_detection_column_count(cached_dets_path) if cached_dets_path is not None else 0
             emb_rows = {
-                stem: (
-                    _count_embedding_rows(cached_emb_path if cached_emb_path is not None else emb_paths[stem])
-                    if (cached_emb_path is not None or emb_paths[stem].exists())
-                    else 0
-                )
+                stem: _count_embedding_rows(cached_emb_path) if cached_emb_path is not None else 0
                 for stem, cached_emb_path in cached_emb_paths.items()
             }
             expected_files = cached_dets_path is not None and all(
@@ -569,7 +696,6 @@ def generate_dets_embs_batched(
                         dets_path,
                         cached_dets_path,
                         *emb_paths.values(),
-                        *cached_emb_paths.values(),
                     ]
                     if path is not None
                 }
@@ -611,7 +737,7 @@ def generate_dets_embs_batched(
                             )
                         # Drop only the broken/missing emb files so the writers start clean.
                         for stem in missing_keys:
-                            for path in [cached_emb_paths.get(stem), emb_paths[stem]]:
+                            for path in [emb_paths[stem]]:
                                 if path is not None:
                                     try:
                                         path.unlink()
@@ -621,7 +747,9 @@ def generate_dets_embs_batched(
                             "frames": frames,
                             "img_dir": img_dir,
                             "dets_path": cached_dets_path,
+                            "embs_root": embs_root,
                             "missing_keys": missing_keys,
+                            "reid_paths": {key: reid_paths_by_writer_key[key] for key in missing_keys},
                             "emb_paths": {k: emb_paths[k] for k in missing_keys},
                         }
                         # Embed-only fill happens after the main loop; book the
@@ -644,7 +772,6 @@ def generate_dets_embs_batched(
                         dets_path,
                         cached_dets_path,
                         *emb_paths.values(),
-                        *cached_emb_paths.values(),
                     ]
                     if path is not None
                 }
@@ -666,7 +793,6 @@ def generate_dets_embs_batched(
                         dets_path,
                         cached_dets_path,
                         *emb_paths.values(),
-                        *cached_emb_paths.values(),
                     ]
                     if path is not None
                 }
@@ -707,7 +833,7 @@ def generate_dets_embs_batched(
         )
 
         for reid_model in args.reid:
-            key = reid_cache_key(reid_model, tracker_backend=tracker_backend)
+            key = reid_writer_keys[str(Path(reid_model))]
             emb_path = emb_paths[key]
             emb_path.parent.mkdir(parents=True, exist_ok=True)
             emb_writers[key][seq_name] = AppendableNpyWriter(
@@ -793,6 +919,40 @@ def generate_dets_embs_batched(
         timing_stats=timing_stats,
         tracker_backend=getattr(args, "tracker_backend", None),
     )
+
+    # Backend initialization can materialize a previously absent model (for
+    # example through automatic download). Re-key the still-empty writers now
+    # so newly written caches include the artifact content fingerprint.
+    for model_identifier, planned_key in list(reid_writer_keys.items()):
+        actual_key = reid_cache_key(model_identifier, tracker_backend=tracker_backend)
+        if actual_key == planned_key:
+            continue
+        planned_writers = emb_writers.pop(planned_key, {})
+        actual_writers = emb_writers.setdefault(actual_key, {})
+        for seq_name, writer in planned_writers.items():
+            if int(getattr(writer, "rows", 0)) != 0:
+                raise RuntimeError(
+                    "A ReID model changed cache identity after a partial writer was opened; "
+                    "rerun generation with the model artifact present."
+                )
+            writer.close()
+            old_path = Path(writer.path)
+            if old_path.exists():
+                old_path.unlink()
+            actual_path = embs_root / actual_key / preprocess_key / f"{seq_name}.npy"
+            if actual_path.exists() and _count_embedding_rows(actual_path) > 0:
+                raise RuntimeError(
+                    f"A content-hashed embedding cache appeared during setup: {actual_path}. "
+                    "Rerun generation so it can be validated before writing."
+                )
+            actual_path.parent.mkdir(parents=True, exist_ok=True)
+            actual_writers[seq_name] = AppendableNpyWriter(
+                actual_path,
+                dtype=np.float32,
+                trailing_shape=None,
+                empty_trailing_shape=(0,),
+            )
+        reid_writer_keys[model_identifier] = actual_key
     pipeline.warmup()
 
     if auto_batch:
@@ -893,7 +1053,11 @@ def generate_dets_embs_batched(
                     )
 
                 for (seq_name, frame_id, _), result, img in zip(batch_items, yolo_results, imgs):
-                    dets = prepare_detections(result)
+                    dets, sanitized_masks, _ = sanitize_detections(
+                        result.dets,
+                        getattr(result, "masks", None),
+                        image_shape=img.shape,
+                    )
 
                     if len(dets) == 0:
                         if timing_stats:
@@ -917,10 +1081,15 @@ def generate_dets_embs_batched(
                             raise RuntimeError(
                                 f"Embedding count mismatch: dets={det_boxes_np.shape[0]} embs={embs.shape[0]}"
                             )
-                        # Pipeline keys embeddings by the raw ReID name; the
-                        # writers are bucketed by the backend-aware cache key
-                        # (e.g. ``__cpp`` suffix for the C++ backend).
-                        writer_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
+                        # Resolve through the key frozen before inference. This
+                        # remains stable even if backend initialization creates
+                        # or downloads the model file.
+                        try:
+                            writer_key = reid_writer_keys[str(Path(reid_name))]
+                        except KeyError as exc:
+                            raise RuntimeError(
+                                f"ReID pipeline returned an unknown model identifier: {reid_name}"
+                            ) from exc
                         if embs.ndim >= 2 and writer_key not in emb_dims:
                             emb_dims[writer_key] = embs.shape[1]
                         emb_writers[writer_key][seq_name].append(embs.astype(np.float32, copy=False))
@@ -930,8 +1099,8 @@ def generate_dets_embs_batched(
                     # Append masks downsampled + bit-packed (same row order as dets/embs)
                     # Binary masks (N, H, W) → resize to 160×160 → packbits → (N, 160, 20)
                     # 128× smaller than raw storage; IoU ratios are resolution-invariant
-                    if _is_seg and result.masks is not None and seq_name in mask_writers:
-                        masks_raw = result.masks.astype(np.uint8, copy=False)
+                    if _is_seg and sanitized_masks is not None and seq_name in mask_writers:
+                        masks_raw = sanitized_masks.astype(np.uint8, copy=False)
                         n = masks_raw.shape[0]
                         masks_small = np.empty((n, 160, 160), dtype=np.uint8)
                         for _mi in range(n):
@@ -1140,10 +1309,10 @@ def run_generate_dets_embs(
     _normalize_generate_args(args)
     verbose = bool(getattr(args, "verbose", False))
 
-    if getattr(args, "data", None) and getattr(args, "source", None) is None:
-        from boxmot.configs.benchmark import apply_benchmark_config
+    if getattr(args, "experiment", None) and getattr(args, "source", None) is None:
+        from boxmot.engine.workflows.benchmark import apply_evaluation_config
 
-        apply_benchmark_config(args, overwrite=False)
+        apply_evaluation_config(args, overwrite=False)
 
     _configure_benchmark_runtime(args)
     source_root = Path(args.source)
@@ -1173,7 +1342,8 @@ def run_generate_dets_embs(
         # Run ReID embeddings fill for the cached public detections
         from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
         _preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-        _tracker_backend = getattr(args, "tracker_backend", None)
+        _preprocess_key = reid_preprocess_cache_key(_preprocess_name)
+        _tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
         _benchmark = getattr(args, "benchmark", None)
         _split = getattr(args, "split", None)
         _cache_project = Path(getattr(args, "cache_project", args.project))
@@ -1193,6 +1363,10 @@ def run_generate_dets_embs(
             _mot_folder_paths = [p for p in _mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
         _embed_only_states: dict[str, dict] = {}
+        _reid_paths_by_key = {
+            reid_cache_key(model, tracker_backend=_tracker_backend): Path(model)
+            for model in args.reid
+        }
         for _seq_dir in _mot_folder_paths:
             _img_dir = _sequence_img_dir(_seq_dir)
             _frames = _list_sequence_frames(_img_dir)
@@ -1205,17 +1379,29 @@ def run_generate_dets_embs(
             # Check which ReID keys are missing
             _missing_keys: list[str] = []
             _emb_paths: dict[str, Path] = {}
+            _det_rows = _count_embedding_rows(_dets_path)
             for _reid_model in args.reid:
                 _key = reid_cache_key(_reid_model, tracker_backend=_tracker_backend)
-                _emb_path = _embs_root / _key / _preprocess_name / f"{_seq_name}.npy"
+                _emb_path = _embs_root / _key / _preprocess_key / f"{_seq_name}.npy"
                 _emb_paths[_key] = _emb_path
-                if not _emb_path.exists():
+                _cached_emb_path = find_existing_reid_cache_file(
+                    _embs_root,
+                    _reid_model,
+                    _seq_name,
+                    reid_preprocess=_preprocess_name,
+                    tracker_backend=_tracker_backend,
+                    expected_rows=_det_rows,
+                    allow_legacy=False,
+                )
+                if _cached_emb_path is None:
                     _missing_keys.append(_key)
             if _missing_keys:
                 _embed_only_states[_seq_name] = {
                     "frames": _frames,
                     "dets_path": _dets_path,
+                    "embs_root": _embs_root,
                     "missing_keys": _missing_keys,
+                    "reid_paths": {key: _reid_paths_by_key[key] for key in _missing_keys},
                     "emb_paths": {k: _emb_paths[k] for k in _missing_keys},
                 }
 
