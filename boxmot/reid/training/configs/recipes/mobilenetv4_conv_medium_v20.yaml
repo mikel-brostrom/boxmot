@@ -1,0 +1,188 @@
+# MobileNetV4-Conv-M transfer of the promoted CSL-TinyViT-7M V20 recipe.
+#
+# Shared V20 ReID policy:
+#   - P12 x K8 identity batches at 384x128
+#   - global C5 + two C4 stripes + four C3 stripes
+#   - scale-balanced 1,152-D retrieval descriptor
+#   - monotonic shared-multiscale canonical part transport (MCPT)
+#   - training-only 96-D multiscale EMA pose teacher
+#
+# Conv-M adaptation (promoted from the seed-0 transfer sweep):
+#   - timm's resolution-matched e250/r384 ImageNet-12K -> 1K checkpoint
+#   - spatial pretrained C5 projection with a stride-16 final feature map
+#   - depthwise-separable spatial fusion to retain a mobile feature path
+#   - AdamW with CNN norm/bias no-decay groups, lower fine-tuning weight decay,
+#     soft-margin triplet, and EMA validation
+#   - a 100-epoch horizon: the matched 80-epoch run compressed cosine decay
+#     too aggressively and lost 0.53 mAP despite both peaking at epoch 70
+#   - the 200-epoch pose schedule scaled to ramp 0->25, decay 60->85,
+#     leaving 15 RGB-only consolidation epochs
+#   - MCPT still starts after the 10-epoch backbone freeze, with its post-start
+#     ramp and identity-prior phases scaled by 100/200 (10->25, decay at 35)
+
+run:
+  model_name: mobilenetv4_conv_medium
+  seed: 0
+  deterministic: true
+  pretrained: true
+
+data:
+  dataset: market1501
+  data_dir: boxmot/datasets/reid/Market-1501-v15.09.15
+  img_size: [384, 128]
+  preprocess: resize
+  batch_size: 64
+  sampler:
+    p: 12
+    k: 8
+    source_balance: ""
+    steps_per_epoch: 0
+    camera_aware: false
+  num_workers: 0
+
+model:
+  feature_fusion: global_final_parts_stage0_semantic_fine
+  pyramid_resize_mode: pool_bilinear
+  spatial_conv_mode: depthwise_separable
+  timm_model_name: mobilenetv4_conv_medium.e250_r384_in12k_ft_in1k
+  timm_head_mode: spatial_linear
+  mobilenetv4_last_stride: 1
+  mobilenetv4_neck_mode: cnn
+  post_fusion_mixer:
+    mode: none
+    reduction: 4
+    kernel: [5, 3]
+    gamma_init: 0.0
+  feat_dim: 384
+  neck_dim: 384
+  head:
+    pool: gelu_gem
+    parts: [1, 2, 4]
+    head_type: standard
+    part_pooling: stripes
+    num_part_tokens: 4
+    anatomical_auxiliary:
+      enabled: true
+      token_dim: 96
+      multiscale: true
+      accessory_query: false
+      deployment: false
+    mcpt:
+      mode: shared_multiscale
+      hidden_dim: 64
+      max_displacement: 0.15
+      start_epoch: 10
+      ramp_end_epoch: 25
+  feature_selection:
+    metric_feature: raw_concat
+    inference_feature: norm_concat_bn
+  branch:
+    aware_metric: false
+    metric_part_weight: 0.5
+    loss_agg: mean
+    scale_balanced: true
+  regularization:
+    drop_path_rate: 0.1
+
+optimization:
+  epochs: 100
+  optimizer: AdamW
+  lr: 0.0005
+  mcpt_lr_multiplier: 2.0
+  backbone_lr_mult: 1.0
+  weight_decay: 0.0001
+  grad_clip: 1.0
+  backbone_freeze_epochs: 10
+  gradual_unfreeze:
+    enabled: false
+    head_epochs: 0
+    stage_epochs: 0
+    backbone_lr_mult: 1.0
+    backbone_lr_epochs: 0
+  scheduler:
+    name: CosineAnnealingLR
+    eta_min: 0.0000001
+    warmup_epochs: 20
+  ema_decay: 0.999
+
+losses:
+  loss_type: triplet
+  classifier_loss: ce
+  weights:
+    id_loss_weight: 1.0
+    aux_ce_weight: 1.0
+    metric_loss_weight: 1.0
+    center_loss_weight: 0.0005
+  aux_ce_drop_epoch: 0
+  label_smooth: 0.1
+  triplet:
+    margin: 0.3
+    soft_margin: true
+  mcpt:
+    smoothness_weight: 0.01
+    identity_weight: 0.02
+    identity_decay_epoch: 35
+
+augmentation:
+  color_jitter: false
+  gaussian_blur: false
+  random_grayscale: 0.0
+  random_erasing: 0.35
+  random_patch: false
+  random_crop_scale: 1.05
+  color_augmentation: true
+  background_mosaic:
+    enabled: false
+  same_id_part_mosaic:
+    enabled: false
+  pav_mosaic:
+    enabled: false
+    consistency_weight: 0.0
+  anatomical_supervision:
+    enabled: true
+    metadata_dir: Market-1501-pav-metadata-clean
+    min_keypoint_confidence: 0.5
+    teacher: learned_pose_concat_ema
+    teacher_momentum: 0.999
+    distill_weight: 0.1
+    attention_weight: 0.1
+    foreground_weight: 0.0
+    semantic_part_weight: 0.0
+    visibility_weight: 0.05
+    contrastive_weight: 0.1
+    descriptor_distill_weight: 0.0
+    branch_distill_weight: 0.0
+    pose_teacher_weight: 0.03
+    query_distill_weight: 0.0
+    query_relational_distill_weight: 0.0
+    query_diversity_weight: 0.0
+    part_triplet_weight: 0.0
+    clean_student_consistency_weight: 0.0
+    local_scale_weight: 0.6
+    fine_scale_weight: 0.4
+    cross_scale_weight: 0.05
+    pose_only_reliability: 0.0
+    min_effective_coverage: 0.8
+    student_start_epoch: 0
+    student_ramp_end_epoch: 25
+    query_start_epoch: 0
+    query_ramp_end_epoch: 0
+    fine_start_epoch: 0
+    fine_ramp_end_epoch: 0
+    decay_start_epoch: 60
+    decay_end_epoch: 85
+    temperature: 0.07
+
+evaluation:
+  eval_interval: 10
+  eval_datasets: []
+  flip_tta: false
+  mcpt_disabled_eval: false
+
+system:
+  device: mps
+
+derived:
+  metric_dim: 1152
+  classifier_dim: 1152
+  n_params: 11045862

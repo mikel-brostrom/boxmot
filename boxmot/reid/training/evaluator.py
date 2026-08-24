@@ -65,6 +65,9 @@ def compute_distance_matrix(
     topk: int | None = None,
     sinkhorn_iters: int = 20,
     sinkhorn_temperature: float = 0.1,
+    late_interaction_matcher: torch.nn.Module | None = None,
+    base_dim: int | None = None,
+    branch_dims: tuple[int, ...] | None = None,
     eps: float = 1e-12,
 ) -> np.ndarray:
     """Compute cosine distance matrix between query and gallery features."""
@@ -94,12 +97,96 @@ def compute_distance_matrix(
             sinkhorn_temperature=sinkhorn_temperature,
             eps=eps,
         )
+    if metric == "hierarchical_late_interaction":
+        if late_interaction_matcher is None or base_dim is None or branch_dims is None:
+            raise ValueError(
+                "hierarchical_late_interaction distance requires a matcher, base_dim, and branch_dims"
+            )
+        return compute_hierarchical_late_interaction_distance(
+            query_features,
+            gallery_features,
+            matcher=late_interaction_matcher,
+            base_dim=base_dim,
+            branch_dims=branch_dims,
+            topk=topk,
+            eps=eps,
+        )
     if metric != "cosine":
         raise ValueError(f"Unsupported distance metric: {metric}")
     # Features are already L2-normalized, so dot product = cosine similarity
     # Use float32 explicitly to avoid upcasting
     similarity = query_features.astype(np.float32) @ gallery_features.astype(np.float32).T
     return 1.0 - similarity
+
+
+@torch.no_grad()
+def compute_hierarchical_late_interaction_distance(
+    query_features: np.ndarray,
+    gallery_features: np.ndarray,
+    *,
+    matcher: torch.nn.Module,
+    base_dim: int,
+    branch_dims: tuple[int, ...],
+    topk: int = 100,
+    eps: float = 1e-12,
+) -> np.ndarray:
+    """Rerank base-cosine top-k candidates with the learned seven-branch matcher.
+
+    Expected packet layout: ``[base_descriptor, G, C1, C2, F1, F2, F3, F4]``.
+    """
+    base_dim = int(base_dim)
+    branch_dims = tuple(int(value) for value in branch_dims)
+    if base_dim < 1 or len(branch_dims) != 7 or any(value < 1 for value in branch_dims):
+        raise ValueError("late-interaction evaluation requires one base and seven positive branch dimensions")
+    expected_dim = base_dim + sum(branch_dims)
+    if query_features.shape[1] != expected_dim or gallery_features.shape[1] != expected_dim:
+        raise ValueError(
+            "hierarchical_late_interaction packet dimension mismatch: "
+            f"expected {expected_dim}, got query={query_features.shape[1]}, gallery={gallery_features.shape[1]}"
+        )
+
+    def normalize(array: np.ndarray) -> np.ndarray:
+        array = array.astype(np.float32, copy=False)
+        return array / np.linalg.norm(array, axis=1, keepdims=True).clip(min=eps)
+
+    def parse(array: np.ndarray) -> tuple[np.ndarray, tuple[np.ndarray, ...]]:
+        base = normalize(array[:, :base_dim])
+        branches = []
+        cursor = base_dim
+        for dimension in branch_dims:
+            branches.append(normalize(array[:, cursor:cursor + dimension]))
+            cursor += dimension
+        return base, tuple(branches)
+
+    query_base, query_branches = parse(query_features)
+    gallery_base, gallery_branches = parse(gallery_features)
+    base_similarity = query_base @ gallery_base.T
+    distance = 1.0 - base_similarity
+    if gallery_features.shape[0] == 0:
+        return distance
+
+    rerank_k = min(max(int(topk), 1), gallery_features.shape[0])
+    try:
+        device = next(matcher.parameters()).device
+    except StopIteration:
+        device = torch.device("cpu")
+
+    for query_index in range(query_features.shape[0]):
+        gallery_indices = np.argpartition(-base_similarity[query_index], rerank_k - 1)[:rerank_k]
+
+        def branch_hierarchy(branches: tuple[np.ndarray, ...], indices) -> tuple:
+            selected = [torch.as_tensor(branch[indices], device=device) for branch in branches]
+            return selected[0], tuple(selected[1:3]), tuple(selected[3:7])
+
+        repeated_query_indices = np.full(rerank_k, query_index)
+        scores = matcher.score_pairs(
+            branch_hierarchy(query_branches, repeated_query_indices),
+            branch_hierarchy(gallery_branches, gallery_indices),
+            torch.as_tensor(query_base[repeated_query_indices], device=device),
+            torch.as_tensor(gallery_base[gallery_indices], device=device),
+        )
+        distance[query_index, gallery_indices] = 1.0 - scores.float().cpu().numpy()
+    return distance
 
 
 def compute_visibility_weighted_part_distance(

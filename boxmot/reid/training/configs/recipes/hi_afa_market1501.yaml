@@ -1,0 +1,89 @@
+# Stabilized Hi-AFA reproduction profile for Market-1501.
+#
+# Reported by Dong and Lu (IEEE Access 2024):
+# - OSNet-x1.0 ImageNet initialization, 384x128 input
+# - Adam (betas 0.9/0.999, eps 1e-8), lr 8e-4, wd 5e-4
+# - 200 epochs, P=8 identities, K=8 instances
+# - 0.5 * sum(17 CE) + 0.5 * sum(5 MS) + 5e-4 * sum(22 center)
+# - MS alpha=2, beta=40, threshold=0.5 (owned by the Hi-AFA model contract)
+#
+# The paper does not report its smoothing epsilon, crop geometry/probability,
+# erasing probability, scheduler, seed, DropBlock geometry, or whether its 22
+# heterogeneous center branches use shared or branch-specific centers. This
+# stabilized BoxMOT profile therefore disables the ambiguous shared-center
+# objective instead of coupling all 22 streams to one center table.
+#
+# It records the following reproducible choices: epsilon=0.1, BoxMOT's 1.05x
+# resize-and-random-crop, horizontal flip p=0.5, erasing p=0.5 with BoxMOT's
+# default geometry, ImageNet channel statistics, seed=0, and a constant 8e-4 LR
+# (eta_min equals lr).  The unreported DropBlock settings use probability 0.1
+# and block size 7, common settings from the cited DropBlock implementation.
+# Multi-similarity pair mining uses BoxMOT's margin 0.1, also unreported.
+# LDAM's trainable spatial/channel residual gates start at zero, preserving an
+# identity-safe OSNet path at initialization because the paper does not specify
+# gamma. Evaluation excludes the DropBlock duplicate of g4 and emits 16 unique
+# 512-D raw pooled streams (8192-D total), with per-stream L2 normalization
+# before concatenation and one final L2 normalization.
+
+run:
+  model_name: hi_afa
+  pretrained: true
+  seed: 0
+  deterministic: true
+
+data:
+  dataset: market1501
+  preprocess: resize
+  img_size: [384, 128]
+  batch_size: 64
+  sampler:
+    p: 8
+    k: 8
+    camera_aware: false
+
+model:
+  branch:
+    loss_agg: sum
+
+optimization:
+  epochs: 200
+  lr: 0.0008
+  weight_decay: 0.0005
+  backbone_freeze_epochs: 0
+  gradual_unfreeze:
+    enabled: false
+  ema_decay: 0.0
+  scheduler:
+    warmup_epochs: 0
+    eta_min: 0.0008
+
+losses:
+  loss_type: ms
+  classifier_loss: ce
+  label_smooth: 0.1
+  weights:
+    id_loss_weight: 0.5
+    metric_loss_weight: 0.5
+    center_loss_weight: 0.0
+
+augmentation:
+  random_crop_scale: 1.05
+  random_erasing: 0.5
+  random_patch: false
+  color_augmentation: false
+  color_jitter: false
+  gaussian_blur: false
+  random_grayscale: 0.0
+  background_mosaic:
+    enabled: false
+  same_id_part_mosaic:
+    enabled: false
+  pav_mosaic:
+    enabled: false
+
+evaluation:
+  eval_interval: 10
+  flip_tta: false
+
+project: runs/hi_afa_market1501
+name: stable_seed0

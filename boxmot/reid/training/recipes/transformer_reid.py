@@ -65,4 +65,4 @@ class TransformerReIDRecipe(TrainingRecipe):
         )
 
     def layer_decay(self, trainer: ReIDTrainer) -> float:
-        return 0.95 if trainer.vit_lr_profile == "layer_decay" else 1.0
+        return trainer.layer_decay if trainer.vit_lr_profile == "layer_decay" else 1.0

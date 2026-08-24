@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from boxmot.reid.backbones.families.csl_tinyvit.blocks import LayerNorm2d, _to_2tuple
+from boxmot.reid.backbones.option_registry import CSL_FEATURE_FUSION_MODES
 
 __all__ = ["BottleneckDepthwiseConv", "CSLTinyViTFeatureFusion", "PostFusionLocalMixer", "make_spatial_conv"]
 
@@ -84,49 +85,16 @@ class CSLTinyViTFeatureFusion(nn.Module):
             "global_final_parts_stage2_hierarchical_control",
             "global_final_parts_stage0_semantic_fine_reference",
             "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_fine_lite",
             "global_final_parts_stage0_panet_lite",
             "global_final_parts_stage0_bifpn_lite",
             "global_final_parts_stage0_native_pyramid",
+            "global_final_parts_stage0_pool_first",
             "global_final_parts_hierarchical_fpn",
         }
     )
 
-    _VALID_MODES = {
-        "final",
-        "last2",
-        "last3",
-        "last4_layer0_target",
-        "last3_stage2_target",
-        "last3_stage1_concat",
-        "global_final_parts_stage1_concat",
-        "global_final_parts_fpn_layer0",
-        "last3_fpn_stage1_add",
-        "last3_fpn_stage1_split",
-        "last3_panet_stage1_split",
-        "last3_panet_stage1_shared",
-        "last3_panet_stage1_scale_aware",
-        "last3_bifpn_stage1_split",
-        "last3_bifpn_stage1_branch_aware",
-        "global_final_parts_hierarchical_fpn",
-        "last3_fpn_stage2",
-        "last3_pafpn_stage2",
-        "last4_fpn_layer0_target",
-        "global_final_parts_stage2",
-        "global_final_parts_stage2_semantic_residual",
-        "global_final_parts_stage2_hierarchical_control",
-        "global_final_parts_stage0_semantic_fine_reference",
-        "global_final_parts_stage0_semantic_fine",
-        "global_final_parts_stage0_panet_lite",
-        "global_final_parts_stage0_bifpn_lite",
-        "global_final_parts_stage0_native_pyramid",
-        "late_concat_stage2",
-        "weighted_last2",
-        "weighted_last3",
-        "normpres_last2",
-        "normpres_last3",
-        "dynamic_last3",
-        "dynamic_last3_scale_token",
-    }
+    _VALID_MODES = frozenset(CSL_FEATURE_FUSION_MODES)
     _VALID_FUSION_TYPES = {
         "final",
         "residual",
@@ -140,6 +108,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
         "split_stage0_semantic_fine",
         "stage0_bifpn_lite",
         "split_stage0_native_pyramid",
+        "split_stage0_pool_first",
         "late_concat",
         "concat_compress",
         "split_stage1_concat",
@@ -161,6 +130,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
         resize_mode: str = "bilinear",
         spatial_conv_mode: str = "standard",
         native_branch_widths: bool = False,
+        fine_map_dim: int = 0,
     ):
         super().__init__()
         self.fusion_type = str(fusion_type).lower()
@@ -170,6 +140,9 @@ class CSLTinyViTFeatureFusion(nn.Module):
         self.resize_mode = self.normalize_resize_mode(resize_mode)
         self.spatial_conv_mode = self.normalize_spatial_conv_mode(spatial_conv_mode)
         self.native_branch_widths = bool(native_branch_widths)
+        self.fine_map_dim = int(fine_map_dim)
+        if self.fine_map_dim < 0:
+            raise ValueError(f"fine_map_dim must be non-negative, got {fine_map_dim}")
         self.stage_indices = tuple(stage_indices)
         self.target_stage_index = target_stage_index
         if self.fusion_type == "final" and self.stage_indices:
@@ -187,8 +160,10 @@ class CSLTinyViTFeatureFusion(nn.Module):
         self.split_global_local = self.fusion_type == "split_global_local"
         self.local_semantic_residual = self.mode == "global_final_parts_stage2_semantic_residual"
         self.split_stage0_semantic_fine = self.fusion_type == "split_stage0_semantic_fine"
+        self.stage0_fine_lite = self.mode == "global_final_parts_stage0_fine_lite"
         self.stage0_bifpn_lite = self.fusion_type == "stage0_bifpn_lite"
         self.split_stage0_native_pyramid = self.fusion_type == "split_stage0_native_pyramid"
+        self.split_stage0_pool_first = self.fusion_type == "split_stage0_pool_first"
         self.late_concat = self.fusion_type == "late_concat"
         self.concat_compress = self.fusion_type == "concat_compress"
         self.split_stage1_concat = self.fusion_type == "split_stage1_concat"
@@ -201,13 +176,24 @@ class CSLTinyViTFeatureFusion(nn.Module):
         self.uses_compact_stage0 = self.split_stage0_semantic_fine or self.stage0_bifpn_lite
         if self.native_branch_widths and not self.split_stage0_semantic_fine:
             raise ValueError("Native branch widths require Stage-0 semantic-fine fusion")
+        if self.fine_map_dim and not self.split_stage0_semantic_fine:
+            raise ValueError("fine_map_dim requires Stage-0 semantic-fine fusion")
+        if self.native_branch_widths and self.fine_map_dim:
+            raise ValueError("fine_map_dim and native_branch_widths are alternative width controls")
 
         missing = [index for index in self.stage_indices if index not in path_channels]
         if missing:
             raise ValueError(f"Missing CSL-TinyViT fusion path channels for stages: {missing}")
 
-        local_channels = max(out_channels // 2, 1) if self.native_branch_widths else out_channels
+        local_channels = (
+            path_channels[2]
+            if self.split_stage0_pool_first
+            else max(out_channels // 2, 1)
+            if self.native_branch_widths
+            else out_channels
+        )
         self.local_channels = local_channels
+        self.fine_output_channels = path_channels[0] if self.split_stage0_pool_first else out_channels
         self.projections = nn.ModuleDict(
             {
                 str(index): nn.Sequential(
@@ -220,7 +206,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
                     LayerNorm2d(local_channels if self.native_branch_widths and index == 2 else out_channels),
                 )
                 for index in self.stage_indices
-                if not (self.uses_compact_stage0 and index == 0)
+                if not (self.uses_compact_stage0 and index == 0) and not self.split_stage0_pool_first
             }
         )
         if self.native_branch_widths:
@@ -326,10 +312,14 @@ class CSLTinyViTFeatureFusion(nn.Module):
                 LayerNorm2d(fine_channels),
                 nn.GELU(),
             )
-            self.stage0_semantic_projection = nn.Sequential(
-                nn.Conv2d(out_channels, fine_channels, kernel_size=1, bias=False),
-                LayerNorm2d(fine_channels),
-                nn.GELU(),
+            self.stage0_semantic_projection = (
+                nn.Identity()
+                if self.stage0_fine_lite
+                else nn.Sequential(
+                    nn.Conv2d(out_channels, fine_channels, kernel_size=1, bias=False),
+                    LayerNorm2d(fine_channels),
+                    nn.GELU(),
+                )
             )
         else:
             self.stage0_fine_channels = 0
@@ -338,31 +328,40 @@ class CSLTinyViTFeatureFusion(nn.Module):
 
         if self.split_stage0_semantic_fine:
             fine_channels = self.stage0_fine_channels
-            fine_mixer_layers: list[nn.Module] = [
-                make_spatial_conv(fine_channels, mode="depthwise_separable"),
-                LayerNorm2d(fine_channels),
-                nn.GELU(),
-            ]
-            if not self.native_branch_widths:
+            fine_output_channels = (
+                fine_channels
+                if self.native_branch_widths
+                else self.fine_map_dim or out_channels
+            )
+            fine_mixer_layers: list[nn.Module] = []
+            if not self.stage0_fine_lite:
                 fine_mixer_layers.extend(
                     [
-                        nn.Conv2d(fine_channels, out_channels, kernel_size=1, bias=False),
-                        LayerNorm2d(out_channels),
+                        make_spatial_conv(fine_channels, mode="depthwise_separable"),
+                        LayerNorm2d(fine_channels),
+                        nn.GELU(),
+                    ]
+                )
+            if fine_output_channels != fine_channels:
+                fine_mixer_layers.extend(
+                    [
+                        nn.Conv2d(fine_channels, fine_output_channels, kernel_size=1, bias=False),
+                        LayerNorm2d(fine_output_channels),
                     ]
                 )
             self.stage0_fine_mixer = nn.Sequential(*fine_mixer_layers)
             self.local_to_fine = (
                 nn.Sequential(
-                    nn.Conv2d(local_channels, fine_channels, kernel_size=1, bias=False),
-                    LayerNorm2d(fine_channels),
+                    nn.Conv2d(local_channels, fine_output_channels, kernel_size=1, bias=False),
+                    LayerNorm2d(fine_output_channels),
                 )
-                if self.native_branch_widths
+                if local_channels != fine_output_channels
                 else nn.Identity()
             )
             # Start from the matched Stage-2 control. Each output channel can
             # then learn independently how much semantically enriched Stage-0
             # detail to add to the four-stripe feature map.
-            fine_output_channels = fine_channels if self.native_branch_widths else out_channels
+            self.fine_output_channels = fine_output_channels
             self.stage0_fine_gate = nn.Parameter(torch.zeros(fine_output_channels))
         else:
             self.stage0_fine_mixer = nn.Identity()
@@ -537,6 +536,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
         resize_mode: str = "bilinear",
         spatial_conv_mode: str = "standard",
         native_branch_widths: bool = False,
+        fine_map_dim: int = 0,
     ) -> CSLTinyViTFeatureFusion:
         normalized_mode = cls.normalize_mode(mode)
         module = cls(
@@ -549,6 +549,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
             resize_mode=resize_mode,
             spatial_conv_mode=spatial_conv_mode,
             native_branch_widths=native_branch_widths,
+            fine_map_dim=fine_map_dim,
         )
         module.mode = normalized_mode
         return module
@@ -573,7 +574,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
     @staticmethod
     def normalize_resize_mode(mode: str) -> str:
         normalized = str(mode).lower()
-        if normalized not in {"bilinear", "pool_nearest"}:
+        if normalized not in {"bilinear", "pool_nearest", "pool_bilinear"}:
             raise ValueError(f"Unsupported CSL-TinyViT pyramid_resize_mode: {mode}")
         return normalized
 
@@ -609,6 +610,7 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if mode in {
             "global_final_parts_stage0_semantic_fine_reference",
             "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_fine_lite",
             "global_final_parts_stage0_panet_lite",
         }:
             return "split_stage0_semantic_fine"
@@ -616,6 +618,8 @@ class CSLTinyViTFeatureFusion(nn.Module):
             return "stage0_bifpn_lite"
         if mode == "global_final_parts_stage0_native_pyramid":
             return "split_stage0_native_pyramid"
+        if mode == "global_final_parts_stage0_pool_first":
+            return "split_stage0_pool_first"
         if mode == "late_concat_stage2":
             return "late_concat"
         if mode == "last3_stage1_concat":
@@ -666,11 +670,14 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if mode in {
             "global_final_parts_stage0_semantic_fine_reference",
             "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_fine_lite",
             "global_final_parts_stage0_panet_lite",
             "global_final_parts_stage0_bifpn_lite",
             "global_final_parts_stage0_native_pyramid",
         }:
             return (1, 2, 0)
+        if mode == "global_final_parts_stage0_pool_first":
+            return (2, 0)
         if mode == "late_concat_stage2":
             return (2,)
         if mode == "normpres_last2":
@@ -704,9 +711,11 @@ class CSLTinyViTFeatureFusion(nn.Module):
             "global_final_parts_stage2_hierarchical_control",
             "global_final_parts_stage0_semantic_fine_reference",
             "global_final_parts_stage0_semantic_fine",
+            "global_final_parts_stage0_fine_lite",
             "global_final_parts_stage0_panet_lite",
             "global_final_parts_stage0_bifpn_lite",
             "global_final_parts_stage0_native_pyramid",
+            "global_final_parts_stage0_pool_first",
             "global_final_parts_fpn_layer0",
             "global_final_parts_hierarchical_fpn",
             "late_concat_stage2",
@@ -785,6 +794,21 @@ class CSLTinyViTFeatureFusion(nn.Module):
     def _resize_feature(self, feature: torch.Tensor, output_size: tuple[int, int]) -> torch.Tensor:
         if feature.shape[-2:] == output_size:
             return feature
+        if self.resize_mode == "pool_bilinear":
+            # CNN pyramids should aggregate all spatial evidence when reducing
+            # resolution, especially when a local map feeds a 1x1 global path.
+            # Pool only the shrinking axes, then use bilinear interpolation for
+            # any remaining enlargement (including mixed-direction resizes).
+            input_height, input_width = feature.shape[-2:]
+            pooled_size = (
+                min(input_height, output_size[0]),
+                min(input_width, output_size[1]),
+            )
+            if pooled_size != feature.shape[-2:]:
+                feature = F.adaptive_avg_pool2d(feature, pooled_size)
+            if feature.shape[-2:] == output_size:
+                return feature
+            return F.interpolate(feature, size=output_size, mode="bilinear", align_corners=False)
         if self.resize_mode == "pool_nearest":
             input_height, input_width = feature.shape[-2:]
             output_height, output_width = output_size
@@ -883,6 +907,17 @@ class CSLTinyViTFeatureFusion(nn.Module):
         semantic_context = self.stage0_semantic_projection[1](semantic_context)
         semantic_context = self.stage0_semantic_projection[2](semantic_context)
         fine_residual = self.stage0_fine_mixer(stage0_detail + semantic_context)
+        return fine_base + self.stage0_fine_gate[None, :, None, None] * fine_residual
+
+    def _lite_stage0_fine(
+        self,
+        local_feature: torch.Tensor,
+        stage0_feature: torch.Tensor,
+    ) -> torch.Tensor:
+        """Add direct Stage-0 detail without semantic projection or spatial mixing."""
+        fine_size = stage0_feature.shape[-2:]
+        fine_base = self._resize_feature(self.local_to_fine(local_feature), fine_size)
+        fine_residual = self.stage0_fine_mixer(self.stage0_fine_projection(stage0_feature))
         return fine_base + self.stage0_fine_gate[None, :, None, None] * fine_residual
 
     def _reference_semantic_stage0_fine(
@@ -999,10 +1034,14 @@ class CSLTinyViTFeatureFusion(nn.Module):
                     final_feature,
                     path_features,
                 )
-                fine_feature = self._semantic_stage0_fine(
-                    global_feature,
-                    local_feature,
-                    path_features[0],
+                fine_feature = (
+                    self._lite_stage0_fine(local_feature, path_features[0])
+                    if self.stage0_fine_lite
+                    else self._semantic_stage0_fine(
+                        global_feature,
+                        local_feature,
+                        path_features[0],
+                    )
                 )
             if self.mode == "global_final_parts_stage0_panet_lite":
                 bottom_up = self.stage0_panet_downsample(self.stage0_panet_reduce(fine_feature))
@@ -1052,6 +1091,12 @@ class CSLTinyViTFeatureFusion(nn.Module):
             global_feature, local_feature = self._baseline_global_local(final_feature, path_features)
             fine_feature = self._project_path(0, path_features[0], path_features[0].shape[-2:])
             return global_feature, local_feature, fine_feature
+
+        if self.split_stage0_pool_first:
+            # Maximum-saving path: preserve native Stage-2 and Stage-0 maps so
+            # the head performs stripe pooling before its per-branch linear
+            # projections. No spatial fusion projection or resize is executed.
+            return final_feature, path_features[2], path_features[0]
 
         if self.split_stage1_concat:
             global_size = self._half_size(path_features[1].shape[-2:])

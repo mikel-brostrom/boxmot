@@ -3,6 +3,7 @@ from pathlib import Path
 
 from torch import nn
 
+from boxmot.reid.backbones.families.csl_tinyvit.deployment import optimize_csl_tinyvit_for_inference
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 
@@ -25,8 +26,11 @@ class InferenceExportWrapper(nn.Module):
 
 
 def as_inference_export_model(model: nn.Module) -> nn.Module:
+    model.eval()
     if isinstance(model, InferenceExportWrapper):
+        optimize_csl_tinyvit_for_inference(model.model)
         return model
+    optimize_csl_tinyvit_for_inference(model)
     return InferenceExportWrapper(model).eval()
 
 
@@ -51,9 +55,7 @@ def export_decorator(export_func):
             LOGGER.info(f"Starting {self.file} export with {self.__class__.__name__}...")
         result = export_func(self, *args, **kwargs)
         if result and self.verbose:
-            LOGGER.info(
-                f"Export success, saved as {result} ({self.file_size(result):.1f} MB)"
-            )
+            LOGGER.info(f"Export success, saved as {result} ({self.file_size(result):.1f} MB)")
         return result
 
     return wrapper

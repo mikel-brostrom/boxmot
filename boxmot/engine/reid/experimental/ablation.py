@@ -17,7 +17,7 @@ import click
 import torch
 from click.core import ParameterSource
 
-from boxmot.configs import build_mode_namespace
+from boxmot.engine.config import build_mode_namespace
 from boxmot.engine.cli import boxmot
 from boxmot.engine.reid.data import resolve_reid_train_data
 from boxmot.reid.training.config import (

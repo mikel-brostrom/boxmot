@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import warnings
 from collections import OrderedDict
@@ -52,15 +53,33 @@ def load_torch_url(
     filename: str | None = None,
     map_location: str | torch.device = "cpu",
     weights_only: bool = False,
+    sha256: str | None = None,
     logger=None,
 ) -> Any:
-    """Download a URL into the torch cache if needed and load it."""
+    """Download a URL into the torch cache, verify it, and load it.
+
+    ``sha256`` is intentionally checked before ``torch.load``.  A digest
+    mismatch therefore cannot reach pickle deserialization, even when a
+    corrupt or replaced file was already present in the local torch cache.
+    """
     cached = resolve_torch_cache_path(url, filename)
     cached.parent.mkdir(parents=True, exist_ok=True)
     if not cached.exists():
         if logger is not None:
             logger.info(f"Downloading pretrained weights from {url}")
         torch.hub.download_url_to_file(url, str(cached), progress=True)
+    if sha256 is not None:
+        expected = str(sha256).lower()
+        digest = hashlib.sha256()
+        with cached.open("rb") as checkpoint_file:
+            for chunk in iter(lambda: checkpoint_file.read(1024 * 1024), b""):
+                digest.update(chunk)
+        actual = digest.hexdigest()
+        if actual != expected:
+            raise RuntimeError(
+                f"SHA-256 mismatch for pretrained checkpoint {cached}: "
+                f"expected {expected}, got {actual}"
+            )
     return torch.load(cached, map_location=map_location, weights_only=weights_only)
 
 
@@ -71,6 +90,7 @@ def load_hub_checkpoint(
     checkpoint_key: str | None = None,
     map_location: str | torch.device = "cpu",
     weights_only: bool = False,
+    sha256: str | None = None,
     logger=None,
 ) -> Mapping[str, Any]:
     """Load a checkpoint URL from the torch cache and return its state dict."""
@@ -79,6 +99,7 @@ def load_hub_checkpoint(
         filename=filename,
         map_location=map_location,
         weights_only=weights_only,
+        sha256=sha256,
         logger=logger,
     )
     return _extract_state_dict(checkpoint, checkpoint_key=checkpoint_key)

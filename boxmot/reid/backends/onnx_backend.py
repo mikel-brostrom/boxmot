@@ -14,12 +14,15 @@ from boxmot.utils import logger as LOGGER
 
 
 class ONNXBackend(BaseModelBackend):
+    # Export metadata supplies the architecture and preprocessing contract.
+    # ONNX Runtime executes the exported graph directly, so constructing and
+    # retaining a second random PyTorch model only adds startup latency and RAM.
+    build_source_model = False
+
     _DEVICE_PROVIDER_ORDER = {
         "cuda": ("CUDAExecutionProvider",),
-        "mps": ("CoreMLExecutionProvider", "MPSExecutionProvider"),
     }
     _SYSTEM_PROVIDER_ORDER = {
-        "Darwin": ("CoreMLExecutionProvider", "MPSExecutionProvider"),
         "Windows": ("DmlExecutionProvider",),
     }
 
@@ -79,6 +82,17 @@ class ONNXBackend(BaseModelBackend):
         if device_type == "cpu":
             return ["CPUExecutionProvider"]
         preferred = list(self._DEVICE_PROVIDER_ORDER.get(device_type, ()))
+        # ONNX Runtime has no MPS execution provider. Its Core ML EP translates
+        # ONNX graphs at session creation and can use extreme RAM for static
+        # transformer batches, so it is never selected implicitly. Native
+        # ``_coreml_model`` MLPrograms are the supported Apple accelerator path.
+        # Retain an explicit escape hatch for controlled diagnostics.
+        if (
+            device_type == "mps"
+            and os.environ.get("BOXMOT_ENABLE_LEGACY_ONNX_COREML", "").strip().lower()
+            in {"1", "true", "yes"}
+        ):
+            preferred.append("CoreMLExecutionProvider")
         if device_type != "cuda":
             preferred.extend(self._SYSTEM_PROVIDER_ORDER.get(platform.system(), ()))
         preferred.append("CPUExecutionProvider")
@@ -213,21 +227,27 @@ class ONNXBackend(BaseModelBackend):
         self._buckets: tuple[int, ...] = buckets
 
         # Pre-allocate pad buffers per bucket so we don't reallocate per call.
-        # Derive crop shape from the model's declared input dims (skip batch).
+        # The graph's static spatial dimensions are the execution contract and
+        # therefore override stale/missing sidecar metadata. Symbolic spatial
+        # dimensions retain the configured checkpoint/registry crop size.
         meta_dims = list(getattr(input_meta, "shape", []) or [])
-        crop_dims: list[int] = []
-        for d in meta_dims[1:]:
-            if isinstance(d, int) and d > 0:
-                crop_dims.append(d)
-            else:
-                # Fall back to BaseModelBackend.input_shape when the model
-                # leaves spatial dims symbolic.
-                crop_dims = []
-                break
-        if not crop_dims:
-            input_shape = tuple(getattr(self, "input_shape", (384, 128)))
-            crop_dims = [3, *input_shape]
-        crop_shape = tuple(crop_dims)
+        if len(meta_dims) != 4:
+            raise ValueError(f"ONNX ReID input must be rank-4 NCHW, got shape {meta_dims}")
+        channel_dim = meta_dims[1]
+        if isinstance(channel_dim, int) and channel_dim > 0 and channel_dim != 3:
+            raise ValueError(f"ONNX ReID input must have 3 channels, got shape {meta_dims}")
+
+        configured_shape = tuple(int(dim) for dim in self.input_shape)
+        graph_height = meta_dims[2] if isinstance(meta_dims[2], int) and meta_dims[2] > 0 else configured_shape[0]
+        graph_width = meta_dims[3] if isinstance(meta_dims[3], int) and meta_dims[3] > 0 else configured_shape[1]
+        graph_input_shape = (int(graph_height), int(graph_width))
+        if graph_input_shape != configured_shape:
+            LOGGER.warning(
+                f"ONNX graph input size {graph_input_shape} overrides configured "
+                f"ReID crop size {configured_shape}"
+            )
+        self.input_shape = graph_input_shape
+        crop_shape = (3, *self.input_shape)
         self._pad_buffers: dict[int, np.ndarray] = {
             bs: np.zeros((bs,) + crop_shape, dtype=self._input_np_dtype)
             for bs in buckets

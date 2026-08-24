@@ -14,16 +14,21 @@ from boxmot.reid.training.config import (
 from boxmot.reid.training.evaluator import evaluate_ranking
 from boxmot.reid.training.losses import (
     METRIC_LOSS_REGISTRY,
+    AdaSPLoss,
     CenterLoss,
     CrossEntropyLabelSmooth,
+    CrossScaleMajorityMarginLoss,
     MultiSimilarityLoss,
+    TreeBoostAPLoss,
     TripletLoss,
     WeightedRegularizedTripletLoss,
 )
 
 __all__ = (
+    "AdaSPLoss",
     "CenterLoss",
     "CrossEntropyLabelSmooth",
+    "CrossScaleMajorityMarginLoss",
     "AugmentationConfig",
     "BaseTrainer",
     "DataConfig",
@@ -35,6 +40,7 @@ __all__ = (
     "OptimizationConfig",
     "ReIDTrainConfig",
     "RunConfig",
+    "TreeBoostAPLoss",
     "TripletLoss",
     "WeightedRegularizedTripletLoss",
     "evaluate_ranking",

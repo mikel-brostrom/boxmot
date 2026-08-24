@@ -18,6 +18,7 @@ REID_BACKEND_REQUIREMENTS: dict[str, tuple[str, ...]] = {
     ),
     "openvino": ("openvino>=2025.2.0",),
     "tensorrt": ("nvidia-tensorrt",),
+    "coreml": ("coremltools==9.0",),
     "tflite": ("ai-edge-litert>=2.1.0",),
 }
 

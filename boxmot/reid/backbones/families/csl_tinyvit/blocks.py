@@ -11,17 +11,21 @@ from boxmot.reid.backbones.families.csl_tinyvit.attention import Attention
 
 __all__ = [
     "BasicLayer",
+    "BodySlotReadWrite",
     "Conv2d_BN",
     "ConvLayer",
     "DropPath",
+    "IdentityRegisterCommunication",
     "LayerNorm2d",
     "MBConv",
     "NormPreservingWidthMerge",
     "PatchEmbed",
     "PatchMerging",
     "ReIDResidualAdapter",
+    "RMSFeatureSuppression",
     "TinyViTBlock",
     "TinyViTMlp",
+    "fuse_conv2d_bn_eval_",
 ]
 
 
@@ -56,6 +60,46 @@ class Conv2d_BN(nn.Sequential):
         nn.init.constant_(bn.weight, bn_weight_init)
         nn.init.constant_(bn.bias, 0)
         self.add_module("bn", bn)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Apply convolution and BN with MPS-safe activation strides."""
+        x = self.c(x)
+        if (
+            self.training
+            and x.device.type == "mps"
+            and not x.is_contiguous()
+        ):
+            # Some depthwise shapes are emitted in a channels-last layout by
+            # MPS. NativeBatchNormBackward currently assumes a view-compatible
+            # NCHW tensor and otherwise fails during ReID-X's 48x8 stage.
+            x = x.contiguous()
+        return self.bn(x)
+
+    def fuse(self) -> nn.Conv2d:
+        """Return an equivalent inference-only convolution with a folded BN."""
+        if self.training:
+            raise RuntimeError("Conv2d_BN fusion requires eval mode")
+        return nn.utils.fusion.fuse_conv_bn_eval(self.c, self.bn)
+
+
+def fuse_conv2d_bn_eval_(module: nn.Module) -> int:
+    """Recursively replace every CSL ``Conv2d_BN`` child with a fused convolution.
+
+    The conversion is deliberately in-place and inference-only. It preserves
+    the original training/checkpoint layout until deployment preparation and
+    is idempotent because converted children are plain ``nn.Conv2d`` modules.
+    """
+    if module.training:
+        raise RuntimeError("Conv2d_BN fusion requires the complete model to be in eval mode")
+
+    fused_count = 0
+    for name, child in tuple(module.named_children()):
+        if isinstance(child, Conv2d_BN):
+            setattr(module, name, child.fuse())
+            fused_count += 1
+        else:
+            fused_count += fuse_conv2d_bn_eval_(child)
+    return fused_count
 
 
 class PatchEmbed(nn.Module):
@@ -109,7 +153,14 @@ class MBConv(nn.Module):
 class PatchMerging(nn.Module):
     """Downsampling layer between stages."""
 
-    def __init__(self, input_resolution, dim, out_dim, activation, stride: int | None = None):
+    def __init__(
+        self,
+        input_resolution,
+        dim,
+        out_dim,
+        activation,
+        stride: int | tuple[int, int] | None = None,
+    ):
         super().__init__()
         self.input_resolution = input_resolution
         self.dim = dim
@@ -119,9 +170,25 @@ class PatchMerging(nn.Module):
         # TinyViT normally preserves resolution before its final stage. ReID
         # speed variants can explicitly downsample only that global path while
         # retaining the pre-merge Stage-2 tokens for local stripes.
-        stride_c = (1 if out_dim in (320, 448, 576) else 2) if stride is None else int(stride)
-        if stride_c not in {1, 2}:
-            raise ValueError(f"PatchMerging stride must be 1 or 2, got {stride_c}")
+        stride_c = (
+            1 if out_dim in (320, 448, 576) else 2
+        ) if stride is None else stride
+        if isinstance(stride_c, tuple):
+            stride_c = tuple(int(value) for value in stride_c)
+            if (
+                len(stride_c) != 2
+                or any(value not in {1, 2} for value in stride_c)
+            ):
+                raise ValueError(
+                    "PatchMerging tuple stride values must be 1 or 2, "
+                    f"got {stride_c}"
+                )
+        else:
+            stride_c = int(stride_c)
+            if stride_c not in {1, 2}:
+                raise ValueError(
+                    f"PatchMerging stride must be 1 or 2, got {stride_c}"
+                )
         self.stride = stride_c
         self.conv2 = Conv2d_BN(out_dim, out_dim, 3, stride_c, 1, groups=out_dim)
         self.conv3 = Conv2d_BN(out_dim, out_dim, 1, 1, 0)
@@ -173,6 +240,487 @@ class NormPreservingWidthMerge(nn.Module):
         return merged.view(batch, height * (width // 2), channels), (height, width // 2)
 
 
+class IdentityRegisterCommunication(nn.Module):
+    """Exchange context through a compact recurrent-register bottleneck."""
+
+    def __init__(
+        self,
+        dim: int,
+        *,
+        register_dim: int,
+        num_registers: int,
+        num_heads: int,
+        window_size: tuple[int, int],
+        dropout: float = 0.0,
+        gate_init: float = 0.0,
+    ) -> None:
+        super().__init__()
+        if (
+            dim < 1
+            or register_dim < 1
+            or num_registers < 2
+            or num_heads < 1
+        ):
+            raise ValueError(
+                "Identity register dimensions and counts must be positive"
+            )
+        if register_dim % num_heads:
+            raise ValueError(
+                "Register bottleneck dimension "
+                f"{register_dim} must divide num_heads={num_heads}"
+            )
+        if not 0 <= dropout < 1:
+            raise ValueError("Identity register dropout must be in [0, 1)")
+        self.spatial_dim = int(dim)
+        self.register_dim = int(register_dim)
+        self.num_registers = int(num_registers)
+        self.window_size = tuple(int(value) for value in window_size)
+        self.dropout = float(dropout)
+        # The following projection can absorb LayerNorm's affine transform, so
+        # learned scale/bias here add no capacity. Keeping this normalization
+        # non-affine also avoids an MPS LayerNorm bug that can produce non-finite
+        # affine gradients when its frozen-backbone input has no gradient path.
+        self.summary_norm = nn.LayerNorm(
+            self.spatial_dim,
+            elementwise_affine=False,
+        )
+        self.summary_projection = nn.Linear(
+            self.spatial_dim,
+            self.register_dim,
+        )
+        self.register_norm = nn.LayerNorm(self.register_dim)
+        self.register_attention = nn.MultiheadAttention(
+            self.register_dim,
+            num_heads,
+            dropout=0.0,
+            batch_first=True,
+        )
+        self.register_mlp = nn.Sequential(
+            nn.LayerNorm(self.register_dim),
+            nn.Linear(self.register_dim, 2 * self.register_dim),
+            nn.GELU(),
+            nn.Linear(2 * self.register_dim, self.register_dim),
+        )
+        self.broadcast_attention = nn.MultiheadAttention(
+            self.register_dim,
+            num_heads,
+            dropout=0.0,
+            batch_first=True,
+        )
+        self.broadcast_projection = nn.Linear(
+            self.register_dim,
+            self.spatial_dim,
+        )
+        self.broadcast_gate = nn.Parameter(
+            torch.tensor(float(gate_init))
+        )
+
+    def _window_summaries(
+        self,
+        x: torch.Tensor,
+        hw_size: tuple[int, int],
+    ) -> tuple[torch.Tensor, tuple[int, int], tuple[int, int]]:
+        batch, tokens, channels = x.shape
+        height, width = hw_size
+        if tokens != height * width:
+            raise ValueError(
+                f"Expected {height * width} register tokens, got {tokens}"
+            )
+        window_height = min(self.window_size[0], height)
+        window_width = min(self.window_size[1], width)
+        padded_height = (
+            (height + window_height - 1) // window_height
+        ) * window_height
+        padded_width = (
+            (width + window_width - 1) // window_width
+        ) * window_width
+        feature_map = x.view(batch, height, width, channels).permute(
+            0,
+            3,
+            1,
+            2,
+        )
+        feature_map = F.pad(
+            feature_map,
+            (0, padded_width - width, 0, padded_height - height),
+        )
+        rows = padded_height // window_height
+        columns = padded_width // window_width
+        summaries = (
+            feature_map.view(
+                batch,
+                channels,
+                rows,
+                window_height,
+                columns,
+                window_width,
+            )
+            .mean(dim=(3, 5))
+            .permute(0, 2, 3, 1)
+            .reshape(batch, rows * columns, channels)
+        )
+        return summaries, (rows, columns), (
+            window_height,
+            window_width,
+        )
+
+    @staticmethod
+    def _broadcast_windows(
+        window_context: torch.Tensor,
+        grid_size: tuple[int, int],
+        window_size: tuple[int, int],
+        hw_size: tuple[int, int],
+    ) -> torch.Tensor:
+        batch, _, channels = window_context.shape
+        rows, columns = grid_size
+        window_height, window_width = window_size
+        height, width = hw_size
+        context = window_context.view(
+            batch,
+            rows,
+            columns,
+            channels,
+        ).repeat_interleave(
+            window_height,
+            dim=1,
+        ).repeat_interleave(
+            window_width,
+            dim=2,
+        )
+        return context[:, :height, :width].reshape(
+            batch,
+            height * width,
+            channels,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        hw_size: tuple[int, int],
+        registers: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Update registers from windows and broadcast context back."""
+        summaries, grid_size, effective_window = (
+            self._window_summaries(x, hw_size)
+        )
+        summary_tokens = self.summary_projection(
+            self.summary_norm(summaries)
+        )
+        register_delta, _ = self.register_attention(
+            self.register_norm(registers),
+            summary_tokens,
+            summary_tokens,
+            need_weights=False,
+        )
+        registers = registers + register_delta
+        registers = registers + self.register_mlp(registers)
+
+        key_padding_mask = None
+        broadcast_registers = registers
+        if self.training and self.dropout > 0:
+            keep = torch.rand(
+                registers.shape[:2],
+                device=registers.device,
+            ) >= self.dropout
+            keep[:, 0] = True
+            key_padding_mask = ~keep
+            broadcast_registers = (
+                registers * keep[:, :, None].to(registers.dtype)
+            )
+        window_context, _ = self.broadcast_attention(
+            summary_tokens,
+            self.register_norm(broadcast_registers),
+            self.register_norm(broadcast_registers),
+            key_padding_mask=key_padding_mask,
+            need_weights=False,
+        )
+        token_context = self._broadcast_windows(
+            window_context,
+            grid_size,
+            effective_window,
+            hw_size,
+        )
+        x = x + torch.tanh(self.broadcast_gate) * (
+            self.broadcast_projection(token_context)
+        )
+        return x, registers
+
+
+class BodySlotReadWrite(nn.Module):
+    """Update persistent identity slots from one spatial backbone stage.
+
+    The optional slot-to-spatial path is exactly disabled when its scalar gate
+    is zero. EMA teacher buffers reuse the learned RGB memory projection while
+    remaining outside the deployed forward path.
+    """
+
+    def __init__(
+        self,
+        spatial_dim: int,
+        *,
+        slot_dim: int = 128,
+        num_slots: int = 8,
+        num_heads: int = 4,
+        mlp_ratio: float = 2.0,
+        dropout: float = 0.0,
+        writeback: bool = False,
+        gate_init: float = 0.0,
+    ) -> None:
+        super().__init__()
+        if min(spatial_dim, slot_dim, num_slots, num_heads) < 1:
+            raise ValueError("Body-slot dimensions and counts must be positive")
+        if slot_dim % num_heads:
+            raise ValueError(
+                f"Body-slot dimension {slot_dim} must divide num_heads={num_heads}"
+            )
+        if slot_dim % 4:
+            raise ValueError(
+                "Body-slot dimension must be divisible by four for 2D positions"
+            )
+        if mlp_ratio <= 0:
+            raise ValueError("Body-slot MLP ratio must be positive")
+        if not 0 <= dropout < 1:
+            raise ValueError("Body-slot dropout must satisfy 0 <= value < 1")
+
+        self.spatial_dim = int(spatial_dim)
+        self.slot_dim = int(slot_dim)
+        self.num_slots = int(num_slots)
+        self.writeback_enabled = bool(writeback)
+        # The following projection already learns a per-channel scale, so an
+        # affine LayerNorm here is redundant. Keeping this normalization
+        # non-affine also avoids unstable MPS reductions for affine gradients
+        # over the large Stage-0 token set.
+        self.memory_norm = nn.LayerNorm(
+            self.spatial_dim,
+            elementwise_affine=False,
+        )
+        self.memory_projection = nn.Linear(
+            self.spatial_dim,
+            self.slot_dim,
+            bias=False,
+        )
+        self.attention_memory_norm = nn.LayerNorm(
+            self.slot_dim,
+            elementwise_affine=False,
+        )
+        self.slot_norm = nn.LayerNorm(self.slot_dim)
+        self.slot_attention = nn.MultiheadAttention(
+            self.slot_dim,
+            num_heads,
+            dropout=dropout,
+            batch_first=True,
+        )
+        hidden_dim = max(1, round(self.slot_dim * mlp_ratio))
+        self.slot_mlp = nn.Sequential(
+            nn.LayerNorm(self.slot_dim),
+            nn.Linear(self.slot_dim, hidden_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, self.slot_dim),
+        )
+        self.visibility_head = nn.Sequential(
+            nn.LayerNorm(self.slot_dim),
+            nn.Linear(self.slot_dim, 1),
+        )
+        if self.writeback_enabled:
+            self.broadcast_attention = nn.MultiheadAttention(
+                self.slot_dim,
+                num_heads,
+                dropout=dropout,
+                batch_first=True,
+            )
+            self.broadcast_projection = nn.Linear(
+                self.slot_dim,
+                self.spatial_dim,
+                bias=False,
+            )
+            self.broadcast_gate = nn.Parameter(torch.tensor(float(gate_init)))
+        else:
+            self.broadcast_attention = None
+            self.broadcast_projection = None
+            self.register_parameter("broadcast_gate", None)
+
+        self.register_buffer(
+            "teacher_projection_weight",
+            torch.empty(self.slot_dim, self.spatial_dim),
+        )
+        self.reset_teacher()
+
+    @staticmethod
+    def _position_encoding(
+        height: int,
+        width: int,
+        dim: int,
+        *,
+        device: torch.device,
+        dtype: torch.dtype,
+    ) -> torch.Tensor:
+        quarter_dim = dim // 4
+        frequency = torch.arange(
+            quarter_dim,
+            device=device,
+            dtype=torch.float32,
+        )
+        frequency = 1.0 / (
+            10_000 ** (frequency / max(quarter_dim, 1))
+        )
+        y = torch.arange(height, device=device, dtype=torch.float32)
+        x = torch.arange(width, device=device, dtype=torch.float32)
+        y = y / max(height - 1, 1) * (2 * torch.pi)
+        x = x / max(width - 1, 1) * (2 * torch.pi)
+        y_phase = y[:, None] * frequency[None]
+        x_phase = x[:, None] * frequency[None]
+        y_encoding = torch.cat((y_phase.sin(), y_phase.cos()), dim=1)
+        x_encoding = torch.cat((x_phase.sin(), x_phase.cos()), dim=1)
+        position = torch.cat(
+            (
+                y_encoding[:, None].expand(height, width, -1),
+                x_encoding[None].expand(height, width, -1),
+            ),
+            dim=-1,
+        )
+        return position.reshape(1, height * width, dim).to(dtype=dtype)
+
+    def reset_teacher(self) -> None:
+        """Synchronize the training-only EMA projection with the online read path."""
+        self.teacher_projection_weight.copy_(
+            self.memory_projection.weight.detach()
+        )
+
+    @torch.no_grad()
+    def update_teacher(self, momentum: float) -> None:
+        """EMA-update the privileged masked-pooling projection."""
+        if not 0 <= momentum < 1:
+            raise ValueError("Body-slot teacher momentum must be in [0, 1)")
+        self.teacher_projection_weight.mul_(momentum).add_(
+            self.memory_projection.weight.detach(),
+            alpha=1.0 - momentum,
+        )
+
+    def _teacher_slots(
+        self,
+        x: torch.Tensor,
+        hw_size: tuple[int, int],
+        teacher_masks: torch.Tensor | None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+        if teacher_masks is None:
+            return None, None, None
+        if teacher_masks.ndim != 4 or teacher_masks.shape[1] != self.num_slots:
+            raise ValueError(
+                "Body-slot teacher masks must have shape "
+                f"[B,{self.num_slots},H,W], got {tuple(teacher_masks.shape)}"
+            )
+        masks = F.interpolate(
+            teacher_masks.float(),
+            size=hw_size,
+            mode="area",
+        ).clamp(0, 1)
+        flat_masks = masks.flatten(2)
+        mass = flat_masks.sum(dim=-1)
+        valid = mass > 1e-4
+        normalized_masks = flat_masks / mass.clamp_min(1e-6)[..., None]
+        teacher_memory = F.layer_norm(
+            F.linear(
+                F.layer_norm(
+                    x.detach().float(),
+                    (self.spatial_dim,),
+                    eps=self.memory_norm.eps,
+                ),
+                self.teacher_projection_weight.float(),
+            ),
+            (self.slot_dim,),
+            eps=self.attention_memory_norm.eps,
+        )
+        teacher_slots = torch.einsum(
+            "bkn,bnd->bkd",
+            normalized_masks,
+            teacher_memory,
+        )
+        return teacher_slots, valid, normalized_masks
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        hw_size: tuple[int, int],
+        slots: torch.Tensor,
+        role_embeddings: torch.Tensor,
+        *,
+        teacher_masks: torch.Tensor | None = None,
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor | None,
+        torch.Tensor | None,
+        torch.Tensor | None,
+    ]:
+        """Read spatial evidence, optionally write slots back, and emit teacher targets."""
+        batch, tokens, channels = x.shape
+        height, width = hw_size
+        if tokens != height * width or channels != self.spatial_dim:
+            raise ValueError(
+                "Body-slot memory shape does not match its stage: "
+                f"{tuple(x.shape)} vs HxW={hw_size}, C={self.spatial_dim}"
+            )
+        if slots.shape != (batch, self.num_slots, self.slot_dim):
+            raise ValueError(
+                "Body-slot state must have shape "
+                f"[B,{self.num_slots},{self.slot_dim}], got {tuple(slots.shape)}"
+            )
+        if role_embeddings.shape[-2:] != (self.num_slots, self.slot_dim):
+            raise ValueError(
+                "Body-slot role embeddings have an incompatible shape"
+            )
+
+        memory = self.memory_projection(self.memory_norm(x))
+        memory = memory + self._position_encoding(
+            height,
+            width,
+            self.slot_dim,
+            device=x.device,
+            dtype=memory.dtype,
+        )
+        attention_memory = self.attention_memory_norm(memory)
+        slot_delta, attention = self.slot_attention(
+            self.slot_norm(slots + role_embeddings),
+            attention_memory,
+            attention_memory,
+            need_weights=True,
+            average_attn_weights=True,
+        )
+        slots = slots + slot_delta
+        slots = slots + self.slot_mlp(slots)
+        visibility_logits = self.visibility_head(slots).squeeze(-1)
+
+        # Keep the privileged target independent of the student's optional
+        # writeback so Tier C cannot improve its own target through a feedback
+        # loop. The detached RGB memory is still stage-matched.
+        teacher_slots, teacher_valid, teacher_attention = (
+            self._teacher_slots(x, hw_size, teacher_masks)
+        )
+        if self.writeback_enabled:
+            spatial_delta, _ = self.broadcast_attention(
+                attention_memory,
+                self.slot_norm(slots),
+                self.slot_norm(slots),
+                need_weights=False,
+            )
+            x = x + torch.tanh(self.broadcast_gate) * (
+                self.broadcast_projection(spatial_delta)
+            )
+
+        return (
+            x,
+            slots,
+            visibility_logits,
+            attention,
+            teacher_slots,
+            teacher_valid,
+            teacher_attention,
+        )
+
+
 class ConvLayer(nn.Module):
     """Convolutional stage (MBConv blocks)."""
 
@@ -187,7 +735,7 @@ class ConvLayer(nn.Module):
         use_checkpoint=False,
         out_dim=None,
         conv_expand_ratio=4.0,
-        downsample_stride: int | None = None,
+        downsample_stride: int | tuple[int, int] | None = None,
     ):
         super().__init__()
         self.dim = dim
@@ -246,14 +794,66 @@ class TinyViTMlp(nn.Module):
         return x
 
 
-class ReIDResidualAdapter(nn.Module):
-    """Zero-gated ReID adapter for TinyViT token features."""
+class RMSFeatureSuppression(nn.Module):
+    """Suppress spatial locations with high channel-wise RMS energy.
 
-    def __init__(self, dim: int, reduction_ratio: int = 4):
+    The hard mask follows Hi-AFA's feature-suppression rule, but uses RMS
+    energy instead of a signed channel mean so opposite activations cannot
+    cancel one another.  Energy is min-max normalized independently for each
+    sample before applying the threshold.
+    """
+
+    def __init__(self, tau: float = 0.7, eps: float = 1e-12) -> None:
+        super().__init__()
+        if not 0.0 < tau <= 1.0:
+            raise ValueError(f"tau must be in (0, 1], got {tau}")
+        if eps <= 0:
+            raise ValueError(f"eps must be positive, got {eps}")
+        self.tau = float(tau)
+        self.eps = float(eps)
+
+    def mask(self, x: torch.Tensor) -> torch.Tensor:
+        """Return a per-sample BCHW keep mask from channel RMS energy."""
+        if x.ndim != 4:
+            raise ValueError(
+                "RMSFeatureSuppression expects BCHW input, got "
+                f"shape {tuple(x.shape)}"
+            )
+        energy = x.float().square().mean(dim=1, keepdim=True).add(self.eps).sqrt()
+        flat_energy = energy.flatten(2)
+        minimum = flat_energy.amin(dim=2, keepdim=True).unsqueeze(-1)
+        maximum = flat_energy.amax(dim=2, keepdim=True).unsqueeze(-1)
+        normalized = (energy - minimum) / (maximum - minimum).clamp_min(self.eps)
+        return (normalized <= self.tau).to(dtype=x.dtype)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x * self.mask(x)
+
+
+class ReIDResidualAdapter(nn.Module):
+    """Zero-gated ReID adapter with optional lateral feature suppression."""
+
+    def __init__(
+        self,
+        dim: int,
+        reduction_ratio: int = 4,
+        suppression_tau: float = 0.0,
+    ) -> None:
         super().__init__()
         if reduction_ratio < 1:
             raise ValueError(f"reduction_ratio must be positive, got {reduction_ratio}")
+        if not 0.0 <= suppression_tau <= 1.0:
+            raise ValueError(
+                "suppression_tau must be in [0, 1], got "
+                f"{suppression_tau}"
+            )
         hidden_dim = max(dim // int(reduction_ratio), 1)
+        self.suppression_tau = float(suppression_tau)
+        self.suppression = (
+            RMSFeatureSuppression(self.suppression_tau)
+            if self.suppression_tau > 0.0
+            else nn.Identity()
+        )
         self.gamma = nn.Parameter(torch.zeros(()))
         self.adapter = nn.Sequential(
             nn.Conv2d(dim, hidden_dim, kernel_size=1, bias=False),
@@ -283,7 +883,9 @@ class ReIDResidualAdapter(nn.Module):
         if L != H * W:
             raise ValueError(f"Adapter token count {L} does not match spatial size {hw_size}")
         spatial = x.transpose(1, 2).reshape(B, C, H, W)
-        adapted = self.adapter(spatial).flatten(2).transpose(1, 2)
+        # Suppression is lateral-only: the untouched token stream remains the
+        # residual bypass while only the adapter input is masked.
+        adapted = self.adapter(self.suppression(spatial)).flatten(2).transpose(1, 2)
         return x + self.gamma * adapted
 
 
@@ -505,7 +1107,8 @@ class BasicLayer(nn.Module):
         attention_bias: str = "absolute",
         attention_mask: bool = False,
         adapter_reduction_ratio: int | None = None,
-        downsample_stride: int | None = None,
+        adapter_suppression_tau: float = 0.0,
+        downsample_stride: int | tuple[int, int] | None = None,
         width_merge_after_blocks: int = 0,
     ):
         super().__init__()
@@ -542,11 +1145,23 @@ class BasicLayer(nn.Module):
                 for i in range(depth)
             ]
         )
-        self.reid_adapters = nn.ModuleList(
-            [ReIDResidualAdapter(dim, adapter_reduction_ratio) for _ in range(depth)]
-            if adapter_reduction_ratio is not None
-            else []
-        )
+        if adapter_reduction_ratio is not None:
+            # ReID adapters are zero-gated treatments. Keep their private random
+            # initialization from advancing the RNG stream used by the shared
+            # backbone, neck, fusion, and head so same-seed ablations remain
+            # initialization matched while adapter weights stay deterministic.
+            with torch.random.fork_rng(devices=[]):
+                reid_adapters = [
+                    ReIDResidualAdapter(
+                        dim,
+                        adapter_reduction_ratio,
+                        suppression_tau=adapter_suppression_tau,
+                    )
+                    for _ in range(depth)
+                ]
+        else:
+            reid_adapters = []
+        self.reid_adapters = nn.ModuleList(reid_adapters)
 
         if downsample is not None:
             self.downsample = downsample(

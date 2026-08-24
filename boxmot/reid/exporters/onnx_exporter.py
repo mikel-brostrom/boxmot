@@ -1,9 +1,19 @@
 import inspect
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import torch
 from torch.export import Dim
 
+from boxmot.reid.core.artifacts import (
+    artifact_content_matches,
+    export_content_fingerprint,
+    file_sha256,
+    read_artifact_metadata,
+    reid_code_sha256,
+    source_artifact_metadata,
+    write_artifact_metadata,
+)
 from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
 from boxmot.utils import logger as LOGGER
 
@@ -22,7 +32,24 @@ def ensure_onnx_export(
     """Return a fresh ONNX export path, creating it when needed."""
     source_path = Path(file)
     onnx_path = source_path.with_suffix(".onnx")
-    if _onnx_export_is_current(source_path, onnx_path, dynamic=dynamic):
+    contract = _onnx_export_contract(
+        im,
+        opset=opset,
+        dynamic=dynamic,
+        half=half,
+        simplify=simplify,
+    )
+    expected_fingerprint = (
+        export_content_fingerprint(source_path, contract)
+        if source_path.is_file() and source_path.resolve() != onnx_path.resolve()
+        else None
+    )
+    if _onnx_export_is_current(
+        source_path,
+        onnx_path,
+        dynamic=dynamic,
+        expected_fingerprint=expected_fingerprint,
+    ):
         if verbose:
             LOGGER.info(f"Using existing ONNX export: {onnx_path}")
         return onnx_path
@@ -40,12 +67,51 @@ def ensure_onnx_export(
     return Path(exporter.export())
 
 
-def _onnx_export_is_current(source_path: Path, onnx_path: Path, *, dynamic: bool = False) -> bool:
+def _onnx_export_contract(
+    im,
+    *,
+    opset: int | None,
+    dynamic: bool,
+    half: bool,
+    simplify: bool,
+) -> dict:
+    shape = getattr(im, "shape", None)
+    input_shape = [int(value) for value in shape] if shape is not None else None
+    if input_shape is not None and dynamic:
+        input_shape[0] = None
+    try:
+        onnx_version = version("onnx")
+    except PackageNotFoundError:
+        onnx_version = None
+    return {
+        "format": "onnx",
+        "input_shape": input_shape,
+        "dynamic_batch": bool(dynamic),
+        "precision": "float16" if half else "float32",
+        "requested_opset": int(opset) if opset is not None else None,
+        "simplify": bool(simplify),
+        "torch_version": str(torch.__version__),
+        "onnx_version": onnx_version,
+    }
+
+
+def _onnx_export_is_current(
+    source_path: Path,
+    onnx_path: Path,
+    *,
+    dynamic: bool = False,
+    expected_fingerprint: str | None = None,
+) -> bool:
     if not onnx_path.is_file():
         return False
     if not source_path.is_file() or source_path.resolve() == onnx_path.resolve():
         return True
-    if onnx_path.stat().st_mtime < source_path.stat().st_mtime:
+    metadata = read_artifact_metadata(onnx_path)
+    if expected_fingerprint is None or metadata.get("export_fingerprint") != expected_fingerprint:
+        return False
+    if not artifact_content_matches(onnx_path, metadata.get("artifact_sha256")):
+        return False
+    if bool(metadata.get("dynamic_batch", False)) != bool(dynamic):
         return False
     return not dynamic or _onnx_has_dynamic_batch(onnx_path)
 
@@ -70,6 +136,36 @@ def _onnx_has_dynamic_batch(onnx_path: Path) -> bool:
         return bool(dim_param) or dim_value <= 0
     except Exception:
         return False
+
+
+def _default_domain_opset(model_onnx, fallback: int) -> int:
+    """Return the opset actually stored for ONNX's default domain."""
+    for imported_opset in tuple(getattr(model_onnx, "opset_import", ()) or ()):
+        if not str(getattr(imported_opset, "domain", "") or ""):
+            return int(imported_opset.version)
+    return int(fallback)
+
+
+def _has_external_initializers(model_onnx) -> bool:
+    """Conservatively report whether a saved graph references external data."""
+    graph = getattr(model_onnx, "graph", None)
+    initializers = getattr(graph, "initializer", None)
+    if initializers is None:
+        return True
+    for initializer in initializers:
+        if int(getattr(initializer, "data_location", 0) or 0) == 1:
+            return True
+        if len(getattr(initializer, "external_data", ()) or ()):
+            return True
+    return False
+
+
+def _load_saved_onnx(onnx, path: Path):
+    """Reload the final graph without resolving any external tensor files."""
+    try:
+        return onnx.load(str(path), load_external_data=False)
+    except TypeError:
+        return onnx.load(str(path))
 
 
 class ONNXExporter(BaseExporter):
@@ -107,7 +203,10 @@ class ONNXExporter(BaseExporter):
         args = (self.im,)
         export_sig = inspect.signature(torch.onnx.export)
         has_dynamo_arg = "dynamo" in export_sig.parameters
-        use_dynamo = self.verbose
+        # Export capability must not depend on logging verbosity. Modern
+        # torch.export handles valid graphs (such as GeM stripe pooling) that
+        # the legacy exporter cannot lower, even for otherwise static models.
+        use_dynamo = has_dynamo_arg
 
         export_kwargs = {
             "opset_version": opset,
@@ -190,6 +289,39 @@ class ONNXExporter(BaseExporter):
             model_onnx = self._try_fp16_convert_cpu(model_onnx)
 
         onnx.save(model_onnx, str(f))
+        saved_model_onnx = _load_saved_onnx(onnx, f)
+        actual_opset = _default_domain_opset(saved_model_onnx, opset)
+        external_data_path = f.with_name(f"{f.name}.data")
+        if not _has_external_initializers(saved_model_onnx):
+            external_data_path.unlink(missing_ok=True)
+        export_contract = _onnx_export_contract(
+            self.im,
+            opset=self.opset,
+            dynamic=self.dynamic,
+            half=self.half,
+            simplify=self.simplify,
+        )
+        write_artifact_metadata(
+            f,
+            {
+                **source_artifact_metadata(self.file),
+                "format": "onnx",
+                "input_name": "images",
+                "output_names": output_names,
+                "input_shape": list(self.im.shape),
+                "precision": "float16" if self.half else "float32",
+                "dynamic_batch": bool(self.dynamic),
+                "batch_contract": {
+                    "dynamic": bool(self.dynamic),
+                    "sample_batch_size": int(self.im.shape[0]),
+                },
+                "opset": actual_opset,
+                "reid_code_sha256": reid_code_sha256(),
+                "export_contract": export_contract,
+                "export_fingerprint": export_content_fingerprint(self.file, export_contract),
+                "artifact_sha256": file_sha256(f),
+            },
+        )
         return f
 
     def simplify_model(self, model_onnx):

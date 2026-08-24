@@ -52,24 +52,20 @@ class Market1501(BaseReIDDataset):
 
     def _find_root(self, root: str):
         from pathlib import Path
+
         p = Path(root)
-        # 1. Named subdirectories under root (most specific match)
+        required_splits = ("bounding_box_train", "bounding_box_test", "query")
+
+        # An explicit dataset root may use any descriptive directory name,
+        # such as Market-1501-gray.
+        if all((p / split).is_dir() for split in required_splits):
+            return p
+
+        # A shared data directory may contain a canonically named Market root.
         for sub in self._SUBDIRS:
             candidate = p / sub
-            if (candidate / "bounding_box_train").is_dir():
+            if all((candidate / split).is_dir() for split in required_splits):
                 return candidate
-        # 2. Named subdirectories under parent (cross-dataset support)
-        for sub in self._SUBDIRS:
-            candidate = p.parent / sub
-            if (candidate / "bounding_box_train").is_dir():
-                return candidate
-        # 3. Bare root only if its folder name matches a known alias
-        #    (prevents silently loading Duke/CUHK03 data as Market)
-        if (p / "bounding_box_train").is_dir():
-            norm = p.name.lower().replace("-", "").replace("_", "")
-            known = {s.lower().replace("-", "").replace("_", "") for s in self._SUBDIRS}
-            if norm in known:
-                return p
         return None
 
     def _load_split(self, split: str) -> List[ReIDSample]:

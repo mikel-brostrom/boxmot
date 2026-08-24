@@ -1,10 +1,10 @@
+from boxmot.reid.backbones.families.csl_tinyvit.deployment import optimize_csl_tinyvit_for_inference
 from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.utils import logger as LOGGER
 
 
 class PyTorchBackend(BaseModelBackend):
-
     def __init__(self, weights, device, half, preprocess=None):
         super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = False
@@ -16,7 +16,6 @@ class PyTorchBackend(BaseModelBackend):
             # Warn if the checkpoint was trained with a different preprocessing
             ckpt_preprocess = ReIDModelRegistry.get_checkpoint_preprocess(w)
             if ckpt_preprocess is not None:
-                from boxmot.reid.core.preprocessing import get_preprocess_fn
                 current_name = getattr(self, "_preprocess_name", None)
                 if current_name and ckpt_preprocess != current_name:
                     LOGGER.warning(
@@ -25,9 +24,10 @@ class PyTorchBackend(BaseModelBackend):
                         f"This mismatch will degrade embedding quality. "
                         f"Set preprocess='{ckpt_preprocess}' in your ReID config."
                     )
-            ReIDModelRegistry.load_pretrained_weights(self.model, w)
+            ReIDModelRegistry.load_deployment_weights(self.model, w)
         self.model.to(self.device).eval()
         self.model.half() if self.half else self.model.float()
+        optimize_csl_tinyvit_for_inference(self.model)
 
     def forward(self, im_batch):
         features = self.model(im_batch)

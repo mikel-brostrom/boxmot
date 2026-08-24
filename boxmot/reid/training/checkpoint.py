@@ -9,7 +9,6 @@ from typing import Any, Callable, Optional
 import torch
 import torch.nn as nn
 
-
 FP16_MAX = torch.finfo(torch.float16).max
 TRAIN_ONLY_STATE_DICT_PREFIXES = ("classifier.",)
 TRAIN_ONLY_STATE_DICT_INFIXES = (".classifier.",)
@@ -89,6 +88,7 @@ class CheckpointManager:
         best_mAP: float,
         scheduler=None,
         grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
         best_epoch: int = 0,
         best_rank1: float = 0.0,
     ) -> None:
@@ -108,6 +108,7 @@ class CheckpointManager:
             best_mAP=best_mAP,
             scheduler=scheduler,
             grad_scaler=grad_scaler,
+            training_state=training_state,
             best_epoch=best_epoch,
             best_rank1=best_rank1,
         )
@@ -157,6 +158,7 @@ class CheckpointManager:
         best_mAP: float = 0.0,
         scheduler=None,
         grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
         best_epoch: int = 0,
         best_rank1: float = 0.0,
     ) -> None:
@@ -176,6 +178,7 @@ class CheckpointManager:
             best_mAP=best_mAP,
             scheduler=scheduler,
             grad_scaler=grad_scaler,
+            training_state=training_state,
             best_epoch=best_epoch,
             best_rank1=best_rank1,
         )
@@ -197,6 +200,7 @@ class CheckpointManager:
         best_mAP: float = 0.0,
         scheduler=None,
         grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
         best_epoch: int = 0,
         best_rank1: float = 0.0,
     ) -> None:
@@ -225,6 +229,8 @@ class CheckpointManager:
             state["scheduler"] = scheduler.state_dict()
         if resumable and grad_scaler is not None:
             state["grad_scaler"] = grad_scaler.state_dict()
+        if resumable and training_state is not None:
+            state["training_state"] = training_state
         if resumable and criterion_center is not None:
             state["center_loss_state_dict"] = criterion_center.state_dict()
         if resumable and criterion_classifier is not None and self.classifier_loss != "ce":

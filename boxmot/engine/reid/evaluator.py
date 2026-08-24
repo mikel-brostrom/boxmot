@@ -210,7 +210,6 @@ class ReIDValidator(BaseValidator):
 
         LOGGER.info(f"Loading checkpoint from {self.weights_path}")
         self.checkpoint = torch.load(self.weights_path, map_location="cpu", weights_only=False)
-        self.state_dict = self.checkpoint.get("state_dict", self.checkpoint)
         self.hparams = _load_hparams(self.weights_path)
 
         self.model_name = getattr(self.args, "model", None) or self.checkpoint.get("model_name")
@@ -227,14 +226,18 @@ class ReIDValidator(BaseValidator):
         )
         flip_tta_arg = getattr(self.args, "flip_tta", None)
         self.flip_tta = (
-            bool(_hparams_value(self.hparams, "flip_tta", False))
-            if flip_tta_arg is None
-            else bool(flip_tta_arg)
+            bool(_hparams_value(self.hparams, "flip_tta", False)) if flip_tta_arg is None else bool(flip_tta_arg)
         )
-        self.model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(self.weights_path)
+        checkpoint_model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(
+            self.weights_path,
+        )
         self.inference_feature_override = getattr(self.args, "inference_feature", None)
         if self.inference_feature_override:
-            self.model_kwargs["inference_feature"] = self.inference_feature_override
+            checkpoint_model_kwargs["inference_feature"] = self.inference_feature_override
+        self.model_kwargs = ReIDModelRegistry.deployment_model_kwargs(
+            self.model_name,
+            checkpoint_model_kwargs,
+        )
 
         self.dataset_name = self.args.dataset
         self.data_dir = self.args.data_dir
@@ -253,7 +256,10 @@ class ReIDValidator(BaseValidator):
             use_gpu=self.device.type != "cpu",
             **self.model_kwargs,
         )
-        self.model.load_state_dict(self.state_dict, strict=False)
+        ReIDModelRegistry.load_deployment_weights(
+            self.model,
+            self.weights_path,
+        )
         if (
             self.inference_feature_override
             and hasattr(self.model, "head")

@@ -92,17 +92,38 @@ class PKSampler(Sampler[int]):
         k: Number of instances per identity.
     """
 
-    def __init__(self, samples: List[ReIDSample], p: int = 16, k: int = 4, seed: int = 0):
+    def __init__(
+        self,
+        samples: List[ReIDSample],
+        p: int = 16,
+        k: int = 4,
+        seed: int = 0,
+        *,
+        steps_per_epoch: int = 0,
+        camera_aware: bool = False,
+    ):
         self.samples = samples
         self.p = p
         self.k = k
         self.seed = int(seed)
+        self.steps_per_epoch = int(steps_per_epoch)
+        self.camera_aware = bool(camera_aware)
         self.epoch = 0
+        if self.p < 1 or self.k < 1:
+            raise ValueError("PK sampler p and k must be positive")
+        if self.steps_per_epoch < 0:
+            raise ValueError("PK sampler steps_per_epoch must be non-negative")
 
         self._pid_to_indices: dict[int, list[int]] = defaultdict(list)
+        self._pid_to_camera_indices: dict[int, dict[int, list[int]]] = defaultdict(dict)
         for idx, s in enumerate(samples):
             self._pid_to_indices[s.pid].append(idx)
+            self._pid_to_camera_indices[s.pid].setdefault(s.camid, []).append(idx)
         self._pids = list(self._pid_to_indices.keys())
+        if (self.steps_per_epoch or self.camera_aware) and len(self._pids) < self.p:
+            raise ValueError(
+                f"PK sampler has only {len(self._pids)} identities, but p={self.p} was requested"
+            )
 
     def set_epoch(self, epoch: int) -> None:
         """Select a deterministic sampling stream for one training epoch."""
@@ -110,6 +131,10 @@ class PKSampler(Sampler[int]):
 
     def __iter__(self) -> Iterator[int]:
         rng = random.Random(self.seed + self.epoch)
+        if self.steps_per_epoch or self.camera_aware:
+            yield from self._iter_balanced(rng)
+            return
+
         pids = copy.deepcopy(self._pids)
         rng.shuffle(pids)
 
@@ -132,7 +157,109 @@ class PKSampler(Sampler[int]):
             batch_indices = batch_indices[bs:]
 
     def __len__(self) -> int:
+        if self.steps_per_epoch:
+            return self.steps_per_epoch * self.p * self.k
         return (len(self._pids) // self.p) * self.p * self.k
+
+    def _iter_balanced(self, rng: random.Random) -> Iterator[int]:
+        """Yield fixed-length batches with diverse cameras and cycling images."""
+        steps = self.steps_per_epoch or len(self._pids) // self.p
+        pid_pool = list(self._pids)
+        rng.shuffle(pid_pool)
+        image_pools = {
+            pid: self._shuffled(self._pid_to_indices[pid], rng)
+            for pid in self._pids
+        }
+
+        for _ in range(steps):
+            batch_pids, pid_pool = self._take_pids(pid_pool, rng)
+            for pid in batch_pids:
+                yield from self._take_instances(pid, image_pools, rng)
+
+    @staticmethod
+    def _shuffled(values: list[int], rng: random.Random) -> list[int]:
+        shuffled = list(values)
+        rng.shuffle(shuffled)
+        return shuffled
+
+    def _take_pids(
+        self,
+        pid_pool: list[int],
+        rng: random.Random,
+    ) -> tuple[list[int], list[int]]:
+        if len(pid_pool) >= self.p:
+            return pid_pool[: self.p], pid_pool[self.p :]
+
+        selected = list(pid_pool)
+        refill = [pid for pid in self._pids if pid not in selected]
+        rng.shuffle(refill)
+        needed = self.p - len(selected)
+        selected.extend(refill[:needed])
+        return selected, refill[needed:]
+
+    def _take_instances(
+        self,
+        pid: int,
+        image_pools: dict[int, list[int]],
+        rng: random.Random,
+    ) -> list[int]:
+        selected: list[int] = []
+        pool = image_pools[pid]
+        all_indices = self._pid_to_indices[pid]
+
+        if self.camera_aware:
+            cameras = list(self._pid_to_camera_indices[pid])
+            rng.shuffle(cameras)
+            for camera in cameras[: self.k]:
+                index = self._pop_matching(
+                    pid,
+                    pool,
+                    selected,
+                    rng,
+                    camera=camera,
+                )
+                if index is not None:
+                    selected.append(index)
+
+        while len(selected) < self.k:
+            index = self._pop_matching(pid, pool, selected, rng)
+            if index is None:
+                if len(all_indices) >= self.k:
+                    raise RuntimeError(f"Could not draw {self.k} unique samples for PID {pid}")
+                index = self._pop_matching(
+                    pid,
+                    pool,
+                    selected,
+                    rng,
+                    allow_selected=True,
+                )
+            if index is None:
+                raise RuntimeError(f"Could not draw a sample for PID {pid}")
+            selected.append(index)
+        return selected
+
+    def _pop_matching(
+        self,
+        pid: int,
+        pool: list[int],
+        selected: list[int],
+        rng: random.Random,
+        *,
+        camera: int | None = None,
+        allow_selected: bool = False,
+    ) -> int | None:
+        all_indices = self._pid_to_indices[pid]
+        for _ in range(2):
+            candidates = [
+                position
+                for position, index in enumerate(pool)
+                if (allow_selected or index not in selected)
+                and (camera is None or self.samples[index].camid == camera)
+            ]
+            if candidates:
+                return pool.pop(rng.choice(candidates))
+            pool.extend(self._shuffled(all_indices, rng))
+        return None
 
 
 class SourceBalancedPKSampler(Sampler[int]):

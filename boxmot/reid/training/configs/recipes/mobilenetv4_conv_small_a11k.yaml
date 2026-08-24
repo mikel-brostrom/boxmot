@@ -4,7 +4,7 @@
 #   - P12 x K8 identity sampler (96 training images per batch)
 #   - seven scale-balanced branches: global + 2 stripes + 4 stripes
 #   - CE on every branch; triplet and center loss on the combined descriptor
-#   - 200 epochs, 10 frozen-backbone epochs, 20 warmup epochs
+#   - 120 epochs, 10 frozen-backbone epochs, 20 warmup epochs
 #
 # Architecture adaptation:
 #   - C5/timm head -> 384-D global branch
@@ -31,9 +31,9 @@ data:
   num_workers: 0
 
 model:
-  feature_fusion: global_final_parts_stage0_semantic_fine_reference
-  pyramid_resize_mode: bilinear
-  spatial_conv_mode: standard
+  feature_fusion: global_final_parts_stage0_semantic_fine
+  pyramid_resize_mode: pool_bilinear
+  spatial_conv_mode: depthwise_separable
   post_fusion_mixer:
     mode: none
     reduction: 4
@@ -66,7 +66,7 @@ model:
     drop_path_rate: 0.0
 
 optimization:
-  epochs: 200
+  epochs: 120
   optimizer: AdamW
   lr: 0.0005
   weight_decay: 0.0001

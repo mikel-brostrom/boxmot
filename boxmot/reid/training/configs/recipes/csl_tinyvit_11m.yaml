@@ -1,6 +1,6 @@
 {
   "run": {
-    "model_name": "mobilenetv4_conv_medium",
+    "model_name": "csl_tinyvit_11m_v20",
     "seed": 0,
     "deterministic": true,
     "pretrained": true
@@ -16,13 +16,19 @@
     "num_classes": 751,
     "batch_size": 64,
     "sampler": {
-      "p": 16,
-      "k": 4
+      "p": 12,
+      "k": 8,
+      "source_balance": "",
+      "steps_per_epoch": 0,
+      "camera_aware": false
     },
     "num_workers": 4
   },
   "model": {
-    "feature_fusion": "last2",
+    "is_vit": true,
+    "feature_fusion": "global_final_parts_stage0_semantic_fine",
+    "pyramid_resize_mode": "bilinear",
+    "spatial_conv_mode": "depthwise_separable",
     "post_fusion_mixer": {
       "mode": "none",
       "reduction": 4,
@@ -34,11 +40,30 @@
     },
     "feat_dim": 512,
     "neck_dim": 512,
+    "speed": {
+      "stage3_downsample": false,
+      "stage3_mlp_ratio": 4.0,
+      "stage3_depth": 2,
+      "native_branch_widths": false
+    },
+    "attention": {
+      "window_layout": "rect",
+      "bias": "absolute",
+      "interpolate_pretrained_bias": true,
+      "mask": true,
+      "shift": false,
+      "stage3_global": false
+    },
+    "reid_adapters": {
+      "stages": [],
+      "reduction": 4
+    },
     "head": {
       "pool": "gelu_gem",
       "parts": [
         1,
-        3
+        2,
+        4
       ],
       "head_type": "standard",
       "part_pooling": "stripes",
@@ -58,32 +83,35 @@
     "branch": {
       "aware_metric": false,
       "metric_part_weight": 0.5,
-      "loss_agg": "mean"
+      "loss_agg": "mean",
+      "scale_balanced": true
     },
     "regularization": {
-      "drop_path_rate": 0.0
+      "drop_path_rate": 0.1
     }
   },
   "optimization": {
-    "epochs": 100,
+    "epochs": 200,
     "optimizer": "AdamW",
-    "lr": 0.0005,
-    "weight_decay": 0.0001,
+    "lr": 0.0007,
+    "weight_decay": 0.1,
     "grad_clip": 1.0,
+    "layer_decay": 0.95,
+    "vit_lr_profile": "layer_decay",
     "backbone_freeze_epochs": 10,
     "gradual_unfreeze": {
       "enabled": false,
-      "head_epochs": 0,
-      "stage_epochs": 0,
-      "backbone_lr_mult": 1.0,
-      "backbone_lr_epochs": 0
+      "head_epochs": 5,
+      "stage_epochs": 20,
+      "backbone_lr_mult": 0.1,
+      "backbone_lr_epochs": 5
     },
     "scheduler": {
       "name": "CosineAnnealingLR",
       "eta_min": 0.0000001,
-      "warmup_epochs": 10
+      "warmup_epochs": 20
     },
-    "ema_decay": 0.999
+    "ema_decay": 0.0
   },
   "losses": {
     "loss_type": "triplet",
@@ -92,21 +120,21 @@
       "id_loss_weight": 1.0,
       "aux_ce_weight": 1.0,
       "metric_loss_weight": 1.0,
-      "center_loss_weight": 0.0005
+      "center_loss_weight": 0.005
     },
     "aux_ce_drop_epoch": 0,
-    "label_smooth": 0.1,
+    "label_smooth": 0.05,
     "triplet": {
       "margin": 0.3,
       "soft_margin": true
     }
   },
   "augmentation": {
-    "color_jitter": false,
-    "gaussian_blur": false,
-    "random_grayscale": 0.0,
-    "random_erasing": 0.35,
-    "random_patch": false,
+    "color_jitter": true,
+    "gaussian_blur": true,
+    "random_grayscale": 0.1,
+    "random_erasing": 0.5,
+    "random_patch": true,
     "color_augmentation": true
   },
   "evaluation": {
@@ -118,7 +146,8 @@
     "device": "mps"
   },
   "derived": {
-    "metric_dim": 2048,
-    "classifier_dim": 2048
+    "metric_dim": 1536,
+    "classifier_dim": 1536,
+    "n_params": 15607141
   }
 }

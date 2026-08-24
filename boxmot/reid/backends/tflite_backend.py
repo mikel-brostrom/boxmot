@@ -23,6 +23,8 @@ class TFLiteBackend(BaseModelBackend):
         current_allocated_batch_size (int): The current batch size allocated in the interpreter.
     """
 
+    build_source_model = False
+
     def __init__(self, weights: Path, device: str, half: bool, preprocess: str | None = None):
         """
         Initializes the TFLiteBackend with given weights, device, and precision flag.

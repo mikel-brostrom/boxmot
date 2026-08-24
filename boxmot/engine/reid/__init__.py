@@ -8,5 +8,6 @@ __all__ = (
     "comparison",
     "evaluator",
     "export",
+    "human_pretrainer",
     "trainer",
 )
