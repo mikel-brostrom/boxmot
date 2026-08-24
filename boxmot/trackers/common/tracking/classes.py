@@ -80,7 +80,12 @@ class ClassCatalog:
         """Validate class IDs from a detection array using its active layout."""
         if dets is None or dets.size == 0:
             return
-        self.validate_ids(layout.classes(dets).astype(int).tolist())
+        class_values = np.asarray(layout.classes(dets), dtype=np.float64)
+        if not np.isfinite(class_values).all():
+            raise ValueError("Detector class IDs must be finite integers.")
+        if not np.equal(class_values, np.floor(class_values)).all():
+            raise ValueError("Detector class IDs must be integers.")
+        self.validate_ids(class_values.astype(int).tolist())
 
     def detected_ids(self, dets: np.ndarray, layout) -> set[int]:
         """Return validated class IDs present in a detection array."""

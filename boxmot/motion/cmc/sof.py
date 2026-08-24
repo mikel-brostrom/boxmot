@@ -88,6 +88,12 @@ class SOF(BaseCMC):
         prev_valid = self.prev_keypoints[status == 1]
         next_valid = next_kps[status == 1]
 
+        if len(prev_valid) and len(next_valid):
+            finite = np.isfinite(prev_valid.reshape(len(prev_valid), -1)).all(axis=1)
+            finite &= np.isfinite(next_valid.reshape(len(next_valid), -1)).all(axis=1)
+            prev_valid = prev_valid[finite]
+            next_valid = next_valid[finite]
+
         if prev_valid is None or next_valid is None or len(prev_valid) < 4:
             # not enough matches -> re-detect
             self._reset(frame_gray, dets)
@@ -100,20 +106,21 @@ class SOF(BaseCMC):
             method=cv2.RANSAC,
             ransacReprojThreshold=self.ransac_reproj_threshold,
         )
-        if H_est is None or not self._has_enough_inliers(inliers, len(prev_valid)):
+        if (
+            H_est is None
+            or not self._has_enough_inliers(inliers, len(prev_valid))
+            or not self.is_valid_transform(H_est)
+        ):
             if H_est is not None:
                 LOGGER.debug(
-                    "SOF rejected weak affine estimate: "
+                    "SOF rejected weak or invalid affine estimate: "
                     f"inliers={0 if inliers is None else int(np.count_nonzero(inliers))}/"
                     f"{len(prev_valid)}"
                 )
             H_est = H
         else:
             H_est = H_est.astype(np.float32, copy=False)
-            if self.scale < 1.0:
-                H_est = H_est.copy()
-                H_est[0, 2] /= self.scale
-                H_est[1, 2] /= self.scale
+            H_est = self.restore_transform_scale(H_est)
 
         # refresh keypoints each frame (more stable long-term than purely tracking)
         new_kps = self._detect_keypoints(frame_gray, dets)
@@ -132,12 +139,11 @@ class SOF(BaseCMC):
         return cv2.goodFeaturesToTrack(frame_gray, mask=mask, **self.feature_params)
 
     def _has_enough_inliers(self, inliers: Optional[np.ndarray], match_count: int) -> bool:
-        if inliers is None or match_count <= 0:
-            return False
-        inlier_count = int(np.count_nonzero(inliers))
-        return (
-            inlier_count >= self.min_inliers
-            and inlier_count / match_count >= self.min_inlier_ratio
+        return self.has_enough_inliers(
+            inliers,
+            match_count,
+            min_inliers=self.min_inliers,
+            min_inlier_ratio=self.min_inlier_ratio,
         )
 
     def _reset(self, frame_gray: np.ndarray, dets: Optional[np.ndarray] = None) -> None:

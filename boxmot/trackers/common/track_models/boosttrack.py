@@ -8,10 +8,13 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
-from boxmot.trackers.common.geometry.obb import align_obb_measurement, normalize_angle
+from boxmot.trackers.common.geometry.obb import (
+    align_obb_measurement,
+    transform_obb_kalman_state,
+)
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
-from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.base import SortBoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 
 
 class KalmanBoxTracker(SortBoxTrack):
@@ -68,7 +71,6 @@ class KalmanBoxTracker(SortBoxTrack):
     def update(self, det: np.ndarray):
         self.time_since_update = 0
         self.hit_streak += 1
-        self.history_observations.append(self.get_state()[0])
         if self.is_obb:
             aligned = align_obb_measurement(det[:5], self.get_state()[0])
             self.kf.update(self.motion_model.to_measurement(aligned, column=False))
@@ -80,6 +82,7 @@ class KalmanBoxTracker(SortBoxTrack):
             self.conf = det[4]
             self.cls = det[5]
             self.det_ind = det[6]
+        self.history_observations.append(self.get_state()[0].copy())
         sync_track_meta(self, TrackState.TRACKED)
 
     def camera_update(self, transform: np.ndarray):
@@ -100,16 +103,14 @@ class KalmanBoxTracker(SortBoxTrack):
             raise ValueError(f"Expected 2×3 or 3×3 matrix, got {wm.shape}")
 
         if self.is_obb:
-            cx, cy, w, h, theta = (float(v) for v in self.get_state()[0])
-            p = wm @ np.array([cx, cy, 1.0])
-            cx_, cy_ = float(p[0]), float(p[1])
-            # Approximate isotropic scale and rotation from the linear part
-            linear = wm[:2, :2]
-            scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
-            rot = float(np.arctan2(linear[1, 0], linear[0, 0]))
-            w_ = max(w * scale, 1e-4)
-            h_ = max(h * scale, 1e-4)
-            self.kf.x[:5] = [cx_, cy_, h_, w_ / h_, normalize_angle(theta + rot)]
+            self.kf.x, self.kf.covariance = transform_obb_kalman_state(
+                self.kf.x,
+                self.kf.covariance,
+                wm,
+                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
+                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
+                velocity_measurement_indices=(0, 1, 2, 3, 4),
+            )
             return
 
         # ——— warp your current bbox —————

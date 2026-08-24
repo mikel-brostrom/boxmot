@@ -251,7 +251,9 @@ class SFSORT(BaseTracker):
 
         track_pool = self.active_tracks + self.lost_tracks
 
-        unmatched_tracks = np.array([], dtype=int)
+        # With no high-confidence detections, every current track must remain
+        # eligible for the low-confidence second pass.
+        unmatched_tracks = np.arange(len(track_pool), dtype=int)
         if len(high_batch):
             definite_boxes = high_batch.boxes
             definite_scores = high_batch.confs
@@ -486,8 +488,21 @@ class SFSORT(BaseTracker):
         box2_width = boxes[:, 2]
         box1_height = active_boxes[:, 3]
         box2_height = boxes[:, 3]
-        sw = np.minimum(box1_width[:, None], box2_width) / (np.maximum(box1_width[:, None], box2_width) + eps)
-        sh = np.minimum(box1_height[:, None], box2_height) / (np.maximum(box1_height[:, None], box2_height) + eps)
+        direct_sw = np.minimum(box1_width[:, None], box2_width) / (
+            np.maximum(box1_width[:, None], box2_width) + eps
+        )
+        direct_sh = np.minimum(box1_height[:, None], box2_height) / (
+            np.maximum(box1_height[:, None], box2_height) + eps
+        )
+        swapped_sw = np.minimum(box1_width[:, None], box2_height) / (
+            np.maximum(box1_width[:, None], box2_height) + eps
+        )
+        swapped_sh = np.minimum(box1_height[:, None], box2_width) / (
+            np.maximum(box1_height[:, None], box2_width) + eps
+        )
+        use_swapped = (swapped_sw + swapped_sh) > (direct_sw + direct_sh)
+        sw = np.where(use_swapped, swapped_sw, direct_sw)
+        sh = np.where(use_swapped, swapped_sh, direct_sh)
 
         return SFSORT._combine_cost_terms(
             iou=iou,

@@ -9,8 +9,20 @@ import cv2
 import numpy as np
 
 from boxmot.data import iter_source
-from boxmot.engine.tracking.detections import as_2d_array, extract_detection_array, extract_masks
-from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.engine.tracking.detections import (
+    as_2d_array,
+    extract_detection_array,
+    extract_masks,
+    sanitize_detections,
+)
+from boxmot.engine.tracking.mot import (
+    MMOT_ROW_FORMAT,
+    MOT_ROW_FORMAT,
+    convert_to_mmot_obb_format,
+    convert_to_mot_format,
+    format_frame_tagged_tracks_for_mot,
+    write_mot_results,
+)
 from boxmot.engine.tracking.rendering import Drawer, draw_tracks
 from boxmot.engine.tracking.video import append_frame
 from boxmot.engine.tracking.video import close as close_video
@@ -70,7 +82,7 @@ class FrameResult:
         # Reorder detections and embeddings to align with tracks via det_ind
         raw_dets = None if detections is None else self._as_2d_array(detections)
         self.detections, self.embeddings = self._align_to_tracks(raw_dets, embeddings)
-        self.masks = self._align_masks(masks)
+        self.masks = self._resolve_masks(masks)
 
     @staticmethod
     def _as_2d_array(values: Any) -> np.ndarray:
@@ -89,20 +101,23 @@ class FrameResult:
             return empty_dets, None
 
         det_inds = self.tracks.det_ind
-        valid = det_inds >= 0
 
         aligned_dets: np.ndarray | None = None
         if dets is not None:
             cols = dets.shape[1]
             aligned_dets = np.zeros((len(self.tracks), cols), dtype=np.float32)
-            aligned_dets[valid] = dets[det_inds[valid]]
+            valid_dets = (det_inds >= 0) & (det_inds < len(dets))
+            aligned_dets[valid_dets] = dets[det_inds[valid_dets]]
 
         aligned_embs: np.ndarray | None = None
         if embs is not None:
             embs_arr = np.asarray(embs, dtype=np.float32)
+            if embs_arr.ndim != 2:
+                raise ValueError(f"Embeddings must be 2D, got shape {embs_arr.shape}")
             dim = embs_arr.shape[1]
             aligned_embs = np.zeros((len(self.tracks), dim), dtype=np.float32)
-            aligned_embs[valid] = embs_arr[det_inds[valid]]
+            valid_embs = (det_inds >= 0) & (det_inds < len(embs_arr))
+            aligned_embs[valid_embs] = embs_arr[det_inds[valid_embs]]
 
         return aligned_dets, aligned_embs
 
@@ -110,12 +125,31 @@ class FrameResult:
         """Reorder masks to align 1-to-1 with tracks via det_ind."""
         if masks is None or self.tracks.size == 0:
             return None
+        masks_arr = np.asarray(masks)
+        if masks_arr.ndim != 3:
+            raise ValueError(f"Masks must be 3D, got shape {masks_arr.shape}")
         det_inds = self.tracks.det_ind
-        valid = det_inds >= 0
-        h, w = masks.shape[1], masks.shape[2]
-        aligned = np.zeros((len(self.tracks), h, w), dtype=masks.dtype)
-        aligned[valid] = masks[det_inds[valid]]
+        valid = (det_inds >= 0) & (det_inds < len(masks_arr))
+        h, w = masks_arr.shape[1], masks_arr.shape[2]
+        aligned = np.zeros((len(self.tracks), h, w), dtype=masks_arr.dtype)
+        aligned[valid] = masks_arr[det_inds[valid]]
         return aligned
+
+    def _resolve_masks(self, detector_masks: np.ndarray | None) -> np.ndarray | None:
+        """Prefer tracker-refined masks, falling back to detector-row alignment."""
+        tracker_masks = self.tracks.masks
+        if tracker_masks is None:
+            return self._align_masks(detector_masks)
+
+        masks_arr = np.asarray(tracker_masks)
+        if masks_arr.ndim != 3:
+            raise ValueError(f"Tracker masks must be 3D, got shape {masks_arr.shape}")
+        if len(masks_arr) != len(self.tracks):
+            raise ValueError(
+                "Tracker mask count must match output track count, "
+                f"got masks={len(masks_arr)} tracks={len(self.tracks)}"
+            )
+        return masks_arr
 
     # ------------------------------------------------------------------
     # Convenience
@@ -186,7 +220,7 @@ class FrameResult:
 
     def save_txt(self, path: str | Path) -> None:
         """Append tracks in MOT challenge format to a text file."""
-        self.tracks.save_mot(path, frame_id=self.frame_idx)
+        write_mot_results(Path(path), self.to_mot())
 
     def save_csv(self, path: str | Path, header: bool = True) -> None:
         """Append tracks in CSV format to a file."""
@@ -245,9 +279,11 @@ class FrameResult:
 
         buffer = io.StringIO()
         if rows.shape[1] == 9:
-            np.savetxt(buffer, rows, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
+            np.savetxt(buffer, rows, fmt=MOT_ROW_FORMAT)
+        elif rows.shape[1] == 13:
+            np.savetxt(buffer, rows, fmt=MMOT_ROW_FORMAT)
         else:
-            np.savetxt(buffer, rows, fmt="%g", delimiter=",")
+            raise ValueError(f"Unexpected MOT result shape {rows.shape}")
         return buffer.getvalue()
 
     def __repr__(self) -> str:
@@ -597,6 +633,11 @@ class Results:
         try:
             for frame_idx, (path, frame) in enumerate(self._iter_frames(), start=1):
                 dets, masks, det_ms = self._run_detector_timed(frame)
+                dets, masks, _ = sanitize_detections(
+                    dets,
+                    masks,
+                    image_shape=frame.shape,
+                )
                 features, reid_ms = self._run_reid_timed(frame, dets)
 
                 track_started = time.perf_counter()
@@ -657,6 +698,10 @@ class Results:
             path.unlink()
         for frame_result in self:
             write_mot_results(path, frame_result.to_mot())
+        if hasattr(self.tracker, "flush_gta"):
+            gta_entries = self.tracker.flush_gta()
+            if np.asarray(gta_entries).size:
+                write_mot_results(path, format_frame_tagged_tracks_for_mot(gta_entries))
         return path
 
     def save_vid(self, output_path: str | Path, fps: float = 30.0) -> Path:

@@ -229,6 +229,15 @@ class BaseTracker(
     def _validate_update_inputs(self, dets: np.ndarray, masks: np.ndarray = None) -> None:
         """Validate canonical detections, class IDs, and aligned masks."""
         self.detection_layout.validate_dets(dets)
+        if dets.size and not np.isfinite(dets).all():
+            raise ValueError("Tracker detections must contain only finite values.")
+        if dets.size:
+            boxes = self.detection_layout.boxes(dets)
+            if self.is_obb:
+                if np.any(boxes[:, 2:4] <= 0):
+                    raise ValueError("OBB detections must have positive width and height.")
+            elif np.any(boxes[:, 2] <= boxes[:, 0]) or np.any(boxes[:, 3] <= boxes[:, 1]):
+                raise ValueError("AABB detections must satisfy x2 > x1 and y2 > y1.")
         self.class_catalog.validate_detections(dets, self.detection_layout)
 
         if masks is None:
@@ -301,7 +310,13 @@ class BaseTracker(
         if embs is not None:
             assert dets.shape[0] == embs.shape[0], "Mismatch between detections and embeddings sizes"
 
-        self.detection_layout.validate_dets(dets)
+        assert dets.shape[1] in (
+            self.detection_layout.det_cols,
+            self.detection_layout.det_cols + 1,
+        ), (
+            "Unsupported internal detection column count; expected raw detections "
+            "or raw detections with a trailing frame-level det_ind"
+        )
 
     def configure_class_catalog(
         self,

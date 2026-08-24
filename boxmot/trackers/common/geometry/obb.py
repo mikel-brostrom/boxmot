@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
+
+import cv2
 import numpy as np
 
 
@@ -19,16 +22,24 @@ def order_corners(corners: np.ndarray) -> np.ndarray:
     single = arr.ndim == 2
     if single:
         arr = arr.reshape(1, 4, 2)
+    if arr.ndim != 3 or arr.shape[1:] != (4, 2):
+        raise ValueError(f"Expected corners with shape (4, 2) or (N, 4, 2), got {arr.shape}")
 
     ordered = np.empty_like(arr)
-    rows = np.arange(arr.shape[0])
-    sums = arr.sum(axis=2)
-    diffs = np.diff(arr, axis=2).reshape(arr.shape[0], 4)
+    for row_index, points in enumerate(arr):
+        center = points.mean(axis=0)
+        angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
+        cyclic = points[np.argsort(angles, kind="stable")]
 
-    ordered[:, 0] = arr[rows, np.argmin(sums, axis=1)]
-    ordered[:, 2] = arr[rows, np.argmax(sums, axis=1)]
-    ordered[:, 1] = arr[rows, np.argmin(diffs, axis=1)]
-    ordered[:, 3] = arr[rows, np.argmax(diffs, axis=1)]
+        # Image coordinates grow downward, so TL->TR->BR->BL has positive
+        # shoelace area. Unlike sum/difference extrema, cyclic sorting cannot
+        # select the same vertex twice when a square diamond has tied extrema.
+        twice_area = np.dot(cyclic[:, 0], np.roll(cyclic[:, 1], -1)) - np.dot(cyclic[:, 1], np.roll(cyclic[:, 0], -1))
+        if twice_area < 0:
+            cyclic = cyclic[::-1]
+
+        start = int(np.lexsort((cyclic[:, 0], cyclic[:, 1]))[0])
+        ordered[row_index] = np.roll(cyclic, -start, axis=0)
     return ordered[0] if single else ordered
 
 
@@ -88,8 +99,9 @@ def smooth_obb_corners(
 
 def align_obb_measurement(measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
     """Align equivalent ``(cx, cy, w, h, theta)`` forms to a reference box."""
-    aligned = np.asarray(measurement, dtype=np.float32).copy().reshape(-1)
-    ref = np.asarray(reference, dtype=np.float32).reshape(-1)
+    dtype = np.result_type(np.asarray(measurement).dtype, np.float32)
+    aligned = np.asarray(measurement, dtype=dtype).copy().reshape(-1)
+    ref = np.asarray(reference, dtype=dtype).reshape(-1)
 
     ref_w = max(float(ref[2]), 1e-6)
     ref_h = max(float(ref[3]), 1e-6)
@@ -133,3 +145,205 @@ def xywha_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     half_w = 0.5 * (w * cos_t + h * sin_t)
     half_h = 0.5 * (w * sin_t + h * cos_t)
     return np.stack([cx - half_w, cy - half_h, cx + half_w, cy + half_h], axis=1).astype(np.float32)
+
+
+def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """Transform image points with a 2x3 affine matrix or 3x3 homography."""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 2)
+    matrix = np.asarray(transform, dtype=np.float64)
+    if matrix.shape == (2, 3):
+        matrix = np.vstack([matrix, [0.0, 0.0, 1.0]])
+    if matrix.shape != (3, 3):
+        raise ValueError(f"Expected a 2x3 affine or 3x3 homography, got {matrix.shape}")
+
+    homogeneous = np.column_stack([pts, np.ones(len(pts), dtype=np.float64)])
+    warped = homogeneous @ matrix.T
+    denominator = warped[:, 2]
+    if np.any(np.abs(denominator) <= 1e-12):
+        raise ValueError("CMC transform maps an OBB point to infinity")
+    return warped[:, :2] / denominator[:, None]
+
+
+def _local_transform_jacobian(transform: np.ndarray, point: np.ndarray) -> np.ndarray:
+    """Return the local 2D Jacobian of an affine transform or homography."""
+    matrix = np.asarray(transform, dtype=np.float64)
+    if matrix.shape == (2, 3):
+        return matrix[:, :2]
+    if matrix.shape != (3, 3):
+        raise ValueError(f"Expected a 2x3 affine or 3x3 homography, got {matrix.shape}")
+
+    x, y = np.asarray(point, dtype=np.float64).reshape(2)
+    den = (matrix[2, 0] * x) + (matrix[2, 1] * y) + matrix[2, 2]
+    if abs(den) <= 1e-12:
+        raise ValueError("CMC homography maps the OBB centre to infinity")
+    num_x = (matrix[0, 0] * x) + (matrix[0, 1] * y) + matrix[0, 2]
+    num_y = (matrix[1, 0] * x) + (matrix[1, 1] * y) + matrix[1, 2]
+    den_sq = den * den
+    return np.array(
+        [
+            [
+                ((matrix[0, 0] * den) - (num_x * matrix[2, 0])) / den_sq,
+                ((matrix[0, 1] * den) - (num_x * matrix[2, 1])) / den_sq,
+            ],
+            [
+                ((matrix[1, 0] * den) - (num_y * matrix[2, 0])) / den_sq,
+                ((matrix[1, 1] * den) - (num_y * matrix[2, 1])) / den_sq,
+            ],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _rotation_from_linear(linear: np.ndarray) -> float:
+    """Extract the proper-rotation component of a local 2D linear transform."""
+    u, _, vh = np.linalg.svd(np.asarray(linear, dtype=np.float64).reshape(2, 2))
+    rotation = u @ vh
+    if np.linalg.det(rotation) < 0:
+        u[:, -1] *= -1.0
+        rotation = u @ vh
+    return float(np.arctan2(rotation[1, 0], rotation[0, 0]))
+
+
+def transform_obb(
+    box: np.ndarray,
+    transform: np.ndarray,
+    *,
+    reference: np.ndarray | None = None,
+) -> np.ndarray:
+    """Warp an OBB through camera motion and refit its oriented rectangle.
+
+    Transforming all four corners preserves camera rotation, anisotropic scale,
+    shear, and projective motion. The fitted rectangle is aligned to the
+    expected orientation so equivalent width/height representations do not
+    introduce 90-degree state jumps.
+    """
+    source = np.asarray(box, dtype=np.float64).reshape(-1)[:5]
+    matrix = np.asarray(transform, dtype=np.float64)
+    if matrix.shape == (2, 3):
+        affine = matrix
+    elif matrix.shape == (3, 3) and abs(matrix[2, 2]) > 1e-12:
+        normalized = matrix / matrix[2, 2]
+        affine = normalized[:2] if np.allclose(normalized[2], [0.0, 0.0, 1.0], atol=1e-12) else None
+    else:
+        affine = None
+
+    if affine is not None:
+        linear = affine[:, :2]
+        scale_sq = float(np.trace(linear.T @ linear) / 2.0)
+        is_similarity = (
+            scale_sq > 0.0
+            and np.linalg.det(linear) > 0.0
+            and np.allclose(
+                linear.T @ linear,
+                scale_sq * np.eye(2),
+                rtol=1e-7,
+                atol=1e-10,
+            )
+        )
+        if is_similarity:
+            warped = source.copy()
+            warped[:2] = linear @ source[:2] + affine[:, 2]
+            warped[2:4] *= np.sqrt(scale_sq)
+            warped[4] = normalize_angle(source[4] + np.arctan2(linear[1, 0], linear[0, 0]))
+            if reference is not None:
+                warped = align_obb_measurement(warped, reference)
+            return warped.astype(np.float64)
+
+    corners = xywha_to_corners(source).reshape(4, 2)
+    warped_corners = transform_points(corners, transform).astype(np.float32)
+    rect = cv2.minAreaRect(warped_corners)
+    (cx, cy), (width, height), angle_deg = rect
+    warped = np.array(
+        [cx, cy, max(width, 1e-4), max(height, 1e-4), np.deg2rad(angle_deg)],
+        dtype=np.float64,
+    )
+
+    if reference is None:
+        local = _local_transform_jacobian(transform, source[:2])
+        expected = source.copy()
+        expected[:2] = transform_points(source[:2].reshape(1, 2), transform)[0]
+        expected[4] = normalize_angle(source[4] + _rotation_from_linear(local))
+        reference = expected
+    return align_obb_measurement(warped, reference).astype(np.float64)
+
+
+def transform_obb_kalman_state(
+    mean: np.ndarray,
+    covariance: np.ndarray,
+    transform: np.ndarray,
+    *,
+    measurement_to_box: Callable[[np.ndarray], np.ndarray],
+    box_to_measurement: Callable[[np.ndarray], np.ndarray],
+    velocity_measurement_indices: Sequence[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Transform an OBB Kalman mean and covariance into the current camera frame.
+
+    The first five state entries are the tracker's OBB measurement state. Any
+    following velocity entries correspond to ``velocity_measurement_indices``.
+    A numerical Jacobian of the corner-warp/refit operation carries position,
+    size, ratio, angle, velocities, cross-covariances, and uncertainty through
+    affine or projective CMC without assuming isotropic scale.
+    """
+    original_mean = np.asarray(mean, dtype=np.float64)
+    column_state = original_mean.ndim == 2
+    state = original_mean.reshape(-1).copy()
+    covariance_arr = np.asarray(covariance, dtype=np.float64)
+    if state.size < 5:
+        raise ValueError("OBB Kalman state must contain at least five measurement values")
+    if covariance_arr.shape != (state.size, state.size):
+        raise ValueError(f"Expected covariance shape {(state.size, state.size)}, got {covariance_arr.shape}")
+
+    transform_arr = np.asarray(transform, dtype=np.float64)
+    identity = np.eye(3, dtype=np.float64)
+    if transform_arr.shape == (2, 3):
+        identity = identity[:2]
+    if transform_arr.shape == identity.shape and np.array_equal(transform_arr, identity):
+        transformed = state.reshape((-1, 1)) if column_state else state
+        return transformed, covariance_arr.copy()
+
+    measurement = state[:5].copy()
+
+    def map_measurement(values: np.ndarray, reference_box: np.ndarray | None = None) -> np.ndarray:
+        source_box = np.asarray(measurement_to_box(values), dtype=np.float64).reshape(-1)[:5]
+        warped_box = transform_obb(source_box, transform, reference=reference_box)
+        return np.asarray(box_to_measurement(warped_box), dtype=np.float64).reshape(-1)[:5]
+
+    base_box = transform_obb(
+        np.asarray(measurement_to_box(measurement), dtype=np.float64).reshape(-1)[:5],
+        transform,
+    )
+    mapped = np.asarray(box_to_measurement(base_box), dtype=np.float64).reshape(-1)[:5]
+    jacobian = np.empty((5, 5), dtype=np.float64)
+    for index in range(5):
+        step = 1e-3 if index == 4 else 1e-4 * max(abs(float(measurement[index])), 1.0)
+        plus = measurement.copy()
+        minus = measurement.copy()
+        plus[index] += step
+        minus[index] -= step
+        if index in (2, 3):
+            minus[index] = max(minus[index], 1e-6)
+        actual_step = plus[index] - minus[index]
+        mapped_plus = map_measurement(plus, reference_box=base_box)
+        mapped_minus = map_measurement(minus, reference_box=base_box)
+        delta = mapped_plus - mapped_minus
+        delta[4] = normalize_angle(delta[4])
+        jacobian[:, index] = delta / actual_step
+
+    velocity_indices = tuple(int(index) for index in velocity_measurement_indices)
+    velocity_count = len(velocity_indices)
+    if state.size != 5 + velocity_count:
+        raise ValueError(f"State has {state.size} entries but {velocity_count} OBB velocity entries were declared")
+
+    state_transform = np.zeros((state.size, state.size), dtype=np.float64)
+    state_transform[:5, :5] = jacobian
+    velocity_jacobian = jacobian[np.ix_(velocity_indices, velocity_indices)]
+    state_transform[5:, 5:] = velocity_jacobian
+
+    transformed = state.copy()
+    transformed[:5] = mapped
+    transformed[5:] = velocity_jacobian @ state[5:]
+    transformed_covariance = state_transform @ covariance_arr @ state_transform.T
+    transformed_covariance = 0.5 * (transformed_covariance + transformed_covariance.T)
+    if column_state:
+        transformed = transformed.reshape((-1, 1))
+    return transformed, transformed_covariance

@@ -89,7 +89,11 @@ def associate(
     diff_angle = (np.pi / 2.0 - np.abs(diff_angle)) / np.pi
 
     valid_mask = np.ones(previous_obs.shape[0])
-    valid_mask[np.where(previous_obs[:, 4] < 0)] = 0
+    # Observation rows end in confidence.  In OBB mode column four is a
+    # perfectly valid (and often negative) angle, not the missing-observation
+    # sentinel used by the original AABB implementation.
+    confidence_idx = 5 if is_obb else 4
+    valid_mask[np.where(previous_obs[:, confidence_idx] < 0)] = 0
 
     iou_matrix = asso_func(detections, trackers)
     # iou_matrix = iou_batch(detections, trackers)

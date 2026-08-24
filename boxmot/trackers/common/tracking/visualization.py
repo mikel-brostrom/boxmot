@@ -169,9 +169,6 @@ class BaseVisualization(ABC):
 
     def _draw_track(self, img, track, state, style, thickness, fontscale, show_trajectories):
         history = self.get_track_history_for_display(track)
-        if not history:
-            return img
-
         box = self.get_track_box_for_display(track, state)
         if box is None:
             return img
@@ -192,7 +189,7 @@ class BaseVisualization(ABC):
             style=style if (state == "predicted" and not self.is_obb) else "solid",
         )
 
-        if show_trajectories:
+        if show_trajectories and history:
             img = self.plot_trackers_trajectories(img, history, track_id, state=state)
         return img
 

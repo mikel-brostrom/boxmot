@@ -9,7 +9,7 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
-from boxmot.trackers.common.geometry.obb import normalize_angle
+from boxmot.trackers.common.geometry.obb import transform_obb, transform_obb_kalman_state, transform_points
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_models.base import SortBoxTrack
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OBBKalmanBoxTracker
@@ -128,13 +128,13 @@ class KalmanBoxTracker(SortBoxTrack):
         """
 
         if det is not None:
-            bbox = det[0:5]
+            bbox = np.asarray(det[0:5]).copy()
             self.conf = det[4]
             self.cls = det[5]
             self.det_ind = det[6]
             self.frozen = False
 
-            if self.last_observation.sum() >= 0:  # no previous observation
+            if self.last_observation[-1] >= 0:  # no previous observation
                 previous_box = None
                 for dt in range(self.delta_t, 0, -1):
                     if self.age - dt in self.observations:
@@ -148,9 +148,9 @@ class KalmanBoxTracker(SortBoxTrack):
               Insert new observations. This is a ugly way to maintain both self.observations
               and self.history_observations. Bear it for the moment.
             """
-            self.last_observation = bbox
-            self.observations[self.age] = bbox
-            self.history_observations.append(bbox)
+            self.last_observation = bbox.copy()
+            self.observations[self.age] = bbox.copy()
+            self.history_observations.append(bbox.copy())
 
             self.time_since_update = 0
             self.hits += 1
@@ -172,18 +172,36 @@ class KalmanBoxTracker(SortBoxTrack):
     def apply_affine_correction(self, affine):
         m = affine[:, :2]
         t = affine[:, 2].reshape(2, 1)
+        warped_observations: dict[int, np.ndarray] = {}
+
+        def warp_observation_once(observation):
+            identity = id(observation)
+            if identity not in warped_observations:
+                warped = np.asarray(observation).copy()
+                points = warped[:4].reshape(2, 2).T
+                warped[:4] = (m @ points + t).T.reshape(-1)
+                warped_observations[identity] = warped
+            return warped_observations[identity]
+
         # For OCR
-        if self.last_observation.sum() > 0:
-            ps = self.last_observation[:4].reshape(2, 2).T
-            ps = m @ ps + t
-            self.last_observation[:4] = ps.T.reshape(-1)
+        if self.last_observation[-1] >= 0:
+            self.last_observation[:] = warp_observation_once(self.last_observation)
 
         # Apply to each box in the range of velocity computation
-        for dt in range(self.delta_t, -1, -1):
-            if self.age - dt in self.observations:
-                ps = self.observations[self.age - dt][:4].reshape(2, 2).T
-                ps = m @ ps + t
-                self.observations[self.age - dt][:4] = ps.T.reshape(-1)
+        for age, observation in self.observations.items():
+            self.observations[age][:] = warp_observation_once(observation)
+
+        self.history_observations = deque(
+            (warp_observation_once(observation).copy() for observation in self.history_observations),
+            maxlen=self.history_observations.maxlen,
+        )
+
+        if self.velocity is not None:
+            velocity_xy = np.asarray(self.velocity, dtype=np.float64).reshape(2)[::-1]
+            transformed_xy = m @ velocity_xy
+            norm = float(np.linalg.norm(transformed_xy))
+            if np.isfinite(transformed_xy).all() and np.isfinite(norm) and norm > 1e-12:
+                self.velocity = (transformed_xy / norm)[::-1]
 
         # Also need to change kf state, but might be frozen
         self.kf.apply_affine_correction(m, t)
@@ -222,9 +240,16 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
 
     def __init__(self, det, *, emb, alpha, delta_t, max_obs, Q_xy_scaling, Q_s_scaling, id_allocator):
         super().__init__(
-            det[:6], det[6], det[7], delta_t=delta_t, max_obs=max_obs,
-            Q_xy_scaling=Q_xy_scaling, Q_s_scaling=Q_s_scaling,
-            Q_a_scaling=Q_s_scaling, is_obb=True, id_allocator=id_allocator,
+            det[:6],
+            det[6],
+            det[7],
+            delta_t=delta_t,
+            max_obs=max_obs,
+            Q_xy_scaling=Q_xy_scaling,
+            Q_s_scaling=Q_s_scaling,
+            Q_a_scaling=Q_s_scaling,
+            is_obb=True,
+            id_allocator=id_allocator,
         )
         self.emb = emb
         self.alpha = alpha
@@ -245,23 +270,64 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
         return self.emb
 
     def apply_affine_correction(self, affine):
-        """Warp OBB centres/state without interpreting width and height as points."""
+        """Warp OBB observations plus the complete XYSR state and covariance."""
         transform = np.asarray(affine, dtype=float)
-        linear = transform[:, :2]
-        translation = transform[:, 2]
-        scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
-        rotation = float(np.arctan2(linear[1, 0], linear[0, 0]))
+        source_center = self.get_state()[0, :2].copy()
 
-        def warp_obb(box):
-            warped = np.asarray(box, dtype=float).copy()
-            warped[:2] = linear @ warped[:2] + translation
-            warped[2:4] = np.maximum(warped[2:4] * scale, 1e-4)
-            warped[4] = normalize_angle(warped[4] + rotation)
-            return warped
+        def warp_box(box):
+            return transform_obb(np.asarray(box, dtype=float)[:5], transform)
 
-        if self.last_observation.sum() > 0:
-            self.last_observation[:5] = warp_obb(self.last_observation[:5])
+        def warp_measurement(measurement):
+            if measurement is None:
+                return None
+            box = self.motion_model.to_box(measurement)[0]
+            return self.motion_model.to_measurement(warp_box(box))
+
+        warped_observations: dict[int, np.ndarray] = {}
+
+        def warp_observation_once(observation):
+            identity = id(observation)
+            if identity not in warped_observations:
+                warped_observations[identity] = warp_box(observation)
+            return warped_observations[identity]
+
+        if self.last_observation[-1] >= 0:
+            self.last_observation[:5] = warp_observation_once(self.last_observation)
         for age, observation in self.observations.items():
-            self.observations[age][:5] = warp_obb(observation[:5])
-        state_box = warp_obb(self.get_state()[0])
-        self.kf.x[:5] = self.motion_model.to_measurement(state_box)
+            self.observations[age][:5] = warp_observation_once(observation)
+
+        self._transform_cached_velocity(transform, source_center)
+
+        def transform_state(mean, covariance):
+            return transform_obb_kalman_state(
+                mean,
+                covariance,
+                transform,
+                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
+                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
+                velocity_measurement_indices=(0, 1, 2, 4),
+            )
+
+        self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.history_obs = deque(
+            (warp_measurement(item) for item in self.kf.history_obs),
+            maxlen=self.kf.history_obs.maxlen,
+        )
+        self.kf.last_measurement = warp_measurement(self.kf.last_measurement)
+
+        if not self.kf.observed and self.kf.attr_saved is not None:
+            saved = self.kf.attr_saved
+            saved["x"], saved["P"] = transform_state(saved["x"], saved["P"])
+            saved["history_obs"] = deque(
+                (warp_measurement(item) for item in saved["history_obs"]),
+                maxlen=saved["history_obs"].maxlen,
+            )
+            saved["last_measurement"] = warp_measurement(saved["last_measurement"])
+
+        self.history_observations = deque(
+            (
+                transform_points(np.asarray(corners).reshape(-1, 2), transform).reshape(-1).astype(np.float32)
+                for corners in self.history_observations
+            ),
+            maxlen=self.history_observations.maxlen,
+        )

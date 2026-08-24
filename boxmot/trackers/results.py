@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from boxmot.trackers.common.geometry.obb import xywha_to_corners, xywha_to_xyxy
+
 
 class TrackResults(np.ndarray):
     """Thin zero-copy view over the (N, 8) or (N, 9) tracker output array.
@@ -31,7 +33,27 @@ class TrackResults(np.ndarray):
         return obj
 
     def __array_finalize__(self, obj):
-        self._masks = getattr(obj, '_masks', None)
+        self._masks = getattr(obj, "_masks", None)
+
+    def __getitem__(self, key):
+        """Slice optional masks with the same row selection as track rows."""
+        result = super().__getitem__(key)
+        masks = self._masks
+        if not isinstance(result, TrackResults) or masks is None:
+            return result
+        if self.ndim != 2:
+            # A one-dimensional row may subsequently be indexed by its
+            # columns (NumPy testing utilities do this with boolean masks).
+            # Its already-selected object mask remains the correct metadata;
+            # that column operation is not another track-row selection.
+            return result
+
+        row_key = key[0] if isinstance(key, tuple) else key
+        selected = np.asarray(masks)[row_key]
+        if np.asarray(selected).ndim == np.asarray(masks).ndim - 1:
+            selected = np.expand_dims(selected, axis=0)
+        result._masks = selected
+        return result
 
     @property
     def masks(self) -> np.ndarray | None:
@@ -48,22 +70,33 @@ class TrackResults(np.ndarray):
     # ------------------------------------------------------------------
 
     @property
+    def boxes(self) -> np.ndarray:
+        """Return native geometry: ``xyxy`` for AABB or ``xywha`` for OBB."""
+        return self.xywha if self.is_obb else self.xyxy
+
+    @property
     def xyxy(self) -> np.ndarray:
-        """Bounding boxes as (x1, y1, x2, y2). AABB mode only."""
+        """Return AABBs, enclosing each oriented track when in OBB mode."""
+        if self.is_obb:
+            return xywha_to_xyxy(np.asarray(self[:, :5]))
         return np.asarray(self[:, :4])
 
     @property
     def xywh(self) -> np.ndarray:
-        """Bounding boxes as (x_center, y_center, width, height). AABB mode only."""
+        """Bounding boxes as (x_center, y_center, width, height)."""
         boxes = np.asarray(self[:, :4])
         if boxes.size == 0:
             return np.empty((0, 4), dtype=np.float32)
+        if self.is_obb:
+            return boxes
         x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
         return np.stack([(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1], axis=1)
 
     @property
     def xywha(self) -> np.ndarray:
         """Oriented boxes as (cx, cy, w, h, angle). OBB mode only."""
+        if not self.is_obb:
+            return np.empty((len(self), 0), dtype=np.float32)
         return np.asarray(self[:, :5])
 
     # ------------------------------------------------------------------
@@ -175,28 +208,35 @@ class TrackResults(np.ndarray):
             f.write(self.to_csv(frame_id=frame_id))
 
     def save_mot(self, path: str | Path, frame_id: int = 0) -> None:
-        """Append track results in MOT challenge format to a text file.
-
-        Format: frame_id, track_id, left, top, width, height, conf, cls, -1
-        Track IDs are converted from BoxMOT's internal 0-based IDs to MOT's
-        1-based IDs during export.
+        """Append track results in canonical MOT or corner-based MMOT format.
 
         Args:
             path: File path to append to.
-            frame_id: 1-based frame index.
+            frame_id: Frame index to serialize.
         """
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        if not len(self):
+            path.touch(exist_ok=True)
+            return
 
-        with open(path, "a") as f:
-            for i in range(len(self)):
-                mot_id = int(self.id[i]) + 1
-                if self.is_obb:
-                    cx, cy, w, h, angle = self.xywha[i]
-                    f.write(f"{frame_id},{mot_id},{cx:.2f},{cy:.2f},{w:.2f},{h:.2f},"
-                            f"{angle:.4f},{self.conf[i]:.6f},{int(self.cls[i])},-1\n")
-                else:
-                    x1, y1, x2, y2 = self.xyxy[i]
-                    w, h = x2 - x1, y2 - y1
-                    f.write(f"{frame_id},{mot_id},{x1:.2f},{y1:.2f},{w:.2f},{h:.2f},"
-                            f"{self.conf[i]:.6f},{int(self.cls[i])},-1\n")
+        frame = np.full((len(self), 1), frame_id, dtype=np.float32)
+        track_ids = self.id.reshape(-1, 1).astype(np.float32)
+        confidence = self.conf.reshape(-1, 1).astype(np.float32)
+        det_ind = self.det_ind.reshape(-1, 1).astype(np.float32)
+        if self.is_obb:
+            rows = np.column_stack(
+                (frame, track_ids, xywha_to_corners(self.xywha), confidence, self.cls, det_ind)
+            )
+            fmt = "%d,%d," + ",".join(["%.6f"] * 9) + ",%d,%d"
+        else:
+            xyxy = self.xyxy
+            ltwh = np.rint(
+                np.column_stack(
+                    (xyxy[:, 0], xyxy[:, 1], xyxy[:, 2] - xyxy[:, 0], xyxy[:, 3] - xyxy[:, 1])
+                )
+            ).astype(np.int32)
+            rows = np.column_stack((frame, track_ids, ltwh, confidence, self.cls + 1, det_ind))
+            fmt = "%d,%d,%d,%d,%d,%d,%.6f,%d,%d"
+        with open(path, "a") as file:
+            np.savetxt(file, rows, fmt=fmt)

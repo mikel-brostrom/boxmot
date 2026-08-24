@@ -15,7 +15,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
+from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.geometry.obb import align_obb_measurement, normalize_angle, xywha_to_xyxy
 from boxmot.trackers.hybrid.base import HybridBaseTracker
 from boxmot.utils import logger as LOGGER
 
@@ -57,6 +58,8 @@ class _Track:
     cls: int = 0
     det_ind: int = -1
     obb: Optional[np.ndarray] = None
+    last_matched_obb: Optional[np.ndarray] = None
+    history_observations: Optional[deque] = None
 
 
 # ---------------------------------------------------------------------------
@@ -240,6 +243,7 @@ class Sam2Mot(HybridBaseTracker):
         miou_threshold: float = 0.8,
         untracked_ratio_threshold: float = 0.5,
         new_track_thresh: float = 0.5,
+        obb_theta_damping: float = 0.8,
         **kwargs,
     ):
         super().__init__(
@@ -256,6 +260,7 @@ class Sam2Mot(HybridBaseTracker):
         self.second_stage_iou_threshold = second_stage_iou_threshold
         self.frame_out_d_thre = frame_out_d_thre
         self.new_track_thresh = new_track_thresh
+        self.obb_theta_damping = float(np.clip(obb_theta_damping, 0.0, 1.0))
 
         self.trajectory_manager = _TrajectoryManager(
             tau_r=tau_r, tau_p=tau_p, tau_s=tau_s,
@@ -267,23 +272,36 @@ class Sam2Mot(HybridBaseTracker):
         # Internal state
         self._tracks: List[_Track] = []
         self._next_id = 1
-        self._frame_count = 0
 
         LOGGER.info(
             f"Sam2Mot: det_thresh={det_thresh}, tolerance_frames={tolerance_frames}, "
             f"cost_weight={cost_weight}, density_threshold={density_threshold}, "
-            f"miou_threshold={miou_threshold}"
+            f"miou_threshold={miou_threshold}, obb_theta_damping={self.obb_theta_damping}"
         )
 
     def reset(self):
         """Reset tracker state."""
+        self._reset_common_state()
         self._tracks = []
         self._next_id = 1
-        self._frame_count = 0
 
     # ------------------------------------------------------------------
     # Core update
     # ------------------------------------------------------------------
+
+    def _damped_obb_update(self, measurement: np.ndarray, reference: np.ndarray | None) -> np.ndarray:
+        """Align an OBB measurement and damp its angular correction."""
+        if reference is None:
+            updated = np.asarray(measurement, dtype=np.float32).copy().reshape(5)
+            updated[4] = float(normalize_angle(updated[4]))
+            return updated
+
+        ref = np.asarray(reference, dtype=np.float32).reshape(5)
+        updated = align_obb_measurement(measurement, ref)
+        theta_delta = float(normalize_angle(float(updated[4]) - float(ref[4])))
+        theta_gain = 1.0 - self.obb_theta_damping
+        updated[4] = float(normalize_angle(float(ref[4]) + theta_gain * theta_delta))
+        return updated
 
     def _track_detections(self, dets: np.ndarray, img: np.ndarray,
                      embs: np.ndarray = None, masks: np.ndarray = None):
@@ -300,9 +318,10 @@ class Sam2Mot(HybridBaseTracker):
                 tracks_array: (M, 8) [x1, y1, x2, y2, id, conf, cls, det_ind]
                 output_masks: (M, H, W) or None
         """
-        self._frame_count += 1
-        frame_id = self._frame_count
+        self.frame_count += 1
+        frame_id = self.frame_count
         H, W = img.shape[:2]
+        det_inds = self.make_detection_batch(dets).det_inds
 
         # Mask operations use enclosing AABBs while OBB geometry is preserved for output.
         det_obbs = dets[:, :5].copy() if self.is_obb and len(dets) else None
@@ -353,7 +372,13 @@ class Sam2Mot(HybridBaseTracker):
 
         # === Stage 1+2: Two-stage matching on normal tracks ===
         all_matches, unmatched_dets, unmatched_trk_indices, second_stage_matches = \
-            self._two_stage_matching(det_bboxes, det_confs, normal_tracks, det_masks=det_masks)
+            self._two_stage_matching(
+                det_bboxes,
+                det_confs,
+                normal_tracks,
+                det_masks=det_masks,
+                det_obbs=det_obbs,
+            )
 
         # Apply matches
         matched_track_ids = set()
@@ -395,21 +420,30 @@ class Sam2Mot(HybridBaseTracker):
                     if density < self.density_threshold:
                         tracks_need_reconstruction.append((track, det_idx))
 
-            # Update velocity (exponential moving average)
-            new_vel = bbox - track.bbox
+            # Update velocity after resolving equivalent OBB forms. This
+            # prevents a width/height swap from becoming a spurious pi/2 turn.
+            if det_obbs is not None and track.obb is not None:
+                aligned_obb = self._damped_obb_update(det_obbs[det_idx], track.obb)
+                new_vel = aligned_obb - track.obb
+                new_vel[4] = float(normalize_angle(new_vel[4]))
+            else:
+                aligned_obb = None
+                new_vel = bbox - track.bbox
             if track.velocity is not None:
                 track.velocity = 0.6 * track.velocity + 0.4 * new_vel
             else:
                 track.velocity = new_vel
 
-            track.bbox = bbox.copy()
-            track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
+            track.obb = aligned_obb
+            track.bbox = xywha_to_xyxy(aligned_obb)[0] if aligned_obb is not None else bbox.copy()
+            track.last_matched_bbox = track.bbox.copy()
+            track.last_matched_obb = None if aligned_obb is None else aligned_obb.copy()
             track.confidence = conf
             track.conf_history.append(conf)
             track.last_seen_frame = frame_id
             track.lost_frames = 0
             track.cls = det_classes[det_idx]
-            track.det_ind = det_idx
+            track.det_ind = int(det_inds[det_idx])
 
             # Assign mask from detection
             if det_masks is not None and det_idx < len(det_masks):
@@ -419,6 +453,9 @@ class Sam2Mot(HybridBaseTracker):
             new_state = self.trajectory_manager.classify_state(conf)
             if new_state != TrackState.LOST:
                 track.state = new_state
+            if track.history_observations is not None:
+                geometry = track.obb if track.obb is not None else track.bbox
+                track.history_observations.append(np.asarray(geometry).copy())
 
         # --- Cross-Object Interaction ---
         if len(active_tracks) > 1:
@@ -433,11 +470,21 @@ class Sam2Mot(HybridBaseTracker):
             if det_masks is not None and det_idx < len(det_masks):
                 track.mask = det_masks[det_idx]
             track.state = TrackState.RELIABLE
-            track.bbox = det_bboxes[det_idx].copy()
-            track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
+            if det_obbs is not None:
+                # Matched tracks have already received their single damped
+                # geometry update above; reconstruction refreshes the mask and
+                # confidence without applying the same angle correction twice.
+                if track.obb is None:
+                    track.obb = self._damped_obb_update(det_obbs[det_idx], None)
+                track.bbox = xywha_to_xyxy(track.obb)[0]
+                track.last_matched_obb = track.obb.copy()
+            else:
+                track.bbox = det_bboxes[det_idx].copy()
+                track.obb = None
+            track.last_matched_bbox = track.bbox.copy()
             track.confidence = det_confs[det_idx]
             track.conf_history.append(det_confs[det_idx])
-            track.det_ind = det_idx
+            track.det_ind = int(det_inds[det_idx])
 
         # Increment lost frames for unmatched tracks
         for t in self._tracks:
@@ -449,25 +496,47 @@ class Sam2Mot(HybridBaseTracker):
         # === Stage 3: Frame-out recovery ===
         if frame_out_tracks and unmatched_dets:
             fo_matches = self._frame_out_matching(
-                det_bboxes, unmatched_dets, frame_out_tracks
+                det_bboxes,
+                unmatched_dets,
+                frame_out_tracks,
+                det_obbs=det_obbs,
             )
             for det_idx, fo_track in fo_matches:
                 bbox = det_bboxes[det_idx]
                 conf = det_confs[det_idx]
                 density = self._compute_density(det_idx, det_bboxes)
                 fo_track.state = TrackState.RELIABLE
-                fo_track.bbox = bbox.copy()
-                fo_track.obb = det_obbs[det_idx].copy() if det_obbs is not None else None
+                if det_obbs is not None and fo_track.obb is not None:
+                    previous_obb = fo_track.obb.copy()
+                    fo_track.obb = self._damped_obb_update(det_obbs[det_idx], previous_obb)
+                    new_velocity = fo_track.obb - previous_obb
+                    new_velocity[4] = float(normalize_angle(new_velocity[4]))
+                    if fo_track.velocity is not None:
+                        fo_track.velocity = 0.6 * fo_track.velocity + 0.4 * new_velocity
+                    else:
+                        fo_track.velocity = new_velocity
+                    fo_track.bbox = xywha_to_xyxy(fo_track.obb)[0]
+                else:
+                    fo_track.bbox = bbox.copy()
+                    fo_track.obb = (
+                        self._damped_obb_update(det_obbs[det_idx], None)
+                        if det_obbs is not None
+                        else None
+                    )
                 fo_track.confidence = conf
                 fo_track.conf_history.append(conf)
                 fo_track.last_seen_frame = frame_id
                 fo_track.lost_frames = 0
                 fo_track.last_matched_frame = frame_id
                 fo_track.last_matched_bbox = bbox.copy()
+                fo_track.last_matched_obb = None if fo_track.obb is None else fo_track.obb.copy()
                 fo_track.last_matched_density = density
                 fo_track.is_dense = density > self.frame_out_d_thre
                 fo_track.cls = det_classes[det_idx]
-                fo_track.det_ind = det_idx
+                fo_track.det_ind = int(det_inds[det_idx])
+                if fo_track.history_observations is not None:
+                    geometry = fo_track.obb if fo_track.obb is not None else fo_track.bbox
+                    fo_track.history_observations.append(np.asarray(geometry).copy())
                 if det_masks is not None and det_idx < len(det_masks):
                     fo_track.mask = det_masks[det_idx]
                 matched_track_ids.add(fo_track.id)
@@ -504,6 +573,11 @@ class Sam2Mot(HybridBaseTracker):
 
                 density = self._compute_density(det_idx, det_bboxes)
                 mask = det_masks[det_idx] if (det_masks is not None and det_idx < len(det_masks)) else None
+                new_obb = (
+                    self._damped_obb_update(det_obbs[det_idx], None)
+                    if det_obbs is not None
+                    else None
+                )
                 new_track = _Track(
                     id=self._next_id,
                     bbox=bbox.copy(),
@@ -520,10 +594,14 @@ class Sam2Mot(HybridBaseTracker):
                     last_matched_density=density,
                     is_dense=density > self.frame_out_d_thre,
                     cls=det_classes[det_idx],
-                    det_ind=det_idx,
-                    obb=det_obbs[det_idx].copy() if det_obbs is not None else None,
+                    det_ind=int(det_inds[det_idx]),
+                    obb=new_obb,
+                    last_matched_obb=None if new_obb is None else new_obb.copy(),
+                    history_observations=deque(maxlen=self.memory_window),
                 )
                 new_track.conf_history.append(conf)
+                geometry = new_track.obb if new_track.obb is not None else new_track.bbox
+                new_track.history_observations.append(np.asarray(geometry).copy())
                 self._tracks.append(new_track)
                 matched_track_ids.add(self._next_id)
                 self._next_id += 1
@@ -538,7 +616,7 @@ class Sam2Mot(HybridBaseTracker):
         for track in self._tracks:
             if track.id not in matched_track_ids:
                 continue
-            if track.age < self.min_hits and self._frame_count > self.min_hits:
+            if track.age < self.min_hits and self.frame_count > self.min_hits:
                 continue
             box = track.obb if self.is_obb else track.bbox
             row = np.array([
@@ -549,6 +627,7 @@ class Sam2Mot(HybridBaseTracker):
             output_masks_list.append(track.mask)
 
         if output_tracks:
+            self.active_tracks = [track for track in self._tracks if track.id in matched_track_ids]
             tracks_array = np.array(output_tracks)
             # Build output masks at mask resolution (not image resolution)
             has_any_mask = any(m is not None and m.shape == (mH, mW) and np.any(m) for m in output_masks_list)
@@ -560,6 +639,7 @@ class Sam2Mot(HybridBaseTracker):
                 return tracks_array, out_masks
             return tracks_array, None
         else:
+            self.active_tracks = []
             return np.empty((0, 9 if self.is_obb else 8)), None
 
     # ------------------------------------------------------------------
@@ -589,20 +669,83 @@ class Sam2Mot(HybridBaseTracker):
         union = area_a + area_b - inter
         return inter / np.maximum(union, 1e-6)
 
-    def _two_stage_matching(self, det_bboxes: np.ndarray, det_confs: np.ndarray,
-                            tracks: List[_Track], det_masks=None):
+    def _association_similarity(
+        self,
+        det_bboxes: np.ndarray,
+        tracks: List[_Track],
+        det_indices: list[int] | np.ndarray,
+        track_indices: list[int] | np.ndarray,
+        *,
+        det_masks: np.ndarray | None,
+        det_obbs: np.ndarray | None,
+        use_last: bool = False,
+    ) -> np.ndarray:
+        """Return OBB/AABB geometry fused with mask IoU when available."""
+        det_indices = np.asarray(det_indices, dtype=np.int64)
+        track_indices = np.asarray(track_indices, dtype=np.int64)
+        if not len(det_indices) or not len(track_indices):
+            return np.empty((len(det_indices), len(track_indices)), dtype=np.float32)
+
+        selected_tracks = [tracks[int(index)] for index in track_indices]
+        if self.is_obb and det_obbs is not None:
+            predicted = []
+            for track in selected_tracks:
+                source = track.last_matched_obb if use_last else track.obb
+                if source is None:
+                    predicted.append(np.zeros(5, dtype=np.float32))
+                    continue
+                box = np.asarray(source, dtype=np.float32).copy()
+                if not use_last and track.velocity is not None and len(track.velocity) == 5:
+                    box += track.velocity
+                    box[2:4] = np.maximum(box[2:4], 1e-4)
+                    box[4] = float(normalize_angle(box[4]))
+                predicted.append(box)
+            geometry = AssociationFunction.iou_batch_obb(det_obbs[det_indices], np.asarray(predicted))
+        else:
+            predicted = np.asarray(
+                [
+                    (track.last_matched_bbox if use_last else track.bbox)
+                    + (
+                        track.velocity
+                        if not use_last and track.velocity is not None and len(track.velocity) == 4
+                        else 0
+                    )
+                    for track in selected_tracks
+                ],
+                dtype=np.float32,
+            )
+            geometry = self._iou_matrix(det_bboxes[det_indices], predicted)
+
+        if det_masks is None or self.cost_weight <= 0:
+            return geometry
+
+        similarity = geometry.copy()
+        for row, det_index in enumerate(det_indices):
+            detection_mask = det_masks[int(det_index)]
+            for col, track in enumerate(selected_tracks):
+                if detection_mask is None or track.mask is None or detection_mask.shape != track.mask.shape:
+                    continue
+                mask_iou = self.coi.mask_iou(detection_mask, track.mask)
+                similarity[row, col] = (
+                    (1.0 - self.cost_weight) * geometry[row, col]
+                    + self.cost_weight * mask_iou
+                )
+        return similarity
+
+    def _two_stage_matching(
+        self,
+        det_bboxes: np.ndarray,
+        det_confs: np.ndarray,
+        tracks: List[_Track],
+        det_masks=None,
+        det_obbs: np.ndarray | None = None,
+    ):
         """Two-stage matching: high-conf first, then low-conf on remaining tracks."""
         n_dets = len(det_bboxes)
         n_trks = len(tracks)
 
         if n_dets == 0 or n_trks == 0:
             return [], list(range(n_dets)), list(range(n_trks)), []
-
-        # Motion-predicted bboxes for tracks
-        trk_bboxes = np.array([
-            t.bbox + t.velocity if t.velocity is not None else t.bbox
-            for t in tracks
-        ])
 
         # Split detections into high and low confidence
         high_conf_mask = det_confs >= self.det_thresh
@@ -615,12 +758,19 @@ class Sam2Mot(HybridBaseTracker):
 
         # --- Pass 1: Match high-confidence detections ---
         if len(high_inds) > 0:
-            iou_mat = self._iou_matrix(det_bboxes[high_inds], trk_bboxes)
-            cost = np.where(iou_mat > 0, 1.0 - iou_mat, 1.0)
+            similarity = self._association_similarity(
+                det_bboxes,
+                tracks,
+                high_inds,
+                list(range(n_trks)),
+                det_masks=det_masks,
+                det_obbs=det_obbs,
+            )
+            cost = 1.0 - similarity
 
             row_ind, col_ind = linear_sum_assignment(cost)
             for r, c in zip(row_ind, col_ind):
-                if cost[r, c] < 1.0:
+                if similarity[r, c] >= self.iou_threshold:
                     orig_det = high_inds[r]
                     matches_all.append((int(orig_det), c))
                     matched_dets.add(int(orig_det))
@@ -629,13 +779,19 @@ class Sam2Mot(HybridBaseTracker):
         # --- Pass 2: Match low-confidence detections to remaining tracks ---
         unmatched_trks_pass1 = [j for j in range(n_trks) if j not in matched_trks]
         if len(low_inds) > 0 and unmatched_trks_pass1:
-            remain_trk_bboxes = trk_bboxes[unmatched_trks_pass1]
-            iou_mat2 = self._iou_matrix(det_bboxes[low_inds], remain_trk_bboxes)
-            cost2 = np.where(iou_mat2 > 0, 1.0 - iou_mat2, 1.0)
+            similarity2 = self._association_similarity(
+                det_bboxes,
+                tracks,
+                low_inds,
+                unmatched_trks_pass1,
+                det_masks=det_masks,
+                det_obbs=det_obbs,
+            )
+            cost2 = 1.0 - similarity2
 
             r2, c2 = linear_sum_assignment(cost2)
             for ri, ci in zip(r2, c2):
-                if iou_mat2[ri, ci] > 0.3:  # require reasonable overlap for low-conf
+                if similarity2[ri, ci] >= self.second_stage_iou_threshold:
                     orig_det = low_inds[ri]
                     orig_trk = unmatched_trks_pass1[ci]
                     matches_all.append((int(orig_det), orig_trk))
@@ -649,25 +805,34 @@ class Sam2Mot(HybridBaseTracker):
         second_stage_matches = []
         if unmatched_dets and unmatched_trks:
             valid_trks = [(idx, tracks[idx]) for idx in unmatched_trks
-                          if tracks[idx].last_matched_bbox is not None]
+                          if (
+                              tracks[idx].last_matched_obb is not None
+                              if self.is_obb
+                              else tracks[idx].last_matched_bbox is not None
+                          )]
             if valid_trks:
-                um_dets_arr = det_bboxes[unmatched_dets]
-                trk_last_bboxes = np.array([trk.last_matched_bbox for _, trk in valid_trks])
-                iou2 = self._iou_matrix(um_dets_arr, trk_last_bboxes)
-                cost2 = np.where(iou2 > 0, 1.0 - iou2, 1.0)
+                valid_indices = [index for index, _ in valid_trks]
+                similarity2 = self._association_similarity(
+                    det_bboxes,
+                    tracks,
+                    unmatched_dets,
+                    valid_indices,
+                    det_masks=det_masks,
+                    det_obbs=det_obbs,
+                    use_last=True,
+                )
+                cost2 = 1.0 - similarity2
 
                 r2, c2 = linear_sum_assignment(cost2)
                 matched_dets_s2 = set()
                 matched_trks_s2 = set()
                 for ri, ci in zip(r2, c2):
-                    if cost2[ri, ci] < 1.0:
+                    if similarity2[ri, ci] >= self.second_stage_iou_threshold:
                         orig_det = unmatched_dets[ri]
                         orig_trk = valid_trks[ci][0]
-                        iou = 1.0 - cost2[ri, ci]
-                        if iou > self.second_stage_iou_threshold:
-                            second_stage_matches.append((orig_det, orig_trk))
-                            matched_dets_s2.add(orig_det)
-                            matched_trks_s2.add(orig_trk)
+                        second_stage_matches.append((orig_det, orig_trk))
+                        matched_dets_s2.add(orig_det)
+                        matched_trks_s2.add(orig_trk)
 
                 unmatched_dets = [d for d in unmatched_dets if d not in matched_dets_s2]
                 unmatched_trks = [t for t in unmatched_trks if t not in matched_trks_s2]
@@ -675,29 +840,45 @@ class Sam2Mot(HybridBaseTracker):
         all_matches = matches_all + second_stage_matches
         return all_matches, unmatched_dets, unmatched_trks, second_stage_matches
 
-    def _frame_out_matching(self, det_bboxes: np.ndarray,
-                            unmatched_dets: List[int],
-                            frame_out_tracks: List[_Track]) -> List[Tuple[int, _Track]]:
+    def _frame_out_matching(
+        self,
+        det_bboxes: np.ndarray,
+        unmatched_dets: List[int],
+        frame_out_tracks: List[_Track],
+        *,
+        det_obbs: np.ndarray | None = None,
+    ) -> List[Tuple[int, _Track]]:
         """Stage 3: Match unmatched detections to frame-out tracks."""
         if not unmatched_dets or not frame_out_tracks:
             return []
 
-        um_bboxes = det_bboxes[unmatched_dets]  # (K, 4)
-        fo_bboxes = np.array([
-            trk.last_matched_bbox if trk.last_matched_bbox is not None
-            else np.zeros(4)
-            for trk in frame_out_tracks
-        ])
-        has_bbox = np.array([trk.last_matched_bbox is not None for trk in frame_out_tracks])
-        iou_mat = self._iou_matrix(um_bboxes, fo_bboxes)
-        # Mask out tracks without a last_matched_bbox
-        iou_mat[:, ~has_bbox] = 0
-        cost = np.where(iou_mat > 0, 1.0 - iou_mat, 1.0)
+        if self.is_obb and det_obbs is not None:
+            has_geometry = np.array([track.last_matched_obb is not None for track in frame_out_tracks])
+            track_boxes = np.asarray(
+                [
+                    track.last_matched_obb if track.last_matched_obb is not None else np.zeros(5)
+                    for track in frame_out_tracks
+                ],
+                dtype=np.float32,
+            )
+            similarity = AssociationFunction.iou_batch_obb(det_obbs[unmatched_dets], track_boxes)
+        else:
+            has_geometry = np.array([track.last_matched_bbox is not None for track in frame_out_tracks])
+            track_boxes = np.asarray(
+                [
+                    track.last_matched_bbox if track.last_matched_bbox is not None else np.zeros(4)
+                    for track in frame_out_tracks
+                ],
+                dtype=np.float32,
+            )
+            similarity = self._iou_matrix(det_bboxes[unmatched_dets], track_boxes)
+        similarity[:, ~has_geometry] = 0
+        cost = 1.0 - similarity
 
         row_ind, col_ind = linear_sum_assignment(cost)
         results = []
         for r, c in zip(row_ind, col_ind):
-            if cost[r, c] < 1.0:
+            if similarity[r, c] >= self.iou_threshold:
                 results.append((unmatched_dets[r], frame_out_tracks[c]))
         return results
 

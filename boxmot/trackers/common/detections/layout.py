@@ -24,11 +24,18 @@ class DetectionLayout:
     def association_mode_name(self, base_name: str) -> str:
         if not self.is_obb:
             return base_name
-        if base_name == "centroid":
-            return "centroid_obb"
-        if base_name == "diou":
-            return "diou_obb"
-        return "iou_obb"
+        oriented_modes = {
+            "iou": "iou_obb",
+            "centroid": "centroid_obb",
+            "diou": "diou_obb",
+        }
+        try:
+            return oriented_modes[base_name]
+        except KeyError as exc:
+            raise ValueError(
+                f"Association mode '{base_name}' has no oriented-box implementation. "
+                f"Choose from {sorted(oriented_modes)} for OBB tracking."
+            ) from exc
 
     def empty_dets(self, dtype=np.float32) -> np.ndarray:
         return np.empty((0, self.det_cols), dtype=dtype)

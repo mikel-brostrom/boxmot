@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.records import TrackRecord
 
@@ -10,12 +11,16 @@ class TrackFormattingMixin:
     """Output formatting helpers shared by tracker implementations."""
 
     def _track_box_for_output(self, track) -> np.ndarray:
-        for attr_name in (
-            "output_box",
-            "box",
-            "bbox",
-            "xywha" if self.is_obb else "xyxy",
-        ):
+        if self.is_obb:
+            # Some hybrid trackers expose both an axis-aligned ``bbox`` for
+            # mask operations and the native oriented state as ``xywha`` or
+            # ``obb``.  Never silently downgrade an OBB track to that helper
+            # AABB when formatting public state or history records.
+            attr_names = ("xywha", "obb", "output_box", "box", "bbox")
+        else:
+            attr_names = ("output_box", "box", "bbox", "xyxy")
+
+        for attr_name in attr_names:
             if not attr_name:
                 continue
             box = self._resolve_track_box_attr(track, attr_name)
@@ -96,15 +101,21 @@ class TrackFormattingMixin:
 
         outputs = np.asarray(outputs)
         if self.is_obb:
-            widths = outputs[:, 2]
-            heights = outputs[:, 3]
+            # Use the enclosing image-axis box for the aspect filter so
+            # equivalent ``(w,h,theta)`` forms behave identically while the
+            # original "reject very wide boxes" semantics remain meaningful.
+            enclosing = xywha_to_xyxy(outputs[:, :5])
+            widths = enclosing[:, 2] - enclosing[:, 0]
+            heights = enclosing[:, 3] - enclosing[:, 1]
+            areas = outputs[:, 2] * outputs[:, 3]
         else:
             widths = outputs[:, 2] - outputs[:, 0]
             heights = outputs[:, 3] - outputs[:, 1]
+            areas = widths * heights
 
         keep = np.ones(len(outputs), dtype=bool)
         if max_aspect_ratio is not None:
             keep &= widths / np.maximum(heights, 1e-6) <= max_aspect_ratio
         if min_box_area is not None:
-            keep &= widths * heights > min_box_area
+            keep &= areas > min_box_area
         return outputs[keep]

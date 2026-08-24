@@ -16,7 +16,6 @@ from boxmot.trackers.common.association.strongsort import (
     min_cost_matching,
 )
 from boxmot.trackers.common.geometry import xyxy2tlwh
-from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.strongsort import Track
 
@@ -95,13 +94,38 @@ class StrongSort(BaseTracker):
 
         self.min_conf = min_conf
         self.model = reid_model
-        self.metric = NearestNeighborDistanceMetric("cosine", max_cos_dist, nn_budget)
+        self._max_cos_dist = float(max_cos_dist)
+        self._nn_budget = int(nn_budget) if nn_budget is not None else None
+        self.metric = self._new_metric()
         self.max_iou_dist = max_iou_dist
         self.n_init = n_init
         self.mc_lambda = mc_lambda
         self.ema_alpha = ema_alpha
         self.tracks: list[Track] = []
+        self.active_tracks = self.tracks
         self.cmc = create_cmc("ecc")
+
+    def _new_metric(self) -> NearestNeighborDistanceMetric:
+        """Create an empty appearance gallery with this tracker's settings."""
+        return NearestNeighborDistanceMetric("cosine", self._max_cos_dist, self._nn_budget)
+
+    def _load_class_track_state(self, cls_id: int) -> None:
+        """Restore both motion tracks and the class-local appearance gallery."""
+        super()._load_class_track_state(cls_id)
+        if not self.per_class:
+            return
+        state = self._ensure_class_track_state(cls_id)
+        metric = state.attrs.get("strongsort_metric")
+        if metric is None:
+            metric = self._new_metric()
+            state.attrs["strongsort_metric"] = metric
+        self.metric = metric
+
+    def _save_class_track_state(self, cls_id: int) -> None:
+        """Persist the gallery with its class so another class cannot prune it."""
+        if self.per_class:
+            self._ensure_class_track_state(cls_id).attrs["strongsort_metric"] = self.metric
+        super()._save_class_track_state(cls_id)
 
     def _track_detections(
         self,
@@ -115,14 +139,15 @@ class StrongSort(BaseTracker):
         batch = batch.select(batch.confs >= self.min_conf)
         indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
 
-        if self.tracks:
-            self.apply_cmc(img, indexed_dets, self.tracks)
+        # Advance the estimator on every frame, including initialization and
+        # trackless gaps, so the next live track never receives a stale warp.
+        self.apply_cmc(img, indexed_dets, self.tracks)
 
         features = resolve_batch_embeddings(
             batch,
             img,
             model=self.model,
-            boxes=xywha_to_xyxy(batch.boxes) if self.is_obb else batch.boxes,
+            boxes=batch.boxes,
         )
 
         track_boxes = batch.boxes if self.is_obb else xyxy2tlwh(batch.boxes)
@@ -171,6 +196,7 @@ class StrongSort(BaseTracker):
         for detection_idx in unmatched_detections:
             self._initiate_track(detections[detection_idx])
         self.tracks = [track for track in self.tracks if not track.is_deleted()]
+        self.active_tracks = self.tracks
 
         active_targets = [track.id for track in self.tracks if track.is_confirmed()]
         features: list[np.ndarray] = []
@@ -244,5 +270,4 @@ class StrongSort(BaseTracker):
     def reset(self):
         self._reset_common_state()
         self.tracks = []
-        if hasattr(self.metric, "samples"):
-            self.metric.samples = {}
+        self.metric = self._new_metric()

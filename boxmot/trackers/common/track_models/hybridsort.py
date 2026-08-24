@@ -18,8 +18,8 @@ from boxmot.trackers.common.appearance import (
     normalize_embedding,
 )
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
-from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.base import SortBoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -196,7 +196,7 @@ class KalmanBoxTracker(SortBoxTrack):
     ):
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
-            if self.last_observation.sum() >= 0:
+            if self.last_observation[-1] >= 0:
                 previous_box = None
                 for i in range(self.delta_t):
                     if self.age - i - 1 in self.observations:

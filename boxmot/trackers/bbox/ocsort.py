@@ -153,6 +153,7 @@ class OcSort(BaseTracker):
                     self.inertia,
                     w,
                     h,
+                    is_obb=self.is_obb,
                 )
             ),
         )
@@ -246,7 +247,7 @@ class OcSort(BaseTracker):
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
-            if trk.last_observation.sum() < 0:
+            if trk.last_observation[-1] < 0:
                 d = trk.get_state()[0]
             else:
                 """

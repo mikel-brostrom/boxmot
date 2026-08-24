@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion import cmc as cmc_utils
 
 
@@ -9,7 +10,7 @@ class TrackerMotionMixin:
     """Tracker-level motion and camera-motion helper methods."""
 
     def cmc_detection_boxes(self, dets: np.ndarray) -> np.ndarray:
-        """Return AABB boxes used for camera-motion estimation."""
+        """Return native AABB/OBB boxes used for camera-motion estimation."""
         return cmc_utils.cmc_detection_boxes(dets, self.detection_layout)
 
     def aabb_detections_for_association(self, dets: np.ndarray) -> np.ndarray:
@@ -23,7 +24,11 @@ class TrackerMotionMixin:
             dtype = dets.dtype if hasattr(dets, "dtype") else np.float32
             return np.empty((0, out_cols), dtype=dtype)
 
-        boxes = self.cmc_detection_boxes(dets)
+        # Camera-motion estimators need the native OBB geometry, whereas the
+        # callers of this helper are explicitly AABB-only.  Keeping those two
+        # contracts separate is important: returning ``xywha`` here makes the
+        # angle look like confidence to legacy AABB association code.
+        boxes = xywha_to_xyxy(self.detection_layout.boxes(dets))
         confs = self.detection_layout.confidences(dets).reshape(-1, 1)
         clss = self.detection_layout.classes(dets).reshape(-1, 1)
         columns = [boxes, confs, clss]

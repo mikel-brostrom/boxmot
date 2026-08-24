@@ -5,6 +5,8 @@ from typing import Optional
 import lap
 import numpy as np
 
+from boxmot.trackers.common.association.iou import AssociationFunction
+
 
 def shape_similarity(
     detects: np.ndarray,
@@ -36,6 +38,39 @@ def shape_similarity_v2(detects: np.ndarray, tracks: np.ndarray) -> np.ndarray:
     tw = (tracks[:, 2] - tracks[:, 0]).reshape((1, -1))
     th = (tracks[:, 3] - tracks[:, 1]).reshape((1, -1))
     return np.exp(-(np.abs(dw - tw) / np.maximum(dw, tw) + np.abs(dh - th) / np.maximum(dh, th)))
+
+
+def shape_similarity_obb(detects: np.ndarray, tracks: np.ndarray) -> np.ndarray:
+    """Return width/height similarity invariant to equivalent OBB forms."""
+    if detects.size == 0 or tracks.size == 0:
+        return np.zeros((len(detects), len(tracks)), dtype=np.float32)
+
+    dw = detects[:, 2].reshape((-1, 1))
+    dh = detects[:, 3].reshape((-1, 1))
+    tw = tracks[:, 2].reshape((1, -1))
+    th = tracks[:, 3].reshape((1, -1))
+
+    def relative_delta(lhs, rhs):
+        return np.abs(lhs - rhs) / np.maximum(np.maximum(lhs, rhs), 1e-6)
+
+    direct = relative_delta(dw, tw) + relative_delta(dh, th)
+    swapped = relative_delta(dw, th) + relative_delta(dh, tw)
+    return np.exp(-np.minimum(direct, swapped))
+
+
+def soft_biou_batch_obb(detections: np.ndarray, trackers: np.ndarray) -> np.ndarray:
+    """Compute confidence-buffered oriented IoU for DLO boosting."""
+    if detections.size == 0 or trackers.size == 0:
+        return np.zeros((len(detections), len(trackers)), dtype=np.float32)
+
+    det_boxes = np.asarray(detections[:, :5], dtype=np.float32).copy()
+    trk_boxes = np.asarray(trackers[:, :5], dtype=np.float32).copy()
+    track_conf = np.clip(np.asarray(trackers[:, 5], dtype=np.float32), 0.0, 1.0)
+    det_scale = 1.0 + (1.0 - float(track_conf.max())) * 0.5
+    trk_scale = 1.0 + (1.0 - track_conf) * 1.0
+    det_boxes[:, 2:4] *= det_scale
+    trk_boxes[:, 2:4] *= trk_scale[:, None]
+    return AssociationFunction.iou_batch_obb(det_boxes, trk_boxes)
 
 
 def MhDist_similarity(
@@ -176,6 +211,8 @@ def associate(
     lambda_shape: float = 0.25,
     s_sim_corr: bool = False,
     lambda_emb_multiplier: float = 1.5,
+    iou_matrix: Optional[np.ndarray] = None,
+    shape_matrix: Optional[np.ndarray] = None,
 ):
     if len(trackers) == 0:
         return (
@@ -184,7 +221,7 @@ def associate(
             np.empty((0, 5), dtype=int),
             np.empty((0, 0)),
         )
-    iou_matrix = iou_batch(detections, trackers)
+    iou_matrix = iou_batch(detections, trackers) if iou_matrix is None else np.asarray(iou_matrix)
 
     cost_matrix = deepcopy(iou_matrix)
 
@@ -195,7 +232,7 @@ def associate(
         )
         conf[iou_matrix < iou_threshold] = 0
 
-        cost_matrix += lambda_iou * conf * iou_batch(detections, trackers)
+        cost_matrix += lambda_iou * conf * iou_matrix
     else:
         warnings.warn("Detections or tracklet confidence is None and detection-tracklet confidence cannot be computed!")
         conf = None
@@ -205,7 +242,9 @@ def associate(
 
         cost_matrix += lambda_mhd * mahalanobis_distance
         if conf is not None:
-            cost_matrix += lambda_shape * conf * shape_similarity(detections, trackers, s_sim_corr)
+            if shape_matrix is None:
+                shape_matrix = shape_similarity(detections, trackers, s_sim_corr)
+            cost_matrix += lambda_shape * conf * shape_matrix
 
     if emb_cost is not None:
         lambda_emb = (1 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier

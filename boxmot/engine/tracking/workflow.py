@@ -5,8 +5,8 @@ from typing import Any
 
 import cv2
 
-from boxmot.configs import get_mode_default
-from boxmot.engine.tracking.mot import write_mot_results
+from boxmot.engine.config import get_mode_default
+from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
 from boxmot.engine.tracking.results import Results
 from boxmot.engine.workflows.results import TrackRunResult
 from boxmot.engine.workflows.support import (
@@ -14,9 +14,9 @@ from boxmot.engine.workflows.support import (
     build_tracker_from_spec,
     build_tracker_with_reid_spec,
     reid_path_from_spec,
-    resolve_tracker_class_metadata,
     resolve_output_fps,
     resolve_track_output_dir,
+    resolve_tracker_class_metadata,
     tracker_reid_model_from_spec,
 )
 from boxmot.utils.misc import suppress_boxmot_logs
@@ -97,6 +97,7 @@ def _build_tracker(
         reid_weights=reid_weights,
         reid_model=reid_model,
         reid_preprocess=reid_preprocess,
+        per_class=bool(getattr(args, "per_class", False)),
         class_ids=class_ids,
         class_names=class_names,
         tracker_kwargs=tracker_kwargs,
@@ -232,7 +233,7 @@ def run_track(
                 if _trk is not None and hasattr(_trk, "flush_gta"):
                     gta_entries = _trk.flush_gta()
                     if gta_entries.size:
-                        write_mot_results(text_path, gta_entries)
+                        write_mot_results(text_path, format_frame_tagged_tracks_for_mot(gta_entries))
             if video_writer is not None:
                 video_writer.release()
             if show:

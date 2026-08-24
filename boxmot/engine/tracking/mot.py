@@ -13,6 +13,9 @@ from boxmot.trackers.common.geometry.obb import xywha_to_corners
 from boxmot.trackers.results import TrackResults
 from boxmot.utils import logger as LOGGER
 
+MOT_ROW_FORMAT = "%d,%d,%d,%d,%d,%d,%.6f,%d,%d"
+MMOT_ROW_FORMAT = "%d,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%d,%d"
+
 
 def _xyxy_to_ltwh(boxes: np.ndarray | torch.Tensor) -> np.ndarray | torch.Tensor:
     """Convert ``[x1, y1, x2, y2]`` boxes to ``[x1, y1, w, h]``."""
@@ -279,6 +282,42 @@ def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarra
     return np.concatenate((frame_col, track_ids, corners, conf, cls, det_ind), axis=1)
 
 
+def format_frame_tagged_tracks_for_mot(entries: np.ndarray) -> np.ndarray:
+    """Convert GTA ``[frame, *tracker_output]`` rows to canonical MOT/MMOT rows.
+
+    GTA stores interpolated rows in the tracker's native output schema so it
+    can preserve oriented geometry.  This helper deliberately routes every
+    frame through the same exporters used for normal tracker output instead
+    of treating those native rows as already serialized MOT records.
+    """
+    rows = np.asarray(entries, dtype=np.float32)
+    if rows.size == 0:
+        return np.empty((0, 0), dtype=np.float32)
+    if rows.ndim == 1:
+        rows = rows.reshape(1, -1)
+    if rows.ndim != 2 or rows.shape[1] not in (9, 10):
+        raise ValueError(
+            "Frame-tagged rows must contain a frame plus an 8-column AABB or "
+            f"9-column OBB tracker output, got shape {rows.shape}"
+        )
+
+    frame_values = rows[:, 0]
+    if not np.isfinite(frame_values).all():
+        raise ValueError("Frame IDs must be finite integers")
+    frame_ids = frame_values.astype(np.int64)
+    if not np.array_equal(frame_values, frame_ids):
+        raise ValueError("Frame IDs must be finite integers")
+
+    formatted = []
+    for frame_id in np.unique(frame_ids):
+        tracks = rows[frame_ids == frame_id, 1:]
+        if tracks.shape[1] == 9:
+            formatted.append(convert_to_mmot_obb_format(tracks, int(frame_id)))
+        else:
+            formatted.append(convert_to_mot_format(tracks, int(frame_id)))
+    return np.vstack(formatted)
+
+
 def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     """
     Writes the MOT challenge formatted results to a text file.
@@ -303,6 +342,11 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
                 if mot_results.shape[1] == 9:
-                    np.savetxt(file, mot_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
+                    np.savetxt(file, mot_results, fmt=MOT_ROW_FORMAT)
+                elif mot_results.shape[1] == 13:
+                    np.savetxt(file, mot_results, fmt=MMOT_ROW_FORMAT)
                 else:
-                    np.savetxt(file, mot_results, fmt="%g", delimiter=",")
+                    raise ValueError(
+                        "MOT output must contain 9-column AABB or 13-column MMOT rows, "
+                        f"got shape {mot_results.shape}"
+                    )
