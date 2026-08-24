@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <limits>
+#include <vector>
 
 namespace occluboost {
 
@@ -14,10 +16,98 @@ int KalmanBoxTracker::count_ = 0;
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
+constexpr double kHalfPi = kPi / 2.0;
 
 double WrapAngle(const double angle) {
     const double period = 2.0 * kPi;
     return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
+}
+
+std::array<cv::Point2f, 4> XywhaToCorners(const Eigen::Matrix<double, 5, 1>& box) {
+    const cv::RotatedRect rect(
+        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
+        cv::Size2f(
+            static_cast<float>(std::max(box[2], 1.0e-4)),
+            static_cast<float>(std::max(box[3], 1.0e-4))
+        ),
+        static_cast<float>(box[4] * 180.0 / kPi)
+    );
+    std::array<cv::Point2f, 4> corners{};
+    rect.points(corners.data());
+    return corners;
+}
+
+Eigen::Matrix<double, 5, 1> AlignObbBox(
+    const Eigen::Matrix<double, 5, 1>& box,
+    const Eigen::Matrix<double, 5, 1>& reference
+) {
+    const double ref_w = std::max(reference[2], 1.0e-6);
+    const double ref_h = std::max(reference[3], 1.0e-6);
+    const double ref_theta = reference[4];
+    const double width = std::max(box[2], 1.0e-6);
+    const double height = std::max(box[3], 1.0e-6);
+    const double theta = box[4];
+    const std::array<std::array<double, 3>, 4> candidates = {{
+        {width, height, theta},
+        {width, height, theta + kPi},
+        {height, width, theta + kHalfPi},
+        {height, width, theta - kHalfPi},
+    }};
+
+    double best_cost = std::numeric_limits<double>::infinity();
+    std::array<double, 3> best = candidates.front();
+    for (const auto& candidate : candidates) {
+        const double aligned_theta = ref_theta + WrapAngle(candidate[2] - ref_theta);
+        const double size_cost =
+            std::abs(std::log(std::max(candidate[0], 1.0e-6) / ref_w)) +
+            std::abs(std::log(std::max(candidate[1], 1.0e-6) / ref_h));
+        const double cost = std::abs(aligned_theta - ref_theta) + (0.05 * size_cost);
+        if (cost < best_cost) {
+            best_cost = cost;
+            best = {candidate[0], candidate[1], aligned_theta};
+        }
+    }
+
+    Eigen::Matrix<double, 5, 1> aligned = box;
+    aligned[2] = best[0];
+    aligned[3] = best[1];
+    aligned[4] = WrapAngle(best[2]);
+    return aligned;
+}
+
+Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
+    const Eigen::Matrix<double, 5, 1>& measurement,
+    const Eigen::Matrix2d& linear,
+    const Eigen::Vector2d& translation,
+    const Eigen::Matrix<double, 5, 1>* alignment_reference = nullptr
+) {
+    const Eigen::Matrix<double, 5, 1> source_box = ZObbToXywha(measurement);
+    const std::array<cv::Point2f, 4> source_corners = XywhaToCorners(source_box);
+    std::array<cv::Point2f, 4> warped_corners{};
+    for (std::size_t i = 0; i < source_corners.size(); ++i) {
+        const Eigen::Vector2d point(source_corners[i].x, source_corners[i].y);
+        const Eigen::Vector2d warped = (linear * point) + translation;
+        warped_corners[i] = cv::Point2f(static_cast<float>(warped[0]), static_cast<float>(warped[1]));
+    }
+
+    const std::vector<cv::Point2f> points(warped_corners.begin(), warped_corners.end());
+    const cv::RotatedRect rect = cv::minAreaRect(points);
+    Eigen::Matrix<double, 5, 1> raw_box;
+    raw_box << rect.center.x,
+        rect.center.y,
+        std::max(static_cast<double>(rect.size.width), 1.0e-4),
+        std::max(static_cast<double>(rect.size.height), 1.0e-4),
+        rect.angle * kPi / 180.0;
+
+    Eigen::Matrix<double, 5, 1> reference = source_box;
+    if (alignment_reference != nullptr) {
+        reference = *alignment_reference;
+    } else {
+        reference.head<2>() = (linear * source_box.head<2>()) + translation;
+        const double rot = std::atan2(linear(1, 0), linear(0, 0));
+        reference[4] = WrapAngle(source_box[4] + rot);
+    }
+    return XywhaToZObb(AlignObbBox(raw_box, reference));
 }
 
 }  // namespace
@@ -162,25 +252,39 @@ void KalmanBoxTracker::CameraUpdate(
 ) {
     KalmanFilterXYHR::Vector& mean = kf.mutable_mean();
     if (is_obb_) {
-        // Approximate isotropic scale + planar rotation from the linear part,
-        // mirroring boosttrack.KalmanBoxTracker.camera_update for OBB.
-        const double cx = mean[0];
-        const double cy = mean[1];
-        const double h = mean[2];
-        const double r = mean[3];
-        const double theta = mean[4];
-        const double w = h * r;
-        const Eigen::Vector2d p = linear * Eigen::Vector2d(cx, cy) + translation;
-        const double det_abs = std::abs(linear.determinant());
-        const double scale = std::sqrt(std::max(det_abs, 1.0e-8));
-        const double rot = std::atan2(linear(1, 0), linear(0, 0));
-        const double w2 = std::max(w * scale, 1.0e-4);
-        const double h2 = std::max(h * scale, 1.0e-4);
-        mean[0] = p[0];
-        mean[1] = p[1];
-        mean[2] = h2;
-        mean[3] = w2 / h2;
-        mean[4] = WrapAngle(theta + rot);
+        const Eigen::Matrix<double, 5, 1> measurement = mean.head<5>();
+        const Eigen::Matrix<double, 5, 1> warped_measurement =
+            WarpObbMeasurement(measurement, linear, translation);
+        const Eigen::Matrix<double, 5, 1> warped_box = ZObbToXywha(warped_measurement);
+
+        Eigen::Matrix<double, 5, 5> jacobian;
+        for (int index = 0; index < 5; ++index) {
+            const double step = index == 4
+                ? 1.0e-3
+                : 1.0e-4 * std::max(std::abs(measurement[index]), 1.0);
+            Eigen::Matrix<double, 5, 1> plus = measurement;
+            Eigen::Matrix<double, 5, 1> minus = measurement;
+            plus[index] += step;
+            minus[index] -= step;
+            if (index == 2 || index == 3) {
+                minus[index] = std::max(minus[index], 1.0e-6);
+            }
+            Eigen::Matrix<double, 5, 1> delta =
+                WarpObbMeasurement(plus, linear, translation, &warped_box) -
+                WarpObbMeasurement(minus, linear, translation, &warped_box);
+            delta[4] = WrapAngle(delta[4]);
+            jacobian.col(index) = delta / (plus[index] - minus[index]);
+        }
+
+        const Eigen::Matrix<double, 5, 1> velocity = mean.segment<5>(5);
+        mean.head<5>() = warped_measurement;
+        mean.segment<5>(5) = jacobian * velocity;
+
+        Eigen::Matrix<double, 10, 10> state_transform = Eigen::Matrix<double, 10, 10>::Zero();
+        state_transform.block<5, 5>(0, 0) = jacobian;
+        state_transform.block<5, 5>(5, 5) = jacobian;
+        kf.mutable_covariance() =
+            (state_transform * kf.covariance() * state_transform.transpose()).eval();
         return;
     }
     const Eigen::Vector4d box = xyxy();

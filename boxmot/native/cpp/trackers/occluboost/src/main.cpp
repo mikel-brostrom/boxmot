@@ -97,6 +97,13 @@ ReplayOptions ParseArgs(const int argc, char** argv) {
     t.ams_buffer_size = GetI(args, "ams-buffer-size", t.ams_buffer_size);
     t.ams_shrink_ratio = Get(args, "ams-shrink-ratio", t.ams_shrink_ratio);
     t.lambda_emb_multiplier = Get(args, "lambda-emb-multiplier", t.lambda_emb_multiplier);
+    t.obb_det_thresh = Get(args, "obb-det-thresh", t.obb_det_thresh);
+    t.obb_iou_threshold = Get(args, "obb-iou-threshold", t.obb_iou_threshold);
+    t.obb_new_track_thresh = Get(args, "obb-new-track-thresh", t.obb_new_track_thresh);
+    t.obb_instant_confirm_thresh = Get(args, "obb-instant-confirm-thresh", t.obb_instant_confirm_thresh);
+    t.obb_max_age = GetI(args, "obb-max-age", t.obb_max_age);
+    t.obb_recovery_max_age = GetI(args, "obb-recovery-max-age", t.obb_recovery_max_age);
+    t.obb_second_iou_thresh = Get(args, "obb-second-iou-thresh", t.obb_second_iou_thresh);
 
     t.reid_model_path = options.reid_model_path.string();
     t.reid_preprocess = options.reid_preprocess;
@@ -119,11 +126,14 @@ int main(int argc, char** argv) {
     try {
         const ReplayOptions options = ParseArgs(argc, argv);
         const bool cmc_disabled = options.tracker.cmc_method.empty() || options.tracker.cmc_method == "none";
-        auto read_image = [cmc_disabled](const occluboost::fs::path& path) -> cv::Mat {
-            // Skip the JPEG decode entirely when CMC is off (the tracker never reads
-            // the pixels). Return a 1x1 stub so the base replay loop does not skip
-            // the frame on `image.empty()`.
-            if (cmc_disabled) {
+        const bool runtime_reid_needs_pixels =
+            options.tracker.with_reid && !options.tracker.reid_model_path.empty();
+        const bool can_skip_decode = cmc_disabled && !runtime_reid_needs_pixels;
+        auto read_image = [can_skip_decode](const occluboost::fs::path& path) -> cv::Mat {
+            // Cached embeddings make pixels unnecessary when CMC is disabled.
+            // A configured runtime ReID model, however, must receive the real
+            // frame even with CMC off or every crop would come from this stub.
+            if (can_skip_decode) {
                 return cv::Mat::ones(1, 1, CV_8UC1);
             }
             return occluboost::ReadImage(path);

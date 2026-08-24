@@ -26,6 +26,9 @@ botsort::Config ConvertConfig(const BoxMOTBotSortConfig& config) {
     native_config.match_thresh = config.match_thresh;
     native_config.proximity_thresh = config.proximity_thresh;
     native_config.appearance_thresh = config.appearance_thresh;
+    native_config.second_match_thresh = config.second_match_thresh;
+    native_config.unconfirmed_match_thresh = config.unconfirmed_match_thresh;
+    native_config.unconfirmed_emb_scale = config.unconfirmed_emb_scale;
     native_config.cmc_method = config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     native_config.frame_rate = config.frame_rate;
     native_config.fuse_first_associate = config.fuse_first_associate != 0;

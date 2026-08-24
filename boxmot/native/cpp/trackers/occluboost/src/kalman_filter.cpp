@@ -12,6 +12,7 @@ namespace {
 constexpr double kMinSize = 1.0e-4;
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kHalfPi = kPi / 2.0;
+constexpr double kAngularVelocityDamping = 0.8;
 
 double WrapAngle(const double angle) {
     const double period = 2.0 * kPi;
@@ -168,6 +169,9 @@ void KalmanFilterXYHR::Update(const Vector& measurement, const double alpha) {
     const Vector innovation = z - projected_mean;
     mean_ = mean_ + alpha * (kalman_gain * innovation);
     covariance_ = covariance_ - kalman_gain * projected_cov * kalman_gain.transpose();
+    if (is_obb_ && dim_x_ >= 10) {
+        mean_[dim_z_ + 4] *= kAngularVelocityDamping;
+    }
     EnforceConstraints();
 }
 

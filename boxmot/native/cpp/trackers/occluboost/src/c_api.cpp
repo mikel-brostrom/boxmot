@@ -60,6 +60,13 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.ams_buffer_size = config.ams_buffer_size;
     c.ams_shrink_ratio = config.ams_shrink_ratio;
     c.lambda_emb_multiplier = config.lambda_emb_multiplier;
+    c.obb_det_thresh = config.obb_det_thresh;
+    c.obb_iou_threshold = config.obb_iou_threshold;
+    c.obb_new_track_thresh = config.obb_new_track_thresh;
+    c.obb_instant_confirm_thresh = config.obb_instant_confirm_thresh;
+    c.obb_max_age = config.obb_max_age;
+    c.obb_recovery_max_age = config.obb_recovery_max_age;
+    c.obb_second_iou_thresh = config.obb_second_iou_thresh;
 
     c.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
     c.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);

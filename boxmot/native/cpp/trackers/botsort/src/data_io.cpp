@@ -27,8 +27,8 @@ LoadedSequence LoadSequence(const ReplayOptions& options) {
         options.reid_name,
         options.reid_preprocess,
         options.sequence,
-        base_sequence.keep_frames,
-        static_cast<int>(base_sequence.detections.rows()),
+        base_sequence.retained_detection_rows,
+        base_sequence.source_detection_rows,
         can_infer_embeddings
     );
 

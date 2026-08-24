@@ -25,6 +25,9 @@ struct Config {
     float match_thresh = 0.8F;
     float proximity_thresh = 0.5F;
     float appearance_thresh = 0.25F;
+    float second_match_thresh = 0.5F;
+    float unconfirmed_match_thresh = 0.7F;
+    float unconfirmed_emb_scale = 2.0F;
     std::string cmc_method = "ecc";
     int frame_rate = 30;
     bool fuse_first_associate = false;

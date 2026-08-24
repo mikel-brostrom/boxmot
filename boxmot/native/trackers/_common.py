@@ -5,14 +5,16 @@ from __future__ import annotations
 import ctypes
 import os
 import threading
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Iterable
 
 import numpy as np
-import yaml
 
 from boxmot.native import _common as native_common
-from boxmot.trackers.registry import get_tracker_config
+from boxmot.trackers.common.detections.layout import get_detection_layout
+from boxmot.trackers.common.tracking.classes import ClassCatalog
+from boxmot.trackers.config import load_tracker_defaults
 
 LIVE_UPDATE_ARGTYPES = [
     ctypes.c_void_p,
@@ -60,13 +62,8 @@ def load_tracker_cfg(
     *,
     flatten: bool = False,
 ) -> dict[str, Any]:
-    with open(get_tracker_config(tracker_name), "r", encoding="utf-8") as handle:
-        raw = yaml.safe_load(handle) or {}
-    if flatten:
-        from boxmot.engine.tuning.search_space import flatten_yaml_config
-
-        raw = flatten_yaml_config(raw)
-    resolved = {name: spec["default"] for name, spec in raw.items()}
+    del flatten  # scalar runtime configs are already flat
+    resolved = load_tracker_defaults(tracker_name)
     if cfg_dict is not None:
         resolved.update(cfg_dict)
     return resolved
@@ -241,7 +238,21 @@ class NativeTrackerMixin:
         self._library = library
         self._handle = self._library.create(self.cfg)
         self._det_cols: int | None = None
+        self.class_catalog = ClassCatalog()
+        self.class_ids = self.class_catalog.class_ids
+        self.class_names = self.class_catalog.names
         self._reset_reid_timing()
+
+    def configure_class_catalog(
+        self,
+        *,
+        class_ids: Iterable[int] | None = None,
+        class_names: Mapping[int, str] | None = None,
+    ) -> None:
+        """Configure and enforce the detector class contract in Python."""
+        self.class_catalog = ClassCatalog.from_metadata(class_ids=class_ids, class_names=class_names)
+        self.class_ids = self.class_catalog.class_ids
+        self.class_names = self.class_catalog.names
 
     def _reset_reid_timing(self) -> None:
         self.last_reid_time_ms = 0.0
@@ -251,17 +262,44 @@ class NativeTrackerMixin:
 
     def _coerce_detections_for_mode(self, dets: np.ndarray | None) -> np.ndarray:
         det_arr = np.asarray(dets) if dets is not None else np.empty((0, 0), dtype=np.float32)
-        if det_arr.size and det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
-            if self._det_cols is None:
-                self._det_cols = int(det_arr.shape[1])
-            elif int(det_arr.shape[1]) != self._det_cols:
+        if det_arr.ndim == 1 and det_arr.size:
+            det_arr = det_arr.reshape(1, -1)
+
+        has_explicit_layout = det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}
+        if det_arr.size or has_explicit_layout:
+            if not has_explicit_layout:
+                raise ValueError(
+                    f"Native {self._native_display_name} expects AABB detections with 6 columns "
+                    "or OBB detections with 7 columns."
+                )
+            if det_arr.size and not np.isfinite(det_arr).all():
+                raise ValueError("Native tracker detections must contain only finite values.")
+
+            incoming_cols = int(det_arr.shape[1])
+            if self._det_cols is not None and incoming_cols != self._det_cols:
                 raise ValueError(
                     f"Native {self._native_display_name} tracker cannot switch between "
                     "AABB and OBB inputs after initialization."
                 )
-        elif self._det_cols is not None and det_arr.size == 0:
+
+            layout = get_detection_layout(det_arr.shape[1] == 7)
+            if det_arr.size:
+                boxes = layout.boxes(det_arr)
+                if layout.is_obb:
+                    if np.any(boxes[:, 2:4] <= 0):
+                        raise ValueError("Native OBB detections must have positive width and height.")
+                elif np.any(boxes[:, 2] <= boxes[:, 0]) or np.any(boxes[:, 3] <= boxes[:, 1]):
+                    raise ValueError("Native AABB detections must satisfy x2 > x1 and y2 > y1.")
+                classes = layout.classes(det_arr)
+                if not np.equal(classes, np.floor(classes)).all():
+                    raise ValueError("Detector class IDs must be integers.")
+                self.class_catalog.validate_detections(det_arr, layout)
+
+            if self._det_cols is None:
+                self._det_cols = incoming_cols
+        elif self._det_cols is not None:
             det_arr = np.empty((0, self._det_cols), dtype=np.float32)
-        return det_arr
+        return np.ascontiguousarray(det_arr, dtype=np.float32)
 
     def _refresh_reid_timings(self) -> None:
         if not self._tracks_reid_timing:
@@ -384,8 +422,7 @@ def run_replay_process(
     summary = native_common.parse_summary(stdout_text, display_name=display_name)
     if str(summary.get("sequence")) != str(seq_name):
         raise RuntimeError(
-            f"Native {display_name} summary sequence mismatch: "
-            f"expected {seq_name!r}, got {summary.get('sequence')!r}."
+            f"Native {display_name} summary sequence mismatch: expected {seq_name!r}, got {summary.get('sequence')!r}."
         )
 
     kept_ids = [int(frame_id) for frame_id in summary.get("kept_frame_ids", [])]

@@ -4,6 +4,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <stdexcept>
@@ -50,13 +51,31 @@ std::vector<Detection> ConvertLiveDetections(
     converted.reserve(static_cast<std::size_t>(det_rows));
     for (int row = 0; row < det_rows; ++row) {
         const float* det_row = dets + (row * det_cols);
+        for (int column = 0; column < det_cols; ++column) {
+            if (!std::isfinite(det_row[column])) {
+                throw std::runtime_error("Native tracker detections must contain only finite values.");
+            }
+        }
         Detection detection;
         detection.is_obb = det_cols == 7;
+        const int class_column = detection.is_obb ? 6 : 5;
+        if (std::floor(det_row[class_column]) != det_row[class_column]) {
+            throw std::runtime_error("Native tracker class IDs must be integers.");
+        }
+        if (det_row[class_column] < 0.0F) {
+            throw std::runtime_error("Native tracker class IDs must be non-negative.");
+        }
         if (detection.is_obb) {
+            if (det_row[2] <= 0.0F || det_row[3] <= 0.0F) {
+                throw std::runtime_error("Native OBB detections must have positive width and height.");
+            }
             detection.xywha << det_row[0], det_row[1], det_row[2], det_row[3], det_row[4];
             detection.conf = det_row[5];
             detection.cls = static_cast<int>(det_row[6]);
         } else {
+            if (det_row[2] <= det_row[0] || det_row[3] <= det_row[1]) {
+                throw std::runtime_error("Native AABB detections must satisfy x2 > x1 and y2 > y1.");
+            }
             detection.xyxy << det_row[0], det_row[1], det_row[2], det_row[3];
             detection.conf = det_row[4];
             detection.cls = static_cast<int>(det_row[5]);

@@ -16,30 +16,37 @@ namespace boxmot::trackers::base {
 namespace {
 
 std::array<cv::Point2f, 4> OrderCorners(const std::array<cv::Point2f, 4>& corners) {
-    std::array<cv::Point2f, 4> ordered{};
-    auto sum = [](const cv::Point2f& point) { return point.x + point.y; };
-    auto diff = [](const cv::Point2f& point) { return point.y - point.x; };
+    std::array<cv::Point2f, 4> ordered = corners;
+    cv::Point2f center(0.0F, 0.0F);
+    for (const auto& corner : corners) {
+        center += corner;
+    }
+    center *= 0.25F;
+    std::stable_sort(
+        ordered.begin(),
+        ordered.end(),
+        [&](const cv::Point2f& lhs, const cv::Point2f& rhs) {
+            return std::atan2(lhs.y - center.y, lhs.x - center.x) <
+                std::atan2(rhs.y - center.y, rhs.x - center.x);
+        });
 
-    ordered[0] = *std::min_element(
-        corners.begin(),
-        corners.end(),
-        [&](const cv::Point2f& lhs, const cv::Point2f& rhs) { return sum(lhs) < sum(rhs); }
-    );
-    ordered[2] = *std::max_element(
-        corners.begin(),
-        corners.end(),
-        [&](const cv::Point2f& lhs, const cv::Point2f& rhs) { return sum(lhs) < sum(rhs); }
-    );
-    ordered[1] = *std::min_element(
-        corners.begin(),
-        corners.end(),
-        [&](const cv::Point2f& lhs, const cv::Point2f& rhs) { return diff(lhs) < diff(rhs); }
-    );
-    ordered[3] = *std::max_element(
-        corners.begin(),
-        corners.end(),
-        [&](const cv::Point2f& lhs, const cv::Point2f& rhs) { return diff(lhs) < diff(rhs); }
-    );
+    float twice_area = 0.0F;
+    for (std::size_t index = 0; index < ordered.size(); ++index) {
+        const auto& current = ordered[index];
+        const auto& next = ordered[(index + 1U) % ordered.size()];
+        twice_area += (current.x * next.y) - (current.y * next.x);
+    }
+    if (twice_area < 0.0F) {
+        std::reverse(ordered.begin(), ordered.end());
+    }
+
+    const auto start = std::min_element(
+        ordered.begin(),
+        ordered.end(),
+        [](const cv::Point2f& lhs, const cv::Point2f& rhs) {
+            return lhs.y < rhs.y || (lhs.y == rhs.y && lhs.x < rhs.x);
+        });
+    std::rotate(ordered.begin(), start, ordered.end());
     return ordered;
 }
 
@@ -327,7 +334,10 @@ LoadedDetectionSequence LoadDetectionSequence(
     }
 
     Eigen::MatrixXf detections = LoadNumericMatrix(det_path);
-    const int cols = detections.rows() == 0 ? 0 : detections.cols();
+    const int source_detection_rows = static_cast<int>(detections.rows());
+    // NumPy preserves the trailing dimension for empty arrays. Keep it so an
+    // empty (0, 8) cache still declares OBB mode rather than becoming unknown.
+    const int cols = static_cast<int>(detections.cols());
     if (cols != 0 && cols != 7 && cols != 8) {
         throw std::runtime_error(
             "Native " + std::string(tracker_name) + " supports AABB caches with 7 cols or OBB caches with 8 cols only."
@@ -335,10 +345,21 @@ LoadedDetectionSequence LoadDetectionSequence(
     }
 
     std::unordered_set<int> keep_frames;
-    if (target_fps > 0 && detections.rows() > 0) {
+    std::vector<int> retained_detection_rows;
+    retained_detection_rows.reserve(static_cast<std::size_t>(source_detection_rows));
+    for (int row = 0; row < source_detection_rows; ++row) {
+        retained_detection_rows.push_back(row);
+    }
+    if (target_fps > 0) {
         const int orig_fps = ReadSequenceFps(seq_dir);
         if (orig_fps > 0) {
             keep_frames = ComputeWantedFrames(frame_ids, orig_fps, target_fps);
+            retained_detection_rows.clear();
+            for (int row = 0; row < detections.rows(); ++row) {
+                if (keep_frames.count(static_cast<int>(detections(row, 0))) > 0) {
+                    retained_detection_rows.push_back(row);
+                }
+            }
             detections = FilterRowsByFrame(detections, keep_frames);
             FilterFrames(keep_frames, frame_ids, frame_paths);
         }
@@ -350,6 +371,8 @@ LoadedDetectionSequence LoadDetectionSequence(
     sequence.frame_ids = std::move(frame_ids);
     sequence.frame_paths = std::move(frame_paths);
     sequence.keep_frames = std::move(keep_frames);
+    sequence.retained_detection_rows = std::move(retained_detection_rows);
+    sequence.source_detection_rows = source_detection_rows;
     sequence.is_obb = cols == 8;
     return sequence;
 }
@@ -360,8 +383,8 @@ Eigen::MatrixXf LoadEmbeddingsCache(
     const std::string& reid_name,
     const std::string& reid_preprocess,
     const std::string& sequence_name,
-    const std::unordered_set<int>& keep_frames,
-    const int detection_rows,
+    const std::vector<int>& retained_detection_rows,
+    const int source_detection_rows,
     const bool can_infer_embeddings
 ) {
     const fs::path base_dir = det_emb_root / detector_name;
@@ -376,15 +399,32 @@ Eigen::MatrixXf LoadEmbeddingsCache(
     }
 
     Eigen::MatrixXf embeddings = LoadNumericMatrix(emb_path);
-    if (embeddings.rows() > 0 && !keep_frames.empty()) {
-        embeddings = FilterRowsByFrame(embeddings, keep_frames);
-    }
-    if (embeddings.rows() > 0 && detection_rows != embeddings.rows()) {
+    if (embeddings.rows() != source_detection_rows) {
+        if (embeddings.rows() == 0 && source_detection_rows > 0 && can_infer_embeddings) {
+            return embeddings;
+        }
         throw std::runtime_error(
             "Detection and embedding row counts do not match for sequence: " + sequence_name
         );
     }
-    return embeddings;
+    if (embeddings.rows() == 0) {
+        return embeddings;
+    }
+
+    Eigen::MatrixXf aligned(
+        static_cast<int>(retained_detection_rows.size()),
+        embeddings.cols()
+    );
+    for (int row = 0; row < static_cast<int>(retained_detection_rows.size()); ++row) {
+        const int source_row = retained_detection_rows[static_cast<std::size_t>(row)];
+        if (source_row < 0 || source_row >= embeddings.rows()) {
+            throw std::runtime_error(
+                "Detection/embedding FPS row alignment is invalid for sequence: " + sequence_name
+            );
+        }
+        aligned.row(row) = embeddings.row(source_row);
+    }
+    return aligned;
 }
 
 std::array<cv::Point2f, 4> CanonicalObbCorners(const Eigen::Matrix<double, 5, 1>& box) {

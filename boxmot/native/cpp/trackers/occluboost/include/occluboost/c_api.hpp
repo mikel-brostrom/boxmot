@@ -59,6 +59,15 @@ struct BoxMOTOccluBoostConfig {
     float ams_shrink_ratio;
     float lambda_emb_multiplier;
 
+    // OBB-specific operating point
+    float obb_det_thresh;
+    float obb_iou_threshold;
+    float obb_new_track_thresh;
+    float obb_instant_confirm_thresh;
+    int obb_max_age;
+    int obb_recovery_max_age;
+    float obb_second_iou_thresh;
+
     // ReID
     const char* reid_model_path;
     const char* reid_preprocess;

@@ -4,6 +4,7 @@
 #include <opencv2/core.hpp>
 
 #include <array>
+#include <cmath>
 #include <filesystem>
 #include <iomanip>
 #include <ostream>
@@ -23,6 +24,11 @@ struct LoadedDetectionSequence {
     std::vector<int> frame_ids;
     std::vector<fs::path> frame_paths;
     std::unordered_set<int> keep_frames;
+    // Row numbers in the unfiltered detection cache that survived FPS
+    // downsampling. Embedding caches have no frame-id column, so this is the
+    // only lossless way to apply the exact same row selection to them.
+    std::vector<int> retained_detection_rows;
+    int source_detection_rows = 0;
     bool is_obb = false;
 };
 
@@ -55,8 +61,8 @@ Eigen::MatrixXf LoadEmbeddingsCache(
     const std::string& reid_name,
     const std::string& reid_preprocess,
     const std::string& sequence_name,
-    const std::unordered_set<int>& keep_frames,
-    int detection_rows,
+    const std::vector<int>& retained_detection_rows,
+    int source_detection_rows,
     bool can_infer_embeddings
 );
 std::array<cv::Point2f, 4> CanonicalObbCorners(const Eigen::Matrix<double, 5, 1>& box);
@@ -84,7 +90,6 @@ std::vector<Detection> SliceReplayDetectionsForFrame(
         ++row_offset;
     }
 
-    int det_ind = 0;
     while (
         row_offset < static_cast<std::size_t>(total_rows) &&
         static_cast<int>(detections_matrix(static_cast<int>(row_offset), 0)) == frame_id
@@ -92,23 +97,43 @@ std::vector<Detection> SliceReplayDetectionsForFrame(
         const int row = static_cast<int>(row_offset);
         Detection detection;
         detection.is_obb = is_obb;
+        bool valid_geometry = true;
         if (is_obb) {
-            detection.xywha = detections_matrix.block<1, 5>(row, 1).transpose().template cast<double>();
-            detection.conf = detections_matrix(row, 6);
-            detection.cls = static_cast<int>(detections_matrix(row, 7));
+            for (int column = 1; column <= 7; ++column) {
+                valid_geometry = valid_geometry && std::isfinite(detections_matrix(row, column));
+            }
+            valid_geometry = valid_geometry && detections_matrix(row, 3) > 0.0F &&
+                detections_matrix(row, 4) > 0.0F &&
+                (detections_matrix(row, 3) * detections_matrix(row, 4)) >= 10.0F &&
+                std::floor(detections_matrix(row, 7)) == detections_matrix(row, 7) &&
+                detections_matrix(row, 7) >= 0.0F;
+            if (valid_geometry) {
+                detection.xywha = detections_matrix.block<1, 5>(row, 1).transpose().template cast<double>();
+                detection.conf = detections_matrix(row, 6);
+                detection.cls = static_cast<int>(detections_matrix(row, 7));
+            }
         } else {
-            detection.xyxy = detections_matrix.block<1, 4>(row, 1).transpose().template cast<double>();
-            detection.conf = detections_matrix(row, 5);
-            detection.cls = static_cast<int>(detections_matrix(row, 6));
+            for (int column = 1; column <= 6; ++column) {
+                valid_geometry = valid_geometry && std::isfinite(detections_matrix(row, column));
+            }
+            const float width = detections_matrix(row, 3) - detections_matrix(row, 1);
+            const float height = detections_matrix(row, 4) - detections_matrix(row, 2);
+            valid_geometry = valid_geometry && width > 0.0F && height > 0.0F &&
+                (width * height) >= 10.0F &&
+                std::floor(detections_matrix(row, 6)) == detections_matrix(row, 6) &&
+                detections_matrix(row, 6) >= 0.0F;
+            if (valid_geometry) {
+                detection.xyxy = detections_matrix.block<1, 4>(row, 1).transpose().template cast<double>();
+                detection.conf = detections_matrix(row, 5);
+                detection.cls = static_cast<int>(detections_matrix(row, 6));
+            }
         }
-        detection.det_ind = det_ind;
-        decorate_detection(detection, row);
-
-        if (conf_threshold <= 0.0F || detection.conf >= conf_threshold) {
+        if (valid_geometry && (conf_threshold <= 0.0F || detection.conf >= conf_threshold)) {
+            detection.det_ind = static_cast<int>(detections.size());
+            decorate_detection(detection, row);
             detections.push_back(std::move(detection));
         }
 
-        ++det_ind;
         ++row_offset;
     }
     return detections;

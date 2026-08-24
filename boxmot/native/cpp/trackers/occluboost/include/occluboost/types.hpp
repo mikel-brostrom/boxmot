@@ -55,6 +55,16 @@ struct Config {
     float ams_shrink_ratio = 0.75F;
     float lambda_emb_multiplier = 1.5F;
 
+    // Multi-class OBB detections need a less restrictive operating point than
+    // the MOT-tuned AABB defaults. These mirror the Python tracker settings.
+    float obb_det_thresh = 0.2F;
+    float obb_iou_threshold = 0.15F;
+    float obb_new_track_thresh = 0.3F;
+    float obb_instant_confirm_thresh = 0.5F;
+    int obb_max_age = 30;
+    int obb_recovery_max_age = 15;
+    float obb_second_iou_thresh = 0.3F;
+
     // ReID
     std::string reid_model_path;
     std::string reid_preprocess = "resize_pad";

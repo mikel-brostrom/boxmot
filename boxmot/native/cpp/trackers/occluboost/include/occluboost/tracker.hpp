@@ -37,9 +37,12 @@ private:
     // Confidence boosting (use_dlo_boost / use_duo_boost branches).
     void DloConfidenceBoost(std::vector<Detection>& detections) const;
     void DuoConfidenceBoost(std::vector<Detection>& detections) const;
+    void DloConfidenceBoostObb(std::vector<Detection>& detections) const;
+    void DuoConfidenceBoostObb(std::vector<Detection>& detections) const;
 
     // Mahalanobis distance matrix (Nd x Nt).
     Eigen::MatrixXd GetMhDistMatrix(const std::vector<Detection>& detections) const;
+    Eigen::MatrixXd GetMhDistMatrixObb(const std::vector<Detection>& detections) const;
 
     // OccluTrack abnormal-motion suppression coefficient.
     double ComputeAmsAlpha(KalmanBoxTracker& trk, const Eigen::Vector4d& det_xyxy) const;

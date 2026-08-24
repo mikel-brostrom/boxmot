@@ -220,10 +220,11 @@ def process_sequence_cpp(
     split: str | None = None,
     masks_dir: str | None = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: str | None = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
-    del reid_name, preprocess_name
+    del reid_name, preprocess_name, embedding_cache_dir
     if str(tracker_name).lower() != "ocsort":
         raise ValueError("The native cpp replay backend currently supports tracker='ocsort' only.")
 

@@ -370,17 +370,91 @@ def cached_embedding_path(
 ) -> Path:
     """Return the expected path of a cached embedding ``.npy`` for a sequence.
 
-    The canonical bucket name comes from :func:`boxmot.data.cache.reid_cache_key`
-    (e.g. ``lmbn_n_duke_onnx_ort``).
+    The canonical bucket and preprocessing names come from
+    :func:`boxmot.data.cache.reid_cache_key` and
+    :func:`boxmot.data.cache.reid_preprocess_cache_key`.
     """
-    from boxmot.data.cache import reid_cache_key
+    from boxmot.data.cache import reid_cache_key, reid_preprocess_cache_key
 
     detector_key = _stem_key(detector_name)
-    preprocess_key = str(preprocess_name or "resize")
+    preprocess_key = reid_preprocess_cache_key(preprocess_name)
     embs_root = dets_n_embs_root(project_root, dataset_name, split=split) / detector_key / "embs"
 
     canonical_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
     return embs_root / canonical_key / preprocess_key / f"{sequence_name}.npy"
+
+
+def resolve_embedding_cache_location(
+    project_root: str | Path,
+    detector_name: str | Path,
+    reid_name: str | Path,
+    sequence_name: str,
+    *,
+    dataset_name: str | None = None,
+    split: str | None = None,
+    preprocess_name: str | None = None,
+    tracker_backend: str | None = None,
+    embedding_cache_dir: str | Path | None = None,
+) -> tuple[str, str, Path, Path]:
+    """Resolve native replay cache arguments and the selected sequence files.
+
+    Native replay accepts the model bucket and preprocessing bucket as separate
+    command-line values. ``embedding_cache_dir`` is the authoritative directory
+    selected by the evaluation cache planner and may point at either the current
+    layout or a trusted older layout.
+    """
+    from boxmot.data.cache import reid_cache_key, reid_preprocess_cache_key
+
+    detector_key = _stem_key(detector_name)
+    detector_root = dets_n_embs_root(project_root, dataset_name, split=split) / detector_key
+    embeddings_root = detector_root / "embs"
+
+    if embedding_cache_dir is None:
+        reid_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
+        preprocess_key = reid_preprocess_cache_key(preprocess_name)
+        selected_dir = embeddings_root / reid_key / preprocess_key
+    else:
+        selected_dir = Path(embedding_cache_dir)
+        try:
+            reid_relative = selected_dir.parent.resolve().relative_to(embeddings_root.resolve())
+        except ValueError as exc:
+            raise ValueError(
+                f"Embedding cache directory must be under {embeddings_root}: {selected_dir}"
+            ) from exc
+        if reid_relative == Path(".") or not selected_dir.name:
+            raise ValueError(f"Embedding cache directory is missing model/preprocess components: {selected_dir}")
+        reid_key = reid_relative.as_posix()
+        preprocess_key = selected_dir.name
+
+    filename = f"{Path(sequence_name).stem}.npy"
+    return (
+        str(reid_key),
+        str(preprocess_key),
+        selected_dir / filename,
+        detector_root / "dets" / filename,
+    )
+
+
+def embedding_cache_is_complete(embedding_path: str | Path, detection_path: str | Path) -> bool:
+    """Return whether a numeric embedding cache is row-aligned with detections."""
+    embedding_path = Path(embedding_path)
+    detection_path = Path(detection_path)
+    if not embedding_path.is_file() or not detection_path.is_file():
+        return False
+
+    try:
+        import numpy as np
+
+        embeddings = np.load(embedding_path, mmap_mode="r")
+        detections = np.load(detection_path, mmap_mode="r")
+    except Exception:  # noqa: BLE001 - corrupt cache files are treated as misses
+        return False
+    return (
+        embeddings.ndim == 2
+        and detections.ndim == 2
+        and embeddings.shape[0] == detections.shape[0]
+        and (embeddings.shape[0] == 0 or embeddings.shape[1] > 0)
+    )
 
 
 def _stem_key(name: str | Path) -> str:
