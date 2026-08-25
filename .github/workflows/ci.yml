@@ -409,6 +409,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/prepare-ci-assets
+        with:
+          assets: pose
       - run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
       - name: Test tracking with pose models
@@ -416,7 +419,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          boxmot track --detector yolov8n-pose.pt --imgsz 320 --source $IMG
+          boxmot track --detector "$BOXMOT_CI_POSE_DETECTOR" --imgsz 320 --source $IMG
   yolos:
     runs-on: ubuntu-latest
     outputs:

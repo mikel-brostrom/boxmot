@@ -3,7 +3,7 @@ description: Download and verify the pinned model assets used by BoxMOT CI.
 
 inputs:
   assets:
-    description: Space-separated asset kinds to prepare (detector, obb, seg).
+    description: Space-separated asset kinds to prepare (detector, obb, pose, seg).
     required: false
     default: detector
 

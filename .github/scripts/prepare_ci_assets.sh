@@ -4,9 +4,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 
-readonly release_base_url="https://github.com/mikel-brostrom/boxmot/releases/download/v22.0.0"
+readonly boxmot_release_base_url="https://github.com/mikel-brostrom/boxmot/releases/download/v22.0.0"
+readonly ultralytics_release_base_url="https://github.com/ultralytics/assets/releases/download/v8.4.0"
 readonly detector_sha256="9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
 readonly obb_sha256="b62898ebf38940ca4df323863e45ee9d84a1a46d5d11ebdde529fb33aa9f3a32"
+readonly pose_sha256="eb3bb8268828aeaf515cec23a4bfafd793944a86fe9af94ba7823609c14522a9"
 readonly seg_sha256="361fbfabab285c3237700b6bb91d7ecfa602cd945fffda8dbe1242829b71e73f"
 
 asset_selection="${*:-detector}"
@@ -20,6 +22,7 @@ prepare_asset() {
   local env_name
   local filename
   local expected_sha256
+  local release_base_url="$boxmot_release_base_url"
 
   case "$asset_kind" in
     detector)
@@ -34,6 +37,13 @@ prepare_asset() {
       destination="${BOXMOT_CI_OBB_DETECTOR:-$repo_root/models/$filename}"
       env_name="BOXMOT_CI_OBB_DETECTOR"
       ;;
+    pose)
+      filename="yolo26n-pose.pt"
+      expected_sha256="$pose_sha256"
+      destination="${BOXMOT_CI_POSE_DETECTOR:-$repo_root/models/$filename}"
+      env_name="BOXMOT_CI_POSE_DETECTOR"
+      release_base_url="$ultralytics_release_base_url"
+      ;;
     seg)
       filename="yolo26n-seg.pt"
       expected_sha256="$seg_sha256"
@@ -41,7 +51,7 @@ prepare_asset() {
       env_name="BOXMOT_CI_SEG_DETECTOR"
       ;;
     *)
-      echo "Unknown CI asset kind: $asset_kind (expected detector, obb, or seg)" >&2
+      echo "Unknown CI asset kind: $asset_kind (expected detector, obb, pose, or seg)" >&2
       return 2
       ;;
   esac
