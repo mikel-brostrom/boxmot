@@ -10,14 +10,14 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 from boxmot.reid.backbones.head_registry import ReIDHeadSpec, get_reid_head_spec
 
 
-class AddonCategory(StrEnum):
+class AddonCategory(str, Enum):
     """Independent axes used when reviewing an ablation table."""
 
     ARCHITECTURE = "architecture"
@@ -26,8 +26,12 @@ class AddonCategory(StrEnum):
     SUPERVISION = "supervision"
     OBJECTIVE = "objective"
 
+    def __str__(self) -> str:
+        """Return the string value, matching ``StrEnum`` semantics."""
+        return self.value
 
-class ActivationKind(StrEnum):
+
+class ActivationKind(str, Enum):
     """Supported declarative activation predicates."""
 
     TRUTHY = "truthy"
@@ -35,6 +39,10 @@ class ActivationKind(StrEnum):
     NONEMPTY = "nonempty"
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
+
+    def __str__(self) -> str:
+        """Return the string value, matching ``StrEnum`` semantics."""
+        return self.value
 
 
 @dataclass(frozen=True)

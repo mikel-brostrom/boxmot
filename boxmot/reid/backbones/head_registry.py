@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 
 
-class HeadImplementation(StrEnum):
+class HeadImplementation(str, Enum):
     """Concrete head implementation selected by a training configuration."""
 
     MULTI_BRANCH = "multi_branch"
     BODY_SLOT = "body_slot"
     GPC_LITE = "gpc_lite"
     LMBN = "lmbn"
+
+    def __str__(self) -> str:
+        """Return the string value, matching ``StrEnum`` semantics."""
+        return self.value
 
 
 @dataclass(frozen=True)

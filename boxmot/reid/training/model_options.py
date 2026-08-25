@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 
-class OptionTransform(StrEnum):
+class OptionTransform(str, Enum):
     """Small, serializable transforms for derived model switches."""
 
     IDENTITY = "identity"
     POSITIVE = "positive"
+
+    def __str__(self) -> str:
+        """Return the string value, matching ``StrEnum`` semantics."""
+        return self.value
 
 
 @dataclass(frozen=True)
