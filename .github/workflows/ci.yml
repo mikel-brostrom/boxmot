@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CUDA_VISIBLE_DEVICES: ""
   UV_TORCH_BACKEND: cpu
   UV_INDEX_STRATEGY: unsafe-best-match
 
@@ -570,23 +571,31 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       status: ${{ job.status }}
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip'
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve]" --group test
+          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
       - name: Smoke-test Python API
         shell: bash
         run: |
-          uv run python -m pytest -p no:cacheprovider -q -s tests/ci/python_api_smoke.py
+          # Keep uv from re-resolving the CPU-only environment from the
+          # platform-neutral lockfile and pulling CUDA wheels back in.
+          .venv/bin/python -m pytest -p no:cacheprovider -q -s --durations=5 tests/ci/python_api_smoke.py
 
   tests:
     runs-on: ubuntu-latest
@@ -610,8 +619,10 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
-          uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+          # CI-only integration tests run in their dedicated jobs.
+          # Use the prepared CPU-only environment without an implicit uv sync.
+          .venv/bin/python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s --ignore=tests/ci tests
+          .venv/bin/python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4

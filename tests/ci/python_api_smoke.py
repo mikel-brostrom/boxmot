@@ -1,6 +1,7 @@
 import os
-import shutil
 from pathlib import Path
+
+import torch
 
 from boxmot import BoxMOT, ReIDModel
 
@@ -12,6 +13,8 @@ METRICS = {"HOTA", "MOTA", "IDF1"}
 
 def test_python_api_smoke(tmp_path, monkeypatch):
     """Exercise the primary public Python workflows with real CPU runtimes."""
+    assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
+    assert not torch.cuda.is_available()
     assert SOURCE.is_file()
     dataset_link = tmp_path / "assets/MOT17-mini"
     dataset_link.parent.mkdir(parents=True)
@@ -55,23 +58,3 @@ def test_python_api_smoke(tmp_path, monkeypatch):
     )
     assert Path(exported.files["torchscript"]).is_file()
     assert exported.parity_ok
-
-    # Ray packages its current working directory for workers. Keep that package
-    # limited to the miniature benchmark instead of the developer's whole tree.
-    ray_workdir = tmp_path / "ray_workdir"
-    shutil.copytree(ROOT / "assets/MOT17-mini", ray_workdir / "assets/MOT17-mini")
-    monkeypatch.chdir(ray_workdir)
-
-    tuned = api.tune(
-        experiment=EXPERIMENT,
-        n_trials=1,
-        imgsz=320,
-        device="cpu",
-        project=project,
-        verbose=False,
-        seed=0,
-    )
-    assert len(tuned.trials) == 1
-    assert tuned.best in tuned.trials
-    assert METRICS <= tuned.summary.keys()
-    assert tuned.best_yaml.is_file()

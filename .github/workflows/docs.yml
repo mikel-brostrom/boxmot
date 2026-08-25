@@ -35,7 +35,8 @@ jobs:
 
       - name: Build docs
         run: |
-          uv run mkdocs build --strict
+          # Avoid an implicit uv sync that replaces the prepared CPU-only env.
+          .venv/bin/mkdocs build --strict
 
       - name: Upload GitHub Pages artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
