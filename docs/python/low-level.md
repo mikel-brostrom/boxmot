@@ -8,7 +8,7 @@ Auto-generated reference for the building blocks used by the high-level facade. 
 
 ## ReID
 
-::: boxmot.reid.core.reid.ReID
+::: boxmot.reid.core.runtime.ReID
 
 ## Tracker factory
 
