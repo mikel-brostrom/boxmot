@@ -493,11 +493,12 @@ def main(args):
         output = model(dummy_input)
         output_tensor = output[0] if isinstance(output, tuple) else output
         output_shape = tuple(output_tensor.shape)
+        checkpoint_size_mb = Path(args.weights).stat().st_size / 1e6
         pipeline.update(
             (
                 f"Input shape:  {tuple(dummy_input.shape)}\n"
                 f"Output shape: {output_shape} "
-                f"({BaseExporter.file_size(args.weights):.1f} MB)"
+                f"({checkpoint_size_mb:.1f} MB)"
             ),
         )
         pipeline.advance("Exporting model...")
