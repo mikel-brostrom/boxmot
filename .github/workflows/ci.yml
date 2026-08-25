@@ -179,7 +179,7 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          boxmot tune --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --benchmark mot17-mini --ci --classes 0
+          boxmot tune --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --experiment mot17-mini-train-yolox-lmbn --ci --classes 0
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -212,12 +212,12 @@ jobs:
       - name: Check metric parity with TrackEval
         shell: bash
         run: |
-          .venv/bin/python -m pytest -q -s tests/unit/test_trackeval_parity.py
+          .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
 
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --benchmark mot17-mini --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --experiment mot17-mini-train-yolox-lmbn --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
@@ -225,7 +225,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --detector yolov10n.pt --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --benchmark mot17-mini --ci --classes 0; then
+            if boxmot eval --detector yolov10n.pt --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --experiment mot17-mini-train-yolox-lmbn --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -547,7 +547,28 @@ jobs:
               echo "| $engine | $export_status | $inference_status | \`$model_path\` |"
             done < engine_results.csv
           } >> "$GITHUB_STEP_SUMMARY"
-               
+
+  python_api:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+      - name: Install requirements
+        shell: bash
+        run: |
+          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve]" --group test
+      - name: Smoke-test Python API
+        shell: bash
+        run: |
+          uv run python -m pytest -p no:cacheprovider -q -s tests/ci/python_api_smoke.py
+
   tests:
     runs-on: ubuntu-latest
     outputs:
@@ -602,7 +623,7 @@ jobs:
   #         COVERAGE_FAIL_UNDER: 25
   #       shell: bash  # for Windows compatibility
   #       run: |
-  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
+  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/unit/reid/backends/test_cuda.py
 
 
   check-failures:
@@ -615,6 +636,7 @@ jobs:
       - obb
       - tune
       - export
+      - python_api
       - tests
       - pose
       - seg
@@ -633,6 +655,7 @@ jobs:
             "obb=${{ needs.obb.result }}"
             "tune=${{ needs.tune.result }}"
             "export=${{ needs.export.result }}"
+            "python_api=${{ needs.python_api.result }}"
             "tests=${{ needs.tests.result }}"
             "pose=${{ needs.pose.result }}"
             "seg=${{ needs.seg.result }}"

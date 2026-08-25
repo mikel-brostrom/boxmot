@@ -35,7 +35,7 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface/hub
-          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/benchmarks/mot17.yaml') }}
+          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml') }}
           restore-keys: |
             hf-mot17-parquet-
 
@@ -139,7 +139,7 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface/hub
-          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/benchmarks/mot17.yaml') }}
+          key: hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml') }}
           restore-keys: |
             hf-mot17-parquet-
 
@@ -152,7 +152,7 @@ jobs:
             TRACKER_BACKEND_ARGS+=(--tracker-backend cpp)
           fi
 
-          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --benchmark mot17 --split ablation; then
+          if boxmot eval --classes 0 --detector yolox_x_MOT17_ablation.pt --reid lmbn_n_duke.pt --tracker ${{ matrix.tracker }} "${TRACKER_BACKEND_ARGS[@]}" --ci --verbose --experiment mot17-ablation-yolox-lmbn; then
             STATUS="✅"
           else
             STATUS="❌"
