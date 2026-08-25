@@ -1,0 +1,9 @@
+name: Prepare BoxMOT CI assets
+description: Download and verify the pinned model assets used by BoxMOT CI.
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare pinned detector checkpoint
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/prepare_ci_assets.sh"

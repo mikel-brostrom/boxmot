@@ -1,3 +1,4 @@
+import os
 import shutil
 from pathlib import Path
 
@@ -19,8 +20,9 @@ def test_python_api_smoke(tmp_path, monkeypatch):
 
     project = tmp_path / "runs"
     reid_weights = tmp_path / "osnet_x0_25_msmt17.pt"
+    detector_weights = os.environ.get("BOXMOT_CI_DETECTOR", "yolo26n.pt")
     api = BoxMOT(
-        detector="yolo26n.pt",
+        detector=detector_weights,
         reid=reid_weights,
         tracker="ocsort",
         classes=[0],
