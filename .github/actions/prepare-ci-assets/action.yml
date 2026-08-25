@@ -1,9 +1,17 @@
 name: Prepare BoxMOT CI assets
 description: Download and verify the pinned model assets used by BoxMOT CI.
 
+inputs:
+  assets:
+    description: Space-separated asset kinds to prepare (detector, obb, seg).
+    required: false
+    default: detector
+
 runs:
   using: composite
   steps:
-    - name: Prepare pinned detector checkpoint
+    - name: Prepare pinned model assets
       shell: bash
-      run: bash "$GITHUB_ACTION_PATH/../../scripts/prepare_ci_assets.sh"
+      env:
+        BOXMOT_CI_ASSETS: ${{ inputs.assets }}
+      run: bash "$GITHUB_ACTION_PATH/../../scripts/prepare_ci_assets.sh" "$BOXMOT_CI_ASSETS"
