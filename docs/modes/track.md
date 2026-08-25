@@ -84,6 +84,37 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
 
         Class filtering in Python is configured on `BoxMOT(...)` via `classes=[...]`, not passed to `track(...)` directly.
 
+## Startup and CPU performance
+
+The final tracking summary reports startup costs for detector loading, tracker/ReID loading,
+output preparation, and first-frame acquisition separately from per-frame
+inference. A first run can also download missing weights or populate dependency
+caches; those one-time costs should disappear on later runs.
+
+When tracking people only, filter the detector before ReID so unrelated COCO
+objects do not become extra embedding crops:
+
+```bash
+boxmot track \
+  --detector yolo26n \
+  --reid lmbn_n_duke.onnx \
+  --tracker occluboost \
+  --source 0 \
+  --classes 0 \
+  --fps 30 \
+  --save \
+  --show
+```
+
+The ONNX ReID artifact is often faster than the PyTorch artifact on CPU. On
+Apple Silicon, keep the PyTorch artifact and try `--device mps` instead. The
+`--fps` option controls saved-video playback rate; live sources otherwise use a
+30 FPS fallback without opening the camera a second time just to query it.
+
+If every fresh process says that Matplotlib is rebuilding its font cache, make
+`MPLCONFIGDIR` point to a persistent writable directory. An unwritable or
+temporary font cache can add many seconds before the detector is ready.
+
 ## Outputs
 
 Depending on flags, `track` can produce:

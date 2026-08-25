@@ -739,11 +739,13 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
             return np.array([[1, 2, 10, 12, self.count, 0.9, 0, 0]], dtype=np.float32)
 
     frames_written = []
+    writer_fps = []
 
     class _FakeVideoWriter:
         def __init__(self, path, fourcc, fps, frame_size):
             self.path = path
             self.opened = True
+            writer_fps.append(fps)
 
         def write(self, frame):
             frames_written.append(frame.copy())
@@ -756,7 +758,7 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
     model = api_module.BoxMOT(
         detector=_FakeDetector(), reid=_FakeReID(), tracker=_FakeTracker(), project=tmp_path / "runs"
     )
-    run = model.track(source=tmp_path, save=True, save_txt=True)
+    run = model.track(source=tmp_path, save=True, save_txt=True, fps=24)
 
     assert run.source == tmp_path
     assert run.video_path is not None and run.video_path.exists()
@@ -765,6 +767,33 @@ def test_boxmot_track_returns_paths_and_timings(tmp_path, monkeypatch):
     assert run.summary["unique_tracks"] == 2
     assert run.timings["fps"] >= 0
     assert len(frames_written) == 2
+    assert writer_fps == [24.0]
+
+
+@pytest.mark.parametrize("fps", [0, -1])
+def test_boxmot_track_rejects_non_positive_saved_video_fps(tmp_path, fps):
+    model = api_module.BoxMOT(
+        detector=object(),
+        reid=object(),
+        tracker=object(),
+        project=tmp_path / "runs",
+    )
+
+    with pytest.raises(ValueError, match="fps must be greater than zero"):
+        model.track(source=tmp_path, save=True, fps=fps)
+
+
+@pytest.mark.parametrize("fps", [True, 24.5])
+def test_boxmot_track_rejects_non_integral_saved_video_fps(tmp_path, fps):
+    model = api_module.BoxMOT(
+        detector=object(),
+        reid=object(),
+        tracker=object(),
+        project=tmp_path / "runs",
+    )
+
+    with pytest.raises(TypeError, match="fps must be a positive integer or None"):
+        model.track(source=tmp_path, save=True, fps=fps)
 
 
 def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monkeypatch, tmp_path):

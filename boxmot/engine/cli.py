@@ -173,8 +173,12 @@ def core_options(func):
     options = [
         click.option('--imgsz', callback=parse_imgsz, default=_click_imgsz_default(RUNTIME_DEFAULTS.imgsz), type=str,
                      help='Image size for model input as H,W (e.g. 800,1440) or single int for square. Default: read from the selected detector config, otherwise use detector-specific defaults.'),
-        click.option('--fps', type=int, default=RUNTIME_DEFAULTS.fps,
-                     help='video frame-rate'),
+        click.option(
+            '--fps',
+            type=click.IntRange(min=1),
+            default=RUNTIME_DEFAULTS.fps,
+            help='frame-rate override: saved track video FPS or evaluation target FPS',
+        ),
         click.option('--conf', type=float, default=RUNTIME_DEFAULTS.conf,
                      help='Min confidence threshold. Default: read from the selected detector config, fallback 0.01.'),
         click.option('--iou', type=float, default=RUNTIME_DEFAULTS.iou,

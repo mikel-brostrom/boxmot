@@ -98,7 +98,9 @@ class BaseTracker(
             self._initialize_class_track_states()
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning("Max age > max observations, increasing size of max observations...")
+            LOGGER.info(
+                "max_age >= max_obs; increasing max_obs to preserve the full track lifetime"
+            )
             self.max_obs = self.max_age + 5
 
         self._plot_frame_idx = -1

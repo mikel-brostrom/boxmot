@@ -1,7 +1,9 @@
 # model_registry.py
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -14,6 +16,18 @@ from boxmot.reid.core.catalog import NR_CLASSES_DICT, TRAINED_URLS
 from boxmot.utils import logger as LOGGER
 
 MODEL_TYPES_BY_SPECIFICITY = tuple(sorted(registered_backbone_names(), key=len, reverse=True))
+
+# Checkpoint inspection and deployment loading need the same serialized object
+# several times during one backend construction. Keep that object only for the
+# lifetime of an explicit construction scope: a process-wide LRU would retain
+# potentially multi-gigabyte training checkpoints and could return stale data
+# after a file is replaced in place.
+_CheckpointIdentity = tuple[str, int, int, int, int]
+
+_CHECKPOINT_LOAD_CACHE: ContextVar[dict[_CheckpointIdentity, Any] | None] = ContextVar(
+    "boxmot_reid_checkpoint_load_cache",
+    default=None,
+)
 
 
 def _identity(value: Any) -> Any:
@@ -246,9 +260,46 @@ class ReIDModelRegistry:
     """Encapsulates model registration and related utilities."""
 
     @staticmethod
-    def _load_checkpoint(weight_path: str | Path, *, strict: bool = False) -> Any | None:
+    def _checkpoint_identity(weight_path: str | Path) -> _CheckpointIdentity | None:
+        """Return a path-and-stat identity suitable for a short-lived cache."""
+        path = Path(weight_path)
         try:
-            return torch.load(
+            resolved = path.resolve(strict=True)
+            stat = resolved.stat()
+        except OSError:
+            return None
+        return (
+            str(resolved),
+            stat.st_dev,
+            stat.st_ino,
+            stat.st_size,
+            stat.st_mtime_ns,
+        )
+
+    @staticmethod
+    @contextmanager
+    def checkpoint_load_scope() -> Iterator[None]:
+        """Deduplicate checkpoint deserialization within one runtime build."""
+        existing = _CHECKPOINT_LOAD_CACHE.get()
+        if existing is not None:
+            yield
+            return
+
+        token = _CHECKPOINT_LOAD_CACHE.set({})
+        try:
+            yield
+        finally:
+            _CHECKPOINT_LOAD_CACHE.reset(token)
+
+    @staticmethod
+    def _load_checkpoint(weight_path: str | Path, *, strict: bool = False) -> Any | None:
+        cache = _CHECKPOINT_LOAD_CACHE.get()
+        identity = ReIDModelRegistry._checkpoint_identity(weight_path) if cache is not None else None
+        if cache is not None and identity is not None and identity in cache:
+            return cache[identity]
+
+        try:
+            checkpoint = torch.load(
                 weight_path,
                 map_location="cpu",
                 weights_only=False,
@@ -258,6 +309,10 @@ class ReIDModelRegistry:
             if strict:
                 raise
             return None
+
+        if cache is not None and identity is not None:
+            cache[identity] = checkpoint
+        return checkpoint
 
     @staticmethod
     def _checkpoint_dict(weight_path: str | Path) -> dict[str, Any] | None:

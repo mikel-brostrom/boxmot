@@ -9,6 +9,10 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from boxmot.engine.tracking.setup_timing import (
+    SETUP_TIMING_COMPONENTS,
+    normalize_setup_timings_ms,
+)
 from boxmot.utils.rich.core.ui import (
     STYLE_ACCENT,
     STYLE_RULE,
@@ -33,6 +37,9 @@ def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
         "detections": int(results.totals["detections"]),
         "tracks": int(results.totals["tracks"]),
         "unique_tracks": len(getattr(results, "_track_ids_seen", set())),
+        "setup_timings_ms": normalize_setup_timings_ms(
+            getattr(results, "setup_timings_ms", None)
+        ),
         "timing_metadata": dict(getattr(results, "timing_metadata", {})),
         "timings_ms": {
             "det": float(results.totals["det"]),
@@ -125,10 +132,43 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     return table
 
 
+def _build_tracking_startup_timing_table(summary: dict[str, Any]) -> Table:
+    timings = normalize_setup_timings_ms(summary.get("setup_timings_ms"))
+    labels = {
+        "detector_load": "Detector load",
+        "tracker_reid_load": "Tracker/ReID load",
+        "reid_adapter": "ReID adapter",
+        "output_prepare": "Output preparation",
+        "source_first_frame": "First source frame",
+        "total": "Startup total",
+    }
+
+    table = Table(
+        expand=True,
+        box=None,
+        show_header=True,
+        header_style=STYLE_TABLE_HEADER,
+        pad_edge=False,
+        show_edge=False,
+        padding=(0, 2),
+    )
+    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
+    for key in (*SETUP_TIMING_COMPONENTS, "total"):
+        table.add_row(
+            labels[key],
+            f"{timings[key]:.1f}",
+            style=STYLE_TEXT_STRONG if key == "total" else None,
+        )
+    return table
+
+
 def _build_tracking_summary_renderable(summary: dict[str, Any]) -> RenderableType:
     return Group(
         Rule("TRACKING SUMMARY", style=STYLE_RULE),
         _build_tracking_summary_stats_table(summary),
+        Rule("Startup", style=STYLE_RULE),
+        _build_tracking_startup_timing_table(summary),
         Rule(style=STYLE_RULE),
         _build_tracking_summary_timing_table(summary),
     )
@@ -575,6 +615,18 @@ class TrackRunResult:
         return self._timings
 
     @property
+    def setup_timings(self) -> dict[str, float]:
+        """Startup costs, including acquisition of the first source frame.
+
+        The workflow's ``Setup`` step ends before source acquisition; this
+        mapping intentionally describes the broader startup interval shown in
+        the final report.
+        """
+
+        self.refresh()
+        return dict(self._summary["setup_timings_ms"])
+
+    @property
     def summary(self) -> dict[str, Any]:
         self.refresh()
         return self._summary
@@ -623,6 +675,11 @@ class TrackRunResult:
             self._summary = summary_fn()
         else:
             self._summary = _results_summary_snapshot(self.results, self.source)
+        setup_timings = self._summary.get(
+            "setup_timings_ms",
+            getattr(self.results, "setup_timings_ms", None),
+        )
+        self._summary["setup_timings_ms"] = normalize_setup_timings_ms(setup_timings)
         self._timings = _track_timings_from_summary(self._summary)
 
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from filelock import SoftFileLock
+from filelock import FileLock
 
 from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.crops import build_crop_batch
@@ -30,46 +30,50 @@ class BaseModelBackend:
         self.cuda = torch.cuda.is_available() and self.device.type != "cpu"
 
         self.download_model(self.weights)
-        self.model_name = ReIDModelRegistry.get_model_name(self.weights)
-        checkpoint_model_kwargs = {}
-        if self.weights and self.weights.exists():
-            checkpoint_model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(self.weights)
-        self.model_kwargs = ReIDModelRegistry.deployment_model_kwargs(
-            self.model_name,
-            checkpoint_model_kwargs,
-        )
-        # Resolve the configured crop contract before loading the runtime.
-        # Compiled backends can then validate it against their graph input and
-        # make a more specific graph-declared shape authoritative.
-        if self.model_kwargs.get("img_size"):
-            self.input_shape = tuple(self.model_kwargs["img_size"])
-        elif "vehicleid" in self.weights.name or "veri" in self.weights.name:
-            self.input_shape = (256, 256)
-        else:
-            try:
-                self.input_shape = get_backbone_spec(self.model_name).default_img_size
-            except KeyError:
-                self.input_shape = (256, 128)
-        if self.build_source_model:
-            num_classes = ReIDModelRegistry.get_nr_classes(self.weights)
-            if str(self.model_name or "").startswith("csl_tinyvit"):
-                # Classification layers are never traversed by a deployed CSL
-                # descriptor. One-output placeholders avoid materializing up
-                # to a million random parameters before deployment pruning,
-                # while remaining valid for standard torch initializers.
-                num_classes = 1
-            self.model = ReIDModelRegistry.build_model(
+        # Metadata inspection and the final state load all read the same
+        # checkpoint. Scope their stat-keyed cache to this construction so the
+        # serialized tensors are released as soon as the backend owns them.
+        with ReIDModelRegistry.checkpoint_load_scope():
+            self.model_name = ReIDModelRegistry.get_model_name(self.weights)
+            checkpoint_model_kwargs = {}
+            if self.weights and self.weights.exists():
+                checkpoint_model_kwargs = ReIDModelRegistry.get_checkpoint_model_kwargs(self.weights)
+            self.model_kwargs = ReIDModelRegistry.deployment_model_kwargs(
                 self.model_name,
-                self.weights,
-                num_classes=num_classes,
-                pretrained=not (self.weights and self.weights.exists()),
-                use_gpu=device,
-                **self.model_kwargs,
+                checkpoint_model_kwargs,
             )
-        self.checker = RequirementsChecker()
-        self._preprocess_name = preprocess
-        self.preprocess_fn = get_preprocess_fn(preprocess)
-        self.load_model(self.weights)
+            # Resolve the configured crop contract before loading the runtime.
+            # Compiled backends can then validate it against their graph input and
+            # make a more specific graph-declared shape authoritative.
+            if self.model_kwargs.get("img_size"):
+                self.input_shape = tuple(self.model_kwargs["img_size"])
+            elif "vehicleid" in self.weights.name or "veri" in self.weights.name:
+                self.input_shape = (256, 256)
+            else:
+                try:
+                    self.input_shape = get_backbone_spec(self.model_name).default_img_size
+                except KeyError:
+                    self.input_shape = (256, 128)
+            if self.build_source_model:
+                num_classes = ReIDModelRegistry.get_nr_classes(self.weights)
+                if str(self.model_name or "").startswith("csl_tinyvit"):
+                    # Classification layers are never traversed by a deployed CSL
+                    # descriptor. One-output placeholders avoid materializing up
+                    # to a million random parameters before deployment pruning,
+                    # while remaining valid for standard torch initializers.
+                    num_classes = 1
+                self.model = ReIDModelRegistry.build_model(
+                    self.model_name,
+                    self.weights,
+                    num_classes=num_classes,
+                    pretrained=not (self.weights and self.weights.exists()),
+                    use_gpu=device,
+                    **self.model_kwargs,
+                )
+            self.checker = RequirementsChecker()
+            self._preprocess_name = preprocess
+            self.preprocess_fn = get_preprocess_fn(preprocess)
+            self.load_model(self.weights)
 
         self.mean_array = torch.tensor([0.485, 0.456, 0.406], device=self.device).view(1, 3, 1, 1)
         self.std_array = torch.tensor([0.229, 0.224, 0.225], device=self.device).view(1, 3, 1, 1)
@@ -158,16 +162,32 @@ class BaseModelBackend:
         if w.suffix != ".pt":
             return
 
+        # A local checkpoint is already complete and needs no synchronization.
+        # Check it before constructing/acquiring the cross-process download lock:
+        # another process may legitimately hold that lock for minutes, but it
+        # must not delay startup for callers that already have usable weights.
+        # The same condition is checked again under the lock below to preserve
+        # the missing-file download race guarantee.
+        if w.exists() or "openvino" in w.name:
+            LOGGER.info(f"[PID {os.getpid()}] Found existing ReID weights at {w}; skipping download.")
+            return
+
         w.parent.mkdir(parents=True, exist_ok=True)
 
         model_url = ReIDModelRegistry.get_model_url(w)
         # Use a temp directory for lock files to avoid "no space left" errors
         # when the local disk is full but the model already exists.
         import tempfile
+
         lock_path = Path(tempfile.gettempdir()) / (w.name + ".lock")
-        lock = SoftFileLock(str(lock_path), timeout=300)  # Wait up to 5 minutes
+        # FileLock uses an OS-level lock, so a crashed downloader releases
+        # ownership even if its marker file remains on disk.
+        lock = FileLock(str(lock_path), timeout=300)  # Wait up to 5 minutes
 
         with lock:
+            # A peer may have completed the download while this process waited
+            # for the lock, so keep the authoritative check inside the critical
+            # section as well as the lock-free startup fast path above.
             if w.exists() or "openvino" in w.name:
                 LOGGER.info(f"[PID {os.getpid()}] Found existing ReID weights at {w}; skipping download.")
                 return

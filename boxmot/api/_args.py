@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -67,6 +68,19 @@ def _explicit_api_keys(
     }
 
 
+def _normalize_optional_fps(fps: int | None) -> int | None:
+    """Validate an optional saved-video frame-rate override."""
+
+    if fps is None:
+        return None
+    if isinstance(fps, bool) or not isinstance(fps, Integral):
+        raise TypeError("fps must be a positive integer or None.")
+    resolved = int(fps)
+    if resolved <= 0:
+        raise ValueError("fps must be greater than zero.")
+    return resolved
+
+
 def build_track_args(
     api,
     *,
@@ -79,6 +93,7 @@ def build_track_args(
     save: bool = BOXMOT_DEFAULTS.track.save,
     save_txt: bool = BOXMOT_DEFAULTS.track.save_txt,
     show: bool = BOXMOT_DEFAULTS.track.show,
+    fps: int | None = None,
     verbose: bool = BOXMOT_DEFAULTS.track.verbose,
     tracker_backend: str | None = None,
 ):
@@ -106,6 +121,7 @@ def build_track_args(
             "show": bool(show),
             "save": bool(save),
             "save_txt": bool(save_txt),
+            "fps": _normalize_optional_fps(fps),
             "verbose": bool(verbose),
         },
         explicit_keys=_explicit_api_keys(api, device=device, half=half, defaults=BOXMOT_DEFAULTS.track),

@@ -449,14 +449,10 @@ def build_tracker_with_reid_spec(
 
 def resolve_output_fps(source: Any, *, fallback: float = 30.0, cv2_module=cv2) -> float:
     if isinstance(source, int) or (isinstance(source, str) and source.isdigit()):
-        cap_id = int(source) if isinstance(source, str) else source
-        capture = cv2_module.VideoCapture(cap_id)
-        try:
-            fps = capture.get(cv2_module.CAP_PROP_FPS)
-        finally:
-            capture.release()
-        if fps and fps > 0:
-            return float(fps)
+        # Opening a webcam just to query its FPS forces device negotiation,
+        # then the source loader immediately releases and reopens the same
+        # camera for tracking. Avoid that duplicate startup cost for live
+        # sources and use the documented output fallback instead.
         return fallback
     if isinstance(source, (str, Path)):
         source_str = str(source)

@@ -356,6 +356,7 @@ class BoxMOT:
         save: bool = BOXMOT_DEFAULTS.track.save,
         save_txt: bool = BOXMOT_DEFAULTS.track.save_txt,
         show: bool = BOXMOT_DEFAULTS.track.show,
+        fps: int | None = None,
         drawer=None,
         show_trajectories: bool = False,
         show_kf_preds: bool = False,
@@ -375,6 +376,7 @@ class BoxMOT:
             save=save,
             save_txt=save_txt,
             show=show,
+            fps=fps,
             verbose=verbose,
             tracker_backend=tracker_backend,
         )

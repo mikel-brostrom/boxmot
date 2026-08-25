@@ -24,6 +24,10 @@ from boxmot.engine.tracking.mot import (
     write_mot_results,
 )
 from boxmot.engine.tracking.rendering import Drawer, draw_tracks
+from boxmot.engine.tracking.setup_timing import (
+    SETUP_TIMING_COMPONENTS,
+    normalize_setup_timings_ms,
+)
 from boxmot.engine.tracking.video import append_frame
 from boxmot.engine.tracking.video import close as close_video
 from boxmot.trackers.results import TrackResults
@@ -181,9 +185,14 @@ class FrameResult:
         """Alias for plot()."""
         return self.plot()
 
-    def show(self, window_name: str = "Tracking") -> bool:
-        """Display the annotated frame. Returns False if user pressed 'q'."""
-        cv2.imshow(window_name, self.plot())
+    def show(self, window_name: str = "Tracking", rendered: np.ndarray | None = None) -> bool:
+        """Display the annotated frame. Returns False if user pressed 'q'.
+
+        Args:
+            window_name: Display window title.
+            rendered: An already-rendered frame to reuse, if available.
+        """
+        cv2.imshow(window_name, self.plot() if rendered is None else rendered)
         key = cv2.waitKey(1) & 0xFF
         should_continue = key not in (ord("q"), 27)
         if not should_continue and self._stop_session is not None:
@@ -317,6 +326,7 @@ class Results:
         self._exhausted = False
         self._interrupted = False
         self._track_ids_seen: set[int] = set()
+        self.setup_timings_ms = normalize_setup_timings_ms()
         self.totals = {
             "det": 0.0,
             "detector_preprocess": 0.0,
@@ -367,7 +377,33 @@ class Results:
             source_path = Path(source)
             if source_path.is_dir() and (source_path / "img1").is_dir():
                 source = source_path / "img1"
-        yield from iter_source(source)
+
+        if self._progress_callback is not None:
+            self._progress_callback("Opening source and waiting for the first frame...")
+
+        source_iterator = iter(iter_source(source))
+        started = time.monotonic()
+        try:
+            first_frame = next(source_iterator)
+        except StopIteration:
+            self._record_first_source_frame_time(started)
+            return
+        except BaseException:
+            self._record_first_source_frame_time(started)
+            raise
+
+        self._record_first_source_frame_time(started)
+        yield first_frame
+        yield from source_iterator
+
+    def _record_first_source_frame_time(self, started: float) -> None:
+        """Record source negotiation/read latency without replacing its iterator."""
+
+        self.setup_timings_ms["source_first_frame"] = max(
+            (time.monotonic() - started) * 1000.0,
+            0.0,
+        )
+        self.setup_timings_ms = normalize_setup_timings_ms(self.setup_timings_ms)
 
     def _log_frame_timings(self, frame_idx: int, det_ms: float, reid_ms: float, track_ms: float) -> None:
         total_ms = det_ms + reid_ms + track_ms
@@ -545,6 +581,7 @@ class Results:
             "detections": int(self.totals["detections"]),
             "tracks": int(self.totals["tracks"]),
             "unique_tracks": len(self._track_ids_seen),
+            "setup_timings_ms": normalize_setup_timings_ms(self.setup_timings_ms),
             "timings_ms": {
                 "det": float(self.totals["det"]),
                 "detector_preprocess": float(self.totals["detector_preprocess"]),
@@ -595,9 +632,24 @@ class Results:
             f"Track rows:  {summary['tracks']}",
             f"Unique IDs:  {summary.get('unique_tracks', 0)}",
             "-" * width,
+            "Startup",
+        ]
+        startup_timings = normalize_setup_timings_ms(summary.get("setup_timings_ms"))
+        startup_labels = {
+            "detector_load": "  detector load",
+            "tracker_reid_load": "  tracker/ReID load",
+            "reid_adapter": "  ReID adapter",
+            "output_prepare": "  output preparation",
+            "source_first_frame": "  first source frame",
+            "total": "  Startup total",
+        }
+        for key in (*SETUP_TIMING_COMPONENTS, "total"):
+            lines.append(f"{startup_labels[key]:<20} {startup_timings[key]:>12.1f}")
+        lines.extend([
+            "-" * width,
             f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
             "-" * width,
-        ]
+        ])
         for entry in build_timing_display_rows(
             breakdown,
             frames,

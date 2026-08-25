@@ -139,6 +139,14 @@ def test_track_accepts_tracker_backend_option(monkeypatch):
     assert captured["args"].show is True
 
 
+def test_track_rejects_non_positive_saved_video_fps():
+    result = CliRunner().invoke(boxmot, ["track", "--source", "0", "--fps", "0"])
+
+    assert result.exit_code != 0
+    assert "Invalid value for '--fps'" in result.output
+    assert "x>=1" in result.output
+
+
 def test_track_accepts_visualization_flags(monkeypatch):
     captured = {}
 

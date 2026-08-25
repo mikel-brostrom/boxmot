@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+import boxmot.engine.tracking.results as tracking_results_module
 import boxmot.engine.tracking.runtime as tracker_runtime_module
 import boxmot.engine.tracking.workflow as tracker_module
+import boxmot.engine.workflows.results as workflow_results_module
 import boxmot.utils.rich.core.ui as ui_module
 from boxmot.engine.workflows import support as workflow_support_module
 from boxmot.trackers import OccluBoost
@@ -53,6 +56,161 @@ def test_consume_run_iterates_results_and_refreshes():
     assert ("show", None) not in events
 
 
+def test_run_track_reports_setup_timings_and_progress(monkeypatch, tmp_path):
+    detector = object()
+    tracker = object()
+    details = []
+
+    class _FakePipeline:
+        def update(self, detail, step=None):
+            details.append(("update", detail, step))
+
+        def advance(self, detail=None):
+            details.append(("advance", detail, None))
+
+        @staticmethod
+        def callback():
+            return lambda _message: None
+
+        def complete_step(self):
+            details.append(("complete", None, None))
+
+        def set_detail_renderable(self, title, _renderable, **_kwargs):
+            details.append(("renderable", title, None))
+
+    monkeypatch.setattr(tracker_module, "_build_detector", lambda *args, **kwargs: detector)
+    monkeypatch.setattr(
+        tracker_module,
+        "resolve_tracker_class_metadata",
+        lambda *args, **kwargs: (None, None),
+    )
+    monkeypatch.setattr(tracker_module, "_build_tracker", lambda *args, **kwargs: tracker)
+    monkeypatch.setattr(tracker_module, "_build_reid", lambda *args, **kwargs: None)
+    counter_values = iter([0.0, 0.1, 0.1, 0.3, 0.3, 0.35, 0.35, 0.375])
+    monkeypatch.setattr(tracker_module.time, "perf_counter", lambda: next(counter_values))
+
+    result = tracker_module.run_track(
+        SimpleNamespace(
+            source="0",
+            verbose=False,
+            project=tmp_path / "runs",
+            save=False,
+            save_txt=False,
+            show=False,
+        ),
+        detector_spec="detector",
+        reid_spec="reid",
+        tracker_spec="tracker",
+        pipeline=_FakePipeline(),
+    )
+
+    expected = {
+        "detector_load": 100.0,
+        "tracker_reid_load": 200.0,
+        "reid_adapter": 50.0,
+        "output_prepare": 25.0,
+        "source_first_frame": 0.0,
+        "total": 375.0,
+    }
+    assert result.summary["setup_timings_ms"] == pytest.approx(expected)
+    assert result.setup_timings == pytest.approx(expected)
+    assert all(isinstance(value, float) for value in result.timings.values())
+    assert [detail[1] for detail in details[:5]] == [
+        "Loading detector...",
+        "Loading tracker and ReID model...",
+        "Preparing ReID inference stage...",
+        "Preparing tracking outputs...",
+        "Opening source and waiting for the first frame...",
+    ]
+    assert ("renderable", "No frames processed.", None) in details
+    rendered = ui_module.capture_renderable(result.renderable(), width=120)
+    assert "Startup total" in rendered
+    assert "First source frame" in rendered
+    setup_rendered = ui_module.capture_renderable(
+        workflow_results_module._build_tracking_startup_timing_table(result.summary),
+        width=120,
+    )
+    assert "Avg (ms)" not in setup_rendered
+    assert "FPS" not in setup_rendered
+    text_summary = result.format_summary()
+    startup_text = text_summary.split("Startup\n", 1)[1].split("Stage", 1)[0]
+    assert "Startup total" in startup_text
+    assert "FPS" not in startup_text
+
+
+def test_results_times_existing_iterator_until_first_source_frame(monkeypatch):
+    frame = np.zeros((12, 16, 3), dtype=np.uint8)
+    messages = []
+
+    class _FakeDetector:
+        def __call__(self, _frame):
+            return np.empty((0, 6), dtype=np.float32)
+
+    class _FakeTracker:
+        @staticmethod
+        def reset():
+            return None
+
+        @staticmethod
+        def update(_dets, _frame):
+            return np.empty((0, 8), dtype=np.float32)
+
+    monkeypatch.setattr(
+        tracking_results_module,
+        "iter_source",
+        lambda _source: iter([("camera", frame)]),
+    )
+    monotonic_values = iter([10.0, 10.125])
+    monkeypatch.setattr(
+        tracking_results_module.time,
+        "monotonic",
+        lambda: next(monotonic_values),
+    )
+
+    results = tracking_results_module.Results(
+        "0",
+        detector=_FakeDetector(),
+        reid=None,
+        tracker=_FakeTracker(),
+        verbose=False,
+        progress_callback=messages.append,
+    )
+    list(results)
+
+    setup = results.summary()["setup_timings_ms"]
+    assert setup["source_first_frame"] == pytest.approx(125.0)
+    assert setup["total"] == pytest.approx(125.0)
+    assert messages[0] == "Opening source and waiting for the first frame..."
+
+
+def test_results_records_source_acquisition_when_source_is_empty(monkeypatch):
+    monkeypatch.setattr(
+        tracking_results_module,
+        "iter_source",
+        lambda _source: iter(()),
+    )
+    monotonic_values = iter([20.0, 20.05])
+    monkeypatch.setattr(
+        tracking_results_module.time,
+        "monotonic",
+        lambda: next(monotonic_values),
+    )
+
+    results = tracking_results_module.Results(
+        "missing",
+        detector=object(),
+        reid=None,
+        tracker=object(),
+        verbose=False,
+    )
+
+    assert list(results) == []
+    summary = results.summary()
+    assert summary["frames"] == 0
+    assert summary["setup_timings_ms"]["source_first_frame"] == pytest.approx(50.0)
+    assert summary["setup_timings_ms"]["total"] == pytest.approx(50.0)
+
+
 def test_should_consume_result_keeps_live_and_output_sources_lazy():
     assert (
         tracker_module._should_consume_result(
@@ -84,6 +242,101 @@ def test_should_consume_result_keeps_live_and_output_sources_lazy():
         )
         is False
     )
+
+
+@pytest.mark.parametrize("source", [0, "0", "rtsp://camera/stream"])
+def test_resolve_output_fps_does_not_open_live_sources(source):
+    class _NoLiveCapture:
+        CAP_PROP_FPS = 5
+
+        @staticmethod
+        def VideoCapture(_source):
+            raise AssertionError("live source must not be opened just to resolve output FPS")
+
+    assert workflow_support_module.resolve_output_fps(source, fallback=24.0, cv2_module=_NoLiveCapture) == 24.0
+
+
+def test_run_track_reuses_saved_render_for_display_and_stops_on_quit(tmp_path, monkeypatch):
+    rendered_frame = np.full((12, 16, 3), 7, dtype=np.uint8)
+    calls = {"frames": 0, "render": 0, "show": 0, "write": 0, "release": 0, "destroy": 0}
+
+    class _FakeFrameResult:
+        def render(self):
+            calls["render"] += 1
+            return rendered_frame
+
+        def show(self, rendered=None):
+            calls["show"] += 1
+            assert rendered is rendered_frame
+            return False
+
+    class _FakeResults:
+        def __init__(self, source, detector, reid, tracker, **kwargs):
+            self.source = source
+            self.tracker = tracker
+            self.totals = {
+                "det": 0.0,
+                "reid": 0.0,
+                "track": 0.0,
+                "total": 0.0,
+                "frames": 0,
+                "detections": 0,
+                "tracks": 0,
+            }
+
+        def __iter__(self):
+            for _ in range(2):
+                calls["frames"] += 1
+                yield _FakeFrameResult()
+
+    class _FakeVideoWriter:
+        def __init__(self, path, fourcc, fps, size):
+            assert Path(path) == tmp_path / "tracks.mp4"
+            assert fourcc == 1234
+            assert fps == 24.0
+            assert size == (16, 12)
+
+        def write(self, frame):
+            assert frame is rendered_frame
+            calls["write"] += 1
+
+        def release(self):
+            calls["release"] += 1
+
+    monkeypatch.setattr(tracker_module, "Results", _FakeResults)
+    monkeypatch.setattr(tracker_module, "resolve_tracker_class_metadata", lambda *args: (None, None))
+    monkeypatch.setattr(tracker_module, "resolve_track_output_dir", lambda project, source: tmp_path)
+    monkeypatch.setattr(
+        tracker_module,
+        "resolve_output_fps",
+        lambda _source: (_ for _ in ()).throw(
+            AssertionError("explicit --fps must bypass source probing")
+        ),
+    )
+    monkeypatch.setattr(tracker_module.cv2, "VideoWriter_fourcc", lambda *args: 1234)
+    monkeypatch.setattr(tracker_module.cv2, "VideoWriter", _FakeVideoWriter)
+    monkeypatch.setattr(
+        tracker_module.cv2,
+        "destroyAllWindows",
+        lambda: calls.__setitem__("destroy", calls["destroy"] + 1),
+    )
+
+    tracker_module.run_track(
+        SimpleNamespace(
+            source="0",
+            verbose=False,
+            project=tmp_path,
+            save=True,
+            save_txt=False,
+            show=True,
+            fps=24,
+        ),
+        detector=object(),
+        reid=None,
+        tracker=object(),
+    )
+
+    assert calls == {"frames": 1, "render": 1, "show": 1, "write": 1, "release": 1, "destroy": 1}
 
 
 def test_run_track_formats_flushed_obb_gta_as_mmot(tmp_path, monkeypatch):

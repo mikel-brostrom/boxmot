@@ -1,3 +1,4 @@
+import tempfile
 from pathlib import Path
 
 import cv2
@@ -5,6 +6,8 @@ import numpy as np
 import pytest
 import torch
 
+import boxmot.reid.backends.base_backend as base_backend_module
+import boxmot.utils.download as download_module
 from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.reid.backends.openvino_backend import OpenVinoBackend
 from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
@@ -39,6 +42,129 @@ class InitOnlyBackend(BaseModelBackend):
 
     def load_model(self, w):
         self.loaded_weights = Path(w)
+
+
+class RegistryLoadingBackend(BaseModelBackend):
+    def forward(self, im_batch):
+        return self.model(im_batch)
+
+    def load_model(self, w):
+        self.checkpoint_preprocess = ReIDModelRegistry.get_checkpoint_preprocess(w)
+        self.load_report = ReIDModelRegistry.load_deployment_weights(self.model, w)
+
+
+def test_download_model_does_not_wait_for_stale_or_unavailable_lock_when_weights_exist(
+    monkeypatch,
+    tmp_path,
+):
+    weights = tmp_path / "lmbn_n_duke.pt"
+    weights.write_bytes(b"complete checkpoint")
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    stale_lock = lock_dir / f"{weights.name}.lock"
+    stale_lock.write_text("left by interrupted downloader", encoding="utf-8")
+
+    class UnavailableLock:
+        def __init__(self, *_args, **_kwargs):
+            pytest.fail("existing weights must be checked before constructing the download lock")
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(lock_dir))
+    monkeypatch.setattr(base_backend_module, "FileLock", UnavailableLock)
+    monkeypatch.setattr(
+        ReIDModelRegistry,
+        "get_model_url",
+        lambda _weights: pytest.fail("existing weights must not require catalog lookup"),
+    )
+
+    BaseModelBackend.download_model(DummyBackend(), weights)
+
+    assert stale_lock.read_text(encoding="utf-8") == "left by interrupted downloader"
+
+
+def test_download_model_rechecks_weights_after_acquiring_lock(monkeypatch, tmp_path):
+    weights = tmp_path / "lmbn_n_duke.pt"
+
+    class CompletingPeerLock:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            weights.write_bytes(b"checkpoint downloaded by peer")
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setattr(base_backend_module, "FileLock", CompletingPeerLock)
+    monkeypatch.setattr(ReIDModelRegistry, "get_model_url", lambda _weights: "https://example.test/model.pt")
+
+    BaseModelBackend.download_model(DummyBackend(), weights)
+
+    assert weights.read_bytes() == b"checkpoint downloaded by peer"
+
+
+def test_missing_weights_acquire_filelock_despite_leftover_marker(monkeypatch, tmp_path):
+    weights = tmp_path / "lmbn_n_duke.pt"
+    lock_dir = tmp_path / "locks"
+    lock_dir.mkdir()
+    lock_path = lock_dir / f"{weights.name}.lock"
+    lock_path.write_text("left by crashed downloader", encoding="utf-8")
+    downloaded = b"complete checkpoint"
+
+    def fake_download(_url, destination):
+        destination.write_bytes(downloaded)
+        return destination
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(lock_dir))
+    monkeypatch.setattr(
+        ReIDModelRegistry,
+        "get_model_url",
+        lambda _weights: "https://example.test/model.pt",
+    )
+    monkeypatch.setattr(download_module, "download_file", fake_download)
+
+    BaseModelBackend.download_model(DummyBackend(), weights)
+
+    assert weights.read_bytes() == downloaded
+
+
+def test_backend_construction_deserializes_checkpoint_once_per_scope(monkeypatch, tmp_path):
+    weights = tmp_path / "tiny_reid.pt"
+    source_model = torch.nn.Linear(2, 2)
+    torch.save(
+        {
+            "model_name": "tiny_reid",
+            "num_classes": 1,
+            "preprocess": "resize",
+            "state_dict": source_model.state_dict(),
+        },
+        weights,
+    )
+    monkeypatch.setattr(
+        ReIDModelRegistry,
+        "build_model",
+        lambda *_args, **_kwargs: torch.nn.Linear(2, 2),
+    )
+
+    original_torch_load = torch.load
+    load_calls = []
+
+    def counted_torch_load(*args, **kwargs):
+        load_calls.append(Path(args[0]))
+        return original_torch_load(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "load", counted_torch_load)
+
+    backend = RegistryLoadingBackend(weights, torch.device("cpu"), half=False)
+
+    assert backend.checkpoint_preprocess == "resize"
+    assert backend.load_report.numel_coverage == 1.0
+    assert load_calls == [weights]
+
+    # The cache is construction-scoped, not process-wide: later reads see a
+    # fresh file identity and do not retain the checkpoint tensor mapping.
+    assert ReIDModelRegistry.get_checkpoint_preprocess(weights) == "resize"
+    assert load_calls == [weights, weights]
 
 
 @pytest.mark.parametrize(

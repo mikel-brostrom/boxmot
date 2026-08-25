@@ -10,8 +10,9 @@ Use `BoxMOT` when you want the Python equivalent of the CLI with minimal boilerp
 from boxmot import BoxMOT
 
 boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-run = boxmot.track(source="video.mp4", save=True)
+run = boxmot.track(source="video.mp4", save=True, fps=30)
 print(run)
+print(run.setup_timings)
 
 cache = BoxMOT().generate(benchmark="mot17-mini")
 print(cache.cache_dir)
@@ -22,6 +23,9 @@ print(metrics)
 tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
 print(tuned)
 ```
+
+`fps` is an optional positive-integer override for saved video. Omit it to use
+the source video's frame rate; live sources use the 30 FPS fallback.
 
 Component strings have component-specific meanings: detector strings resolve model names or artifacts, ReID strings resolve model names or paths, and tracker strings resolve registered tracker algorithms. Keep component-specific settings grouped so options such as `half` and `max_age` do not become ambiguous:
 
