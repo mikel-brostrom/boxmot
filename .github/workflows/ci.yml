@@ -619,9 +619,16 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          # CI-only integration tests run in their dedicated jobs.
+          # CI-only integration tests run in their dedicated jobs. Local
+          # dataset-preparation tool tests are opt-in and excluded from CI.
           # Use the prepared CPU-only environment without an implicit uv sync.
-          .venv/bin/python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s --ignore=tests/ci tests
+          .venv/bin/python -m pytest \
+            --cov="$PACKAGE_DIR" \
+            --cov-report=html \
+            -v -s \
+            --ignore=tests/ci \
+            --ignore=tests/unit/tools \
+            tests
           .venv/bin/python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
       - name: Upload coverage report
         if: always()
