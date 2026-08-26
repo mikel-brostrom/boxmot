@@ -294,7 +294,7 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          boxmot train \
+          boxmot train-reid \
             --model mobilenetv2_x1_0 \
             --dataset market1501 \
             --data-dir assets/reid-mini \

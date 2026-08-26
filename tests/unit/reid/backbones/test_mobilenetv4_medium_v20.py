@@ -247,7 +247,7 @@ def test_medium_v20_cli_recipe_resolves_training_contract(
     )
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--recipe", recipe_name, "--data-dir", "."],
+        ["train-reid", "--recipe", recipe_name, "--data-dir", "."],
     )
 
     assert result.exit_code == 0, result.output
@@ -294,7 +294,7 @@ def test_conv_medium_v20_cli_accepts_spatial_timm_head_ablation(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "mobilenetv4_conv_medium_v20",
             "--data-dir",
@@ -332,7 +332,7 @@ def test_promoted_mobile_model_alias_selects_v20_recipe(
     )
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--model", model_name, "--data-dir", "."],
+        ["train-reid", "--model", model_name, "--data-dir", "."],
     )
 
     assert result.exit_code == 0, result.output
@@ -362,7 +362,7 @@ def test_conv_medium_v20_cli_accepts_followup_ablation_axes(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "mobilenetv4_conv_medium_v20",
             "--data-dir",

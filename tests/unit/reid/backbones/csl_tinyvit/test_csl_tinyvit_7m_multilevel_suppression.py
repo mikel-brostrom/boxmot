@@ -119,7 +119,7 @@ def test_multilevel_suppression_recipe_resolves_through_train_cli(monkeypatch) -
     )
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--recipe", RECIPE_NAME, "--data-dir", "."],
+        ["train-reid", "--recipe", RECIPE_NAME, "--data-dir", "."],
     )
 
     assert result.exit_code == 0, result.output

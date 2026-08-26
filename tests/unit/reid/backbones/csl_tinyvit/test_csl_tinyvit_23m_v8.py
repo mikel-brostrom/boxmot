@@ -164,7 +164,7 @@ def test_23m_v8_cli_recipe_resolves_training_contract(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_23m_v8",
             "--data-dir",

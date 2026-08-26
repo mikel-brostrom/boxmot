@@ -704,7 +704,10 @@ class CommandFirstGroup(click.Group):
         # Argument descriptions
         formatter.width = 120  # Increase formatter width to prevent wrapping
         with formatter.indentation():
-            formatter.write_text("Where  MODE (required) is one of [track, eval, tune, research, generate, train, export]")
+            formatter.write_text(
+                "Where  MODE (required) is one of "
+                "[track, eval, tune, research, generate, train-reid, eval-reid, compare-reid, export, build]"
+            )
             formatter.write_text("       --detector selects a YOLO model like yolov8n, yolov9c, yolo11m, yolox_x")
             formatter.write_text("       --reid selects a ReID model like osnet_x0_25_msmt17, mobilenetv2_x1_4")
             formatter.write_text(f"       --tracker selects one of [{_TRACKER_HELP}]")
@@ -754,12 +757,12 @@ class CommandFirstGroup(click.Group):
 
             formatter.write_text("6. Train a ReID model:")
             with formatter.indentation():
-                formatter.write_text("boxmot train --model osnet_x0_25 --dataset market1501 --data-dir /path/to/data --epochs 120 --device 0")
+                formatter.write_text("boxmot train-reid --model osnet_x0_25 --dataset market1501 --data-dir /path/to/data --epochs 120 --device 0")
             formatter.write_paragraph()
 
             formatter.write_text("7. Train on all person datasets jointly:")
             with formatter.indentation():
-                formatter.write_text("boxmot train --model csl_tinyvit_11m --dataset market1501,duke,cuhk03,msmt17 --data-dir /path/to/data --device 0")
+                formatter.write_text("boxmot train-reid --model csl_tinyvit_11m --dataset market1501,duke,cuhk03,msmt17 --data-dir /path/to/data --device 0")
             formatter.write_paragraph()
 
             formatter.write_text("8. Export ReID model:")
@@ -770,13 +773,16 @@ class CommandFirstGroup(click.Group):
         # Available modes
         formatter.write_text("Modes:")
         with formatter.indentation():
-            formatter.write_text("track      Track objects in video/webcam stream")
-            formatter.write_text("eval       Evaluate tracker performance on MOT dataset")
-            formatter.write_text("tune       Optimize tracker hyperparameters")
-            formatter.write_text("research   Evolve tracker code against benchmark metrics")
-            formatter.write_text("generate   Generate detections and embeddings")
-            formatter.write_text("train      Train a ReID model on a person/vehicle dataset")
-            formatter.write_text("export     Export ReID models to different formats")
+            formatter.write_text("track        Track objects in video/webcam stream")
+            formatter.write_text("eval         Evaluate tracker performance on MOT dataset")
+            formatter.write_text("tune         Optimize tracker hyperparameters")
+            formatter.write_text("research     Evolve tracker code against benchmark metrics")
+            formatter.write_text("generate     Generate detections and embeddings")
+            formatter.write_text("train-reid   Train a ReID model on a person/vehicle dataset")
+            formatter.write_text("eval-reid    Evaluate a trained ReID model on query/gallery data")
+            formatter.write_text("compare-reid Compare ReID checkpoints across target datasets")
+            formatter.write_text("export       Export ReID models to different formats")
+            formatter.write_text("build        Build native tracker extensions")
         formatter.write_paragraph()
 
         # Resources
@@ -2019,10 +2025,10 @@ def train_options(func):
     return func
 
 
-@boxmot.command(help='Train a ReID model')
+@boxmot.command(name='train-reid', help='Train a ReID model')
 @train_options
 @click.pass_context
-def train(ctx, **kwargs):
+def train_reid(ctx, **kwargs):
     args = _build_cli_namespace(ctx, "train", kwargs)
     from boxmot.engine.reid.data import resolve_reid_train_data
 

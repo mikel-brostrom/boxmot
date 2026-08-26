@@ -232,7 +232,7 @@ def test_cli_propagates_jpm_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_7m_v20",
             "--data-dir",

@@ -83,7 +83,7 @@ def test_11m_v20_pose_teacher_cli_selects_dedicated_policy(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             RECIPE_NAME,
             "--data-dir",

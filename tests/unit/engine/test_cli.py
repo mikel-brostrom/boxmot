@@ -267,7 +267,7 @@ def test_train_preserves_explicit_hparam_keys(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--model",
@@ -317,7 +317,7 @@ def test_train_accepts_boxmot_training_cfg(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(boxmot, ["train", "--cfg", str(train_cfg), "--epochs", "3"])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--cfg", str(train_cfg), "--epochs", "3"])
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -346,7 +346,7 @@ def test_train_accepts_anatomical_branch_distillation_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--anatomical-auxiliary",
@@ -389,7 +389,7 @@ def test_train_accepts_pose_semantic_teacher_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--anatomical-auxiliary",
@@ -431,7 +431,7 @@ def test_train_accepts_anatomical_deployment_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--anatomical-auxiliary",
@@ -485,7 +485,7 @@ def test_train_accepts_reid_data_yaml_list(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--data", str(market_yaml), "--data", str(duke_yaml), "--epochs", "1"],
+        ["train-reid", "--data", str(market_yaml), "--data", str(duke_yaml), "--epochs", "1"],
     )
 
     assert result.exit_code == 0, result.output
@@ -524,7 +524,7 @@ def test_train_data_yaml_runs_download_script(monkeypatch, tmp_path):
         encoding="utf-8",
     )
 
-    result = CliRunner().invoke(boxmot, ["train", "--data", str(market_yaml), "--epochs", "1"])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--data", str(market_yaml), "--epochs", "1"])
 
     assert result.exit_code == 0, result.output
     assert market_root.exists()
@@ -542,7 +542,7 @@ def test_train_accepts_reid_data_names_with_data_dir(monkeypatch, tmp_path):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--data", "market1501", "--data", "duke", "--data-dir", str(tmp_path)],
+        ["train-reid", "--data", "market1501", "--data", "duke", "--data-dir", str(tmp_path)],
     )
 
     assert result.exit_code == 0, result.output
@@ -565,7 +565,7 @@ def test_train_accepts_global_seed_and_deterministic_flags(monkeypatch):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--data-dir", ".", "--seed", "123", "--no-deterministic"],
+        ["train-reid", "--data-dir", ".", "--seed", "123", "--no-deterministic"],
     )
 
     assert result.exit_code == 0, result.output
@@ -586,7 +586,7 @@ def test_train_accepts_composed_head_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--head-type",
@@ -616,7 +616,7 @@ def test_train_accepts_head_and_branch_toggles(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--inference-feature",
@@ -765,7 +765,7 @@ def test_train_accepts_pafpn_feature_fusion(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--feature-fusion",
@@ -808,7 +808,7 @@ def test_train_accepts_stage1_ablation_feature_fusions(monkeypatch):
     )
 
     for mode in modes:
-        result = CliRunner().invoke(boxmot, ["train", "--data-dir", ".", "--feature-fusion", mode])
+        result = CliRunner().invoke(boxmot, ["train-reid", "--data-dir", ".", "--feature-fusion", mode])
         assert result.exit_code == 0, result.output
         assert captured["args"].feature_fusion == mode
 
@@ -824,7 +824,7 @@ def test_train_accepts_gradual_unfreeze_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--backbone-freeze-epochs",
@@ -870,7 +870,7 @@ def test_train_accepts_loss_ablation_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--loss",
@@ -943,7 +943,7 @@ def test_train_accepts_weighted_regularized_triplet(monkeypatch):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--data-dir", ".", "--loss", "wrt"],
+        ["train-reid", "--data-dir", ".", "--loss", "wrt"],
     )
 
     assert result.exit_code == 0, result.output
@@ -962,7 +962,7 @@ def test_train_recipe_values_apply_but_cli_flags_win(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_23m",
             "--data-dir",
@@ -1081,7 +1081,7 @@ def test_train_accepts_scale_balanced_branch_training_and_retrieval(monkeypatch)
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--model",
@@ -1113,7 +1113,7 @@ def test_train_recipe_can_supply_data_dir(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_23m"])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--recipe", "csl_tinyvit_23m"])
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -1146,7 +1146,7 @@ def test_train_can_disable_recipe_flip_tta(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_11m", "--no-flip-tta"])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--recipe", "csl_tinyvit_11m", "--no-flip-tta"])
 
     assert result.exit_code == 0, result.output
     assert captured["args"].flip_tta is False
@@ -1209,7 +1209,7 @@ def test_train_mobilenetv4_recipes_use_mobile_safe_baselines(monkeypatch):
     }
 
     for recipe, expected in cases.items():
-        result = CliRunner().invoke(boxmot, ["train", "--recipe", recipe, "--data-dir", "."])
+        result = CliRunner().invoke(boxmot, ["train-reid", "--recipe", recipe, "--data-dir", "."])
 
         assert result.exit_code == 0, result.output
         args = captured["args"]
@@ -1269,7 +1269,7 @@ def test_train_mobilenetv4_a11k_recipe_transfers_scale_balanced_procedure(monkey
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--recipe", "mobilenetv4_conv_small_a11k", "--data-dir", "."],
+        ["train-reid", "--recipe", "mobilenetv4_conv_small_a11k", "--data-dir", "."],
     )
 
     assert result.exit_code == 0, result.output
@@ -1305,7 +1305,7 @@ def test_train_accepts_csl_tinyvit_speed_architecture_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--attention-window-layout",
@@ -1365,7 +1365,7 @@ def test_train_accepts_reid_x_register_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--no-width-first-hierarchy",
@@ -1430,7 +1430,7 @@ def test_train_accepts_pretrained_attention_bias_interpolation(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--attention-window-layout",
@@ -1453,7 +1453,7 @@ def test_train_accepts_width_merge_and_compact_distillation_options(monkeypatch)
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--stage2-width-merge-after",
@@ -1631,7 +1631,7 @@ def test_train_accepts_multiscale_channel_head_options(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--data-dir",
             ".",
             "--head-type",
@@ -1657,7 +1657,7 @@ def test_train_short_run_caps_inherited_backbone_freeze(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--model",
             "mobilenetv2_x1_0",
             "--data-dir",
@@ -1685,7 +1685,7 @@ def test_train_short_run_preserves_explicit_backbone_freeze(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--model",
             "mobilenetv2_x1_0",
             "--data-dir",
@@ -1711,7 +1711,7 @@ def test_train_csl_tinyvit_7m_recipe_keeps_small_model(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_7m", "--data-dir", "."])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--recipe", "csl_tinyvit_7m", "--data-dir", "."])
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -1744,7 +1744,7 @@ def test_train_default_model_is_csl_tinyvit_11m(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["train", "--data-dir", "."])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--data-dir", "."])
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -1800,7 +1800,7 @@ def test_train_csl_tinyvit_11m_recipe_is_normal_model(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "boxmot.engine.reid.trainer", SimpleNamespace(main=fake_main))
 
-    result = CliRunner().invoke(boxmot, ["train", "--recipe", "csl_tinyvit_11m", "--data-dir", "."])
+    result = CliRunner().invoke(boxmot, ["train-reid", "--recipe", "csl_tinyvit_11m", "--data-dir", "."])
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
@@ -1849,7 +1849,7 @@ def test_train_explicit_11m_v20_model_uses_canonical_recipe(monkeypatch):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--model", "csl_tinyvit_11m_v20", "--data-dir", "."],
+        ["train-reid", "--model", "csl_tinyvit_11m_v20", "--data-dir", "."],
     )
 
     assert result.exit_code == 0, result.output
@@ -1870,7 +1870,7 @@ def test_train_accepts_csl_tinyvit_23m_lmbn_model(monkeypatch):
 
     result = CliRunner().invoke(
         boxmot,
-        ["train", "--data-dir", ".", "--model", "csl_tinyvit_23m_lmbn"],
+        ["train-reid", "--data-dir", ".", "--model", "csl_tinyvit_23m_lmbn"],
     )
 
     assert result.exit_code == 0, result.output
@@ -2227,8 +2227,8 @@ def test_track_help_lists_current_component_options():
     assert "botsort, bytetrack, occluboost, ocsort, and sfsort" in normalized_help
 
 
-def test_train_help_describes_identity_only_retrieval_labels():
-    result = CliRunner().invoke(boxmot, ["train", "--help"])
+def test_train_reid_help_describes_identity_only_retrieval_labels():
+    result = CliRunner().invoke(boxmot, ["train-reid", "--help"])
 
     assert result.exit_code == 0, result.output
     normalized_help = " ".join(result.output.split())
@@ -2237,10 +2237,18 @@ def test_train_help_describes_identity_only_retrieval_labels():
     assert "Different-identity hard negatives" in normalized_help
 
 
-def test_root_help_lists_research_mode():
+def test_train_command_is_not_registered_as_a_legacy_alias():
+    result = CliRunner().invoke(boxmot, ["train", "--help"])
+
+    assert result.exit_code != 0
+    assert "No such command 'train'" in result.output
+
+
+def test_root_help_lists_registered_modes():
     result = CliRunner().invoke(boxmot, ["--help"])
     assert result.exit_code == 0, result.output
-    assert "research" in result.output
+    for command_name in boxmot.commands:
+        assert command_name in result.output
     assert (
         "boxmot research --experiment mot17-ablation-yolox-lmbn --tracker bytetrack "
         "--proposal-model openai/gpt-5.4"

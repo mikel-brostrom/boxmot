@@ -150,7 +150,7 @@ def test_hi_afa_lite_recipe_resolves_through_train_cli(monkeypatch) -> None:
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_7m_hi_afa_lite",
             "--data-dir",

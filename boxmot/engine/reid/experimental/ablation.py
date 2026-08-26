@@ -62,12 +62,12 @@ def _strip_remainder_separator(arguments: Sequence[str]) -> list[str]:
 
 
 def resolve_ablation_spec(arguments: Sequence[str]) -> AblationSpec:
-    """Resolve train CLI arguments exactly as the public command does."""
+    """Resolve ``train-reid`` CLI arguments exactly as the public command does."""
     train_args = _strip_remainder_separator(arguments)
-    command = boxmot.get_command(click.Context(boxmot), "train")
+    command = boxmot.get_command(click.Context(boxmot), "train-reid")
     if command is None:
-        raise RuntimeError("The BoxMOT train command is not registered")
-    context = command.make_context("train", train_args)
+        raise RuntimeError("The BoxMOT train-reid command is not registered")
+    context = command.make_context("train-reid", train_args)
     explicit_keys = {
         parameter.name
         for parameter in command.params

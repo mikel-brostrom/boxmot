@@ -1,6 +1,6 @@
 """Engine entry point for ReID model training.
 
-Invoked by the CLI ``train`` subcommand via ``main(args)``.
+Invoked by the CLI ``train-reid`` subcommand via ``main(args)``.
 """
 
 from __future__ import annotations

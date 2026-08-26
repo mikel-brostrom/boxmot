@@ -117,7 +117,7 @@ def test_7m_v20_model_selection_resolves_promoted_training_contract(
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--model",
             "csl_tinyvit_7m_v20",
             "--anatomical-metadata-dir",

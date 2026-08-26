@@ -642,7 +642,7 @@ def test_mcpt_cli_recipe_resolves_rgb_only_treatment(monkeypatch):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_7m_v20",
             "--data-dir",
@@ -679,7 +679,7 @@ def test_mcpt_cli_11m_market_recipe_reaches_trainer(monkeypatch, tmp_path):
     result = CliRunner().invoke(
         boxmot,
         [
-            "train",
+            "train-reid",
             "--recipe",
             "csl_tinyvit_11m",
             "--model",

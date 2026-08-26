@@ -6,7 +6,7 @@
 # augmentation stabilise multi-branch training without overfitting.
 #
 # Usage:
-#   uv run python -m boxmot.engine.cli train \
+#   uv run python -m boxmot.engine.cli train-reid \
 #     --recipe lmbn_n \
 #     --data-dir ./Market-1501-v15.09.15 \
 #     --device mps
