@@ -855,9 +855,10 @@ def test_boxmot_track_reuses_tracker_reid_backend_and_suppresses_setup_logs(monk
     assert len(output) == 1
     assert suppress_calls == [(True, "WARNING")]
     assert len(fake_tracker.model.calls) == 1
+    # Backend inference receives canonical geometry, without detection metadata.
     np.testing.assert_array_equal(
         fake_tracker.model.calls[0],
-        np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32),
+        np.array([[1, 2, 10, 12]], dtype=np.float32),
     )
     assert len(fake_tracker.embeddings) == 1
     np.testing.assert_array_equal(
