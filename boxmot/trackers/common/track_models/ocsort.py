@@ -162,6 +162,7 @@ class KalmanBoxTracker(SortBoxTrack):
         self.velocity = None
         self.delta_t = delta_t
         self._plot_angle = None
+        self._append_current_history()
         self._sync_initial_sort_meta()
 
     def _state_obb_for_plot(self) -> np.ndarray:
@@ -169,6 +170,11 @@ class KalmanBoxTracker(SortBoxTrack):
         box = self.motion_model.to_box(self.kf.x)[0].astype(np.float32)
         corners, self._plot_angle = smooth_obb_corners(box, self._plot_angle)
         return corners
+
+    def _append_current_history(self) -> None:
+        """Append corrected display geometry using the shared 4/8-value contract."""
+        geometry = self._state_obb_for_plot() if self.is_obb else self.get_state()[0, :4]
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
 
     def update(self, bbox, cls, det_ind):
         """
@@ -207,10 +213,9 @@ class KalmanBoxTracker(SortBoxTrack):
             self.hit_streak += 1
             if self.is_obb:
                 self.kf.update(self.motion_model.to_measurement(bbox[:5]))
-                self.history_observations.append(self._state_obb_for_plot())
             else:
                 self.kf.update(self.motion_model.to_measurement(bbox))
-                self.history_observations.append(bbox.copy())
+            self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
             self.kf.update(bbox)
@@ -292,14 +297,6 @@ class KalmanBoxTracker(SortBoxTrack):
                 maxlen=saved["history_obs"].maxlen,
             )
             saved["last_measurement"] = warp_measurement(saved["last_measurement"])
-
-        self.history_observations = deque(
-            (
-                transform_points(np.asarray(corners).reshape(-1, 2), transform).reshape(-1).astype(np.float32)
-                for corners in self.history_observations
-            ),
-            maxlen=self.history_observations.maxlen,
-        )
 
     def _transform_cached_velocity(self, transform: np.ndarray, source_center: np.ndarray) -> None:
         """Rotate and normalize the cached ``[dy, dx]`` association direction."""

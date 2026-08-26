@@ -6,8 +6,9 @@ import numpy as np
 
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
-from boxmot.trackers.common.geometry import xyxy2xywh
+from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.common.geometry.obb import (
+    transform_aabb_kalman_state,
     transform_obb_kalman_state,
     xywha_to_corners,
 )
@@ -118,15 +119,17 @@ class STrack(BaseTrack):
             return
         if getattr(stracks[0], "is_obb", False):
             return
-        R = H[:2, :2]
-        R8x8 = np.kron(np.eye(4), R)
-        t = H[:2, 2]
-
         for st in stracks:
-            mean = R8x8.dot(st.mean)
-            mean[:2] += t
-            st.mean = mean
-            st.covariance = R8x8.dot(st.covariance).dot(R8x8.T)
+            if st.mean is None or st.covariance is None:
+                continue
+            st.mean, st.covariance = transform_aabb_kalman_state(
+                st.mean,
+                st.covariance,
+                H,
+                measurement_to_box=lambda values: xywh2xyxy(values[:4]),
+                box_to_measurement=lambda box: xyxy2xywh(box[:4]),
+                velocity_measurement_indices=(0, 1, 2, 3),
+            )
 
     @staticmethod
     def _warp_points(points: np.ndarray, H: np.ndarray) -> np.ndarray:

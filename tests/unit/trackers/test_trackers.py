@@ -13,11 +13,17 @@ from boxmot.trackers.bbox.botsort import BotSort
 from boxmot.trackers.bbox.bytetrack import ByteTrack
 from boxmot.trackers.bbox.deepocsort import DeepOcSort
 from boxmot.trackers.bbox.hybridsort import HybridSort
+from boxmot.trackers.bbox.occluboost import OccluBoost
 from boxmot.trackers.bbox.ocsort import OcSort
 from boxmot.trackers.bbox.sfsort import SFSORT
 from boxmot.trackers.bbox.strongsort import StrongSort
 from boxmot.trackers.common.association.matching import iou_distance
-from boxmot.trackers.common.geometry.obb import normalize_angle
+from boxmot.trackers.common.geometry.obb import (
+    normalize_angle,
+    transform_aabb,
+    transform_obb,
+    xywha_to_xyxy,
+)
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker as BoostTrackKalmanBoxTracker
 from boxmot.trackers.common.track_models.botsort import STrack as BotSortTrack
 from boxmot.trackers.common.track_models.bytetrack import STrack as ByteTrackTrack
@@ -27,6 +33,7 @@ from boxmot.trackers.common.track_models.deepocsort import (
 from boxmot.trackers.common.track_models.deepocsort import (
     KalmanBoxTracker as DeepOCSortKalmanBoxTracker,
 )
+from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker as HybridSortKalmanBoxTracker
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.config import load_tracker_defaults
@@ -134,9 +141,7 @@ def test_hybridsort_config_covers_constructor_params_and_conditionals():
         "low_thresh",
         "TCM_byte_step",
     }
-    assert set(tuning_config["use_byte"]["activates"]["TCM_byte_step"]["activates"]) == {
-        "TCM_byte_step_weight"
-    }
+    assert set(tuning_config["use_byte"]["activates"]["TCM_byte_step"]["activates"]) == {"TCM_byte_step_weight"}
     assert set(tuning_config["TCM_first_step"]["activates"]) == {"inertia"}
     with_reid_children = tuning_config["with_reid"]["activates"]
     assert set(with_reid_children) == {
@@ -601,7 +606,7 @@ def test_botsort_obb_cmc_preserves_oriented_detection_boxes():
     np.testing.assert_allclose(tracker.cmc.calls[0][0], det[0, :5], atol=1e-4)
 
 
-def test_botsort_obb_cmc_warps_track_state():
+def test_botsort_obb_cmc_warps_track_state_without_rewriting_display_history():
     det = np.array([320, 240, 80, 40, 0.15, 0.95, 0, 0], dtype=np.float32)
     track = BotSortTrack(
         det,
@@ -611,13 +616,70 @@ def test_botsort_obb_cmc_warps_track_state():
     )
     track.activate(KalmanFilterXYWH(ndim=5), frame_id=1)
 
-    BotSortTrack.multi_gmc_obb(
-        [track],
-        np.array([[1.0, 0.0, 12.0], [0.0, 1.0, -6.0]], dtype=np.float32),
-    )
+    warp = np.array([[0.0, -1.0, 500.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+    expected = transform_obb(det[:5], warp)
+    old_covariance = track.covariance.copy()
+    old_history = np.asarray(track.history_observations[-1]).reshape(4, 2)
 
-    np.testing.assert_allclose(track.xywha[:2], np.array([332.0, 234.0], dtype=np.float32), atol=1e-4)
-    np.testing.assert_allclose(track.xywha[2:], det[2:5], atol=1e-4)
+    BotSortTrack.multi_gmc_obb([track], warp)
+
+    np.testing.assert_allclose(track.xywha, expected, atol=1e-4)
+    np.testing.assert_array_equal(np.asarray(track.history_observations[-1]).reshape(4, 2), old_history)
+    assert not np.allclose(track.covariance, old_covariance)
+
+
+def test_botsort_aabb_cmc_rotation_preserves_display_history():
+    detection = np.array([10, 20, 30, 50, 0.95, 0, 0], dtype=np.float32)
+    track = BotSortTrack(
+        detection,
+        max_obs=10,
+        is_obb=False,
+        id_allocator=TrackIdAllocator(),
+    )
+    track.activate(KalmanFilterXYWH(), frame_id=1)
+    warp = np.array([[0.0, -1.0, 100.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+    expected = transform_aabb(detection[:4], warp)[:4]
+    old_covariance = track.covariance.copy()
+    old_history = track.history_observations[-1].copy()
+
+    BotSortTrack.multi_gmc([track], warp)
+
+    np.testing.assert_allclose(track.xyxy, expected, atol=1e-4)
+    np.testing.assert_array_equal(track.history_observations[-1], old_history)
+    assert not np.allclose(track.covariance, old_covariance)
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: BotSort(reid_model=None, with_reid=False, use_cmc=False, min_hits=1),
+        lambda: StrongSort(reid_model=None, n_init=1, min_hits=1),
+        lambda: DeepOcSort(
+            reid_model=None,
+            embedding_off=True,
+            cmc_off=False,
+            min_hits=1,
+            det_thresh=0.1,
+        ),
+        lambda: HybridSort(reid_model=None, with_reid=False, min_hits=1),
+    ),
+)
+def test_aabb_cmc_rotation_preserves_geometry_and_track_id(factory):
+    tracker = factory()
+    warp = np.array([[0.0, -1.0, 100.0], [1.0, 0.0, 0.0]], dtype=np.float32)
+    tracker.cmc = DummyCMC(warp)
+    image = np.zeros((128, 128, 3), dtype=np.uint8)
+    first_detection = np.array([[10, 20, 30, 50, 0.95, 0]], dtype=np.float32)
+    second_detection = first_detection.copy()
+    second_detection[0, :4] = transform_aabb(first_detection[0, :4], warp)[:4]
+    embeddings = np.ones((1, 4), dtype=np.float32)
+
+    first = tracker.update(first_detection, image, embeddings)
+    second = tracker.update(second_detection, image, embeddings)
+
+    assert first.shape == second.shape == (1, 8)
+    assert first[0, 4] == second[0, 4]
+    np.testing.assert_allclose(second[0, :4], second_detection[0, :4], atol=0.15)
 
 
 def test_botsort_obb_state_history_follows_rotation_without_flips():
@@ -1055,12 +1117,6 @@ def test_create_tracker_invalid_tracker_name():
         )
 
 
-# ---------------- OccluBoost OBB tests ----------------
-
-from boxmot.trackers.bbox.occluboost import OccluBoost  # noqa: E402
-from boxmot.trackers.common.geometry.obb import transform_obb, xywha_to_xyxy  # noqa: E402
-
-
 @pytest.mark.parametrize(
     ("tracker_cls", "kwargs"),
     [
@@ -1133,7 +1189,7 @@ def test_strongsort_advances_cmc_on_initialization_and_trackless_frames():
     assert tracker.cmc.calls[1].shape == (0, 4)
 
 
-def test_strongsort_first_obb_history_is_displayable_and_camera_aligned():
+def test_strongsort_cmc_preserves_display_history():
     tracker = StrongSort(reid_model=RecordingReID(), n_init=1, min_hits=1)
     tracker.cmc = DummyCMC()
     image = np.zeros((96, 96, 3), dtype=np.uint8)
@@ -1141,12 +1197,14 @@ def test_strongsort_first_obb_history_is_displayable_and_camera_aligned():
     tracker.update(detection, image)
     track = tracker.tracks[0]
     before = np.asarray(track.history_observations[-1]).reshape(4, 2).mean(axis=0)
+    state_before = track.xywha[:2].copy()
 
     track.camera_update(np.array([[1, 0, 7], [0, 1, -4]], dtype=np.float32))
     after = np.asarray(track.history_observations[-1]).reshape(4, 2).mean(axis=0)
 
     assert tracker.get_track_box_for_display(track, "confirmed") is not None
-    np.testing.assert_allclose(after, before + np.array([7, -4]), atol=1e-4)
+    np.testing.assert_allclose(track.xywha[:2], state_before + np.array([7, -4]), atol=1e-4)
+    np.testing.assert_array_equal(after, before)
 
 
 @pytest.mark.parametrize(
@@ -1197,6 +1255,7 @@ def test_ocsort_obb_cmc_warps_aliased_observation_once_and_rotates_velocity():
     track.last_observation = shared_observation
     track.observations = {track.age: shared_observation}
     track.velocity = np.array([0.0, 1.0], dtype=np.float64)
+    history_before = [observation.copy() for observation in track.history_observations]
     warp = np.array([[0.0, -1.0, 8.0], [1.0, 0.0, -3.0]], dtype=np.float32)
     expected = transform_obb(detection[:5], warp)
 
@@ -1205,6 +1264,8 @@ def test_ocsort_obb_cmc_warps_aliased_observation_once_and_rotates_velocity():
     np.testing.assert_allclose(track.last_observation[:5], expected, atol=1e-4)
     np.testing.assert_allclose(track.observations[track.age][:5], expected, atol=1e-4)
     np.testing.assert_allclose(track.velocity, np.array([1.0, 0.0]), atol=1e-6)
+    for observation, previous in zip(track.history_observations, history_before):
+        np.testing.assert_array_equal(observation, previous)
 
 
 def test_deepocsort_obb_cmc_warps_aliased_observation_once_and_rotates_velocity():
@@ -1223,6 +1284,7 @@ def test_deepocsort_obb_cmc_warps_aliased_observation_once_and_rotates_velocity(
     track.last_observation = shared_observation
     track.observations = {track.age: shared_observation}
     track.velocity = np.array([0.0, 1.0], dtype=np.float64)
+    history_before = [observation.copy() for observation in track.history_observations]
     warp = np.array([[0.0, -1.0, 8.0], [1.0, 0.0, -3.0]], dtype=np.float32)
     expected = transform_obb(detection[:5], warp)
 
@@ -1231,6 +1293,83 @@ def test_deepocsort_obb_cmc_warps_aliased_observation_once_and_rotates_velocity(
     np.testing.assert_allclose(track.last_observation[:5], expected, atol=1e-4)
     np.testing.assert_allclose(track.observations[track.age][:5], expected, atol=1e-4)
     np.testing.assert_allclose(track.velocity, np.array([1.0, 0.0]), atol=1e-6)
+    for observation, previous in zip(track.history_observations, history_before):
+        np.testing.assert_array_equal(observation, previous)
+
+
+def test_deepocsort_aabb_cmc_does_not_rewrite_display_history():
+    detection = np.array([10, 20, 30, 50, 0.95, 0, 0], dtype=np.float32)
+    track = DeepOCSortKalmanBoxTracker(detection, id_allocator=TrackIdAllocator())
+    history_before = [observation.copy() for observation in track.history_observations]
+
+    track.apply_affine_correction(np.array([[1.0, 0.0, 8.0], [0.0, 1.0, -3.0]], dtype=np.float32))
+
+    for observation, previous in zip(track.history_observations, history_before):
+        np.testing.assert_array_equal(observation, previous)
+
+
+def test_hybridsort_aabb_cmc_does_not_rewrite_display_history():
+    detection = np.array([10, 20, 30, 50, 0.95], dtype=np.float32)
+    track = HybridSortKalmanBoxTracker(
+        detection,
+        np.ones(4, dtype=np.float32),
+        id_allocator=TrackIdAllocator(),
+    )
+    history_before = [observation.copy() for observation in track.history_observations]
+
+    track.camera_update(np.array([[1.0, 0.0, 8.0], [0.0, 1.0, -3.0]], dtype=np.float32))
+
+    for observation, previous in zip(track.history_observations, history_before):
+        np.testing.assert_array_equal(observation, previous)
+
+
+@pytest.mark.parametrize(
+    "warp",
+    (
+        np.array([[1.0, 0.1, 8.0], [-0.05, 1.0, -3.0]], dtype=np.float32),
+        np.array([[1.0, 0.1, 8.0], [-0.05, 1.0, -3.0], [0.0, 0.0, 1.0]], dtype=np.float32),
+    ),
+)
+def test_boosttrack_aabb_cmc_preserves_tuned_measurement_mean_update(warp):
+    detection = np.array([10, 20, 30, 50, 0.95, 0, 0], dtype=np.float32)
+    track = BoostTrackKalmanBoxTracker(
+        detection,
+        max_obs=10,
+        is_obb=False,
+        id_allocator=TrackIdAllocator(),
+    )
+    track.kf.x[4:] = np.array([2.0, -3.0, 4.0, 0.1])
+    old_velocity = track.kf.x[4:].copy()
+    old_covariance = track.kf.covariance.copy()
+
+    track.camera_update(warp)
+
+    np.testing.assert_allclose(track.kf.x[:4], np.array([31.5, 31.0, 29.0, 23.0 / 29.0]), atol=1e-6)
+    np.testing.assert_array_equal(track.kf.x[4:], old_velocity)
+    np.testing.assert_array_equal(track.kf.covariance, old_covariance)
+
+
+@pytest.mark.parametrize(
+    ("detection", "is_obb"),
+    (
+        (np.array([10, 20, 30, 50, 0.95, 0, 0], dtype=np.float32), False),
+        (np.array([50, 55, 36, 14, 0.35, 0.95, 0, 0], dtype=np.float32), True),
+    ),
+)
+def test_boosttrack_cmc_does_not_rewrite_display_history(detection, is_obb):
+    track = BoostTrackKalmanBoxTracker(
+        detection,
+        max_obs=10,
+        is_obb=is_obb,
+        id_allocator=TrackIdAllocator(),
+    )
+    history_before = [observation.copy() for observation in track.history_observations]
+
+    track.camera_update(np.array([[1.0, 0.0, 8.0], [0.0, 1.0, -3.0]], dtype=np.float32))
+
+    assert len(track.history_observations) == len(history_before)
+    for observation, expected in zip(track.history_observations, history_before):
+        np.testing.assert_array_equal(observation, expected)
 
 
 def test_boosttrack_obb_cmc_transforms_state_velocity_and_covariance():

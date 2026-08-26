@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from collections import deque
 
-import cv2
 import numpy as np
 
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
@@ -13,8 +12,11 @@ from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
 from boxmot.trackers.common.geometry.obb import (
     smooth_obb_corners,
+    transform_aabb,
+    transform_aabb_kalman_state,
     transform_obb_kalman_state,
 )
+from boxmot.trackers.common.motion import xyah_state_to_xyxy, xyxy_to_xyah_measurement
 
 __all__ = ("Track", "TrackState")
 
@@ -46,6 +48,7 @@ class Track:
         id,
         n_init,
         max_age,
+        max_obs,
         ema_alpha,
         is_obb=False,
     ):
@@ -76,7 +79,7 @@ class Track:
 
         self.kf = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         self.mean, self.covariance = self.kf.initiate(self.bbox)
-        self.history_observations = deque(maxlen=max_age)
+        self.history_observations = deque(maxlen=max(1, int(max_obs)))
         self._plot_angle = None
         self._append_current_history()
 
@@ -109,18 +112,16 @@ class Track:
                 box_to_measurement=lambda box: box,
                 velocity_measurement_indices=(0, 1, 2, 3, 4),
             )
-            self._warp_history(warp_matrix)
             return
-        [a, b] = warp_matrix
-        warp_matrix = np.array([a, b, [0, 0, 1]])
-        warp_matrix = warp_matrix.tolist()
-        x1, y1, x2, y2 = self.to_tlbr()
-        x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
-        x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
-        w, h = x2_ - x1_, y2_ - y1_
-        cx, cy = x1_ + w / 2, y1_ + h / 2
-        self.mean[:4] = [cx, cy, w / h, h]
-        self._warp_history(warp_matrix)
+        self.mean, self.covariance = transform_aabb_kalman_state(
+            self.mean,
+            self.covariance,
+            warp_matrix,
+            measurement_to_box=lambda values: xyah_state_to_xyxy(values)[0],
+            box_to_measurement=xyxy_to_xyah_measurement,
+            velocity_measurement_indices=(0, 1, 2, 3),
+        )
+        self.bbox = xyxy_to_xyah_measurement(transform_aabb(xyah_state_to_xyxy(self.bbox)[0], warp_matrix))
 
     def _append_current_history(self) -> None:
         if self.is_obb:
@@ -128,45 +129,6 @@ class Track:
         else:
             geometry = self.to_tlbr()
         self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
-
-    def _warp_history(self, warp_matrix: np.ndarray) -> None:
-        """Express stored display trajectories in the current camera frame."""
-        matrix = np.asarray(warp_matrix, dtype=np.float32)
-        warped = deque(maxlen=self.history_observations.maxlen)
-        for observation in self.history_observations:
-            values = np.asarray(observation, dtype=np.float32)
-            if values.size == 8:
-                points = values.reshape(4, 1, 2)
-                transformed = (
-                    cv2.transform(points, matrix)
-                    if matrix.shape == (2, 3)
-                    else cv2.perspectiveTransform(points, matrix)
-                )
-                warped.append(transformed.reshape(8))
-                continue
-
-            x1, y1, x2, y2 = values[:4]
-            points = np.array(
-                [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-                dtype=np.float32,
-            ).reshape(4, 1, 2)
-            transformed = (
-                cv2.transform(points, matrix)
-                if matrix.shape == (2, 3)
-                else cv2.perspectiveTransform(points, matrix)
-            ).reshape(4, 2)
-            warped.append(
-                np.array(
-                    [
-                        transformed[:, 0].min(),
-                        transformed[:, 1].min(),
-                        transformed[:, 0].max(),
-                        transformed[:, 1].max(),
-                    ],
-                    dtype=np.float32,
-                )
-            )
-        self.history_observations = warped
 
     def increment_age(self):
         self.age += 1

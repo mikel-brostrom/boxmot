@@ -164,6 +164,102 @@ def transform_points(points: np.ndarray, transform: np.ndarray) -> np.ndarray:
     return warped[:, :2] / denominator[:, None]
 
 
+def transform_aabb(box: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """Warp all four AABB corners and return their enclosing ``xyxy`` box.
+
+    Any trailing row metadata is copied unchanged. Transforming all corners is
+    required for rotations, shear, and projective camera motion; transforming
+    only the two diagonal points can invert or collapse the result.
+    """
+    values = np.asarray(box, dtype=np.float64).reshape(-1)
+    if values.size < 4:
+        raise ValueError(f"AABB geometry requires at least four values, got {values.size}.")
+    x1, y1, x2, y2 = values[:4]
+    corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float64)
+    warped = transform_points(corners, transform)
+    result = values.copy()
+    result[:4] = (
+        warped[:, 0].min(),
+        warped[:, 1].min(),
+        warped[:, 0].max(),
+        warped[:, 1].max(),
+    )
+    return result
+
+
+def transform_aabb_kalman_state(
+    mean: np.ndarray,
+    covariance: np.ndarray,
+    transform: np.ndarray,
+    *,
+    measurement_to_box: Callable[[np.ndarray], np.ndarray],
+    box_to_measurement: Callable[[np.ndarray], np.ndarray],
+    velocity_measurement_indices: Sequence[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Transform an AABB Kalman state and covariance through camera motion.
+
+    The first four state values are the motion model's measurement state. The
+    remaining values are velocities corresponding to
+    ``velocity_measurement_indices``. A numerical Jacobian carries nonlinear
+    width, height, area, and aspect-ratio representations consistently through
+    rotations, anisotropic scale, shear, and homographies.
+    """
+    original_mean = np.asarray(mean, dtype=np.float64)
+    state = original_mean.reshape(-1).copy()
+    covariance_arr = np.asarray(covariance, dtype=np.float64)
+    if state.size < 4:
+        raise ValueError("AABB Kalman state must contain at least four measurement values.")
+    if covariance_arr.shape != (state.size, state.size):
+        raise ValueError(f"Expected covariance shape {(state.size, state.size)}, got {covariance_arr.shape}.")
+
+    transform_arr = np.asarray(transform, dtype=np.float64)
+    identity = np.eye(3, dtype=np.float64)
+    if transform_arr.shape == (2, 3):
+        identity = identity[:2]
+    if transform_arr.shape == identity.shape and np.array_equal(transform_arr, identity):
+        return state.reshape(original_mean.shape), covariance_arr.copy()
+
+    measurement = state[:4].copy()
+
+    def map_measurement(values: np.ndarray) -> np.ndarray:
+        source_box = np.asarray(measurement_to_box(values), dtype=np.float64).reshape(-1)[:4]
+        warped_box = transform_aabb(source_box, transform_arr)[:4]
+        return np.asarray(box_to_measurement(warped_box), dtype=np.float64).reshape(-1)[:4]
+
+    mapped = map_measurement(measurement)
+    jacobian = np.empty((4, 4), dtype=np.float64)
+    for index in range(4):
+        step = 1e-4 * max(abs(float(measurement[index])), 1.0)
+        plus = measurement.copy()
+        minus = measurement.copy()
+        plus[index] += step
+        minus[index] -= step
+        if index in (2, 3):
+            minus[index] = max(minus[index], 1e-6)
+        actual_step = plus[index] - minus[index]
+        jacobian[:, index] = (map_measurement(plus) - map_measurement(minus)) / actual_step
+
+    velocity_indices = tuple(int(index) for index in velocity_measurement_indices)
+    if state.size != 4 + len(velocity_indices):
+        raise ValueError(
+            f"State has {state.size} entries but {len(velocity_indices)} AABB velocity entries were declared."
+        )
+    if any(index < 0 or index >= 4 for index in velocity_indices):
+        raise ValueError(f"AABB velocity measurement indices must be in [0, 3], got {velocity_indices}.")
+
+    state_transform = np.zeros((state.size, state.size), dtype=np.float64)
+    state_transform[:4, :4] = jacobian
+    velocity_jacobian = jacobian[np.ix_(velocity_indices, velocity_indices)]
+    state_transform[4:, 4:] = velocity_jacobian
+
+    transformed = state.copy()
+    transformed[:4] = mapped
+    transformed[4:] = velocity_jacobian @ state[4:]
+    transformed_covariance = state_transform @ covariance_arr @ state_transform.T
+    transformed_covariance = 0.5 * (transformed_covariance + transformed_covariance.T)
+    return transformed.reshape(original_mean.shape), transformed_covariance
+
+
 def _local_transform_jacobian(transform: np.ndarray, point: np.ndarray) -> np.ndarray:
     """Return the local 2D Jacobian of an affine transform or homography."""
     matrix = np.asarray(transform, dtype=np.float64)

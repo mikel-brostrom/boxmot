@@ -238,9 +238,7 @@ class StrongSort(BaseTracker):
         iou_track_candidates = unconfirmed_tracks + [
             index for index in unmatched_tracks_a if self.tracks[index].time_since_update == 1
         ]
-        unmatched_tracks_a = [
-            index for index in unmatched_tracks_a if self.tracks[index].time_since_update != 1
-        ]
+        unmatched_tracks_a = [index for index in unmatched_tracks_a if self.tracks[index].time_since_update != 1]
         matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
             iou_cost,
             self.max_iou_dist,
@@ -262,6 +260,7 @@ class StrongSort(BaseTracker):
                 self.id_allocator.alloc(),
                 self.n_init,
                 self.max_age,
+                self.max_obs,
                 self.ema_alpha,
                 is_obb=detection.is_obb,
             )

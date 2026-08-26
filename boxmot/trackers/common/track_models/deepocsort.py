@@ -9,7 +9,13 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
-from boxmot.trackers.common.geometry.obb import transform_obb, transform_obb_kalman_state, transform_points
+from boxmot.trackers.common.geometry.obb import (
+    transform_aabb,
+    transform_aabb_kalman_state,
+    transform_obb,
+    transform_obb_kalman_state,
+    transform_points,
+)
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_models.base import SortBoxTrack
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OBBKalmanBoxTracker
@@ -120,7 +126,12 @@ class KalmanBoxTracker(SortBoxTrack):
         self.emb = emb
 
         self.frozen = False
+        self._append_current_history()
         self._sync_initial_sort_meta()
+
+    def _append_current_history(self) -> None:
+        geometry = self.get_state()[0, :4]
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
 
     def update(self, det):
         """
@@ -150,13 +161,12 @@ class KalmanBoxTracker(SortBoxTrack):
             """
             self.last_observation = bbox.copy()
             self.observations[self.age] = bbox.copy()
-            self.history_observations.append(bbox.copy())
-
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
 
             self.kf.update(self.bbox_to_z_func(bbox))
+            self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
             self.kf.update(det)
@@ -170,17 +180,14 @@ class KalmanBoxTracker(SortBoxTrack):
         return self.emb
 
     def apply_affine_correction(self, affine):
-        m = affine[:, :2]
-        t = affine[:, 2].reshape(2, 1)
+        transform = np.asarray(affine, dtype=float)
+        source_center = self.get_state()[0, :2].copy()
         warped_observations: dict[int, np.ndarray] = {}
 
         def warp_observation_once(observation):
             identity = id(observation)
             if identity not in warped_observations:
-                warped = np.asarray(observation).copy()
-                points = warped[:4].reshape(2, 2).T
-                warped[:4] = (m @ points + t).T.reshape(-1)
-                warped_observations[identity] = warped
+                warped_observations[identity] = transform_aabb(observation, transform)
             return warped_observations[identity]
 
         # For OCR
@@ -191,20 +198,52 @@ class KalmanBoxTracker(SortBoxTrack):
         for age, observation in self.observations.items():
             self.observations[age][:] = warp_observation_once(observation)
 
-        self.history_observations = deque(
-            (warp_observation_once(observation).copy() for observation in self.history_observations),
-            maxlen=self.history_observations.maxlen,
-        )
-
         if self.velocity is not None:
             velocity_xy = np.asarray(self.velocity, dtype=np.float64).reshape(2)[::-1]
-            transformed_xy = m @ velocity_xy
+            mapped = transform_points(
+                np.stack((source_center, source_center + velocity_xy)),
+                transform,
+            )
+            transformed_xy = mapped[1] - mapped[0]
             norm = float(np.linalg.norm(transformed_xy))
             if np.isfinite(transformed_xy).all() and np.isfinite(norm) and norm > 1e-12:
                 self.velocity = (transformed_xy / norm)[::-1]
 
-        # Also need to change kf state, but might be frozen
-        self.kf.apply_affine_correction(m, t)
+        def transform_state(mean, covariance):
+            return transform_aabb_kalman_state(
+                mean,
+                covariance,
+                transform,
+                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
+                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
+                velocity_measurement_indices=(0, 1, 2),
+            )
+
+        def warp_measurement(measurement):
+            if measurement is None:
+                return None
+            original_shape = np.asarray(measurement).shape
+            box = self.motion_model.to_box(measurement)[0]
+            warped = self.motion_model.to_measurement(
+                transform_aabb(box, transform),
+                column=False,
+            )
+            return np.asarray(warped).reshape(original_shape)
+
+        self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.history_obs = deque(
+            (warp_measurement(item) for item in self.kf.history_obs),
+            maxlen=self.kf.history_obs.maxlen,
+        )
+        self.kf.last_measurement = warp_measurement(self.kf.last_measurement)
+        if not self.kf.observed and self.kf.attr_saved is not None:
+            saved = self.kf.attr_saved
+            saved["x"], saved["P"] = transform_state(saved["x"], saved["P"])
+            saved["history_obs"] = deque(
+                (warp_measurement(item) for item in saved["history_obs"]),
+                maxlen=saved["history_obs"].maxlen,
+            )
+            saved["last_measurement"] = warp_measurement(saved["last_measurement"])
 
     def predict(self):
         """
@@ -323,11 +362,3 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
                 maxlen=saved["history_obs"].maxlen,
             )
             saved["last_measurement"] = warp_measurement(saved["last_measurement"])
-
-        self.history_observations = deque(
-            (
-                transform_points(np.asarray(corners).reshape(-1, 2), transform).reshape(-1).astype(np.float32)
-                for corners in self.history_observations
-            ),
-            maxlen=self.history_observations.maxlen,
-        )

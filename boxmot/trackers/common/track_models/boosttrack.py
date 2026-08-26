@@ -10,6 +10,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.geometry.obb import (
     align_obb_measurement,
+    smooth_obb_corners,
     transform_obb_kalman_state,
 )
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
@@ -41,13 +42,13 @@ class KalmanBoxTracker(SortBoxTrack):
         self._assign_sort_id(id_allocator=id_allocator, track_id=track_id)
         if self.is_obb:
             # det = (cx, cy, w, h, angle, conf, cls, det_ind)
-            self.conf = det[5]
-            self.cls = det[6]
-            self.det_ind = det[7]
+            self.conf = float(det[5])
+            self.cls = int(det[6])
+            self.det_ind = int(det[7])
         else:
-            self.conf = det[4]
-            self.cls = det[5]
-            self.det_ind = det[6]
+            self.conf = float(det[4])
+            self.cls = int(det[5])
+            self.det_ind = int(det[6])
         self.motion_model = create_motion_model(
             MotionModelKind.XYHR,
             is_obb=self.is_obb,
@@ -60,6 +61,8 @@ class KalmanBoxTracker(SortBoxTrack):
         self.emb = emb
         self._init_sort_counters(max_obs=max_obs)
         self.history_observations = deque([], maxlen=self.max_obs)
+        self._plot_angle = None
+        self._append_current_history()
         self._sync_initial_sort_meta()
 
     def get_confidence(self, coef: float = 0.9) -> float:
@@ -74,16 +77,25 @@ class KalmanBoxTracker(SortBoxTrack):
         if self.is_obb:
             aligned = align_obb_measurement(det[:5], self.get_state()[0])
             self.kf.update(self.motion_model.to_measurement(aligned, column=False))
-            self.conf = det[5]
-            self.cls = det[6]
-            self.det_ind = det[7]
+            self.conf = float(det[5])
+            self.cls = int(det[6])
+            self.det_ind = int(det[7])
         else:
             self.kf.update(self.motion_model.to_measurement(det[:4], column=False))
-            self.conf = det[4]
-            self.cls = det[5]
-            self.det_ind = det[6]
-        self.history_observations.append(self.get_state()[0].copy())
+            self.conf = float(det[4])
+            self.cls = int(det[5])
+            self.det_ind = int(det[6])
+        self._append_current_history()
         sync_track_meta(self, TrackState.TRACKED)
+
+    def _append_current_history(self) -> None:
+        """Append corrected display geometry using the shared 4/8-value contract."""
+        box = self.get_state()[0].astype(np.float32)
+        if self.is_obb:
+            box, self._plot_angle = smooth_obb_corners(box, self._plot_angle)
+        else:
+            box = box[:4]
+        self.history_observations.append(np.asarray(box, dtype=np.float32).copy())
 
     def camera_update(self, transform: np.ndarray):
         """
@@ -113,17 +125,15 @@ class KalmanBoxTracker(SortBoxTrack):
             )
             return
 
-        # ——— warp your current bbox —————
+        # Preserve the AABB CMC contract used to tune BoostTrack/OccluBoost:
+        # correct only the measurement mean by warping its diagonal endpoints.
+        # Transforming the full enclosure, velocity, or covariance changes the
+        # subsequent association geometry and fragments established identities.
         x1, y1, x2, y2 = self.get_state()[0]
-        p1 = wm @ np.array([x1, y1, 1.0])
-        p2 = wm @ np.array([x2, y2, 1.0])
-        x1_, y1_, _ = p1
-        x2_, y2_, _ = p2
-
-        # ——— rebuild Kalman state —————
-        w, h = x2_ - x1_, y2_ - y1_
-        cx, cy = x1_ + w / 2, y1_ + h / 2
-        self.kf.x[:4] = [cx, cy, h, w / h]
+        x1_, y1_, _ = wm @ np.array([x1, y1, 1.0])
+        x2_, y2_, _ = wm @ np.array([x2, y2, 1.0])
+        width, height = x2_ - x1_, y2_ - y1_
+        self.kf.x[:4] = [x1_ + (width / 2), y1_ + (height / 2), height, width / height]
 
     def predict(self):
         self.kf.predict()
