@@ -90,9 +90,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub><b>83.17</b></sub></td>
       <td align="right"><sub>97.48</sub></td>
       <td align="right"><sub><b>89.36</b></sub></td>
-      <td align="right"><sub>49.01</sub></td>
-      <td align="right"><sub>39.00</sub></td>
-      <td align="right"><sub>57.30</sub></td>
+      <td align="right"><sub>49.84</sub></td>
+      <td align="right"><sub>39.41</sub></td>
+      <td align="right"><sub>58.60</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -106,7 +106,7 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>78.30</sub></td>
       <td align="right"><sub>52.31</sub></td>
       <td align="right"><sub>45.43</sub></td>
-      <td align="right"><sub>61.41</sub></td>
+      <td align="right"><sub>61.42</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -118,9 +118,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>76.32</sub></td>
       <td align="right"><sub>97.08</sub></td>
       <td align="right"><sub>77.82</sub></td>
-      <td align="right"><sub>43.61</sub></td>
-      <td align="right"><sub>36.66</sub></td>
-      <td align="right"><sub>50.42</sub></td>
+      <td align="right"><sub>48.39</sub></td>
+      <td align="right"><sub>41.36</sub></td>
+      <td align="right"><sub>56.36</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -132,9 +132,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>79.80</sub></td>
       <td align="right"><sub>97.31</sub></td>
       <td align="right"><sub>80.27</sub></td>
-      <td align="right"><sub>49.77</sub></td>
+      <td align="right"><sub>49.76</sub></td>
       <td align="right"><sub>43.70</sub></td>
-      <td align="right"><sub>57.31</sub></td>
+      <td align="right"><sub>57.32</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
