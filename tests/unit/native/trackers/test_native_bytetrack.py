@@ -306,6 +306,55 @@ def test_native_bytetrack_target_fps_filters_empty_detection_timeline(tmp_path):
     assert output.read_text(encoding="utf-8") == ""
 
 
+def test_native_bytetrack_replay_reads_multispectral_npy_frames(tmp_path):
+    executable = native_module.ensure_bytetrack_cpp_executable()
+    sequence_name = "MMOT-NPY"
+    mot_root = tmp_path / "mot"
+    image_dir = mot_root / sequence_name
+    image_dir.mkdir(parents=True)
+    multispectral = np.zeros((16, 20, 8), dtype=np.uint8)
+    multispectral[:, :, 1] = 20
+    multispectral[:, :, 2] = 40
+    multispectral[:, :, 4] = 80
+    np.save(image_dir / "000001.npy", multispectral)
+
+    cache_root = tmp_path / "cache"
+    det_dir = cache_root / "detector" / "dets"
+    det_dir.mkdir(parents=True)
+    np.save(
+        det_dir / f"{sequence_name}.npy",
+        np.array([[1, 10, 8, 8, 4, 0.2, 0.95, 0]], dtype=np.float32),
+    )
+    output = tmp_path / "tracks.txt"
+    completed = native_module.subprocess.run(
+        [
+            str(executable),
+            "--mot-root",
+            str(mot_root),
+            "--det-emb-root",
+            str(cache_root),
+            "--detector-name",
+            "detector",
+            "--sequence",
+            sequence_name,
+            "--output",
+            str(output),
+            "--min-conf",
+            "0.1",
+            "--track-thresh",
+            "0.1",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert '"num_frames":1' in completed.stdout
+    assert '"kept_frame_ids":[1]' in completed.stdout
+    assert output.read_text(encoding="utf-8")
+
+
 def test_process_sequence_cpp_streams_progress_updates(monkeypatch, tmp_path):
     monkeypatch.setattr(
         native_module, "ensure_bytetrack_cpp_executable", lambda force_rebuild=False: Path("/tmp/bytetrack_replay")

@@ -9,10 +9,9 @@ ONNX inference path that the C++ trackers use at replay time.
 
 Notes
 -----
-* The native side currently runs a **single** crop per ORT call (mirroring
-  the live tracker behavior). For embedding-cache generation this is slower
-  than the bucketed Python path on small per-frame det counts, but the cost is
-  paid once and cached to ``dets_n_embs/.../embs/<reid>/<preprocess>/<seq>.npy``.
+* Dynamic-batch ONNX Runtime graphs process all staged crops together. Fixed
+  graphs use padded chunks, while the OpenCV DNN fallback remains crop-by-crop
+  for dynamic graphs whose heads may not support ``N > 1`` reliably.
 * OBB detections (5-column ``cxcywh-theta``) stay oriented across the C ABI and
   use the same rectified crop implementation as the native trackers.
 """
@@ -42,14 +41,7 @@ _LIBRARY = None
 # ---------------------------------------------------------------------------
 
 _TARGET_NAME = "base"  # reid_capi is built from native/cpp/trackers/base
-
-
-def _source_dir() -> Path:
-    return _common.tracker_source_dir(_TARGET_NAME)
-
-
-def _build_dir() -> Path:
-    return _common.tracker_build_dir(_TARGET_NAME)
+_CMAKE_TARGET = "reid_capi"
 
 
 def _library_name() -> str:
@@ -62,88 +54,27 @@ def _library_name() -> str:
 
 def _candidate_libraries() -> list[Path]:
     name = _library_name()
-    return (
-        _common.installed_library_candidates(_TARGET_NAME, name)
-        + _common.build_library_candidates(_TARGET_NAME, name)
+    return _common.installed_library_candidates(_TARGET_NAME, name) + _common.build_library_candidates(
+        _TARGET_NAME, name
     )
 
 
-def _build_library(*, force_rebuild: bool = False) -> Path:
-    """Configure + build the ``reid_capi`` shared library if it's missing."""
-    with _BUILD_LOCK:
-        if not force_rebuild:
-            for candidate in _candidate_libraries():
-                if candidate.exists():
-                    return candidate
-
-        source_dir = _source_dir()
-        build_dir = _build_dir()
-        build_dir.mkdir(parents=True, exist_ok=True)
-
-        # Cross-process lock: serialize CMake invocations from concurrent
-        # worker subprocesses so they don't corrupt each other's build cache.
-        with _common._cross_process_build_lock(build_dir):
-            if not force_rebuild:
-                for candidate in _candidate_libraries():
-                    if candidate.exists():
-                        return candidate
-
-            configure_cmd = [
-                "cmake",
-                "-S",
-                str(source_dir),
-                "-B",
-                str(build_dir),
-                "-DCMAKE_BUILD_TYPE=Release",
-            ]
-            # Stream output live so the user sees progress.
-            rc = _common.run_build_step(
-                cmd=configure_cmd,
-                label="Building ReID C ABI: configuring...",
-            )
-            if rc != 0:
-                raise RuntimeError(
-                    "Failed to configure native ReID C ABI.\n"
-                    "Requirements: CMake 3.16+, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                    f"Command: {' '.join(configure_cmd)}"
-                )
-
-            build_cmd = [
-                "cmake",
-                "--build",
-                str(build_dir),
-                "--config",
-                "Release",
-                "--target",
-                "reid_capi",
-                "--parallel",
-            ]
-            rc = _common.run_build_step(
-                cmd=build_cmd,
-                label="Building ReID C ABI: compiling...",
-            )
-            if rc != 0:
-                raise RuntimeError(
-                    "Failed to build native ReID C ABI.\n"
-                    "Requirements: C++17 compiler, OpenCV 4.x, Eigen3 3.3+, ONNX Runtime.\n"
-                    f"Command: {' '.join(build_cmd)}"
-                )
-
-            for candidate in _candidate_libraries():
-                if candidate.exists():
-                    return candidate
-
-            raise RuntimeError(
-                "Native ReID C ABI build succeeded but the shared library was not found."
-            )
-
-
 def ensure_reid_capi_library(force_rebuild: bool = False) -> Path:
-    if not force_rebuild:
-        for candidate in _candidate_libraries():
-            if candidate.exists():
-                return candidate
-    return _build_library(force_rebuild=force_rebuild)
+    """Return a source-fresh native ReID C ABI library.
+
+    Editable builds use the shared source fingerprint and artifact stamp;
+    packaged libraries beside the native sources remain trusted in installed
+    wheels, where rebuilding may be unavailable or undesirable.
+    """
+    return _common.build_native_target(
+        tracker_name=_TARGET_NAME,
+        display_name="ReID C ABI",
+        target=_CMAKE_TARGET,
+        candidates=_candidate_libraries(),
+        force_rebuild=force_rebuild,
+        not_found_message="Native ReID C ABI build succeeded but the shared library was not found.",
+        build_lock=_BUILD_LOCK,
+    )
 
 
 class _ReidLibrary:
@@ -185,37 +116,37 @@ class _ReidLibrary:
         self._library.boxmot_reid_capi_input_spec.restype = ctypes.c_int
 
         self._library.boxmot_reid_capi_compute_features.argtypes = [
-            ctypes.c_void_p,            # handle
-            ctypes.c_void_p,            # boxes_xyxy
-            ctypes.c_int,               # n_boxes
-            ctypes.c_void_p,            # image_data
-            ctypes.c_int,               # image_rows
-            ctypes.c_int,               # image_cols
-            ctypes.c_int,               # image_channels
-            ctypes.c_void_p,            # out_features
-            ctypes.c_int,               # out_capacity_floats
+            ctypes.c_void_p,  # handle
+            ctypes.c_void_p,  # boxes_xyxy
+            ctypes.c_int,  # n_boxes
+            ctypes.c_void_p,  # image_data
+            ctypes.c_int,  # image_rows
+            ctypes.c_int,  # image_cols
+            ctypes.c_int,  # image_channels
+            ctypes.c_void_p,  # out_features
+            ctypes.c_int,  # out_capacity_floats
         ]
         self._library.boxmot_reid_capi_compute_features.restype = ctypes.c_int
 
         self._library.boxmot_reid_capi_preprocess.argtypes = [
-            ctypes.c_void_p,            # handle
-            ctypes.c_void_p,            # boxes_xyxy
-            ctypes.c_int,               # n_boxes
-            ctypes.c_void_p,            # image_data
-            ctypes.c_int,               # image_rows
-            ctypes.c_int,               # image_cols
-            ctypes.c_int,               # image_channels
+            ctypes.c_void_p,  # handle
+            ctypes.c_void_p,  # boxes_xyxy
+            ctypes.c_int,  # n_boxes
+            ctypes.c_void_p,  # image_data
+            ctypes.c_int,  # image_rows
+            ctypes.c_int,  # image_cols
+            ctypes.c_int,  # image_channels
         ]
         self._library.boxmot_reid_capi_preprocess.restype = ctypes.c_int
 
         self._library.boxmot_reid_capi_preprocess_obb.argtypes = [
-            ctypes.c_void_p,            # handle
-            ctypes.c_void_p,            # boxes_xywha
-            ctypes.c_int,               # n_boxes
-            ctypes.c_void_p,            # image_data
-            ctypes.c_int,               # image_rows
-            ctypes.c_int,               # image_cols
-            ctypes.c_int,               # image_channels
+            ctypes.c_void_p,  # handle
+            ctypes.c_void_p,  # boxes_xywha
+            ctypes.c_int,  # n_boxes
+            ctypes.c_void_p,  # image_data
+            ctypes.c_int,  # image_rows
+            ctypes.c_int,  # image_cols
+            ctypes.c_int,  # image_channels
         ]
         self._library.boxmot_reid_capi_preprocess_obb.restype = ctypes.c_int
 
@@ -223,9 +154,9 @@ class _ReidLibrary:
         self._library.boxmot_reid_capi_process.restype = ctypes.c_int
 
         self._library.boxmot_reid_capi_postprocess.argtypes = [
-            ctypes.c_void_p,            # handle
-            ctypes.c_void_p,            # out_features
-            ctypes.c_int,               # out_capacity_floats
+            ctypes.c_void_p,  # handle
+            ctypes.c_void_p,  # out_features
+            ctypes.c_int,  # out_capacity_floats
         ]
         self._library.boxmot_reid_capi_postprocess.restype = ctypes.c_int
 
@@ -241,6 +172,7 @@ class _ReidLibrary:
     def create(self, model_path: Path, preprocess_name: str | None) -> ctypes.c_void_p:
         handle = ctypes.c_void_p(0)
         from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
         ok = self._library.boxmot_reid_capi_create(
             str(model_path).encode("utf-8"),
             (preprocess_name or DEFAULT_PREPROCESS).encode("utf-8"),
@@ -350,6 +282,7 @@ def _get_library() -> _ReidLibrary:
 # Adapter
 # ---------------------------------------------------------------------------
 
+
 class CppOnnxReID:
     """ReID backend that delegates feature extraction to the native C++ path.
 
@@ -375,13 +308,11 @@ class CppOnnxReID:
         if resolved is None:
             raise ValueError("CppOnnxReID requires a ReID weights path.")
         if resolved.suffix.lower() != ".onnx":
-            raise RuntimeError(
-                "CppOnnxReID requires an ONNX model after auto-export. Got: "
-                f"{resolved}"
-            )
+            raise RuntimeError(f"CppOnnxReID requires an ONNX model after auto-export. Got: {resolved}")
 
         self.weights = Path(resolved)
         from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
         self.preprocess_name = preprocess_name or DEFAULT_PREPROCESS
 
         self._library = _get_library()
@@ -402,10 +333,7 @@ class CppOnnxReID:
         # exposing ``get_features``. Mirror that surface.
         self.model = self
 
-        LOGGER.info(
-            f"CppOnnxReID using native C ABI (model={self.weights.name}, "
-            f"preprocess={self.preprocess_name})"
-        )
+        LOGGER.info(f"CppOnnxReID using native C ABI (model={self.weights.name}, preprocess={self.preprocess_name})")
 
     # ------------------------------------------------------------------
     # Lifecycle

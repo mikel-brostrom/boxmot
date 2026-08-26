@@ -277,7 +277,8 @@ class NativeBotSortTracker(_native_trackers.NativeTrackerMixin):
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img, embs)
+        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0]))
+        tracks = self._library.update(self._handle, det_arr, img, emb_arr)
         self._refresh_reid_timings()
         return self._normalize_tracks_for_mode(tracks)
 

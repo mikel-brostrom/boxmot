@@ -547,6 +547,25 @@ bool OccluBoostTracker::PassesFilter(const Eigen::Vector4d& xyxy) const {
     return true;
 }
 
+bool OccluBoostTracker::PassesObbFilter(const Eigen::Matrix<double, 5, 1>& xywha) const {
+    // Mirror Python BoostTrack.filter_outputs_by_geometry in OBB mode:
+    // use the enclosing image-axis box for the aspect-ratio gate, while the
+    // area gate uses the oriented rectangle's native width and height.
+    const Eigen::Vector4d xyxy = XywhaToEnclosingXyxy(xywha);
+    const double width = xyxy[2] - xyxy[0];
+    const double height = xyxy[3] - xyxy[1];
+    if (height <= 0.0) {
+        return false;
+    }
+    if (width / height > config_.aspect_ratio_thresh) {
+        return false;
+    }
+    if (xywha[2] * xywha[3] <= config_.min_box_area) {
+        return false;
+    }
+    return true;
+}
+
 void OccluBoostTracker::SuppressDuplicateEmissions(
     std::vector<std::pair<KalmanBoxTracker::Ptr, Eigen::Vector4d>>& emitted
 ) {
@@ -1390,11 +1409,15 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
     std::vector<TrackOutput> outputs;
     outputs.reserve(emitted.size());
     for (auto& [trk, aabb] : emitted) {
+        const Eigen::Matrix<double, 5, 1> xywha = trk->xywha();
+        if (!PassesObbFilter(xywha)) {
+            continue;
+        }
         TrackOutput out;
         out.is_obb = true;
         out.id = trk->id;
         out.xyxy = aabb;
-        out.xywha = trk->xywha();
+        out.xywha = xywha;
         out.conf = trk->conf;
         out.cls = trk->cls;
         out.det_ind = trk->det_ind;

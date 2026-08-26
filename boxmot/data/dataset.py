@@ -83,11 +83,22 @@ def _sequence_img_dir(seq_dir: Path) -> Path:
 
 
 def _list_sequence_frames(img_dir: Path) -> list[Path]:
-    return sorted(
+    frames = sorted(
         p
-        for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.npy"))
-        if not p.name.startswith("._")
+        for extension in (".jpg", ".jpeg", ".png", ".npy")
+        for p in img_dir.glob(f"*{extension}")
+        if p.is_file() and not p.name.startswith("._")
     )
+    path_by_stem: dict[str, Path] = {}
+    for frame in frames:
+        existing = path_by_stem.setdefault(frame.stem, frame)
+        if existing != frame:
+            raise ValueError(
+                f"Multiple image files found for frame stem '{frame.stem}' in {img_dir}: "
+                f"{existing.name}, {frame.name}. "
+                "Keep exactly one of .jpg, .jpeg, .png, or .npy per frame."
+            )
+    return frames
 
 
 def _sequence_name_from_img_dir(img_dir: Path) -> str:

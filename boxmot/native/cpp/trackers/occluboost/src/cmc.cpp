@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 namespace occluboost {
@@ -25,29 +26,33 @@ cv::Mat CameraMotionCompensator::Preprocess(const cv::Mat& image, const bool gra
     return output;
 }
 
-namespace {
-
-cv::Mat GenerateMask(
+cv::Mat CameraMotionCompensator::GenerateMask(
     const cv::Size& size,
     const std::vector<Detection>& detections,
-    const float scale
+    const double scale_x,
+    const double scale_y
 ) {
     cv::Mat mask = cv::Mat::zeros(size, CV_8UC1);
-    cv::rectangle(
-        mask,
-        cv::Point(static_cast<int>(0.02F * size.width), static_cast<int>(0.02F * size.height)),
-        cv::Point(static_cast<int>(0.98F * size.width), static_cast<int>(0.98F * size.height)),
-        cv::Scalar(255),
-        cv::FILLED
-    );
+    const int safe_x1 = static_cast<int>(0.02 * static_cast<double>(size.width));
+    const int safe_y1 = static_cast<int>(0.02 * static_cast<double>(size.height));
+    const int safe_x2 = static_cast<int>(0.98 * static_cast<double>(size.width));
+    const int safe_y2 = static_cast<int>(0.98 * static_cast<double>(size.height));
+    if (safe_x2 > safe_x1 && safe_y2 > safe_y1) {
+        cv::rectangle(
+            mask,
+            cv::Rect(safe_x1, safe_y1, safe_x2 - safe_x1, safe_y2 - safe_y1),
+            cv::Scalar(255),
+            cv::FILLED
+        );
+    }
     for (const auto& detection : detections) {
         if (detection.is_obb) {
             const auto& box = detection.xywha;
             const cv::RotatedRect rect(
-                cv::Point2f(static_cast<float>(box[0]) * scale, static_cast<float>(box[1]) * scale),
+                cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
                 cv::Size2f(
-                    std::max(static_cast<float>(box[2]) * scale, 1.0e-4F),
-                    std::max(static_cast<float>(box[3]) * scale, 1.0e-4F)
+                    std::max(static_cast<float>(box[2]), 1.0e-4F),
+                    std::max(static_cast<float>(box[3]), 1.0e-4F)
                 ),
                 static_cast<float>(box[4] * 180.0 / CV_PI)
             );
@@ -56,35 +61,65 @@ cv::Mat GenerateMask(
             std::vector<cv::Point> polygon;
             polygon.reserve(points.size());
             for (const auto& point : points) {
-                polygon.emplace_back(cvRound(point.x), cvRound(point.y));
+                polygon.emplace_back(
+                    cvRound(static_cast<double>(point.x) * scale_x),
+                    cvRound(static_cast<double>(point.y) * scale_y)
+                );
             }
             cv::fillConvexPoly(mask, polygon, cv::Scalar(0));
             continue;
         }
 
         const auto& box = detection.xyxy;
-        const int x1 = std::clamp(cvRound(box[0] * scale), 0, size.width);
-        const int y1 = std::clamp(cvRound(box[1] * scale), 0, size.height);
-        const int x2 = std::clamp(cvRound(box[2] * scale), 0, size.width);
-        const int y2 = std::clamp(cvRound(box[3] * scale), 0, size.height);
-        if (x2 > x1 && y2 > y1) {
-            cv::rectangle(mask, cv::Rect(x1, y1, x2 - x1, y2 - y1), cv::Scalar(0), cv::FILLED);
+        const int box_x1 = std::clamp(static_cast<int>(box[0] * scale_x), 0, size.width);
+        const int box_y1 = std::clamp(static_cast<int>(box[1] * scale_y), 0, size.height);
+        const int box_x2 = std::clamp(static_cast<int>(box[2] * scale_x), 0, size.width);
+        const int box_y2 = std::clamp(static_cast<int>(box[3] * scale_y), 0, size.height);
+        if (box_x2 > box_x1 && box_y2 > box_y1) {
+            cv::rectangle(
+                mask,
+                cv::Rect(box_x1, box_y1, box_x2 - box_x1, box_y2 - box_y1),
+                cv::Scalar(0),
+                cv::FILLED
+            );
         }
     }
     return mask;
 }
 
-bool IsValidSofAffine(const cv::Mat& affine, const cv::Mat& inliers, const std::size_t match_count) {
-    constexpr int kMinInliers = 8;
-    constexpr double kMinInlierRatio = 0.2;
-    constexpr double kMinAbsDeterminant = 1.0e-4;
-    constexpr double kMaxAbsDeterminant = 1.0e4;
+namespace {
 
-    if (affine.rows != 2 || affine.cols != 3 || inliers.empty() || match_count == 0) {
-        return false;
+std::pair<double, double> ResizeScale(const cv::Mat& image, const cv::Mat& resized) {
+    if (image.empty() || resized.empty()) {
+        return {1.0, 1.0};
     }
-    const int inlier_count = cv::countNonZero(inliers);
-    if (inlier_count < kMinInliers || static_cast<double>(inlier_count) / match_count < kMinInlierRatio) {
+    return {
+        static_cast<double>(resized.cols) / static_cast<double>(image.cols),
+        static_cast<double>(resized.rows) / static_cast<double>(image.rows),
+    };
+}
+
+cv::Mat RestoreAffineScale(const cv::Mat& transform, const double scale_x, const double scale_y) {
+    cv::Mat transform64;
+    transform.convertTo(transform64, CV_64F);
+    cv::Mat homogeneous = cv::Mat::eye(3, 3, CV_64F);
+    transform64.copyTo(homogeneous(cv::Rect(0, 0, 3, 2)));
+    const cv::Mat scale = (cv::Mat_<double>(3, 3) <<
+        scale_x, 0.0, 0.0,
+        0.0, scale_y, 0.0,
+        0.0, 0.0, 1.0);
+    cv::Mat restored = scale.inv() * homogeneous * scale;
+    cv::Mat result;
+    restored(cv::Rect(0, 0, 3, 2)).convertTo(result, CV_32F);
+    return result;
+}
+
+bool IsValidAffine(
+    const cv::Mat& affine,
+    const double min_abs_determinant = 1.0e-6,
+    const double max_abs_determinant = 1.0e6
+) {
+    if (affine.rows != 2 || affine.cols != 3) {
         return false;
     }
 
@@ -103,8 +138,20 @@ bool IsValidSofAffine(const cv::Mat& affine, const cv::Mat& inliers, const std::
     );
     const double abs_determinant = std::abs(determinant);
     return std::isfinite(determinant)
-        && abs_determinant >= kMinAbsDeterminant
-        && abs_determinant <= kMaxAbsDeterminant;
+        && abs_determinant >= min_abs_determinant
+        && abs_determinant <= max_abs_determinant;
+}
+
+bool IsValidSofAffine(const cv::Mat& affine, const cv::Mat& inliers, const std::size_t match_count) {
+    constexpr int kMinInliers = 8;
+    constexpr double kMinInlierRatio = 0.2;
+    if (inliers.empty() || match_count == 0) {
+        return false;
+    }
+    const int inlier_count = cv::countNonZero(inliers);
+    return inlier_count >= kMinInliers
+        && static_cast<double>(inlier_count) / match_count >= kMinInlierRatio
+        && IsValidAffine(affine);
 }
 
 class EccCmc final : public CameraMotionCompensator {
@@ -116,29 +163,32 @@ public:
         }
 
         cv::Mat current = Preprocess(image, true, 0.15F);
+        const auto [scale_x, scale_y] = ResizeScale(image, current);
         if (prev_image_.empty()) {
             prev_image_ = current;
             return warp;
         }
 
         try {
-            const cv::Mat mask = GenerateMask(current.size(), detections, 0.15F);
-            // 30 iterations are ample for translation-only ECC at 0.15x scale; the
-            // strict 1e-5 eps in the Python defaults is essentially never satisfied,
-            // so capping iterations is the dominant speed win and the resulting warp
-            // differs by sub-pixel amounts from the iter=100 result on MOT footage.
-            cv::findTransformECC(
+            const cv::Mat mask = GenerateMask(current.size(), detections, scale_x, scale_y);
+            const double correlation = cv::findTransformECC(
                 prev_image_,
                 current,
                 warp,
                 cv::MOTION_TRANSLATION,
-                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 1.0e-5),
+                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 100, 1.0e-5),
                 mask,
                 1
             );
-            warp.at<float>(0, 2) /= 0.15F;
-            warp.at<float>(1, 2) /= 0.15F;
-        } catch (const cv::Exception&) {
+            if (!std::isfinite(correlation) || correlation < 0.5 || !IsValidAffine(warp)) {
+                warp = cv::Mat::eye(2, 3, CV_32F);
+            } else {
+                warp = RestoreAffineScale(warp, scale_x, scale_y);
+            }
+        } catch (const cv::Exception& exception) {
+            if (exception.code != cv::Error::StsNoConv) {
+                throw;
+            }
             warp = cv::Mat::eye(2, 3, CV_32F);
         }
 
@@ -159,8 +209,9 @@ public:
         }
 
         cv::Mat current = Preprocess(image, true, 0.15F);
-        if (prev_frame_.empty() || prev_keypoints_.empty()) {
-            Refresh(current, detections);
+        const auto [scale_x, scale_y] = ResizeScale(image, current);
+        if (!initialized_ || prev_frame_.empty() || prev_keypoints_.empty()) {
+            Initialize(current, detections, scale_x, scale_y);
             return warp;
         }
 
@@ -179,6 +230,11 @@ public:
             cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
         );
 
+        if (next_keypoints.empty() || status.empty()) {
+            Reset(current, detections, scale_x, scale_y);
+            return warp;
+        }
+
         std::vector<cv::Point2f> prev_valid;
         std::vector<cv::Point2f> next_valid;
         const std::size_t point_count = std::min({status.size(), prev_keypoints_.size(), next_keypoints.size()});
@@ -195,36 +251,83 @@ public:
             }
         }
 
-        if (prev_valid.size() >= 4 && next_valid.size() >= 4) {
-            cv::Mat inliers;
-            cv::Mat affine = cv::estimateAffinePartial2D(
-                prev_valid,
-                next_valid,
-                inliers,
-                cv::RANSAC,
-                3.0
-            );
-            if (IsValidSofAffine(affine, inliers, prev_valid.size())) {
-                affine.convertTo(warp, CV_32F);
-                warp.at<float>(0, 2) /= 0.15F;
-                warp.at<float>(1, 2) /= 0.15F;
-            }
+        if (prev_valid.size() < 4U || next_valid.size() < 4U) {
+            Reset(current, detections, scale_x, scale_y);
+            return warp;
         }
 
-        Refresh(current, detections);
+        cv::Mat inliers;
+        cv::Mat affine = cv::estimateAffinePartial2D(
+            prev_valid,
+            next_valid,
+            inliers,
+            cv::RANSAC,
+            3.0
+        );
+        if (IsValidSofAffine(affine, inliers, prev_valid.size())) {
+            affine.convertTo(warp, CV_32F);
+            warp = RestoreAffineScale(warp, scale_x, scale_y);
+        }
+
+        std::vector<cv::Point2f> refreshed = DetectKeypoints(current, detections, scale_x, scale_y);
+        if (refreshed.size() < 4U) {
+            refreshed = next_valid;
+        }
+        prev_keypoints_ = std::move(refreshed);
+        prev_frame_ = current;
+        initialized_ = true;
         return warp;
     }
 
 private:
-    void Refresh(const cv::Mat& current, const std::vector<Detection>& detections) {
-        prev_keypoints_.clear();
-        const cv::Mat mask = GenerateMask(current.size(), detections, 0.15F);
-        cv::goodFeaturesToTrack(current, prev_keypoints_, 1000, 0.01, 1.0, mask);
+    std::vector<cv::Point2f> DetectKeypoints(
+        const cv::Mat& current,
+        const std::vector<Detection>& detections,
+        const double scale_x,
+        const double scale_y
+    ) const {
+        std::vector<cv::Point2f> keypoints;
+        const cv::Mat mask = GenerateMask(current.size(), detections, scale_x, scale_y);
+        cv::goodFeaturesToTrack(current, keypoints, 1000, 0.01, 1.0, mask, 3, false, 0.04);
+        return keypoints;
+    }
+
+    void Initialize(
+        const cv::Mat& current,
+        const std::vector<Detection>& detections,
+        const double scale_x,
+        const double scale_y
+    ) {
+        prev_keypoints_ = DetectKeypoints(current, detections, scale_x, scale_y);
         prev_frame_ = current;
+        if (prev_keypoints_.size() < 4U) {
+            initialized_ = false;
+            return;
+        }
+        cv::cornerSubPix(
+            prev_frame_,
+            prev_keypoints_,
+            cv::Size(5, 5),
+            cv::Size(-1, -1),
+            cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
+        );
+        initialized_ = true;
+    }
+
+    void Reset(
+        const cv::Mat& current,
+        const std::vector<Detection>& detections,
+        const double scale_x,
+        const double scale_y
+    ) {
+        prev_keypoints_ = DetectKeypoints(current, detections, scale_x, scale_y);
+        prev_frame_ = current;
+        initialized_ = prev_keypoints_.size() >= 4U;
     }
 
     cv::Mat prev_frame_;
     std::vector<cv::Point2f> prev_keypoints_;
+    bool initialized_ = false;
 };
 
 }  // namespace

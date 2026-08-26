@@ -15,6 +15,12 @@ public:
 
 protected:
     cv::Mat Preprocess(const cv::Mat& image, bool grayscale, float scale) const;
+    static cv::Mat GenerateMask(
+        const cv::Size& size,
+        const std::vector<Detection>& detections,
+        double scale_x,
+        double scale_y
+    );
 };
 
 std::unique_ptr<CameraMotionCompensator> CreateCameraMotionCompensator(const std::string& method);

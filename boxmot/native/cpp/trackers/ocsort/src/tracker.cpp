@@ -260,7 +260,7 @@ void OCSORTTracker::KalmanBoxTracker::Update(const Detection* detection) {
     conf = detection->conf;
     cls = detection->cls;
     const Eigen::VectorXd bbox = ObservationVector(*detection);
-    if (last_observation.sum() >= 0.0) {
+    if (ObservationIsValid(last_observation)) {
         Eigen::VectorXd previous_box;
         bool found = false;
         for (int index = 0; index < delta_t; ++index) {
@@ -300,18 +300,18 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::GetState() const {
 }
 
 Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::CurrentOutputBox() const {
+    if (!ObservationIsValid(last_observation)) {
+        return GetState();
+    }
+    Eigen::VectorXd output = last_observation.head(is_obb ? 5 : 4);
     if (is_obb) {
-        // OBB measurements have multiple equivalent (w, h, theta)
-        // parameterizations. The Kalman filter resolves each measurement
-        // against the current state, so emitting the raw last observation
-        // would reintroduce the exact width/height and angle jumps that the
-        // alignment step removed.
-        return GetState();
+        // Match Python OcSort's public-output contract: association and KF
+        // updates use the aligned state, but a matched track is emitted with
+        // its latest detector geometry. Python's formatter normalizes only
+        // the public angle, so do the same before crossing the native ABI.
+        output[4] = WrapAngle(output[4]);
     }
-    if (last_observation.sum() < 0.0) {
-        return GetState();
-    }
-    return last_observation.head(4);
+    return output;
 }
 
 OCSORTTracker::OCSORTTracker(Config config) : config_(std::move(config)) {

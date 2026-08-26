@@ -444,12 +444,20 @@ OnnxReIdModel::RawFeatures OnnxReIdModel::Process(const CropBatch& crops) const 
         return raw;
     }
 
-    // Dynamic and batch-1 graphs are forwarded crop-by-crop because OpenCV
-    // DNN mishandles N>1 for some exported ReID heads. A graph with a fixed
-    // batch greater than one cannot accept a single crop, so chunks are
-    // zero-padded to that exact batch and only their logical rows are kept.
+    // ONNX Runtime accepts the runtime N of a dynamic graph, so forward the
+    // complete staged crop batch in one call. OpenCV DNN remains crop-by-crop
+    // for dynamic graphs because some exported ReID heads mishandle N>1.
+    // Fixed-batch graphs are chunked, with the final chunk zero-padded to the
+    // graph's exact N and trimmed back to its logical row count.
     const int per_crop_floats = 3 * input_size_.height * input_size_.width;
-    const int execution_batch = input_batch_size_ > 0 ? input_batch_size_ : 1;
+    const bool use_dynamic_batch =
+        input_batch_size_ == 0 && inference_->supports_dynamic_batch();
+    if (use_dynamic_batch && crops.count > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+        throw std::runtime_error("Native ReID crop batch exceeds supported integer dimensions.");
+    }
+    const int execution_batch = input_batch_size_ > 0
+        ? input_batch_size_
+        : (use_dynamic_batch ? static_cast<int>(crops.count) : 1);
     const int dims_execution[] = {
         execution_batch, 3, input_size_.height, input_size_.width};
 
@@ -459,7 +467,7 @@ OnnxReIdModel::RawFeatures OnnxReIdModel::Process(const CropBatch& crops) const 
             static_cast<std::size_t>(execution_batch), crops.count - offset);
 
         cv::Mat execution_blob;
-        if (execution_batch == 1) {
+        if (logical_count == static_cast<std::size_t>(execution_batch)) {
             execution_blob = cv::Mat(
                 4, dims_execution, CV_32F,
                 reinterpret_cast<float*>(crops.blob.data) +
@@ -477,7 +485,7 @@ OnnxReIdModel::RawFeatures OnnxReIdModel::Process(const CropBatch& crops) const 
         std::vector<float> feature = inference_->Forward(execution_blob);
         if (feature.size() % static_cast<std::size_t>(execution_batch) != 0) {
             throw std::runtime_error(
-                "Native ReID output size is not divisible by the fixed ONNX batch size.");
+                "Native ReID output size is not divisible by the execution batch size.");
         }
         const std::size_t current_feature_dim =
             feature.size() / static_cast<std::size_t>(execution_batch);

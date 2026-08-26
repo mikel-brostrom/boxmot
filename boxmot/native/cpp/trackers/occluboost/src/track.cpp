@@ -3,6 +3,8 @@
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <Eigen/SVD>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -21,6 +23,47 @@ constexpr double kHalfPi = kPi / 2.0;
 double WrapAngle(const double angle) {
     const double period = 2.0 * kPi;
     return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
+}
+
+bool SimilarityParameters(
+    const Eigen::Matrix2d& linear,
+    double& scale,
+    double& rotation
+) {
+    const Eigen::Matrix2d gram = linear.transpose() * linear;
+    const double scale_sq = 0.5 * gram.trace();
+    if (!(scale_sq > 0.0) || !(linear.determinant() > 0.0) || !std::isfinite(scale_sq)) {
+        return false;
+    }
+
+    // Match numpy.allclose(linear.T @ linear, scale_sq * eye(2),
+    // rtol=1e-7, atol=1e-10) used by transform_obb().
+    const Eigen::Matrix2d expected = scale_sq * Eigen::Matrix2d::Identity();
+    for (int row = 0; row < 2; ++row) {
+        for (int col = 0; col < 2; ++col) {
+            const double tolerance = 1.0e-10 + (1.0e-7 * std::abs(expected(row, col)));
+            if (std::abs(gram(row, col) - expected(row, col)) > tolerance) {
+                return false;
+            }
+        }
+    }
+
+    scale = std::sqrt(scale_sq);
+    rotation = std::atan2(linear(1, 0), linear(0, 0));
+    return std::isfinite(scale) && std::isfinite(rotation);
+}
+
+double ProperRotationAngle(const Eigen::Matrix2d& linear) {
+    const Eigen::JacobiSVD<Eigen::Matrix2d> svd(
+        linear, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    Eigen::Matrix2d u = svd.matrixU();
+    const Eigen::Matrix2d v = svd.matrixV();
+    Eigen::Matrix2d rotation = u * v.transpose();
+    if (rotation.determinant() < 0.0) {
+        u.col(1) *= -1.0;
+        rotation = u * v.transpose();
+    }
+    return std::atan2(rotation(1, 0), rotation(0, 0));
 }
 
 std::array<cv::Point2f, 4> XywhaToCorners(const Eigen::Matrix<double, 5, 1>& box) {
@@ -82,6 +125,20 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
     const Eigen::Matrix<double, 5, 1>* alignment_reference = nullptr
 ) {
     const Eigen::Matrix<double, 5, 1> source_box = ZObbToXywha(measurement);
+    double similarity_scale = 1.0;
+    double similarity_rotation = 0.0;
+    if (SimilarityParameters(linear, similarity_scale, similarity_rotation)) {
+        Eigen::Matrix<double, 5, 1> warped_box = source_box;
+        warped_box.head<2>() = (linear * source_box.head<2>()) + translation;
+        warped_box[2] *= similarity_scale;
+        warped_box[3] *= similarity_scale;
+        warped_box[4] = WrapAngle(source_box[4] + similarity_rotation);
+        if (alignment_reference != nullptr) {
+            warped_box = AlignObbBox(warped_box, *alignment_reference);
+        }
+        return XywhaToZObb(warped_box);
+    }
+
     const std::array<cv::Point2f, 4> source_corners = XywhaToCorners(source_box);
     std::array<cv::Point2f, 4> warped_corners{};
     for (std::size_t i = 0; i < source_corners.size(); ++i) {
@@ -104,7 +161,7 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
         reference = *alignment_reference;
     } else {
         reference.head<2>() = (linear * source_box.head<2>()) + translation;
-        const double rot = std::atan2(linear(1, 0), linear(0, 0));
+        const double rot = ProperRotationAngle(linear);
         reference[4] = WrapAngle(source_box[4] + rot);
     }
     return XywhaToZObb(AlignObbBox(raw_box, reference));
@@ -250,6 +307,11 @@ void KalmanBoxTracker::CameraUpdate(
     const Eigen::Matrix2d& linear,
     const Eigen::Vector2d& translation
 ) {
+    if ((linear.array() == Eigen::Matrix2d::Identity().array()).all()
+        && (translation.array() == Eigen::Vector2d::Zero().array()).all()) {
+        return;
+    }
+
     KalmanFilterXYHR::Vector& mean = kf.mutable_mean();
     if (is_obb_) {
         const Eigen::Matrix<double, 5, 1> measurement = mean.head<5>();
@@ -258,22 +320,35 @@ void KalmanBoxTracker::CameraUpdate(
         const Eigen::Matrix<double, 5, 1> warped_box = ZObbToXywha(warped_measurement);
 
         Eigen::Matrix<double, 5, 5> jacobian;
-        for (int index = 0; index < 5; ++index) {
-            const double step = index == 4
-                ? 1.0e-3
-                : 1.0e-4 * std::max(std::abs(measurement[index]), 1.0);
-            Eigen::Matrix<double, 5, 1> plus = measurement;
-            Eigen::Matrix<double, 5, 1> minus = measurement;
-            plus[index] += step;
-            minus[index] -= step;
-            if (index == 2 || index == 3) {
-                minus[index] = std::max(minus[index], 1.0e-6);
+        double similarity_scale = 1.0;
+        double similarity_rotation = 0.0;
+        if (SimilarityParameters(linear, similarity_scale, similarity_rotation)) {
+            // Analytic Jacobian of [cx, cy, h, r, theta] under a proper
+            // similarity transform. This mirrors Python's transform_obb fast
+            // path and avoids differentiating through float minAreaRect.
+            jacobian.setZero();
+            jacobian.block<2, 2>(0, 0) = linear;
+            jacobian(2, 2) = similarity_scale;
+            jacobian(3, 3) = 1.0;
+            jacobian(4, 4) = 1.0;
+        } else {
+            for (int index = 0; index < 5; ++index) {
+                const double step = index == 4
+                    ? 1.0e-3
+                    : 1.0e-4 * std::max(std::abs(measurement[index]), 1.0);
+                Eigen::Matrix<double, 5, 1> plus = measurement;
+                Eigen::Matrix<double, 5, 1> minus = measurement;
+                plus[index] += step;
+                minus[index] -= step;
+                if (index == 2 || index == 3) {
+                    minus[index] = std::max(minus[index], 1.0e-6);
+                }
+                Eigen::Matrix<double, 5, 1> delta =
+                    WarpObbMeasurement(plus, linear, translation, &warped_box) -
+                    WarpObbMeasurement(minus, linear, translation, &warped_box);
+                delta[4] = WrapAngle(delta[4]);
+                jacobian.col(index) = delta / (plus[index] - minus[index]);
             }
-            Eigen::Matrix<double, 5, 1> delta =
-                WarpObbMeasurement(plus, linear, translation, &warped_box) -
-                WarpObbMeasurement(minus, linear, translation, &warped_box);
-            delta[4] = WrapAngle(delta[4]);
-            jacobian.col(index) = delta / (plus[index] - minus[index]);
         }
 
         const Eigen::Matrix<double, 5, 1> velocity = mean.segment<5>(5);
@@ -283,8 +358,10 @@ void KalmanBoxTracker::CameraUpdate(
         Eigen::Matrix<double, 10, 10> state_transform = Eigen::Matrix<double, 10, 10>::Zero();
         state_transform.block<5, 5>(0, 0) = jacobian;
         state_transform.block<5, 5>(5, 5) = jacobian;
+        const Eigen::Matrix<double, 10, 10> transformed_covariance =
+            state_transform * kf.covariance() * state_transform.transpose();
         kf.mutable_covariance() =
-            (state_transform * kf.covariance() * state_transform.transpose()).eval();
+            (0.5 * (transformed_covariance + transformed_covariance.transpose())).eval();
         return;
     }
     const Eigen::Vector4d box = xyxy();

@@ -48,6 +48,11 @@ match_th_first_m:
   default: 0.0
   range: [0.02, 0.08]
 
+obb_theta_damping:
+  type: uniform
+  default: 0.8
+  range: [0.0, 0.95]
+
 marginal_timeout:
   type: qrandint
   default: 0

@@ -52,6 +52,35 @@ def _write_tiny_reid_onnx(
     return path
 
 
+def _write_batch_centered_reid_onnx(path: Path, *, height: int = 20, width: int = 10) -> Path:
+    """Create a descriptor whose output proves whether dynamic N ran together."""
+    try:
+        import onnx
+        from onnx import TensorProto, helper
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"ONNX test dependency unavailable: {exc}")
+
+    feature_dim = 3 * height * width
+    graph = helper.make_graph(
+        [
+            helper.make_node("Flatten", ["images"], ["flat"], axis=1),
+            helper.make_node("ReduceMean", ["flat"], ["batch_mean"], axes=[0], keepdims=1),
+            helper.make_node("Sub", ["flat", "batch_mean"], ["features"]),
+        ],
+        "batch_centered_reid",
+        [helper.make_tensor_value_info("images", TensorProto.FLOAT, ["batch", 3, height, width])],
+        [helper.make_tensor_value_info("features", TensorProto.FLOAT, ["batch", feature_dim])],
+    )
+    model = helper.make_model(
+        graph,
+        opset_imports=[helper.make_operatorsetid("", 11)],
+        producer_name="boxmot-test",
+    )
+    model.ir_version = 8
+    onnx.save(model, path)
+    return path
+
+
 def _model_or_skip() -> Path:
     candidate = ROOT / "models" / "lmbn_n_duke.onnx"
     if not candidate.exists():
@@ -79,6 +108,58 @@ def _load_adapter():
     return CppOnnxReID
 
 
+@pytest.mark.parametrize("force_rebuild", [False, True])
+def test_reid_capi_ensure_uses_shared_freshness_builder(monkeypatch, tmp_path, force_rebuild):
+    from boxmot.native.reid import capi
+
+    stale_library = tmp_path / capi._library_name()
+    stale_library.write_bytes(b"stale native library")
+    fresh_library = tmp_path / f"fresh-{capi._library_name()}"
+    captured = {}
+
+    def fake_build_native_target(**kwargs):
+        captured.update(kwargs)
+        return fresh_library
+
+    monkeypatch.setattr(capi, "_candidate_libraries", lambda: [stale_library])
+    monkeypatch.setattr(capi._common, "build_native_target", fake_build_native_target)
+
+    assert capi.ensure_reid_capi_library(force_rebuild=force_rebuild) == fresh_library
+    assert captured == {
+        "tracker_name": "base",
+        "display_name": "ReID C ABI",
+        "target": "reid_capi",
+        "candidates": [stale_library],
+        "force_rebuild": force_rebuild,
+        "not_found_message": "Native ReID C ABI build succeeded but the shared library was not found.",
+        "build_lock": capi._BUILD_LOCK,
+    }
+
+
+def test_reid_capi_ensure_trusts_packaged_wheel_library(monkeypatch, tmp_path):
+    from boxmot.native.reid import capi
+
+    source_dir = tmp_path / "site-packages" / "boxmot" / "native" / "cpp" / "trackers" / "base"
+    source_dir.mkdir(parents=True)
+    packaged_library = source_dir / capi._library_name()
+    packaged_library.write_bytes(b"packaged native library")
+    build_dir = tmp_path / "build" / "native" / "base"
+
+    monkeypatch.setattr(capi, "_candidate_libraries", lambda: [packaged_library])
+    monkeypatch.setattr(capi._common, "tracker_source_dir", lambda _name: source_dir)
+    monkeypatch.setattr(capi._common, "tracker_build_dir", lambda _name: build_dir)
+    monkeypatch.setattr(capi._common, "_native_build_fingerprint", lambda _name: "source-hash")
+    monkeypatch.setattr(capi._common, "_is_native_source_checkout", lambda: False)
+    monkeypatch.setattr(
+        capi._common,
+        "run_build_step",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("packaged library must not rebuild")),
+    )
+
+    assert capi.ensure_reid_capi_library() == packaged_library
+    assert not build_dir.exists()
+
+
 def test_cpp_reid_smoke_aabb():
     image = _image_or_skip()
     weights = _model_or_skip()
@@ -95,6 +176,7 @@ def test_cpp_reid_smoke_aabb():
             dtype=np.float32,
         )
         feats = reid.get_features(boxes, image)
+        individual = np.concatenate([reid.get_features(box[None, :], image) for box in boxes], axis=0)
 
         assert feats.dtype == np.float32
         assert feats.ndim == 2
@@ -104,6 +186,7 @@ def test_cpp_reid_smoke_aabb():
         # L2 normalised rows
         norms = np.linalg.norm(feats, axis=1)
         assert np.allclose(norms, 1.0, atol=1e-3)
+        np.testing.assert_allclose(feats, individual, atol=5e-5, rtol=5e-5)
     finally:
         reid.close()
 
@@ -184,8 +267,48 @@ def test_cpp_reid_reads_onnx_input_spec_and_honours_batch(
         features = reid.get_features(boxes, image)
         assert features.shape == (2, 600)
         np.testing.assert_allclose(np.linalg.norm(features, axis=1), 1.0, atol=1e-6)
+
+        individual = np.concatenate([reid.get_features(box[None, :], image) for box in boxes], axis=0)
+        np.testing.assert_allclose(features, individual, atol=1e-6, rtol=1e-6)
     finally:
         reid.close()
+
+
+@pytest.mark.parametrize("requested_backend", ["onnxruntime", "opencv"])
+def test_cpp_reid_dynamic_batch_respects_backend_capability(
+    tmp_path: Path,
+    monkeypatch,
+    capfd,
+    requested_backend,
+):
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", requested_backend)
+    monkeypatch.setenv("BOXMOT_REID_DEVICE", "cpu")
+    CppOnnxReID = _load_adapter()
+    weights = _write_batch_centered_reid_onnx(tmp_path / "batch_centered.onnx")
+    image = np.zeros((40, 40, 3), dtype=np.uint8)
+    image[:, :20] = np.array([20, 60, 100], dtype=np.uint8)
+    image[:, 20:] = np.array([200, 80, 40], dtype=np.uint8)
+    boxes = np.array([[0, 0, 20, 40], [20, 0, 40, 40]], dtype=np.float32)
+
+    reid = CppOnnxReID(weights=weights, preprocess_name="resize")
+    backend_log = capfd.readouterr().err
+    try:
+        batched = reid.get_features(boxes, image)
+        individual = np.concatenate([reid.get_features(box[None, :], image) for box in boxes], axis=0)
+    finally:
+        reid.close()
+
+    # A one-row invocation subtracts that row's own batch mean and is exactly
+    # zero. With ORT available, the two staged crops must share one Run call,
+    # producing opposite, L2-normalized descriptors. Builds without ORT fall
+    # back to OpenCV DNN, whose deliberate dynamic-N behavior stays per-crop.
+    np.testing.assert_allclose(individual, 0.0, atol=1e-7)
+    if requested_backend == "onnxruntime" and "inference backend=onnxruntime" in backend_log:
+        np.testing.assert_allclose(np.linalg.norm(batched, axis=1), 1.0, atol=1e-6)
+        np.testing.assert_allclose(batched[0], -batched[1], atol=1e-6, rtol=1e-6)
+    else:
+        assert "inference backend=opencv_dnn" in backend_log
+        np.testing.assert_allclose(batched, 0.0, atol=1e-7)
 
 
 def test_cpp_reid_equivalent_obb_forms_have_identical_crops(tmp_path: Path, monkeypatch):

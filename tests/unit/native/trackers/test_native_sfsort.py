@@ -4,7 +4,11 @@ import queue
 from io import StringIO
 from pathlib import Path
 
+import numpy as np
+import pytest
+
 from boxmot.native.trackers import sfsort as native_module
+from boxmot.trackers.bbox.sfsort import SFSORT
 
 
 def _empty_tracks_for(dets):
@@ -25,6 +29,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert "--high-th" in cmd
             assert "--match-th-first" in cmd
             assert "--obb-theta-damping" in cmd
+            assert cmd[cmd.index("--obb-theta-damping") + 1] == "0.75"
             assert "--dynamic-tuning" in cmd
             assert stdout is native_module.subprocess.PIPE
             assert stderr is native_module.subprocess.PIPE
@@ -223,6 +228,55 @@ def test_native_sfsort_low_only_obb_frame_keeps_track():
 
     assert first.shape == second.shape == (1, 9)
     assert second[0, 5] == first[0, 5]
+
+
+@pytest.mark.parametrize(
+    ("initial_detections", "ambiguous_detections", "match_threshold"),
+    [
+        (
+            [[0, 0, 10, 10, 0.95, 0], [8, 0, 18, 10, 0.95, 0]],
+            [[-4, 0, 2, 10, 0.95, 0], [1, 0, 13, 10, 0.95, 0]],
+            0.2,
+        ),
+        (
+            [[5, 5, 10, 10, 0, 0.95, 0], [13, 5, 10, 10, 0, 0.95, 0]],
+            [[3, 5, 6, 10, 0, 0.95, 0], [6, 5, 10, 10, 0, 0.95, 0]],
+            0.1,
+        ),
+    ],
+    ids=["aabb", "obb"],
+)
+def test_native_sfsort_threshold_aware_assignment_matches_python(
+    initial_detections,
+    ambiguous_detections,
+    match_threshold,
+):
+    """Keep the same valid identity that lapjv's cost limit selects."""
+    cfg = {
+        "high_th": 0.6,
+        "new_track_th": 0.7,
+        "low_th": 0.1,
+        "match_th_first": match_threshold,
+        "match_th_second": 0.3,
+        "dynamic_tuning": False,
+        "frame_width": 100,
+        "frame_height": 100,
+        "horizontal_margin": 0,
+        "vertical_margin": 0,
+    }
+    python_tracker = SFSORT(**cfg)
+    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, library=library)
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+
+    try:
+        for detections in (initial_detections, ambiguous_detections):
+            dets = np.asarray(detections, dtype=np.float32)
+            python_output = np.asarray(python_tracker.update(dets, image))
+            native_output = np.asarray(native_tracker.update(dets, image))
+            np.testing.assert_allclose(native_output, python_output, atol=1e-5)
+    finally:
+        native_tracker.close()
 
 
 def test_process_sequence_cpp_streams_progress_updates(monkeypatch, tmp_path):

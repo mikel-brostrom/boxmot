@@ -38,6 +38,24 @@ producer identity is the effective Python or C++ implementation that generated
 the vectors, not the tracker algorithm that consumes them.
 See [Embedding cache layout](../native/index.md#embedding-cache-layout).
 
+## Benchmark publication
+
+README benchmark cells use `Python<br>(C++)` for trackers with a native
+implementation. Publish a native value only from the same experiment, detector
+confidence threshold, split, cache producer, and metric aggregation as its
+Python value. In particular, `mmot-obb-test-precomputed` uses the
+`yolo11l-mmot-obb` detector's default `0.2` confidence threshold and TrackEval
+`Class Avg (Cls)` across all eight classes.
+
+Every published native HOTA, MOTA, and IDF1 value must be within `0.25`
+percentage points of its Python pair. The download-free publication check is:
+
+```bash
+python .github/scripts/tracker_benchmark_results.py verify-readme \
+  --readme README.md \
+  --tolerance 0.25
+```
+
 ## Outputs
 
 - `generate` writes reusable detections and embeddings.

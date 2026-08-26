@@ -15,3 +15,11 @@ boxmot_add_native_tracker(
         src/track.cpp
         src/tracker.cpp
 )
+
+# A small parity probe used by the Python unit suite to compare the native OBB
+# camera-motion state transform with transform_obb_kalman_state. Keeping it out
+# of the default build avoids adding test-only work to runtime native builds.
+add_executable(botsort_obb_cmc_probe EXCLUDE_FROM_ALL tests/obb_cmc_probe.cpp)
+target_compile_features(botsort_obb_cmc_probe PRIVATE cxx_std_17)
+target_link_libraries(botsort_obb_cmc_probe PRIVATE botsort_core)
+boxmot_enable_native_warnings(botsort_obb_cmc_probe)

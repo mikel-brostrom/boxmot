@@ -56,6 +56,7 @@ private:
 
     // Output filter: aspect/area gating.
     bool PassesFilter(const Eigen::Vector4d& xyxy) const;
+    bool PassesObbFilter(const Eigen::Matrix<double, 5, 1>& xywha) const;
 
     Config config_;
     int frame_count_ = 0;

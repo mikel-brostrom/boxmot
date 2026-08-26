@@ -150,6 +150,8 @@ def normalize_embeddings(embs: np.ndarray | None, *, rows: int) -> np.ndarray | 
         raise ValueError("Embeddings must be a 2D array.")
     if emb_arr.shape[0] != rows:
         raise ValueError("Detections and embeddings must have the same number of rows.")
+    if not np.isfinite(emb_arr).all():
+        raise ValueError("Embeddings must contain only finite values.")
     return np.ascontiguousarray(emb_arr, dtype=np.float32)
 
 

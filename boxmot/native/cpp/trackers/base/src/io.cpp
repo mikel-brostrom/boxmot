@@ -4,10 +4,13 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -124,12 +127,12 @@ std::vector<int> ParseShape(const std::string& header) {
     return dims;
 }
 
-Eigen::MatrixXf LoadNpyMatrix(const fs::path& path) {
-    std::ifstream stream(path, std::ios::binary);
-    if (!stream) {
-        throw std::runtime_error("Failed to open npy matrix: " + path.string());
-    }
+struct NpyMetadata {
+    std::string header;
+    std::vector<int> dims;
+};
 
+NpyMetadata ReadNpyMetadata(std::ifstream& stream, const fs::path& path) {
     const std::string magic = ReadString(stream, 6);
     if (magic != "\x93NUMPY") {
         throw std::runtime_error("Invalid npy file: " + path.string());
@@ -151,19 +154,32 @@ Eigen::MatrixXf LoadNpyMatrix(const fs::path& path) {
     } else {
         throw std::runtime_error("Unsupported npy version in " + path.string());
     }
+    if (!stream) {
+        throw std::runtime_error("Failed to read npy header length: " + path.string());
+    }
 
-    const std::string header = ReadString(stream, header_len);
+    std::string header = ReadString(stream, header_len);
     if (header.find("False") == std::string::npos) {
         throw std::runtime_error("Fortran-order npy arrays are not supported: " + path.string());
     }
+    return {header, ParseShape(header)};
+}
 
-    const std::vector<int> dims = ParseShape(header);
-    if (dims.empty()) {
-        return Eigen::MatrixXf(0, 0);
+Eigen::MatrixXf LoadNpyMatrix(const fs::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        throw std::runtime_error("Failed to open npy matrix: " + path.string());
     }
 
-    const int rows = dims.size() >= 1 ? dims[0] : 0;
-    const int cols = dims.size() >= 2 ? dims[1] : 1;
+    const NpyMetadata metadata = ReadNpyMetadata(stream, path);
+    const std::string& header = metadata.header;
+    const std::vector<int>& dims = metadata.dims;
+    if (dims.size() != 2U) {
+        throw std::runtime_error("Native npy matrix must be 2D: " + path.string());
+    }
+
+    const int rows = dims[0];
+    const int cols = dims[1];
     if (rows == 0) {
         return Eigen::MatrixXf(0, cols);
     }
@@ -219,6 +235,80 @@ Eigen::MatrixXf LoadNumericMatrix(const fs::path& path) {
     return LoadTextMatrix(path);
 }
 
+cv::Mat LoadNpyImage(const fs::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        throw std::runtime_error("Failed to open npy image: " + path.string());
+    }
+
+    const NpyMetadata metadata = ReadNpyMetadata(stream, path);
+    const bool is_u1 =
+        metadata.header.find("'descr': '|u1'") != std::string::npos ||
+        metadata.header.find("\"descr\": \"|u1\"") != std::string::npos ||
+        metadata.header.find("'descr': '<u1'") != std::string::npos ||
+        metadata.header.find("\"descr\": \"<u1\"") != std::string::npos;
+    const bool grayscale_2d = metadata.dims.size() == 2U;
+    if (!is_u1 || (!grayscale_2d && metadata.dims.size() != 3U)) {
+        throw std::runtime_error(
+            "Native replay expects a C-order uint8 grayscale or HWC npy image: " + path.string()
+        );
+    }
+
+    const int height = metadata.dims[0];
+    const int width = metadata.dims[1];
+    const int channels = grayscale_2d ? 1 : metadata.dims[2];
+    if (height <= 0 || width <= 0 || channels <= 0) {
+        throw std::runtime_error("Npy image dimensions must be positive: " + path.string());
+    }
+
+    const std::size_t pixel_count = static_cast<std::size_t>(height) * static_cast<std::size_t>(width);
+    if (
+        pixel_count > std::numeric_limits<std::size_t>::max() / static_cast<std::size_t>(channels)
+    ) {
+        throw std::runtime_error("Npy image is too large: " + path.string());
+    }
+    std::vector<std::uint8_t> source(pixel_count * static_cast<std::size_t>(channels));
+    stream.read(reinterpret_cast<char*>(source.data()), static_cast<std::streamsize>(source.size()));
+    if (!stream) {
+        throw std::runtime_error("Failed to read uint8 npy image payload: " + path.string());
+    }
+
+    if (channels == 1) {
+        if (grayscale_2d) {
+            // Match MOTSequence.__iter__'s cv2.COLOR_GRAY2BGR conversion.
+            cv::Mat image(height, width, CV_8UC3);
+            auto* destination = image.ptr<std::uint8_t>();
+            for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
+                const std::uint8_t value = source[pixel];
+                destination[pixel * 3U] = value;
+                destination[pixel * 3U + 1U] = value;
+                destination[pixel * 3U + 2U] = value;
+            }
+            return image;
+        }
+        cv::Mat image(height, width, CV_8UC1);
+        std::memcpy(image.data, source.data(), source.size());
+        return image;
+    }
+    if (channels < 3) {
+        throw std::runtime_error("Npy image must have one or at least three channels: " + path.string());
+    }
+
+    // Match MOTSequence.__iter__, the Python tracking replay path: truncate
+    // every multi-channel npy frame to its first three channels.
+    const std::array<int, 3> indices{0, 1, 2};
+    cv::Mat image(height, width, CV_8UC3);
+    auto* destination = image.ptr<std::uint8_t>();
+    for (std::size_t pixel = 0; pixel < pixel_count; ++pixel) {
+        const std::size_t source_offset = pixel * static_cast<std::size_t>(channels);
+        const std::size_t destination_offset = pixel * 3U;
+        destination[destination_offset] = source[source_offset + static_cast<std::size_t>(indices[0])];
+        destination[destination_offset + 1U] = source[source_offset + static_cast<std::size_t>(indices[1])];
+        destination[destination_offset + 2U] = source[source_offset + static_cast<std::size_t>(indices[2])];
+    }
+    return image;
+}
+
 fs::path ResolveCacheFile(const fs::path& path_without_suffix) {
     const fs::path npy_path = path_without_suffix;
     if (fs::exists(npy_path)) {
@@ -246,12 +336,29 @@ std::vector<fs::path> ListSequenceFrames(const fs::path& img_dir) {
         if (!entry.is_regular_file()) {
             continue;
         }
+        if (entry.path().filename().string().rfind("._", 0) == 0) {
+            continue;
+        }
         const std::string ext = entry.path().extension().string();
-        if (ext == ".jpg" || ext == ".png") {
+        if (ext == ".jpg" || ext == ".jpeg" || ext == ".png" || ext == ".npy") {
             frames.push_back(entry.path());
         }
     }
     std::sort(frames.begin(), frames.end());
+
+    std::unordered_map<std::string, fs::path> path_by_stem;
+    for (const auto& frame : frames) {
+        const std::string stem = frame.stem().string();
+        const auto [existing, inserted] = path_by_stem.emplace(stem, frame);
+        if (!inserted) {
+            throw std::runtime_error(
+                "Multiple image files found for frame stem '" + stem + "' in " +
+                img_dir.string() + ": " + existing->second.filename().string() + ", " +
+                frame.filename().string() +
+                ". Keep exactly one of .jpg, .jpeg, .png, or .npy per frame."
+            );
+        }
+    }
     return frames;
 }
 
@@ -279,9 +386,16 @@ std::unordered_set<int> ComputeWantedFrames(const std::vector<int>& frame_ids, c
         return wanted;
     }
     const int effective_target = std::min(orig_fps, target_fps);
-    const float step = static_cast<float>(orig_fps) / static_cast<float>(effective_target);
+    const double step = static_cast<double>(orig_fps) / static_cast<double>(effective_target);
     const int max_frame = *std::max_element(frame_ids.begin(), frame_ids.end());
-    for (float value = 1.0F; value <= static_cast<float>(max_frame) + 1.0e-6F; value += step) {
+    const double stop = static_cast<double>(max_frame) + 1.0;
+    for (std::size_t index = 0;; ++index) {
+        // NumPy arange computes start + index * step in float64. Repeated
+        // float32 accumulation changes integer truncation at boundary values.
+        const double value = 1.0 + static_cast<double>(index) * step;
+        if (value >= stop) {
+            break;
+        }
         wanted.insert(static_cast<int>(value));
     }
     return wanted;

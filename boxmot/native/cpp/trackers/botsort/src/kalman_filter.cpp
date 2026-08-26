@@ -159,10 +159,14 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
     const Vector& mean,
     const Matrix& covariance
 ) const {
+    // Python builds process noise from the state entering predict(), before
+    // applying the constant-velocity transition. Using the already-predicted
+    // width/height changes covariance whenever size velocity is non-zero and
+    // shifts the next corrected box.
+    const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
     Vector predicted_mean = motion_mat_ * mean;
     predicted_mean = EnforceXywhConstraints(predicted_mean, is_obb_);
 
-    const auto [std_pos, std_vel] = ProcessNoiseStd(predicted_mean);
     Vector std(dim_x_);
     std << std_pos, std_vel;
     Matrix motion_cov = std.array().square().matrix().asDiagonal();

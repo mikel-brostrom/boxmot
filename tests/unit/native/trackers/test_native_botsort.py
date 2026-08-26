@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import queue
 import subprocess
 from io import StringIO
@@ -13,6 +14,9 @@ import torch
 
 from boxmot.native import _common as native_common
 from boxmot.native.trackers import botsort as native_module
+from boxmot.trackers.bbox.botsort import BotSort
+from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
+from boxmot.trackers.common.geometry.obb import transform_aabb_kalman_state, transform_obb_kalman_state
 
 
 def _empty_tracks_for(dets):
@@ -32,8 +36,7 @@ def test_cached_embedding_path_uses_versioned_preprocess_directory():
     )
 
     assert path == Path(
-        "/runs/dets_n_embs/mot17-mini/yolox_x/embs/"
-        "cpp/lmbn_n_duke-pt-ort/resize-cropv2/MOT17-02-FRCNN.npy"
+        "/runs/dets_n_embs/mot17-mini/yolox_x/embs/cpp/lmbn_n_duke-pt-ort/resize-cropv2/MOT17-02-FRCNN.npy"
     )
 
 
@@ -330,6 +333,36 @@ def test_native_botsort_tracker_uses_live_library_wrapper():
     ]
 
 
+@pytest.mark.parametrize("nonfinite", [np.nan, np.inf, -np.inf])
+def test_native_botsort_rejects_nonfinite_embeddings(nonfinite):
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            raise AssertionError("invalid embeddings must not reach native assignment")
+
+        def get_last_reid_time_ms(self, handle):
+            return 0.0
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeBotSortTracker({"with_reid": True}, library=_FakeLibrary())
+    dets = np.asarray([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+    embeddings = np.asarray([[1.0, nonfinite]], dtype=np.float32)
+
+    try:
+        with pytest.raises(ValueError, match="finite values"):
+            tracker.update(dets, image, embeddings)
+    finally:
+        tracker.close()
+
+
 def test_native_botsort_tracker_accepts_obb_rows_and_preserves_empty_mode():
     calls = []
 
@@ -418,6 +451,239 @@ def test_native_botsort_sof_accepts_bgra_live_images():
         tracker.close()
 
     assert first.shape == second.shape == (0, 8)
+
+
+def test_native_botsort_obb_motion_state_matches_python_across_updates():
+    cfg = {
+        "track_high_thresh": 0.5,
+        "track_low_thresh": 0.1,
+        "new_track_thresh": 0.5,
+        "track_buffer": 30,
+        "match_thresh": 0.95,
+        "proximity_thresh": 0.9,
+        "appearance_thresh": 0.25,
+        "use_cmc": False,
+        "frame_rate": 30,
+        "fuse_first_associate": False,
+        "with_reid": False,
+        "second_match_thresh": 0.5,
+        "unconfirmed_match_thresh": 0.95,
+        "unconfirmed_emb_scale": 2.0,
+    }
+    python_tracker = BotSort(reid_model=None, **cfg)
+    native_library = native_module._BotSortLiveLibrary(native_module.ensure_botsort_cpp_library())
+    native_tracker = native_module.NativeBotSortTracker(cfg, library=native_library)
+    image = np.zeros((100, 120, 3), dtype=np.uint8)
+    frames = (
+        np.array([[40.0, 40.0, 20.0, 10.0, 0.10, 0.95, 0.0]], dtype=np.float32),
+        np.array([[43.0, 42.0, 24.0, 12.0, 0.14, 0.96, 0.0]], dtype=np.float32),
+        np.array([[47.0, 45.0, 31.0, 15.0, 0.20, 0.94, 0.0]], dtype=np.float32),
+        np.array([[52.0, 49.0, 35.0, 18.0, 0.25, 0.93, 0.0]], dtype=np.float32),
+    )
+
+    try:
+        for detections in frames:
+            python_output = np.asarray(python_tracker.update(detections, image))
+            native_output = native_tracker.update(detections, image)
+            assert python_output.shape == native_output.shape == (1, 9)
+            np.testing.assert_allclose(native_output[:, :5], python_output[:, :5], rtol=1e-6, atol=1e-6)
+    finally:
+        native_tracker.close()
+
+
+def test_native_botsort_obb_cmc_state_matches_python_jacobian():
+    native_module.ensure_botsort_cpp_library()
+    build_dir = native_common.tracker_build_dir("botsort")
+    completed = subprocess.run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            "botsort_obb_cmc_probe",
+            "--parallel",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    executable_name = "botsort_obb_cmc_probe.exe" if os.name == "nt" else "botsort_obb_cmc_probe"
+    executable_candidates = (build_dir / executable_name, build_dir / "Release" / executable_name)
+    executable = next((path for path in executable_candidates if path.exists()), None)
+    assert executable is not None
+
+    lower = np.eye(10, dtype=np.float64)
+    lower[1, 0] = 0.20
+    lower[2, 0] = -0.15
+    lower[4, 2] = 0.12
+    lower[6, 1] = 0.30
+    lower[7, 3] = -0.25
+    lower[9, 4] = 0.40
+    mean = np.array([120, 75, 50, 18, 0.35, 2, -1, 0.8, -0.4, 0.05], dtype=np.float64)
+    covariance = lower @ lower.T
+    similarity_scale = 1.08
+    similarity_angle = 0.17
+    similarity_linear = similarity_scale * np.array(
+        [
+            [np.cos(similarity_angle), -np.sin(similarity_angle)],
+            [np.sin(similarity_angle), np.cos(similarity_angle)],
+        ],
+        dtype=np.float64,
+    )
+    cases = (
+        ("affine", np.array([[1.10, 0.25, 7.0], [-0.12, 0.85, -4.0]], dtype=np.float64), 2e-2, 7e-3),
+        ("similarity", np.column_stack([similarity_linear, [7.0, -4.0]]), 1e-6, 1e-7),
+    )
+
+    for mode, transform, covariance_rtol, covariance_atol in cases:
+        probe = subprocess.run([str(executable), mode], capture_output=True, text=True, check=False)
+        assert probe.returncode == 0, probe.stderr
+        values = np.fromstring(probe.stdout, sep=" ")
+        assert values.size == 110
+        native_mean = values[:10]
+        native_covariance = values[10:].reshape(10, 10)
+
+        python_mean, python_covariance = transform_obb_kalman_state(
+            mean,
+            covariance,
+            transform,
+            measurement_to_box=lambda values: values,
+            box_to_measurement=lambda box: box,
+            velocity_measurement_indices=(0, 1, 2, 3, 4),
+        )
+
+        np.testing.assert_allclose(native_mean, python_mean, rtol=2e-3, atol=2e-3)
+        # The Python wheel and native target may link different OpenCV builds;
+        # minAreaRect's float32 refit introduces a few millipixels of Jacobian
+        # noise for the generic affine case. The benchmark-default similarity
+        # path is analytic and therefore checked much more tightly.
+        np.testing.assert_allclose(
+            native_covariance,
+            python_covariance,
+            rtol=covariance_rtol,
+            atol=covariance_atol,
+        )
+
+
+def test_native_botsort_aabb_cmc_state_matches_python_jacobian():
+    native_module.ensure_botsort_cpp_library()
+    build_dir = native_common.tracker_build_dir("botsort")
+    completed = subprocess.run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            "botsort_obb_cmc_probe",
+            "--parallel",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    executable_name = "botsort_obb_cmc_probe.exe" if os.name == "nt" else "botsort_obb_cmc_probe"
+    executable_candidates = (build_dir / executable_name, build_dir / "Release" / executable_name)
+    executable = next((path for path in executable_candidates if path.exists()), None)
+    assert executable is not None
+
+    probe = subprocess.run([str(executable), "aabb"], capture_output=True, text=True, check=False)
+    assert probe.returncode == 0, probe.stderr
+    values = np.fromstring(probe.stdout, sep=" ")
+    assert values.size == 72
+    native_mean = values[:8]
+    native_covariance = values[8:].reshape(8, 8)
+
+    lower = np.eye(8, dtype=np.float64)
+    lower[1, 0] = 0.20
+    lower[2, 0] = -0.15
+    lower[5, 1] = 0.30
+    lower[6, 3] = -0.25
+    mean = np.array([120, 75, 80, 30, 2, -1, 0.8, -0.4], dtype=np.float64)
+    covariance = lower @ lower.T
+    transform = np.array([[1.10, 0.25, 7.0], [-0.12, 0.85, -4.0]], dtype=np.float64)
+    python_mean, python_covariance = transform_aabb_kalman_state(
+        mean,
+        covariance,
+        transform,
+        measurement_to_box=lambda values: xywh2xyxy(values[:4]),
+        box_to_measurement=lambda box: xyxy2xywh(box[:4]),
+        velocity_measurement_indices=(0, 1, 2, 3),
+    )
+
+    np.testing.assert_allclose(native_mean, python_mean, rtol=1e-10, atol=1e-10)
+    np.testing.assert_allclose(native_covariance, python_covariance, rtol=1e-10, atol=1e-10)
+
+
+def test_native_botsort_cmc_mask_uses_python_exclusive_bounds():
+    native_module.ensure_botsort_cpp_library()
+    build_dir = native_common.tracker_build_dir("botsort")
+    completed = subprocess.run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            "botsort_obb_cmc_probe",
+            "--parallel",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    executable_name = "botsort_obb_cmc_probe.exe" if os.name == "nt" else "botsort_obb_cmc_probe"
+    executable_candidates = (build_dir / executable_name, build_dir / "Release" / executable_name)
+    executable = next((path for path in executable_candidates if path.exists()), None)
+    assert executable is not None
+
+    probe = subprocess.run([str(executable), "mask"], capture_output=True, text=True, check=False)
+    assert probe.returncode == 0, probe.stderr
+    # Python's mask[2:98, 2:98] contains 96**2 foreground pixels; row/column
+    # 98 are outside the half-open slice.
+    assert np.fromstring(probe.stdout, sep=" ").astype(int).tolist() == [96**2, 255, 255, 0, 0]
+
+
+def test_native_botsort_cmc_rejects_nonfinite_affine_elements():
+    native_module.ensure_botsort_cpp_library()
+    build_dir = native_common.tracker_build_dir("botsort")
+    completed = subprocess.run(
+        [
+            "cmake",
+            "--build",
+            str(build_dir),
+            "--config",
+            "Release",
+            "--target",
+            "botsort_obb_cmc_probe",
+            "--parallel",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+
+    executable_name = "botsort_obb_cmc_probe.exe" if os.name == "nt" else "botsort_obb_cmc_probe"
+    executable_candidates = (build_dir / executable_name, build_dir / "Release" / executable_name)
+    executable = next((path for path in executable_candidates if path.exists()), None)
+    assert executable is not None
+
+    probe = subprocess.run([str(executable), "affine-validity"], capture_output=True, text=True, check=False)
+    assert probe.returncode == 0, probe.stderr
+    # Valid identity, followed by NaN translation, infinite linear term, and
+    # a finite but singular transform.
+    assert np.fromstring(probe.stdout, sep=" ").astype(int).tolist() == [1, 0, 0, 0]
 
 
 def test_native_botsort_target_fps_keeps_embedding_rows_aligned(tmp_path):

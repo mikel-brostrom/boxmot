@@ -17,18 +17,10 @@ from boxmot.trackers.registry import (
 
 
 def test_tracker_public_mappings_are_derived_from_definitions():
-    assert TRACKER_MAPPING == {
-        name: definition.class_path
-        for name, definition in TRACKER_DEFINITIONS.items()
-    }
-    assert REID_TRACKERS == [
-        name
-        for name, definition in TRACKER_DEFINITIONS.items()
-        if definition.needs_reid
-    ]
+    assert TRACKER_MAPPING == {name: definition.class_path for name, definition in TRACKER_DEFINITIONS.items()}
+    assert REID_TRACKERS == [name for name, definition in TRACKER_DEFINITIONS.items() if definition.needs_reid]
     assert TRACKER_CLASS_TO_NAME == {
-        definition.class_name.lower(): name
-        for name, definition in TRACKER_DEFINITIONS.items()
+        definition.class_name.lower(): name for name, definition in TRACKER_DEFINITIONS.items()
     }
 
 
@@ -67,6 +59,12 @@ def test_tracker_config_precedence_and_partial_custom_overlay(tmp_path):
     assert resolved["track_thresh"] == 0.7
     assert resolved["track_buffer"] == 45
     assert resolved["match_thresh"] == 0.75
+
+
+def test_sfsort_canonical_config_includes_obb_theta_damping():
+    defaults = load_tracker_config("sfsort")
+
+    assert defaults["obb_theta_damping"] == 0.8
 
 
 def test_create_tracker_applies_tuned_values_before_tracker_kwargs(monkeypatch, tmp_path):

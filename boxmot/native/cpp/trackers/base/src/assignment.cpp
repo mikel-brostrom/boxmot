@@ -9,6 +9,78 @@ namespace boxmot::trackers::base {
 
 namespace {
 
+bool FullCardinalityMustWin(const Eigen::MatrixXd& costs, const double threshold) {
+    if (!std::isfinite(threshold) || !costs.allFinite()) {
+        return false;
+    }
+
+    const double min_cost = costs.minCoeff();
+    const double max_cost = costs.maxCoeff();
+    if (max_cost > threshold) {
+        return false;
+    }
+
+    // A cost-limit solve minimizes sum(cost - threshold) over the selected
+    // edges. If even the most expensive additional edge is more beneficial
+    // than every possible reshuffle of the existing matching, the optimum is
+    // guaranteed to have full cardinality. Solving the original rectangular
+    // problem then preserves small cost differences that would otherwise be
+    // rounded away by subtracting a very large sentinel threshold (OCSort
+    // deliberately uses 1e9 for its effectively-unbounded assignments).
+    const int cardinality = std::min<int>(costs.rows(), costs.cols());
+    const long double add_edge_margin =
+        static_cast<long double>(threshold) - static_cast<long double>(max_cost);
+    const long double max_reshuffle =
+        static_cast<long double>(std::max(0, cardinality - 1))
+        * (static_cast<long double>(max_cost) - static_cast<long double>(min_cost));
+    return add_edge_margin > max_reshuffle;
+}
+
+Eigen::MatrixXd MakeUnboundedSquare(const Eigen::MatrixXd& costs) {
+    const int rows = static_cast<int>(costs.rows());
+    const int cols = static_cast<int>(costs.cols());
+    const int size = std::max(rows, cols);
+    Eigen::MatrixXd square = Eigen::MatrixXd::Zero(size, size);
+
+    if (costs.allFinite()) {
+        // Every square assignment contains the same number of padding edges,
+        // so zero padding leaves the rectangular optimum unchanged.
+        square.block(0, 0, rows, cols) = costs;
+        return square;
+    }
+
+    // The Hungarian implementation requires finite arithmetic. Normalize the
+    // valid edges to [0, 1] and give invalid edges a penalty larger than the
+    // total cost of any all-finite assignment. This first maximizes the number
+    // of finite matches, then minimizes their original cost.
+    double min_cost = std::numeric_limits<double>::infinity();
+    double max_cost = -std::numeric_limits<double>::infinity();
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            const double cost = costs(row, col);
+            if (std::isfinite(cost)) {
+                min_cost = std::min(min_cost, cost);
+                max_cost = std::max(max_cost, cost);
+            }
+        }
+    }
+
+    const bool has_finite_cost = std::isfinite(min_cost);
+    const double range = has_finite_cost ? max_cost - min_cost : 0.0;
+    const double blocked_cost = static_cast<double>(size + 1);
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            const double cost = costs(row, col);
+            if (!std::isfinite(cost)) {
+                square(row, col) = blocked_cost;
+            } else if (range > 0.0) {
+                square(row, col) = (cost - min_cost) / range;
+            }
+        }
+    }
+    return square;
+}
+
 std::vector<int> SolveHungarian(const Eigen::MatrixXd& cost_matrix) {
     const int n = static_cast<int>(cost_matrix.rows());
     const int m = static_cast<int>(cost_matrix.cols());
@@ -89,17 +161,43 @@ AssignmentResult LinearAssignment(const Eigen::MatrixXd& cost_matrix, const doub
         return result;
     }
 
-    const int size = std::max(rows, cols);
-    const double max_cost = cost_matrix.maxCoeff();
-    // The pad cost must be FINITE: an infinite entry causes the inner JV loop
-    // to compute `inf - inf` (NaN), which traps the algorithm in an infinite
-    // spin. Callers may pass `threshold = +inf` to mean "accept everything,
-    // post-filter externally"; clamp here so that contract is safe.
-    const double safe_threshold = std::isfinite(threshold) ? threshold : max_cost;
-    const double pad_cost = std::max(safe_threshold + 1.0, max_cost + 1.0);
+    Eigen::MatrixXd square;
+    if (FullCardinalityMustWin(cost_matrix, threshold)) {
+        square = MakeUnboundedSquare(cost_matrix);
+    } else if (std::isfinite(threshold)) {
+        // Match lap.lapjv(..., extend_cost=True, cost_limit=threshold): rows
+        // and columns must be allowed to remain unmatched *during* the
+        // optimization. Solving a full assignment first and rejecting costly
+        // pairs afterwards can discard a different, valid match that the
+        // threshold-aware optimum would keep.
+        //
+        // Subtracting the limit from every admissible edge makes a match
+        // beneficial exactly when its original cost is <= threshold. The
+        // augmented dummy rows/columns have zero cost, so the Hungarian solve
+        // jointly chooses the best set of optional one-to-one matches.
+        const int size = rows + cols;
+        constexpr double blocked_cost = 1.0;
+        square = Eigen::MatrixXd::Constant(size, size, blocked_cost);
 
-    Eigen::MatrixXd square = Eigen::MatrixXd::Constant(size, size, pad_cost);
-    square.block(0, 0, rows, cols) = cost_matrix;
+        for (int row = 0; row < rows; ++row) {
+            for (int col = 0; col < cols; ++col) {
+                const double cost = cost_matrix(row, col);
+                if (std::isfinite(cost) && cost <= threshold) {
+                    square(row, col) = cost - threshold;
+                }
+            }
+            square(row, cols + row) = 0.0;
+        }
+        for (int col = 0; col < cols; ++col) {
+            square(rows + col, col) = 0.0;
+        }
+        square.block(rows, cols, cols, rows).setZero();
+    } else {
+        // Callers use +inf when tracker-specific validity checks happen after
+        // assignment. Keep every value entering the Hungarian loop finite so
+        // NaN/+inf inputs cannot turn `inf - inf` into an endless solver spin.
+        square = MakeUnboundedSquare(cost_matrix);
+    }
 
     const std::vector<int> assignment = SolveHungarian(square);
 
@@ -107,7 +205,8 @@ AssignmentResult LinearAssignment(const Eigen::MatrixXd& cost_matrix, const doub
     std::vector<bool> matched_cols(cols, false);
     for (int row = 0; row < rows; ++row) {
         const int col = assignment[row];
-        if (col >= 0 && col < cols && cost_matrix(row, col) <= threshold) {
+        if (col >= 0 && col < cols && std::isfinite(cost_matrix(row, col)) &&
+            cost_matrix(row, col) <= threshold) {
             matched_rows[row] = true;
             matched_cols[col] = true;
             result.matches.emplace_back(row, col);

@@ -34,6 +34,7 @@ struct LoadedDetectionSequence {
 
 int RoundLikeNumpy(double value);
 Eigen::MatrixXf LoadNumericMatrix(const fs::path& path);
+cv::Mat LoadNpyImage(const fs::path& path);
 fs::path ResolveCacheFile(const fs::path& path_without_suffix);
 fs::path SequenceImageDir(const fs::path& seq_dir);
 std::vector<fs::path> ListSequenceFrames(const fs::path& img_dir);
