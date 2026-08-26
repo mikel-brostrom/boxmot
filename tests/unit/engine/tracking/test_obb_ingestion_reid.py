@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import copy
+import pickle
+
 import cv2
 import numpy as np
 import pytest
 
+from boxmot.box_schema import OBB_SCHEMA, BoxSchema
 from boxmot.data.cache import REID_CROP_SCHEMA_VERSION, reid_cache_key, reid_preprocess_cache_key
 from boxmot.detectors.base import Detections
+from boxmot.engine.tracking.detections import extract_detection_array
 from boxmot.engine.tracking.results import FrameResult, Results
+from boxmot.trackers.common.detections.layout import OBB_DETECTIONS
 from boxmot.trackers.common.geometry.obb import xywha_to_corners
+from boxmot.trackers.common.tracking.outputs import format_output_rows
 from boxmot.trackers.results import TrackResults
 
 
@@ -49,7 +56,96 @@ def test_track_results_slicing_keeps_masks_row_aligned():
     np.testing.assert_array_equal(tracks[:1].masks, masks[:1])
     np.testing.assert_array_equal(tracks[[2, 0]].masks, masks[[2, 0]])
     np.testing.assert_array_equal(tracks[np.array([False, True, True])].masks, masks[1:])
-    np.testing.assert_array_equal(tracks[1].masks, masks[1:2])
+    np.testing.assert_array_equal(tracks[1:2].masks, masks[1:2])
+
+
+def test_track_results_only_preserves_schema_for_complete_row_slices():
+    rows = np.array(
+        [
+            [20, 20, 12, 8, 0.1, 1, 0.9, 0, 0],
+            [40, 20, 12, 8, 0.2, 2, 0.8, 1, 1],
+        ],
+        dtype=np.float32,
+    )
+    masks = np.stack([np.full((2, 3), value, dtype=np.uint8) for value in (1, 2)])
+    tracks = TrackResults(rows, masks=masks)
+
+    assert isinstance(tracks[:1], TrackResults)
+    assert tracks[:1].schema == OBB_SCHEMA
+    np.testing.assert_array_equal(tracks[:1].masks, masks[:1])
+    for transformed in (
+        tracks[0],
+        tracks[:, :8],
+        tracks.T,
+        tracks.reshape(-1),
+        tracks[None, ...],
+        tracks[np.ones_like(tracks, dtype=bool)],
+        tracks + 1,
+        tracks.take([1, 0], axis=0),
+        tracks.repeat(2, axis=0),
+        tracks.compress([False, True], axis=0),
+        np.roll(tracks, 1, axis=0),
+        np.delete(tracks, 0, axis=0),
+        tracks.astype(np.float64),
+        tracks.view(),
+    ):
+        assert type(transformed) is np.ndarray
+
+    for copied in (tracks.copy(), copy.copy(tracks), copy.deepcopy(tracks), pickle.loads(pickle.dumps(tracks))):
+        assert isinstance(copied, TrackResults)
+        assert copied.schema == OBB_SCHEMA
+        np.testing.assert_array_equal(copied.masks, masks)
+
+    malformed = tracks.copy()
+    malformed.shape = (1, 18)
+    with pytest.raises(ValueError, match="no longer matches"):
+        _ = malformed.schema
+
+
+def test_track_results_accepts_value_equal_schema_and_rejects_wrong_widths():
+    equivalent_schema = BoxSchema(**vars(OBB_SCHEMA))
+    rows = np.array([[20, 20, 12, 8, 0.1, 1, 0.9, 0, 0]], dtype=np.float32)
+
+    tracks = TrackResults(rows, schema=equivalent_schema, is_obb=True)
+
+    assert tracks.is_obb is True
+    for width in (0, 7, 10):
+        with pytest.raises(ValueError, match="column count"):
+            TrackResults(np.empty((0, width), dtype=np.float32))
+
+
+def test_output_formatter_rejects_malformed_empty_widths():
+    np.testing.assert_array_equal(
+        format_output_rows(OBB_DETECTIONS, []),
+        np.empty((0, 9), dtype=np.float32),
+    )
+
+    for malformed in (np.empty((0,), dtype=np.float32), np.empty((0, 8), dtype=np.float32)):
+        with pytest.raises(ValueError, match="shape"):
+            format_output_rows(OBB_DETECTIONS, malformed)
+
+
+def test_frame_result_rejects_detection_track_mode_mismatch():
+    tracks = TrackResults(np.empty((0, 9), dtype=np.float32))
+
+    with pytest.raises(ValueError, match="Detection schema aabb does not match tracker schema obb"):
+        FrameResult(
+            frame_idx=1,
+            frame=np.zeros((8, 8, 3), dtype=np.uint8),
+            tracks=tracks,
+            detections=np.empty((0, 6), dtype=np.float32),
+            source_path="",
+            get_drawer=lambda: None,
+        )
+
+
+def test_detector_ingestion_preserves_fallback_mode_and_rejects_explicit_conflicts():
+    assert extract_detection_array(None, fallback_is_obb=True).shape == (0, 7)
+    assert extract_detection_array([], fallback_is_obb=True).shape == (0, 7)
+
+    conflicting = type("Result", (), {"dets": np.empty((0, 6), dtype=np.float32), "is_obb": True})()
+    with pytest.raises(ValueError, match="conflicts with its 6-column schema"):
+        extract_detection_array(conflicting)
 
 
 def test_frame_result_prefers_tracker_refined_masks_over_detector_masks():
@@ -71,19 +167,11 @@ def test_frame_result_prefers_tracker_refined_masks_over_detector_masks():
     np.testing.assert_array_equal(result.masks, tracker_masks)
 
 
-def test_frame_result_rejects_misaligned_tracker_masks():
+def test_track_results_rejects_misaligned_tracker_masks():
     rows = np.array([[32, 32, 20, 10, 0.2, 1, 0.9, 0, 0]], dtype=np.float32)
-    tracks = TrackResults(rows, masks=np.ones((2, 8, 8), dtype=np.uint8))
 
     with pytest.raises(ValueError, match="mask count must match"):
-        FrameResult(
-            frame_idx=1,
-            frame=np.zeros((32, 32, 3), dtype=np.uint8),
-            tracks=tracks,
-            detections=None,
-            source_path="",
-            get_drawer=lambda: None,
-        )
+        TrackResults(rows, masks=np.ones((2, 8, 8), dtype=np.uint8))
 
 
 def test_frame_result_bounds_checks_detection_indices():

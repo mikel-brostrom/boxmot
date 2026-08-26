@@ -9,6 +9,11 @@ import pytest
 from boxmot.native.trackers import ocsort as native_module
 
 
+def _empty_tracks_for(dets):
+    columns = 9 if dets.shape[1] == 7 else 8
+    return native_module.np.empty((0, columns), dtype=native_module.np.float32)
+
+
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
     monkeypatch.setattr(
         native_module, "ensure_ocsort_cpp_executable", lambda force_rebuild=False: Path("/tmp/ocsort_replay")
@@ -97,7 +102,7 @@ def test_native_ocsort_tracker_uses_live_library_wrapper():
 
         def update(self, handle, dets, img):
             calls.append(("update", handle, dets.shape, img.shape))
-            return dets
+            return _empty_tracks_for(dets)
 
         def destroy(self, handle):
             calls.append(("destroy", handle))
@@ -117,7 +122,7 @@ def test_native_ocsort_tracker_uses_live_library_wrapper():
     tracker.reset()
     tracker.close()
 
-    assert out.shape == (2, 6)
+    assert out.shape == (0, 8)
     assert calls == [
         ("create", 0.55, 0.27, True),
         ("update", "handle", (2, 6), (8, 8, 3)),

@@ -57,9 +57,15 @@ class DetectionBatch:
 
         boxes = layout.boxes(dets)
         confs = layout.confidences(dets)
-        clss = layout.classes(dets)
+        class_values = layout.classes(dets)
+        if class_values.size and not np.equal(class_values, np.floor(class_values)).all():
+            raise ValueError("Detection class IDs must be integers.")
+        clss = class_values.astype(np.int32, copy=copy)
         if dets.shape[1] == layout.det_cols + 1:
-            det_inds = dets[:, layout.det_cols].astype(np.int32, copy=copy)
+            det_ind_values = dets[:, layout.det_cols]
+            if det_ind_values.size and not np.equal(det_ind_values, np.floor(det_ind_values)).all():
+                raise ValueError("Detection indices must be integers.")
+            det_inds = det_ind_values.astype(np.int32, copy=copy)
         else:
             det_inds = np.arange(size, dtype=np.int32)
 

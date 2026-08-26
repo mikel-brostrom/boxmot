@@ -10,7 +10,7 @@ from ultralytics import YOLO
 from ultralytics.utils import ops
 from ultralytics.utils.downloads import attempt_download_asset
 
-from boxmot.detectors.base import BaseDetectorBackend, Detections, as_numpy, ensure_image_batch
+from boxmot.detectors.base import BaseDetectorBackend, Detections, as_numpy, empty_detections, ensure_image_batch
 from boxmot.detectors.registry import get_detector_url, is_ultralytics_model
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.download import download_file
@@ -42,6 +42,7 @@ class UltralyticsDetector(BaseDetectorBackend):
         self.device = device
         self.imgsz = imgsz  # passed through to YOLO.predict
         self._yolo = self._load_yolo(model_path, detector_url)
+        self.is_obb = str(getattr(self._yolo, "task", "")).lower() == "obb"
         self.names = self._yolo.names or {}
 
         # Lazily initialised on the first call: ``predictor`` only exists
@@ -186,7 +187,7 @@ class UltralyticsDetector(BaseDetectorBackend):
 
         if getattr(result, "boxes", None) is not None:
             if len(result.boxes) == 0:
-                return np.empty((0, 6), dtype=np.float32), None
+                return empty_detections(is_obb=self.is_obb), None
             xyxy = as_numpy(result.boxes.xyxy)
             conf = as_numpy(result.boxes.conf).reshape(-1, 1)
             cls = as_numpy(result.boxes.cls).reshape(-1, 1)
@@ -198,7 +199,7 @@ class UltralyticsDetector(BaseDetectorBackend):
 
             return dets, masks
 
-        return np.empty((0, 6), dtype=np.float32), None
+        return empty_detections(is_obb=self.is_obb), None
 
     @staticmethod
     def _extract_original_shape_masks(result) -> np.ndarray:

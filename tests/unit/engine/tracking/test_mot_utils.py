@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -8,6 +10,7 @@ from boxmot.engine.tracking.mot import (
     write_mot_results,
     xywha_to_corners,
 )
+from boxmot.engine.tracking.runtime import TrackerRuntime
 from boxmot.trackers.results import TrackResults
 
 
@@ -52,3 +55,43 @@ def test_mot_writer_rejects_noncanonical_obb_rows(tmp_path):
 
     with pytest.raises(ValueError, match="9-column AABB or 13-column MMOT"):
         write_mot_results(tmp_path / "tracks.txt", raw_frame_tagged_obb)
+
+
+def test_empty_aabb_and_obb_exports_preserve_canonical_widths():
+    aabb = TrackResults(np.empty((0, 8), dtype=np.float32))
+    obb = TrackResults(np.empty((0, 9), dtype=np.float32))
+
+    assert convert_to_mot_format(aabb, frame_idx=3).shape == (0, 9)
+    assert convert_to_mmot_obb_format(obb, frame_idx=3).shape == (0, 13)
+    assert TrackerRuntime.format_for_mot(aabb, frame_idx=3).shape == (0, 9)
+    assert TrackerRuntime.format_for_mot(obb, frame_idx=3).shape == (0, 13)
+    assert format_frame_tagged_tracks_for_mot(np.empty((0, 9), dtype=np.float32)).shape == (0, 9)
+    assert format_frame_tagged_tracks_for_mot(np.empty((0, 10), dtype=np.float32)).shape == (0, 13)
+
+
+def test_aabb_object_and_array_exports_use_the_same_frame_index():
+    rows = np.array([[10, 20, 30, 50, 7, 0.9, 2, 4]], dtype=np.float32)
+
+    class Boxes(SimpleNamespace):
+        def __len__(self):
+            return len(self.id)
+
+    boxes = Boxes(
+        xyxy=rows[:, :4],
+        id=rows[:, 4],
+        conf=rows[:, 5],
+        cls=rows[:, 6],
+        det_ind=rows[:, 7],
+    )
+
+    np.testing.assert_array_equal(
+        convert_to_mot_format(SimpleNamespace(boxes=boxes), frame_idx=12),
+        convert_to_mot_format(rows, frame_idx=12),
+    )
+
+
+def test_cross_mode_exporters_reject_tracker_rows():
+    with pytest.raises(ValueError, match="AABB MOT export"):
+        convert_to_mot_format(np.empty((0, 9), dtype=np.float32), frame_idx=1)
+    with pytest.raises(ValueError, match="OBB MMOT export"):
+        convert_to_mmot_obb_format(np.empty((0, 8), dtype=np.float32), frame_idx=1)

@@ -15,6 +15,11 @@ from boxmot.native import _common as native_common
 from boxmot.native.trackers import botsort as native_module
 
 
+def _empty_tracks_for(dets):
+    columns = 9 if dets.shape[1] == 7 else 8
+    return np.empty((0, columns), dtype=np.float32)
+
+
 def test_cached_embedding_path_uses_versioned_preprocess_directory():
     path = native_common.cached_embedding_path(
         "/runs",
@@ -291,7 +296,7 @@ def test_native_botsort_tracker_uses_live_library_wrapper():
 
         def update(self, handle, dets, img, embs):
             calls.append(("update", handle, dets.shape, img.shape, embs.shape))
-            return dets
+            return _empty_tracks_for(dets)
 
         def get_last_reid_time_ms(self, handle):
             calls.append(("get_last_reid_time_ms", handle))
@@ -315,7 +320,7 @@ def test_native_botsort_tracker_uses_live_library_wrapper():
     assert tracker.get_last_reid_time_ms() == 0.0
     tracker.close()
 
-    assert out.shape == (2, 6)
+    assert out.shape == (0, 8)
     assert calls == [
         ("create", 15, True),
         ("update", "handle", (2, 6), (8, 8, 3), (2, 4)),
@@ -337,7 +342,7 @@ def test_native_botsort_tracker_accepts_obb_rows_and_preserves_empty_mode():
 
         def update(self, handle, dets, img, embs):
             calls.append(("update", handle, dets.shape, img.shape, None if embs is None else embs.shape))
-            return dets
+            return _empty_tracks_for(dets)
 
         def get_last_reid_time_ms(self, handle):
             return 0.0
@@ -355,8 +360,8 @@ def test_native_botsort_tracker_accepts_obb_rows_and_preserves_empty_mode():
     tracker.close()
 
     assert tracker.supports_obb is True
-    assert out.shape == (2, 7)
-    assert empty.shape == (0, 7)
+    assert out.shape == (0, 9)
+    assert empty.shape == (0, 9)
     assert calls == [
         ("update", "handle", (2, 7), (8, 8, 3), None),
         ("update", "handle", (0, 7), (8, 8, 3), None),
@@ -376,7 +381,7 @@ def test_native_botsort_empty_obb_frame_latches_layout_before_first_detection():
 
         def update(self, handle, dets, img, embs):
             calls.append(dets.shape)
-            return dets
+            return _empty_tracks_for(dets)
 
         def get_last_reid_time_ms(self, handle):
             return 0.0
@@ -394,7 +399,7 @@ def test_native_botsort_empty_obb_frame_latches_layout_before_first_detection():
     finally:
         tracker.close()
 
-    assert first.shape == second.shape == (0, 7)
+    assert first.shape == second.shape == (0, 9)
     assert calls == [(0, 7), (0, 7)]
 
 
@@ -560,7 +565,7 @@ def test_native_botsort_tracker_rejects_mode_switch_after_initialization():
             return None
 
         def update(self, handle, dets, img, embs):
-            return dets
+            return _empty_tracks_for(dets)
 
     tracker = native_module.NativeBotSortTracker({"with_reid": False}, library=_FakeLibrary())
     img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
@@ -589,7 +594,7 @@ def test_native_botsort_tracker_marks_native_onnx_reid_provider():
             return None
 
         def update(self, handle, dets, img, embs):
-            return dets
+            return _empty_tracks_for(dets)
 
     expected_path = Path("models/lmbn_n_duke.onnx")
 
@@ -622,7 +627,7 @@ def test_native_botsort_tracker_auto_exports_pt_reid_provider(monkeypatch):
             return None
 
         def update(self, handle, dets, img, embs):
-            return dets
+            return _empty_tracks_for(dets)
 
     monkeypatch.setattr(
         native_module,
@@ -653,7 +658,7 @@ def test_native_botsort_ci_macos_disables_pt_reid_without_cached_onnx(monkeypatc
             return None
 
         def update(self, handle, dets, img, embs):
-            return dets
+            return _empty_tracks_for(dets)
 
     pt_weights = tmp_path / "osnet_x0_25_msmt17.pt"
     monkeypatch.setenv("GITHUB_ACTIONS", "true")

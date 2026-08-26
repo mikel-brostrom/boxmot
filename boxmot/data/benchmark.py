@@ -7,21 +7,91 @@ from typing import Optional
 import numpy as np
 from rich.markup import escape as _escape_markup
 
+from boxmot.box_schema import BoxType, normalize_box_type
 from boxmot.utils import logger as LOGGER
 
 COCO_CLASSES = [
-    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard",
-    "cell phone", "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase",
-    "scissors", "teddy bear", "hair drier", "toothbrush",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "backpack",
+    "umbrella",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "dining table",
+    "toilet",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
 ]
-
-
 
 
 def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
@@ -40,15 +110,11 @@ def _ordered_benchmark_eval_class_names(bench_cfg: dict) -> list[str]:
 def resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
     eval_box_type = getattr(args, "eval_box_type", None)
     if eval_box_type:
-        return str(eval_box_type).lower()
+        return normalize_box_type(eval_box_type).value
 
     benchmark_cfg = (bench_cfg or {}).get("benchmark", {})
     box_type = benchmark_cfg.get("box_type")
-    return str(box_type).lower() if box_type else "aabb"
-
-
-
-
+    return normalize_box_type(box_type, default=BoxType.AABB).value
 
 
 def resolve_obb_eval_class_pairs(args: argparse.Namespace, bench_cfg: dict) -> list[tuple[str, int]]:
@@ -381,8 +447,6 @@ def prepare_aabb_eval_gt(
         apply_gt_class_remap(bridge_root, remap, distractor_ids)
 
     return bridge_root
-
-
 
 
 __all__ = [

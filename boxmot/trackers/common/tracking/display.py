@@ -37,17 +37,9 @@ class TrackDisplayMixin:
 
     def get_track_state_for_display(self, track):
         """Infer a display lifecycle state for a tracker-local track object."""
-        if (
-            hasattr(track, "hits")
-            and track.hits < self.min_hits
-            and self.frame_count > self.min_hits
-        ):
+        if hasattr(track, "hits") and track.hits < self.min_hits and self.frame_count > self.min_hits:
             return None
-        if (
-            hasattr(track, "is_activated")
-            and not track.is_activated
-            and self.frame_count > self.min_hits
-        ):
+        if hasattr(track, "is_activated") and not track.is_activated and self.frame_count > self.min_hits:
             return None
 
         meta_state = getattr(getattr(track, "meta", None), "state", None)
@@ -143,7 +135,6 @@ class TrackDisplayMixin:
                 "obb",
                 "output_box",
                 "get_state",
-                "xyxy",
             ):
                 box = self._resolve_track_box_attr(track, attr_name)
                 if box is not None:

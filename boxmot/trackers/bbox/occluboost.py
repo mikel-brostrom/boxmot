@@ -675,9 +675,7 @@ class OccluBoost(BoostTrack):
                         cur_box = align_obb_measurement(cur_box, last_box)
                         # Interpolate along the shortest pi-periodic rectangle
                         # orientation rather than through a wrap discontinuity.
-                        cur_box[4] = float(last_box[4]) + wrap_pi_periodic(
-                            float(cur_box[4]) - float(last_box[4])
-                        )
+                        cur_box[4] = float(last_box[4]) + wrap_pi_periodic(float(cur_box[4]) - float(last_box[4]))
                     for t in range(1, gap):
                         alpha_t = t / gap
                         interp_box = (1.0 - alpha_t) * last_box + alpha_t * cur_box
@@ -862,11 +860,11 @@ class OccluBoost(BoostTrack):
         alpha = self._compute_ams_alpha(trk, det[:4])
         trk.time_since_update = 0
         trk.hit_streak += 1
-        trk.history_observations.append(trk.get_state()[0])
         trk.kf.update(trk.motion_model.to_measurement(det[:4], column=False), alpha=alpha)
-        trk.conf = det[4]
-        trk.cls = det[5]
-        trk.det_ind = det[6]
+        trk.conf = float(det[4])
+        trk.cls = int(det[5])
+        trk.det_ind = int(det[6])
+        trk._append_current_history()
         sync_track_meta(trk, TrackState.TRACKED)
 
     def _suppress_duplicate_emissions(
@@ -1156,9 +1154,7 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.adaptive_kf,
                     id_allocator=self.id_allocator,
                 )
-                new_trk.is_activated = bool(
-                    det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1
-                )
+                new_trk.is_activated = bool(det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)
 
         # ---- Build outputs ----
@@ -1194,6 +1190,5 @@ class OccluBoost(BoostTrack):
         self._gta_evict_stale()
         self.trackers = surviving
 
-        if len(outputs) == 0:
-            return self.empty_output(dtype=np.float32)
-        return self.format_output_rows(outputs, dtype=np.float32)
+        outputs = self.format_output_rows(outputs, dtype=np.float32)
+        return self.filter_outputs(outputs)

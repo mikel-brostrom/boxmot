@@ -1038,7 +1038,7 @@ def test_emb_trackers_requires_embeddings(tracker_type):
     )
     det = np.array([[10, 10, 20, 20, 0.7, 0]])
     rgb = np.zeros((640, 640, 3), dtype=np.uint8)
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="same number of rows"):
         tracker.update(det, rgb, np.random.rand(2, 512))
 
 
@@ -1055,7 +1055,7 @@ def test_invalid_det_array_shape(tracker_type):
     img = np.zeros((640, 640, 3), dtype=np.uint8)
     embs = np.random.rand(2, 512)
     bad_det = np.random.rand(2, 5)
-    with pytest.raises(AssertionError):
+    with pytest.raises(ValueError, match="column count"):
         tracker.update(bad_det, img, embs)
 
 
@@ -1398,7 +1398,13 @@ def test_boosttrack_obb_cmc_transforms_state_velocity_and_covariance():
 
 
 def test_occluboost_supports_obb_without_reid():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
+    tracker = OccluBoost(
+        reid_model=None,
+        with_reid=False,
+        use_cmc=False,
+        min_hits=1,
+        aspect_ratio_thresh=10.0,
+    )
 
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     det = np.array([[320, 240, 80, 40, 0.15, 0.95, 0]], dtype=np.float32)
@@ -1417,7 +1423,13 @@ def test_occluboost_supports_obb_without_reid():
 
 
 def test_occluboost_obb_emits_nine_column_outputs_for_two_objects():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
+    tracker = OccluBoost(
+        reid_model=None,
+        with_reid=False,
+        use_cmc=False,
+        min_hits=1,
+        aspect_ratio_thresh=10.0,
+    )
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
     dets = np.array(
         [
@@ -1469,7 +1481,13 @@ def test_xywha_to_xyxy_enclosing_45deg_grows_bounds():
 
 
 def test_occluboost_obb_history_follows_smoothly_under_rotation():
-    tracker = OccluBoost(reid_model=None, with_reid=False, use_cmc=False, min_hits=1)
+    tracker = OccluBoost(
+        reid_model=None,
+        with_reid=False,
+        use_cmc=False,
+        min_hits=1,
+        aspect_ratio_thresh=10.0,
+    )
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
 
     angles = np.linspace(0.0, 1.5, 12, dtype=np.float32)

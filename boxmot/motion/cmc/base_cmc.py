@@ -8,6 +8,8 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
+from boxmot.box_schema import OBB_SCHEMA
+
 Scale = Union[float, Tuple[int, int], None]
 
 
@@ -163,7 +165,7 @@ class BaseCMC(ABC):
         # Boxes are either AABB ``xyxy`` rows or OBB ``xywha`` rows in the
         # original image scale. Mask the actual oriented polygon for OBBs so
         # static background inside an enclosing AABB remains available to CMC.
-        is_obb = dets.ndim == 2 and dets.shape[1] == 5
+        is_obb = dets.ndim == 2 and dets.shape[1] == OBB_SCHEMA.geometry_cols
         for det in dets:
             if len(det) < 4:
                 continue

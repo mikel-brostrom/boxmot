@@ -9,8 +9,16 @@ import cv2
 import numpy as np
 import torch
 
-AABB_COLUMNS = 6
-OBB_COLUMNS = 7
+from boxmot.box_schema import (
+    AABB_SCHEMA,
+    OBB_SCHEMA,
+    BoxSchema,
+    get_box_schema_for_mode,
+    schema_from_detection_columns,
+)
+
+AABB_COLUMNS = AABB_SCHEMA.detection_cols
+OBB_COLUMNS = OBB_SCHEMA.detection_cols
 DETECTION_COLUMNS = (AABB_COLUMNS, OBB_COLUMNS)
 
 
@@ -23,15 +31,20 @@ def as_detection_array(values: Any, *, empty_columns: int = AABB_COLUMNS) -> np.
     elif detections.ndim == 1:
         detections = detections.reshape(1, -1)
 
-    if detections.ndim != 2 or detections.shape[1] not in DETECTION_COLUMNS:
+    if detections.ndim != 2:
         raise ValueError(f"Detections must have shape (N, 6) for AABB or (N, 7) for OBB; received {detections.shape}.")
+    try:
+        schema_from_detection_columns(detections.shape[1])
+    except ValueError as exc:
+        raise ValueError(
+            f"Detections must have shape (N, 6) for AABB or (N, 7) for OBB; received {detections.shape}."
+        ) from exc
     return detections
 
 
 def empty_detections(*, is_obb: bool = False) -> np.ndarray:
     """Create an empty detection matrix with the canonical schema."""
-    columns = OBB_COLUMNS if is_obb else AABB_COLUMNS
-    return np.empty((0, columns), dtype=np.float32)
+    return get_box_schema_for_mode(is_obb).empty_detections()
 
 
 def as_numpy(values: Any) -> np.ndarray:
@@ -153,12 +166,17 @@ class Detections:
 
     @property
     def is_obb(self) -> bool:
-        return self.dets.shape[1] == OBB_COLUMNS
+        return self.schema.is_obb
+
+    @property
+    def schema(self) -> BoxSchema:
+        """Canonical schema represented by these detections, including empties."""
+        return schema_from_detection_columns(self.dets.shape[1])
 
     @property
     def boxes(self) -> np.ndarray:
         """Return native box geometry: ``xyxy`` for AABB or ``xywha`` for OBB."""
-        return self.dets[:, :5] if self.is_obb else self.dets[:, :4]
+        return self.dets[:, : self.schema.geometry_cols]
 
     @property
     def xyxy(self) -> np.ndarray:
@@ -220,6 +238,7 @@ class BaseDetectorBackend:
     """Staged detector backend contract implemented by concrete integrations."""
 
     names: Mapping[int, str] = {}
+    is_obb = False
     pt = False
     stride = 32
     fp16 = False

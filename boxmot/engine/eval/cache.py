@@ -12,6 +12,14 @@ import cv2
 import numpy as np
 import torch
 
+from boxmot.box_schema import (
+    AABB_SCHEMA,
+    BoxType,
+    get_box_schema,
+    normalize_box_type,
+    schema_from_cache_columns,
+    schema_from_detection_columns,
+)
 from boxmot.data.cache import (
     AppendableNpyWriter,
     _clear_device_cache,
@@ -99,7 +107,7 @@ def _allow_legacy_reid_cache(
     tracker_backend: str | None,
 ) -> bool:
     """Return whether an unversioned embedding bucket has trusted provenance."""
-    if expected_det_cols != 7:
+    if expected_det_cols != AABB_SCHEMA.cache_cols:
         return False
 
     explicit = getattr(args, "allow_legacy_reid_cache", None)
@@ -203,6 +211,7 @@ def _build_reid_only_models(
             models[str(reid_path)] = backend.model
         else:
             from boxmot.reid.core import ReID
+
             backend = ReID(
                 weights=reid_path,
                 device=device,
@@ -255,8 +264,7 @@ def _run_embeddings_only_fill(
 
     if verbose:
         LOGGER.info(
-            f"Embeddings-only fill: {len(embed_only_states)} sequence(s), "
-            f"missing buckets={list(key_to_path.keys())}"
+            f"Embeddings-only fill: {len(embed_only_states)} sequence(s), missing buckets={list(key_to_path.keys())}"
         )
 
     reid_models = _build_reid_only_models(
@@ -267,13 +275,10 @@ def _run_embeddings_only_fill(
         tracker_backend=tracker_backend,
     )
     # Map each missing cache key back to its loaded ReID model.
-    key_to_model = {
-        key: reid_models[str(reid_path)] for key, reid_path in key_to_path.items()
-    }
+    key_to_model = {key: reid_models[str(reid_path)] for key, reid_path in key_to_path.items()}
 
     actual_key_by_planned = {
-        key: reid_cache_key(reid_path, tracker_backend=tracker_backend)
-        for key, reid_path in key_to_path.items()
+        key: reid_cache_key(reid_path, tracker_backend=tracker_backend) for key, reid_path in key_to_path.items()
     }
     if any(actual != planned for planned, actual in actual_key_by_planned.items()):
         remapped_models: dict[str, Any] = {}
@@ -320,13 +325,10 @@ def _run_embeddings_only_fill(
                     close()
             return
 
-    is_obb = expected_det_cols == 8
-    box_end = 6 if is_obb else 5  # cols [1:box_end] are the ReID box coords
+    cache_schema = schema_from_cache_columns(expected_det_cols)
+    box_end = 1 + cache_schema.geometry_cols  # cols [1:box_end] are the ReID box coords
 
-    total_dets = sum(
-        int(np.load(state["dets_path"], mmap_mode="r").shape[0])
-        for state in embed_only_states.values()
-    )
+    total_dets = sum(int(np.load(state["dets_path"], mmap_mode="r").shape[0]) for state in embed_only_states.values())
     pbar = tqdm(
         total=total_dets,
         desc="ReID-only fill",
@@ -408,9 +410,7 @@ def _run_embeddings_only_fill(
                     try:
                         writer.close()
                     except Exception as exc:  # noqa: BLE001
-                        LOGGER.warning(
-                            f"Failed to save filled embeddings for {seq_name}/{key}: {exc}"
-                        )
+                        LOGGER.warning(f"Failed to save filled embeddings for {seq_name}/{key}: {exc}")
     finally:
         pbar.close()
         # Best-effort release of any cpp/onnxruntime sessions held by reid_models.
@@ -485,6 +485,7 @@ def _generate_public_dets_cache(
     _seq_pattern = getattr(args, "seq_pattern", None)
     if _seq_pattern:
         from fnmatch import fnmatch
+
         mot_folder_paths = [p for p in mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
     for seq_dir in mot_folder_paths:
@@ -551,7 +552,9 @@ def generate_dets_embs_batched(
     if args.imgsz is None:
         args.imgsz = default_imgsz(y)
 
-    expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
+    expected_det_cols = get_box_schema(
+        normalize_box_type(getattr(args, "eval_box_type", None), default=BoxType.AABB)
+    ).cache_cols
 
     benchmark = getattr(args, "benchmark", None)
     split = getattr(args, "split", None)
@@ -566,6 +569,7 @@ def generate_dets_embs_batched(
     masks_folder = dets_base / y.stem / "masks" / "seg"
     from boxmot.detectors.registry import is_seg_model
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
     preprocess_key = reid_preprocess_cache_key(preprocess_name)
 
@@ -577,6 +581,7 @@ def generate_dets_embs_batched(
     _seq_pattern = getattr(args, "seq_pattern", None)
     if _seq_pattern:
         from fnmatch import fnmatch
+
         mot_folder_paths = [p for p in mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
     tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
@@ -585,17 +590,9 @@ def generate_dets_embs_batched(
     cached_seq_names: list[str] = []
     det_writers: dict[str, AppendableNpyWriter] = {}
     mask_writers: dict[str, AppendableNpyWriter] = {}
-    reid_writer_keys = {
-        str(Path(reid)): reid_cache_key(reid, tracker_backend=tracker_backend)
-        for reid in args.reid
-    }
-    reid_paths_by_writer_key = {
-        key: Path(model_identifier)
-        for model_identifier, key in reid_writer_keys.items()
-    }
-    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {
-        key: {} for key in reid_writer_keys.values()
-    }
+    reid_writer_keys = {str(Path(reid)): reid_cache_key(reid, tracker_backend=tracker_backend) for reid in args.reid}
+    reid_paths_by_writer_key = {key: Path(model_identifier) for model_identifier, key in reid_writer_keys.items()}
+    emb_writers: dict[str, dict[str, AppendableNpyWriter]] = {key: {} for key in reid_writer_keys.values()}
     reported_compatible_dirs: set[Path] = set()
     total_frames = 0
     initial_done = 0
@@ -614,9 +611,7 @@ def generate_dets_embs_batched(
         det_rows = _count_embedding_rows(cached_dets_path) if (resume and cached_dets_path is not None) else 0
         det_max_frame = _max_frame_id(cached_dets_path) if (resume and cached_dets_path is not None) else 0
         det_col_count = (
-            _saved_detection_column_count(cached_dets_path)
-            if (resume and cached_dets_path is not None)
-            else 0
+            _saved_detection_column_count(cached_dets_path) if (resume and cached_dets_path is not None) else 0
         )
 
         emb_paths = {}
@@ -673,16 +668,9 @@ def generate_dets_embs_batched(
             partial_emb_cache = (
                 cached_dets_path is not None
                 and det_rows > 0
-                and any(
-                    emb_rows.get(stem, 0) != det_rows
-                    for stem in cached_emb_paths.keys()
-                )
+                and any(emb_rows.get(stem, 0) != det_rows for stem in cached_emb_paths.keys())
             )
-            rows_match = (
-                len(set([det_rows, *emb_rows.values()])) == 1
-                if expected_files
-                else False
-            )
+            rows_match = len(set([det_rows, *emb_rows.values()])) == 1 if expected_files else False
             schema_match = det_col_count in (0, expected_det_cols)
 
             if cached_dets_path is not None and not schema_match:
@@ -717,17 +705,10 @@ def generate_dets_embs_batched(
                 # pass that reads the cached dets back from disk and only
                 # runs the ReID models for the missing buckets.
                 dets_complete = (
-                    cached_dets_path is not None
-                    and det_rows > 0
-                    and schema_match
-                    and det_max_frame >= len(frames)
+                    cached_dets_path is not None and det_rows > 0 and schema_match and det_max_frame >= len(frames)
                 )
                 if dets_complete:
-                    missing_keys = [
-                        stem
-                        for stem in cached_emb_paths.keys()
-                        if emb_rows.get(stem, 0) != det_rows
-                    ]
+                    missing_keys = [stem for stem in cached_emb_paths.keys() if emb_rows.get(stem, 0) != det_rows]
                     if missing_keys:
                         if verbose:
                             LOGGER.info(
@@ -757,10 +738,7 @@ def generate_dets_embs_batched(
                         # stays accurate when there are also full-regen seqs.
                         initial_done += len(frames)
                         continue
-                emb_rows_by_key = {
-                    stem: emb_rows.get(stem, 0)
-                    for stem in cached_emb_paths.keys()
-                }
+                emb_rows_by_key = {stem: emb_rows.get(stem, 0) for stem in cached_emb_paths.keys()}
                 LOGGER.warning(
                     f"Partial det/emb cache for {seq_name} "
                     f"(det_rows={det_rows}, emb_rows={emb_rows_by_key}); "
@@ -873,9 +851,7 @@ def generate_dets_embs_batched(
             if cached_seq_names:
                 seq_progress = {name: (1, 1) for name in cached_seq_names}
                 bars = _format_generate_seq_progress(cached_seq_names, seq_progress)
-                progress_callback(
-                    f"All {len(cached_seq_names)} sequences loaded from cache\n{bars}"
-                )
+                progress_callback(f"All {len(cached_seq_names)} sequences loaded from cache\n{bars}")
             else:
                 progress_callback("No sequences found.")
         if verbose:
@@ -883,10 +859,7 @@ def generate_dets_embs_batched(
         return
 
     sequence_names = list(seq_states.keys())
-    seq_progress = {
-        seq_name: (state["i"], len(state["frames"]))
-        for seq_name, state in seq_states.items()
-    }
+    seq_progress = {seq_name: (state["i"], len(state["frames"])) for seq_name, state in seq_states.items()}
     processed_frames = sum(current for current, _ in seq_progress.values())
     last_progress_message = None
 
@@ -1058,6 +1031,12 @@ def generate_dets_embs_batched(
                         getattr(result, "masks", None),
                         image_shape=img.shape,
                     )
+                    detector_schema = schema_from_detection_columns(dets.shape[1])
+                    if detector_schema.cache_cols != expected_det_cols:
+                        raise ValueError(
+                            f"Detector produced {detector_schema.box_type.value} detections, but evaluation "
+                            f"expects {schema_from_cache_columns(expected_det_cols).box_type.value}."
+                        )
 
                     if len(dets) == 0:
                         if timing_stats:
@@ -1105,7 +1084,8 @@ def generate_dets_embs_batched(
                         masks_small = np.empty((n, 160, 160), dtype=np.uint8)
                         for _mi in range(n):
                             masks_small[_mi] = cv2.resize(
-                                masks_raw[_mi], (160, 160),
+                                masks_raw[_mi],
+                                (160, 160),
                                 interpolation=cv2.INTER_NEAREST,
                             )
                         packed = np.packbits(masks_small, axis=-1)
@@ -1341,6 +1321,7 @@ def run_generate_dets_embs(
 
         # Run ReID embeddings fill for the cached public detections
         from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
         _preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
         _preprocess_key = reid_preprocess_cache_key(_preprocess_name)
         _tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
@@ -1360,12 +1341,12 @@ def run_generate_dets_embs(
         _seq_pattern = getattr(args, "seq_pattern", None)
         if _seq_pattern:
             from fnmatch import fnmatch
+
             _mot_folder_paths = [p for p in _mot_folder_paths if fnmatch(p.name, _seq_pattern)]
 
         _embed_only_states: dict[str, dict] = {}
         _reid_paths_by_key = {
-            reid_cache_key(model, tracker_backend=_tracker_backend): Path(model)
-            for model in args.reid
+            reid_cache_key(model, tracker_backend=_tracker_backend): Path(model) for model in args.reid
         }
         for _seq_dir in _mot_folder_paths:
             _img_dir = _sequence_img_dir(_seq_dir)

@@ -10,6 +10,11 @@ import pytest
 from boxmot.native.trackers import bytetrack as native_module
 
 
+def _empty_tracks_for(dets):
+    columns = 9 if dets.shape[1] == 7 else 8
+    return np.empty((0, columns), dtype=np.float32)
+
+
 def test_native_bytetrack_tracker_advertises_obb_support():
     assert native_module.NativeByteTrackTracker.supports_obb is True
 
@@ -97,7 +102,7 @@ def test_native_bytetrack_tracker_uses_live_library_wrapper():
 
         def update(self, handle, dets, img):
             calls.append(("update", handle, dets.shape, img.shape))
-            return dets
+            return _empty_tracks_for(dets)
 
         def destroy(self, handle):
             calls.append(("destroy", handle))
@@ -114,7 +119,8 @@ def test_native_bytetrack_tracker_uses_live_library_wrapper():
     tracker.reset()
     tracker.close()
 
-    assert out.shape == (2, 6)
+    assert out.shape == (0, 8)
+    assert out.is_obb is False
     assert calls == [
         ("create", 15, 0.5),
         ("update", "handle", (2, 6), (8, 8, 3)),
@@ -147,6 +153,7 @@ def test_native_bytetrack_tracker_accepts_obb_rows():
     out = tracker.update(dets, img)
 
     assert out.shape == (1, 9)
+    assert out.is_obb is True
     assert calls == [("handle", (1, 7), (8, 8, 3))]
     tracker.close()
 
@@ -160,7 +167,7 @@ def test_native_bytetrack_tracker_rejects_mode_switch():
             return None
 
         def update(self, handle, dets, img):
-            return native_module.np.ones((1, 8), dtype=native_module.np.float32)
+            return _empty_tracks_for(dets)
 
         def destroy(self, handle):
             return None
@@ -176,6 +183,30 @@ def test_native_bytetrack_tracker_rejects_mode_switch():
         assert "cannot switch between AABB and OBB inputs" in str(exc)
     else:
         raise AssertionError("Expected ValueError when switching native ByteTrack detection mode")
+    finally:
+        tracker.close()
+
+
+def test_native_bytetrack_tracker_rejects_noncanonical_empty_detection_width():
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img):
+            raise AssertionError("Malformed detections must not reach the native library")
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeByteTrackTracker(library=_FakeLibrary())
+    image = np.zeros((8, 8, 3), dtype=np.uint8)
+
+    try:
+        with pytest.raises(ValueError, match="empty AABB detections with 6 columns"):
+            tracker.update(np.empty((0, 5), dtype=np.float32), image)
     finally:
         tracker.close()
 

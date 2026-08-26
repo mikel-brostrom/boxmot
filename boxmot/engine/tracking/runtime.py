@@ -87,8 +87,6 @@ class TrackerRuntime:
     @staticmethod
     def format_for_mot(tracks: np.ndarray, frame_idx: int) -> np.ndarray:
         track_results = TrackResults(TrackerRuntime._ensure_2d_tracks(tracks))
-        if track_results.size == 0:
-            return np.empty((0, 0), dtype=np.float32)
         if track_results.is_obb:
             return convert_to_mmot_obb_format(track_results, frame_idx)
         return convert_to_mot_format(track_results, frame_idx)

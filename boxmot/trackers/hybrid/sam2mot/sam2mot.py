@@ -16,13 +16,19 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.geometry.obb import align_obb_measurement, normalize_angle, xywha_to_xyxy
+from boxmot.trackers.common.geometry.obb import (
+    align_obb_measurement,
+    normalize_angle,
+    smooth_obb_corners,
+    xywha_to_xyxy,
+)
 from boxmot.trackers.hybrid.base import HybridBaseTracker
 from boxmot.utils import logger as LOGGER
 
 # ---------------------------------------------------------------------------
 # Track state labels
 # ---------------------------------------------------------------------------
+
 
 class TrackState:
     RELIABLE = "reliable"
@@ -35,6 +41,7 @@ class TrackState:
 # ---------------------------------------------------------------------------
 # Internal track representation
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class _Track:
@@ -60,16 +67,18 @@ class _Track:
     obb: Optional[np.ndarray] = None
     last_matched_obb: Optional[np.ndarray] = None
     history_observations: Optional[deque] = None
+    _plot_angle: Optional[float] = None
 
 
 # ---------------------------------------------------------------------------
 # Trajectory Manager
 # ---------------------------------------------------------------------------
 
-class _TrajectoryManager:
 
-    def __init__(self, tau_r: float, tau_p: float, tau_s: float, tolerance_frames: int,
-                 untracked_ratio_threshold: float = 0.5):
+class _TrajectoryManager:
+    def __init__(
+        self, tau_r: float, tau_p: float, tau_s: float, tolerance_frames: int, untracked_ratio_threshold: float = 0.5
+    ):
         self.tau_r = tau_r
         self.tau_p = tau_p
         self.tau_s = tau_s
@@ -85,10 +94,13 @@ class _TrajectoryManager:
             return TrackState.SUSPICIOUS
         return TrackState.LOST
 
-    def compute_untracked_mask(self, mask_shape: Tuple[int, int],
-                               tracked_masks: List[np.ndarray],
-                               guard_bboxes: List[np.ndarray],
-                               scale: Tuple[float, ...] = (1.0, 0.0, 0.0)) -> np.ndarray:
+    def compute_untracked_mask(
+        self,
+        mask_shape: Tuple[int, int],
+        tracked_masks: List[np.ndarray],
+        guard_bboxes: List[np.ndarray],
+        scale: Tuple[float, ...] = (1.0, 0.0, 0.0),
+    ) -> np.ndarray:
         """Compute untracked region at mask resolution.
 
         Args:
@@ -113,8 +125,9 @@ class _TrajectoryManager:
                     untracked[y1:y2, x1:x2] = 0
         return untracked
 
-    def should_add_detection(self, bbox: np.ndarray, untracked_mask: np.ndarray,
-                             scale: Tuple[float, ...] = (1.0, 0.0, 0.0)) -> bool:
+    def should_add_detection(
+        self, bbox: np.ndarray, untracked_mask: np.ndarray, scale: Tuple[float, ...] = (1.0, 0.0, 0.0)
+    ) -> bool:
         s, pad_y, pad_x = scale if len(scale) == 3 else (scale[0], 0.0, 0.0)
         H, W = untracked_mask.shape
         x1 = max(0, int(bbox[0] * s + pad_x))
@@ -135,8 +148,8 @@ class _TrajectoryManager:
 # Cross-Object Interaction
 # ---------------------------------------------------------------------------
 
-class _CrossObjectInteraction:
 
+class _CrossObjectInteraction:
     def __init__(self, miou_threshold: float = 0.8, variance_history: int = 10):
         self.miou_threshold = miou_threshold
         self.variance_history = variance_history
@@ -154,13 +167,13 @@ class _CrossObjectInteraction:
     def _mean_conf(self, history: deque) -> float:
         if len(history) < 2:
             return 0.0
-        vals = list(history)[-self.variance_history:]
+        vals = list(history)[-self.variance_history :]
         return float(np.mean(vals))
 
     def _var_conf(self, history: deque) -> float:
         if len(history) < 2:
             return 0.0
-        vals = list(history)[-self.variance_history:]
+        vals = list(history)[-self.variance_history :]
         return float(np.var(vals))
 
     def detect_and_resolve(self, tracks: List[_Track]) -> List[int]:
@@ -211,6 +224,7 @@ class _CrossObjectInteraction:
 # Sam2Mot tracker (mask-based, no SAM2 dependency)
 # ---------------------------------------------------------------------------
 
+
 class Sam2Mot(HybridBaseTracker):
     """Hybrid bbox + mask tracker with three-stage matching, COI, and frame-out recovery.
 
@@ -252,6 +266,7 @@ class Sam2Mot(HybridBaseTracker):
             min_hits=min_hits,
             iou_threshold=iou_threshold,
             per_class=per_class,
+            **kwargs,
         )
         self.tolerance_frames = tolerance_frames
         self.memory_window = memory_window
@@ -263,7 +278,9 @@ class Sam2Mot(HybridBaseTracker):
         self.obb_theta_damping = float(np.clip(obb_theta_damping, 0.0, 1.0))
 
         self.trajectory_manager = _TrajectoryManager(
-            tau_r=tau_r, tau_p=tau_p, tau_s=tau_s,
+            tau_r=tau_r,
+            tau_p=tau_p,
+            tau_s=tau_s,
             tolerance_frames=tolerance_frames,
             untracked_ratio_threshold=untracked_ratio_threshold,
         )
@@ -303,8 +320,18 @@ class Sam2Mot(HybridBaseTracker):
         updated[4] = float(normalize_angle(float(ref[4]) + theta_gain * theta_delta))
         return updated
 
-    def _track_detections(self, dets: np.ndarray, img: np.ndarray,
-                     embs: np.ndarray = None, masks: np.ndarray = None):
+    @staticmethod
+    def _append_track_history(track: _Track) -> None:
+        """Append geometry using the common AABB-4/OBB-corners-8 display contract."""
+        if track.history_observations is None:
+            return
+        if track.obb is not None:
+            geometry, track._plot_angle = smooth_obb_corners(track.obb, track._plot_angle)
+        else:
+            geometry = np.asarray(track.bbox, dtype=np.float32).reshape(-1)[:4]
+        track.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
+
+    def _track_detections(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
         """Process one frame.
 
         Args:
@@ -321,19 +348,15 @@ class Sam2Mot(HybridBaseTracker):
         self.frame_count += 1
         frame_id = self.frame_count
         H, W = img.shape[:2]
-        det_inds = self.make_detection_batch(dets).det_inds
+        batch = self.make_detection_batch(dets, masks=masks)
+        det_inds = batch.det_inds
 
         # Mask operations use enclosing AABBs while OBB geometry is preserved for output.
-        det_obbs = dets[:, :5].copy() if self.is_obb and len(dets) else None
-        det_bboxes = (
-            xywha_to_xyxy(det_obbs) if det_obbs is not None
-            else dets[:, :4] if len(dets) else np.zeros((0, 4))
-        )
-        conf_col = 5 if self.is_obb else 4
-        cls_col = 6 if self.is_obb else 5
-        det_confs = dets[:, conf_col] if len(dets) > 0 else np.zeros(0)
-        det_classes = dets[:, cls_col].astype(int) if len(dets) > 0 else np.zeros(0, dtype=int)
-        n_dets = len(dets)
+        det_obbs = batch.boxes.copy() if self.is_obb and len(batch) else None
+        det_bboxes = xywha_to_xyxy(det_obbs) if det_obbs is not None else batch.boxes.copy()
+        det_confs = batch.confs
+        det_classes = batch.clss.astype(int)
+        n_dets = len(batch)
 
         # Masks array (may be at a different resolution than the image)
         det_masks = masks if (masks is not None and len(masks) == n_dets) else None
@@ -360,10 +383,12 @@ class Sam2Mot(HybridBaseTracker):
         frame_out_tracks = []
         normal_tracks = []
         for t in active_tracks:
-            if (t.last_matched_frame is not None
-                    and t.last_matched_frame <= frame_id - 10
-                    and not t.is_dense
-                    and t.age > 1):
+            if (
+                t.last_matched_frame is not None
+                and t.last_matched_frame <= frame_id - 10
+                and not t.is_dense
+                and t.age > 1
+            ):
                 t.state = TrackState.FRAME_OUT
                 t.mask = None
                 frame_out_tracks.append(t)
@@ -371,14 +396,13 @@ class Sam2Mot(HybridBaseTracker):
                 normal_tracks.append(t)
 
         # === Stage 1+2: Two-stage matching on normal tracks ===
-        all_matches, unmatched_dets, unmatched_trk_indices, second_stage_matches = \
-            self._two_stage_matching(
-                det_bboxes,
-                det_confs,
-                normal_tracks,
-                det_masks=det_masks,
-                det_obbs=det_obbs,
-            )
+        all_matches, unmatched_dets, unmatched_trk_indices, second_stage_matches = self._two_stage_matching(
+            det_bboxes,
+            det_confs,
+            normal_tracks,
+            det_masks=det_masks,
+            det_obbs=det_obbs,
+        )
 
         # Apply matches
         matched_track_ids = set()
@@ -453,9 +477,7 @@ class Sam2Mot(HybridBaseTracker):
             new_state = self.trajectory_manager.classify_state(conf)
             if new_state != TrackState.LOST:
                 track.state = new_state
-            if track.history_observations is not None:
-                geometry = track.obb if track.obb is not None else track.bbox
-                track.history_observations.append(np.asarray(geometry).copy())
+            self._append_track_history(track)
 
         # --- Cross-Object Interaction ---
         if len(active_tracks) > 1:
@@ -518,11 +540,7 @@ class Sam2Mot(HybridBaseTracker):
                     fo_track.bbox = xywha_to_xyxy(fo_track.obb)[0]
                 else:
                     fo_track.bbox = bbox.copy()
-                    fo_track.obb = (
-                        self._damped_obb_update(det_obbs[det_idx], None)
-                        if det_obbs is not None
-                        else None
-                    )
+                    fo_track.obb = self._damped_obb_update(det_obbs[det_idx], None) if det_obbs is not None else None
                 fo_track.confidence = conf
                 fo_track.conf_history.append(conf)
                 fo_track.last_seen_frame = frame_id
@@ -534,9 +552,7 @@ class Sam2Mot(HybridBaseTracker):
                 fo_track.is_dense = density > self.frame_out_d_thre
                 fo_track.cls = det_classes[det_idx]
                 fo_track.det_ind = int(det_inds[det_idx])
-                if fo_track.history_observations is not None:
-                    geometry = fo_track.obb if fo_track.obb is not None else fo_track.bbox
-                    fo_track.history_observations.append(np.asarray(geometry).copy())
+                self._append_track_history(fo_track)
                 if det_masks is not None and det_idx < len(det_masks):
                     fo_track.mask = det_masks[det_idx]
                 matched_track_ids.add(fo_track.id)
@@ -544,8 +560,7 @@ class Sam2Mot(HybridBaseTracker):
 
         # === Add new tracks for unmatched detections ===
         if unmatched_dets:
-            tracked_masks_list = [t.mask for t in self._tracks
-                                  if t.mask is not None and t.state != TrackState.LOST]
+            tracked_masks_list = [t.mask for t in self._tracks if t.mask is not None and t.state != TrackState.LOST]
             guard_bboxes = []
             for t in active_tracks:
                 if t.mask is None or not np.any(t.mask):
@@ -556,7 +571,9 @@ class Sam2Mot(HybridBaseTracker):
                     guard_bboxes.append(t.last_matched_bbox)
 
             untracked = self.trajectory_manager.compute_untracked_mask(
-                (mH, mW), tracked_masks_list, guard_bboxes,
+                (mH, mW),
+                tracked_masks_list,
+                guard_bboxes,
                 scale=(self._mask_scale, self._mask_pad_y, self._mask_pad_x),
             )
 
@@ -573,11 +590,7 @@ class Sam2Mot(HybridBaseTracker):
 
                 density = self._compute_density(det_idx, det_bboxes)
                 mask = det_masks[det_idx] if (det_masks is not None and det_idx < len(det_masks)) else None
-                new_obb = (
-                    self._damped_obb_update(det_obbs[det_idx], None)
-                    if det_obbs is not None
-                    else None
-                )
+                new_obb = self._damped_obb_update(det_obbs[det_idx], None) if det_obbs is not None else None
                 new_track = _Track(
                     id=self._next_id,
                     bbox=bbox.copy(),
@@ -597,11 +610,10 @@ class Sam2Mot(HybridBaseTracker):
                     det_ind=int(det_inds[det_idx]),
                     obb=new_obb,
                     last_matched_obb=None if new_obb is None else new_obb.copy(),
-                    history_observations=deque(maxlen=self.memory_window),
+                    history_observations=deque(maxlen=self.max_obs),
                 )
                 new_track.conf_history.append(conf)
-                geometry = new_track.obb if new_track.obb is not None else new_track.bbox
-                new_track.history_observations.append(np.asarray(geometry).copy())
+                self._append_track_history(new_track)
                 self._tracks.append(new_track)
                 matched_track_ids.add(self._next_id)
                 self._next_id += 1
@@ -619,16 +631,20 @@ class Sam2Mot(HybridBaseTracker):
             if track.age < self.min_hits and self.frame_count > self.min_hits:
                 continue
             box = track.obb if self.is_obb else track.bbox
-            row = np.array([
-                *box,
-                track.id, track.confidence, track.cls, track.det_ind,
-            ], dtype=np.float64)
-            output_tracks.append(row)
+            output_tracks.append(
+                self.format_output_row(
+                    box,
+                    track.id,
+                    track.confidence,
+                    track.cls,
+                    track.det_ind,
+                )
+            )
             output_masks_list.append(track.mask)
 
         if output_tracks:
             self.active_tracks = [track for track in self._tracks if track.id in matched_track_ids]
-            tracks_array = np.array(output_tracks)
+            tracks_array = self.format_output_rows(output_tracks, dtype=np.float32)
             # Build output masks at mask resolution (not image resolution)
             has_any_mask = any(m is not None and m.shape == (mH, mW) and np.any(m) for m in output_masks_list)
             if has_any_mask:
@@ -640,7 +656,7 @@ class Sam2Mot(HybridBaseTracker):
             return tracks_array, None
         else:
             self.active_tracks = []
-            return np.empty((0, 9 if self.is_obb else 8)), None
+            return self.empty_output(dtype=np.float32), None
 
     # ------------------------------------------------------------------
     # Matching helpers
@@ -726,10 +742,7 @@ class Sam2Mot(HybridBaseTracker):
                 if detection_mask is None or track.mask is None or detection_mask.shape != track.mask.shape:
                     continue
                 mask_iou = self.coi.mask_iou(detection_mask, track.mask)
-                similarity[row, col] = (
-                    (1.0 - self.cost_weight) * geometry[row, col]
-                    + self.cost_weight * mask_iou
-                )
+                similarity[row, col] = (1.0 - self.cost_weight) * geometry[row, col] + self.cost_weight * mask_iou
         return similarity
 
     def _two_stage_matching(
@@ -804,12 +817,15 @@ class Sam2Mot(HybridBaseTracker):
         # Stage 2: last_matched_bbox for still-unmatched tracks (recovery)
         second_stage_matches = []
         if unmatched_dets and unmatched_trks:
-            valid_trks = [(idx, tracks[idx]) for idx in unmatched_trks
-                          if (
-                              tracks[idx].last_matched_obb is not None
-                              if self.is_obb
-                              else tracks[idx].last_matched_bbox is not None
-                          )]
+            valid_trks = [
+                (idx, tracks[idx])
+                for idx in unmatched_trks
+                if (
+                    tracks[idx].last_matched_obb is not None
+                    if self.is_obb
+                    else tracks[idx].last_matched_bbox is not None
+                )
+            ]
             if valid_trks:
                 valid_indices = [index for index, _ in valid_trks]
                 similarity2 = self._association_similarity(

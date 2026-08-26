@@ -71,6 +71,7 @@ class Detector:
         self.batch_size = max(int(batch), 1)
         self.vid_stride = max(int(vid_stride), 1)
         self.backend = self._get_backend_class(self.path)(model=self.path, device=device, imgsz=self.imgsz)
+        self.is_obb = bool(getattr(self.backend, "is_obb", False))
         self.model = getattr(self.backend, "model", getattr(self.backend, "_yolo", self.backend))
         self.done_warmup = False
         self.dataset = None
@@ -238,6 +239,7 @@ class Detector:
             empty_results = [
                 Detections.empty(
                     images[index] if index < len(images) else None,
+                    is_obb=self.is_obb,
                     path=paths[index] if index < len(paths) else "",
                 )
                 for index in range(count)

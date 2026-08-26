@@ -11,10 +11,17 @@ from typing import Any, Iterable
 
 import numpy as np
 
+from boxmot.box_schema import (
+    AABB_SCHEMA,
+    OBB_SCHEMA,
+    get_box_schema_for_mode,
+    schema_from_detection_columns,
+)
 from boxmot.native import _common as native_common
 from boxmot.trackers.common.detections.layout import get_detection_layout
 from boxmot.trackers.common.tracking.classes import ClassCatalog
 from boxmot.trackers.config import load_tracker_defaults
+from boxmot.trackers.results import TrackResults
 
 LIVE_UPDATE_ARGTYPES = [
     ctypes.c_void_p,
@@ -108,21 +115,26 @@ def ensure_tracker_library(
 
 
 def normalize_detections(dets: np.ndarray | None, *, display_name: str) -> np.ndarray:
-    det_arr = np.asarray(dets if dets is not None else np.empty((0, 0)), dtype=np.float32)
-    if det_arr.size == 0:
-        if det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}:
-            det_arr = np.empty((0, det_arr.shape[1]), dtype=np.float32)
+    if dets is None:
+        det_arr = AABB_SCHEMA.empty_detections()
+    else:
+        det_arr = np.asarray(dets, dtype=np.float32)
+    if det_arr.ndim == 1:
+        if det_arr.size == 0:
+            det_arr = AABB_SCHEMA.empty_detections()
         else:
-            det_arr = np.empty((0, 6), dtype=np.float32)
-    elif det_arr.ndim == 1:
-        det_arr = det_arr.reshape(1, -1)
+            det_arr = det_arr.reshape(1, -1)
+    elif det_arr.ndim == 2 and det_arr.shape[1] == 0:
+        det_arr = AABB_SCHEMA.empty_detections()
     if det_arr.ndim != 2:
         raise ValueError("Detections must be a 2D array.")
-    if det_arr.shape[1] not in {6, 7}:
+    try:
+        schema_from_detection_columns(det_arr.shape[1])
+    except ValueError as exc:
         raise NotImplementedError(
-            f"Native {display_name} live tracking supports AABB detections with 6 columns "
-            "or OBB detections with 7 columns."
-        )
+            f"Native {display_name} live tracking supports AABB detections with "
+            f"{AABB_SCHEMA.detection_cols} columns or OBB detections with {OBB_SCHEMA.detection_cols} columns."
+        ) from exc
     return np.ascontiguousarray(det_arr, dtype=np.float32)
 
 
@@ -214,8 +226,14 @@ def call_update(
         raise RuntimeError(last_error())
 
     rows = max(int(out_rows.value), 0)
-    cols = 9 if bool(out_is_obb.value) else 8
-    return out_arr[:rows, :cols].copy()
+    input_schema = schema_from_detection_columns(det_arr.shape[1])
+    output_schema = get_box_schema_for_mode(bool(out_is_obb.value))
+    if input_schema != output_schema:
+        raise RuntimeError(
+            f"Native {display_name} returned {output_schema.box_type.value} tracks for "
+            f"{input_schema.box_type.value} detections."
+        )
+    return out_arr[:rows, : output_schema.track_cols].copy()
 
 
 def get_double_result(library, symbol: str, handle, last_error) -> float:
@@ -265,12 +283,16 @@ class NativeTrackerMixin:
         if det_arr.ndim == 1 and det_arr.size:
             det_arr = det_arr.reshape(1, -1)
 
-        has_explicit_layout = det_arr.ndim == 2 and det_arr.shape[1] in {6, 7}
+        has_explicit_layout = det_arr.ndim == 2 and det_arr.shape[1] in {
+            AABB_SCHEMA.detection_cols,
+            OBB_SCHEMA.detection_cols,
+        }
         if det_arr.size or has_explicit_layout:
             if not has_explicit_layout:
                 raise ValueError(
-                    f"Native {self._native_display_name} expects AABB detections with 6 columns "
-                    "or OBB detections with 7 columns."
+                    f"Native {self._native_display_name} expects AABB detections with "
+                    f"{AABB_SCHEMA.detection_cols} columns or OBB detections with "
+                    f"{OBB_SCHEMA.detection_cols} columns."
                 )
             if det_arr.size and not np.isfinite(det_arr).all():
                 raise ValueError("Native tracker detections must contain only finite values.")
@@ -282,7 +304,8 @@ class NativeTrackerMixin:
                     "AABB and OBB inputs after initialization."
                 )
 
-            layout = get_detection_layout(det_arr.shape[1] == 7)
+            schema = schema_from_detection_columns(det_arr.shape[1])
+            layout = get_detection_layout(schema.is_obb)
             if det_arr.size:
                 boxes = layout.boxes(det_arr)
                 if layout.is_obb:
@@ -297,9 +320,21 @@ class NativeTrackerMixin:
 
             if self._det_cols is None:
                 self._det_cols = incoming_cols
+        elif det_arr.ndim == 2 and det_arr.shape[1] != 0:
+            raise ValueError(
+                f"Native {self._native_display_name} expects empty AABB detections with "
+                f"{AABB_SCHEMA.detection_cols} columns or empty OBB detections with "
+                f"{OBB_SCHEMA.detection_cols} columns."
+            )
         elif self._det_cols is not None:
             det_arr = np.empty((0, self._det_cols), dtype=np.float32)
         return np.ascontiguousarray(det_arr, dtype=np.float32)
+
+    def _normalize_tracks_for_mode(self, tracks: np.ndarray) -> TrackResults:
+        """Validate native output against the mode latched from detections."""
+        detection_cols = self._det_cols if self._det_cols is not None else AABB_SCHEMA.detection_cols
+        schema = schema_from_detection_columns(detection_cols)
+        return TrackResults(tracks, schema=schema)
 
     def _refresh_reid_timings(self) -> None:
         if not self._tracks_reid_timing:

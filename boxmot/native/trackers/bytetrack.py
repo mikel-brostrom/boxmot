@@ -152,7 +152,8 @@ class NativeByteTrackTracker(_native_trackers.NativeTrackerMixin):
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         del embs
         det_arr = self._coerce_detections_for_mode(dets)
-        return self._library.update(self._handle, det_arr, img)
+        tracks = self._library.update(self._handle, det_arr, img)
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_bytetrack_live_tracker(

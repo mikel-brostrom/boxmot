@@ -14,13 +14,14 @@ from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
 from boxmot.reid.backends.tflite_backend import TFLiteBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
 from boxmot.reid.core.artifacts import write_artifact_metadata
-from boxmot.reid.core.crops import boxes_to_xyxy, canonicalize_obb_for_crop, crop_obb
+from boxmot.reid.core.crops import boxes_to_xyxy, canonicalize_obb_for_crop, coerce_boxes, crop_obb
 from boxmot.reid.core.registry import ReIDModelRegistry
 
 
 class DummyBackend(BaseModelBackend):
     def __init__(self):
         from boxmot.reid.core.preprocessing import get_preprocess_fn
+
         self.device = torch.device("cpu")
         self.half = False
         self.input_shape = (16, 8)
@@ -253,6 +254,23 @@ def test_boxes_to_xyxy_converts_obb_track_outputs():
 
     assert xyxy.shape == (1, 4)
     np.testing.assert_allclose(xyxy[0], np.array([22, 19, 42, 29], dtype=np.float32), atol=1e-4)
+
+
+@pytest.mark.parametrize(
+    ("columns", "geometry_columns"),
+    [(4, 4), (6, 4), (8, 4), (5, 5), (7, 5), (9, 5)],
+)
+def test_coerce_boxes_standardizes_aabb_and_obb_geometry(columns, geometry_columns):
+    boxes = np.arange(columns, dtype=np.float32).reshape(1, columns)
+
+    assert coerce_boxes(boxes).shape == (1, geometry_columns)
+    assert coerce_boxes(np.empty((0, columns), dtype=np.float32)).shape == (0, geometry_columns)
+
+
+@pytest.mark.parametrize("columns", [0, 1, 2, 3, 10])
+def test_coerce_boxes_rejects_noncanonical_row_widths(columns):
+    with pytest.raises(ValueError, match="AABB rows with 4/6/8 columns"):
+        coerce_boxes(np.empty((0, columns), dtype=np.float32))
 
 
 def test_get_crops_accepts_obb_boxes():

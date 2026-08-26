@@ -172,6 +172,10 @@ class TestVisualization(unittest.TestCase):
         # dash=10, gap=10. So 10-20 drawn, 20-30 gap.
         self.assertTrue(np.all(img[10, 22:28] == 0), "Gap should be present in dashed line")
 
+    def test_obb_polygon_rejects_rows_with_metadata(self):
+        with self.assertRaisesRegex(ValueError, "5-value xywha or 8 corners"):
+            self.tracker._obb_to_polygon([50, 50, 20, 10, 0.2, 7, 0.9, 0, 0])
+
 
 if __name__ == "__main__":
     unittest.main()

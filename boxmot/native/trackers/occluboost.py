@@ -349,7 +349,7 @@ class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
         det_arr = self._coerce_detections_for_mode(dets)
         tracks = self._library.update(self._handle, det_arr, img, embs)
         self._refresh_reid_timings()
-        return tracks
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_occluboost_live_tracker(

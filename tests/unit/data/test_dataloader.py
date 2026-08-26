@@ -76,8 +76,8 @@ def simple_sequence(tmp_path):
     det_dir.mkdir(parents=True)
     emb_dir.mkdir(parents=True)
 
-    # two det rows (frame_id, x,y,w,h,score)
-    dets = np.array([[1, 0, 0, 1, 1, 0.9], [2, 0, 0, 1, 1, 0.8]])
+    # two AABB cache rows (frame_id, x1, y1, x2, y2, score, class)
+    dets = np.array([[1, 0, 0, 1, 1, 0.9, 0], [2, 0, 0, 1, 1, 0.8, 0]])
     np.save(det_dir / "SEQ.npy", dets.astype(np.float32))
 
     # two 128-d embeddings
@@ -125,15 +125,7 @@ def test_unknown_sequence_raises(simple_sequence):
 
 def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
     # overwrite embeddings with only one row
-    emb_file = (
-        tmp_path
-        / "runs"
-        / "model"
-        / "embs"
-        / "reid"
-        / "resize"
-        / "SEQ.npy"
-    )
+    emb_file = tmp_path / "runs" / "model" / "embs" / "reid" / "resize" / "SEQ.npy"
     one_emb = np.arange(128)
     np.save(emb_file, one_emb[None, :].astype(np.float32))
 
@@ -176,7 +168,7 @@ def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
     emb_dir = det_emb_root / "M" / "embs" / "R" / "resize"
     det_dir.mkdir(parents=True)
     emb_dir.mkdir(parents=True)
-    dets = np.array([[1, 0, 0, 1, 1, 0.5], [2, 0, 0, 1, 1, 0.4]])
+    dets = np.array([[1, 0, 0, 1, 1, 0.5, 0], [2, 0, 0, 1, 1, 0.4, 0]])
     embs = np.vstack([np.arange(128), np.arange(128)])
     np.save(det_dir / "S.npy", dets.astype(np.float32))
     np.save(emb_dir / "S.npy", embs.astype(np.float32))

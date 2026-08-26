@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
+from boxmot.box_schema import BoxType, normalize_box_type
 from boxmot.data.config import (
     DATASET_CONFIGS_DIR,
     ConfigurationError,
@@ -189,8 +190,8 @@ def resolve_reid_cfg_path(name: str | Path) -> Path:
 
 def _metric_backend_for_box_type(box_type: str) -> str:
     """Map the configured box type to the MOT metric backend used at runtime."""
-    normalized = str(box_type or "aabb").lower()
-    return "mot_challenge_obb" if normalized == "obb" else "mot_challenge"
+    normalized = normalize_box_type(box_type, default=BoxType.AABB)
+    return "mot_challenge_obb" if normalized is BoxType.OBB else "mot_challenge"
 
 
 

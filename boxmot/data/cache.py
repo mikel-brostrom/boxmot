@@ -11,6 +11,7 @@ import numpy as np
 import torch
 from numpy.lib import format as npy_format
 
+from boxmot.box_schema import schema_from_detection_columns
 from boxmot.data.dataset import (
     _collect_seq_info,
     _list_sequence_frames,
@@ -381,8 +382,7 @@ class AppendableNpyWriter:
         new_offset = self._fp.tell()
         if self._data_offset is not None and new_offset != self._data_offset:
             raise RuntimeError(
-                f"NPY header resize changed data offset for {self.path}: "
-                f"{self._data_offset} -> {new_offset}"
+                f"NPY header resize changed data offset for {self.path}: {self._data_offset} -> {new_offset}"
             )
         self._fp.flush()
 
@@ -432,8 +432,7 @@ class AppendableNpyWriter:
             self._initialize_file(tuple(arr.shape[1:]))
         elif tuple(arr.shape[1:]) != self.trailing_shape:
             raise ValueError(
-                f"Appended array shape mismatch for {self.path}: "
-                f"expected (*, {self.trailing_shape}), got {arr.shape}"
+                f"Appended array shape mismatch for {self.path}: expected (*, {self.trailing_shape}), got {arr.shape}"
             )
 
         arr = np.ascontiguousarray(arr, dtype=self.dtype)
@@ -477,24 +476,22 @@ def _saved_detection_column_count(path: Path) -> int:
 
 def _serialize_eval_detections(dets: np.ndarray, frame_id: int) -> tuple[np.ndarray, np.ndarray]:
     """Serialize detector output for cache files and return the boxes used for ReID crops."""
+    dets = np.asarray(dets, dtype=np.float32)
+    if dets.ndim != 2:
+        raise ValueError(f"Detections must be a 2D array for cache serialization, got {dets.shape}.")
+    schema = schema_from_detection_columns(dets.shape[1])
     if dets.size == 0:
-        return np.empty((0, 0), dtype=np.float32), np.empty((0, 0), dtype=np.float32)
+        return schema.empty_cache(), np.empty((0, schema.geometry_cols), dtype=np.float32)
 
-    if dets.shape[1] == 7:
+    if schema.is_obb:
         frame_col = np.full((dets.shape[0], 1), float(frame_id), dtype=np.float32)
         exported = np.concatenate([frame_col, dets], axis=1).astype(np.float32)
-        reid_boxes = dets[:, :5].astype(np.float32)
+        reid_boxes = dets[:, : schema.geometry_cols].astype(np.float32)
         return exported, reid_boxes
 
-    if dets.shape[1] == 6:
-        frame_col = np.full((dets.shape[0], 1), float(frame_id), dtype=np.float32)
-        boxes = dets[:, :4].astype(np.float32)
-        confs = dets[:, 4:5].astype(np.float32)
-        clss = dets[:, 5:6].astype(np.float32)
-        exported = np.concatenate([frame_col, boxes, confs, clss], axis=1).astype(np.float32)
-        return exported, boxes
-
-    raise ValueError(f"Unsupported detection shape for serialization: {dets.shape}")
+    frame_col = np.full((dets.shape[0], 1), float(frame_id), dtype=np.float32)
+    exported = np.concatenate([frame_col, dets], axis=1).astype(np.float32)
+    return exported, dets[:, : schema.geometry_cols].astype(np.float32)
 
 
 __all__ = [

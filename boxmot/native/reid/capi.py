@@ -27,7 +27,9 @@ from pathlib import Path
 
 import numpy as np
 
+from boxmot.box_schema import OBB_SCHEMA
 from boxmot.native import _common
+from boxmot.reid.core.crops import coerce_boxes
 from boxmot.utils import logger as LOGGER
 
 _BUILD_LOCK = threading.Lock()
@@ -306,7 +308,7 @@ class _ReidLibrary:
         n = int(boxes.shape[0])
         preprocess = (
             self._library.boxmot_reid_capi_preprocess_obb
-            if boxes.shape[1] == 5
+            if boxes.shape[1] == OBB_SCHEMA.geometry_cols
             else self._library.boxmot_reid_capi_preprocess
         )
         ok = preprocess(
@@ -426,21 +428,7 @@ class CppOnnxReID:
 
     @staticmethod
     def _normalise_boxes(xyxys: np.ndarray) -> np.ndarray:
-        boxes = np.asarray(xyxys, dtype=np.float32)
-        if boxes.size == 0:
-            cols = boxes.shape[1] if boxes.ndim == 2 else 4
-            return np.empty((0, 5 if cols in {5, 7, 9} else 4), dtype=np.float32)
-        if boxes.ndim == 1:
-            boxes = boxes.reshape(1, -1)
-        if boxes.ndim != 2 or boxes.shape[1] not in {4, 5, 6, 7, 8, 9}:
-            raise ValueError(
-                "CppOnnxReID expects AABB rows with 4/6/8 columns or OBB rows "
-                "with 5/7/9 columns, "
-                f"got shape {boxes.shape}"
-            )
-        box_cols = 5 if boxes.shape[1] in {5, 7, 9} else 4
-        boxes = boxes[:, :box_cols]
-        return np.ascontiguousarray(boxes, dtype=np.float32)
+        return coerce_boxes(xyxys)
 
     @staticmethod
     def _normalise_image(img: np.ndarray) -> np.ndarray:

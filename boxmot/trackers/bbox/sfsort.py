@@ -43,6 +43,7 @@ class Track:
     conf: float
     cls: int
     det_ind: int
+    max_obs: int = 50
     state: int = TrackState.Active
     history_observations: deque = None
     time_since_update: int = 0
@@ -56,11 +57,12 @@ class Track:
         self.conf = float(self.conf)
         self.cls = int(self.cls)
         self.det_ind = int(self.det_ind)
+        self.max_obs = max(1, int(self.max_obs))
         self.theta_damping = float(np.clip(self.theta_damping, 0.0, 1.0))
         if self.bbox.shape[0] == 5:
-            self.history_observations = deque([self._state_obb_for_plot()], maxlen=50)
+            self.history_observations = deque([self._state_obb_for_plot()], maxlen=self.max_obs)
         else:
-            self.history_observations = deque([self.bbox.copy()], maxlen=50)
+            self.history_observations = deque([self.bbox.copy()], maxlen=self.max_obs)
         self.time_since_update = 0
         self._theta_velocity = 0.0
         self._sync_meta(CommonTrackState.TRACKED)
@@ -410,6 +412,7 @@ class SFSORT(BaseTracker):
             conf=float(conf),
             cls=int(cls),
             det_ind=int(det_ind),
+            max_obs=self.max_obs,
             theta_damping=self.obb_theta_damping,
         )
         return track
@@ -488,18 +491,12 @@ class SFSORT(BaseTracker):
         box2_width = boxes[:, 2]
         box1_height = active_boxes[:, 3]
         box2_height = boxes[:, 3]
-        direct_sw = np.minimum(box1_width[:, None], box2_width) / (
-            np.maximum(box1_width[:, None], box2_width) + eps
-        )
+        direct_sw = np.minimum(box1_width[:, None], box2_width) / (np.maximum(box1_width[:, None], box2_width) + eps)
         direct_sh = np.minimum(box1_height[:, None], box2_height) / (
             np.maximum(box1_height[:, None], box2_height) + eps
         )
-        swapped_sw = np.minimum(box1_width[:, None], box2_height) / (
-            np.maximum(box1_width[:, None], box2_height) + eps
-        )
-        swapped_sh = np.minimum(box1_height[:, None], box2_width) / (
-            np.maximum(box1_height[:, None], box2_width) + eps
-        )
+        swapped_sw = np.minimum(box1_width[:, None], box2_height) / (np.maximum(box1_width[:, None], box2_height) + eps)
+        swapped_sh = np.minimum(box1_height[:, None], box2_width) / (np.maximum(box1_height[:, None], box2_width) + eps)
         use_swapped = (swapped_sw + swapped_sh) > (direct_sw + direct_sh)
         sw = np.where(use_swapped, swapped_sw, direct_sw)
         sh = np.where(use_swapped, swapped_sh, direct_sh)

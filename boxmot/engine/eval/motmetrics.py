@@ -21,6 +21,7 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.box_schema import AABB_SCHEMA, OBB_SCHEMA, schema_from_mot_columns
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
@@ -324,8 +325,14 @@ def _load_obb_gt_matrix(source: Path) -> np.ndarray:
     """Load OBB GT in the 13-column MMOT corner format."""
     data = _read_csv_matrix(source)
     if data.size == 0:
-        return np.empty((0, 13), dtype=np.float32)
-    if data.shape[1] == 13:
+        return OBB_SCHEMA.empty_mot()
+    try:
+        schema = schema_from_mot_columns(data.shape[1])
+    except ValueError as exc:
+        raise ValueError(
+            f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
+        ) from exc
+    if schema.is_obb:
         return data.astype(np.float32, copy=False)
     raise ValueError(
         f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
@@ -418,11 +425,17 @@ def _build_aabb_sequence_data(
     indexed_rows: IndexedSequenceRows | None = None,
 ) -> SequenceData:
     if indexed_rows is None:
+        tracker = _read_csv_matrix(tracker_path)
+        if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+            raise ValueError(
+                f"Unsupported AABB tracker format in {tracker_path}: expected "
+                f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+            )
         indexed_rows = _index_sequence_rows(
             seq_name=seq_name,
             seq_info=seq_info,
             gt=_read_csv_matrix(gt_path),
-            tracker=_read_csv_matrix(tracker_path),
+            tracker=tracker,
         )
 
     def _load_frame(frame_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -491,9 +504,10 @@ def _build_obb_sequence_data(
     if indexed_rows is None:
         gt = _load_obb_gt_matrix(gt_path)
         tracker = _read_csv_matrix(tracker_path)
-        if tracker.size and tracker.shape[1] != 13:
+        if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
             raise ValueError(
-                f"Unsupported OBB tracker format in {tracker_path}: expected 13 columns, got {tracker.shape[1]}"
+                f"Unsupported OBB tracker format in {tracker_path}: expected "
+                f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
             )
         indexed_rows = _index_sequence_rows(
             seq_name=seq_name,
@@ -1105,11 +1119,17 @@ def _evaluate_aabb_sequence_task(task: AABBSequenceEvaluationTask) -> tuple[str,
     """Load and evaluate all requested classes for one AABB sequence."""
     seq_info = {task.seq_name: task.num_timesteps}
     distractor_ids = set(task.distractor_ids)
+    tracker = _read_csv_matrix(task.tracker_path)
+    if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+        raise ValueError(
+            f"Unsupported AABB tracker format in {task.tracker_path}: expected "
+            f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+        )
     indexed_rows = _index_sequence_rows(
         seq_name=task.seq_name,
         seq_info=seq_info,
         gt=_read_csv_matrix(task.gt_path),
-        tracker=_read_csv_matrix(task.tracker_path),
+        tracker=tracker,
     )
     class_results = {
         class_name: _eval_bundle(
@@ -1140,9 +1160,10 @@ def _evaluate_obb_sequence_task(task: OBBSequenceEvaluationTask) -> tuple[str, d
 
     gt_path = _resolve_obb_gt_path(task.source, task.gt_folder, task.seq_name, load_gt=_load_gt)
     tracker = _read_csv_matrix(task.tracker_path)
-    if tracker.size and tracker.shape[1] != 13:
+    if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
         raise ValueError(
-            f"Unsupported OBB tracker format in {task.tracker_path}: expected 13 columns, got {tracker.shape[1]}"
+            f"Unsupported OBB tracker format in {task.tracker_path}: expected "
+            f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
         )
     indexed_rows = _index_sequence_rows(
         seq_name=task.seq_name,

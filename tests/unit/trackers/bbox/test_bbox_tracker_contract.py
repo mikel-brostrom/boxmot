@@ -137,6 +137,12 @@ OBB_TRACKERS: tuple[tuple[str, Callable[..., object]], ...] = (
             **kwargs,
         ),
     ),
+    (
+        "deepocsort",
+        lambda **kwargs: DeepOcSort(reid_model=None, embedding_off=True, cmc_off=True, **kwargs),
+    ),
+    ("hybridsort", _hybridsort),
+    ("strongsort", _strongsort),
 )
 
 
@@ -345,6 +351,17 @@ def test_detection_layout_roundtrip_obb():
     np.testing.assert_array_equal(selected.det_inds, np.array([1], dtype=np.int32))
     np.testing.assert_allclose(batch.as_box_conf_detections(), dets[:, :6])
     assert batch.as_indexed_detections().shape == (2, 8)
+
+
+def test_detection_batch_rejects_fractional_class_and_detection_indices():
+    fractional_class = _aabb_dets()
+    fractional_class[0, 5] = 0.5
+    with pytest.raises(ValueError, match="class IDs must be integers"):
+        DetectionBatch.from_layout(fractional_class, AABB_DETECTIONS)
+
+    indexed = np.column_stack((_aabb_dets(), np.array([0.5, 1.0], dtype=np.float32)))
+    with pytest.raises(ValueError, match="Detection indices must be integers"):
+        DetectionBatch.from_layout(indexed, AABB_DETECTIONS)
 
 
 @pytest.mark.parametrize(
@@ -613,6 +630,117 @@ def test_per_class_obb_outputs_preserve_frame_global_detection_indices():
         (0, 2),
         (1, 1),
     }
+
+
+@pytest.mark.parametrize(
+    ("detections", "class_col", "det_ind_col"),
+    (
+        (
+            np.array(
+                [
+                    [10, 10, 30, 60, 0.95, 0],
+                    [50, 10, 70, 60, 0.95, 1],
+                    [90, 10, 110, 60, 0.95, 0],
+                ],
+                dtype=np.float32,
+            ),
+            6,
+            7,
+        ),
+        (
+            np.array(
+                [
+                    [20, 35, 20, 40, 0.2, 0.95, 0],
+                    [60, 35, 20, 40, 0.2, 0.95, 1],
+                    [100, 35, 20, 40, 0.2, 0.95, 0],
+                ],
+                dtype=np.float32,
+            ),
+            7,
+            8,
+        ),
+    ),
+)
+def test_hybridsort_per_class_preserves_frame_global_detection_indices(
+    detections: np.ndarray,
+    class_col: int,
+    det_ind_col: int,
+):
+    tracker = _hybridsort(
+        per_class=True,
+        min_hits=1,
+        det_thresh=0.1,
+        iou_threshold=0.1,
+    )
+
+    output = _run_until_output(tracker, detections, _embs(3))
+
+    assert {(int(row[class_col]), int(row[det_ind_col])) for row in output} == {
+        (0, 0),
+        (1, 1),
+        (0, 2),
+    }
+
+
+@pytest.mark.parametrize(
+    "factory",
+    (
+        lambda: OcSort(
+            min_hits=1,
+            det_thresh=0.1,
+            min_conf=0.05,
+            iou_threshold=0.1,
+            asso_func="diou",
+        ),
+        lambda: DeepOcSort(
+            reid_model=None,
+            embedding_off=True,
+            cmc_off=True,
+            min_hits=1,
+            det_thresh=0.1,
+            iou_threshold=0.1,
+            asso_func="diou",
+        ),
+    ),
+)
+def test_ocsort_family_obb_diou_accepts_rows_with_confidence(factory):
+    tracker = factory()
+    first = np.array([[64, 48, 42, 16, -0.35, 0.95, 0]], dtype=np.float32)
+    second = np.array([[66, 49, 42, 16, -0.30, 0.95, 0]], dtype=np.float32)
+
+    tracker.update(first, _img())
+    output = tracker.update(second, _img())
+
+    assert output.shape == (1, 9)
+
+
+@pytest.mark.parametrize(
+    "detection",
+    (
+        np.array([[10, 10, 11, 11, 0.95, 0]], dtype=np.float32),
+        np.array([[20, 20, 1, 1, 0.2, 0.95, 0]], dtype=np.float32),
+    ),
+)
+def test_occluboost_geometry_filter_has_aabb_obb_parity(detection: np.ndarray):
+    tracker = OccluBoost(
+        reid_model=None,
+        use_cmc=False,
+        use_dlo_boost=False,
+        use_duo_boost=False,
+        min_hits=1,
+        det_thresh=0.1,
+        new_track_thresh=0.1,
+        instant_confirm_thresh=0.0,
+        obb_det_thresh=0.1,
+        obb_new_track_thresh=0.1,
+        obb_instant_confirm_thresh=0.0,
+        min_box_area=10.0,
+        aspect_ratio_thresh=10.0,
+    )
+
+    output = tracker.update(detection, _img())
+
+    assert output.shape == (0, 9 if detection.shape[1] == 7 else 8)
 
 
 def test_strongsort_per_class_obb_keeps_independent_track_pools():

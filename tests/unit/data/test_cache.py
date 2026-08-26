@@ -4,11 +4,22 @@ import numpy as np
 
 from boxmot.data.cache import (
     REID_CROP_SCHEMA_VERSION,
+    _serialize_eval_detections,
     find_existing_reid_cache_file,
     reid_cache_dir_candidates,
     reid_cache_key,
     reid_preprocess_cache_key,
 )
+
+
+def test_empty_detection_cache_serialization_preserves_aabb_and_obb_widths():
+    aabb_cache, aabb_boxes = _serialize_eval_detections(np.empty((0, 6), dtype=np.float32), frame_id=1)
+    obb_cache, obb_boxes = _serialize_eval_detections(np.empty((0, 7), dtype=np.float32), frame_id=1)
+
+    assert aabb_cache.shape == (0, 7)
+    assert aabb_boxes.shape == (0, 4)
+    assert obb_cache.shape == (0, 8)
+    assert obb_boxes.shape == (0, 5)
 
 
 def test_reid_cache_key_is_readable_and_separates_python_from_cpp(tmp_path, monkeypatch):

@@ -213,9 +213,7 @@ def test_results_records_source_acquisition_when_source_is_empty(monkeypatch):
 
 def test_should_consume_result_keeps_live_and_output_sources_lazy():
     assert (
-        tracker_module._should_consume_result(
-            SimpleNamespace(source="0", save=False, save_txt=False, show=False)
-        )
+        tracker_module._should_consume_result(SimpleNamespace(source="0", save=False, save_txt=False, show=False))
         is False
     )
     assert (
@@ -309,9 +307,7 @@ def test_run_track_reuses_saved_render_for_display_and_stops_on_quit(tmp_path, m
     monkeypatch.setattr(
         tracker_module,
         "resolve_output_fps",
-        lambda _source: (_ for _ in ()).throw(
-            AssertionError("explicit --fps must bypass source probing")
-        ),
+        lambda _source: (_ for _ in ()).throw(AssertionError("explicit --fps must bypass source probing")),
     )
     monkeypatch.setattr(tracker_module.cv2, "VideoWriter_fourcc", lambda *args: 1234)
     monkeypatch.setattr(tracker_module.cv2, "VideoWriter", _FakeVideoWriter)
@@ -352,7 +348,7 @@ def test_run_track_formats_flushed_obb_gta_as_mmot(tmp_path, monkeypatch):
     class _FakeFrameResult:
         @staticmethod
         def to_mot():
-            return np.empty((0, 0), dtype=np.float32)
+            return np.empty((0, 13), dtype=np.float32)
 
     class _FakeResults:
         def __init__(self, source, detector, reid, tracker, **kwargs):

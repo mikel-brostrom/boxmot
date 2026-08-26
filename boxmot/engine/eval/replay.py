@@ -13,6 +13,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from boxmot.box_schema import BoxType, get_box_schema, normalize_box_type, schema_from_detection_columns
 from boxmot.data import MOTDataset
 from boxmot.detectors import default_conf
 from boxmot.engine.experiment import write_experiment_snapshots
@@ -161,7 +162,9 @@ def _resolve_embedding_cache_dir(
     reid_model = Path(args.reid[0])
     tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
     preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-    expected_det_cols = 8 if str(getattr(args, "eval_box_type", "")).lower() == "obb" else 7
+    expected_det_cols = get_box_schema(
+        normalize_box_type(getattr(args, "eval_box_type", None), default=BoxType.AABB)
+    ).cache_cols
 
     det_emb_root = Path(cache_project_root) / "dets_n_embs"
     if getattr(args, "benchmark", None):
@@ -371,6 +374,11 @@ def process_sequence(
         progress_queue=progress_queue,
         skip_image_load=not needs_images,
     )
+    if hasattr(sequence, "dets") and sequence.dets is None:
+        raise FileNotFoundError(
+            f"Detection cache is missing for {seq_name}; generate the canonical AABB or OBB cache before replay."
+        )
+    output_schema = getattr(sequence, "det_schema", get_box_schema(BoxType.AABB))
 
     all_tracks = []
     kept_frame_ids = []
@@ -381,6 +389,7 @@ def process_sequence(
     for frame in sequence:
         frame_id = int(frame["frame_id"])
         dets = frame["dets"]
+        output_schema = schema_from_detection_columns(np.asarray(dets).shape[1])
         embs = frame["embs"]
         img = frame["img"]
         masks = frame.get("masks")
@@ -393,8 +402,7 @@ def process_sequence(
 
         if embs.size and len(embs) != len(dets):
             raise ValueError(
-                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
-                f"dets={len(dets)} embs={len(embs)}"
+                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: dets={len(dets)} embs={len(embs)}"
             )
         dets, masks, valid_geometry = sanitize_detections(
             dets,
@@ -405,7 +413,7 @@ def process_sequence(
             embs = embs[valid_geometry]
 
         if dets.size and conf_threshold > 0:
-            conf_col = 5 if dets.shape[1] == 7 else 4
+            conf_col = schema_from_detection_columns(dets.shape[1]).detection_conf_index
             mask = dets[:, conf_col] >= conf_threshold
             dets = dets[mask]
             embs = embs[mask] if embs.size else embs
@@ -452,7 +460,7 @@ def process_sequence(
         if gta_entries.size:
             all_tracks.append(format_frame_tagged_tracks_for_mot(gta_entries))
 
-    out_arr = np.vstack(all_tracks) if all_tracks else np.empty((0, 0))
+    out_arr = np.vstack(all_tracks) if all_tracks else output_schema.empty_mot()
     write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
 
     timing_dict = {
@@ -638,9 +646,7 @@ def _run_cpp_tracking_tasks(
 
     progress_queue = None if quiet else queue.Queue()
     bound_task_args = (
-        task_args
-        if progress_queue is None
-        else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
+        task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
     )
 
     def _log_progress() -> None:
@@ -863,8 +869,7 @@ def run_generate_mot_results(
             if args.reid:
                 embs_root = det_emb_root / detector_key / "embs"
                 resolved_dirs = {
-                    Path(_resolve_embedding_cache_dir(args, cache_project, seq_name))
-                    for seq_name in sequence_names
+                    Path(_resolve_embedding_cache_dir(args, cache_project, seq_name)) for seq_name in sequence_names
                 }
                 existing_dirs = {directory for directory in resolved_dirs if directory.is_dir()}
                 if len(existing_dirs) == 1:

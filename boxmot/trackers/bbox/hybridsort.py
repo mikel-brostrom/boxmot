@@ -6,7 +6,7 @@ from __future__ import annotations
 # - ReID via pre-built backend passed as ``reid_model``
 # - update(dets, img, embs=None) signature compatible with BoxMOT trackers
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
-# - Preserves detector class IDs and det_ind; guards out-of-range detection indices
+# - Preserves detector class IDs and frame-global det_ind values
 from typing import Any, List
 
 import numpy as np
@@ -180,13 +180,7 @@ class HybridSort(BaseTracker):
         self.frame_count += 1
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
-        n_dets_full = len(batch)
         dets_indexed = batch.as_indexed_detections(dtype=dets.dtype)
-
-        # helper guards
-        def _safe_detind(x: int, n: int) -> int:
-            xi = int(x)
-            return xi if 0 <= xi < n else -1
 
         def _safe_cls(x: int) -> int:
             xi = int(x)
@@ -330,7 +324,7 @@ class HybridSort(BaseTracker):
                 dets_first[det_i, :],
                 id_feature_keep[det_i, :],
                 cls=_safe_cls(cls_keep[det_i]),
-                det_ind=_safe_detind(det_inds_keep[det_i], n_dets_full),
+                det_ind=int(det_inds_keep[det_i]),
             )
 
         # ===== BYTE / low-score association (optional)
@@ -367,7 +361,7 @@ class HybridSort(BaseTracker):
                         id_feature_second[det_rel, :],
                         update_feature=False,
                         cls=_safe_cls(cls_second[det_rel]),
-                        det_ind=_safe_detind(det_inds_second[det_rel], n_dets_full),
+                        det_ind=int(det_inds_second[det_rel]),
                     )
                     to_remove_trk_indices.append(trk_ind)
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
@@ -392,7 +386,7 @@ class HybridSort(BaseTracker):
                         id_feature_keep[det_abs, :],
                         update_feature=False,
                         cls=_safe_cls(cls_keep[det_abs]),
-                        det_ind=_safe_detind(det_inds_keep[det_abs], n_dets_full),
+                        det_ind=int(det_inds_keep[det_abs]),
                     )
                     to_remove_det_indices.append(det_abs)
                     to_remove_trk_indices.append(trk_abs)
@@ -415,7 +409,7 @@ class HybridSort(BaseTracker):
                 adapfs=self.adapfs,
                 track_thresh=self.track_thresh,
                 cls=_safe_cls(cls_keep[i]),
-                det_ind=_safe_detind(det_inds_keep[i], n_dets_full) if len(det_inds_keep) else -1,
+                det_ind=int(det_inds_keep[i]) if len(det_inds_keep) else -1,
                 id_allocator=self.id_allocator,
             )
             self.active_tracks.append(trk)

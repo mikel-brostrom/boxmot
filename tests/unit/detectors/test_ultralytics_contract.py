@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 import boxmot.detectors.ultralytics as ultralytics_module
@@ -17,6 +18,17 @@ def test_ultralytics_predictor_clears_previous_class_filter():
 
     detector._ensure_predictor(classes=None)
     assert detector._predictor.args.classes is None
+
+
+def test_ultralytics_empty_fallback_preserves_obb_mode():
+    detector = UltralyticsDetector.__new__(UltralyticsDetector)
+    detector.is_obb = True
+
+    detections, masks = detector._extract_dets(SimpleNamespace(obb=None, boxes=[]))
+
+    assert detections.shape == (0, 7)
+    assert detections.dtype == np.float32
+    assert masks is None
 
 
 def test_ultralytics_restores_corrupt_custom_weights_when_recovery_fails(monkeypatch, tmp_path):

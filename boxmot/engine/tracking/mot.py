@@ -9,6 +9,12 @@ import numpy as np
 import pandas as pd
 import torch
 
+from boxmot.box_schema import (
+    AABB_SCHEMA,
+    OBB_SCHEMA,
+    schema_from_frame_tagged_track_columns,
+    schema_from_mot_columns,
+)
 from boxmot.trackers.common.geometry.obb import xywha_to_corners
 from boxmot.trackers.results import TrackResults
 from boxmot.utils import logger as LOGGER
@@ -216,62 +222,44 @@ def convert_to_mot_format(results: Any | np.ndarray, frame_idx: int) -> np.ndarr
     """
 
     if isinstance(results, np.ndarray):
-        if results.size == 0:
-            return np.empty((0, 9), dtype=np.float32)
+        tr = results if isinstance(results, TrackResults) else TrackResults(results)
+    else:
+        boxes = getattr(results, "boxes", None)
+        if boxes is None or len(boxes) == 0:
+            tr = TrackResults(AABB_SCHEMA.empty_tracks(), schema=AABB_SCHEMA)
+        else:
+            count = len(boxes)
+            det_ind = getattr(boxes, "det_ind", np.full(count, -1, dtype=np.int32))
+            rows = np.column_stack((boxes.xyxy, boxes.id, boxes.conf, boxes.cls, det_ind))
+            tr = TrackResults(rows, schema=AABB_SCHEMA)
 
-        tr = TrackResults(results)
-        tlwh = _xyxy_to_ltwh(tr.xyxy)
-        frame_idx_column = np.full((len(tr), 1), frame_idx, dtype=np.int32)
-        det_ind = tr.det_ind.reshape(-1, 1).astype(np.int32)
-        return np.column_stack(
-            (
-                frame_idx_column,  # frame index
-                tr.id.reshape(-1, 1).astype(np.int32),  # track id
-                tlwh.round().astype(np.int32),  # top,left,width,height
-                tr.conf.reshape(-1, 1),  # confidence (float)
-                (tr.cls + 1).reshape(-1, 1).astype(np.int32),  # class
-                det_ind,  # detection index
-            )
+    if tr.is_obb:
+        raise ValueError("AABB MOT export requires exactly 8-column AABB tracker output.")
+    if len(tr) == 0:
+        return AABB_SCHEMA.empty_mot()
+
+    tlwh = _xyxy_to_ltwh(tr.xyxy)
+    frame_idx_column = np.full((len(tr), 1), frame_idx, dtype=np.int32)
+    det_ind = tr.det_ind.reshape(-1, 1).astype(np.int32)
+    return np.column_stack(
+        (
+            frame_idx_column,
+            tr.id.reshape(-1, 1).astype(np.int32),
+            tlwh.round().astype(np.int32),
+            tr.conf.reshape(-1, 1),
+            (tr.cls + 1).reshape(-1, 1).astype(np.int32),
+            det_ind,
         )
-
-    boxes = getattr(results, "boxes", None)
-    if boxes is None or len(boxes) == 0:
-        return np.empty((0, 9), dtype=np.float32)
-
-    num_detections = len(boxes)
-    frame_indices = torch.full((num_detections, 1), frame_idx + 1, dtype=torch.int32)
-    det_inds = torch.full((num_detections, 1), -1, dtype=torch.int32)
-
-    track_ids = torch.as_tensor(boxes.id).reshape(-1, 1).to(dtype=torch.int32)
-    tlwh = _xyxy_to_ltwh(torch.as_tensor(boxes.xyxy)).to(dtype=torch.int32)
-    conf = torch.as_tensor(boxes.conf).reshape(-1, 1).to(dtype=torch.float32)
-    cls = torch.as_tensor(boxes.cls).reshape(-1, 1).to(dtype=torch.int32) + 1
-    mot_results = torch.cat(
-        [
-            frame_indices,  # frame index
-            track_ids,  # track id
-            tlwh,  # top,left,width,height
-            conf,  # confidence (float)
-            cls,  # class
-            det_inds,  # detection index
-        ],
-        dim=1,
     )
-
-    return mot_results.numpy()
 
 
 def convert_to_mmot_obb_format(results: np.ndarray, frame_idx: int) -> np.ndarray:
     """Convert OBB tracker output ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` to MMOT format."""
-    if results.size == 0:
-        return np.empty((0, 13), dtype=np.float32)
-
-    if results.ndim == 1:
-        results = results.reshape(1, -1)
-
-    tr = TrackResults(results)
+    tr = results if isinstance(results, TrackResults) else TrackResults(results)
     if not tr.is_obb:
-        raise ValueError(f"Expected OBB tracking results with at least 9 columns, got {results.shape[1]}")
+        raise ValueError("OBB MMOT export requires exactly 9-column OBB tracker output.")
+    if len(tr) == 0:
+        return OBB_SCHEMA.empty_mot()
 
     frame_col = np.full((len(tr), 1), frame_idx, dtype=np.float32)
     track_ids = tr.id.reshape(-1, 1).astype(np.float32)
@@ -291,15 +279,25 @@ def format_frame_tagged_tracks_for_mot(entries: np.ndarray) -> np.ndarray:
     of treating those native rows as already serialized MOT records.
     """
     rows = np.asarray(entries, dtype=np.float32)
-    if rows.size == 0:
-        return np.empty((0, 0), dtype=np.float32)
     if rows.ndim == 1:
-        rows = rows.reshape(1, -1)
-    if rows.ndim != 2 or rows.shape[1] not in (9, 10):
+        if rows.size:
+            rows = rows.reshape(1, -1)
+        else:
+            raise ValueError("Empty frame-tagged rows must preserve 9-column AABB or 10-column OBB width.")
+    if rows.ndim != 2:
         raise ValueError(
             "Frame-tagged rows must contain a frame plus an 8-column AABB or "
             f"9-column OBB tracker output, got shape {rows.shape}"
         )
+    try:
+        schema = schema_from_frame_tagged_track_columns(rows.shape[1])
+    except ValueError as exc:
+        raise ValueError(
+            "Frame-tagged rows must contain a frame plus an 8-column AABB or "
+            f"9-column OBB tracker output, got shape {rows.shape}"
+        ) from exc
+    if rows.size == 0:
+        return schema.empty_mot()
 
     frame_values = rows[:, 0]
     if not np.isfinite(frame_values).all():
@@ -311,7 +309,7 @@ def format_frame_tagged_tracks_for_mot(entries: np.ndarray) -> np.ndarray:
     formatted = []
     for frame_id in np.unique(frame_ids):
         tracks = rows[frame_ids == frame_id, 1:]
-        if tracks.shape[1] == 9:
+        if schema.is_obb:
             formatted.append(convert_to_mmot_obb_format(tracks, int(frame_id)))
         else:
             formatted.append(convert_to_mot_format(tracks, int(frame_id)))
@@ -330,6 +328,19 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
     path to the file will be created as well if necessary.
     """
     if mot_results is not None:
+        mot_results = np.asarray(mot_results)
+        if mot_results.ndim == 1 and mot_results.size:
+            mot_results = mot_results.reshape(1, -1)
+        if mot_results.ndim != 2:
+            raise ValueError(
+                f"MOT output must contain 9-column AABB or 13-column MMOT rows, got shape {mot_results.shape}."
+            )
+        try:
+            schema = schema_from_mot_columns(mot_results.shape[1])
+        except ValueError as exc:
+            raise ValueError(
+                f"MOT output must contain 9-column AABB or 13-column MMOT rows, got shape {mot_results.shape}."
+            ) from exc
         # Ensure the parent directory of the txt_path exists
         txt_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -337,16 +348,6 @@ def write_mot_results(txt_path: Path, mot_results: np.ndarray) -> None:
         txt_path.touch(exist_ok=True)
 
         if mot_results.size != 0:
-            if mot_results.ndim == 1:
-                mot_results = mot_results.reshape(1, -1)
             # Open the file in append mode and save the MOT results
             with open(str(txt_path), "a") as file:
-                if mot_results.shape[1] == 9:
-                    np.savetxt(file, mot_results, fmt=MOT_ROW_FORMAT)
-                elif mot_results.shape[1] == 13:
-                    np.savetxt(file, mot_results, fmt=MMOT_ROW_FORMAT)
-                else:
-                    raise ValueError(
-                        "MOT output must contain 9-column AABB or 13-column MMOT rows, "
-                        f"got shape {mot_results.shape}"
-                    )
+                np.savetxt(file, mot_results, fmt=MMOT_ROW_FORMAT if schema.is_obb else MOT_ROW_FORMAT)

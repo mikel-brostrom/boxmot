@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 
+from boxmot.box_schema import get_box_schema_for_mode, schema_from_detection_columns
 from boxmot.detectors.base import Detections
 
 MIN_DETECTION_AREA = 10.0
@@ -20,19 +21,31 @@ def as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
     return arr
 
 
-def extract_detection_array(output: Any) -> np.ndarray:
+def extract_detection_array(output: Any, *, fallback_is_obb: bool = False) -> np.ndarray:
     if isinstance(output, (list, tuple)) and len(output) == 1:
         output = output[0]
     if isinstance(output, Detections):
-        cols = output.dets.shape[1] if output.dets.ndim == 2 else (7 if output.is_obb else 6)
+        cols = output.schema.detection_cols
         return as_2d_array(output.dets, empty_cols=cols)
     if hasattr(output, "dets"):
         dets = getattr(output, "dets")
-        cols = dets.shape[1] if isinstance(dets, np.ndarray) and dets.ndim == 2 else 6
+        if isinstance(dets, np.ndarray) and dets.ndim == 2:
+            cols = dets.shape[1]
+            schema = schema_from_detection_columns(cols)
+            explicit_mode = getattr(output, "is_obb", None)
+            if explicit_mode is not None and schema.is_obb != bool(explicit_mode):
+                raise ValueError(
+                    f"Detector result mode is_obb={bool(explicit_mode)} conflicts with its {cols}-column schema."
+                )
+        else:
+            cols = get_box_schema_for_mode(bool(getattr(output, "is_obb", fallback_is_obb))).detection_cols
         return as_2d_array(dets, empty_cols=cols)
     if output is None:
-        return np.empty((0, 6), dtype=np.float32)
-    return as_2d_array(output, empty_cols=6)
+        return get_box_schema_for_mode(fallback_is_obb).empty_detections()
+    return as_2d_array(
+        output,
+        empty_cols=get_box_schema_for_mode(fallback_is_obb).detection_cols,
+    )
 
 
 def extract_masks(output: Any) -> np.ndarray | None:
@@ -55,14 +68,13 @@ def detection_validity_mask(
     arr = as_2d_array(dets)
     if arr.ndim != 2:
         raise ValueError(f"Detections must be a 2D array, got shape {arr.shape}")
-    if arr.shape[1] not in (6, 7):
-        raise ValueError(f"Expected AABB/OBB detections with 6 or 7 columns, got {arr.shape}")
+    schema = schema_from_detection_columns(arr.shape[1])
     if len(arr) == 0:
         return np.empty((0,), dtype=bool)
 
     valid = np.isfinite(arr).all(axis=1)
-    geometry = arr[:, :5].astype(np.float64, copy=False)
-    if arr.shape[1] == 7:
+    geometry = arr[:, : schema.geometry_cols].astype(np.float64, copy=False)
+    if schema.is_obb:
         width, height = geometry[:, 2], geometry[:, 3]
         valid &= (width > 0.0) & (height > 0.0) & ((width * height) >= float(min_area))
 
@@ -100,9 +112,7 @@ def sanitize_detections(
         if masks_arr.ndim == 0:
             raise ValueError(f"Masks must have a leading detection dimension, got {masks_arr.shape}")
         if len(masks_arr) != len(arr):
-            raise ValueError(
-                f"Masks must be aligned with detections: masks={len(masks_arr)} dets={len(arr)}"
-            )
+            raise ValueError(f"Masks must be aligned with detections: masks={len(masks_arr)} dets={len(arr)}")
         filtered_masks = masks_arr[valid]
     return arr[valid], filtered_masks, valid
 
@@ -122,7 +132,7 @@ def prepare_detections(result: Detections) -> np.ndarray:
     """
     dets = result.dets
     if dets is None:
-        return np.empty((0, 6), dtype=np.float32)
+        return result.schema.empty_detections()
     image_shape = getattr(getattr(result, "orig_img", None), "shape", None)
     sanitized, _, _ = sanitize_detections(dets, image_shape=image_shape)
     return sanitized

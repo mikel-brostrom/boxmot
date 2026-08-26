@@ -51,8 +51,10 @@ class BaseVisualization(ABC):
     @staticmethod
     def _obb_to_polygon(box: tuple) -> np.ndarray:
         arr = np.asarray(box, dtype=np.float32).reshape(-1)
-        if arr.size >= 8:
-            return arr[:8].reshape(4, 2)
+        if arr.size == 8:
+            return arr.reshape(4, 2)
+        if arr.size != 5:
+            raise ValueError(f"OBB visualization expects 5-value xywha or 8 corners, got {arr.size} values.")
         angle = arr[4] * 180.0 / np.pi
         box_poly = ((arr[0], arr[1]), (arr[2], arr[3]), angle)
         return cv.boxPoints(box_poly).astype(np.float32)

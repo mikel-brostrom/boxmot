@@ -8,6 +8,7 @@ from typing import Any, Callable, Iterator
 import cv2
 import numpy as np
 
+from boxmot.box_schema import schema_from_detection_columns, schema_from_mot_columns
 from boxmot.data import iter_source
 from boxmot.engine.tracking.detections import (
     as_2d_array,
@@ -85,6 +86,13 @@ class FrameResult:
 
         # Reorder detections and embeddings to align with tracks via det_ind
         raw_dets = None if detections is None else self._as_2d_array(detections)
+        if raw_dets is not None:
+            detection_schema = schema_from_detection_columns(raw_dets.shape[1])
+            if detection_schema != self.tracks.schema:
+                raise ValueError(
+                    f"Detection schema {detection_schema.box_type.value} does not match "
+                    f"tracker schema {self.tracks.schema.box_type.value}."
+                )
         self.detections, self.embeddings = self._align_to_tracks(raw_dets, embeddings)
         self.masks = self._resolve_masks(masks)
 
@@ -93,14 +101,16 @@ class FrameResult:
         return as_2d_array(values)
 
     def _align_to_tracks(
-        self, dets: np.ndarray | None, embs: np.ndarray | None,
+        self,
+        dets: np.ndarray | None,
+        embs: np.ndarray | None,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Reorder detections and embeddings so they align 1-to-1 with tracks.
 
         Coasting tracks (det_ind == -1) get zero-filled rows.
         """
         if self.tracks.size == 0:
-            det_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else 6
+            det_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else self.tracks.schema.detection_cols
             empty_dets = np.empty((0, det_cols), dtype=np.float32) if dets is not None else None
             return empty_dets, None
 
@@ -221,8 +231,6 @@ class FrameResult:
 
     def to_mot(self) -> np.ndarray:
         """Convert tracks to MOT challenge format array."""
-        if self.tracks.size == 0:
-            return np.empty((0, 0), dtype=np.float32)
         if self.tracks.is_obb:
             return convert_to_mmot_obb_format(self.tracks, self.frame_idx)
         return convert_to_mot_format(self.tracks, self.frame_idx)
@@ -287,12 +295,11 @@ class FrameResult:
             rows = rows.reshape(1, -1)
 
         buffer = io.StringIO()
-        if rows.shape[1] == 9:
-            np.savetxt(buffer, rows, fmt=MOT_ROW_FORMAT)
-        elif rows.shape[1] == 13:
-            np.savetxt(buffer, rows, fmt=MMOT_ROW_FORMAT)
-        else:
-            raise ValueError(f"Unexpected MOT result shape {rows.shape}")
+        try:
+            schema = schema_from_mot_columns(rows.shape[1])
+        except ValueError as exc:
+            raise ValueError(f"Unexpected MOT result shape {rows.shape}") from exc
+        np.savetxt(buffer, rows, fmt=MMOT_ROW_FORMAT if schema.is_obb else MOT_ROW_FORMAT)
         return buffer.getvalue()
 
     def __repr__(self) -> str:
@@ -363,9 +370,10 @@ class Results:
     def _as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
         return as_2d_array(values, empty_cols=empty_cols)
 
-    @staticmethod
-    def _extract_detections(output: Any) -> np.ndarray:
-        return extract_detection_array(output)
+    def _extract_detections(self, output: Any) -> np.ndarray:
+        backend = getattr(self.detector, "backend", None)
+        is_obb = bool(getattr(self.detector, "is_obb", getattr(backend, "is_obb", False)))
+        return extract_detection_array(output, fallback_is_obb=is_obb)
 
     @staticmethod
     def _extract_masks(output: Any) -> np.ndarray | None:
@@ -645,11 +653,13 @@ class Results:
         }
         for key in (*SETUP_TIMING_COMPONENTS, "total"):
             lines.append(f"{startup_labels[key]:<20} {startup_timings[key]:>12.1f}")
-        lines.extend([
-            "-" * width,
-            f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
-            "-" * width,
-        ])
+        lines.extend(
+            [
+                "-" * width,
+                f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
+                "-" * width,
+            ]
+        )
         for entry in build_timing_display_rows(
             breakdown,
             frames,
@@ -666,9 +676,7 @@ class Results:
             total = float(entry["total"])
             avg = float(entry["avg"])
             fps = float(entry["fps"])
-            lines.append(
-                f"{label:<20} {total:>12.1f} {avg:>12.2f} {fps:>10.1f}"
-            )
+            lines.append(f"{label:<20} {total:>12.1f} {avg:>12.2f} {fps:>10.1f}")
         lines.append("=" * width)
         return "\n".join(lines)
 

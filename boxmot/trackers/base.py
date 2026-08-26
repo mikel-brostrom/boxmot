@@ -98,9 +98,7 @@ class BaseTracker(
             self._initialize_class_track_states()
 
         if self.max_age >= self.max_obs:
-            LOGGER.info(
-                "max_age >= max_obs; increasing max_obs to preserve the full track lifetime"
-            )
+            LOGGER.info("max_age >= max_obs; increasing max_obs to preserve the full track lifetime")
             self.max_obs = self.max_age + 5
 
         self._plot_frame_idx = -1
@@ -158,7 +156,7 @@ class BaseTracker(
             raw, output_masks = result
         else:
             raw, output_masks = result, None
-        return TrackResults(raw, masks=output_masks)
+        return TrackResults(raw, masks=output_masks, schema=self.detection_layout.schema)
 
     def _prepare_update_inputs(
         self,
@@ -193,15 +191,29 @@ class BaseTracker(
         if isinstance(dets, memoryview):
             dets = np.array(dets, dtype=np.float32)
 
-        if not self._first_dets_processed and dets is not None:
-            layout = infer_detection_layout(dets)
-            if layout is not None:
-                if layout.is_obb and not self.supports_obb:
+        if isinstance(dets, np.ndarray) and dets.ndim == 1 and dets.size:
+            dets = dets.reshape(1, -1)
+
+        inferred_layout = infer_detection_layout(dets)
+        if isinstance(dets, np.ndarray) and dets.ndim == 2 and len(dets) == 0 and inferred_layout is None:
+            raise ValueError(
+                f"Empty detections must preserve a canonical 6-column AABB or 7-column OBB schema, got {dets.shape}."
+            )
+
+        if self._first_dets_processed and inferred_layout is not None:
+            if inferred_layout.is_obb != self.detection_layout.is_obb:
+                raise ValueError(
+                    "Detection modality cannot change after tracker initialization: "
+                    f"expected {self.detection_layout.name}, got {inferred_layout.name}."
+                )
+        elif not self._first_dets_processed and dets is not None:
+            if inferred_layout is not None:
+                if inferred_layout.is_obb and not self.supports_obb:
                     raise AssertionError(
                         f"{self.__class__.__name__} does not support OBB detections. "
                         "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
                     )
-                self._set_detection_mode(layout.is_obb)
+                self._set_detection_mode(inferred_layout.is_obb)
                 self._first_dets_processed = True
 
         if not self._first_frame_processed and img is not None:
@@ -301,24 +313,25 @@ class BaseTracker(
         return self.make_detection_batch(dets, embs=embs, masks=masks).as_records()
 
     def check_inputs(self, dets, img, embs=None):
-        assert isinstance(dets, np.ndarray), (
-            f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        )
-        assert isinstance(img, np.ndarray), (
-            f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
-        )
-        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        if not isinstance(dets, np.ndarray):
+            raise TypeError(f"Unsupported detections type {type(dets).__name__}; expected numpy.ndarray.")
+        if not isinstance(img, np.ndarray):
+            raise TypeError(f"Unsupported image type {type(img).__name__}; expected numpy.ndarray.")
+        if dets.ndim != 2:
+            raise ValueError(f"Detections must be a 2D array, got shape {dets.shape}.")
 
         if embs is not None:
-            assert dets.shape[0] == embs.shape[0], "Mismatch between detections and embeddings sizes"
+            if dets.shape[0] != embs.shape[0]:
+                raise ValueError("Detections and embeddings must have the same number of rows.")
 
-        assert dets.shape[1] in (
+        if dets.shape[1] not in (
             self.detection_layout.det_cols,
             self.detection_layout.det_cols + 1,
-        ), (
-            "Unsupported internal detection column count; expected raw detections "
-            "or raw detections with a trailing frame-level det_ind"
-        )
+        ):
+            raise ValueError(
+                "Unsupported internal detection column count; expected raw detections "
+                "or raw detections with a trailing frame-level det_ind."
+            )
 
     def configure_class_catalog(
         self,

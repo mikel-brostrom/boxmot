@@ -10,7 +10,10 @@ import cv2
 import numpy as np
 import torch
 
-OBB_COLUMN_COUNTS = frozenset((5, 7, 9))
+from boxmot.box_schema import AABB_SCHEMA, OBB_SCHEMA
+
+AABB_COLUMN_COUNTS = frozenset((AABB_SCHEMA.geometry_cols, AABB_SCHEMA.detection_cols, AABB_SCHEMA.track_cols))
+OBB_COLUMN_COUNTS = frozenset((OBB_SCHEMA.geometry_cols, OBB_SCHEMA.detection_cols, OBB_SCHEMA.track_cols))
 OBB_SQUARE_RTOL = 1e-3
 
 
@@ -27,14 +30,25 @@ def resolve_image(image: np.ndarray | str | Path) -> np.ndarray:
 
 
 def coerce_boxes(boxes: Any) -> np.ndarray:
-    """Return boxes as a two-dimensional float32 array."""
+    """Return supported AABB/OBB rows as canonical 4/5-column geometry."""
     array = np.asarray(boxes, dtype=np.float32)
-    if array.size == 0:
-        columns = array.shape[1] if array.ndim == 2 else 4
-        return np.empty((0, columns), dtype=np.float32)
     if array.ndim == 1:
+        if array.size == 0:
+            return np.empty((0, AABB_SCHEMA.geometry_cols), dtype=np.float32)
         array = array.reshape(1, -1)
-    return array.astype(np.float32, copy=False)
+    if array.ndim != 2:
+        raise ValueError(f"ReID boxes must be a 2D array, got shape {array.shape}")
+
+    columns = array.shape[1]
+    if columns in AABB_COLUMN_COUNTS:
+        geometry_cols = AABB_SCHEMA.geometry_cols
+    elif columns in OBB_COLUMN_COUNTS:
+        geometry_cols = OBB_SCHEMA.geometry_cols
+    else:
+        raise ValueError(
+            f"ReID expects AABB rows with 4/6/8 columns or OBB rows with 5/7/9 columns, got shape {array.shape}"
+        )
+    return np.ascontiguousarray(array[:, :geometry_cols], dtype=np.float32)
 
 
 def coerce_crops(crops: Any) -> list[np.ndarray]:
@@ -140,16 +154,12 @@ def is_obb_box(box: np.ndarray) -> bool:
 
 def boxes_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     """Normalize AABB/OBB detections to enclosing `[x1, y1, x2, y2]`."""
-    array = np.asarray(boxes, dtype=np.float32)
+    array = coerce_boxes(boxes)
     if array.size == 0:
-        return array.reshape(0, 4)
-    if array.ndim == 1:
-        array = array.reshape(1, -1)
-    if array.shape[1] in OBB_COLUMN_COUNTS:
+        return np.empty((0, AABB_SCHEMA.geometry_cols), dtype=np.float32)
+    if array.shape[1] == OBB_SCHEMA.geometry_cols:
         return np.vstack([obb_to_xyxy(box[:5]) for box in array]).astype(np.float32)
-    if array.shape[1] < 4:
-        raise ValueError("Expected detections with at least 4 coordinates")
-    return array[:, :4].astype(np.float32, copy=False)
+    return array
 
 
 def extract_crops(
@@ -160,7 +170,7 @@ def extract_crops(
     """Extract native AABB or rectified OBB crops from an image."""
     image_height, image_width = image.shape[:2]
     coerced = coerce_boxes(boxes)
-    oriented = is_obb_box(coerced[0]) if len(coerced) else False
+    oriented = coerced.shape[1] == OBB_SCHEMA.geometry_cols
     crops: list[np.ndarray] = []
     for box in coerced:
         if oriented:
@@ -229,6 +239,7 @@ def build_crop_batch(
 
 
 __all__ = (
+    "AABB_COLUMN_COUNTS",
     "boxes_to_xyxy",
     "build_crop_batch",
     "canonicalize_obb_for_crop",

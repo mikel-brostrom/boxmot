@@ -72,6 +72,7 @@ from typing import Dict, Generator, List, Optional, Union
 import cv2
 import numpy as np
 
+from boxmot.box_schema import AABB_SCHEMA, BoxSchema, schema_from_cache_columns
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
@@ -83,7 +84,8 @@ def _sequence_img_dir(seq_dir: Path) -> Path:
 
 def _list_sequence_frames(img_dir: Path) -> list[Path]:
     return sorted(
-        p for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.npy"))
+        p
+        for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.npy"))
         if not p.name.startswith("._")
     )
 
@@ -159,6 +161,7 @@ class MOTDataset:
 
         if det_emb_root and model_name:
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
             preprocess_name = reid_preprocess or DEFAULT_PREPROCESS
             base = Path(det_emb_root) / model_name
             self.dets_dir = base / "dets"
@@ -195,6 +198,7 @@ class MOTDataset:
             # Apply sequence pattern filter (e.g. "*-FRCNN")
             if self.seq_pattern:
                 from fnmatch import fnmatch
+
                 if not fnmatch(name, self.seq_pattern):
                     continue
             img_dir = _sequence_img_dir(seq_dir)
@@ -291,6 +295,7 @@ class MOTSequence:
         self.skip_image_load = skip_image_load
         self._frame_cache = None
         self.dets: Optional[np.ndarray] = None
+        self.det_schema: BoxSchema = AABB_SCHEMA
         self.embs: Optional[np.ndarray] = None
         self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
@@ -303,6 +308,9 @@ class MOTSequence:
         if self.meta["det_path"]:
             det_path = Path(self.meta["det_path"])
             self.dets = np.load(det_path, mmap_mode="r")
+            if self.dets.ndim != 2:
+                raise ValueError(f"Detection cache for {self.name} must be 2D, got {self.dets.shape}.")
+            self.det_schema = schema_from_cache_columns(self.dets.shape[1])
 
             if self.meta["emb_path"]:
                 emb_path = Path(self.meta["emb_path"])
@@ -435,7 +443,7 @@ class MOTSequence:
                     else:
                         masks_f = None
             else:
-                dets_f = np.zeros((0, 5))
+                dets_f = self.det_schema.empty_detections()
                 embs_f = np.zeros((0, 128))
                 masks_f = None
 
