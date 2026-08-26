@@ -123,7 +123,7 @@ jobs:
       - name: Install boxmot with native extension
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
       - name: Verify native libraries are present
         shell: bash
         run: |
@@ -140,6 +140,11 @@ jobs:
               backend.ensure_built()
               print(f"  {name}: built OK")
           PY
+      - name: Run native unit tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          .venv/bin/python -m pytest -q tests/unit/native
       - name: Run cpp tracking method
         shell: bash
         run: |
@@ -619,15 +624,20 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          # CI-only integration tests run in their dedicated jobs. Local
-          # dataset-preparation tool tests are opt-in and excluded from CI.
+          # CI-only integration and native tests run in their dedicated jobs.
+          # Local dataset-preparation and launcher tests are opt-in.
           # Use the prepared CPU-only environment without an implicit uv sync.
           .venv/bin/python -m pytest \
             --cov="$PACKAGE_DIR" \
             --cov-report=html \
             -v -s \
             --ignore=tests/ci \
+            --ignore=tests/unit/native \
             --ignore=tests/unit/tools \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_contract \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_validate_only_cannot_train \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_rejects_incomplete_market1501 \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_rejects_empty_metadata \
             tests
           .venv/bin/python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
       - name: Upload coverage report
