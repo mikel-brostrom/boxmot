@@ -2606,7 +2606,7 @@ def test_build_validation_cli_renderable_keeps_multiclass_obb_sections():
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="mmot-obb-mini-train-yolo11l-lmbn",
+            experiment="mmot-obb-mini-train-yolo11l-lmbn",
         ),
     )
     rendered = ui_module.capture_renderable(renderable, width=140)
@@ -2644,7 +2644,7 @@ def test_build_validation_cli_renderable_compacts_multiclass_without_sequences()
             translated_benchmark_class_names=None,
             eval_box_type="obb",
             classes=None,
-            benchmark="mmot-obb-mini-train-yolo11l-lmbn",
+            experiment="mmot-obb-mini-train-yolo11l-lmbn",
         ),
     )
     rendered = ui_module.capture_renderable(renderable, width=140)
