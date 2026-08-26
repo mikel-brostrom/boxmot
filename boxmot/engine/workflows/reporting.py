@@ -91,6 +91,7 @@ def _build_sequence_table(
     show_header: bool = True,
     name_header: str = "Sequence",
     compare_rows: Sequence[dict[str, Any] | None] | None = None,
+    compare_label: str | None = None,
 ) -> Table:
     table = Table(
         expand=True,
@@ -119,7 +120,7 @@ def _build_sequence_table(
                 _format_metric_delta(column, metrics.get(column, 0), compare_metrics.get(column))
                 for column in SUMMARY_COLUMNS
             ]
-            table.add_row(Text("", style=STYLE_MUTED), *delta_values)
+            table.add_row(Text(compare_label or "", style=STYLE_MUTED), *delta_values)
 
     return table
 
@@ -194,6 +195,7 @@ def build_validation_cli_renderable(
     include_timings: bool = False,
     compare_raw: dict[str, Any] | None = None,
     compare_args: Any = None,
+    compare_label: str | None = None,
 ) -> RenderableType:
     results_module = import_module("boxmot.engine.eval.results")
     cfg = results_module._load_report_cfg_from_args(args)
@@ -221,8 +223,9 @@ def build_validation_cli_renderable(
             Group(
                 Text("Per-Class Combined Metrics", style=STYLE_TEXT_STRONG),
                 _build_sequence_table(
-                        [(results_module._display_summary_name(name), parsed_results[name]) for name in primary_keys],
-                        compare_rows=[compare_results.get(name) for name in primary_keys],
+                    [(results_module._display_summary_name(name), parsed_results[name]) for name in primary_keys],
+                    compare_rows=[compare_results.get(name) for name in primary_keys],
+                    compare_label=compare_label,
                     name_header="Class",
                 ),
             )
@@ -235,6 +238,7 @@ def build_validation_cli_renderable(
                     _build_sequence_table(
                         [(results_module._display_summary_name(name), parsed_results[name]) for name in aggregate_keys],
                         compare_rows=[compare_results.get(name) for name in aggregate_keys],
+                        compare_label=compare_label,
                         name_header="Group",
                     ),
                 )
@@ -282,13 +286,20 @@ def build_validation_cli_renderable(
             ]
         )
         if per_sequence:
-            block.append(_build_sequence_table(per_sequence, compare_rows=per_sequence_compares))
+            block.append(
+                _build_sequence_table(
+                    per_sequence,
+                    compare_rows=per_sequence_compares,
+                    compare_label=compare_label,
+                )
+            )
             block.append(Rule(style=STYLE_RULE))
             block.append(
                 _build_sequence_table(
                     [combined_row],
                     show_header=False,
                     compare_rows=[compare_metrics if isinstance(compare_metrics, dict) and compare_metrics else None],
+                    compare_label=compare_label,
                 )
             )
         else:
@@ -296,6 +307,7 @@ def build_validation_cli_renderable(
                 _build_sequence_table(
                     [combined_row],
                     compare_rows=[compare_metrics if isinstance(compare_metrics, dict) and compare_metrics else None],
+                    compare_label=compare_label,
                 )
             )
         sections.append(Group(*block))
@@ -381,6 +393,7 @@ def render_validation_cli_report(
     include_timings: bool = False,
     compare_raw: dict[str, Any] | None = None,
     compare_args: Any = None,
+    compare_label: str | None = None,
     colorize: bool | None = None,
     sys_module=sys,
     environ: dict[str, str] | None = None,
@@ -409,6 +422,7 @@ def render_validation_cli_report(
             title=title,
             include_sequences=include_sequences,
             compare_results=compare_results,
+            compare_label=compare_label,
             colorize=bool(colorize),
         )
     ]
@@ -431,6 +445,9 @@ def print_validation_cli_report(
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
     include_timings: bool = False,
+    compare_raw: dict[str, Any] | None = None,
+    compare_args: Any = None,
+    compare_label: str | None = None,
     print_fn=print,
     sys_module=sys,
     environ: dict[str, str] | None = None,
@@ -442,6 +459,9 @@ def print_validation_cli_report(
         title=title,
         include_sequences=include_sequences,
         include_timings=include_timings,
+        compare_raw=compare_raw,
+        compare_args=compare_args,
+        compare_label=compare_label,
         sys_module=sys_module,
         environ=environ,
     )

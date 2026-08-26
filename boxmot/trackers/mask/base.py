@@ -13,17 +13,17 @@ from boxmot.trackers.base import BaseTracker
 class MaskBaseTracker(BaseTracker):
     """Base class for trackers that use segmentation masks as primary input.
 
-    Subclasses must implement ``_update_impl`` and should return a tuple
+    Subclasses must implement ``_track_detections`` and should return a tuple
     of (tracks_array, output_masks) where output_masks has shape (M, H, W).
     """
 
     supports_masks = True
 
-    def _preprocess_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
+    def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
         """Override to require masks for mask-native trackers."""
         if masks is None:
             raise ValueError(
                 f"{self.__class__.__name__} requires segmentation masks. "
                 "Pass masks=<ndarray of shape (N, H, W)> to update()."
             )
-        return super()._preprocess_masks(dets, masks)
+        return super()._prepare_update_masks(dets, masks)

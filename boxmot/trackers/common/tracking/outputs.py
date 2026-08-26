@@ -21,7 +21,7 @@ def format_output_row(
     dtype=np.float32,
 ) -> np.ndarray:
     """Format one track row using the public tracker output contract."""
-    box = np.asarray(box, dtype=dtype).reshape(-1)[: layout.box_cols]
+    box = np.asarray(box, dtype=dtype).reshape(-1)
     if box.shape[0] != layout.box_cols:
         raise ValueError(f"Expected {layout.box_cols} output box values, got {box.shape[0]}")
     if layout.is_obb:
@@ -36,4 +36,13 @@ def format_output_rows(
     dtype=np.float32,
 ) -> np.ndarray:
     """Return formatted rows with the correct empty shape when no rows exist."""
-    return np.asarray(rows, dtype=dtype) if len(rows) else empty_output(layout, dtype=dtype)
+    if isinstance(rows, (list, tuple)) and not rows:
+        return empty_output(layout, dtype=dtype)
+    output = np.asarray(rows, dtype=dtype)
+    if output.ndim != 2 or output.shape[1] != layout.output_cols:
+        raise ValueError(
+            f"{layout.name} tracker outputs must have shape (N, {layout.output_cols}), got {output.shape}."
+        )
+    if not np.isfinite(output).all():
+        raise ValueError("Tracker outputs must contain only finite values.")
+    return output

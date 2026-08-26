@@ -1,5 +1,9 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from __future__ import annotations
+
+import torch
+import torch.nn.functional as F
 from torch import nn
 
 
@@ -60,6 +64,8 @@ class BNNeck3(nn.Module):
 
         self.reduction = nn.Conv2d(input_dim, feat_dim, 1, bias=False)
         self.bn = nn.BatchNorm1d(feat_dim)
+        self.register_buffer("_inference_weight", None, persistent=False)
+        self.register_buffer("_inference_bias", None, persistent=False)
 
         self.bn.bias.requires_grad_(False)
         self.classifier = nn.Linear(feat_dim, class_num, bias=False)
@@ -71,18 +77,81 @@ class BNNeck3(nn.Module):
         self.classifier.apply(self.weights_init_classifier)
         self.bn.bias.requires_grad_(False)
 
-    def forward(self, x):
-        x = self.reduction(x)
-        # before_neck = x.squeeze(dim=3).squeeze(dim=2)
-        # after_neck = self.bn(x).squeeze(dim=3).squeeze(dim=2)
-        before_neck = x.view(x.size(0), x.size(1))
+    def project(self, x):
+        """Project a pooled map into the pre-BN branch descriptor."""
+        projected = self.reduction(x)
+        return projected.view(projected.size(0), projected.size(1))
+
+    def forward_projected(self, before_neck):
+        """Apply the existing BNNeck/classifier to a projected descriptor."""
         after_neck = self.bn(before_neck)
         if self.return_f:
             score = self.classifier(after_neck) if self.training else None
             return after_neck, score, before_neck
-        else:
-            x = self.classifier(x)
-            return x
+        return self.classifier(after_neck)
+
+    def prepare_for_inference(self) -> None:
+        """Cache the projection and BN as one affine 1x1 convolution."""
+        if self.training:
+            raise RuntimeError("BNNeck3 folding requires eval mode")
+        if self._inference_weight is None:
+            fused = nn.utils.fusion.fuse_conv_bn_eval(self.reduction, self.bn)
+            self._inference_weight = fused.weight.detach()
+            self._inference_bias = fused.bias.detach()
+
+    def _invalidate_inference_cache(self) -> None:
+        """Discard affine tensors derived from reduction and BN state."""
+        self._inference_weight = None
+        self._inference_bias = None
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        """Invalidate deployment tensors whenever source weights are reloaded."""
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+        self._invalidate_inference_cache()
+
+    def forward_inference(self, x: torch.Tensor) -> torch.Tensor:
+        """Return the post-BN descriptor through the folded deployment path."""
+        if self.training:
+            raise RuntimeError("BNNeck3.forward_inference requires eval mode")
+        if self._inference_weight is None:
+            self.prepare_for_inference()
+        projected = F.conv2d(
+            x,
+            self._inference_weight,
+            self._inference_bias,
+            stride=self.reduction.stride,
+            padding=self.reduction.padding,
+            dilation=self.reduction.dilation,
+            groups=self.reduction.groups,
+        )
+        return projected.view(projected.size(0), projected.size(1))
+
+    def train(self, mode: bool = True) -> BNNeck3:
+        """Discard a deployment cache before any subsequent training."""
+        super().train(mode)
+        if mode:
+            self._invalidate_inference_cache()
+        return self
+
+    def forward(self, x):
+        return self.forward_projected(self.project(x))
 
     def weights_init_kaiming(self, m):
         classname = m.__class__.__name__

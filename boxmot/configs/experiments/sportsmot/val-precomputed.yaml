@@ -1,0 +1,13 @@
+id: sportsmot-val-precomputed
+
+dataset:
+  ref: sportsmot
+  split: val
+
+detections:
+  source: precomputed
+  artifact: val
+
+evaluation:
+  class_map:
+    player: person

@@ -1,0 +1,17 @@
+tracker: botsort
+track_high_thresh: 0.6296854875023994
+track_low_thresh: 0.1014392537025336
+new_track_thresh: 0.6246494191492591
+track_buffer: 40
+match_thresh: 0.7722224024589055
+use_cmc: true
+cmc_method: ecc
+frame_rate: 30
+fuse_first_associate: true
+with_reid: true
+proximity_thresh: 0.6084297894561342
+appearance_thresh: 0.6188818853936099
+unconfirmed_emb_scale: 2.5445206391993294
+second_match_thresh: 0.28795081514328974
+unconfirmed_match_thresh: 0.41148010638233784
+removed_stracks_buffer: 329

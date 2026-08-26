@@ -1,6 +1,6 @@
 # Evaluate ReID
 
-Use `eval-reid` to score a trained ReID checkpoint on a dataset's query/gallery split.
+Use `eval-reid` to score one trained ReID checkpoint on one dataset's query/gallery split.
 
 ## Examples
 
@@ -43,8 +43,15 @@ The command reports and saves:
 - `rank1`
 - `rank5`
 - `rank10`
+- measured inference latency, including milliseconds per batch and per image
 
-By default the JSON summary is written next to the checkpoint as `eval_<dataset>.json`. Use `--output` to place it elsewhere.
+Latency measurement uses five warmup passes and 30 timed passes by default. Set
+`--latency-iters 0` to disable it.
+
+By default the JSON summary is written next to the checkpoint as
+`eval_<dataset>_<inference-feature>.json` when an inference feature is active,
+or as `eval_<dataset>.json` otherwise. With `--output`, the filename is
+`eval_<model>_<dataset>[_<inference-feature>].json`.
 
 ## Dataset expectations
 
@@ -57,6 +64,7 @@ By default the JSON summary is written next to the checkpoint as `eval_<dataset>
 ## Related pages
 
 - [Train ReID](train.md)
+- [Compare ReID](compare-reid.md)
 - [Export](export.md)
 - [ReID Profiles](../config/reid.md)
 
@@ -66,6 +74,6 @@ By default the JSON summary is written next to the checkpoint as `eval_<dataset>
     :module: boxmot.engine.cli
     :command: boxmot
     :depth: 1
-  :command: eval_reid
+    :command: eval_reid
     :style: table
     :prog_name: boxmot eval-reid

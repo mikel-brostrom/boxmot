@@ -15,6 +15,7 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kHalfPi = kPi / 2.0;
+constexpr double kAngularVelocityDamping = 0.8;
 
 }  // namespace
 
@@ -245,7 +246,7 @@ void KalmanFilterXYSR::Update(const Vector& measurement) {
     x = x + (kalman_gain * innovation);
     P = P - (kalman_gain * innovation_covariance * kalman_gain.transpose());
     if (is_obb_ && dim_x_ >= 9) {
-        x[8] *= 0.8;
+        x[8] *= kAngularVelocityDamping;
     }
     EnforceStateConstraints();
     AppendHistory(aligned);

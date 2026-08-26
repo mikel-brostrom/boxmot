@@ -8,10 +8,10 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
 
     === "CLI"
 
-        Benchmark-driven cache generation:
+        Experiment-driven cache generation:
 
         ```bash
-        boxmot generate --benchmark mot17 --split ablation
+        boxmot generate --experiment mot17-ablation-yolox-lmbn
         ```
 
         Direct-source cache generation:
@@ -28,8 +28,8 @@ Use `generate` to precompute detections and embeddings that can be reused by lat
         ```python
         from boxmot import BoxMOT
 
-        benchmark_cache = BoxMOT().generate(benchmark="mot17", split="ablation")
-        print(benchmark_cache.cache_dir)
+        experiment_cache = BoxMOT().generate(experiment="mot17-ablation-yolox-lmbn")
+        print(experiment_cache.cache_dir)
 
         direct_cache = BoxMOT(
             detector="yolov8n",
@@ -44,27 +44,36 @@ Cache generation removes repeated detector and ReID work from later benchmark ru
 
 ## What gets written
 
-`generate` writes cached detector outputs and ReID embeddings under the configured project/name directory so later runs can reuse them.
+`generate` writes cached detector outputs and ReID embeddings below
+`<project>/dets_n_embs/<dataset>/<split>/`. Detection producers and
+ReID model/runtime identities add further subdirectories so compatible later
+runs can reuse the artifacts without mixing incompatible caches. The run
+`--name` is not part of this cache root.
 
 ## When to use it
 
-- before repeated `eval` runs on the same benchmark
+- before repeated `eval` runs on the same experiment
 - before `tune`, which evaluates many tracker parameter sets
 - before `research`, which may evaluate many candidate code variants
 
 ## Public detections
 
-Use `--detection-source` to cache public MOTChallenge detections instead of running a detector:
+Select a public-detection experiment instead of a model-backed experiment:
 
 ```bash
-boxmot generate --benchmark mot17 --split ablation --detection-source frcnn
+boxmot generate --experiment mot17-ablation-frcnn-lmbn
 ```
 
-This downloads the public detection files from the benchmark config and generates ReID embeddings for them. Later `eval` and `tune` runs with the same `--detection-source` reuse this cache.
+This resolves and downloads the public artifact declared in
+`boxmot/configs/artifacts`, then generates ReID embeddings for it. Later
+`eval` and `tune` runs with the same experiment and runtime overrides reuse the
+cache.
 
-Available sources for MOT17: `frcnn`, `sdp`, `dpm`, or `public` (uses the default defined in the benchmark YAML).
+MOT17 has source-specific FRCNN, SDP, and DPM experiment IDs. The compatibility
+option `--detection-source` accepts only `public` or `private`; use an experiment
+ID to identify the exact public producer.
 
-See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading behavior.
+See [Experiment Workflows](../guides/experiments.md) for cache reuse, MMOT experiment IDs, and replay image-loading behavior.
 
 ## CLI Arguments
 

@@ -1,0 +1,39 @@
+id: mot20
+
+format:
+  layout: mot
+  box_type: aabb
+
+storage:
+  root: boxmot/datasets/mot/MOT20
+
+default_split: ablation
+
+splits:
+  train:
+    path: train
+    has_ground_truth: true
+  test:
+    path: test
+    has_ground_truth: false
+  ablation:
+    path: ablation
+    has_ground_truth: true
+
+classes:
+  target:
+    pedestrian: 1
+  ignore:
+    person_on_vehicle: 2
+    non_mot_vehicle: 6
+    static_person: 7
+    distractor: 8
+    reflection: 12
+
+resources:
+  dataset:
+    type: per_split
+    uris:
+      train: hf://Lekim89/MOT20/train
+      test: hf://Lekim89/MOT20/test
+      ablation: hf://Lekim89/MOT20/ablation

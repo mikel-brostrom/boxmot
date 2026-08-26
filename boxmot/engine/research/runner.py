@@ -19,7 +19,7 @@ from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 
 from .benchmarks import (
     _discover_sequences,
-    _resolve_benchmark_runtime,
+    _resolve_experiment_runtime,
     _select_examples,
 )
 from .candidates import (
@@ -53,7 +53,7 @@ class TrackerResearcher:
     def __init__(self, config: ResearchConfig):
         self.config = config
         self.cache_project_dir = config.project.resolve()
-        run_name = f"{_slugify(config.tracker)}_{_slugify(config.benchmark)}"
+        run_name = f"{_slugify(config.tracker)}_{_slugify(config.experiment)}"
         self.run_dir = (config.project / "research" / run_name).resolve()
         self.boxmot_project_dir = self.run_dir / "boxmot_runs"
         self.gepa_run_dir = self.run_dir / "gepa"
@@ -61,12 +61,14 @@ class TrackerResearcher:
 
         (
             self.source_root,
-            self.benchmark_id,
+            self.experiment_id,
+            self.dataset_id,
+            self.benchmark,
             self.detector_path,
             self.reid_path,
-            self.benchmark_cfg,
-        ) = _resolve_benchmark_runtime(
-            config.benchmark,
+            self.evaluation_cfg,
+        ) = _resolve_experiment_runtime(
+            config.experiment,
             source=config.source,
             detector=config.detector,
             reid=config.reid,
@@ -200,11 +202,13 @@ class TrackerResearcher:
     def _build_eval_payload(self, source_root: Path, tag: str) -> dict[str, Any]:
         show_progress = bool(getattr(self.config, "progress_bar", True))
         return {
-            "data": None,
+            "experiment": None,
+            "dataset": None,
             "source": str(source_root),
-            "benchmark": self.benchmark_id,
-            "benchmark_id": self.benchmark_id,
-            "dataset_id": self.benchmark_id,
+            "benchmark": self.benchmark,
+            "experiment_id": self.experiment_id,
+            "dataset_id": self.dataset_id,
+            "runtime_evaluation_config": self.evaluation_cfg,
             "tracker": self.config.tracker,
             "detector": [self.detector_path],
             "reid": [self.reid_path],
@@ -478,7 +482,7 @@ class TrackerResearcher:
     def _objective(self, baseline_summary: Mapping[str, int | float]) -> str:
         baseline = ", ".join(f"{metric}={baseline_summary.get(metric, 0.0):.2f}" for metric in RESEARCH_METRICS)
         return (
-            f"Improve the BoxMOT tracker `{self.config.tracker}` on benchmark `{self.benchmark_id}` while "
+            f"Improve the BoxMOT tracker `{self.config.tracker}` on benchmark `{self.benchmark}` while "
             "preserving existing public behavior and file interfaces. Optimize the combined benchmark HOTA "
             "directly, while penalizing regressions in combined IDF1 and MOTA relative to the baseline benchmark "
             f"run. Current combined benchmark baseline: {baseline}."
@@ -530,14 +534,15 @@ class TrackerResearcher:
         workspace = self._prepare_workspace()
 
         LOGGER.info(
-            f"Starting tracker research for {self.config.tracker} on {self.benchmark_id} "
+            f"Starting tracker research for {self.config.tracker} with experiment {self.experiment_id} "
             f"with {len(self.selected_sequences)} benchmark sequence(s)"
         )
         LOGGER.info(f"Editable files: {', '.join(self.editable_files)}")
         if pipeline is not None:
             pipeline.update(
                 f"Tracker: {self.config.tracker}\n"
-                f"Benchmark: {self.benchmark_id}\n"
+                f"Experiment: {self.experiment_id}\n"
+                f"Benchmark: {self.benchmark}\n"
                 f"Sequences: {len(self.selected_sequences)}\n"
                 f"Editable files: {', '.join(self.editable_files)}"
             )
@@ -653,7 +658,9 @@ class TrackerResearcher:
             json.dumps(
                 {
                     "tracker": self.config.tracker,
-                    "benchmark": self.benchmark_id,
+                    "experiment": self.experiment_id,
+                    "dataset": self.dataset_id,
+                    "benchmark": self.benchmark,
                     "proposal_model": self.config.proposal_model,
                     "scoring": {
                         "primary_metric": "HOTA",
@@ -685,7 +692,7 @@ class TrackerResearcher:
 
         research_result = ResearchResult(
             tracker=self.config.tracker,
-            benchmark=self.benchmark_id,
+            benchmark=self.benchmark,
             proposal_model=self.config.proposal_model,
             run_dir=self.run_dir,
             best_candidate_dir=best_candidate_dir,

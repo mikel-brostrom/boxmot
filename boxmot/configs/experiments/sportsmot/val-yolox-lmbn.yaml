@@ -1,0 +1,18 @@
+id: sportsmot-val-yolox-lmbn
+
+dataset:
+  ref: sportsmot
+  split: val
+
+detections:
+  source: model
+  model:
+    ref: yolox-x-sportsmot
+    checkpoint: default
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map:
+    player: person

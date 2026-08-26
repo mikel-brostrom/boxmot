@@ -264,8 +264,13 @@ Eigen::MatrixXd CalculateObbCost(
 
             const double rhs_w = detection.xywha[2];
             const double rhs_h = detection.xywha[3];
-            const double sw = std::min(lhs_w, rhs_w) / (std::max(lhs_w, rhs_w) + 1.0e-7);
-            const double sh = std::min(lhs_h, rhs_h) / (std::max(lhs_h, rhs_h) + 1.0e-7);
+            const double direct_sw = std::min(lhs_w, rhs_w) / (std::max(lhs_w, rhs_w) + 1.0e-7);
+            const double direct_sh = std::min(lhs_h, rhs_h) / (std::max(lhs_h, rhs_h) + 1.0e-7);
+            const double swapped_sw = std::min(lhs_w, rhs_h) / (std::max(lhs_w, rhs_h) + 1.0e-7);
+            const double swapped_sh = std::min(lhs_h, rhs_w) / (std::max(lhs_h, rhs_w) + 1.0e-7);
+            const bool use_swapped = (swapped_sw + swapped_sh) > (direct_sw + direct_sh);
+            const double sw = use_swapped ? swapped_sw : direct_sw;
+            const double sh = use_swapped ? swapped_sh : direct_sh;
             cost(row, col) = CombinedCost(
                 iou,
                 lhs_cx,
@@ -407,6 +412,7 @@ SFSORTTracker::TrackData SFSORTTracker::NewTrack(const Detection& detection) con
     track.det_ind = detection.det_ind;
     if (detection.is_obb) {
         track.xywha = detection.xywha;
+        track.xywha[4] = WrapAngle(track.xywha[4]);
         track.xyxy = ObbToXyxy(track.xywha);
     } else {
         track.xyxy = detection.xyxy;
@@ -488,6 +494,10 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
 
     std::unordered_set<int> matched_lost_ids;
     std::vector<TrackData*> unmatched_track_pool;
+
+    if (definite_detections.empty()) {
+        unmatched_track_pool = track_pool;
+    }
 
     if (!definite_detections.empty()) {
         if (!track_pool.empty()) {

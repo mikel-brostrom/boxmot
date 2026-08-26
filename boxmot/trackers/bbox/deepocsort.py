@@ -94,7 +94,7 @@ class DeepOcSort(BaseTracker):
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,
@@ -267,7 +267,7 @@ class DeepOcSort(BaseTracker):
             self.active_tracks.append(trk)
         i = len(self.active_tracks)
         for trk in reversed(self.active_tracks):
-            if trk.last_observation.sum() < 0:
+            if trk.last_observation[-1] < 0:
                 d = trk.get_state()[0]
             else:
                 """

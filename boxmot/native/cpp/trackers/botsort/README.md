@@ -33,6 +33,8 @@ ReID support:
 
 - Live native tracking can run ONNX ReID inference internally when the tracker is configured with an `.onnx` ReID model such as `models/lmbn_n_duke.onnx`.
 - Native replay can fall back to ONNX ReID inference when an embedding cache is unavailable and an `.onnx` ReID model path is provided.
+- AABB crops and rectified OBB crops share the Python preprocessing contract.
+- Dynamic-batch and fixed-batch ONNX inputs are both supported.
 - Existing embedding caches are still reused when present.
 
 Detection/layout support:

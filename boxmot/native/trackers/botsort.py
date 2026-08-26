@@ -27,7 +27,9 @@ from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests v
 
 def _default_preprocess() -> str:
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
     return DEFAULT_PREPROCESS
+
 
 _BUILD_LOCK = threading.Lock()
 _LIVE_LIBRARY_LOCK = threading.Lock()
@@ -100,6 +102,9 @@ class _BotSortCConfig(ctypes.Structure):
         ("match_thresh", ctypes.c_float),
         ("proximity_thresh", ctypes.c_float),
         ("appearance_thresh", ctypes.c_float),
+        ("second_match_thresh", ctypes.c_float),
+        ("unconfirmed_match_thresh", ctypes.c_float),
+        ("unconfirmed_emb_scale", ctypes.c_float),
         ("cmc_method", ctypes.c_char_p),
         ("frame_rate", ctypes.c_int),
         ("fuse_first_associate", ctypes.c_int),
@@ -160,6 +165,9 @@ class _BotSortLiveLibrary:
             match_thresh=float(cfg["match_thresh"]),
             proximity_thresh=float(cfg["proximity_thresh"]),
             appearance_thresh=float(cfg["appearance_thresh"]),
+            second_match_thresh=float(cfg["second_match_thresh"]),
+            unconfirmed_match_thresh=float(cfg["unconfirmed_match_thresh"]),
+            unconfirmed_emb_scale=float(cfg["unconfirmed_emb_scale"]),
             cmc_method=cmc_method.encode("utf-8"),
             frame_rate=int(cfg.get("frame_rate", 30)),
             fuse_first_associate=int(bool(cfg.get("fuse_first_associate", False))),
@@ -269,9 +277,10 @@ class NativeBotSortTracker(_native_trackers.NativeTrackerMixin):
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img, embs)
+        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0]))
+        tracks = self._library.update(self._handle, det_arr, img, emb_arr)
         self._refresh_reid_timings()
-        return tracks
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_botsort_live_tracker(
@@ -303,6 +312,7 @@ def process_sequence_cpp(
     split: str | None = None,
     masks_dir: str | None = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: str | None = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
@@ -312,11 +322,24 @@ def process_sequence_cpp(
     executable = ensure_botsort_cpp_executable()
     cfg = _resolve_tracker_cfg(cfg_dict)
 
-    from boxmot.data.cache import reid_cache_key as _reid_cache_key
-    reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
-    reid_model_path = _ensure_native_reid_model_path(reid_name)
-
     det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
+    reid_key, preprocess_key, cached_emb, cached_dets = _common.resolve_embedding_cache_location(
+        project_root,
+        detector_name,
+        reid_name,
+        seq_name,
+        dataset_name=dataset_name,
+        split=split,
+        preprocess_name=preprocess_name,
+        tracker_backend="cpp",
+        embedding_cache_dir=embedding_cache_dir,
+    )
+    reid_model_path = (
+        None
+        if _common.embedding_cache_is_complete(cached_emb, cached_dets)
+        else _ensure_native_reid_model_path(reid_name)
+    )
+
     cmd = _native_trackers.build_replay_command(
         executable=executable,
         mot_root=mot_root,
@@ -332,7 +355,7 @@ def process_sequence_cpp(
             "--reid-model",
             "" if reid_model_path is None else str(reid_model_path),
             "--reid-preprocess",
-            str(preprocess_name or "resize"),
+            preprocess_key,
             "--track-high-thresh",
             str(float(cfg["track_high_thresh"])),
             "--track-low-thresh",
@@ -347,6 +370,12 @@ def process_sequence_cpp(
             str(float(cfg["proximity_thresh"])),
             "--appearance-thresh",
             str(float(cfg["appearance_thresh"])),
+            "--second-match-thresh",
+            str(float(cfg["second_match_thresh"])),
+            "--unconfirmed-match-thresh",
+            str(float(cfg["unconfirmed_match_thresh"])),
+            "--unconfirmed-emb-scale",
+            str(float(cfg["unconfirmed_emb_scale"])),
             "--cmc-method",
             str(cfg.get("cmc_method", "ecc")) if bool(cfg.get("use_cmc", True)) else "none",
             "--frame-rate",

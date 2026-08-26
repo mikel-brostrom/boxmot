@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import Any
 
 import cv2
 
-from boxmot.configs import get_mode_default
-from boxmot.engine.tracking.mot import write_mot_results
+from boxmot.engine.config import get_mode_default
+from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
 from boxmot.engine.tracking.results import Results
+from boxmot.engine.tracking.setup_timing import normalize_setup_timings_ms
 from boxmot.engine.workflows.results import TrackRunResult
 from boxmot.engine.workflows.support import (
     build_detector_from_spec,
     build_tracker_from_spec,
     build_tracker_with_reid_spec,
     reid_path_from_spec,
-    resolve_tracker_class_metadata,
     resolve_output_fps,
     resolve_track_output_dir,
+    resolve_tracker_class_metadata,
     tracker_reid_model_from_spec,
 )
 from boxmot.utils.misc import suppress_boxmot_logs
@@ -97,6 +99,7 @@ def _build_tracker(
         reid_weights=reid_weights,
         reid_model=reid_model,
         reid_preprocess=reid_preprocess,
+        per_class=bool(getattr(args, "per_class", False)),
         class_ids=class_ids,
         class_names=class_names,
         tracker_kwargs=tracker_kwargs,
@@ -135,22 +138,30 @@ def run_track(
     tracker_kwargs: dict[str, Any] | None = None,
     drawer=None,
     show_trajectories: bool = False,
+    show_kf_preds: bool = False,
     pipeline: PipelineTracker | None = None,
 ) -> TrackRunResult:
     source = getattr(args, "source", get_mode_default("track", "source"))
     verbose = bool(getattr(args, "verbose", get_mode_default("track", "verbose")))
+    setup_timings_ms = normalize_setup_timings_ms()
 
     with suppress_boxmot_logs((not verbose) or pipeline is not None, level="WARNING"):
-        detector_runtime = (
-            detector
-            if detector is not None
-            else _build_detector(args, detector_spec, classes, detector_kwargs)
-        )
+        if detector is None:
+            if pipeline is not None:
+                pipeline.update("Loading detector...")
+            started = time.perf_counter()
+            detector_runtime = _build_detector(args, detector_spec, classes, detector_kwargs)
+            setup_timings_ms["detector_load"] = (time.perf_counter() - started) * 1000.0
+        else:
+            detector_runtime = detector
+
         class_ids, class_names = resolve_tracker_class_metadata(args, detector_runtime)
-        tracker_runtime = (
-            tracker
-            if tracker is not None
-            else _build_tracker(
+
+        if tracker is None:
+            if pipeline is not None:
+                pipeline.update("Loading tracker and ReID model...")
+            started = time.perf_counter()
+            tracker_runtime = _build_tracker(
                 args,
                 tracker_spec,
                 reid_spec,
@@ -159,31 +170,33 @@ def run_track(
                 reid_kwargs=reid_kwargs,
                 tracker_kwargs=tracker_kwargs,
             )
-        )
-        if tracker is not None and hasattr(tracker_runtime, "configure_class_catalog"):
-            tracker_runtime.configure_class_catalog(class_ids=class_ids, class_names=class_names)
-        reid_runtime = (
-            reid
-            if reid is not None
-            else _build_reid(args, tracker_runtime, reid_spec, tracker_spec, reid_kwargs)
-        )
+            setup_timings_ms["tracker_reid_load"] = (time.perf_counter() - started) * 1000.0
+        else:
+            tracker_runtime = tracker
+            if hasattr(tracker_runtime, "configure_class_catalog"):
+                tracker_runtime.configure_class_catalog(class_ids=class_ids, class_names=class_names)
 
-    if show_trajectories and drawer is None:
-        drawer = lambda frame, tracks: tracker_runtime.plot_results(frame, show_trajectories=True)
+        if reid is None:
+            if pipeline is not None:
+                pipeline.update("Preparing ReID inference stage...")
+            started = time.perf_counter()
+            reid_runtime = _build_reid(args, tracker_runtime, reid_spec, tracker_spec, reid_kwargs)
+            setup_timings_ms["reid_adapter"] = (time.perf_counter() - started) * 1000.0
+        else:
+            reid_runtime = reid
+
+    show_trajectories = bool(show_trajectories or getattr(args, "show_trajectories", False))
+    show_kf_preds = bool(show_kf_preds or getattr(args, "show_kf_preds", False))
+    if (show_trajectories or show_kf_preds) and drawer is None:
+        drawer = lambda frame, tracks: tracker_runtime.plot_results(
+            frame,
+            show_trajectories=show_trajectories,
+            show_kf_preds=show_kf_preds,
+        )
 
     if pipeline is not None:
-        pipeline.advance("Starting tracker...")
-
-    run = Results(
-        source,
-        detector_runtime,
-        reid_runtime,
-        tracker_runtime,
-        verbose=verbose and pipeline is None,
-        drawer=drawer,
-        progress_callback=pipeline.callback() if pipeline is not None else None,
-    )
-
+        pipeline.update("Preparing tracking outputs...")
+    output_started = time.perf_counter()
     output_dir = resolve_track_output_dir(Path(getattr(args, "project", "runs")), source)
     text_path = output_dir / "tracks.txt" if bool(getattr(args, "save_txt", False)) else None
     video_path = output_dir / "tracks.mp4" if bool(getattr(args, "save", False)) else None
@@ -197,11 +210,37 @@ def run_track(
             if text_path.exists():
                 text_path.unlink()
         video_writer = None
-        video_fps = resolve_output_fps(source) if video_path is not None else 30.0
         if video_path is not None:
+            requested_fps = getattr(args, "fps", None)
+            video_fps = (
+                float(requested_fps)
+                if requested_fps is not None
+                else resolve_output_fps(source)
+            )
             video_path.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            video_fps = 30.0
+
+    setup_timings_ms["output_prepare"] = (time.perf_counter() - output_started) * 1000.0
+
+    if pipeline is not None:
+        pipeline.advance("Opening source and waiting for the first frame...")
+
+    run = Results(
+        source,
+        detector_runtime,
+        reid_runtime,
+        tracker_runtime,
+        verbose=verbose and pipeline is None,
+        drawer=drawer,
+        progress_callback=pipeline.callback() if pipeline is not None else None,
+    )
+    run.setup_timings_ms = normalize_setup_timings_ms(setup_timings_ms)
+
+    if needs_iteration:
         try:
             for frame_result in run:
+                rendered = None
                 if text_path is not None:
                     write_mot_results(text_path, frame_result.to_mot())
                 if video_path is not None:
@@ -216,7 +255,12 @@ def run_track(
                         )
                     video_writer.write(rendered)
                 if show:
-                    if not frame_result.show():
+                    should_continue = (
+                        frame_result.show()
+                        if rendered is None
+                        else frame_result.show(rendered=rendered)
+                    )
+                    if not should_continue:
                         break
         finally:
             # Flush Online GTA interpolated entries to MOT results file
@@ -225,7 +269,7 @@ def run_track(
                 if _trk is not None and hasattr(_trk, "flush_gta"):
                     gta_entries = _trk.flush_gta()
                     if gta_entries.size:
-                        write_mot_results(text_path, gta_entries)
+                        write_mot_results(text_path, format_frame_tagged_tracks_for_mot(gta_entries))
             if video_writer is not None:
                 video_writer.release()
             if show:
@@ -245,7 +289,10 @@ def run_track(
         if int(result.summary.get("frames", 0)) > 0:
             pipeline.set_detail_renderable("Summary", result.renderable())
         else:
-            pipeline.update("No frames processed.")
+            pipeline.set_detail_renderable(
+                "No frames processed.",
+                result.renderable(),
+            )
     return result
 
 

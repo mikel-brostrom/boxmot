@@ -29,7 +29,7 @@ class BaseTracker(
     """Shared public tracker contract.
 
     ``update`` owns input normalization and output wrapping. Concrete trackers
-    implement ``_update_impl`` with their algorithm-specific association and
+    implement ``_track_detections`` with their algorithm-specific association and
     lifecycle logic.
     """
 
@@ -98,7 +98,7 @@ class BaseTracker(
             self._initialize_class_track_states()
 
         if self.max_age >= self.max_obs:
-            LOGGER.warning("Max age > max observations, increasing size of max observations...")
+            LOGGER.info("max_age >= max_obs; increasing max_obs to preserve the full track lifetime")
             self.max_obs = self.max_age + 5
 
         self._plot_frame_idx = -1
@@ -137,6 +137,38 @@ class BaseTracker(
         embeddings: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with one frame of detections."""
+        dets, img, embs, masks = self._prepare_update_inputs(
+            dets=dets,
+            img=img,
+            embs=embs,
+            masks=masks,
+            image=image,
+            embeddings=embeddings,
+        )
+        self._validate_update_inputs(dets, masks)
+
+        if self.per_class:
+            result = self._track_per_class(dets=dets, img=img, embs=embs, masks=masks)
+        else:
+            result = self._track_detections(dets=dets, img=img, embs=embs, masks=masks)
+
+        if isinstance(result, tuple):
+            raw, output_masks = result
+        else:
+            raw, output_masks = result, None
+        return TrackResults(raw, masks=output_masks, schema=self.detection_layout.schema)
+
+    def _prepare_update_inputs(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray = None,
+        embs: np.ndarray = None,
+        masks: np.ndarray = None,
+        *,
+        image: np.ndarray = None,
+        embeddings: np.ndarray = None,
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+        """Normalize aliases, unwrap detections, and initialize frame context."""
         if image is not None:
             if img is not None:
                 raise ValueError("Use only one of img=... or image=...")
@@ -153,32 +185,35 @@ class BaseTracker(
                 masks = getattr(dets, "masks", None)
             dets = dets.dets
 
-        dets, img = self._preprocess(dets, img)
-        masks = self._preprocess_masks(dets, masks)
-        result = self._do_update(dets, img, embs, masks)
-        if isinstance(result, tuple):
-            raw, output_masks = result
-        else:
-            raw, output_masks = result, None
-        return TrackResults(raw, masks=output_masks)
-
-    def _preprocess(self, dets: np.ndarray, img: np.ndarray):
-        """Unwrap inputs, infer detection layout, and initialize frame context."""
         if hasattr(dets, "data"):
             dets = dets.data
 
         if isinstance(dets, memoryview):
             dets = np.array(dets, dtype=np.float32)
 
-        if not self._first_dets_processed and dets is not None:
-            layout = infer_detection_layout(dets)
-            if layout is not None:
-                if layout.is_obb and not self.supports_obb:
+        if isinstance(dets, np.ndarray) and dets.ndim == 1 and dets.size:
+            dets = dets.reshape(1, -1)
+
+        inferred_layout = infer_detection_layout(dets)
+        if isinstance(dets, np.ndarray) and dets.ndim == 2 and len(dets) == 0 and inferred_layout is None:
+            raise ValueError(
+                f"Empty detections must preserve a canonical 6-column AABB or 7-column OBB schema, got {dets.shape}."
+            )
+
+        if self._first_dets_processed and inferred_layout is not None:
+            if inferred_layout.is_obb != self.detection_layout.is_obb:
+                raise ValueError(
+                    "Detection modality cannot change after tracker initialization: "
+                    f"expected {self.detection_layout.name}, got {inferred_layout.name}."
+                )
+        elif not self._first_dets_processed and dets is not None:
+            if inferred_layout is not None:
+                if inferred_layout.is_obb and not self.supports_obb:
                     raise AssertionError(
                         f"{self.__class__.__name__} does not support OBB detections. "
                         "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
                     )
-                self._set_detection_mode(layout.is_obb)
+                self._set_detection_mode(inferred_layout.is_obb)
                 self._first_dets_processed = True
 
         if not self._first_frame_processed and img is not None:
@@ -186,10 +221,14 @@ class BaseTracker(
             self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
             self._first_frame_processed = True
 
-        return dets, img
+        masks = self._prepare_update_masks(dets, masks)
+        if dets is None or len(dets) == 0:
+            dets = self.empty_detections()
+            masks = None
+        return dets, img, embs, masks
 
-    def _preprocess_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:
-        """Validate optional segmentation masks."""
+    def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray | None:
+        """Normalize optional masks and discard them for unsupported trackers."""
         if masks is None:
             return None
 
@@ -199,32 +238,33 @@ class BaseTracker(
                 self._masks_warning_issued = True
             return None
 
-        masks = np.asarray(masks)
+        return np.asarray(masks)
+
+    def _validate_update_inputs(self, dets: np.ndarray, masks: np.ndarray = None) -> None:
+        """Validate canonical detections, class IDs, and aligned masks."""
+        self.detection_layout.validate_dets(dets)
+        if dets.size and not np.isfinite(dets).all():
+            raise ValueError("Tracker detections must contain only finite values.")
+        if dets.size:
+            boxes = self.detection_layout.boxes(dets)
+            if self.is_obb:
+                if np.any(boxes[:, 2:4] <= 0):
+                    raise ValueError("OBB detections must have positive width and height.")
+            elif np.any(boxes[:, 2] <= boxes[:, 0]) or np.any(boxes[:, 3] <= boxes[:, 1]):
+                raise ValueError("AABB detections must satisfy x2 > x1 and y2 > y1.")
+        self.class_catalog.validate_detections(dets, self.detection_layout)
+
+        if masks is None:
+            return
         if masks.ndim != 3:
             raise ValueError(f"Masks must be 3D (N, H, W), got shape {masks.shape}")
 
-        n_dets = len(dets) if dets is not None else 0
+        n_dets = len(dets)
         if masks.shape[0] != n_dets:
             raise ValueError(f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})")
 
-        return masks
-
-    def _do_update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
-        """Dispatch to single-class or class-separated tracking."""
-        if dets is None or len(dets) == 0:
-            dets = self.empty_detections()
-            masks = None
-
-        self.detection_layout.validate_dets(dets)
-        self.class_catalog.validate_detections(dets, self.detection_layout)
-
-        if not self.per_class:
-            return self._update_impl(dets=dets, img=img, embs=embs, masks=masks)
-
-        return self._update_per_class(dets=dets, img=img, embs=embs, masks=masks)
-
     @abstractmethod
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,
@@ -232,7 +272,7 @@ class BaseTracker(
         masks: np.ndarray = None,
     ) -> np.ndarray:
         """Run algorithm-specific tracking for one frame."""
-        raise NotImplementedError("The _update_impl method needs to be implemented by the subclass.")
+        raise NotImplementedError("The _track_detections method needs to be implemented by the subclass.")
 
     def _set_detection_mode(self, is_obb: bool) -> None:
         """Update detection layout and association function mode."""
@@ -273,18 +313,25 @@ class BaseTracker(
         return self.make_detection_batch(dets, embs=embs, masks=masks).as_records()
 
     def check_inputs(self, dets, img, embs=None):
-        assert isinstance(dets, np.ndarray), (
-            f"Unsupported 'dets' input format '{type(dets)}', valid format is np.ndarray"
-        )
-        assert isinstance(img, np.ndarray), (
-            f"Unsupported 'img_numpy' input format '{type(img)}', valid format is np.ndarray"
-        )
-        assert len(dets.shape) == 2, "Unsupported 'dets' dimensions, valid number of dimensions is two"
+        if not isinstance(dets, np.ndarray):
+            raise TypeError(f"Unsupported detections type {type(dets).__name__}; expected numpy.ndarray.")
+        if not isinstance(img, np.ndarray):
+            raise TypeError(f"Unsupported image type {type(img).__name__}; expected numpy.ndarray.")
+        if dets.ndim != 2:
+            raise ValueError(f"Detections must be a 2D array, got shape {dets.shape}.")
 
         if embs is not None:
-            assert dets.shape[0] == embs.shape[0], "Mismatch between detections and embeddings sizes"
+            if dets.shape[0] != embs.shape[0]:
+                raise ValueError("Detections and embeddings must have the same number of rows.")
 
-        self.detection_layout.validate_dets(dets)
+        if dets.shape[1] not in (
+            self.detection_layout.det_cols,
+            self.detection_layout.det_cols + 1,
+        ):
+            raise ValueError(
+                "Unsupported internal detection column count; expected raw detections "
+                "or raw detections with a trailing frame-level det_ind."
+            )
 
     def configure_class_catalog(
         self,

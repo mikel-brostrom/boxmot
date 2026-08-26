@@ -14,7 +14,7 @@ BoT-SORT extends the ByteTrack family by combining motion, appearance, and camer
 
 BoxMOT also ships a native C++17 BoTSORT implementation under `boxmot/native/cpp/trackers/botsort/`. It supports:
 
-- cached replay for `eval`, `tune`, and `research`
+- cached replay for `eval` and `tune`
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detections for live tracking and cached replay
 - ReID inference through the shared native `OnnxReIdModel` for both live tracking and cache generation (no Python ONNXRuntime in the loop)
@@ -30,13 +30,25 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker botsort --tracker-backend cpp
 boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
-`--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
+For cached `eval` and `tune` workflows, `--tracking-backend cpp`
+remains available as a compatibility alias. Live `track` uses
+`--tracker-backend cpp`.
 
-When `--tracker-backend cpp` is set, embeddings generated for the cached replay path are also produced by the native C++ ReID and stored in a `__cpp`-suffixed cache bucket; the Python ReID backend is only used as a transparent fallback if the native C ABI cannot be loaded. See [Native C++ Integration](../native/index.md#native-c-reid) for the runtime knobs (`BOXMOT_REID_BACKEND`, `BOXMOT_REID_DEVICE`).
+When `--tracker-backend cpp` is set, cached replay requests the native C++ ReID
+producer. Cache paths record the effective embedding producer, so native and
+Python results live under distinct `embs/cpp/` and `embs/python/` buckets.
+Native initialization or model-loading failures are surfaced instead of silently
+changing producer. If the native ReID module cannot be imported, backend
+resolution selects the Python producer first and therefore uses `embs/python/`.
+The producer is independent of the BoT-SORT algorithm, so
+trackers can share a bucket when their model, runtime, preprocessing, and crop
+semantics match. See [Native C++ Integration](../native/index.md#embedding-cache-layout)
+for the full layout and the runtime knobs (`BOXMOT_REID_BACKEND`,
+`BOXMOT_REID_DEVICE`).
 
 For OBB replay, the native runner consumes 8-column OBB caches and writes MMOT-style corner outputs so the native replay stage matches the existing OBB evaluation pipeline.
 

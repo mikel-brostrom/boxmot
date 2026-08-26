@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 import torch
 import torch.nn as nn
-
 
 FP16_MAX = torch.finfo(torch.float16).max
 TRAIN_ONLY_STATE_DICT_PREFIXES = ("classifier.",)
@@ -46,13 +46,17 @@ def _compact_floating_tensors(value: Any) -> Any:
 
 
 def _compact_model_state_dict(model: nn.Module, *, resumable: bool) -> dict[str, Any]:
-    """Return compact model weights, dropping train-only heads for inference checkpoints."""
+    """Return native training state or compact inference-only model weights."""
     state_dict = model.state_dict()
-    if not resumable:
-        state_dict = state_dict.__class__(
-            (key, value) for key, value in state_dict.items() if not _is_train_only_model_key(key)
-        )
-    return _compact_floating_tensors(state_dict)
+    if resumable:
+        # Exact continuation requires the live parameter precision. Quantizing
+        # these tensors changes the first resumed forward even when every RNG
+        # stream and optimizer state is restored correctly.
+        return state_dict
+    inference_state = state_dict.__class__(
+        (key, value) for key, value in state_dict.items() if not _is_train_only_model_key(key)
+    )
+    return _compact_floating_tensors(inference_state)
 
 
 class CheckpointManager:
@@ -82,6 +86,11 @@ class CheckpointManager:
         criterion_classifier,
         ema_model: Optional[nn.Module],
         best_mAP: float,
+        scheduler=None,
+        grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
+        best_epoch: int = 0,
+        best_rank1: float = 0.0,
     ) -> None:
         """Save the live model and optimizer state required for resume."""
         self._save(
@@ -97,6 +106,11 @@ class CheckpointManager:
             criterion_classifier=criterion_classifier,
             ema_model=ema_model,
             best_mAP=best_mAP,
+            scheduler=scheduler,
+            grad_scaler=grad_scaler,
+            training_state=training_state,
+            best_epoch=best_epoch,
+            best_rank1=best_rank1,
         )
 
     def save_best(
@@ -109,6 +123,8 @@ class CheckpointManager:
         criterion_center,
         criterion_classifier,
         best_mAP: float,
+        best_epoch: int = 0,
+        best_rank1: float = 0.0,
     ) -> None:
         """Save compact inference weights without claiming optimizer-resume compatibility."""
         self._save(
@@ -121,6 +137,8 @@ class CheckpointManager:
             criterion_center=criterion_center,
             criterion_classifier=criterion_classifier,
             best_mAP=best_mAP,
+            best_epoch=best_epoch,
+            best_rank1=best_rank1,
         )
 
     def save(
@@ -138,6 +156,11 @@ class CheckpointManager:
         criterion_classifier=None,
         ema_model: Optional[nn.Module] = None,
         best_mAP: float = 0.0,
+        scheduler=None,
+        grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
+        best_epoch: int = 0,
+        best_rank1: float = 0.0,
     ) -> None:
         """Compatibility entry point for explicit checkpoint saves."""
         self._save(
@@ -153,6 +176,11 @@ class CheckpointManager:
             criterion_classifier=criterion_classifier,
             ema_model=ema_model,
             best_mAP=best_mAP,
+            scheduler=scheduler,
+            grad_scaler=grad_scaler,
+            training_state=training_state,
+            best_epoch=best_epoch,
+            best_rank1=best_rank1,
         )
 
     def _save(
@@ -170,6 +198,11 @@ class CheckpointManager:
         criterion_classifier=None,
         ema_model: Optional[nn.Module] = None,
         best_mAP: float = 0.0,
+        scheduler=None,
+        grad_scaler=None,
+        training_state: Optional[dict[str, Any]] = None,
+        best_epoch: int = 0,
+        best_rank1: float = 0.0,
     ) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         state = {
@@ -179,7 +212,9 @@ class CheckpointManager:
             "checkpoint_type": checkpoint_type,
             "resumable": resumable,
             "best_mAP": best_mAP,
-            "checkpoint_precision": "float16",
+            "best_epoch": best_epoch,
+            "best_rank1": best_rank1,
+            "checkpoint_precision": "native" if resumable else "float16",
         }
         if resumable:
             state["rng_state"] = self.rng_state_factory()
@@ -187,13 +222,24 @@ class CheckpointManager:
             state["mAP"] = val.mAP
             state["rank1"] = val.rank1
         if optimizer is not None:
-            state["optimizer"] = _compact_floating_tensors(optimizer.state_dict())
+            state["optimizer"] = optimizer.state_dict()
         if optimizer_center is not None:
-            state["optimizer_center"] = _compact_floating_tensors(optimizer_center.state_dict())
+            state["optimizer_center"] = optimizer_center.state_dict()
+        if resumable and scheduler is not None:
+            state["scheduler"] = scheduler.state_dict()
+        if resumable and grad_scaler is not None:
+            state["grad_scaler"] = grad_scaler.state_dict()
+        if resumable and training_state is not None:
+            state["training_state"] = training_state
         if resumable and criterion_center is not None:
-            state["center_loss_state_dict"] = _compact_floating_tensors(criterion_center.state_dict())
+            state["center_loss_state_dict"] = criterion_center.state_dict()
         if resumable and criterion_classifier is not None and self.classifier_loss != "ce":
-            state["classifier_loss_state_dict"] = _compact_floating_tensors(criterion_classifier.state_dict())
+            state["classifier_loss_state_dict"] = criterion_classifier.state_dict()
         if resumable and ema_model is not None:
-            state["ema_state_dict"] = _compact_floating_tensors(ema_model.state_dict())
-        torch.save(state, path)
+            state["ema_state_dict"] = ema_model.state_dict()
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        try:
+            torch.save(state, temporary)
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)

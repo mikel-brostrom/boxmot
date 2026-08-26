@@ -27,11 +27,15 @@ class ECC(BaseCMC):
         scale: float = 0.15,
         align: bool = False,
         grayscale: bool = True,
+        min_correlation: float = 0.5,
     ) -> None:
         self.align = bool(align)
         self.grayscale = bool(grayscale)
         self.scale = float(scale)
         self.warp_mode = int(warp_mode)
+        self.min_correlation = float(min_correlation)
+        if not 0.0 <= self.min_correlation <= 1.0:
+            raise ValueError("min_correlation must be in [0, 1]")
 
         self.termination_criteria = (
             cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
@@ -44,25 +48,27 @@ class ECC(BaseCMC):
 
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-            warp_matrix = np.eye(3, 3, dtype=np.float32)
+            identity = np.eye(3, 3, dtype=np.float32)
         else:
-            warp_matrix = np.eye(2, 3, dtype=np.float32)
+            identity = np.eye(2, 3, dtype=np.float32)
 
         if self.prev_img is None:
             self.prev_img = self.preprocess(img)
             self.prev_img_aligned = None
-            return warp_matrix
+            return identity
 
         curr = self.preprocess(img)
+        mask = self.generate_mask(curr, dets, self.scale)
+        scaled_warp = identity.copy()
 
         try:
-            _, warp_matrix = cv2.findTransformECC(
+            correlation, scaled_warp = cv2.findTransformECC(
                 self.prev_img,
                 curr,
-                warp_matrix,
+                scaled_warp,
                 self.warp_mode,
                 self.termination_criteria,
-                None,
+                mask,
                 1,
             )
         except cv2.error as e:
@@ -72,25 +78,44 @@ class ECC(BaseCMC):
                     LOGGER.warning("ECC did not converge; returning identity warp.")
                     self.prev_img = curr
                     self.prev_img_aligned = None
-                    return warp_matrix
+                    return identity
             except Exception:
                 pass
             raise
 
-        # upscale translation back to original image coordinates
-        if self.scale < 1.0:
-            warp_matrix = warp_matrix.copy()
-            warp_matrix[0, 2] /= self.scale
-            warp_matrix[1, 2] /= self.scale
+        if not np.isfinite(correlation) or correlation < self.min_correlation:
+            LOGGER.warning(
+                f"ECC correlation {correlation:.3f} is below {self.min_correlation:.3f}; "
+                "returning identity warp."
+            )
+            self.prev_img = curr
+            self.prev_img_aligned = None
+            return identity
+
+        if not self.is_valid_transform(scaled_warp):
+            LOGGER.warning("ECC produced a non-finite or degenerate transform; returning identity warp.")
+            self.prev_img = curr
+            self.prev_img_aligned = None
+            return identity
 
         if self.align:
             h, w = self.prev_img.shape[:2]
             if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
-                self.prev_img_aligned = cv2.warpPerspective(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpPerspective(
+                    self.prev_img,
+                    scaled_warp,
+                    (w, h),
+                    flags=cv2.INTER_LINEAR,
+                )
             else:
-                self.prev_img_aligned = cv2.warpAffine(self.prev_img, warp_matrix, (w, h), flags=cv2.INTER_LINEAR)
+                self.prev_img_aligned = cv2.warpAffine(
+                    self.prev_img,
+                    scaled_warp,
+                    (w, h),
+                    flags=cv2.INTER_LINEAR,
+                )
         else:
             self.prev_img_aligned = None
 
         self.prev_img = curr
-        return warp_matrix
+        return self.restore_transform_scale(scaled_warp)

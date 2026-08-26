@@ -22,6 +22,9 @@ struct BoxMOTBotSortConfig {
     float match_thresh;
     float proximity_thresh;
     float appearance_thresh;
+    float second_match_thresh;
+    float unconfirmed_match_thresh;
+    float unconfirmed_emb_scale;
     const char* cmc_method;
     int frame_rate;
     int fuse_first_associate;

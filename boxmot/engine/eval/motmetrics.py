@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from multiprocessing.context import BaseContext
 from pathlib import Path
 from typing import Any
 
@@ -19,18 +21,18 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.configs.benchmark import load_benchmark_cfg
+from boxmot.box_schema import AABB_SCHEMA, OBB_SCHEMA, schema_from_mot_columns
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
-    load_benchmark_cfg_from_args,
     resolve_eval_box_type,
     resolve_obb_eval_class_pairs,
 )
-from boxmot.utils import BENCHMARK_CONFIGS
+from boxmot.engine.workflows.benchmark import find_dataset_cfg_for_source, load_evaluation_config_from_args
 from boxmot.utils import logger as LOGGER
 
 HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange(0.05, 0.99, 0.05))
+_FLOAT_EPS = np.finfo(float).eps
 
 DEFAULT_OBB_CLASS_NAME_TO_ID = {
     "car": 0,
@@ -51,13 +53,27 @@ DEFAULT_OBB_SUPER_CATEGORIES = {
 _HOTA_ARRAY_FIELDS = ("HOTA", "DetA", "AssA", "DetRe", "DetPr", "AssRe", "AssPr", "LocA", "OWTA")
 _HOTA_COUNT_ARRAY_FIELDS = ("HOTA_TP", "HOTA_FN", "HOTA_FP")
 _HOTA_FLOAT_FIELDS = ("HOTA(0)", "LocA(0)", "HOTALocA(0)")
-_CLEAR_INTEGER_FIELDS = ("CLR_TP", "CLR_FN", "CLR_FP", "IDSW", "MT", "PT", "ML", "Frag", "CLR_Frames")
+_CLEAR_INTEGER_FIELDS = (
+    "CLR_TP",
+    "CLR_FN",
+    "CLR_FP",
+    "IDSW",
+    "IDt",
+    "IDa",
+    "IDm",
+    "MT",
+    "PT",
+    "ML",
+    "Frag",
+    "CLR_Frames",
+)
 _CLEAR_FLOAT_FIELDS = ("MOTA", "MOTP", "MODA", "CLR_Re", "CLR_Pr", "MTR", "PTR", "MLR", "sMOTA")
 _CLEAR_EXTRA_FLOAT_FIELDS = ("CLR_F1", "FP_per_frame", "MOTAL", "MOTP_sum")
 _CLEAR_SUMMED_FIELDS = (*_CLEAR_INTEGER_FIELDS, "MOTP_sum")
 _IDENTITY_INTEGER_FIELDS = ("IDTP", "IDFN", "IDFP")
 _IDENTITY_FLOAT_FIELDS = ("IDF1", "IDR", "IDP")
 _COUNT_INTEGER_FIELDS = ("Dets", "GT_Dets", "IDs", "GT_IDs", "Frames")
+_MAX_DENSE_COUNT_BINS = 4_000_000
 
 
 @dataclass(frozen=True)
@@ -75,6 +91,40 @@ class SequenceData:
     num_tracker_ids: int
 
 
+@dataclass(frozen=True)
+class IndexedSequenceRows:
+    """GT and tracker rows partitioned into constant-time frame lookups."""
+
+    gt: list[np.ndarray]
+    tracker: list[np.ndarray]
+    num_timesteps: int
+
+
+@dataclass(frozen=True)
+class AABBSequenceEvaluationTask:
+    """Pickle-safe input for evaluating every class in one AABB sequence."""
+
+    seq_name: str
+    gt_path: Path
+    tracker_path: Path
+    class_pairs: tuple[tuple[str, int], ...]
+    num_timesteps: int | None
+    distractor_ids: frozenset[int]
+
+
+@dataclass(frozen=True)
+class OBBSequenceEvaluationTask:
+    """Pickle-safe input for evaluating every class in one OBB sequence."""
+
+    seq_name: str
+    source: Path
+    gt_folder: Path
+    tracker_path: Path
+    class_pairs: tuple[tuple[str, int], ...]
+    num_timesteps: int | None
+
+
+SequenceEvaluationTask = AABBSequenceEvaluationTask | OBBSequenceEvaluationTask
 MetricBundle = dict[str, dict[str, Any]]
 
 
@@ -149,48 +199,76 @@ def _frame_count(seq_info: Mapping[str, int | None], seq_name: str, *arrays: np.
     return max_frame
 
 
-def _rows_for_frame(data: np.ndarray, frame_id: int) -> np.ndarray:
+def _index_rows_by_frame(data: np.ndarray, num_timesteps: int) -> list[np.ndarray]:
+    """Partition rows by integer frame ID with one scan of the input matrix."""
+    if num_timesteps <= 0:
+        return []
+
+    num_columns = data.shape[1] if data.ndim == 2 else 0
     if data.size == 0:
-        return np.empty((0, 0), dtype=np.float32)
-    return data[data[:, 0].astype(int) == frame_id]
+        empty = np.empty((0, num_columns), dtype=data.dtype)
+        return [empty] * num_timesteps
+
+    frame_ids = data[:, 0].astype(int)
+    if np.any(frame_ids[1:] < frame_ids[:-1]):
+        order = np.argsort(frame_ids, kind="stable")
+        frame_ids = frame_ids[order]
+        data = data[order]
+
+    boundaries = np.searchsorted(frame_ids, np.arange(1, num_timesteps + 2))
+    return [data[start:end] for start, end in zip(boundaries[:-1], boundaries[1:])]
+
+
+def _index_sequence_rows(
+    *,
+    seq_name: str,
+    seq_info: Mapping[str, int | None],
+    gt: np.ndarray,
+    tracker: np.ndarray,
+) -> IndexedSequenceRows:
+    """Create reusable per-frame views for one raw GT/tracker sequence pair."""
+    num_timesteps = _frame_count(seq_info, seq_name, gt, tracker)
+    return IndexedSequenceRows(
+        gt=_index_rows_by_frame(gt, num_timesteps),
+        tracker=_index_rows_by_frame(tracker, num_timesteps),
+        num_timesteps=num_timesteps,
+    )
 
 
 def _relabel_ids(frame_ids: list[np.ndarray]) -> tuple[list[np.ndarray], int]:
-    unique_ids: list[int] = []
-    for ids in frame_ids:
-        unique_ids.extend(int(value) for value in np.unique(ids.astype(int)))
-
-    if not unique_ids:
+    lengths = np.fromiter((len(ids) for ids in frame_ids), dtype=int, count=len(frame_ids))
+    if lengths.sum() == 0:
         return [ids.astype(int, copy=False) for ids in frame_ids], 0
 
-    id_map = {raw_id: index for index, raw_id in enumerate(sorted(set(unique_ids)))}
-    relabeled = [
-        np.asarray([id_map[int(value)] for value in ids], dtype=int)
-        if len(ids)
-        else np.empty(0, dtype=int)
-        for ids in frame_ids
-    ]
-    return relabeled, len(id_map)
+    joined = np.concatenate(frame_ids).astype(int, copy=False)
+    unique_ids, inverse = np.unique(joined, return_inverse=True)
+    relabeled = np.split(inverse, np.cumsum(lengths)[:-1])
+    return relabeled, len(unique_ids)
 
 
 def _aabb_iou_matrix(gt_boxes: np.ndarray, tracker_boxes: np.ndarray) -> np.ndarray:
     if len(gt_boxes) == 0 or len(tracker_boxes) == 0:
         return np.zeros((len(gt_boxes), len(tracker_boxes)), dtype=np.float32)
 
-    gt_x1y1 = gt_boxes[:, :2]
-    gt_x2y2 = gt_boxes[:, :2] + np.maximum(gt_boxes[:, 2:4], 0.0)
-    tr_x1y1 = tracker_boxes[:, :2]
-    tr_x2y2 = tracker_boxes[:, :2] + np.maximum(tracker_boxes[:, 2:4], 0.0)
-
-    inter_x1y1 = np.maximum(gt_x1y1[:, None, :], tr_x1y1[None, :, :])
-    inter_x2y2 = np.minimum(gt_x2y2[:, None, :], tr_x2y2[None, :, :])
-    inter_wh = np.maximum(0.0, inter_x2y2 - inter_x1y1)
-    intersection = inter_wh[:, :, 0] * inter_wh[:, :, 1]
-
-    gt_area = np.maximum(gt_boxes[:, 2], 0.0) * np.maximum(gt_boxes[:, 3], 0.0)
-    tr_area = np.maximum(tracker_boxes[:, 2], 0.0) * np.maximum(tracker_boxes[:, 3], 0.0)
+    gt_width = np.maximum(gt_boxes[:, 2], 0.0)
+    gt_height = np.maximum(gt_boxes[:, 3], 0.0)
+    tracker_width = np.maximum(tracker_boxes[:, 2], 0.0)
+    tracker_height = np.maximum(tracker_boxes[:, 3], 0.0)
+    intersection_width = np.maximum(
+        np.minimum(gt_boxes[:, None, 0] + gt_width[:, None], tracker_boxes[None, :, 0] + tracker_width)
+        - np.maximum(gt_boxes[:, None, 0], tracker_boxes[None, :, 0]),
+        0.0,
+    )
+    intersection_height = np.maximum(
+        np.minimum(gt_boxes[:, None, 1] + gt_height[:, None], tracker_boxes[None, :, 1] + tracker_height)
+        - np.maximum(gt_boxes[:, None, 1], tracker_boxes[None, :, 1]),
+        0.0,
+    )
+    intersection = intersection_width * intersection_height
+    gt_area = gt_width * gt_height
+    tr_area = tracker_width * tracker_height
     union = gt_area[:, None] + tr_area[None, :] - intersection
-    return np.divide(intersection, union, out=np.zeros_like(intersection), where=union > 0)
+    return np.divide(intersection, union, out=np.zeros_like(intersection), where=intersection != 0.0)
 
 
 def _polygons_to_rotated_rects(polygons: np.ndarray) -> tuple[list, np.ndarray]:
@@ -212,21 +290,34 @@ def _rotated_iou_batch(gt_dets: np.ndarray, tracker_dets: np.ndarray) -> np.ndar
     gt_rects, gt_areas = _polygons_to_rotated_rects(gt_dets)
     tracker_rects, tracker_areas = _polygons_to_rotated_rects(tracker_dets)
     scores = np.zeros((len(gt_dets), len(tracker_dets)), dtype=np.float32)
-    eps = np.finfo(float).eps
+    eps = _FLOAT_EPS
 
-    for gt_index, rect_a in enumerate(gt_rects):
-        if gt_areas[gt_index] <= eps:
+    gt_points = gt_dets.reshape(-1, 4, 2)
+    tracker_points = tracker_dets.reshape(-1, 4, 2)
+    gt_min = gt_points.min(axis=1)
+    gt_max = gt_points.max(axis=1)
+    tracker_min = tracker_points.min(axis=1)
+    tracker_max = tracker_points.max(axis=1)
+    candidates = (
+        (gt_min[:, np.newaxis, 0] < tracker_max[np.newaxis, :, 0])
+        & (gt_max[:, np.newaxis, 0] > tracker_min[np.newaxis, :, 0])
+        & (gt_min[:, np.newaxis, 1] < tracker_max[np.newaxis, :, 1])
+        & (gt_max[:, np.newaxis, 1] > tracker_min[np.newaxis, :, 1])
+        & (gt_areas[:, np.newaxis] > eps)
+        & (tracker_areas[np.newaxis, :] > eps)
+    )
+
+    for gt_index, tracker_index in zip(*np.nonzero(candidates)):
+        ret, intersection = cv2.rotatedRectangleIntersection(
+            gt_rects[gt_index],
+            tracker_rects[tracker_index],
+        )
+        if ret == cv2.INTERSECT_NONE or intersection is None or len(intersection) == 0:
             continue
-        for tracker_index, rect_b in enumerate(tracker_rects):
-            if tracker_areas[tracker_index] <= eps:
-                continue
-            ret, intersection = cv2.rotatedRectangleIntersection(rect_a, rect_b)
-            if ret == cv2.INTERSECT_NONE or intersection is None or len(intersection) == 0:
-                continue
-            inter_area = float(cv2.contourArea(intersection))
-            union = gt_areas[gt_index] + tracker_areas[tracker_index] - inter_area
-            if union > eps:
-                scores[gt_index, tracker_index] = inter_area / union
+        inter_area = float(cv2.contourArea(intersection))
+        union = gt_areas[gt_index] + tracker_areas[tracker_index] - inter_area
+        if union > eps:
+            scores[gt_index, tracker_index] = inter_area / union
     return scores
 
 
@@ -234,18 +325,30 @@ def _load_obb_gt_matrix(source: Path) -> np.ndarray:
     """Load OBB GT in the 13-column MMOT corner format."""
     data = _read_csv_matrix(source)
     if data.size == 0:
-        return np.empty((0, 13), dtype=np.float32)
-    if data.shape[1] == 13:
+        return OBB_SCHEMA.empty_mot()
+    try:
+        schema = schema_from_mot_columns(data.shape[1])
+    except ValueError as exc:
+        raise ValueError(
+            f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
+        ) from exc
+    if schema.is_obb:
         return data.astype(np.float32, copy=False)
     raise ValueError(
         f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
     )
 
 
-def _resolve_obb_gt_path(args: argparse.Namespace, gt_folder: Path, seq_name: str) -> Path:
-    seq_dir = Path(args.source) / seq_name
+def _resolve_obb_gt_path(
+    source: Path,
+    gt_folder: Path,
+    seq_name: str,
+    *,
+    load_gt: Callable[[Path], np.ndarray] = _load_obb_gt_matrix,
+) -> Path:
+    seq_dir = source / seq_name
     candidates = [
-        Path(args.source).parent / "mot" / f"{seq_name}.txt",
+        source.parent / "mot" / f"{seq_name}.txt",
         seq_dir / "gt" / "gt_temp.txt",
         gt_folder / seq_name / "gt" / "gt_temp.txt",
         seq_dir / "gt" / "gt.txt",
@@ -263,7 +366,7 @@ def _resolve_obb_gt_path(args: argparse.Namespace, gt_folder: Path, seq_name: st
         if not candidate.exists():
             continue
         try:
-            _load_obb_gt_matrix(candidate)
+            load_gt(candidate)
         except ValueError:
             continue
         return candidate
@@ -319,22 +422,31 @@ def _build_aabb_sequence_data(
     distractor_ids: set[int],
     seq_info: Mapping[str, int | None],
     gt_min_confidence: float | None = None,
+    indexed_rows: IndexedSequenceRows | None = None,
 ) -> SequenceData:
-    gt = _read_csv_matrix(gt_path)
-    tracker = _read_csv_matrix(tracker_path)
-    num_timesteps = _frame_count(seq_info, seq_name, gt, tracker)
+    if indexed_rows is None:
+        tracker = _read_csv_matrix(tracker_path)
+        if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+            raise ValueError(
+                f"Unsupported AABB tracker format in {tracker_path}: expected "
+                f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+            )
+        indexed_rows = _index_sequence_rows(
+            seq_name=seq_name,
+            seq_info=seq_info,
+            gt=_read_csv_matrix(gt_path),
+            tracker=tracker,
+        )
 
     def _load_frame(frame_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        gt_frame = _rows_for_frame(gt, frame_id)
-        tracker_frame = _rows_for_frame(tracker, frame_id)
+        gt_frame = indexed_rows.gt[frame_id - 1]
+        tracker_frame = indexed_rows.tracker[frame_id - 1]
 
         gt_ids = gt_frame[:, 1].astype(int) if gt_frame.size else np.empty(0, dtype=int)
         gt_boxes = gt_frame[:, 2:6] if gt_frame.size else np.empty((0, 4), dtype=np.float32)
         gt_zero = gt_frame[:, 6] if gt_frame.size and gt_frame.shape[1] > 6 else np.ones(len(gt_ids))
         gt_classes = (
-            gt_frame[:, 7].astype(int)
-            if gt_frame.size and gt_frame.shape[1] > 7
-            else np.ones(len(gt_ids), int)
+            gt_frame[:, 7].astype(int) if gt_frame.size and gt_frame.shape[1] > 7 else np.ones(len(gt_ids), int)
         )
 
         tracker_ids = tracker_frame[:, 1].astype(int) if tracker_frame.size else np.empty(0, dtype=int)
@@ -352,9 +464,9 @@ def _build_aabb_sequence_data(
 
         if distractor_ids and len(gt_ids) and len(kept_tracker_ids) and similarity.size:
             matching_scores = similarity.copy()
-            matching_scores[matching_scores < 0.5 - np.finfo(float).eps] = 0
+            matching_scores[matching_scores < 0.5 - _FLOAT_EPS] = 0
             match_rows, match_cols = linear_sum_assignment(-matching_scores)
-            actually_matched = matching_scores[match_rows, match_cols] > np.finfo(float).eps
+            actually_matched = matching_scores[match_rows, match_cols] > _FLOAT_EPS
             match_rows = match_rows[actually_matched]
             match_cols = match_cols[actually_matched]
             remove_cols = match_cols[np.isin(gt_classes[match_rows], list(distractor_ids))]
@@ -373,7 +485,11 @@ def _build_aabb_sequence_data(
         similarity = similarity[gt_keep, :] if similarity.size else np.empty((len(kept_gt_ids), len(kept_tracker_ids)))
         return kept_gt_ids, kept_tracker_ids, similarity
 
-    return _build_sequence_data(seq_name=seq_name, num_timesteps=num_timesteps, frame_loader=_load_frame)
+    return _build_sequence_data(
+        seq_name=seq_name,
+        num_timesteps=indexed_rows.num_timesteps,
+        frame_loader=_load_frame,
+    )
 
 
 def _build_obb_sequence_data(
@@ -383,18 +499,26 @@ def _build_obb_sequence_data(
     tracker_path: Path,
     class_id: int,
     seq_info: Mapping[str, int | None],
+    indexed_rows: IndexedSequenceRows | None = None,
 ) -> SequenceData:
-    gt = _load_obb_gt_matrix(gt_path)
-    tracker = _read_csv_matrix(tracker_path)
-    if tracker.size and tracker.shape[1] != 13:
-        raise ValueError(
-            f"Unsupported OBB tracker format in {tracker_path}: expected 13 columns, got {tracker.shape[1]}"
+    if indexed_rows is None:
+        gt = _load_obb_gt_matrix(gt_path)
+        tracker = _read_csv_matrix(tracker_path)
+        if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
+            raise ValueError(
+                f"Unsupported OBB tracker format in {tracker_path}: expected "
+                f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+            )
+        indexed_rows = _index_sequence_rows(
+            seq_name=seq_name,
+            seq_info=seq_info,
+            gt=gt,
+            tracker=tracker,
         )
-    num_timesteps = _frame_count(seq_info, seq_name, gt, tracker)
 
     def _load_frame(frame_id: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        gt_frame = _rows_for_frame(gt, frame_id)
-        tracker_frame = _rows_for_frame(tracker, frame_id)
+        gt_frame = indexed_rows.gt[frame_id - 1]
+        tracker_frame = indexed_rows.tracker[frame_id - 1]
 
         gt_classes = gt_frame[:, 11].astype(int) if gt_frame.size else np.empty(0, dtype=int)
         tracker_classes = tracker_frame[:, 11].astype(int) if tracker_frame.size else np.empty(0, dtype=int)
@@ -409,7 +533,11 @@ def _build_obb_sequence_data(
         )
         return gt_ids, tracker_ids, _rotated_iou_batch(gt_polygons, tracker_polygons)
 
-    return _build_sequence_data(seq_name=seq_name, num_timesteps=num_timesteps, frame_loader=_load_frame)
+    return _build_sequence_data(
+        seq_name=seq_name,
+        num_timesteps=indexed_rows.num_timesteps,
+        frame_loader=_load_frame,
+    )
 
 
 def _compute_final_hota_fields(res: dict[str, Any]) -> dict[str, Any]:
@@ -424,10 +552,65 @@ def _compute_final_hota_fields(res: dict[str, Any]) -> dict[str, Any]:
     return res
 
 
-def _eval_hota(data: SequenceData, alpha_values: Sequence[float] = HOTA_ALPHA_VALUES) -> dict[str, Any]:
+def _occurrence_counts(frame_ids: Sequence[np.ndarray], num_ids: int) -> np.ndarray:
+    """Count compact IDs across all frames with one vectorized pass."""
+    nonempty = [ids for ids in frame_ids if len(ids)]
+    if not nonempty:
+        return np.zeros(num_ids, dtype=float)
+    return np.bincount(np.concatenate(nonempty), minlength=num_ids).astype(float, copy=False)
+
+
+def _encoded_value_counts(encoded: np.ndarray, num_values: int) -> tuple[np.ndarray, np.ndarray]:
+    """Count encoded integer values, bounding dense scratch memory for long sequences."""
+    if num_values <= _MAX_DENSE_COUNT_BINS:
+        dense_counts = np.bincount(encoded, minlength=num_values)
+        nonzero = np.flatnonzero(dense_counts)
+        return nonzero, dense_counts[nonzero]
+    return np.unique(encoded, return_counts=True)
+
+
+def _hota_association_scores(
+    alpha_indices: np.ndarray,
+    gt_indices: np.ndarray,
+    tracker_indices: np.ndarray,
+    match_counts: np.ndarray,
+    gt_id_count: np.ndarray,
+    tracker_id_count: np.ndarray,
+    true_positives: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate sparse matched-ID counts for every HOTA threshold."""
+    if not len(match_counts):
+        zeros = np.zeros_like(true_positives)
+        return zeros, zeros.copy(), zeros.copy()
+
+    tp_denominator = np.maximum(1, true_positives)
+    squared_counts = match_counts * match_counts
+
+    def _aggregate(denominator: np.ndarray) -> np.ndarray:
+        return (
+            np.bincount(
+                alpha_indices,
+                weights=squared_counts / np.maximum(1, denominator),
+                minlength=len(true_positives),
+            )
+            / tp_denominator
+        )
+
+    ass_a = _aggregate(gt_id_count[gt_indices] + tracker_id_count[tracker_indices] - match_counts)
+    ass_re = _aggregate(gt_id_count[gt_indices])
+    ass_pr = _aggregate(tracker_id_count[tracker_indices])
+    return ass_a, ass_re, ass_pr
+
+
+def _eval_hota(
+    data: SequenceData,
+    alpha_values: Sequence[float] = HOTA_ALPHA_VALUES,
+    *,
+    id_counts: tuple[np.ndarray, np.ndarray] | None = None,
+) -> dict[str, Any]:
+    alpha_values = np.asarray(alpha_values, dtype=float)
     res: dict[str, Any] = {
-        field: np.zeros(len(alpha_values), dtype=float)
-        for field in (*_HOTA_ARRAY_FIELDS, *_HOTA_COUNT_ARRAY_FIELDS)
+        field: np.zeros(len(alpha_values), dtype=float) for field in (*_HOTA_ARRAY_FIELDS, *_HOTA_COUNT_ARRAY_FIELDS)
     }
     for field in _HOTA_FLOAT_FIELDS:
         res[field] = 0.0
@@ -442,61 +625,70 @@ def _eval_hota(data: SequenceData, alpha_values: Sequence[float] = HOTA_ALPHA_VA
         return _compute_final_hota_fields(res)
 
     potential_matches_count = np.zeros((data.num_gt_ids, data.num_tracker_ids), dtype=float)
-    gt_id_count = np.zeros((data.num_gt_ids, 1), dtype=float)
-    tracker_id_count = np.zeros((1, data.num_tracker_ids), dtype=float)
+    if id_counts is None:
+        gt_id_count = _occurrence_counts(data.gt_ids, data.num_gt_ids)
+        tracker_id_count = _occurrence_counts(data.tracker_ids, data.num_tracker_ids)
+    else:
+        gt_id_count, tracker_id_count = id_counts
 
     for gt_ids_t, tracker_ids_t, similarity in zip(data.gt_ids, data.tracker_ids, data.similarity_scores):
         if similarity.size:
             sim_iou_denom = similarity.sum(0)[np.newaxis, :] + similarity.sum(1)[:, np.newaxis] - similarity
             sim_iou = np.zeros_like(similarity)
-            sim_iou_mask = sim_iou_denom > np.finfo(float).eps
-            sim_iou[sim_iou_mask] = similarity[sim_iou_mask] / sim_iou_denom[sim_iou_mask]
+            np.divide(similarity, sim_iou_denom, out=sim_iou, where=sim_iou_denom > _FLOAT_EPS)
             potential_matches_count[gt_ids_t[:, np.newaxis], tracker_ids_t[np.newaxis, :]] += sim_iou
-        gt_id_count[gt_ids_t] += 1
-        tracker_id_count[0, tracker_ids_t] += 1
 
-    denom = gt_id_count + tracker_id_count - potential_matches_count
+    denom = gt_id_count[:, np.newaxis] + tracker_id_count - potential_matches_count
     global_alignment_score = np.divide(
         potential_matches_count,
         denom,
         out=np.zeros_like(potential_matches_count),
-        where=denom > np.finfo(float).eps,
+        where=denom > _FLOAT_EPS,
     )
-    matches_counts = [np.zeros_like(potential_matches_count) for _ in alpha_values]
+    matched_gt_ids: list[np.ndarray] = []
+    matched_tracker_ids: list[np.ndarray] = []
+    matched_similarities: list[np.ndarray] = []
+    minimum_alpha = float(np.min(alpha_values))
 
     for gt_ids_t, tracker_ids_t, similarity in zip(data.gt_ids, data.tracker_ids, data.similarity_scores):
-        if len(gt_ids_t) == 0:
-            for alpha_index in range(len(alpha_values)):
-                res["HOTA_FP"][alpha_index] += len(tracker_ids_t)
-            continue
-        if len(tracker_ids_t) == 0:
-            for alpha_index in range(len(alpha_values)):
-                res["HOTA_FN"][alpha_index] += len(gt_ids_t)
+        if len(gt_ids_t) == 0 or len(tracker_ids_t) == 0:
             continue
 
         score_mat = global_alignment_score[gt_ids_t[:, np.newaxis], tracker_ids_t[np.newaxis, :]] * similarity
         match_rows, match_cols = linear_sum_assignment(-score_mat)
+        frame_similarities = similarity[match_rows, match_cols]
+        eligible = frame_similarities >= minimum_alpha - _FLOAT_EPS
+        if np.any(eligible):
+            matched_gt_ids.append(gt_ids_t[match_rows[eligible]])
+            matched_tracker_ids.append(tracker_ids_t[match_cols[eligible]])
+            matched_similarities.append(frame_similarities[eligible])
 
-        for alpha_index, alpha in enumerate(alpha_values):
-            matched = similarity[match_rows, match_cols] >= alpha - np.finfo(float).eps
-            alpha_match_rows = match_rows[matched]
-            alpha_match_cols = match_cols[matched]
-            num_matches = len(alpha_match_rows)
-            res["HOTA_TP"][alpha_index] += num_matches
-            res["HOTA_FN"][alpha_index] += len(gt_ids_t) - num_matches
-            res["HOTA_FP"][alpha_index] += len(tracker_ids_t) - num_matches
-            if num_matches:
-                res["LocA"][alpha_index] += float(np.sum(similarity[alpha_match_rows, alpha_match_cols]))
-                matches_counts[alpha_index][gt_ids_t[alpha_match_rows], tracker_ids_t[alpha_match_cols]] += 1
+    if matched_similarities:
+        joined_gt_ids = np.concatenate(matched_gt_ids)
+        joined_tracker_ids = np.concatenate(matched_tracker_ids)
+        joined_similarities = np.concatenate(matched_similarities)
+        valid_matches = joined_similarities[:, np.newaxis] >= alpha_values - _FLOAT_EPS
+        res["HOTA_TP"] = valid_matches.sum(axis=0, dtype=float)
+        res["LocA"] = np.sum(joined_similarities[:, np.newaxis] * valid_matches, axis=0)
 
-    for alpha_index in range(len(alpha_values)):
-        matches_count = matches_counts[alpha_index]
-        ass_a = matches_count / np.maximum(1, gt_id_count + tracker_id_count - matches_count)
-        res["AssA"][alpha_index] = np.sum(matches_count * ass_a) / np.maximum(1, res["HOTA_TP"][alpha_index])
-        ass_re = matches_count / np.maximum(1, gt_id_count)
-        res["AssRe"][alpha_index] = np.sum(matches_count * ass_re) / np.maximum(1, res["HOTA_TP"][alpha_index])
-        ass_pr = matches_count / np.maximum(1, tracker_id_count)
-        res["AssPr"][alpha_index] = np.sum(matches_count * ass_pr) / np.maximum(1, res["HOTA_TP"][alpha_index])
+        alpha_indices, match_indices = np.nonzero(valid_matches.T)
+        num_id_pairs = data.num_gt_ids * data.num_tracker_ids
+        pair_indices = joined_gt_ids * data.num_tracker_ids + joined_tracker_ids
+        encoded_pairs = alpha_indices * num_id_pairs + pair_indices[match_indices]
+        unique_pairs, counts = _encoded_value_counts(encoded_pairs, len(alpha_values) * num_id_pairs)
+        pair_indices = unique_pairs % num_id_pairs
+        res["AssA"], res["AssRe"], res["AssPr"] = _hota_association_scores(
+            unique_pairs // num_id_pairs,
+            pair_indices // data.num_tracker_ids,
+            pair_indices % data.num_tracker_ids,
+            counts.astype(float, copy=False),
+            gt_id_count,
+            tracker_id_count,
+            res["HOTA_TP"],
+        )
+
+    res["HOTA_FN"] = data.num_gt_dets - res["HOTA_TP"]
+    res["HOTA_FP"] = data.num_tracker_dets - res["HOTA_TP"]
 
     res["LocA"] = np.maximum(1e-10, res["LocA"]) / np.maximum(1e-10, res["HOTA_TP"])
     return _compute_final_hota_fields(res)
@@ -526,7 +718,12 @@ def _compute_final_clear_fields(res: dict[str, Any]) -> dict[str, Any]:
     return res
 
 
-def _eval_clear(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]:
+def _eval_clear(
+    data: SequenceData,
+    threshold: float = 0.5,
+    *,
+    gt_id_count: np.ndarray | None = None,
+) -> dict[str, Any]:
     res: dict[str, Any] = {field: 0 for field in (*_CLEAR_INTEGER_FIELDS, *_CLEAR_FLOAT_FIELDS)}
     for field in _CLEAR_EXTRA_FLOAT_FIELDS:
         res[field] = 0.0
@@ -541,11 +738,15 @@ def _eval_clear(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]:
         res["MLR"] = 1.0
         return res
 
-    gt_id_count = np.zeros(data.num_gt_ids)
+    if gt_id_count is None:
+        gt_id_count = _occurrence_counts(data.gt_ids, data.num_gt_ids)
     gt_matched_count = np.zeros(data.num_gt_ids)
     gt_frag_count = np.zeros(data.num_gt_ids)
     prev_tracker_id = np.nan * np.zeros(data.num_gt_ids)
     prev_timestep_tracker_id = np.nan * np.zeros(data.num_gt_ids)
+    prev_gt_id = np.full(data.num_tracker_ids, -1, dtype=int)
+    gt_ever_matched = np.zeros(data.num_gt_ids, dtype=bool)
+    tracker_ever_matched = np.zeros(data.num_tracker_ids, dtype=bool)
 
     for gt_ids_t, tracker_ids_t, similarity in zip(data.gt_ids, data.tracker_ids, data.similarity_scores):
         if len(gt_ids_t) == 0:
@@ -553,15 +754,14 @@ def _eval_clear(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]:
             continue
         if len(tracker_ids_t) == 0:
             res["CLR_FN"] += len(gt_ids_t)
-            gt_id_count[gt_ids_t] += 1
             continue
 
         score_mat = tracker_ids_t[np.newaxis, :] == prev_timestep_tracker_id[gt_ids_t[:, np.newaxis]]
         score_mat = 1000 * score_mat + similarity
-        score_mat[similarity < threshold - np.finfo(float).eps] = 0
+        score_mat[similarity < threshold - _FLOAT_EPS] = 0
 
         match_rows, match_cols = linear_sum_assignment(-score_mat)
-        matched = score_mat[match_rows, match_cols] > np.finfo(float).eps
+        matched = score_mat[match_rows, match_cols] > _FLOAT_EPS
         match_rows = match_rows[matched]
         match_cols = match_cols[matched]
 
@@ -571,10 +771,26 @@ def _eval_clear(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]:
         is_idsw = (~np.isnan(prev_matched_tracker_ids)) & (matched_tracker_ids != prev_matched_tracker_ids)
         res["IDSW"] += int(np.sum(is_idsw))
 
-        gt_id_count[gt_ids_t] += 1
+        # MOTMetrics identity-transition diagnostics complement ID switches:
+        # a transfer reuses a tracker ID for another GT identity; an ascend is
+        # a switch to a never-before-matched tracker ID; and a migrate is a
+        # transfer to a never-before-matched GT identity. Compute all masks
+        # before updating the persistent assignment state so simultaneous
+        # assignments in one frame cannot influence each other.
+        previous_gt_ids = prev_gt_id[matched_tracker_ids]
+        is_transfer = (previous_gt_ids >= 0) & (previous_gt_ids != matched_gt_ids)
+        is_ascend = is_idsw & ~tracker_ever_matched[matched_tracker_ids]
+        is_migrate = is_transfer & ~gt_ever_matched[matched_gt_ids]
+        res["IDt"] += int(np.sum(is_transfer))
+        res["IDa"] += int(np.sum(is_ascend))
+        res["IDm"] += int(np.sum(is_migrate))
+
         gt_matched_count[matched_gt_ids] += 1
         not_previously_tracked = np.isnan(prev_timestep_tracker_id)
         prev_tracker_id[matched_gt_ids] = matched_tracker_ids
+        prev_gt_id[matched_tracker_ids] = matched_gt_ids
+        gt_ever_matched[matched_gt_ids] = True
+        tracker_ever_matched[matched_tracker_ids] = True
         prev_timestep_tracker_id[:] = np.nan
         prev_timestep_tracker_id[matched_gt_ids] = matched_tracker_ids
         currently_tracked = ~np.isnan(prev_timestep_tracker_id)
@@ -612,36 +828,31 @@ def _eval_identity(data: SequenceData, threshold: float = 0.5) -> dict[str, Any]
         res["IDFP"] = data.num_tracker_dets
         return res
 
-    potential_matches_count = np.zeros((data.num_gt_ids, data.num_tracker_ids))
-    gt_id_count = np.zeros(data.num_gt_ids)
-    tracker_id_count = np.zeros(data.num_tracker_ids)
+    num_id_pairs = data.num_gt_ids * data.num_tracker_ids
+    encoded_edges: list[np.ndarray] = []
 
     for gt_ids_t, tracker_ids_t, similarity in zip(data.gt_ids, data.tracker_ids, data.similarity_scores):
         matches_mask = np.greater_equal(similarity, threshold)
         match_idx_gt, match_idx_tracker = np.nonzero(matches_mask)
-        potential_matches_count[gt_ids_t[match_idx_gt], tracker_ids_t[match_idx_tracker]] += 1
-        gt_id_count[gt_ids_t] += 1
-        tracker_id_count[tracker_ids_t] += 1
+        if len(match_idx_gt):
+            encoded_edges.append(gt_ids_t[match_idx_gt] * data.num_tracker_ids + tracker_ids_t[match_idx_tracker])
 
-    num_gt_ids = data.num_gt_ids
-    num_tracker_ids = data.num_tracker_ids
-    fp_mat = np.zeros((num_gt_ids + num_tracker_ids, num_gt_ids + num_tracker_ids))
-    fn_mat = np.zeros((num_gt_ids + num_tracker_ids, num_gt_ids + num_tracker_ids))
-    fp_mat[num_gt_ids:, :num_tracker_ids] = 1e10
-    fn_mat[:num_gt_ids, num_tracker_ids:] = 1e10
-    for gt_id in range(num_gt_ids):
-        fn_mat[gt_id, :num_tracker_ids] = gt_id_count[gt_id]
-        fn_mat[gt_id, num_tracker_ids + gt_id] = gt_id_count[gt_id]
-    for tracker_id in range(num_tracker_ids):
-        fp_mat[:num_gt_ids, tracker_id] = tracker_id_count[tracker_id]
-        fp_mat[tracker_id + num_gt_ids, tracker_id] = tracker_id_count[tracker_id]
-    fn_mat[:num_gt_ids, :num_tracker_ids] -= potential_matches_count
-    fp_mat[:num_gt_ids, :num_tracker_ids] -= potential_matches_count
+    if encoded_edges:
+        potential_matches_count = np.bincount(
+            np.concatenate(encoded_edges),
+            minlength=num_id_pairs,
+        ).astype(float, copy=False)
+    else:
+        potential_matches_count = np.zeros(num_id_pairs, dtype=float)
+    potential_matches_count = potential_matches_count.reshape(data.num_gt_ids, data.num_tracker_ids)
 
-    match_rows, match_cols = linear_sum_assignment(fn_mat + fp_mat)
-    res["IDFN"] = int(fn_mat[match_rows, match_cols].sum())
-    res["IDFP"] = int(fp_mat[match_rows, match_cols].sum())
-    res["IDTP"] = int(gt_id_count.sum() - res["IDFN"])
+    # Relative to leaving both IDs unmatched, pairing a GT/tracker ID saves twice
+    # their potential match count. The full dummy-node assignment therefore has
+    # the same optimum as this rectangular maximum-weight assignment.
+    match_rows, match_cols = linear_sum_assignment(potential_matches_count, maximize=True)
+    res["IDTP"] = int(potential_matches_count[match_rows, match_cols].sum())
+    res["IDFN"] = data.num_gt_dets - res["IDTP"]
+    res["IDFP"] = data.num_tracker_dets - res["IDTP"]
     return _compute_final_identity_fields(res)
 
 
@@ -656,9 +867,13 @@ def _eval_count(data: SequenceData) -> dict[str, Any]:
 
 
 def _eval_bundle(data: SequenceData) -> MetricBundle:
+    id_counts = (
+        _occurrence_counts(data.gt_ids, data.num_gt_ids),
+        _occurrence_counts(data.tracker_ids, data.num_tracker_ids),
+    )
     return {
-        "HOTA": _eval_hota(data),
-        "CLEAR": _eval_clear(data),
+        "HOTA": _eval_hota(data, id_counts=id_counts),
+        "CLEAR": _eval_clear(data, gt_id_count=id_counts[0]),
         "Identity": _eval_identity(data),
         "Count": _eval_count(data),
     }
@@ -774,7 +989,8 @@ def _summary_from_bundle(bundle: MetricBundle) -> dict[str, Any]:
     for field in _CLEAR_FLOAT_FIELDS:
         summary[field] = _percent(clear[field])
     for field in _CLEAR_INTEGER_FIELDS:
-        summary[field] = _count(clear[field])
+        if field in clear:
+            summary[field] = _count(clear[field])
     summary["MOTP_sum"] = float(clear.get("MOTP_sum", 0.0))
 
     for field in _IDENTITY_FLOAT_FIELDS:
@@ -806,13 +1022,7 @@ def build_dataset_eval_settings(
     del gt_folder
     cfg: dict[str, Any] = {}
     try:
-        benchmark_id = (
-            getattr(args, "benchmark_id", None)
-            or getattr(args, "dataset_id", None)
-            or getattr(args, "benchmark", None)
-        )
-        if benchmark_id:
-            cfg = load_benchmark_cfg(benchmark_id)
+        cfg = load_evaluation_config_from_args(args)
     except FileNotFoundError:
         cfg = {}
     except Exception as exc:  # noqa: BLE001
@@ -890,22 +1100,14 @@ def build_dataset_eval_settings(
 
 
 def _load_eval_cfg(args: argparse.Namespace) -> dict[str, Any]:
-    cfg = load_benchmark_cfg_from_args(args)
+    cfg = load_evaluation_config_from_args(args)
     if cfg:
         return cfg
 
-    cfg_name = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", str(Path(args.source).parent.name))
-    )
-    try:
-        return load_benchmark_cfg(cfg_name)
-    except FileNotFoundError:
-        for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
-            if config_file.stem in str(args.source):
-                return load_benchmark_cfg(config_file.stem)
-    LOGGER.warning(f"Could not find benchmark config for {cfg_name}. Class filtering might be incorrect.")
+    cfg = find_dataset_cfg_for_source(args.source) or {}
+    if cfg:
+        return cfg
+    LOGGER.warning(f"Could not infer a dataset config for {args.source}. Class filtering might be incorrect.")
     return {}
 
 
@@ -913,22 +1115,132 @@ def _aabb_gt_path(gt_folder: Path, gt_loc_format: str, seq_name: str) -> Path:
     return Path(gt_loc_format.format(gt_folder=gt_folder, seq=seq_name))
 
 
+def _evaluate_aabb_sequence_task(task: AABBSequenceEvaluationTask) -> tuple[str, dict[str, MetricBundle]]:
+    """Load and evaluate all requested classes for one AABB sequence."""
+    seq_info = {task.seq_name: task.num_timesteps}
+    distractor_ids = set(task.distractor_ids)
+    tracker = _read_csv_matrix(task.tracker_path)
+    if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+        raise ValueError(
+            f"Unsupported AABB tracker format in {task.tracker_path}: expected "
+            f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+        )
+    indexed_rows = _index_sequence_rows(
+        seq_name=task.seq_name,
+        seq_info=seq_info,
+        gt=_read_csv_matrix(task.gt_path),
+        tracker=tracker,
+    )
+    class_results = {
+        class_name: _eval_bundle(
+            _build_aabb_sequence_data(
+                seq_name=task.seq_name,
+                gt_path=task.gt_path,
+                tracker_path=task.tracker_path,
+                class_id=class_id,
+                distractor_ids=distractor_ids,
+                seq_info=seq_info,
+                indexed_rows=indexed_rows,
+            )
+        )
+        for class_name, class_id in task.class_pairs
+    }
+    return task.seq_name, class_results
+
+
+def _evaluate_obb_sequence_task(task: OBBSequenceEvaluationTask) -> tuple[str, dict[str, MetricBundle]]:
+    """Load and evaluate all requested classes for one OBB sequence."""
+    seq_info = {task.seq_name: task.num_timesteps}
+    gt_matrices: dict[Path, np.ndarray] = {}
+
+    def _load_gt(path: Path) -> np.ndarray:
+        if path not in gt_matrices:
+            gt_matrices[path] = _load_obb_gt_matrix(path)
+        return gt_matrices[path]
+
+    gt_path = _resolve_obb_gt_path(task.source, task.gt_folder, task.seq_name, load_gt=_load_gt)
+    tracker = _read_csv_matrix(task.tracker_path)
+    if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
+        raise ValueError(
+            f"Unsupported OBB tracker format in {task.tracker_path}: expected "
+            f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+        )
+    indexed_rows = _index_sequence_rows(
+        seq_name=task.seq_name,
+        seq_info=seq_info,
+        gt=_load_gt(gt_path),
+        tracker=tracker,
+    )
+    class_results = {
+        class_name: _eval_bundle(
+            _build_obb_sequence_data(
+                seq_name=task.seq_name,
+                gt_path=gt_path,
+                tracker_path=task.tracker_path,
+                class_id=class_id,
+                seq_info=seq_info,
+                indexed_rows=indexed_rows,
+            )
+        )
+        for class_name, class_id in task.class_pairs
+    }
+    return task.seq_name, class_results
+
+
+def _evaluate_sequence_task(task: SequenceEvaluationTask) -> tuple[str, dict[str, MetricBundle]]:
+    """Evaluate one sequence in either the caller or a worker process."""
+    if isinstance(task, AABBSequenceEvaluationTask):
+        return _evaluate_aabb_sequence_task(task)
+    return _evaluate_obb_sequence_task(task)
+
+
+def _fast_process_context() -> BaseContext:
+    """Prefer copy-on-write sequence workers on POSIX, matching motmetrics."""
+    import multiprocessing
+
+    if os.name == "posix" and "fork" in multiprocessing.get_all_start_methods():
+        return multiprocessing.get_context("fork")
+    return multiprocessing.get_context()
+
+
+def _metric_worker_count(num_sequences: int, cpu_count: int | None = None) -> int:
+    """Reserve two logical CPUs and never allocate more workers than sequences."""
+    available_cpus = os.cpu_count() if cpu_count is None else cpu_count
+    return min(num_sequences, max(1, (available_cpus or 1) - 2))
+
+
+def _evaluate_sequence_tasks(
+    tasks: Sequence[SequenceEvaluationTask],
+) -> list[tuple[str, dict[str, MetricBundle]]]:
+    """Evaluate sequence tasks serially or with an ordered process pool."""
+    workers = _metric_worker_count(len(tasks))
+    LOGGER.debug(f"Evaluating {len(tasks)} MOT sequence(s) with {max(1, workers)} metric worker process(es)")
+    if workers <= 1:
+        return [_evaluate_sequence_task(task) for task in tasks]
+
+    import multiprocessing
+
+    if multiprocessing.current_process().daemon:
+        LOGGER.debug("Metric evaluation is already inside a daemon process; using the serial sequence path")
+        return [_evaluate_sequence_task(task) for task in tasks]
+
+    context = _fast_process_context()
+    with context.Pool(processes=workers) as pool:
+        return pool.map(_evaluate_sequence_task, tasks, chunksize=1)
+
+
 def _evaluate_class_sequences(
     *,
     class_pairs: Sequence[tuple[str, int]],
-    seq_info: Mapping[str, int | None],
-    load_sequence: Callable[[str, int], SequenceData],
+    tasks: Sequence[SequenceEvaluationTask],
 ) -> tuple[dict[str, MetricBundle], dict[str, dict[str, MetricBundle]]]:
-    class_combined: dict[str, MetricBundle] = {}
-    per_class_sequence: dict[str, dict[str, MetricBundle]] = {}
+    per_class_sequence: dict[str, dict[str, MetricBundle]] = {class_name: {} for class_name, _ in class_pairs}
 
-    for class_name, class_id in class_pairs:
-        sequence_bundles = {
-            seq_name: _eval_bundle(load_sequence(seq_name, class_id))
-            for seq_name in sorted(seq_info.keys())
-        }
-        per_class_sequence[class_name] = sequence_bundles
-        class_combined[class_name] = _combine_bundles(sequence_bundles)
+    for seq_name, class_results in _evaluate_sequence_tasks(tasks):
+        for class_name, _ in class_pairs:
+            per_class_sequence[class_name][seq_name] = class_results[class_name]
+
+    class_combined = {class_name: _combine_bundles(per_class_sequence[class_name]) for class_name, _ in class_pairs}
 
     return class_combined, per_class_sequence
 
@@ -987,26 +1299,26 @@ def run_motmetrics(
     seq_info = _sequence_names_from_paths(seq_paths, seq_info)
     cfg = _load_eval_cfg(args)
     eval_box_type = resolve_eval_box_type(args, cfg)
-
     if eval_box_type == "obb":
         bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
         class_pairs = resolve_obb_eval_class_pairs(args, bench_cfg)
         if not class_pairs:
             class_pairs = list(DEFAULT_OBB_CLASS_NAME_TO_ID.items())
-
-        def _load_sequence(seq_name: str, class_id: int) -> SequenceData:
-            return _build_obb_sequence_data(
+        tasks: list[SequenceEvaluationTask] = [
+            OBBSequenceEvaluationTask(
                 seq_name=seq_name,
-                gt_path=_resolve_obb_gt_path(args, gt_folder, seq_name),
+                source=Path(args.source),
+                gt_folder=Path(gt_folder),
                 tracker_path=Path(args.exp_dir) / f"{seq_name}.txt",
-                class_id=class_id,
-                seq_info=seq_info,
+                class_pairs=tuple(class_pairs),
+                num_timesteps=seq_info[seq_name],
             )
+            for seq_name in sorted(seq_info)
+        ]
 
         class_combined, per_class_sequence = _evaluate_class_sequences(
             class_pairs=class_pairs,
-            seq_info=seq_info,
-            load_sequence=_load_sequence,
+            tasks=tasks,
         )
         results = _format_results(class_combined, per_class_sequence)
         _append_aggregate_results(results, class_combined, include_obb_super_categories=True)
@@ -1016,21 +1328,21 @@ def run_motmetrics(
     class_pairs = list(zip(settings["classes_to_eval"], settings["class_ids"]))
     distractor_ids = set(settings.get("distractor_ids") or [])
     gt_loc_format = settings["gt_loc_format"]
-
-    def _load_sequence(seq_name: str, class_id: int) -> SequenceData:
-        return _build_aabb_sequence_data(
+    tasks = [
+        AABBSequenceEvaluationTask(
             seq_name=seq_name,
             gt_path=_aabb_gt_path(gt_folder, gt_loc_format, seq_name),
             tracker_path=Path(args.exp_dir) / f"{seq_name}.txt",
-            class_id=class_id,
-            distractor_ids=distractor_ids,
-            seq_info=seq_info,
+            class_pairs=tuple(class_pairs),
+            num_timesteps=seq_info[seq_name],
+            distractor_ids=frozenset(distractor_ids),
         )
+        for seq_name in sorted(seq_info)
+    ]
 
     class_combined, per_class_sequence = _evaluate_class_sequences(
         class_pairs=class_pairs,
-        seq_info=seq_info,
-        load_sequence=_load_sequence,
+        tasks=tasks,
     )
     results = _format_results(class_combined, per_class_sequence)
     _append_aggregate_results(results, class_combined, include_obb_super_categories=False)

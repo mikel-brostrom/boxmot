@@ -8,10 +8,15 @@ from collections import deque
 
 import numpy as np
 
-from boxmot.trackers.common.geometry.obb import smooth_obb_corners
+from boxmot.trackers.common.geometry.obb import (
+    smooth_obb_corners,
+    transform_obb,
+    transform_obb_kalman_state,
+    transform_points,
+)
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
-from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.base import SortBoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 
 
 def k_previous_obs(observations, cur_age, k, is_obb=False):
@@ -157,6 +162,7 @@ class KalmanBoxTracker(SortBoxTrack):
         self.velocity = None
         self.delta_t = delta_t
         self._plot_angle = None
+        self._append_current_history()
         self._sync_initial_sort_meta()
 
     def _state_obb_for_plot(self) -> np.ndarray:
@@ -165,15 +171,21 @@ class KalmanBoxTracker(SortBoxTrack):
         corners, self._plot_angle = smooth_obb_corners(box, self._plot_angle)
         return corners
 
+    def _append_current_history(self) -> None:
+        """Append corrected display geometry using the shared 4/8-value contract."""
+        geometry = self._state_obb_for_plot() if self.is_obb else self.get_state()[0, :4]
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
+
     def update(self, bbox, cls, det_ind):
         """
         Updates the state vector with observed bbox.
         """
         self.det_ind = det_ind
         if bbox is not None:
+            bbox = np.asarray(bbox).copy()
             self.conf = bbox[-1]
             self.cls = cls
-            if self.last_observation.sum() >= 0:  # no previous observation
+            if self.last_observation[-1] >= 0:  # no previous observation
                 previous_box = None
                 for i in range(self.delta_t):
                     dt = self.delta_t - i
@@ -192,17 +204,18 @@ class KalmanBoxTracker(SortBoxTrack):
               Insert new observations. This is a ugly way to maintain both self.observations
               and self.history_observations. Bear it for the moment.
             """
-            self.last_observation = bbox
-            self.observations[self.age] = bbox
+            # Keep independent snapshots: CMC may transform both the OCR
+            # observation and the age-indexed velocity history in one frame.
+            self.last_observation = bbox.copy()
+            self.observations[self.age] = bbox.copy()
             self.time_since_update = 0
             self.hits += 1
             self.hit_streak += 1
             if self.is_obb:
                 self.kf.update(self.motion_model.to_measurement(bbox[:5]))
-                self.history_observations.append(self._state_obb_for_plot())
             else:
                 self.kf.update(self.motion_model.to_measurement(bbox))
-                self.history_observations.append(bbox)
+            self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
             self.kf.update(bbox)
@@ -230,6 +243,84 @@ class KalmanBoxTracker(SortBoxTrack):
             self.history.append(self.motion_model.to_box(self.kf.x))
         sync_track_meta(self)
         return self.history[-1]
+
+    def camera_update(self, transform: np.ndarray) -> None:
+        """Transform the complete OBB state into the current camera frame."""
+        if not self.is_obb:
+            raise ValueError("OCSORT camera_update is only used by its OBB adapter")
+
+        def warp_box(box):
+            return transform_obb(np.asarray(box, dtype=float)[:5], transform)
+
+        def warp_measurement(measurement):
+            if measurement is None:
+                return None
+            box = self.motion_model.to_box(measurement)[0]
+            return self.motion_model.to_measurement(warp_box(box))
+
+        def transform_state(mean, covariance):
+            return transform_obb_kalman_state(
+                mean,
+                covariance,
+                transform,
+                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
+                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
+                velocity_measurement_indices=(0, 1, 2, 4),
+            )
+
+        source_center = self.get_state()[0, :2].copy()
+        warped_observations: dict[int, np.ndarray] = {}
+
+        def warp_observation_once(observation):
+            identity = id(observation)
+            if identity not in warped_observations:
+                warped_observations[identity] = warp_box(observation)
+            return warped_observations[identity]
+
+        if self.last_observation[-1] >= 0:
+            self.last_observation[:5] = warp_observation_once(self.last_observation)
+        for age, observation in self.observations.items():
+            self.observations[age][:5] = warp_observation_once(observation)
+
+        self._transform_cached_velocity(transform, source_center)
+        self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.history_obs = deque(
+            (warp_measurement(item) for item in self.kf.history_obs),
+            maxlen=self.kf.history_obs.maxlen,
+        )
+        self.kf.last_measurement = warp_measurement(self.kf.last_measurement)
+        if not self.kf.observed and self.kf.attr_saved is not None:
+            saved = self.kf.attr_saved
+            saved["x"], saved["P"] = transform_state(saved["x"], saved["P"])
+            saved["history_obs"] = deque(
+                (warp_measurement(item) for item in saved["history_obs"]),
+                maxlen=saved["history_obs"].maxlen,
+            )
+            saved["last_measurement"] = warp_measurement(saved["last_measurement"])
+
+    def _transform_cached_velocity(self, transform: np.ndarray, source_center: np.ndarray) -> None:
+        """Rotate and normalize the cached ``[dy, dx]`` association direction."""
+        if self.velocity is None:
+            return
+
+        velocity_yx = np.asarray(self.velocity, dtype=np.float64).reshape(2)
+        velocity_xy = velocity_yx[::-1]
+        if not np.isfinite(velocity_xy).all():
+            return
+        if np.linalg.norm(velocity_xy) <= 1e-12:
+            self.velocity = np.zeros(2, dtype=np.float64)
+            return
+
+        center = np.asarray(source_center, dtype=np.float64).reshape(2)
+        step = 1e-3
+        mapped = transform_points(
+            np.stack([center, center + (step * velocity_xy)]),
+            transform,
+        )
+        transformed_xy = (mapped[1] - mapped[0]) / step
+        norm = float(np.linalg.norm(transformed_xy))
+        if np.isfinite(transformed_xy).all() and np.isfinite(norm) and norm > 1e-12:
+            self.velocity = (transformed_xy / norm)[::-1]
 
     def get_state(self):
         """

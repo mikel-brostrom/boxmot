@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 __all__ = ("ReID",)
 
 if TYPE_CHECKING:
-    from boxmot.reid.core.reid import ReID
+    from boxmot.reid.core.runtime import ReID
 
 
 def __getattr__(name: str):
     if name == "ReID":
-        return import_module("boxmot.reid.core.reid").ReID
+        return import_module("boxmot.reid.core.runtime").ReID
     raise AttributeError(f"module 'boxmot.reid' has no attribute {name!r}")
 
 

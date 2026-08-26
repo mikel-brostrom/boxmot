@@ -8,12 +8,13 @@ from boxmot.utils import logger as LOGGER
 
 
 class OpenVinoBackend(BaseModelBackend):
+    build_source_model = False
 
     def __init__(self, weights, device, half, preprocess=None):
+        self._max_batch: int | None = None
         super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = False
         self.half = half
-        self._max_batch: int | None = None
 
     def load_model(self, w):
         ensure_reid_backend_requirements(self.checker, "openvino")

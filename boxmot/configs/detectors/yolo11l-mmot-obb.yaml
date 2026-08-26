@@ -1,0 +1,22 @@
+id: yolo11l-mmot-obb
+
+box_type: obb
+
+classes:
+  0: car
+  1: bike
+  2: pedestrian
+  3: van
+  4: truck
+  5: bus
+  6: tricycle
+  7: awning-bike
+
+inference:
+  image_size: [1280, 1280]
+  confidence_threshold: 0.2
+
+checkpoints:
+  default:
+    path: models/yolo11l_3ch.pt
+    uri: gdrive://15gmA4-Yclvh5EZvTJYhcyV1CVdNRGIkR

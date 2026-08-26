@@ -157,7 +157,7 @@ PR / task descriptions should include:
 - If the full suite is too heavy, at least run the tests relevant to your change, e.g.:
 
   ```bash
-  uv run pytest tests/test_cli.py
+  uv run pytest tests/unit/engine/test_cli.py
   uv run pytest tests/path/to/affected_module_tests.py
   ```
 
@@ -333,8 +333,8 @@ At minimum, add or update tests to cover:
 
 If shared OBB plumbing changes, also consider extending:
 
-- `tests/unit/test_inference.py`
-- `tests/unit/test_base_backend.py`
+- `tests/unit/engine/tracking/test_inference.py`
+- `tests/unit/reid/backends/test_base_backend.py`
 
 ### Design rule
 

@@ -7,11 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from boxmot.engine.tuning.search_space import flatten_yaml_config
+from boxmot.trackers.config import get_tracker_config_path, load_tracker_config
 from boxmot.trackers.specs import normalize_tracker_backend
-from boxmot.utils import TRACKER_CONFIGS
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +24,7 @@ class TrackerDefinition:
 
     @property
     def config_path(self) -> Path:
-        return TRACKER_CONFIGS / f"{self.config_name or self.name}.yaml"
+        return get_tracker_config_path(self.config_name or self.name)
 
     @property
     def class_name(self) -> str:
@@ -39,7 +36,6 @@ TRACKER_DEFINITIONS = {
         name="strongsort",
         class_path="boxmot.trackers.bbox.strongsort.StrongSort",
         needs_reid=True,
-        accepts_per_class=False,
     ),
     "ocsort": TrackerDefinition(
         name="ocsort",
@@ -105,43 +101,35 @@ def get_tracker_config(tracker_type):
     definition = TRACKER_DEFINITIONS.get(tracker_type)
     if definition is not None:
         return definition.config_path
-    return TRACKER_CONFIGS / f"{tracker_type}.yaml"
-
-
-def _load_config_defaults(tracker_config: str | Path) -> dict[str, Any]:
-    with open(tracker_config, "r", encoding="utf-8") as f:
-        yaml_config = yaml.safe_load(f) or {}
-    flat_config = flatten_yaml_config(yaml_config)
-    return {param: details["default"] for param, details in flat_config.items()}
+    return get_tracker_config_path(tracker_type)
 
 
 def _resolve_tracker_args(
     definition: TrackerDefinition,
     tracker_config: str | Path | None,
     evolve_param_dict: dict[str, Any] | None,
+    tracker_kwargs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    if evolve_param_dict is not None:
-        return evolve_param_dict.copy()
-
-    return _load_config_defaults(tracker_config or definition.config_path)
+    return load_tracker_config(
+        definition.config_name or definition.name,
+        tracker_config,
+        evolve_param_dict,
+        tracker_kwargs,
+    )
 
 
 def _resolve_native_tracker_args(
+    tracker_type: str,
     tracker_config: str | Path | None,
     evolve_param_dict: dict[str, Any] | None,
     tracker_kwargs: dict[str, Any] | None = None,
-) -> dict[str, Any] | None:
-    if evolve_param_dict is not None:
-        cfg_dict = evolve_param_dict.copy()
-    elif tracker_config is not None:
-        cfg_dict = _load_config_defaults(tracker_config)
-    else:
-        cfg_dict = None
-
-    if tracker_kwargs:
-        cfg_dict = {} if cfg_dict is None else cfg_dict
-        cfg_dict.update(tracker_kwargs)
-    return cfg_dict
+) -> dict[str, Any]:
+    return load_tracker_config(
+        tracker_type,
+        tracker_config,
+        evolve_param_dict,
+        tracker_kwargs,
+    )
 
 
 def _load_tracker_class(definition: TrackerDefinition):
@@ -191,7 +179,12 @@ def _create_native_tracker(
     from boxmot.native.registry import get_native_live_backend
 
     native = get_native_live_backend(tracker_type)
-    cfg_dict = _resolve_native_tracker_args(tracker_config, evolve_param_dict, tracker_kwargs)
+    cfg_dict = _resolve_native_tracker_args(
+        (definition.config_name or definition.name) if definition is not None else tracker_type,
+        tracker_config,
+        evolve_param_dict,
+        tracker_kwargs,
+    )
     kwargs = {}
     if definition is not None and definition.needs_reid:
         kwargs["reid_weights"] = reid_weights
@@ -255,7 +248,12 @@ def create_tracker(
     definition = TRACKER_DEFINITIONS.get(tracker_type)
 
     if backend == "cpp":
-        return _create_native_tracker(
+        if per_class:
+            raise NotImplementedError(
+                "Native live trackers do not yet provide class-separated state. "
+                "Use tracker_backend='python' with per_class=True."
+            )
+        tracker = _create_native_tracker(
             tracker_type,
             definition=definition,
             tracker_config=tracker_config,
@@ -264,11 +262,17 @@ def create_tracker(
             tracker_kwargs=tracker_kwargs,
             reid_preprocess=reid_preprocess,
         )
+        if hasattr(tracker, "configure_class_catalog"):
+            tracker.configure_class_catalog(class_ids=class_ids, class_names=class_names)
+        return tracker
 
     definition = get_tracker_definition(tracker_type)
-    tracker_args = _resolve_tracker_args(definition, tracker_config, evolve_param_dict)
-    if tracker_kwargs:
-        tracker_args.update(tracker_kwargs)
+    tracker_args = _resolve_tracker_args(
+        definition,
+        tracker_config,
+        evolve_param_dict,
+        tracker_kwargs,
+    )
     tracker_args["per_class"] = per_class
     if class_ids is not None:
         tracker_args["class_ids"] = class_ids

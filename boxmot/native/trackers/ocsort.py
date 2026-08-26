@@ -41,9 +41,7 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
 
     asso_func = str(resolved.get("asso_func", "iou") or "iou").lower()
     if asso_func != "iou":
-        raise NotImplementedError(
-            f"Native OCSORT currently supports asso_func='iou' only, got {asso_func!r}."
-        )
+        raise NotImplementedError(f"Native OCSORT currently supports asso_func='iou' only, got {asso_func!r}.")
 
     resolved.setdefault("min_conf", 0.1)
     resolved.setdefault("det_thresh", 0.6)
@@ -188,7 +186,8 @@ class NativeOCSORTTracker(_native_trackers.NativeTrackerMixin):
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         del embs
         det_arr = self._coerce_detections_for_mode(dets)
-        return self._library.update(self._handle, det_arr, img)
+        tracks = self._library.update(self._handle, det_arr, img)
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_ocsort_live_tracker(
@@ -220,10 +219,11 @@ def process_sequence_cpp(
     split: str | None = None,
     masks_dir: str | None = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: str | None = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
-    del reid_name, preprocess_name
+    del reid_name, preprocess_name, embedding_cache_dir
     if str(tracker_name).lower() != "ocsort":
         raise ValueError("The native cpp replay backend currently supports tracker='ocsort' only.")
 

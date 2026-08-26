@@ -51,8 +51,10 @@ class BaseVisualization(ABC):
     @staticmethod
     def _obb_to_polygon(box: tuple) -> np.ndarray:
         arr = np.asarray(box, dtype=np.float32).reshape(-1)
-        if arr.size >= 8:
-            return arr[:8].reshape(4, 2)
+        if arr.size == 8:
+            return arr.reshape(4, 2)
+        if arr.size != 5:
+            raise ValueError(f"OBB visualization expects 5-value xywha or 8 corners, got {arr.size} values.")
         angle = arr[4] * 180.0 / np.pi
         box_poly = ((arr[0], arr[1]), (arr[2], arr[3]), angle)
         return cv.boxPoints(box_poly).astype(np.float32)
@@ -169,9 +171,6 @@ class BaseVisualization(ABC):
 
     def _draw_track(self, img, track, state, style, thickness, fontscale, show_trajectories):
         history = self.get_track_history_for_display(track)
-        if not history:
-            return img
-
         box = self.get_track_box_for_display(track, state)
         if box is None:
             return img
@@ -192,7 +191,7 @@ class BaseVisualization(ABC):
             style=style if (state == "predicted" and not self.is_obb) else "solid",
         )
 
-        if show_trajectories:
+        if show_trajectories and history:
             img = self.plot_trackers_trajectories(img, history, track_id, state=state)
         return img
 

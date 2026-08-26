@@ -41,6 +41,9 @@ ReplayOptions ParseArgs(const int argc, char** argv) {
     options.tracker.match_thresh = args.count("match-thresh") ? std::stof(args.at("match-thresh")) : 0.8F;
     options.tracker.proximity_thresh = args.count("proximity-thresh") ? std::stof(args.at("proximity-thresh")) : 0.5F;
     options.tracker.appearance_thresh = args.count("appearance-thresh") ? std::stof(args.at("appearance-thresh")) : 0.25F;
+    options.tracker.second_match_thresh = args.count("second-match-thresh") ? std::stof(args.at("second-match-thresh")) : 0.5F;
+    options.tracker.unconfirmed_match_thresh = args.count("unconfirmed-match-thresh") ? std::stof(args.at("unconfirmed-match-thresh")) : 0.7F;
+    options.tracker.unconfirmed_emb_scale = args.count("unconfirmed-emb-scale") ? std::stof(args.at("unconfirmed-emb-scale")) : 2.0F;
     options.tracker.cmc_method = args.count("cmc-method") ? args.at("cmc-method") : "ecc";
     options.tracker.frame_rate = args.count("frame-rate") ? std::stoi(args.at("frame-rate")) : 30;
     options.tracker.fuse_first_associate = args.count("fuse-first-associate") && ParseBool(args.at("fuse-first-associate"));

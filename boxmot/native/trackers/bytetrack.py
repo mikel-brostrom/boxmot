@@ -152,7 +152,8 @@ class NativeByteTrackTracker(_native_trackers.NativeTrackerMixin):
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         del embs
         det_arr = self._coerce_detections_for_mode(dets)
-        return self._library.update(self._handle, det_arr, img)
+        tracks = self._library.update(self._handle, det_arr, img)
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_bytetrack_live_tracker(
@@ -184,10 +185,11 @@ def process_sequence_cpp(
     split: str | None = None,
     masks_dir: str | None = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: str | None = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
-    del reid_name, preprocess_name
+    del reid_name, preprocess_name, embedding_cache_dir
     if str(tracker_name).lower() != "bytetrack":
         raise ValueError("The native cpp replay backend currently supports tracker='bytetrack' only.")
 

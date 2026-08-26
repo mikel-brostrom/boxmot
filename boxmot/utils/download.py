@@ -12,6 +12,7 @@ import sys
 import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
+from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
 
 import gdown
@@ -61,6 +62,11 @@ def _has_workflow_bar(status_fn: Any) -> bool:
     return status_fn is not None and callable(getattr(status_fn, "bar", None))
 
 
+def _temporary_download_path(dest: Path) -> Path:
+    """Return a unique sibling path so final publication can be atomic."""
+    return dest.with_name(f".{dest.name}.{uuid4().hex}.part")
+
+
 def download_file(
     url: str,
     dest: Path,
@@ -79,6 +85,7 @@ def download_file(
     instead of via tqdm — this prevents tqdm's carriage-return updates from
     racing with Rich's repaints.
     """
+    dest = Path(dest)
     if dest.exists() and not overwrite:
         LOGGER.debug(f"Cached: {dest.name}")
         return dest
@@ -89,55 +96,68 @@ def download_file(
     # Ensure parent dir
     dest.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.info(f"Downloading {dest.name}...")
+    temporary = _temporary_download_path(dest)
 
-    if "drive.google.com" in url or "drive.usercontent.google.com" in url:
-        gdown.download(
-            url=url,
-            output=str(dest),
-            quiet=False,
-            fuzzy=True,
-        )
-    else:
-        session = get_http_session()
-        response = session.get(url, stream=True, timeout=timeout)
-        response.raise_for_status()
-
-        total = int(response.headers.get("Content-Length", 0)) or None
-
-        if _has_workflow_bar(status_fn):
-            with open(dest, "wb") as f, status_fn.bar(
-                f"Downloading {dest.name}", total, unit="B"
-            ) as advance:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        advance(len(chunk))
+    try:
+        if "drive.google.com" in url or "drive.usercontent.google.com" in url:
+            downloaded = gdown.download(
+                url=url,
+                output=str(temporary),
+                quiet=False,
+                fuzzy=True,
+            )
+            if downloaded is None or not temporary.is_file():
+                raise IOError(f"Google Drive download failed for {dest.name}")
         else:
-            with open(dest, "wb") as f, tqdm(
-                total=total or 0,
-                unit="B",
-                unit_scale=True,
-                desc=f"Downloading {dest.name}",
-            ) as pbar:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if chunk:
-                        f.write(chunk)
-                        pbar.update(len(chunk))
+            session = get_http_session()
+            response = session.get(url, stream=True, timeout=timeout)
+            response.raise_for_status()
 
-        if total is not None:
-            written = dest.stat().st_size
-            if written < total:
-                try:
-                    dest.unlink()
-                except OSError:
-                    pass
-                raise IOError(
-                    f"Truncated download for {dest.name}: "
-                    f"got {written} bytes, expected {total}. The partial file "
-                    f"has been removed; re-run the command to retry."
-                )
+            total = int(response.headers.get("Content-Length", 0)) or None
 
-    return dest
+            if _has_workflow_bar(status_fn):
+                with open(temporary, "wb") as f, status_fn.bar(
+                    f"Downloading {dest.name}", total, unit="B"
+                ) as advance:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            advance(len(chunk))
+            else:
+                with open(temporary, "wb") as f, tqdm(
+                    total=total or 0,
+                    unit="B",
+                    unit_scale=True,
+                    desc=f"Downloading {dest.name}",
+                ) as pbar:
+                    for chunk in response.iter_content(chunk_size=chunk_size):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+
+            if total is not None:
+                written = temporary.stat().st_size
+                if written < total:
+                    raise IOError(
+                        f"Truncated download for {dest.name}: "
+                        f"got {written} bytes, expected {total}. The partial file "
+                        f"has been removed; re-run the command to retry."
+                    )
+
+        # Concurrent callers may both start while the destination is absent.
+        # Reuse a complete publication that is already visible when overwrite
+        # was not requested. A simultaneous publisher may still win the small
+        # check/replace race, but every candidate is complete and publication
+        # itself remains atomic.
+        if dest.exists() and not overwrite:
+            return dest
+        temporary.replace(dest)
+        return dest
+    finally:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError as exc:
+            LOGGER.warning(f"Could not remove temporary download {temporary}: {exc}")
 
 
 def download_files_parallel(

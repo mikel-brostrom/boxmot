@@ -369,6 +369,11 @@ class KalmanFilterXYHR(BaseKalmanFilter):
             innovation, kalman_gain, self.covariance, self._motion_mat
         )
         self.x = self.x + alpha * np.dot(innovation, kalman_gain.T)
+        if self._is_obb:
+            # Dampen angular velocity after correction. Equivalent OBB forms
+            # can otherwise inject a persistent quarter-turn velocity that
+            # causes oscillation on subsequent predictions.
+            self.x[self.dim_z + 4] *= 0.8
         self.covariance = self.covariance - np.linalg.multi_dot(
             (kalman_gain, projected_cov, kalman_gain.T)
         )

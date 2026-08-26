@@ -12,7 +12,7 @@ import numpy as np
 from rich.markup import escape as _escape_markup
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.configs.benchmark import load_benchmark_cfg
+from boxmot.engine.workflows.benchmark import load_evaluation_config_from_args
 from boxmot.utils import logger as LOGGER
 
 KF_TYPES = ("xywh", "xyah", "xysr", "xyhr")
@@ -44,18 +44,14 @@ def resolve_kf_train_root(args: argparse.Namespace) -> Path | None:
     (the eval split) when no separate train split can be resolved.
     """
     eval_split = getattr(args, "split", None) or ""
-    benchmark_id = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", None)
-        or getattr(args, "data", None)
-    )
-    if not benchmark_id or eval_split == "train":
+    if eval_split == "train":
         return None
 
     try:
-        cfg = load_benchmark_cfg(benchmark_id)
+        cfg = load_evaluation_config_from_args(args)
     except Exception:
+        return None
+    if not cfg:
         return None
 
     all_splits = cfg.get("splits") or {}
@@ -674,25 +670,18 @@ def run_kf_tuning(
     gt_class_offset = 0  # offset to convert GT class IDs to detector class IDs
     if per_class_kf:
         # Auto-detect: check the benchmark config's eval class count
-        benchmark_id = (
-            getattr(args, "benchmark_id", None)
-            or getattr(args, "dataset_id", None)
-            or getattr(args, "benchmark", None)
-            or getattr(args, "data", None)
-        )
-        if benchmark_id:
-            try:
-                _cfg = load_benchmark_cfg(benchmark_id)
-                names_dict = _cfg.get("names") or {}
-                n_eval_classes = len(names_dict)
-                if n_eval_classes <= 1:
-                    per_class_kf = False
-                elif names_dict:
-                    # GT class IDs are typically 1-indexed; detectors use 0-indexed.
-                    # Compute offset so per-class keys align with detector output.
-                    gt_class_offset = min(int(k) for k in names_dict.keys())
-            except Exception:
-                pass
+        try:
+            _cfg = load_evaluation_config_from_args(args)
+            names_dict = _cfg.get("names") or {}
+            n_eval_classes = len(names_dict)
+            if n_eval_classes <= 1:
+                per_class_kf = False
+            elif names_dict:
+                # GT class IDs are typically 1-indexed; detectors use 0-indexed.
+                # Compute offset so per-class keys align with detector output.
+                gt_class_offset = min(int(k) for k in names_dict.keys())
+        except Exception:
+            pass
     try:
         with cm:
             result = estimate_kf_noise(

@@ -432,7 +432,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
     }
 
     const Eigen::MatrixXd second_dist = IouDistance(remaining_tracked, detections_second);
-    const AssignmentResult second_matches = LinearAssignment(second_dist, 0.5F);
+    const AssignmentResult second_matches = LinearAssignment(second_dist, config_.second_match_thresh);
     for (const auto& match : second_matches.matches) {
         const auto& track = remaining_tracked[match.first];
         const auto& detection = detections_second[match.second];
@@ -462,7 +462,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
     Eigen::MatrixXd dist_unc = FuseScore(iou_unc, remaining_high);
     if (config_.with_reid && dist_unc.size() > 0) {
         Eigen::MatrixXd emb_unc = EmbeddingDistance(unconfirmed, remaining_high);
-        emb_unc /= 2.0;
+        emb_unc /= std::max(static_cast<double>(config_.unconfirmed_emb_scale), 1.0e-12);
         for (int row = 0; row < emb_unc.rows(); ++row) {
             for (int col = 0; col < emb_unc.cols(); ++col) {
                 if (emb_unc(row, col) > config_.appearance_thresh || iou_unc(row, col) > config_.proximity_thresh) {
@@ -473,7 +473,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         }
     }
 
-    const AssignmentResult unconfirmed_matches = LinearAssignment(dist_unc, 0.7F);
+    const AssignmentResult unconfirmed_matches = LinearAssignment(dist_unc, config_.unconfirmed_match_thresh);
     for (const auto& match : unconfirmed_matches.matches) {
         const auto& track = unconfirmed[match.first];
         track->Update(*remaining_high[match.second], kalman_filter_, frame_count_);

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from numbers import Integral
 from pathlib import Path
 from typing import Any, Sequence
 
-from boxmot.configs import BOXMOT_DEFAULTS, build_mode_namespace
+from boxmot.engine.config import BOXMOT_DEFAULTS, build_mode_namespace
 
 _MAXIMIZE_TUNE_METRICS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe")
 _MINIMIZE_TUNE_METRICS = ("IDSW", "IDs", "IDSW_rate")
@@ -67,6 +68,19 @@ def _explicit_api_keys(
     }
 
 
+def _normalize_optional_fps(fps: int | None) -> int | None:
+    """Validate an optional saved-video frame-rate override."""
+
+    if fps is None:
+        return None
+    if isinstance(fps, bool) or not isinstance(fps, Integral):
+        raise TypeError("fps must be a positive integer or None.")
+    resolved = int(fps)
+    if resolved <= 0:
+        raise ValueError("fps must be greater than zero.")
+    return resolved
+
+
 def build_track_args(
     api,
     *,
@@ -79,6 +93,7 @@ def build_track_args(
     save: bool = BOXMOT_DEFAULTS.track.save,
     save_txt: bool = BOXMOT_DEFAULTS.track.save_txt,
     show: bool = BOXMOT_DEFAULTS.track.show,
+    fps: int | None = None,
     verbose: bool = BOXMOT_DEFAULTS.track.verbose,
     tracker_backend: str | None = None,
 ):
@@ -106,6 +121,7 @@ def build_track_args(
             "show": bool(show),
             "save": bool(save),
             "save_txt": bool(save_txt),
+            "fps": _normalize_optional_fps(fps),
             "verbose": bool(verbose),
         },
         explicit_keys=_explicit_api_keys(api, device=device, half=half, defaults=BOXMOT_DEFAULTS.track),
@@ -114,8 +130,9 @@ def build_track_args(
 
 def build_eval_args(
     api,
-    benchmark: str | Path,
     *,
+    experiment: str | Path | None = None,
+    dataset: str | Path | None = None,
     split: str | None = None,
     imgsz=None,
     conf=None,
@@ -138,8 +155,9 @@ def build_eval_args(
     args = build_mode_namespace(
         mode,
         {
-            "data": str(benchmark),
-            "benchmark": str(benchmark),
+            "experiment": None if experiment is None else str(experiment),
+            "dataset": None if dataset is None else str(dataset),
+            "benchmark": "",
             "source": None,
             "split": "" if split is None else str(split),
             "detector": [api._detector_path(required=True)],
@@ -191,7 +209,7 @@ def build_eval_args(
 
 def build_tune_args(
     api,
-    benchmark: str | Path,
+    experiment: str | Path,
     *,
     split: str | None = None,
     n_trials: int = BOXMOT_DEFAULTS.tune.n_trials,
@@ -218,7 +236,8 @@ def build_tune_args(
 
     return build_eval_args(
         api,
-        benchmark,
+        experiment=experiment,
+        dataset=None,
         split=split,
         imgsz=imgsz,
         conf=conf,
@@ -245,7 +264,7 @@ def build_tune_args(
 def build_generate_args(
     api,
     *,
-    benchmark: str | Path | None = None,
+    experiment: str | Path | None = None,
     source: str | Path | None = None,
     imgsz=None,
     conf=None,
@@ -259,11 +278,11 @@ def build_generate_args(
     resume: bool = BOXMOT_DEFAULTS.generate.resume,
     n_threads: int = BOXMOT_DEFAULTS.generate.n_threads,
 ):
-    data = None if benchmark is None else str(benchmark)
+    experiment_ref = None if experiment is None else str(experiment)
     return build_mode_namespace(
         "generate",
         {
-            "data": data,
+            "experiment": experiment_ref,
             "source": source,
             "benchmark": "",
             "split": "",
@@ -292,7 +311,7 @@ def build_generate_args(
 
 def build_research_args(
     api,
-    benchmark: str | Path,
+    experiment: str | Path,
     *,
     project: str | Path | None = None,
     verbose: bool = BOXMOT_DEFAULTS.research.verbose,
@@ -314,7 +333,7 @@ def build_research_args(
     return build_mode_namespace(
         "research",
         {
-            "data": str(benchmark),
+            "experiment": str(experiment),
             "benchmark": "",
             "source": None,
             "split": "",
@@ -365,6 +384,11 @@ def build_export_args(
     verbose: bool = False,
     batch_size: int = BOXMOT_DEFAULTS.export.batch_size,
     imgsz=None,
+    coreml_batch_buckets: tuple[int, ...] = BOXMOT_DEFAULTS.export.coreml_batch_buckets,
+    coreml_minimum_deployment_target: str = BOXMOT_DEFAULTS.export.coreml_minimum_deployment_target,
+    coreml_compute_units: str = BOXMOT_DEFAULTS.export.coreml_compute_units,
+    coreml_timeout: float = BOXMOT_DEFAULTS.export.coreml_timeout,
+    coreml_max_memory_gb: float = BOXMOT_DEFAULTS.export.coreml_max_memory_gb,
     tflite_quantize: str = BOXMOT_DEFAULTS.export.tflite_quantize,
     tflite_calibration_data=None,
     tflite_calibration_samples: int = BOXMOT_DEFAULTS.export.tflite_calibration_samples,
@@ -388,6 +412,11 @@ def build_export_args(
             "verbose": bool(verbose),
             "batch_size": int(batch_size),
             "imgsz": imgsz,
+            "coreml_batch_buckets": tuple(int(value) for value in coreml_batch_buckets),
+            "coreml_minimum_deployment_target": str(coreml_minimum_deployment_target),
+            "coreml_compute_units": str(coreml_compute_units),
+            "coreml_timeout": float(coreml_timeout),
+            "coreml_max_memory_gb": float(coreml_max_memory_gb),
             "tflite_quantize": tflite_quantize,
             "tflite_calibration_data": tflite_calibration_data,
             "tflite_calibration_samples": int(tflite_calibration_samples),
@@ -408,6 +437,11 @@ def build_export_args(
             "batch_size",
             "imgsz",
             "include",
+            "coreml_batch_buckets",
+            "coreml_minimum_deployment_target",
+            "coreml_compute_units",
+            "coreml_timeout",
+            "coreml_max_memory_gb",
             "tflite_quantize",
             "tflite_calibration_data",
             "tflite_calibration_samples",

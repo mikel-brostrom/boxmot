@@ -7,10 +7,10 @@ from typing import Any
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
-    load_benchmark_cfg_from_args,
     resolve_eval_box_type,
     resolve_obb_classes_to_eval,
 )
+from boxmot.engine.workflows.benchmark import load_evaluation_config_from_args
 from boxmot.utils.rich.core.ui import print_text
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
@@ -20,6 +20,9 @@ MOT_REPORT_INTEGER_FIELDS = {
     "CLR_FN",
     "CLR_FP",
     "IDSW",
+    "IDt",
+    "IDa",
+    "IDm",
     "MT",
     "PT",
     "ML",
@@ -309,7 +312,7 @@ def _load_report_cfg_from_args(args: Any) -> dict[str, Any]:
     if args is None:
         return {}
     try:
-        return load_benchmark_cfg_from_args(args) or {}
+        return load_evaluation_config_from_args(args) or {}
     except Exception:
         return {}
 
@@ -479,6 +482,7 @@ def _render_summary_table(
     total_width: int,
     name_width: int,
     colorize: bool,
+    compare_label: str | None = None,
 ) -> str:
     if not rows:
         return ""
@@ -509,7 +513,7 @@ def _render_summary_table(
                 )
                 for column in SUMMARY_COLUMNS
             )
-            lines.append(f"{'':<{name_width}} {delta_vals}")
+            lines.append(f"{(compare_label or ''):<{name_width}} {delta_vals}")
     lines.append(_ansi_wrap("=" * total_width, "36", colorize=colorize))
     return "\n".join(lines)
 
@@ -523,6 +527,7 @@ def render_mot_report(
     include_sequences: bool = True,
     always_include_combined: bool = False,
     compare_results: dict[str, dict[str, Any]] | None = None,
+    compare_label: str | None = None,
     colorize: bool = False,
 ) -> str:
     if not parsed_results:
@@ -568,6 +573,7 @@ def render_mot_report(
                 total_width=total_width,
                 name_width=name_width,
                 colorize=colorize,
+                compare_label=compare_label,
             )
         )
         if aggregate_keys:
@@ -583,6 +589,7 @@ def render_mot_report(
                     total_width=total_width,
                     name_width=name_width,
                     colorize=colorize,
+                    compare_label=compare_label,
                 )
             )
         if include_sequences and (always_include_combined or not single_sequence):
@@ -615,6 +622,7 @@ def render_mot_report(
                         total_width=total_width,
                         name_width=name_width,
                         colorize=colorize,
+                        compare_label=compare_label,
                     )
                 )
     else:
@@ -651,6 +659,7 @@ def render_mot_report(
                     total_width=total_width,
                     name_width=name_width,
                     colorize=colorize,
+                    compare_label=compare_label,
                 )
             )
     return "\n".join(block for block in blocks if block)

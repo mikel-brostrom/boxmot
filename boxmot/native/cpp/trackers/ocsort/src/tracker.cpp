@@ -19,6 +19,11 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kAssignmentThreshold = 1.0e9;
 
+double WrapAngle(const double angle) {
+    const double period = 2.0 * kPi;
+    return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
+}
+
 cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
     return cv::RotatedRect(
         cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
@@ -124,7 +129,7 @@ Eigen::Matrix<double, 5, 1> OCSORTTracker::KalmanBoxTracker::ConvertObbToZ(const
     Eigen::Matrix<double, 5, 1> z;
     const double width = std::max(obb[2], 1.0e-6);
     const double height = std::max(obb[3], 1.0e-6);
-    z << obb[0], obb[1], width * height, width / height, obb[4];
+    z << obb[0], obb[1], width * height, width / height, WrapAngle(obb[4]);
     return z;
 }
 
@@ -255,7 +260,7 @@ void OCSORTTracker::KalmanBoxTracker::Update(const Detection* detection) {
     conf = detection->conf;
     cls = detection->cls;
     const Eigen::VectorXd bbox = ObservationVector(*detection);
-    if (last_observation.sum() >= 0.0) {
+    if (ObservationIsValid(last_observation)) {
         Eigen::VectorXd previous_box;
         bool found = false;
         for (int index = 0; index < delta_t; ++index) {
@@ -295,10 +300,18 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::GetState() const {
 }
 
 Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::CurrentOutputBox() const {
-    if (last_observation.sum() < 0.0) {
+    if (!ObservationIsValid(last_observation)) {
         return GetState();
     }
-    return last_observation.head(is_obb ? 5 : 4);
+    Eigen::VectorXd output = last_observation.head(is_obb ? 5 : 4);
+    if (is_obb) {
+        // Match Python OcSort's public-output contract: association and KF
+        // updates use the aligned state, but a matched track is emitted with
+        // its latest detector geometry. Python's formatter normalizes only
+        // the public angle, so do the same before crossing the native ABI.
+        output[4] = WrapAngle(output[4]);
+    }
+    return output;
 }
 
 OCSORTTracker::OCSORTTracker(Config config) : config_(std::move(config)) {

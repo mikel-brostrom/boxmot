@@ -7,7 +7,7 @@
         Install BoxMOT and inspect the CLI:
 
         ```bash
-        pip install boxmot
+        pip install "boxmot[yolo]"
         boxmot --help
         ```
 
@@ -17,16 +17,17 @@
         boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
         ```
 
-        Benchmark a tracker on a built-in config:
+        Run a tracker experiment from a built-in config:
 
         ```bash
-        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --verbose
+        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --verbose
         ```
 
         Research tracker code changes on a built-in config:
 
         ```bash
-        boxmot research --benchmark mot17 --split ablation --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
+        pip install "boxmot[yolo,research]"
+        boxmot research --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
         ```
 
     === "Python"
@@ -40,11 +41,13 @@
         run = boxmot.track(source="video.mp4", save=True)
         print(run)
 
-        metrics = boxmot.val(benchmark="mot17-mini")
+        metrics = boxmot.val(experiment="mot17-mini-train-yolox-lmbn")
         print(metrics)
         ```
 
-The high-level Python API is available directly from `boxmot`. Shared CLI and Python defaults still come from `boxmot/configs/modes.yaml` so detector, ReID, tracker, and runtime defaults stay aligned across both entry points.
+The high-level Python API is available directly from `boxmot`. Shared tracking
+defaults come from `boxmot/configs/runtime.yaml`, so the CLI and Python entry
+points remain aligned.
 
 Next steps:
 
@@ -52,5 +55,6 @@ Next steps:
 - [CLI Usage](usage/index.md)
 - [Python API](python/index.md)
 - [Configuration](config/index.md)
-- [API Reference](python/index.md)
+- [API Reference](python/high-level.md)
 - [Trackers](trackers/index.md)
+- [Native C++ Integration](native/index.md)

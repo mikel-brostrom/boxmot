@@ -37,9 +37,9 @@ class TrackDisplayMixin:
 
     def get_track_state_for_display(self, track):
         """Infer a display lifecycle state for a tracker-local track object."""
-        if hasattr(track, "hits") and track.hits < self.min_hits:
+        if hasattr(track, "hits") and track.hits < self.min_hits and self.frame_count > self.min_hits:
             return None
-        if hasattr(track, "is_activated") and not track.is_activated:
+        if hasattr(track, "is_activated") and not track.is_activated and self.frame_count > self.min_hits:
             return None
 
         meta_state = getattr(getattr(track, "meta", None), "state", None)
@@ -125,16 +125,22 @@ class TrackDisplayMixin:
     def get_track_box_for_display(self, track, state: str):
         """Return the geometry that should be drawn for a given track state."""
         history = self.get_track_history_for_display(track)
-        if state not in ("predicted", "removed"):
-            return history[-1] if history else None
+        if state not in ("predicted", "removed") and history:
+            return history[-1]
 
         if self.is_obb:
-            for attr_name in ("_state_obb_for_plot", "xywha", "get_state", "xyxy"):
+            for attr_name in (
+                "_state_obb_for_plot",
+                "xywha",
+                "obb",
+                "output_box",
+                "get_state",
+            ):
                 box = self._resolve_track_box_attr(track, attr_name)
                 if box is not None:
                     return box
         else:
-            for attr_name in ("xyxy", "get_state"):
+            for attr_name in ("xyxy", "bbox", "output_box", "get_state"):
                 box = self._resolve_track_box_attr(track, attr_name)
                 if box is not None:
                     return box

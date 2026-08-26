@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 import numpy as np
 
@@ -53,24 +53,25 @@ class Detector:
         path: str | Path,
         device: str = "cpu",
         imgsz=None,
-        conf: Optional[float] = None,
+        conf: float | None = None,
         iou: float = 0.7,
         classes=None,
         agnostic_nms: bool = False,
         batch: int = 1,
         vid_stride: int = 1,
-        callbacks: Optional[dict[str, list[Callable[["Detector"], None]]]] = None,
+        callbacks: dict[str, list[Callable[["Detector"], None]]] | None = None,
     ) -> None:
         self.path = Path(path)
         self.device = device
-        self.imgsz = default_imgsz(path) if imgsz is None else imgsz
-        self.conf = default_conf(path) if conf is None else float(conf)
+        self.imgsz = default_imgsz(self.path) if imgsz is None else imgsz
+        self.conf = default_conf(self.path) if conf is None else float(conf)
         self.iou = float(iou)
         self.classes = classes
         self.agnostic_nms = bool(agnostic_nms)
         self.batch_size = max(int(batch), 1)
         self.vid_stride = max(int(vid_stride), 1)
-        self.backend = self._get_backend_class(path)(model=path, device=device, imgsz=self.imgsz)
+        self.backend = self._get_backend_class(self.path)(model=self.path, device=device, imgsz=self.imgsz)
+        self.is_obb = bool(getattr(self.backend, "is_obb", False))
         self.model = getattr(self.backend, "model", getattr(self.backend, "_yolo", self.backend))
         self.done_warmup = False
         self.dataset = None
@@ -100,7 +101,42 @@ class Detector:
     def _batch_input(frames: list[np.ndarray]):
         return frames[0] if len(frames) == 1 else frames
 
-    def setup_source(self, source, batch: Optional[int] = None, vid_stride: Optional[int] = None):
+    @staticmethod
+    def _result_metadata(kwargs) -> tuple[list[np.ndarray], list[str]]:
+        frames = kwargs.get("frames")
+        if isinstance(frames, (list, tuple)):
+            images = list(frames)
+        else:
+            image = kwargs.get("image")
+            images = [] if image is None else [image]
+
+        paths = kwargs.get("paths")
+        if isinstance(paths, (list, tuple)):
+            source_paths = [str(path) for path in paths]
+        elif "path" in kwargs:
+            source_paths = [str(kwargs.get("path") or "")]
+        else:
+            source_paths = []
+        return images, source_paths
+
+    @classmethod
+    def _attach_result_metadata(cls, results, **kwargs):
+        """Backfill source metadata that backend-only stages cannot know."""
+        result_list = results if isinstance(results, list) else [results]
+        images, paths = cls._result_metadata(kwargs)
+        if images and isinstance(results, list) and all(isinstance(result, Detections) for result in result_list):
+            if len(result_list) != len(images):
+                raise ValueError(f"Detector returned {len(result_list)} results for a batch of {len(images)} images.")
+        for index, result in enumerate(result_list):
+            if not isinstance(result, Detections):
+                continue
+            if result.orig_img is None and index < len(images):
+                result.orig_img = images[index]
+            if not result.path and index < len(paths):
+                result.path = paths[index]
+        return results
+
+    def setup_source(self, source, batch: int | None = None, vid_stride: int | None = None):
         """Prepare a batched source iterator for predictor-style inference."""
         self.dataset = _iter_batches(
             source,
@@ -150,7 +186,7 @@ class Detector:
             return image
         try:
             return backend_pre(images)
-        except (TypeError, NotImplementedError):
+        except NotImplementedError:
             # Backend without a real preprocess stage (legacy contract):
             # fall back to the no-op pass-through so the composite path
             # ``self.backend(...)`` continues to work in ``process``.
@@ -181,7 +217,7 @@ class Detector:
         if callable(backend_proc):
             try:
                 return backend_proc(frame)
-            except (TypeError, NotImplementedError):
+            except NotImplementedError:
                 pass
         # Backend has no standalone process stage: fall back to composite.
         images = self._last_orig_imgs or (frame if isinstance(frame, list) else [frame])
@@ -198,17 +234,20 @@ class Detector:
 
     def postprocess(self, results, as_detections: bool = False, **kwargs):
         if results is None:
-            dets = np.empty((0, 6), dtype=np.float32)
+            images, paths = self._result_metadata(kwargs)
+            count = max(len(images), len(paths), 1)
+            empty_results = [
+                Detections.empty(
+                    images[index] if index < len(images) else None,
+                    is_obb=self.is_obb,
+                    path=paths[index] if index < len(paths) else "",
+                )
+                for index in range(count)
+            ]
             if as_detections:
-                orig_img = kwargs.get("image")
-                if orig_img is None:
-                    frames = kwargs.get("frames")
-                    if isinstance(frames, (list, tuple)) and len(frames) > 0:
-                        orig_img = frames[0]
-                    else:
-                        orig_img = np.empty((0, 0, 3), dtype=np.uint8)
-                return Detections(dets=dets, orig_img=orig_img, path=str(kwargs.get("path", "")))
-            return dets
+                return empty_results[0] if len(empty_results) == 1 else empty_results
+            arrays = [result.dets for result in empty_results]
+            return arrays[0] if len(arrays) == 1 else arrays
 
         backend_post = getattr(self.backend, "postprocess", None)
         # If the backend has a real postprocess stage, route the raw model
@@ -217,9 +256,7 @@ class Detector:
         # legacy unwrap-only behaviour.
         if callable(backend_post) and not isinstance(results, (Detections,)):
             already_detections = (
-                isinstance(results, list)
-                and len(results) > 0
-                and all(isinstance(r, Detections) for r in results)
+                isinstance(results, list) and len(results) > 0 and all(isinstance(r, Detections) for r in results)
             )
             if not already_detections:
                 try:
@@ -230,8 +267,9 @@ class Detector:
                         classes=kwargs.get("classes", self.classes),
                         agnostic_nms=bool(kwargs.get("agnostic_nms", self.agnostic_nms)),
                     )
-                except (TypeError, NotImplementedError):
+                except NotImplementedError:
                     pass
+        results = self._attach_result_metadata(results, **kwargs)
         if as_detections:
             if isinstance(results, list) and len(results) == 1:
                 return results[0]
@@ -245,17 +283,11 @@ class Detector:
                 return results
             return results.dets
         if isinstance(results, list) and all(isinstance(result, Detections) for result in results):
-            if len(results) == 1:
-                if results[0].masks is not None:
-                    return results[0]
-                return results[0].dets
-            return results
+            converted = [result if result.masks is not None else result.dets for result in results]
+            return converted[0] if len(converted) == 1 else converted
         if isinstance(results, list) and all(hasattr(result, "dets") for result in results):
-            if len(results) == 1:
-                if getattr(results[0], "masks", None) is not None:
-                    return results[0]
-                return results[0].dets
-            return [result.dets for result in results]
+            converted = [result if getattr(result, "masks", None) is not None else result.dets for result in results]
+            return converted[0] if len(converted) == 1 else converted
         return results
 
     def _predict_single(self, source, **kwargs):
@@ -269,7 +301,7 @@ class Detector:
             self.run_callbacks("on_predict_start")
             self.run_callbacks("on_predict_batch_start")
             preprocessed = self.preprocess(image, path=path, **kwargs)
-            raw_results = self.process(preprocessed, path=path, **kwargs)
+            raw_results = self.process(preprocessed, path=path)
             self.raw_results = self._as_result_list(raw_results)
             processed = self.postprocess(raw_results, image=image, path=path, **kwargs)
             self.results = self._as_result_list(processed)
@@ -293,7 +325,7 @@ class Detector:
                     self.batch = (paths, frames)
                     self.run_callbacks("on_predict_batch_start")
                     preprocessed = self.preprocess(self._batch_input(frames), paths=paths, **kwargs)
-                    raw_results = self.process(preprocessed, paths=paths, **kwargs)
+                    raw_results = self.process(preprocessed, paths=paths)
                     self.raw_results = self._as_result_list(raw_results)
                     processed = self.postprocess(raw_results, frames=frames, paths=paths, **kwargs)
                     self.results = self._as_result_list(processed)
@@ -319,6 +351,8 @@ class Detector:
         if _is_single_inference_source(source):
             return self._predict_single(source, **kwargs)
         return list(self.stream_inference(source, **kwargs))
+
+
 __all__ = (
     "BaseDetectorBackend",
     "Detector",

@@ -4,37 +4,33 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import boxmot.utils.rich.core.ui as ui
-from boxmot.configs.benchmark import (
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    load_benchmark_cfg,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
-)
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,
     build_gt_class_remap,
-    configure_benchmark_runtime,
-    eval_init,
-    load_benchmark_cfg_from_args,
     prepare_aabb_eval_gt,
     resolve_eval_box_type,
 )
 from boxmot.detectors import get_runtime_detector_cfg
+from boxmot.engine.workflows.benchmark import (
+    configure_benchmark_runtime,
+    ensure_benchmark_detector_model,
+    ensure_benchmark_reid_model,
+    eval_init,
+    find_dataset_cfg_for_source,
+    load_evaluation_config_from_args,
+    should_use_benchmark_detector,
+    should_use_benchmark_reid,
+)
 from boxmot.engine.workflows.reporting import extract_summary, timing_summary_from_stats
 from boxmot.engine.workflows.results import ValidationResult
-from boxmot.utils import (
-    BENCHMARK_CONFIGS,
-)
-from boxmot.utils import (
-    logger as LOGGER,
-)
+from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
 from boxmot.utils.misc import resolve_model_path, suppress_boxmot_logs
 from boxmot.utils.rich.reporters.eval import (
@@ -85,7 +81,7 @@ __all__ = [
     "EVAL_GENERATE_STEP",
     "EVAL_SETUP_STEP",
     "EVAL_TRACK_STEP",
-    "_load_benchmark_cfg",
+    "_load_evaluation_cfg",
     "_load_embedding_cache_array",
     "_load_numeric_cache_array",
     "_load_obb_gt_matrix",
@@ -103,6 +99,7 @@ __all__ = [
     "run_generate_dets_embs",
     "run_generate_mot_results",
     "run_motmetrics",
+    "run_trackeval_reference",
 ]
 
 _LAZY_EXPORTS = {
@@ -147,6 +144,10 @@ _LAZY_EXPORTS = {
         "run_generate_mot_results",
     ),
     "motmetrics_runner": ("boxmot.engine.eval.motmetrics", "run_motmetrics"),
+    "trackeval_runner": (
+        "boxmot.engine.eval.trackeval_reference",
+        "evaluate_trackeval_motchallenge",
+    ),
 }
 
 
@@ -180,8 +181,8 @@ def _ensure_eval_dependencies() -> None:
     _EVAL_DEPENDENCIES_READY = True
 
 
-def _load_benchmark_cfg(args: argparse.Namespace) -> dict:
-    return load_benchmark_cfg_from_args(args)
+def _load_evaluation_cfg(args: argparse.Namespace) -> dict:
+    return load_evaluation_config_from_args(args)
 
 
 def _resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
@@ -191,7 +192,7 @@ def _resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] =
 def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, dict]:
     return configure_benchmark_runtime(
         args,
-        load_benchmark_cfg_fn=_load_benchmark_cfg,
+        load_evaluation_cfg_fn=_load_evaluation_cfg,
         should_use_benchmark_detector_fn=should_use_benchmark_detector,
         should_use_benchmark_reid_fn=should_use_benchmark_reid,
         ensure_benchmark_detector_model_fn=ensure_benchmark_detector_model,
@@ -199,16 +200,8 @@ def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, 
     )
 
 
-def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
-    """
-    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
-    """
+def _collect_eval_sequences(args: argparse.Namespace) -> tuple[list[Path], dict[str, int], Path]:
     collect_seq_info = _get_lazy_export("_collect_seq_info")
-    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
-    log_mot_report_fn = _get_lazy_export("log_mot_report")
-    render_mot_report_fn = _get_lazy_export("render_mot_report")
-    motmetrics_runner = _get_lazy_export("motmetrics_runner")
-
     seq_paths, seq_info = collect_seq_info(args.source)
     annotations_dir = args.source.parent / "annotations"
     gt_folder = annotations_dir if annotations_dir.exists() else args.source
@@ -234,31 +227,32 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
                         seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
             except (ValueError, OSError) as exc:
                 LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference: {exc}")
+    return seq_paths, seq_info, gt_folder
+
+
+def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
+    """
+    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
+    """
+    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
+    log_mot_report_fn = _get_lazy_export("log_mot_report")
+    render_mot_report_fn = _get_lazy_export("render_mot_report")
+    motmetrics_runner = _get_lazy_export("motmetrics_runner")
+
+    seq_paths, seq_info, gt_folder = _collect_eval_sequences(args)
 
     if getattr(args, "benchmark", None):
         save_dir = Path(args.project) / args.benchmark / args.name
     else:
         save_dir = Path(args.project) / args.name
 
-    cfg = _load_benchmark_cfg(args)
+    cfg = _load_evaluation_cfg(args)
     if not cfg:
-        cfg_name = (
-            getattr(args, "benchmark_id", None)
-            or getattr(args, "dataset_id", None)
-            or getattr(args, "benchmark", str(args.source.parent.name))
-        )
-        try:
-            cfg = load_benchmark_cfg(cfg_name)
-        except FileNotFoundError:
-            found = False
-            for config_file in BENCHMARK_CONFIGS.glob("*.yaml"):
-                if config_file.stem in str(args.source):
-                    cfg = load_benchmark_cfg(config_file.stem)
-                    found = True
-                    break
-            if not found:
-                LOGGER.warning(f"Could not find benchmark config for {cfg_name}. Class filtering might be incorrect.")
-                cfg = {}
+        cfg = find_dataset_cfg_for_source(args.source) or {}
+        if not cfg:
+            LOGGER.warning(
+                f"Could not infer a dataset config for {args.source}. Class filtering might be incorrect."
+            )
 
     if _resolve_eval_box_type(args, cfg) == "obb":
         parsed_results = motmetrics_runner(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
@@ -310,6 +304,42 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
     return final_results
 
 
+def _resolve_trackeval_benchmark(args: argparse.Namespace, cfg: dict) -> str:
+    candidates = [
+        cfg.get("id") if isinstance(cfg, dict) else None,
+        (cfg.get("dataset") or {}).get("id") if isinstance(cfg, dict) else None,
+        getattr(args, "experiment_id", None),
+        getattr(args, "dataset_id", None),
+        getattr(args, "benchmark", None),
+        getattr(args, "experiment", None),
+    ]
+    for candidate in candidates:
+        match = re.search(r"mot[-_ ]?(15|16|17|20)", str(candidate or ""), flags=re.IGNORECASE)
+        if match:
+            return f"MOT{match.group(1)}"
+    raise ValueError("--compare-trackeval supports MOT15, MOT16, MOT17, and MOT20 benchmark configurations only")
+
+
+def run_trackeval_reference(args: argparse.Namespace) -> dict:
+    """Run an independent TrackEval comparison over the generated MOT files."""
+    cfg = _load_evaluation_cfg(args)
+    if _resolve_eval_box_type(args, cfg) != "aabb":
+        raise ValueError("--compare-trackeval supports AABB MOTChallenge evaluation only")
+
+    _, seq_info, gt_folder = _collect_eval_sequences(args)
+    prepared_gt = prepare_aabb_eval_gt(args, gt_folder, seq_info)
+    expected_gt = [prepared_gt / seq_name / "gt" / "gt_temp.txt" for seq_name in seq_info]
+    if any(not path.exists() for path in expected_gt):
+        raise ValueError("--compare-trackeval requires the standard MOTChallenge sequence/gt layout")
+
+    return _get_lazy_export("trackeval_runner")(
+        gt_folder=prepared_gt,
+        tracker_folder=Path(args.exp_dir),
+        seq_info=seq_info,
+        benchmark=_resolve_trackeval_benchmark(args, cfg),
+    )
+
+
 def eval_setup(args, pipeline: PipelineTracker | None = None) -> None:
     """
     Common setup for eval and tune pipelines.
@@ -329,19 +359,11 @@ def apply_class_remap(args, det_cfg: dict) -> None:
     if str(getattr(args, "eval_box_type", "")).lower() == "obb":
         return
 
-    bench_cfg: dict = {}
-    benchmark_id = (
-        getattr(args, "benchmark_id", None)
-        or getattr(args, "dataset_id", None)
-        or getattr(args, "benchmark", None)
-        or getattr(args, "data", None)
-    )
-    if benchmark_id:
-        try:
-            bench_cfg = (load_benchmark_cfg(benchmark_id) or {}).get("benchmark", {})
-        except (FileNotFoundError, KeyError, ValueError) as exc:
-            LOGGER.debug(f"Could not load benchmark config for class remap: {exc}")
-            pass
+    try:
+        bench_cfg = (_load_evaluation_cfg(args) or {}).get("benchmark", {})
+    except (FileNotFoundError, KeyError, ValueError) as exc:
+        LOGGER.debug(f"Could not load evaluation config for class remap: {exc}")
+        bench_cfg = {}
 
     if str(bench_cfg.get("box_type", "")).lower() == "obb":
         return
@@ -473,10 +495,19 @@ def run_eval(
         pipeline.advance("Computing metrics...")
 
     # -- Evaluate --
-    raw_results = run_motmetrics(args, verbose=verbose and not has_pipeline)
+    compare_trackeval = bool(getattr(args, "compare_trackeval", False))
+    raw_results = run_motmetrics(
+        args,
+        verbose=verbose and not has_pipeline and not compare_trackeval,
+    )
+    reference_results = run_trackeval_reference(args) if compare_trackeval else None
     summary_label, summary = extract_summary(raw_results)
     result = ValidationResult(
-        benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
+        benchmark=str(
+            getattr(args, "benchmark", None)
+            or getattr(args, "experiment_id", None)
+            or getattr(args, "experiment", "")
+        ),
         raw=raw_results,
         summary_label=summary_label,
         summary=summary,
@@ -484,7 +515,11 @@ def run_eval(
         timings=timing_summary_from_stats(timing_stats),
         args=args,
         workflow_rendered=has_pipeline,
+        reference_raw=reference_results,
+        reference_name="TrackEval" if reference_results is not None else None,
     )
+    if verbose and not has_pipeline and reference_results is not None:
+        result.print_report(include_sequences=summary_label == "single_class")
     if pipeline is not None:
         include_timings = bool(getattr(args, "show_timing", False))
         pipeline.complete_step()

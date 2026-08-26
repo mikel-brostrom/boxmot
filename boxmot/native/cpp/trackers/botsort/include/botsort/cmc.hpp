@@ -15,9 +15,24 @@ public:
 
 protected:
     cv::Mat Preprocess(const cv::Mat& image, bool grayscale, float scale) const;
+    static cv::Mat GenerateMask(
+        const cv::Size& size,
+        const std::vector<Detection>& detections,
+        double scale_x,
+        double scale_y
+    );
 };
+
+namespace detail {
+
+bool IsValidAffine(
+    const cv::Mat& affine,
+    double min_abs_determinant = 1.0e-6,
+    double max_abs_determinant = 1.0e6
+);
+
+}  // namespace detail
 
 std::unique_ptr<CameraMotionCompensator> CreateCameraMotionCompensator(const std::string& method);
 
 }  // namespace botsort
-

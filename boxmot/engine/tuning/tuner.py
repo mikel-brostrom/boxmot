@@ -113,6 +113,7 @@ from boxmot.engine.workflows.reporting import (
     SUMMARY_COLUMNS,
 )
 from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
+from boxmot.trackers.config import load_tracker_config
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.misc import suppress_boxmot_logs
 from boxmot.utils.rich.reporters.tune import (
@@ -289,11 +290,9 @@ class Tuner:
         search_backend = resolve_search_backend(args)
         setattr(args, "search_alg", search_backend)
 
-        baseline = self.baseline_config
-        if baseline is None:
-            baseline = default_tune_config(yaml_cfg) or None
-        else:
-            baseline = normalize_trial_config(baseline)
+        baseline_overlay = normalize_trial_config(self.baseline_config)
+        runtime_config = load_tracker_config(args.tracker, None, baseline_overlay)
+        baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
         max_concurrent = int(getattr(args, "max_concurrent_trials", 0)) or None
         if max_concurrent is None:
@@ -417,7 +416,14 @@ class Tuner:
                 result_grid, interrupted = self._execute_tuner(tuner)
 
                 # Post-process
-                saved_artifacts = self._post_process(result_grid, tune_dir, yaml_cfg, maximize, minimize)
+                saved_artifacts = self._post_process(
+                    result_grid,
+                    tune_dir,
+                    yaml_cfg,
+                    maximize,
+                    minimize,
+                    base_config=runtime_config,
+                )
 
                 # Final UI
                 self._finalize_ui(pipeline, saved_artifacts, baseline, maximize, minimize, tune_dir, interrupted)
@@ -528,11 +534,20 @@ class Tuner:
                 pass
         return result_grid, interrupted
 
-    def _post_process(self, result_grid, tune_dir, yaml_cfg, maximize, minimize):
+    def _post_process(
+        self,
+        result_grid,
+        tune_dir,
+        yaml_cfg,
+        maximize,
+        minimize,
+        *,
+        base_config=None,
+    ):
         try:
             return _save_all_results(
                 tune_dir, result_grid, yaml_cfg, self.args.tracker,
-                maximize, minimize, self.args, emit_logs=False,
+                maximize, minimize, self.args, base_config=base_config, emit_logs=False,
             )
         except Exception as exc:
             LOGGER.warning(f"Failed to save tune results: {type(exc).__name__}: {exc}")
@@ -586,7 +601,7 @@ class Tuner:
 
     @classmethod
     def _ray_dataset_name(cls, args) -> str:
-        for attr in ("benchmark_id", "dataset_id", "benchmark", "data"):
+        for attr in ("experiment_id", "dataset_id", "benchmark", "experiment"):
             value = getattr(args, attr, None)
             if value:
                 return cls._path_slug(value, fallback="dataset")
@@ -604,18 +619,10 @@ class Tuner:
         return slug.strip("._-") or fallback
 
     def _make_safe_namespace(self) -> SimpleNamespace:
-        try:
-            from ray import cloudpickle
-        except Exception:
-            try:
-                import cloudpickle  # noqa: F811
-            except Exception:
-                return SimpleNamespace(**vars(self.args))
-
         safe: dict[str, Any] = {}
         for key, value in vars(self.args).items():
             try:
-                cloudpickle.dumps(value)
+                _ray_pickle_dumps(value)
                 safe[key] = value
             except Exception:
                 pass
@@ -697,7 +704,9 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
             if key in trial_data["metrics"]
         }
     return ValidationResult(
-        benchmark=str(validation_payload.get("benchmark", getattr(args, "benchmark", getattr(args, "data", "")))),
+        benchmark=str(
+            validation_payload.get("benchmark", getattr(args, "benchmark", getattr(args, "experiment", "")))
+        ),
         raw=raw if isinstance(raw, dict) else dict(summary),
         summary_label=str(validation_payload.get("summary_label", "all")),
         summary=dict(summary),
@@ -720,18 +729,22 @@ def _sync_tuning_requirements(*, verbose: bool) -> None:
 def _is_ray_pickle_safe(value: Any) -> bool:
     """Return True if *value* is serializable with Ray's cloudpickle."""
     try:
-        from ray import cloudpickle
-
-        cloudpickle.dumps(value)
+        _ray_pickle_dumps(value)
         return True
     except Exception:
-        try:
-            import cloudpickle  # type: ignore
+        return False
 
-            cloudpickle.dumps(value)
-            return True
-        except Exception:
-            return False
+
+def _ray_pickle_dumps(value: Any) -> bytes:
+    """Serialize with Ray/cloudpickle when available, otherwise stdlib pickle."""
+    try:
+        from ray import cloudpickle as serializer
+    except ImportError:
+        try:
+            import cloudpickle as serializer  # type: ignore[no-redef]
+        except ImportError:
+            import pickle as serializer  # type: ignore[no-redef]
+    return serializer.dumps(value)
 
 
 def _resolve_tune_dir(args, resume: bool = False) -> Path:
@@ -810,13 +823,19 @@ def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     if best is None:
         raise RuntimeError("No successful tuning trials were produced.")
 
+    resolved_best_config = load_tracker_config(
+        str(args.tracker),
+        None,
+        normalize_trial_config(baseline_config),
+        best.config,
+    )
     return TuneResult(
-        benchmark=str(getattr(args, "benchmark", getattr(args, "data", ""))),
+        benchmark=str(getattr(args, "benchmark", getattr(args, "experiment", ""))),
         tracker=str(args.tracker),
         trials=trials,
         best=best,
-        best_config=dict(best.config),
-        best_yaml=tune_dir / f"best_{args.tracker}.yaml",
+        best_config=resolved_best_config,
+        best_yaml=tune_dir / "best.yaml",
     )
 
 

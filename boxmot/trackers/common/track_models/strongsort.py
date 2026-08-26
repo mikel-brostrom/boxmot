@@ -10,59 +10,15 @@ import numpy as np
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
-from boxmot.trackers.common.association.matching import chi2inv95
-from boxmot.trackers.common.association.strongsort import (
-    gate_cost_matrix,
-    iou_cost,
-    matching_cascade,
-    min_cost_matching,
+from boxmot.trackers.common.geometry.obb import (
+    smooth_obb_corners,
+    transform_aabb,
+    transform_aabb_kalman_state,
+    transform_obb_kalman_state,
 )
-from boxmot.trackers.common.geometry.obb import normalize_angle, smooth_obb_corners
-from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.common.motion import xyah_state_to_xyxy, xyxy_to_xyah_measurement
 
-
-class Detection:
-    """
-    This class represents a bounding box detection in a single image.
-
-    Parameters
-    ----------
-    tlwh : array_like
-        Bounding box in format `(x, y, w, h)`.
-    confidence : float
-        Detector confidence score.
-    feature : array_like
-        A feature vector that describes the object contained in this image.
-
-    Attributes
-    ----------
-    tlwh : ndarray
-        Bounding box in format `(top left x, top left y, width, height)`.
-    confidence : ndarray
-        Detector confidence score.
-    feature : ndarray | NoneType
-        A feature vector that describes the object contained in this image.
-
-    """
-
-    def __init__(self, box, conf, cls, det_ind, feat, is_obb=False):
-        self.tlwh = np.asarray(box, dtype=np.float32)
-        self.conf = conf
-        self.cls = cls
-        self.det_ind = det_ind
-        self.feat = feat
-        self.is_obb = bool(is_obb)
-
-    def to_xyah(self):
-        """Convert bounding box to `(center x, center y, aspect ratio, height)`."""
-        ret = self.tlwh.copy()
-        ret[:2] += ret[2:] / 2
-        ret[2] /= ret[3]
-        return ret
-
-    def to_measurement(self):
-        return self.tlwh.copy() if self.is_obb else self.to_xyah()
+__all__ = ("Track", "TrackState")
 
 
 class TrackState:
@@ -92,6 +48,7 @@ class Track:
         id,
         n_init,
         max_age,
+        max_obs,
         ema_alpha,
         is_obb=False,
     ):
@@ -122,8 +79,9 @@ class Track:
 
         self.kf = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         self.mean, self.covariance = self.kf.initiate(self.bbox)
-        self.history_observations = deque(maxlen=max_age)
+        self.history_observations = deque(maxlen=max(1, int(max_obs)))
         self._plot_angle = None
+        self._append_current_history()
 
     def to_tlwh(self):
         """Get current position in `(top left x, top left y, width, height)`."""
@@ -146,24 +104,31 @@ class Track:
 
     def camera_update(self, warp_matrix):
         if self.is_obb:
-            transform = np.asarray(warp_matrix, dtype=float)
-            linear = transform[:, :2]
-            translation = transform[:, 2]
-            scale = float(np.sqrt(max(abs(np.linalg.det(linear)), 1e-8)))
-            rotation = float(np.arctan2(linear[1, 0], linear[0, 0]))
-            self.mean[:2] = linear @ self.mean[:2] + translation
-            self.mean[2:4] = np.maximum(self.mean[2:4] * scale, 1e-4)
-            self.mean[4] = normalize_angle(self.mean[4] + rotation)
+            self.mean, self.covariance = transform_obb_kalman_state(
+                self.mean,
+                self.covariance,
+                warp_matrix,
+                measurement_to_box=lambda values: values,
+                box_to_measurement=lambda box: box,
+                velocity_measurement_indices=(0, 1, 2, 3, 4),
+            )
             return
-        [a, b] = warp_matrix
-        warp_matrix = np.array([a, b, [0, 0, 1]])
-        warp_matrix = warp_matrix.tolist()
-        x1, y1, x2, y2 = self.to_tlbr()
-        x1_, y1_, _ = warp_matrix @ np.array([x1, y1, 1]).T
-        x2_, y2_, _ = warp_matrix @ np.array([x2, y2, 1]).T
-        w, h = x2_ - x1_, y2_ - y1_
-        cx, cy = x1_ + w / 2, y1_ + h / 2
-        self.mean[:4] = [cx, cy, w / h, h]
+        self.mean, self.covariance = transform_aabb_kalman_state(
+            self.mean,
+            self.covariance,
+            warp_matrix,
+            measurement_to_box=lambda values: xyah_state_to_xyxy(values)[0],
+            box_to_measurement=xyxy_to_xyah_measurement,
+            velocity_measurement_indices=(0, 1, 2, 3),
+        )
+        self.bbox = xyxy_to_xyah_measurement(transform_aabb(xyah_state_to_xyxy(self.bbox)[0], warp_matrix))
+
+    def _append_current_history(self) -> None:
+        if self.is_obb:
+            geometry, self._plot_angle = smooth_obb_corners(self.xywha, self._plot_angle)
+        else:
+            geometry = self.to_tlbr()
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
 
     def increment_age(self):
         self.age += 1
@@ -182,9 +147,7 @@ class Track:
         self.cls = detection.cls
         self.det_ind = detection.det_ind
         self.mean, self.covariance = self.kf.update(self.mean, self.covariance, self.bbox, self.conf)
-        if self.is_obb:
-            corners, self._plot_angle = smooth_obb_corners(self.xywha, self._plot_angle)
-            self.history_observations.append(corners)
+        self._append_current_history()
 
         smooth_feat = ema_update_embedding(
             self.features[-1],
@@ -216,146 +179,3 @@ class Track:
     def is_deleted(self):
         """Return True if this track is dead and should be deleted."""
         return self.state == TrackState.Deleted
-
-
-class Tracker:
-    """
-    This is the multi-target tracker.
-
-    Parameters
-    ----------
-    metric : nn_matching.NearestNeighborDistanceMetric
-        A distance metric for measurement-to-track association.
-    max_age : int
-        Maximum number of missed misses before a track is deleted.
-    n_init : int
-        Number of consecutive detections before the track is confirmed. The
-        track state is set to `Deleted` if a miss occurs within the first
-        `n_init` frames.
-    """
-
-    GATING_THRESHOLD = np.sqrt(chi2inv95[4])
-
-    def __init__(
-        self,
-        metric,
-        max_iou_dist=0.9,
-        max_age=30,
-        n_init=3,
-        _lambda=0,
-        ema_alpha=0.9,
-        mc_lambda=0.995,
-        id_allocator=None,
-        is_obb=False,
-    ):
-        self.metric = metric
-        self.max_iou_dist = max_iou_dist
-        self.max_age = max_age
-        self.n_init = n_init
-        self._lambda = _lambda
-        self.ema_alpha = ema_alpha
-        self.mc_lambda = mc_lambda
-
-        self.tracks = []
-        self.id_allocator = id_allocator or TrackIdAllocator()
-        self.is_obb = bool(is_obb)
-        self._next_id = self.id_allocator.next_id
-        self.cmc = create_cmc("ecc")
-
-    def predict(self):
-        """Propagate track state distributions one time step forward."""
-        for track in self.tracks:
-            track.predict()
-
-    def increment_ages(self):
-        for track in self.tracks:
-            track.increment_age()
-            track.mark_missed()
-
-    def update(self, detections):
-        """Perform measurement update and track management."""
-        matches, unmatched_tracks, unmatched_detections = self._match(detections)
-
-        for track_idx, detection_idx in matches:
-            self.tracks[track_idx].update(detections[detection_idx])
-        for track_idx in unmatched_tracks:
-            self.tracks[track_idx].mark_missed()
-        for detection_idx in unmatched_detections:
-            self._initiate_track(detections[detection_idx])
-        self.tracks = [t for t in self.tracks if not t.is_deleted()]
-
-        active_targets = [t.id for t in self.tracks if t.is_confirmed()]
-        features, targets = [], []
-        for track in self.tracks:
-            if not track.is_confirmed():
-                continue
-            features += track.features
-            targets += [track.id for _ in track.features]
-        self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
-
-    def _match(self, detections):
-        def gated_metric(tracks, dets, track_indices, detection_indices):
-            features = np.array([dets[i].feat for i in detection_indices])
-            targets = np.array([tracks[i].id for i in track_indices])
-            cost_matrix = self.metric.distance(features, targets)
-            cost_matrix = gate_cost_matrix(
-                cost_matrix,
-                tracks,
-                dets,
-                track_indices,
-                detection_indices,
-                self.mc_lambda,
-            )
-
-            return cost_matrix
-
-        confirmed_tracks = [i for i, t in enumerate(self.tracks) if t.is_confirmed()]
-        unconfirmed_tracks = [i for i, t in enumerate(self.tracks) if not t.is_confirmed()]
-
-        matches_a, unmatched_tracks_a, unmatched_detections = matching_cascade(
-            gated_metric,
-            self.metric.matching_threshold,
-            self.max_age,
-            self.tracks,
-            detections,
-            confirmed_tracks,
-        )
-
-        iou_track_candidates = unconfirmed_tracks + [
-            k for k in unmatched_tracks_a if self.tracks[k].time_since_update == 1
-        ]
-        unmatched_tracks_a = [k for k in unmatched_tracks_a if self.tracks[k].time_since_update != 1]
-
-        matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
-            iou_cost,
-            self.max_iou_dist,
-            self.tracks,
-            detections,
-            iou_track_candidates,
-            unmatched_detections,
-        )
-
-        matches = matches_a + matches_b
-        unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
-        return matches, unmatched_tracks, unmatched_detections
-
-    def _initiate_track(self, detection):
-        track_id = self.id_allocator.alloc()
-        self._next_id = self.id_allocator.next_id
-        self.tracks.append(
-            Track(
-                detection,
-                track_id,
-                self.n_init,
-                self.max_age,
-                self.ema_alpha,
-                is_obb=detection.is_obb,
-            )
-        )
-
-    def reset(self):
-        self.tracks = []
-        self.id_allocator.reset()
-        self._next_id = self.id_allocator.next_id
-        if hasattr(self.metric, "samples"):
-            self.metric.samples = {}

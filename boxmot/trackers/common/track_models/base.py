@@ -132,6 +132,7 @@ class BoxTrack(TrackLifecycleMixin):
             self.is_activated = True
         self.frame_id = frame_id
         self.start_frame = frame_id
+        self._append_current_history()
         sync_track_meta(self, self.common_tracked_state)
 
     def re_activate(self, new_track, frame_id, new_id=False):
@@ -149,14 +150,13 @@ class BoxTrack(TrackLifecycleMixin):
             self.id = self.id_allocator.alloc()
         self._copy_detection_metadata(self, new_track)
         self._after_reactivate(new_track)
+        self._append_current_history()
         sync_track_meta(self, self.common_tracked_state)
 
     def update(self, new_track, frame_id):
         """Update the current track with a matched detection."""
         self.frame_id = frame_id
         self.tracklet_len += 1
-        if not self.is_obb:
-            self.history_observations.append(self.xyxy)
 
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean,
@@ -167,9 +167,13 @@ class BoxTrack(TrackLifecycleMixin):
         self.is_activated = True
         self._copy_detection_metadata(self, new_track)
         self._after_update(new_track)
-        if self.is_obb:
-            self.history_observations.append(self._state_obb_for_plot())
+        self._append_current_history()
         sync_track_meta(self, self.common_tracked_state)
+
+    def _append_current_history(self) -> None:
+        """Store the post-transition geometry used by trajectory rendering."""
+        geometry = self._state_obb_for_plot() if self.is_obb else self.xyxy.copy()
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
 
     def _state_obb_for_plot(self) -> np.ndarray:
         """Return post-update OBB state as corners with state-only angle smoothing."""

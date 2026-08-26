@@ -8,10 +8,27 @@ from typing import Any, Callable, Iterator
 import cv2
 import numpy as np
 
+from boxmot.box_schema import schema_from_detection_columns, schema_from_mot_columns
 from boxmot.data import iter_source
-from boxmot.engine.tracking.detections import as_2d_array, extract_detection_array, extract_masks
-from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mot_format, write_mot_results
+from boxmot.engine.tracking.detections import (
+    as_2d_array,
+    extract_detection_array,
+    extract_masks,
+    sanitize_detections,
+)
+from boxmot.engine.tracking.mot import (
+    MMOT_ROW_FORMAT,
+    MOT_ROW_FORMAT,
+    convert_to_mmot_obb_format,
+    convert_to_mot_format,
+    format_frame_tagged_tracks_for_mot,
+    write_mot_results,
+)
 from boxmot.engine.tracking.rendering import Drawer, draw_tracks
+from boxmot.engine.tracking.setup_timing import (
+    SETUP_TIMING_COMPONENTS,
+    normalize_setup_timings_ms,
+)
 from boxmot.engine.tracking.video import append_frame
 from boxmot.engine.tracking.video import close as close_video
 from boxmot.trackers.results import TrackResults
@@ -69,40 +86,52 @@ class FrameResult:
 
         # Reorder detections and embeddings to align with tracks via det_ind
         raw_dets = None if detections is None else self._as_2d_array(detections)
+        if raw_dets is not None:
+            detection_schema = schema_from_detection_columns(raw_dets.shape[1])
+            if detection_schema != self.tracks.schema:
+                raise ValueError(
+                    f"Detection schema {detection_schema.box_type.value} does not match "
+                    f"tracker schema {self.tracks.schema.box_type.value}."
+                )
         self.detections, self.embeddings = self._align_to_tracks(raw_dets, embeddings)
-        self.masks = self._align_masks(masks)
+        self.masks = self._resolve_masks(masks)
 
     @staticmethod
     def _as_2d_array(values: Any) -> np.ndarray:
         return as_2d_array(values)
 
     def _align_to_tracks(
-        self, dets: np.ndarray | None, embs: np.ndarray | None,
+        self,
+        dets: np.ndarray | None,
+        embs: np.ndarray | None,
     ) -> tuple[np.ndarray | None, np.ndarray | None]:
         """Reorder detections and embeddings so they align 1-to-1 with tracks.
 
         Coasting tracks (det_ind == -1) get zero-filled rows.
         """
         if self.tracks.size == 0:
-            det_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else 6
+            det_cols = dets.shape[1] if dets is not None and dets.ndim == 2 else self.tracks.schema.detection_cols
             empty_dets = np.empty((0, det_cols), dtype=np.float32) if dets is not None else None
             return empty_dets, None
 
         det_inds = self.tracks.det_ind
-        valid = det_inds >= 0
 
         aligned_dets: np.ndarray | None = None
         if dets is not None:
             cols = dets.shape[1]
             aligned_dets = np.zeros((len(self.tracks), cols), dtype=np.float32)
-            aligned_dets[valid] = dets[det_inds[valid]]
+            valid_dets = (det_inds >= 0) & (det_inds < len(dets))
+            aligned_dets[valid_dets] = dets[det_inds[valid_dets]]
 
         aligned_embs: np.ndarray | None = None
         if embs is not None:
             embs_arr = np.asarray(embs, dtype=np.float32)
+            if embs_arr.ndim != 2:
+                raise ValueError(f"Embeddings must be 2D, got shape {embs_arr.shape}")
             dim = embs_arr.shape[1]
             aligned_embs = np.zeros((len(self.tracks), dim), dtype=np.float32)
-            aligned_embs[valid] = embs_arr[det_inds[valid]]
+            valid_embs = (det_inds >= 0) & (det_inds < len(embs_arr))
+            aligned_embs[valid_embs] = embs_arr[det_inds[valid_embs]]
 
         return aligned_dets, aligned_embs
 
@@ -110,12 +139,31 @@ class FrameResult:
         """Reorder masks to align 1-to-1 with tracks via det_ind."""
         if masks is None or self.tracks.size == 0:
             return None
+        masks_arr = np.asarray(masks)
+        if masks_arr.ndim != 3:
+            raise ValueError(f"Masks must be 3D, got shape {masks_arr.shape}")
         det_inds = self.tracks.det_ind
-        valid = det_inds >= 0
-        h, w = masks.shape[1], masks.shape[2]
-        aligned = np.zeros((len(self.tracks), h, w), dtype=masks.dtype)
-        aligned[valid] = masks[det_inds[valid]]
+        valid = (det_inds >= 0) & (det_inds < len(masks_arr))
+        h, w = masks_arr.shape[1], masks_arr.shape[2]
+        aligned = np.zeros((len(self.tracks), h, w), dtype=masks_arr.dtype)
+        aligned[valid] = masks_arr[det_inds[valid]]
         return aligned
+
+    def _resolve_masks(self, detector_masks: np.ndarray | None) -> np.ndarray | None:
+        """Prefer tracker-refined masks, falling back to detector-row alignment."""
+        tracker_masks = self.tracks.masks
+        if tracker_masks is None:
+            return self._align_masks(detector_masks)
+
+        masks_arr = np.asarray(tracker_masks)
+        if masks_arr.ndim != 3:
+            raise ValueError(f"Tracker masks must be 3D, got shape {masks_arr.shape}")
+        if len(masks_arr) != len(self.tracks):
+            raise ValueError(
+                "Tracker mask count must match output track count, "
+                f"got masks={len(masks_arr)} tracks={len(self.tracks)}"
+            )
+        return masks_arr
 
     # ------------------------------------------------------------------
     # Convenience
@@ -147,9 +195,14 @@ class FrameResult:
         """Alias for plot()."""
         return self.plot()
 
-    def show(self, window_name: str = "Tracking") -> bool:
-        """Display the annotated frame. Returns False if user pressed 'q'."""
-        cv2.imshow(window_name, self.plot())
+    def show(self, window_name: str = "Tracking", rendered: np.ndarray | None = None) -> bool:
+        """Display the annotated frame. Returns False if user pressed 'q'.
+
+        Args:
+            window_name: Display window title.
+            rendered: An already-rendered frame to reuse, if available.
+        """
+        cv2.imshow(window_name, self.plot() if rendered is None else rendered)
         key = cv2.waitKey(1) & 0xFF
         should_continue = key not in (ord("q"), 27)
         if not should_continue and self._stop_session is not None:
@@ -178,15 +231,13 @@ class FrameResult:
 
     def to_mot(self) -> np.ndarray:
         """Convert tracks to MOT challenge format array."""
-        if self.tracks.size == 0:
-            return np.empty((0, 0), dtype=np.float32)
         if self.tracks.is_obb:
             return convert_to_mmot_obb_format(self.tracks, self.frame_idx)
         return convert_to_mot_format(self.tracks, self.frame_idx)
 
     def save_txt(self, path: str | Path) -> None:
         """Append tracks in MOT challenge format to a text file."""
-        self.tracks.save_mot(path, frame_id=self.frame_idx)
+        write_mot_results(Path(path), self.to_mot())
 
     def save_csv(self, path: str | Path, header: bool = True) -> None:
         """Append tracks in CSV format to a file."""
@@ -244,10 +295,11 @@ class FrameResult:
             rows = rows.reshape(1, -1)
 
         buffer = io.StringIO()
-        if rows.shape[1] == 9:
-            np.savetxt(buffer, rows, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
-        else:
-            np.savetxt(buffer, rows, fmt="%g", delimiter=",")
+        try:
+            schema = schema_from_mot_columns(rows.shape[1])
+        except ValueError as exc:
+            raise ValueError(f"Unexpected MOT result shape {rows.shape}") from exc
+        np.savetxt(buffer, rows, fmt=MMOT_ROW_FORMAT if schema.is_obb else MOT_ROW_FORMAT)
         return buffer.getvalue()
 
     def __repr__(self) -> str:
@@ -281,6 +333,7 @@ class Results:
         self._exhausted = False
         self._interrupted = False
         self._track_ids_seen: set[int] = set()
+        self.setup_timings_ms = normalize_setup_timings_ms()
         self.totals = {
             "det": 0.0,
             "detector_preprocess": 0.0,
@@ -317,9 +370,10 @@ class Results:
     def _as_2d_array(values: Any, empty_cols: int = 0) -> np.ndarray:
         return as_2d_array(values, empty_cols=empty_cols)
 
-    @staticmethod
-    def _extract_detections(output: Any) -> np.ndarray:
-        return extract_detection_array(output)
+    def _extract_detections(self, output: Any) -> np.ndarray:
+        backend = getattr(self.detector, "backend", None)
+        is_obb = bool(getattr(self.detector, "is_obb", getattr(backend, "is_obb", False)))
+        return extract_detection_array(output, fallback_is_obb=is_obb)
 
     @staticmethod
     def _extract_masks(output: Any) -> np.ndarray | None:
@@ -331,7 +385,33 @@ class Results:
             source_path = Path(source)
             if source_path.is_dir() and (source_path / "img1").is_dir():
                 source = source_path / "img1"
-        yield from iter_source(source)
+
+        if self._progress_callback is not None:
+            self._progress_callback("Opening source and waiting for the first frame...")
+
+        source_iterator = iter(iter_source(source))
+        started = time.monotonic()
+        try:
+            first_frame = next(source_iterator)
+        except StopIteration:
+            self._record_first_source_frame_time(started)
+            return
+        except BaseException:
+            self._record_first_source_frame_time(started)
+            raise
+
+        self._record_first_source_frame_time(started)
+        yield first_frame
+        yield from source_iterator
+
+    def _record_first_source_frame_time(self, started: float) -> None:
+        """Record source negotiation/read latency without replacing its iterator."""
+
+        self.setup_timings_ms["source_first_frame"] = max(
+            (time.monotonic() - started) * 1000.0,
+            0.0,
+        )
+        self.setup_timings_ms = normalize_setup_timings_ms(self.setup_timings_ms)
 
     def _log_frame_timings(self, frame_idx: int, det_ms: float, reid_ms: float, track_ms: float) -> None:
         total_ms = det_ms + reid_ms + track_ms
@@ -509,6 +589,7 @@ class Results:
             "detections": int(self.totals["detections"]),
             "tracks": int(self.totals["tracks"]),
             "unique_tracks": len(self._track_ids_seen),
+            "setup_timings_ms": normalize_setup_timings_ms(self.setup_timings_ms),
             "timings_ms": {
                 "det": float(self.totals["det"]),
                 "detector_preprocess": float(self.totals["detector_preprocess"]),
@@ -559,9 +640,26 @@ class Results:
             f"Track rows:  {summary['tracks']}",
             f"Unique IDs:  {summary.get('unique_tracks', 0)}",
             "-" * width,
-            f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
-            "-" * width,
+            "Startup",
         ]
+        startup_timings = normalize_setup_timings_ms(summary.get("setup_timings_ms"))
+        startup_labels = {
+            "detector_load": "  detector load",
+            "tracker_reid_load": "  tracker/ReID load",
+            "reid_adapter": "  ReID adapter",
+            "output_prepare": "  output preparation",
+            "source_first_frame": "  first source frame",
+            "total": "  Startup total",
+        }
+        for key in (*SETUP_TIMING_COMPONENTS, "total"):
+            lines.append(f"{startup_labels[key]:<20} {startup_timings[key]:>12.1f}")
+        lines.extend(
+            [
+                "-" * width,
+                f"{'Stage':<20} {'Total (ms)':>12} {'Avg (ms)':>12} {'FPS':>10}",
+                "-" * width,
+            ]
+        )
         for entry in build_timing_display_rows(
             breakdown,
             frames,
@@ -578,9 +676,7 @@ class Results:
             total = float(entry["total"])
             avg = float(entry["avg"])
             fps = float(entry["fps"])
-            lines.append(
-                f"{label:<20} {total:>12.1f} {avg:>12.2f} {fps:>10.1f}"
-            )
+            lines.append(f"{label:<20} {total:>12.1f} {avg:>12.2f} {fps:>10.1f}")
         lines.append("=" * width)
         return "\n".join(lines)
 
@@ -597,6 +693,11 @@ class Results:
         try:
             for frame_idx, (path, frame) in enumerate(self._iter_frames(), start=1):
                 dets, masks, det_ms = self._run_detector_timed(frame)
+                dets, masks, _ = sanitize_detections(
+                    dets,
+                    masks,
+                    image_shape=frame.shape,
+                )
                 features, reid_ms = self._run_reid_timed(frame, dets)
 
                 track_started = time.perf_counter()
@@ -657,6 +758,10 @@ class Results:
             path.unlink()
         for frame_result in self:
             write_mot_results(path, frame_result.to_mot())
+        if hasattr(self.tracker, "flush_gta"):
+            gta_entries = self.tracker.flush_gta()
+            if np.asarray(gta_entries).size:
+                write_mot_results(path, format_frame_tagged_tracks_for_mot(gta_entries))
         return path
 
     def save_vid(self, output_path: str | Path, fps: float = 30.0) -> Path:

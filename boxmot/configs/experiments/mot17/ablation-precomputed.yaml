@@ -1,0 +1,13 @@
+id: mot17-ablation-precomputed
+
+dataset:
+  ref: mot17
+  split: ablation
+
+detections:
+  source: precomputed
+  artifact: ablation
+
+evaluation:
+  class_map:
+    pedestrian: person

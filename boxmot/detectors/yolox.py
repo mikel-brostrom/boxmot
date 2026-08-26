@@ -1,59 +1,18 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
 from pathlib import Path
-from typing import Optional
 
 import cv2
 import numpy as np
 import torch
-import yaml
 from yolox.exp import get_exp
 from yolox.utils import postprocess
 from yolox.utils.model_utils import fuse_model
 
-from boxmot.detectors.base import BaseDetectorBackend, Detections
-from boxmot.utils import BENCHMARK_CONFIGS
+from boxmot.detectors.base import BaseDetectorBackend, Detections, filter_detections
+from boxmot.detectors.registry import YOLOX_MODELS, get_detector_url, load_detector_cfg
 from boxmot.utils import logger as LOGGER
-
-# default model weights for generic YOLOX model names
-YOLOX_ZOO = {
-    "yolox_n.pt": "https://drive.google.com/uc?id=1AoN2AxzVwOLM0gJ15bcwqZUpFjlDV1dX",
-    "yolox_s.pt": "https://drive.google.com/uc?id=1uSmhXzyV1Zvb4TJJCzpsZOIcw7CCJLxj",
-    "yolox_m.pt": "https://drive.google.com/uc?id=11Zb0NN_Uu7JwUd9e6Nk8o2_EUfxWqsun",
-    "yolox_l.pt": "https://drive.google.com/uc?id=1XwfUuCBF4IgWBWK2H7oOhQgEj9Mrb3rz",
-    "yolox_x.pt": "https://drive.google.com/uc?id=1P4mY0Yyd3PPTybgZkjMYhFri88nTmJX5",
-}
-YOLOX_BASE_MODELS = tuple(Path(name).stem for name in YOLOX_ZOO)
-
-
-def _find_benchmark_model_url(model: Path) -> Optional[str]:
-    """Look up a detector download URL from benchmark configs by filename."""
-    lowered_name = model.name.lower()
-
-    def _match_cfg(cfg: dict) -> Optional[str]:
-        default_model = cfg.get("default_model") or cfg.get("model")
-        model_url = cfg.get("model_url") or cfg.get("url")
-        if not default_model or not model_url:
-            return None
-        if Path(default_model).name.lower() == lowered_name:
-            return str(model_url)
-        return None
-
-    for cfg_path in sorted(BENCHMARK_CONFIGS.glob("*.yaml")):
-        try:
-            with open(cfg_path, "r") as f:
-                benchmark_cfg = yaml.safe_load(f) or {}
-        except Exception:
-            continue
-
-        detector_cfg = benchmark_cfg.get("detector")
-        if not isinstance(detector_cfg, dict):
-            continue
-        matched = _match_cfg(detector_cfg)
-        if matched:
-            return matched
-
-    return None
+from boxmot.utils.misc import resolve_model_path
 
 
 def _coerce_torch_dtype(dtype, fallback: torch.Tensor) -> torch.dtype:
@@ -86,10 +45,12 @@ def _patch_yolox_head_decode_outputs_for_mps() -> None:
         grids = []
         strides = []
         for (hsize, wsize), stride in zip(self.hw, self.strides):
-            yv, xv = meshgrid([
-                torch.arange(hsize, device=device),
-                torch.arange(wsize, device=device),
-            ])
+            yv, xv = meshgrid(
+                [
+                    torch.arange(hsize, device=device),
+                    torch.arange(wsize, device=device),
+                ]
+            )
             grid = torch.stack((xv, yv), 2).view(1, -1, 2)
             grids.append(grid)
             shape = grid.shape[:2]
@@ -117,83 +78,59 @@ class YoloXDetector(BaseDetectorBackend):
     stride = 32
     fp16 = False
     triton = False
-    names = {
-        0: "person", 1: "bicycle", 2: "car", 3: "motorcycle", 4: "airplane",
-        5: "bus", 6: "train", 7: "truck", 8: "boat", 9: "traffic light",
-        10: "fire hydrant", 11: "stop sign", 12: "parking meter", 13: "bench",
-        14: "bird", 15: "cat", 16: "dog", 17: "horse", 18: "sheep", 19: "cow",
-        20: "elephant", 21: "bear", 22: "zebra", 23: "giraffe", 24: "backpack",
-        25: "umbrella", 26: "handbag", 27: "tie", 28: "suitcase", 29: "frisbee",
-        30: "skis", 31: "snowboard", 32: "sports ball", 33: "kite",
-        34: "baseball bat", 35: "baseball glove", 36: "skateboard", 37: "surfboard",
-        38: "tennis racket", 39: "bottle", 40: "wine glass", 41: "cup",
-        42: "fork", 43: "knife", 44: "spoon", 45: "bowl", 46: "banana",
-        47: "apple", 48: "sandwich", 49: "orange", 50: "broccoli", 51: "carrot",
-        52: "hot dog", 53: "pizza", 54: "donut", 55: "cake", 56: "chair",
-        57: "couch", 58: "potted plant", 59: "bed", 60: "dining table",
-        61: "toilet", 62: "tv", 63: "laptop", 64: "mouse", 65: "remote",
-        66: "keyboard", 67: "cell phone", 68: "microwave", 69: "oven",
-        70: "toaster", 71: "sink", 72: "refrigerator", 73: "book", 74: "clock",
-        75: "vase", 76: "scissors", 77: "teddy bear", 78: "hair drier",
-        79: "toothbrush",
-    }
+    names = {0: "person"}
 
-    def __init__(self, model, device, imgsz=None):
-        raw = imgsz or 640
-        vals = raw if isinstance(raw, (list, tuple)) else (raw,)
-        w, h = (vals * 2)[:2]
-        self.imgsz = [w, h]
+    def __init__(self, model: str | Path, device, imgsz=None) -> None:
+        model_path = resolve_model_path(model)
+        raw_size = imgsz or 640
+        values = list(raw_size) if isinstance(raw_size, (list, tuple)) else [raw_size]
+        if len(values) == 1:
+            values *= 2
+        self.imgsz = [int(values[0]), int(values[1])]
 
-        model_type = self._get_model_type(YOLOX_BASE_MODELS, model)
+        detector_cfg = load_detector_cfg(model_path)
+        configured_names = detector_cfg.get("classes", {})
+        self.num_classes = len(configured_names) if configured_names else 1
+        self.names = dict(configured_names) if configured_names else {0: "person"}
+        model_type = self._get_model_type(YOLOX_MODELS, model_path)
 
         if model_type == "yolox_n":
             exp_name = "yolox_nano"
-        elif "_MOT" in model_type or "_dancetrack" in model_type or "_visdrone" in model_type:
-            exp_name = (
-                model_type.split("_MOT")[0]
-                .split("_dancetrack")[0]
-                .split("_visdrone")[0]
-            )
         else:
             exp_name = model_type
         exp = get_exp(None, exp_name)
+        exp.num_classes = self.num_classes
 
-        LOGGER.info(f"Loading {model_type} with {str(model)}")
+        LOGGER.info(f"Loading {model_type} with {model_path}")
 
-        if not model.exists():
+        if not model_path.exists():
             from boxmot.utils.download import download_file
-            # First check YAML detector configs for a download URL
-            benchmark_model_url = _find_benchmark_model_url(model)
-            if benchmark_model_url:
-                LOGGER.info("Downloading detector weights from config...")
-                download_file(url=benchmark_model_url, dest=model, overwrite=False)
-            elif model.stem + ".pt" in YOLOX_ZOO:
-                LOGGER.info("Downloading pretrained weights from YOLOX zoo...")
-                download_file(url=YOLOX_ZOO[model.stem + ".pt"], dest=model, overwrite=False)
-            else:
-                raise FileNotFoundError(
-                    f"Detector weights not found: {model}. "
-                    f"No download URL in detector configs or YOLOX_ZOO."
-                )
-            exp.num_classes = 1
-        elif model.stem.startswith(model_type):
-            exp.num_classes = 1
 
-        ckpt = torch.load(str(model), map_location=torch.device("cpu"))
+            configured_url = get_detector_url(model_path)
+            if not configured_url:
+                raise FileNotFoundError(
+                    f"Detector weights not found: {model_path}. No download URL in detector configs."
+                )
+            LOGGER.info("Downloading detector weights from config...")
+            download_file(url=configured_url, dest=model_path, overwrite=False)
+
+        checkpoint = torch.load(str(model_path), map_location=torch.device("cpu"))
 
         self.device = device
         self.model = exp.get_model()
         self.model.eval()
         self.model.to(self.device)
-        self.model.load_state_dict(ckpt["model"])
+        self.model.load_state_dict(checkpoint["model"])
         self.model = fuse_model(self.model)
         self._preproc_data = []
         self._im0s = []
 
-    def _get_model_type(self, model_names, weight_path):
+    @staticmethod
+    def _get_model_type(model_names, weight_path):
+        weight_name = Path(str(weight_path)).name.lower()
         for name in model_names:
-            if name in str(weight_path):
-                return name.split('.')[0]
+            if name.lower() in weight_name:
+                return name
         return "yolox_s"
 
     # This preprocess matches ByteTrack's implementation:
@@ -206,9 +143,9 @@ class YoloXDetector(BaseDetectorBackend):
         std=(0.229, 0.224, 0.225),
     ):
         if len(image.shape) == 3:
-            padded = np.ones((input_size[0], input_size[1], 3)) * 114.0
+            padded = np.full((input_size[0], input_size[1], 3), 114.0, dtype=np.float32)
         else:
-            padded = np.ones(input_size) * 114.0
+            padded = np.full(input_size, 114.0, dtype=np.float32)
         img = np.array(image)
         r = min(input_size[0] / img.shape[0], input_size[1] / img.shape[1])
         resized = cv2.resize(
@@ -222,8 +159,9 @@ class YoloXDetector(BaseDetectorBackend):
         padded = np.ascontiguousarray(padded.transpose(2, 0, 1), dtype=np.float32)
         return padded, r
 
-    def preprocess(self, images: list) -> torch.Tensor:
-        assert isinstance(images, list)
+    def preprocess(self, images: list[np.ndarray]) -> torch.Tensor:
+        if not isinstance(images, list):
+            raise TypeError("YOLOX preprocess expects a list of images.")
         self._im0s = images
         self._preproc_data = []
         tensors = []
@@ -239,29 +177,39 @@ class YoloXDetector(BaseDetectorBackend):
             preprocessed = preprocessed.unsqueeze(0)
         return self.model(preprocessed)
 
-    def postprocess(self, detections, conf, iou, classes, agnostic_nms, **kwargs) -> list:
-        results = []
+    def postprocess(
+        self,
+        detections,
+        conf=0.25,
+        iou=0.7,
+        classes=None,
+        agnostic_nms=False,
+        **kwargs,
+    ) -> list[Detections]:
+        results: list[Detections] = []
         for i, det in enumerate(detections):
             orig_img = self._im0s[i] if i < len(self._im0s) else None
 
             filtered = postprocess(
-                det.unsqueeze(0), 1,
-                conf_thre=conf, nms_thre=iou, class_agnostic=agnostic_nms,
+                det.unsqueeze(0),
+                getattr(self, "num_classes", 1),
+                conf_thre=conf,
+                nms_thre=iou,
+                class_agnostic=agnostic_nms,
             )[0]
 
             if filtered is None:
-                boxes = np.empty((0, 6))
+                boxes = np.empty((0, 6), dtype=np.float32)
             else:
                 ratio = self._preproc_data[i]
                 filtered[:, :4] /= ratio
-                filtered[:, 4] *= filtered[:, 5]   # obj_conf * class_conf → final conf
+                filtered[:, 4] *= filtered[:, 5]  # obj_conf * class_conf → final conf
                 filtered = filtered[:, [0, 1, 2, 3, 4, 6]]  # drop class_conf column
-
-                if classes:
-                    mask = np.isin(filtered[:, 5].cpu().numpy().astype(int), classes)
-                    filtered = filtered[torch.from_numpy(mask)]
-
-                boxes = filtered.cpu().numpy()
+                boxes = filter_detections(
+                    filtered.detach().cpu().numpy(),
+                    confidence=None,
+                    classes=classes,
+                )
 
             results.append(Detections(dets=boxes, orig_img=orig_img, names=self.names))
 

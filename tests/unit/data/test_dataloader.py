@@ -1,0 +1,269 @@
+import configparser
+
+import cv2
+import numpy as np
+import pytest
+
+from boxmot.data.dataset import (
+    MOTDataset,
+    compute_fps_mask,
+    read_seq_fps,
+)
+from boxmot.data.loaders import iter_source
+
+
+def test_read_seq_fps(tmp_path):
+    # create a seqinfo.ini
+    seq_dir = tmp_path / "SEQ01"
+    seq_dir.mkdir()
+    cfg = configparser.ConfigParser()
+    cfg["Sequence"] = {"frameRate": "30"}
+    with open(seq_dir / "seqinfo.ini", "w") as f:
+        cfg.write(f)
+
+    assert read_seq_fps(seq_dir) == 30
+
+    # missing file should raise
+    with pytest.raises(FileNotFoundError):
+        read_seq_fps(tmp_path / "NONEXISTENT")
+
+
+def test_compute_fps_mask():
+    frames = np.arange(1, 7)  # [1,2,3,4,5,6]
+    # downsample from 6→3 fps => step=2 → keep [1,3,5]
+    mask = compute_fps_mask(frames, orig_fps=6, target_fps=3)
+    assert mask.dtype == bool
+    assert frames[mask].tolist() == [1, 3, 5]
+
+
+@pytest.fixture
+def simple_sequence(tmp_path):
+    """
+    Create a minimal MOT sequence structure:
+      seq_dir/
+        img1/000001.jpg, 000002.jpg
+        seqinfo.ini (fps 2)
+        gt/gt.txt
+      det_emb_root/model/dets/SEQ.npy
+      det_emb_root/model/embs/reid/SEQ.npy
+    """
+    # seq dir & images
+    seq_dir = tmp_path / "SEQ"
+    img_dir = seq_dir / "img1"
+    gt_dir = seq_dir / "gt"
+    img_dir.mkdir(parents=True)
+    gt_dir.mkdir()
+    # write two dummy images
+    img = np.zeros((8, 8, 3), np.uint8)
+    for i in (1, 2):
+        cv2.imwrite(str(img_dir / f"{i:06d}.jpg"), img)
+
+    # seqinfo.ini fps=2
+    cfg = configparser.ConfigParser()
+    cfg["Sequence"] = {"frameRate": "2"}
+    with open(seq_dir / "seqinfo.ini", "w") as f:
+        cfg.write(f)
+
+    # ground truth with two frames
+    gt = np.array([[1, 0, 0, 0, 0, 0], [2, 1, 1, 1, 1, 1]])
+    np.savetxt(gt_dir / "gt.txt", gt, delimiter=",")
+
+    # detection + embedding roots
+    det_emb_root = tmp_path / "runs"
+    model = det_emb_root / "model"
+    det_dir = model / "dets"
+    emb_dir = model / "embs" / "reid" / "resize"
+    det_dir.mkdir(parents=True)
+    emb_dir.mkdir(parents=True)
+
+    # two AABB cache rows (frame_id, x1, y1, x2, y2, score, class)
+    dets = np.array([[1, 0, 0, 1, 1, 0.9, 0], [2, 0, 0, 1, 1, 0.8, 0]])
+    np.save(det_dir / "SEQ.npy", dets.astype(np.float32))
+
+    # two 128-d embeddings
+    embs = np.vstack([np.arange(128), np.arange(128)])
+    np.save(emb_dir / "SEQ.npy", embs.astype(np.float32))
+
+    return {
+        "mot_root": tmp_path,
+        "det_emb_root": det_emb_root,
+        "model_name": "model",
+        "reid_name": "reid",
+        "seq_name": "SEQ",
+        "seq_dir": seq_dir,
+    }
+
+
+def test_dataset_indexing_and_iteration(simple_sequence):
+    ds = MOTDataset(
+        mot_root=str(simple_sequence["mot_root"]),
+        det_emb_root=str(simple_sequence["det_emb_root"]),
+        model_name=simple_sequence["model_name"],
+        reid_name=simple_sequence["reid_name"],
+        target_fps=None,
+    )
+    # sequence_names
+    assert simple_sequence["seq_name"] in ds.sequence_names()
+
+    # get_sequence yields 2 frames in order
+    seq = ds.get_sequence(simple_sequence["seq_name"])
+    out = list(seq)
+    assert len(out) == 2
+    for idx, frame in enumerate(out, start=1):
+        assert frame["frame_id"] == idx
+        assert frame["img"].shape == (8, 8, 3)
+        # without downsampling, dets and embs should match original
+        assert frame["dets"].shape[0] == 1
+        assert frame["embs"].shape == (1, 128)
+
+
+def test_unknown_sequence_raises(simple_sequence):
+    ds = MOTDataset(mot_root=str(simple_sequence["mot_root"]))
+    with pytest.raises(KeyError):
+        _ = ds.get_sequence("DOES_NOT_EXIST")
+
+
+def test_mismatched_dets_embs_raise(tmp_path, simple_sequence):
+    # overwrite embeddings with only one row
+    emb_file = tmp_path / "runs" / "model" / "embs" / "reid" / "resize" / "SEQ.npy"
+    one_emb = np.arange(128)
+    np.save(emb_file, one_emb[None, :].astype(np.float32))
+
+    with pytest.raises(ValueError):
+        MOTDataset(
+            mot_root=str(simple_sequence["mot_root"]),
+            det_emb_root=str(simple_sequence["det_emb_root"]),
+            model_name=simple_sequence["model_name"],
+            reid_name=simple_sequence["reid_name"],
+            target_fps=None,
+        ).get_sequence(simple_sequence["seq_name"])
+
+
+def test_fps_downsampling_keeps_dataset_side_effect_free(tmp_path):
+    # manually create minimal sequence as before
+    seq_dir = tmp_path / "S"
+    img_dir = seq_dir / "img1"
+    gt_dir = seq_dir / "gt"
+    img_dir.mkdir(parents=True)
+    gt_dir.mkdir()
+
+    # two dummy images
+    img = np.zeros((4, 4, 3), np.uint8)
+    for i in (1, 2):
+        cv2.imwrite(str(img_dir / f"{i:06d}.jpg"), img)
+
+    # seqinfo.ini fps=2
+    cfg = configparser.ConfigParser()
+    cfg["Sequence"] = {"frameRate": "2"}
+    with open(seq_dir / "seqinfo.ini", "w") as f:
+        cfg.write(f)
+
+    # ground truth with two rows
+    gt = np.array([[1, 9], [2, 8]])
+    np.savetxt(gt_dir / "gt.txt", gt, delimiter=",", fmt="%d")
+
+    # create dets/embs with both frames
+    det_emb_root = tmp_path / "R"
+    det_dir = det_emb_root / "M" / "dets"
+    emb_dir = det_emb_root / "M" / "embs" / "R" / "resize"
+    det_dir.mkdir(parents=True)
+    emb_dir.mkdir(parents=True)
+    dets = np.array([[1, 0, 0, 1, 1, 0.5, 0], [2, 0, 0, 1, 1, 0.4, 0]])
+    embs = np.vstack([np.arange(128), np.arange(128)])
+    np.save(det_dir / "S.npy", dets.astype(np.float32))
+    np.save(emb_dir / "S.npy", embs.astype(np.float32))
+
+    # instantiate and trigger downsampling
+    ds = MOTDataset(
+        mot_root=str(tmp_path),
+        det_emb_root=str(det_emb_root),
+        model_name="M",
+        reid_name="R",
+        target_fps=1,
+    )
+    seq = ds.get_sequence("S")
+
+    assert seq.frame_ids.tolist() == [1]
+    assert len(list(seq)) == 1
+    assert not (seq_dir / "gt" / "gt_temp.txt").exists()
+
+
+def test_fps_downsampling_retains_selected_frames_without_detections(tmp_path):
+    seq_dir = tmp_path / "S"
+    img_dir = seq_dir / "img1"
+    img_dir.mkdir(parents=True)
+    image = np.zeros((4, 4, 3), dtype=np.uint8)
+    for frame_id in range(1, 5):
+        cv2.imwrite(str(img_dir / f"{frame_id:06d}.jpg"), image)
+
+    cfg = configparser.ConfigParser()
+    cfg["Sequence"] = {"frameRate": "4"}
+    with open(seq_dir / "seqinfo.ini", "w") as stream:
+        cfg.write(stream)
+
+    det_emb_root = tmp_path / "cache"
+    det_dir = det_emb_root / "model" / "dets"
+    emb_dir = det_emb_root / "model" / "embs" / "reid" / "resize"
+    det_dir.mkdir(parents=True)
+    emb_dir.mkdir(parents=True)
+    # At 4 -> 2 FPS the timeline keeps frames 1 and 3. Frame 3 has no
+    # detection, while the frame-4 row must be discarded with its embedding.
+    detections = np.array(
+        [
+            [1, 0, 0, 2, 2, 0.9, 0],
+            [4, 1, 1, 3, 3, 0.8, 0],
+        ],
+        dtype=np.float32,
+    )
+    embeddings = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
+    np.save(det_dir / "S.npy", detections)
+    np.save(emb_dir / "S.npy", embeddings)
+
+    dataset = MOTDataset(
+        mot_root=str(tmp_path),
+        det_emb_root=str(det_emb_root),
+        model_name="model",
+        reid_name="reid",
+        target_fps=2,
+    )
+    sequence = dataset.get_sequence("S", show_progress=False)
+    frames = list(sequence)
+
+    assert sequence.frame_ids.tolist() == [1, 3]
+    assert [int(frame["frame_id"]) for frame in frames] == [1, 3]
+    assert frames[0]["dets"].shape == (1, 6)
+    assert frames[0]["embs"].shape == (1, 2)
+    assert frames[1]["dets"].shape == (0, 6)
+    assert frames[1]["embs"].shape == (0, 2)
+
+
+def test_iter_source_uses_integer_capture_for_numeric_webcam_strings(monkeypatch):
+    calls = {}
+    frame = np.zeros((4, 4, 3), dtype=np.uint8)
+
+    class _FakeCapture:
+        def __init__(self, source):
+            calls["source"] = source
+            self._reads = 0
+
+        def isOpened(self):
+            return True
+
+        def read(self):
+            if self._reads > 0:
+                return False, None
+            self._reads += 1
+            return True, frame.copy()
+
+        def release(self):
+            calls["released"] = True
+
+    monkeypatch.setattr(cv2, "VideoCapture", _FakeCapture)
+
+    items = list(iter_source("0"))
+
+    assert calls["source"] == 0
+    assert calls["released"] is True
+    assert len(items) == 1
+    assert items[0][0] == "0"
+    np.testing.assert_array_equal(items[0][1], frame)

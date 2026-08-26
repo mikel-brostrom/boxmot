@@ -9,6 +9,10 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from boxmot.engine.tracking.setup_timing import (
+    SETUP_TIMING_COMPONENTS,
+    normalize_setup_timings_ms,
+)
 from boxmot.utils.rich.core.ui import (
     STYLE_ACCENT,
     STYLE_RULE,
@@ -33,6 +37,9 @@ def _results_summary_snapshot(results: Results, source: Any) -> dict[str, Any]:
         "detections": int(results.totals["detections"]),
         "tracks": int(results.totals["tracks"]),
         "unique_tracks": len(getattr(results, "_track_ids_seen", set())),
+        "setup_timings_ms": normalize_setup_timings_ms(
+            getattr(results, "setup_timings_ms", None)
+        ),
         "timing_metadata": dict(getattr(results, "timing_metadata", {})),
         "timings_ms": {
             "det": float(results.totals["det"]),
@@ -125,10 +132,43 @@ def _build_tracking_summary_timing_table(summary: dict[str, Any]) -> Table:
     return table
 
 
+def _build_tracking_startup_timing_table(summary: dict[str, Any]) -> Table:
+    timings = normalize_setup_timings_ms(summary.get("setup_timings_ms"))
+    labels = {
+        "detector_load": "Detector load",
+        "tracker_reid_load": "Tracker/ReID load",
+        "reid_adapter": "ReID adapter",
+        "output_prepare": "Output preparation",
+        "source_first_frame": "First source frame",
+        "total": "Startup total",
+    }
+
+    table = Table(
+        expand=True,
+        box=None,
+        show_header=True,
+        header_style=STYLE_TABLE_HEADER,
+        pad_edge=False,
+        show_edge=False,
+        padding=(0, 2),
+    )
+    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
+    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
+    for key in (*SETUP_TIMING_COMPONENTS, "total"):
+        table.add_row(
+            labels[key],
+            f"{timings[key]:.1f}",
+            style=STYLE_TEXT_STRONG if key == "total" else None,
+        )
+    return table
+
+
 def _build_tracking_summary_renderable(summary: dict[str, Any]) -> RenderableType:
     return Group(
         Rule("TRACKING SUMMARY", style=STYLE_RULE),
         _build_tracking_summary_stats_table(summary),
+        Rule("Startup", style=STYLE_RULE),
+        _build_tracking_startup_timing_table(summary),
         Rule(style=STYLE_RULE),
         _build_tracking_summary_timing_table(summary),
     )
@@ -144,6 +184,8 @@ class ValidationResult:
     timings: dict[str, Any] = field(default_factory=dict)
     args: Any = None
     workflow_rendered: bool = False
+    reference_raw: dict[str, Any] | None = None
+    reference_name: str | None = None
 
     def __str__(self) -> str:
         if self.workflow_rendered:
@@ -160,13 +202,23 @@ class ValidationResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> str:
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
         return reporting.render_validation_cli_report(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=reporting.CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            title=report_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def renderable(
@@ -178,15 +230,21 @@ class ValidationResult:
         compare_raw: dict[str, Any] | None = None,
         compare_args: Any = None,
     ) -> RenderableType:
+        resolved_compare_raw = self.reference_raw if compare_raw is None else compare_raw
+        resolved_compare_args = self.args if compare_args is None else compare_args
+        resolved_title = title
+        if resolved_title is None and self.reference_raw is not None and self.reference_name:
+            resolved_title = f"📊 BOXMOT vs {self.reference_name.upper()}"
         return reporting.build_validation_cli_renderable(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=title,
+            title=resolved_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
-            compare_raw=compare_raw,
-            compare_args=compare_args,
+            compare_raw=resolved_compare_raw,
+            compare_args=resolved_compare_args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def format_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
@@ -205,13 +263,23 @@ class ValidationResult:
         include_sequences: bool = True,
         include_timings: bool = False,
     ) -> None:
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
         reporting.print_validation_cli_report(
             self.raw,
             args=self.args,
             timings=self.timings,
-            title=reporting.CLI_RESULTS_SUMMARY_TITLE if title is None else title,
+            title=report_title,
             include_sequences=include_sequences,
             include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
         )
 
     def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
@@ -224,6 +292,9 @@ class ValidationResult:
         }
         if include_raw:
             payload["raw"] = self.raw
+            if self.reference_raw is not None:
+                payload["reference_raw"] = self.reference_raw
+                payload["reference_name"] = self.reference_name
         return payload
 
 
@@ -504,6 +575,8 @@ class ExportResult:
         """Return the preferred exported model for embedding inference."""
         if "onnx" in self.files:
             return Path(self.files["onnx"])
+        if "coreml" in self.files:
+            return Path(self.files["coreml"])
         return Path(self.weights)
 
     def embed(
@@ -540,6 +613,18 @@ class TrackRunResult:
     def timings(self) -> dict[str, Any]:
         self.refresh()
         return self._timings
+
+    @property
+    def setup_timings(self) -> dict[str, float]:
+        """Startup costs, including acquisition of the first source frame.
+
+        The workflow's ``Setup`` step ends before source acquisition; this
+        mapping intentionally describes the broader startup interval shown in
+        the final report.
+        """
+
+        self.refresh()
+        return dict(self._summary["setup_timings_ms"])
 
     @property
     def summary(self) -> dict[str, Any]:
@@ -590,6 +675,11 @@ class TrackRunResult:
             self._summary = summary_fn()
         else:
             self._summary = _results_summary_snapshot(self.results, self.source)
+        setup_timings = self._summary.get(
+            "setup_timings_ms",
+            getattr(self.results, "setup_timings_ms", None),
+        )
+        self._summary["setup_timings_ms"] = normalize_setup_timings_ms(setup_timings)
         self._timings = _track_timings_from_summary(self._summary)
 
 

@@ -17,9 +17,10 @@ from boxmot.trackers.common.appearance import (
     ema_update_embedding,
     normalize_embedding,
 )
+from boxmot.trackers.common.geometry.obb import transform_points
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
-from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 from boxmot.trackers.common.track_models.base import SortBoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
 
 
 def k_previous_obs(observations, cur_age, k):
@@ -131,7 +132,12 @@ class KalmanBoxTracker(SortBoxTrack):
 
         # first feature update
         self.update_features(temp_feat)
+        self._append_current_history()
         self._sync_initial_sort_meta()
+
+    def _append_current_history(self) -> None:
+        geometry = self.motion_model.to_box(self.kf.x)[0, :4]
+        self.history_observations.append(np.asarray(geometry, dtype=np.float32).copy())
 
     def _prune_observations(self) -> None:
         cutoff = self.age - self.max_obs + 1
@@ -161,29 +167,133 @@ class KalmanBoxTracker(SortBoxTrack):
                 )
         self.features.append(feat)
 
+    @staticmethod
+    def _warp_aabb_row(box: np.ndarray, transform: np.ndarray) -> np.ndarray:
+        """Warp an ``xyxy`` row, preserving any trailing score metadata."""
+        values = np.asarray(box, dtype=float).reshape(-1)
+        x1, y1, x2, y2 = values[:4]
+        corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=float)
+        warped = transform_points(corners, transform)
+        result = values.copy()
+        result[:4] = [
+            warped[:, 0].min(),
+            warped[:, 1].min(),
+            warped[:, 0].max(),
+            warped[:, 1].max(),
+        ]
+        return result
+
+    def _map_camera_state(self, state: np.ndarray, transform: np.ndarray) -> np.ndarray:
+        """Map one XYSCR state, including translational and scale velocities."""
+        original_shape = np.asarray(state).shape
+        values = np.asarray(state, dtype=float).reshape(-1)
+        score = float(values[3])
+        box = self.motion_model.to_box(values, score=score)[0]
+        warped_box = self._warp_aabb_row(box, transform)
+        measurement = self.motion_model.to_measurement(warped_box, column=False)
+
+        mapped = values.copy()
+        mapped[:5] = measurement
+
+        center = values[:2]
+        velocity = values[5:7]
+        mapped_points = transform_points(np.stack((center, center + velocity)), transform)
+        mapped[5:7] = mapped_points[1] - mapped_points[0]
+        area_scale = float(measurement[2]) / max(float(values[2]), 1e-6)
+        mapped[7] = values[7] * area_scale
+        mapped[8] = values[8]
+        return mapped.reshape(original_shape)
+
+    def _map_camera_state_and_covariance(
+        self,
+        state: np.ndarray,
+        covariance: np.ndarray,
+        transform: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Map XYSCR state/covariance with a local numerical Jacobian."""
+        values = np.asarray(state, dtype=float).reshape(-1)
+        mapped = self._map_camera_state(values, transform).reshape(-1)
+        jacobian = np.empty((len(values), len(values)), dtype=float)
+        for index in range(len(values)):
+            step = 1e-5 * max(abs(float(values[index])), 1.0)
+            shifted = values.copy()
+            shifted[index] += step
+            jacobian[:, index] = (self._map_camera_state(shifted, transform).reshape(-1) - mapped) / step
+        mapped_covariance = jacobian @ np.asarray(covariance, dtype=float) @ jacobian.T
+        mapped_covariance = 0.5 * (mapped_covariance + mapped_covariance.T)
+        return mapped.reshape(np.asarray(state).shape), mapped_covariance
+
+    def _warp_camera_measurement(self, measurement: np.ndarray | None, transform: np.ndarray):
+        if measurement is None:
+            return None
+        values = np.asarray(measurement, dtype=float)
+        box = self.motion_model.to_box(values, score=float(values.reshape(-1)[3]))[0]
+        warped = self.motion_model.to_measurement(self._warp_aabb_row(box, transform))
+        return warped.reshape(values.shape)
+
+    def _warp_direction(self, direction: np.ndarray | None, transform: np.ndarray, center: np.ndarray):
+        if direction is None:
+            return None
+        velocity_xy = np.asarray(direction, dtype=float).reshape(2)[::-1]
+        mapped = transform_points(np.stack((center, center + velocity_xy)), transform)
+        transformed = mapped[1] - mapped[0]
+        norm = float(np.linalg.norm(transformed))
+        return (transformed / norm)[::-1] if np.isfinite(norm) and norm > 1e-12 else np.zeros(2)
+
     def camera_update(self, warp_matrix):
-        # get box + score from KF state
-        x1, y1, x2, y2, score = self.motion_model.to_box(self.kf.x, score=1.0)[0]
+        """Move all AABB motion and association state to the current camera frame."""
+        transform = np.asarray(warp_matrix, dtype=float)
+        if transform.shape not in ((2, 3), (3, 3)):
+            raise ValueError(f"Expected a 2x3 affine or 3x3 homography, got {transform.shape}.")
 
-        M = np.asarray(warp_matrix, dtype=float)
-        # normalize to 3x3 homogeneous matrix
-        if M.shape == (2, 3):
-            M = np.vstack([M, [0.0, 0.0, 1.0]])
-        elif M.shape != (3, 3):
-            M = np.eye(3, dtype=float)
+        source_center = np.asarray(self.kf.x, dtype=float).reshape(-1)[:2].copy()
+        self.kf.x, self.kf.P = self._map_camera_state_and_covariance(
+            self.kf.x,
+            self.kf.P,
+            transform,
+        )
 
-        # transform corners in homogeneous coords
-        p1 = (M @ np.array([x1, y1, 1.0], dtype=float)).ravel()
-        p2 = (M @ np.array([x2, y2, 1.0], dtype=float)).ravel()
+        if self.last_observation[-1] >= 0:
+            self.last_observation = self._warp_aabb_row(self.last_observation, transform)
+        if self.last_observation_save[-1] >= 0:
+            self.last_observation_save = self._warp_aabb_row(self.last_observation_save, transform)
+        self.observations = {
+            age: self._warp_aabb_row(observation, transform) for age, observation in self.observations.items()
+        }
+        self.history = deque(
+            (
+                self._warp_aabb_row(observation, transform).reshape(np.asarray(observation).shape)
+                for observation in self.history
+            ),
+            maxlen=self.history.maxlen,
+        )
 
-        # homogeneous divide
-        w1 = p1[2] if abs(p1[2]) > 1e-12 else 1.0
-        w2 = p2[2] if abs(p2[2]) > 1e-12 else 1.0
-        x1_, y1_ = p1[0] / w1, p1[1] / w1
-        x2_, y2_ = p2[0] / w2, p2[1] / w2
+        for attr_name in ("velocity_lt", "velocity_rt", "velocity_lb", "velocity_rb"):
+            setattr(
+                self,
+                attr_name,
+                self._warp_direction(getattr(self, attr_name), transform, source_center),
+            )
 
-        # write back to KF (keep score)
-        self.kf.x[:5] = self.motion_model.to_measurement([x1_, y1_, x2_, y2_, float(score)])
+        if hasattr(self.kf, "history_obs"):
+            self.kf.history_obs = deque(
+                (self._warp_camera_measurement(item, transform) for item in self.kf.history_obs),
+                maxlen=self.kf.history_obs.maxlen,
+            )
+        if getattr(self.kf, "last_measurement", None) is not None:
+            self.kf.last_measurement = self._warp_camera_measurement(self.kf.last_measurement, transform)
+        if not getattr(self.kf, "observed", True) and getattr(self.kf, "attr_saved", None) is not None:
+            saved = self.kf.attr_saved
+            saved["x"], saved["P"] = self._map_camera_state_and_covariance(
+                saved["x"],
+                saved["P"],
+                transform,
+            )
+            saved["history_obs"] = deque(
+                (self._warp_camera_measurement(item, transform) for item in saved["history_obs"]),
+                maxlen=saved["history_obs"].maxlen,
+            )
+            saved["last_measurement"] = self._warp_camera_measurement(saved["last_measurement"], transform)
 
     def update(
         self,
@@ -196,7 +306,7 @@ class KalmanBoxTracker(SortBoxTrack):
     ):
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
-            if self.last_observation.sum() >= 0:
+            if self.last_observation[-1] >= 0:
                 previous_box = None
                 for i in range(self.delta_t):
                     if self.age - i - 1 in self.observations:
@@ -221,17 +331,17 @@ class KalmanBoxTracker(SortBoxTrack):
                     self.velocity_lt, self.velocity_rt = vlt, vrt
                     self.velocity_lb, self.velocity_rb = vlb, vrb
 
-            self.last_observation = bbox
-            self.last_observation_save = bbox
-            self.observations[self.age] = bbox
+            self.last_observation = np.asarray(bbox).copy()
+            self.last_observation_save = np.asarray(bbox).copy()
+            self.observations[self.age] = np.asarray(bbox).copy()
             self._prune_observations()
-            self.history_observations.append(bbox)
 
             self.time_since_update = 0
             self.history.clear()
             self.hits += 1
             self.hit_streak += 1
             self.kf.update(self.motion_model.to_measurement(bbox))
+            self._append_current_history()
 
             # update metadata
             if cls is not None:

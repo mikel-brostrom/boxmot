@@ -12,7 +12,6 @@ import numpy as np
 
 from boxmot.native import _common
 from boxmot.native._common import (
-    cached_embedding_path,
     dets_n_embs_root,
 )
 from boxmot.native._common import (
@@ -28,6 +27,7 @@ from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests v
 
 def _default_preprocess() -> str:
     from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
     return DEFAULT_PREPROCESS
 
 
@@ -53,9 +53,10 @@ def _is_ci_macos_runner() -> bool:
 
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
-    resolved = _native_trackers.load_tracker_cfg("occluboost", cfg_dict)
+    resolved = _native_trackers.load_tracker_cfg("occluboost", cfg_dict, flatten=True)
     resolved.setdefault("with_reid", True)
-    resolved.setdefault("cmc_method", "ecc")
+    resolved.setdefault("use_cmc", True)
+    resolved.setdefault("cmc_method", "sof")
     resolved.setdefault("max_obs", 50)
     resolved.setdefault("reid_device", _default_native_reid_device())
     return resolved
@@ -134,6 +135,13 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("ams_buffer_size", ctypes.c_int),
         ("ams_shrink_ratio", ctypes.c_float),
         ("lambda_emb_multiplier", ctypes.c_float),
+        ("obb_det_thresh", ctypes.c_float),
+        ("obb_iou_threshold", ctypes.c_float),
+        ("obb_new_track_thresh", ctypes.c_float),
+        ("obb_instant_confirm_thresh", ctypes.c_float),
+        ("obb_max_age", ctypes.c_int),
+        ("obb_recovery_max_age", ctypes.c_int),
+        ("obb_second_iou_thresh", ctypes.c_float),
         ("reid_model_path", ctypes.c_char_p),
         ("reid_preprocess", ctypes.c_char_p),
         ("reid_device", ctypes.c_char_p),
@@ -141,6 +149,7 @@ class _OccluBoostCConfig(ctypes.Structure):
 
 
 def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
+    cmc_method = str(cfg.get("cmc_method", "sof")) if bool(cfg.get("use_cmc", True)) else "none"
     return _OccluBoostCConfig(
         max_age=int(cfg["max_age"]),
         min_hits=int(cfg["min_hits"]),
@@ -159,7 +168,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         use_sb=int(bool(cfg["use_sb"])),
         use_vt=int(bool(cfg["use_vt"])),
         with_reid=int(bool(cfg.get("with_reid", True))),
-        cmc_method=str(cfg.get("cmc_method", "ecc")).encode("utf-8"),
+        cmc_method=cmc_method.encode("utf-8"),
         max_obs=int(cfg.get("max_obs", 50)),
         recovery_appearance_thresh=float(cfg["recovery_appearance_thresh"]),
         recovery_iou_thresh=float(cfg["recovery_iou_thresh"]),
@@ -182,6 +191,13 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
         lambda_emb_multiplier=float(cfg.get("lambda_emb_multiplier", 1.5)),
+        obb_det_thresh=float(cfg["obb_det_thresh"]),
+        obb_iou_threshold=float(cfg["obb_iou_threshold"]),
+        obb_new_track_thresh=float(cfg["obb_new_track_thresh"]),
+        obb_instant_confirm_thresh=float(cfg["obb_instant_confirm_thresh"]),
+        obb_max_age=int(cfg["obb_max_age"]),
+        obb_recovery_max_age=int(cfg["obb_recovery_max_age"]),
+        obb_second_iou_thresh=float(cfg["obb_second_iou_thresh"]),
         reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
         reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
         reid_device=str(cfg.get("reid_device", "auto")).encode("utf-8"),
@@ -331,9 +347,10 @@ class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
 
     def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img, embs)
+        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0]))
+        tracks = self._library.update(self._handle, det_arr, img, emb_arr)
         self._refresh_reid_timings()
-        return tracks
+        return self._normalize_tracks_for_mode(tracks)
 
 
 def create_occluboost_live_tracker(
@@ -371,6 +388,7 @@ def process_sequence_cpp(
     split: str | None = None,
     masks_dir: str | None = None,
     kf_tuning: dict | None = None,
+    embedding_cache_dir: str | None = None,
     progress_queue=None,
     adaptive_kf: bool = False,
 ):
@@ -380,29 +398,23 @@ def process_sequence_cpp(
     executable = ensure_occluboost_cpp_executable()
     cfg = _resolve_tracker_cfg(cfg_dict)
 
-    from boxmot.data.cache import reid_cache_key as _reid_cache_key
-    reid_key = _reid_cache_key(reid_name, tracker_backend="cpp")
-
     det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
-
-    # Skip the (potentially expensive) ONNX export + model load when a complete
-    # embedding cache already exists for this sequence; the C++ tracker will read
-    # embeddings straight from the .npy and never invoke ReID.
-    preprocess_key = str(preprocess_name or "resize")
-    cached_emb = cached_embedding_path(
+    reid_key, preprocess_key, cached_emb, cached_dets = _common.resolve_embedding_cache_location(
         project_root,
         detector_name,
         reid_name,
         seq_name,
         dataset_name=dataset_name,
         split=split,
-        preprocess_name=preprocess_key,
+        preprocess_name=preprocess_name,
         tracker_backend="cpp",
+        embedding_cache_dir=embedding_cache_dir,
     )
-    if cached_emb.exists():
-        reid_model_path = None
-    else:
-        reid_model_path = _ensure_native_reid_model_path(reid_name)
+    reid_model_path = (
+        None
+        if _common.embedding_cache_is_complete(cached_emb, cached_dets)
+        else _ensure_native_reid_model_path(reid_name)
+    )
 
     cmd = _native_trackers.build_replay_command(
         executable=executable,
@@ -414,49 +426,106 @@ def process_sequence_cpp(
         conf_threshold=conf_threshold,
         target_fps=target_fps,
         extra_args=[
-            "--reid-name", reid_key,
-            "--reid-model", "" if reid_model_path is None else str(reid_model_path),
-            "--reid-preprocess", preprocess_key,
-            "--max-age", str(int(cfg["max_age"])),
-            "--min-hits", str(int(cfg["min_hits"])),
-            "--det-thresh", str(float(cfg["det_thresh"])),
-            "--iou-threshold", str(float(cfg["iou_threshold"])),
-            "--min-box-area", str(int(cfg["min_box_area"])),
-            "--aspect-ratio-thresh", str(float(cfg["aspect_ratio_thresh"])),
-            "--lambda-iou", str(float(cfg["lambda_iou"])),
-            "--lambda-mhd", str(float(cfg["lambda_mhd"])),
-            "--lambda-shape", str(float(cfg["lambda_shape"])),
-            "--use-dlo-boost", _native_trackers.bool_arg(cfg["use_dlo_boost"]),
-            "--use-duo-boost", _native_trackers.bool_arg(cfg["use_duo_boost"]),
-            "--dlo-boost-coef", str(float(cfg["dlo_boost_coef"])),
-            "--s-sim-corr", _native_trackers.bool_arg(cfg["s_sim_corr"]),
-            "--use-rich-s", _native_trackers.bool_arg(cfg["use_rich_s"]),
-            "--use-sb", _native_trackers.bool_arg(cfg["use_sb"]),
-            "--use-vt", _native_trackers.bool_arg(cfg["use_vt"]),
-            "--with-reid", _native_trackers.bool_arg(cfg.get("with_reid", True)),
-            "--cmc-method", str(cfg.get("cmc_method", "ecc")),
-            "--max-obs", str(int(cfg.get("max_obs", 50))),
-            "--recovery-appearance-thresh", str(float(cfg["recovery_appearance_thresh"])),
-            "--recovery-iou-thresh", str(float(cfg["recovery_iou_thresh"])),
-            "--recovery-max-age", str(int(cfg["recovery_max_age"])),
-            "--feat-alpha", str(float(cfg["feat_alpha"])),
-            "--track-low-thresh", str(float(cfg["track_low_thresh"])),
-            "--second-iou-thresh", str(float(cfg["second_iou_thresh"])),
-            "--second-appearance-thresh", str(float(cfg["second_appearance_thresh"])),
-            "--second-pass-max-age", str(int(cfg["second_pass_max_age"])),
-            "--second-pass-min-hits", str(int(cfg["second_pass_min_hits"])),
-            "--use-second-pass", _native_trackers.bool_arg(cfg["use_second_pass"]),
-            "--new-track-thresh", str(float(cfg["new_track_thresh"])),
-            "--confirm-hits", str(int(cfg["confirm_hits"])),
-            "--instant-confirm-thresh", str(float(cfg["instant_confirm_thresh"])),
-            "--tentative-max-age", str(int(cfg["tentative_max_age"])),
-            "--duplicate-iou-thresh", str(float(cfg["duplicate_iou_thresh"])),
-            "--ams-enabled", _native_trackers.bool_arg(cfg["ams_enabled"]),
-            "--ams-alpha0", str(float(cfg["ams_alpha0"])),
-            "--ams-threshold", str(float(cfg["ams_threshold"])),
-            "--ams-buffer-size", str(int(cfg["ams_buffer_size"])),
-            "--ams-shrink-ratio", str(float(cfg["ams_shrink_ratio"])),
-            "--lambda-emb-multiplier", str(float(cfg.get("lambda_emb_multiplier", 1.5))),
+            "--reid-name",
+            reid_key,
+            "--reid-model",
+            "" if reid_model_path is None else str(reid_model_path),
+            "--reid-preprocess",
+            preprocess_key,
+            "--max-age",
+            str(int(cfg["max_age"])),
+            "--min-hits",
+            str(int(cfg["min_hits"])),
+            "--det-thresh",
+            str(float(cfg["det_thresh"])),
+            "--iou-threshold",
+            str(float(cfg["iou_threshold"])),
+            "--min-box-area",
+            str(int(cfg["min_box_area"])),
+            "--aspect-ratio-thresh",
+            str(float(cfg["aspect_ratio_thresh"])),
+            "--lambda-iou",
+            str(float(cfg["lambda_iou"])),
+            "--lambda-mhd",
+            str(float(cfg["lambda_mhd"])),
+            "--lambda-shape",
+            str(float(cfg["lambda_shape"])),
+            "--use-dlo-boost",
+            _native_trackers.bool_arg(cfg["use_dlo_boost"]),
+            "--use-duo-boost",
+            _native_trackers.bool_arg(cfg["use_duo_boost"]),
+            "--dlo-boost-coef",
+            str(float(cfg["dlo_boost_coef"])),
+            "--s-sim-corr",
+            _native_trackers.bool_arg(cfg["s_sim_corr"]),
+            "--use-rich-s",
+            _native_trackers.bool_arg(cfg["use_rich_s"]),
+            "--use-sb",
+            _native_trackers.bool_arg(cfg["use_sb"]),
+            "--use-vt",
+            _native_trackers.bool_arg(cfg["use_vt"]),
+            "--with-reid",
+            _native_trackers.bool_arg(cfg.get("with_reid", True)),
+            "--cmc-method",
+            str(cfg.get("cmc_method", "sof")) if bool(cfg.get("use_cmc", True)) else "none",
+            "--max-obs",
+            str(int(cfg.get("max_obs", 50))),
+            "--recovery-appearance-thresh",
+            str(float(cfg["recovery_appearance_thresh"])),
+            "--recovery-iou-thresh",
+            str(float(cfg["recovery_iou_thresh"])),
+            "--recovery-max-age",
+            str(int(cfg["recovery_max_age"])),
+            "--feat-alpha",
+            str(float(cfg["feat_alpha"])),
+            "--track-low-thresh",
+            str(float(cfg["track_low_thresh"])),
+            "--second-iou-thresh",
+            str(float(cfg["second_iou_thresh"])),
+            "--second-appearance-thresh",
+            str(float(cfg["second_appearance_thresh"])),
+            "--second-pass-max-age",
+            str(int(cfg["second_pass_max_age"])),
+            "--second-pass-min-hits",
+            str(int(cfg["second_pass_min_hits"])),
+            "--use-second-pass",
+            _native_trackers.bool_arg(cfg["use_second_pass"]),
+            "--new-track-thresh",
+            str(float(cfg["new_track_thresh"])),
+            "--confirm-hits",
+            str(int(cfg["confirm_hits"])),
+            "--instant-confirm-thresh",
+            str(float(cfg["instant_confirm_thresh"])),
+            "--tentative-max-age",
+            str(int(cfg["tentative_max_age"])),
+            "--duplicate-iou-thresh",
+            str(float(cfg["duplicate_iou_thresh"])),
+            "--ams-enabled",
+            _native_trackers.bool_arg(cfg["ams_enabled"]),
+            "--ams-alpha0",
+            str(float(cfg["ams_alpha0"])),
+            "--ams-threshold",
+            str(float(cfg["ams_threshold"])),
+            "--ams-buffer-size",
+            str(int(cfg["ams_buffer_size"])),
+            "--ams-shrink-ratio",
+            str(float(cfg["ams_shrink_ratio"])),
+            "--lambda-emb-multiplier",
+            str(float(cfg.get("lambda_emb_multiplier", 1.5))),
+            "--obb-det-thresh",
+            str(float(cfg["obb_det_thresh"])),
+            "--obb-iou-threshold",
+            str(float(cfg["obb_iou_threshold"])),
+            "--obb-new-track-thresh",
+            str(float(cfg["obb_new_track_thresh"])),
+            "--obb-instant-confirm-thresh",
+            str(float(cfg["obb_instant_confirm_thresh"])),
+            "--obb-max-age",
+            str(int(cfg["obb_max_age"])),
+            "--obb-recovery-max-age",
+            str(int(cfg["obb_recovery_max_age"])),
+            "--obb-second-iou-thresh",
+            str(float(cfg["obb_second_iou_thresh"])),
         ],
     )
 

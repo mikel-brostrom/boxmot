@@ -2,12 +2,15 @@
 
 BoxMOT keeps Python and native tracker implementations in parallel trees:
 
-- Python tracker runtime: `boxmot/trackers/<name>/`
+- Python tracker implementations: `boxmot/trackers/bbox/<name>.py` and the
+  modality-specific `boxmot/trackers/mask/` and `boxmot/trackers/hybrid/` trees
 - Native C++ tracker family: `boxmot/native/cpp/trackers/<name>/`
 - Native C++ shared tracker base: `boxmot/native/cpp/trackers/base/`
 - Python-side native registration: `boxmot/native/registry.py`
 
-This keeps the user-facing tracker id stable while letting the backend vary by mode, while giving the C++ tree the same high-level shape as the Python tree: a shared base layer plus per-tracker packages.
+This keeps the user-facing tracker ID stable while letting the backend vary by
+mode. Both trees separate shared tracking machinery from tracker-specific
+implementations.
 
 ## Organization
 
@@ -22,7 +25,7 @@ Tracker-specific code should stay in its own directory even when two trackers lo
 Prefer the dedicated tracker implementation selector:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker botsort --tracker-backend cpp
 ```
 
 `--tracking-backend cpp` is still accepted as a compatibility alias for existing replay commands, but the canonical distinction is now:
@@ -41,6 +44,7 @@ Native replay and live backends are currently registered for:
 
 - `botsort`
 - `bytetrack`
+- `occluboost`
 - `ocsort`
 - `sfsort`
 
@@ -52,6 +56,14 @@ Build requirements:
 - CMake 3.16+
 - OpenCV 4.x
 - Eigen3 3.3+
+
+## Native ReID
+
+The shared native ReID bridge accepts both AABB and OBB crops. OBB inputs are
+rectified before resize and normalization, and ONNX models with either dynamic
+or fixed batch dimensions are supported. Python cache generation and native
+replay use the same preprocessing contract so cached embeddings remain
+row-aligned with detections.
 
 ## Embedding in a C++ Program
 
@@ -77,4 +89,5 @@ std::vector<bytetrack::Detection> detections;
 std::vector<bytetrack::TrackOutput> tracks = tracker.Update(detections, frame);
 ```
 
-See `docs/guides/native-cpp.md` for a complete CMake project and fake detector example.
+See [Native C++ Integration](../../../docs/native/index.md) for the public
+native-backend workflow and embedding guidance.

@@ -1,0 +1,28 @@
+id: mot17
+
+artifacts:
+  precomputed:
+    ablation:
+      uri: hf://Lekim89/runs/runs/dets_n_embs/mot17/ablation
+      contains:
+        - detections
+        - embeddings
+      produced_by:
+        detector: yolox-x-mot17/ablation
+        reid: lmbn-n-duke
+  public_detections:
+    frcnn:
+      label: Faster R-CNN public detections
+      uri: hf://Lekim89/mot17-parquet/data/detections/frcnn
+      classes:
+        person: 0
+    sdp:
+      label: SDP public detections
+      uri: hf://Lekim89/mot17-parquet/data/detections/sdp
+      classes:
+        person: 0
+    dpm:
+      label: DPM public detections
+      uri: hf://Lekim89/mot17-parquet/data/detections/dpm
+      classes:
+        person: 0

@@ -5,6 +5,7 @@
 
 #include <opencv2/dnn.hpp>
 
+#include <array>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -79,14 +80,14 @@ public:
     OnnxRuntimeInferenceBackend(
         const fs::path& model_path,
         ReIdDevice requested_device,
-        const cv::Size& input_size
+        const cv::Size& input_size,
+        int input_batch_size
     )
         : env_(ORT_LOGGING_LEVEL_WARNING, "boxmot_reid"),
-          input_shape_{1, 3,
+          input_shape_{input_batch_size, 3,
                        static_cast<int64_t>(input_size.height),
                        static_cast<int64_t>(input_size.width)} {
         options_.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_ALL);
-        options_.SetIntraOpNumThreads(1);
 
         ReIdDevice resolved = requested_device;
         if (resolved == ReIdDevice::kCoreMl) {
@@ -121,8 +122,28 @@ public:
     }
 
     std::vector<float> Forward(const cv::Mat& blob) const override {
-        const size_t element_count = static_cast<size_t>(input_shape_[2]) *
-                                     static_cast<size_t>(input_shape_[3]) * 3UL;
+        if (blob.empty() || blob.dims != 4 || blob.type() != CV_32F ||
+            blob.size[0] <= 0 || blob.size[1] != input_shape_[1] ||
+            blob.size[2] != input_shape_[2] || blob.size[3] != input_shape_[3] ||
+            !blob.isContinuous()) {
+            throw std::runtime_error(
+                "Native ReID input blob does not match the ONNX input shape.");
+        }
+        std::array<int64_t, 4> execution_shape = input_shape_;
+        if (execution_shape[0] == 0) {
+            execution_shape[0] = blob.size[0];
+        } else if (execution_shape[0] != blob.size[0]) {
+            throw std::runtime_error(
+                "Native ReID input blob does not match the fixed ONNX batch size.");
+        }
+        const size_t element_count = static_cast<size_t>(execution_shape[0]) *
+                                     static_cast<size_t>(execution_shape[1]) *
+                                     static_cast<size_t>(execution_shape[2]) *
+                                     static_cast<size_t>(execution_shape[3]);
+        if (blob.total() != element_count) {
+            throw std::runtime_error(
+                "Native ReID input blob does not match the ONNX input element count.");
+        }
 
         Ort::MemoryInfo memory_info = Ort::MemoryInfo::CreateCpu(
             OrtArenaAllocator, OrtMemTypeDefault);
@@ -130,8 +151,8 @@ public:
             memory_info,
             reinterpret_cast<float*>(blob.data),
             element_count,
-            input_shape_.data(),
-            input_shape_.size()
+            execution_shape.data(),
+            execution_shape.size()
         );
 
         const char* input_names[] = {input_name_.c_str()};
@@ -151,6 +172,7 @@ public:
 
     ReIdBackend kind() const override { return ReIdBackend::kOnnxRuntime; }
     ReIdDevice device() const override { return resolved_device_; }
+    bool supports_dynamic_batch() const override { return true; }
 
 private:
     Ort::Env env_;
@@ -171,14 +193,15 @@ std::unique_ptr<ReIdInferenceBackend> MakeReIdInferenceBackend(
     const fs::path& model_path,
     ReIdBackend requested_backend,
     ReIdDevice requested_device,
-    const cv::Size& input_size
+    const cv::Size& input_size,
+    int input_batch_size
 ) {
     std::unique_ptr<ReIdInferenceBackend> backend;
 
     if (requested_backend == ReIdBackend::kOnnxRuntime) {
 #if defined(BOXMOT_HAS_ONNXRUNTIME)
         backend = std::make_unique<OnnxRuntimeInferenceBackend>(
-            model_path, requested_device, input_size);
+            model_path, requested_device, input_size, input_batch_size);
 #else
         // ORT not compiled in: fall back to OpenCV DNN.
         (void)requested_device;
@@ -186,6 +209,7 @@ std::unique_ptr<ReIdInferenceBackend> MakeReIdInferenceBackend(
 #endif
     } else {
         (void)input_size;
+        (void)input_batch_size;
         (void)requested_device;
         backend = std::make_unique<OpenCvDnnInferenceBackend>(model_path);
     }

@@ -1,27 +1,43 @@
 # Native C++ Integration
 
-BoxMOT ships native C++ implementations of several trackers. You can use them in two ways:
+BoxMOT ships native C++ implementations of several trackers. You can use them in three ways:
 
-1. From the BoxMOT CLI / Python API via `--tracker-backend cpp`.
-2. Linked directly into your own C++ program via the `<tracker>_core` CMake target or the flat C ABI.
+1. From the CLI with `--tracker-backend cpp`.
+2. From the Python facade with a method argument such as
+   `model.track(..., tracker_backend="cpp")` or
+   `model.val(..., tracker_backend="cpp")`; `model.tune(...)` accepts the same
+   argument for cached replay.
+3. Linked directly into your own C++ program via the `<tracker>_core` CMake
+   target or the flat C ABI.
 
 ## Using the native backend from BoxMOT
 
-Pass `--tracker-backend cpp` to swap the in-process tracker implementation. This works in `track`, `eval`, `tune`, and `research`:
+Pass `--tracker-backend cpp` to swap the tracker implementation. It selects a
+native live library for `track` and native cached replay for `eval` and `tune`:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval  --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval  --benchmark mot17 --split ablation --tracker botsort --tracker-backend cpp
+boxmot eval  --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
+boxmot eval  --experiment mot17-ablation-yolox-lmbn --tracker botsort --tracker-backend cpp
 ```
 
-`--tracking-backend cpp` still works as a compatibility alias. The first run configures and builds the matching shared library under `build/native/<tracker>/`. Use `boxmot build` to compile ahead of time:
+`--tracking-backend cpp` is a compatibility alias for cached `eval` and `tune`;
+live `track` uses `--tracker-backend cpp`. The `research` workflow currently
+evaluates Python tracker code and does not forward either native selector.
+
+In a source or editable install, the first live run builds the matching
+`<tracker>_capi` shared library, while the first cached run builds the matching
+`<tracker>_replay` executable. Both use `build/native/<tracker>/`. Use
+`boxmot build` to prebuild the live C ABI libraries:
 
 ```bash
-boxmot build                                          # all registered trackers
+boxmot build                                          # native ReID + all live tracker libraries
 boxmot build --tracker bytetrack --tracker ocsort     # subset
-boxmot build --force                                  # reconfigure from scratch
+boxmot build --force                                  # rebuild even when artifacts already exist
 ```
+
+`boxmot build` does not prebuild the cached replay executables; those are built
+on first `eval` or `tune` use.
 
 | Tracker | Live `track` | Cached replay | Notes |
 | --- | --- | --- | --- |
@@ -31,17 +47,65 @@ boxmot build --force                                  # reconfigure from scratch
 | `ocsort`     | Yes | Yes | AABB/OBB; native backend currently uses `asso_func=iou`. |
 | `sfsort`     | Yes | Yes | AABB/OBB; no ReID. |
 
+Native live trackers do not currently support `per_class=True`. Use the Python
+backend when each class needs separate tracker state.
+
 ### Native C++ ReID
 
-When the selected tracker uses appearance features (currently `botsort` and `occluboost`), `--tracker-backend cpp` also routes ReID embedding generation through the native C++ ReID (`OnnxReIdModel`, exposed to Python as `boxmot.native.reid.CppOnnxReID`) instead of the Python `ReID` backend. This applies to both live `track` and the cached `eval` / `tune` / `research` generate phase.
+When the selected tracker uses appearance features (currently `botsort` and
+`occluboost`), `--tracker-backend cpp` also routes ReID embedding generation
+through the native C++ ReID (`OnnxReIdModel`, exposed to Python as
+`boxmot.native.reid.CppOnnxReID`) instead of the Python `ReID` backend. This
+applies to live `track` and the cached `eval` / `tune` generate phase.
 
-- If the supplied ReID weights are a `.pt` file, BoxMOT auto-exports them to a native OpenCV-compatible `*_opencv.onnx` file and reuses that export for later native runs.
-- Embeddings produced by the native path are cached in a separate bucket suffixed with `__cpp` so they don't collide with Python-backend embeddings on disk.
-- The native ReID runtime can be tuned through environment variables, honoured by both Python and C++:
-    - `BOXMOT_REID_BACKEND` — `ort` / `onnxruntime` (default) or `opencv` / `dnn` for `cv2.dnn.readNetFromONNX`.
-    - `BOXMOT_REID_DEVICE` — `cpu`, `cuda`, `coreml`, or `auto`.
+- If the supplied ReID weights are a `.pt` file, BoxMOT auto-exports a compatible ONNX artifact and reuses that export for later native runs.
+- Embeddings are partitioned by their effective producer, model artifact, runtime, preprocessing, and crop semantics so incompatible results do not collide on disk.
+- The native ReID runtime can be tuned through environment variables honoured
+  by the wrappers and C++ runtime:
+    - `BOXMOT_REID_BACKEND` — `auto` (default), `ort` / `onnxruntime`, or
+      `opencv` / `dnn`. Auto prefers ONNX Runtime when it was compiled in and
+      otherwise uses OpenCV DNN.
+    - `BOXMOT_REID_DEVICE` — `auto` (default in the C++ runtime), `cpu`, `cuda`,
+      or `coreml`. An unavailable accelerator provider falls back to CPU.
 
-If the native C ABI cannot be loaded for any reason, BoxMOT logs a warning and transparently falls back to the Python ReID backend so generation still completes.
+If the native ReID module is unavailable at backend-resolution time, BoxMOT
+logs a warning and selects the Python producer before choosing a cache key.
+Once the C++ producer has been selected, C ABI loading, model-loading, and
+initialization failures are surfaced instead of silently switching producer.
+
+### Embedding cache layout
+
+Embedding caches use a producer-first layout:
+
+```text
+embs/
+  <python|cpp>/
+    <model>-<format>-<runtime>[-wHASH]/
+      <preprocess>-cropvN/
+        <sequence>.npy
+```
+
+For example, Python/PyTorch and C++/ONNX Runtime embeddings for the same source
+checkpoint occupy different top-level producer and runtime buckets. The optional
+`wHASH` token fingerprints the resolved model artifact, while `cropvN` versions
+the crop geometry used before ReID preprocessing. Changing the producer, model
+format or bytes, runtime, preprocessing mode, or crop schema therefore creates a
+new bucket without invalidating compatible detection caches.
+
+`python` and `cpp` identify the code path that actually produced the embeddings;
+they do not identify the tracker algorithm. A C++ tracker requests the C++
+producer. An import-time native-unavailable fallback is resolved to `python`
+before cache lookup, while failures after C++ producer selection stop
+generation. Multiple tracker algorithms may reuse one embedding bucket when
+all producer and model semantics match.
+
+Older caches may use a flat model bucket such as
+`embs/<model>/<preprocess>/<sequence>.npy`. BoxMOT may reuse such a legacy file
+only when it is explicitly considered compatible and trusted, is readable, and
+has one embedding row per cached detection row. New or regenerated embeddings
+are always written to the canonical producer-first layout. Do not reuse an
+unidentified legacy bucket across model, runtime, producer, preprocessing, or
+crop-schema changes.
 
 The native replay path accepts both AABB benchmark caches and OBB caches. OBB replay outputs are written in the MMOT corner format expected by the OBB evaluation flow.
 
@@ -59,7 +123,9 @@ Embed a BoxMOT native tracker in your own C++ program by linking against the tra
 | OCSORT     | `boxmot/native/cpp/trackers/ocsort`     | `ocsort_core`     | `ocsort::OCSortTracker` |
 | SFSORT     | `boxmot/native/cpp/trackers/sfsort`     | `sfsort_core`     | `sfsort::SFSORTTracker` |
 
-ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base` library (`boxmot::trackers::base::OnnxReIdModel`) and is pulled in transitively when you link against `<tracker>_core`.
+ReID for BoTSORT and OccluBoost is provided by the common static
+`boxmot_tracker_base` target (`boxmot::trackers::base::OnnxReIdModel`) and is
+pulled in transitively when you link against `<tracker>_core`.
 
 > Calling from C, Rust, Go, Swift, JNI, .NET, etc.? Each tracker also exposes a flat C ABI in `boxmot/native/cpp/trackers/<tracker>/include/<tracker>/c_api.hpp` and produces a `<tracker>_capi.{so,dylib,dll}`. The header is the contract.
 
@@ -103,9 +169,13 @@ ReID for BoTSORT and OccluBoost is provided by the shared `boxmot_trackers_base`
 
 ## Building from Python (`boxmot build`)
 
-If BoxMOT is already installed (`pip install boxmot`), the CLI compiles the native trackers in-place — no separate CMake invocation needed. See the [Using the native backend from BoxMOT](#using-the-native-backend-from-boxmot) section above for the `boxmot build` commands. The compiled `<tracker>_capi.{so,dylib,dll}` lands next to the tracker sources under `boxmot/native/cpp/trackers/<name>/`, and `--tracker-backend cpp` picks it up automatically.
-
-## Minimal C++ project
+In a source or editable install, the CLI compiles native tracker libraries into
+`build/native/<tracker>/`; no separate CMake invocation is needed. In a wheel,
+prebuilt artifacts are installed beside their C++ sources under
+`boxmot/native/cpp/trackers/<name>/`. See
+[Using the native backend from BoxMOT](#using-the-native-backend-from-boxmot)
+for the `boxmot build` commands and the distinction between live libraries and
+cached replay executables.
 
 ## Minimal C++ project
 
@@ -223,9 +293,9 @@ Run without ReID via `cfg.with_reid = false`, or enable it by either:
 - filling the `embedding` field on each detection from your own model, or
 - setting `cfg.reid_model_path` to an ONNX model so the tracker computes embeddings via the bundled `OnnxReIdModel`.
 
-Backend selection mirrors the Python path through env vars:
+Backend selection uses the same environment overrides as the Python wrappers:
 
-- `BOXMOT_REID_BACKEND` — `ort` / `onnxruntime` (default) or `opencv` / `dnn`
-- `BOXMOT_REID_DEVICE` — `cpu`, `cuda`, `coreml`, or `auto`
+- `BOXMOT_REID_BACKEND` — `auto`, `ort` / `onnxruntime`, or `opencv` / `dnn`
+- `BOXMOT_REID_DEVICE` — `auto`, `cpu`, `cuda`, or `coreml`
 
 ByteTrack, OCSORT, and SFSORT don't use ReID and are simpler to embed.

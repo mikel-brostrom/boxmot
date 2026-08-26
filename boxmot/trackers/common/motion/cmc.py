@@ -6,11 +6,11 @@ import numpy as np
 
 from boxmot.motion.cmc import create_cmc as create_motion_cmc
 from boxmot.trackers.common.detections.layout import DetectionLayout
-from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 
 CMC_RESET_ATTRS = (
     "prev_img",
     "prev_img_aligned",
+    "prev_frame",
     "prev_keypoints",
     "prev_descriptors",
 )
@@ -24,14 +24,8 @@ def create_cmc(method: str | None, *, enabled: bool = True, **kwargs):
 
 
 def cmc_detection_boxes(dets: np.ndarray, layout: DetectionLayout) -> np.ndarray:
-    """Return AABB detection boxes for CMC masking/estimation.
-
-    CMC implementations operate on axis-aligned ``x1, y1, x2, y2`` boxes even
-    when a tracker consumes oriented detections. For OBB layouts this returns
-    the enclosing AABB of each oriented box.
-    """
-    boxes = layout.boxes(dets)
-    return xywha_to_xyxy(boxes) if layout.is_obb else boxes
+    """Return native AABB or OBB geometry for CMC masking/estimation."""
+    return layout.boxes(dets)
 
 
 def apply_cmc_to_tracks(
@@ -70,3 +64,5 @@ def reset_cmc(cmc) -> None:
     for attr_name in CMC_RESET_ATTRS:
         if hasattr(cmc, attr_name):
             setattr(cmc, attr_name, None)
+    if hasattr(cmc, "initialized"):
+        cmc.initialized = False

@@ -9,15 +9,14 @@ from boxmot.utils import logger as LOGGER
 
 
 class TensorRTBackend(BaseModelBackend):
+    build_source_model = False
+
     def __init__(self, weights, device, half, preprocess=None):
         self.is_trt10 = False
+        self.fp16 = False  # Updated from the engine input binding during load.
         super().__init__(weights, device, half, preprocess=preprocess)
         self.nhwc = False
         self.half = half
-        self.device = device
-        self.weights = weights
-        self.fp16 = False  # Will be updated in load_model
-        self.load_model(self.weights)
 
     def load_model(self, w):
         LOGGER.info(f"Loading {w} for TensorRT inference...")

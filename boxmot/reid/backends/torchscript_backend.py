@@ -5,6 +5,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class TorchscriptBackend(BaseModelBackend):
+    build_source_model = False
 
     def __init__(self, weights, device, half, preprocess=None):
         super().__init__(weights, device, half, preprocess=preprocess)

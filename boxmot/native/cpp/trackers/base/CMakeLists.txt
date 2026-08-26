@@ -114,3 +114,15 @@ set_target_properties(reid_capi PROPERTIES
 )
 
 boxmot_enable_native_warnings(reid_capi)
+
+# Small solver regression probe used by the Python native unit suite. Keep it
+# outside the default build so production artifacts do not gain test-only work.
+add_executable(boxmot_assignment_probe EXCLUDE_FROM_ALL tests/assignment_probe.cpp)
+target_compile_features(boxmot_assignment_probe PRIVATE cxx_std_17)
+target_link_libraries(boxmot_assignment_probe PRIVATE boxmot_tracker_base)
+boxmot_enable_native_warnings(boxmot_assignment_probe)
+
+add_executable(boxmot_io_probe EXCLUDE_FROM_ALL tests/io_probe.cpp)
+target_compile_features(boxmot_io_probe PRIVATE cxx_std_17)
+target_link_libraries(boxmot_io_probe PRIVATE boxmot_tracker_base)
+boxmot_enable_native_warnings(boxmot_io_probe)

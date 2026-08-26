@@ -1,0 +1,36 @@
+id: visdrone
+
+format:
+  layout: visdrone
+  box_type: aabb
+
+storage:
+  root: boxmot/datasets/mot/VisDrone2019-MOT-test-dev
+
+default_split: val
+
+splits:
+  val:
+    path: sequences
+    has_ground_truth: true
+
+classes:
+  target:
+    pedestrian: 1
+    people: 2
+    bicycle: 3
+    car: 4
+    van: 5
+    truck: 6
+    tricycle: 7
+    awning-tricycle: 8
+    bus: 9
+    motor: 10
+  ignore:
+    ignored-regions: 0
+    others: 11
+
+resources:
+  dataset:
+    type: archive
+    uri: https://drive.google.com/uc?export=download&id=14z8Acxopj1d86-qhsF1NwS4Bv3KYa4Wu

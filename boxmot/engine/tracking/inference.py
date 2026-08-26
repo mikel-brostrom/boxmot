@@ -46,6 +46,21 @@ class TimedReIDModel:
         return getattr(self._model, name)
 
 
+def resolve_reid_producer_backend(tracker_backend: str | None) -> str:
+    """Return the effective embedding producer for a requested tracker backend."""
+    if (tracker_backend or "").strip().lower() != "cpp":
+        return "python"
+    try:
+        from boxmot.native.reid import CppOnnxReID  # noqa: F401
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning(
+            "Native ReID is unavailable; embedding generation will use the "
+            f"Python producer instead: {exc}"
+        )
+        return "python"
+    return "cpp"
+
+
 # ---------------------------------------------------------------------------
 # Predictor proxy — passed to callbacks instead of an Ultralytics predictor
 # ---------------------------------------------------------------------------
@@ -97,7 +112,10 @@ class DetectorReIDPipeline:
         self.half = half
         self.reid_half = half if reid_half is None else bool(reid_half)
         self.reid_preprocess = reid_preprocess
-        self.tracker_backend = (str(tracker_backend).strip().lower() if tracker_backend else None) or None
+        self.requested_tracker_backend = (
+            str(tracker_backend).strip().lower() if tracker_backend else None
+        ) or None
+        self.tracker_backend = resolve_reid_producer_backend(self.requested_tracker_backend)
         self.timing_stats = timing_stats if timing_stats is not None else TimingStats()
 
         if imgsz is None:
@@ -137,15 +155,9 @@ class DetectorReIDPipeline:
         use_cpp_reid = self.tracker_backend == "cpp"
         cpp_reid_factory = None
         if use_cpp_reid:
-            try:
-                from boxmot.native.reid import CppOnnxReID
-                cpp_reid_factory = CppOnnxReID
-            except Exception as exc:  # noqa: BLE001
-                LOGGER.warning(
-                    f"--tracker-backend cpp requested but native ReID C ABI is unavailable: "
-                    f"{exc}. Falling back to the Python ReID backend for embedding generation."
-                )
-                cpp_reid_factory = None
+            from boxmot.native.reid import CppOnnxReID
+
+            cpp_reid_factory = CppOnnxReID
 
         for reid_path in reid_model_paths:
             reid_path = Path(reid_path)
@@ -163,7 +175,10 @@ class DetectorReIDPipeline:
                     preprocess_name=self.reid_preprocess,
                 )
                 self.reid_models.append(TimedReIDModel(backend.model, self.timing_stats))
-            self.reid_model_names.append(reid_path.name)
+            # Keep the complete model identifier. A basename loses both the
+            # weight fingerprint input and uniqueness when two model paths use
+            # the same filename.
+            self.reid_model_names.append(str(reid_path))
 
     # ------------------------------------------------------------------
     # Callback management
@@ -417,4 +432,5 @@ __all__ = (
     "DetectorReIDPipeline",
     "TimedReIDModel",
     "prepare_detections",
+    "resolve_reid_producer_backend",
 )

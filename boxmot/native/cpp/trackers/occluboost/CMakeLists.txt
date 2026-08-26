@@ -16,3 +16,13 @@ boxmot_add_native_tracker(
         src/track.cpp
         src/tracker.cpp
 )
+
+add_executable(occluboost_cmc_mask_probe EXCLUDE_FROM_ALL tests/cmc_mask_probe.cpp)
+target_compile_features(occluboost_cmc_mask_probe PRIVATE cxx_std_17)
+target_link_libraries(occluboost_cmc_mask_probe PRIVATE occluboost_core)
+boxmot_enable_native_warnings(occluboost_cmc_mask_probe)
+
+add_executable(occluboost_cmc_state_probe EXCLUDE_FROM_ALL tests/cmc_state_probe.cpp)
+target_compile_features(occluboost_cmc_state_probe PRIVATE cxx_std_17)
+target_link_libraries(occluboost_cmc_state_probe PRIVATE occluboost_core)
+boxmot_enable_native_warnings(occluboost_cmc_state_probe)

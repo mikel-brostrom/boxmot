@@ -72,6 +72,7 @@ from typing import Dict, Generator, List, Optional, Union
 import cv2
 import numpy as np
 
+from boxmot.box_schema import AABB_SCHEMA, BoxSchema, schema_from_cache_columns
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
@@ -82,10 +83,22 @@ def _sequence_img_dir(seq_dir: Path) -> Path:
 
 
 def _list_sequence_frames(img_dir: Path) -> list[Path]:
-    return sorted(
-        p for p in list(img_dir.glob("*.jpg")) + list(img_dir.glob("*.png")) + list(img_dir.glob("*.npy"))
-        if not p.name.startswith("._")
+    frames = sorted(
+        p
+        for extension in (".jpg", ".jpeg", ".png", ".npy")
+        for p in img_dir.glob(f"*{extension}")
+        if p.is_file() and not p.name.startswith("._")
     )
+    path_by_stem: dict[str, Path] = {}
+    for frame in frames:
+        existing = path_by_stem.setdefault(frame.stem, frame)
+        if existing != frame:
+            raise ValueError(
+                f"Multiple image files found for frame stem '{frame.stem}' in {img_dir}: "
+                f"{existing.name}, {frame.name}. "
+                "Keep exactly one of .jpg, .jpeg, .png, or .npy per frame."
+            )
+    return frames
 
 
 def _sequence_name_from_img_dir(img_dir: Path) -> str:
@@ -126,6 +139,11 @@ def read_seq_fps(seq_dir: Path) -> int:
 
 def compute_fps_mask(frames: np.ndarray, orig_fps: int, target_fps: int) -> np.ndarray:
     """Compute a boolean mask for selecting frames to match ``target_fps``."""
+    frames = np.asarray(frames)
+    if frames.size == 0:
+        return np.zeros(frames.shape, dtype=bool)
+    if orig_fps <= 0 or target_fps <= 0:
+        raise ValueError("orig_fps and target_fps must be positive")
     tgt = min(orig_fps, target_fps)
     step = orig_fps / tgt
     wanted = set(np.arange(1, int(frames.max()) + 1, step).astype(int))
@@ -145,6 +163,7 @@ class MOTDataset:
         target_fps: Optional[int] = None,
         masks_dir: Optional[str] = None,
         seq_pattern: Optional[str] = None,
+        embedding_cache_dir: Optional[str] = None,
     ):
         self.root = Path(mot_root)
         self.target_fps = target_fps
@@ -153,27 +172,15 @@ class MOTDataset:
 
         if det_emb_root and model_name:
             from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
+
             preprocess_name = reid_preprocess or DEFAULT_PREPROCESS
             base = Path(det_emb_root) / model_name
             self.dets_dir = base / "dets"
-            if reid_name:
+            if embedding_cache_dir:
+                self.embs_dir = Path(embedding_cache_dir)
+            elif reid_name:
                 embs_root = base / "embs"
                 self.embs_dir = embs_root / reid_name / preprocess_name
-                # If the raw reid_name directory does not exist, try the
-                # canonical cache key used by ``boxmot.engine.eval.cache``
-                # (e.g. ``lmbn_n_duke_pt_pytorch_py``).
-                if not self.embs_dir.exists():
-                    try:
-                        from boxmot.data.cache import reid_cache_key
-                    except ImportError:
-                        pass
-                    else:
-                        for backend in ("py", "cpp"):
-                            key = reid_cache_key(reid_name, tracker_backend=backend)
-                            candidate_dir = embs_root / key / preprocess_name
-                            if candidate_dir.exists():
-                                self.embs_dir = candidate_dir
-                                break
             else:
                 self.embs_dir = None
         else:
@@ -202,6 +209,7 @@ class MOTDataset:
             # Apply sequence pattern filter (e.g. "*-FRCNN")
             if self.seq_pattern:
                 from fnmatch import fnmatch
+
                 if not fnmatch(name, self.seq_pattern):
                     continue
             img_dir = _sequence_img_dir(seq_dir)
@@ -298,6 +306,7 @@ class MOTSequence:
         self.skip_image_load = skip_image_load
         self._frame_cache = None
         self.dets: Optional[np.ndarray] = None
+        self.det_schema: BoxSchema = AABB_SCHEMA
         self.embs: Optional[np.ndarray] = None
         self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
@@ -310,6 +319,9 @@ class MOTSequence:
         if self.meta["det_path"]:
             det_path = Path(self.meta["det_path"])
             self.dets = np.load(det_path, mmap_mode="r")
+            if self.dets.ndim != 2:
+                raise ValueError(f"Detection cache for {self.name} must be 2D, got {self.dets.shape}.")
+            self.det_schema = schema_from_cache_columns(self.dets.shape[1])
 
             if self.meta["emb_path"]:
                 emb_path = Path(self.meta["emb_path"])
@@ -318,26 +330,32 @@ class MOTSequence:
                 if self.dets.shape[0] != self.embs.shape[0]:
                     raise ValueError(f"Row mismatch in {self.name}")
 
-            if self.target_fps and self.dets.shape[0] > 0:
-                seq_info_file = self.meta["seq_dir"] / "seqinfo.ini"
-                if not seq_info_file.exists():
-                    LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
-                else:
-                    orig_fps = read_seq_fps(self.meta["seq_dir"])
-                    fps_mask = compute_fps_mask(self.dets[:, 0], orig_fps, self.target_fps)
+        if self.target_fps:
+            seq_info_file = self.meta["seq_dir"] / "seqinfo.ini"
+            if not seq_info_file.exists():
+                LOGGER.warning(f"Missing seqinfo.ini in {self.meta['seq_dir']}, skipping FPS downsample")
+            else:
+                orig_fps = read_seq_fps(self.meta["seq_dir"])
+                frame_mask = compute_fps_mask(self.frame_ids, orig_fps, self.target_fps)
+                selected_frame_ids = self.frame_ids[frame_mask]
 
+                if self.dets is not None:
+                    # Detection caches contain rows only for frames with detections.
+                    # Derive row selection from the sampled sequence timeline so an
+                    # otherwise-empty sampled frame is not dropped from iteration.
+                    fps_mask = np.isin(self.dets[:, 0].astype(int), selected_frame_ids)
                     self.dets = self.dets[fps_mask]
                     if self.embs is not None:
                         self.embs = self.embs[fps_mask]
-                    keep_ids = set(self.dets[:, 0].astype(int))
-                    idxs_to_keep = [index for index, fid in enumerate(self.frame_ids) if fid in keep_ids]
-                    self.frame_ids = self.frame_ids[idxs_to_keep]
-                    self.frame_paths = [self.frame_paths[index] for index in idxs_to_keep]
                     self._fps_mask = fps_mask
 
-            # Build frame_id → row-slice index for O(1) per-frame lookup
-            if self.dets is not None and self.dets.shape[0] > 0:
-                self._det_index = self._build_det_index()
+                kept_indices = np.flatnonzero(frame_mask)
+                self.frame_ids = selected_frame_ids
+                if self.frame_paths:
+                    self.frame_paths = [self.frame_paths[index] for index in kept_indices]
+
+        if self.dets is not None and self.dets.shape[0] > 0:
+            self._det_index = self._build_det_index()
 
         # Load mask cache
         if self.meta.get("mask_path"):
@@ -436,7 +454,7 @@ class MOTSequence:
                     else:
                         masks_f = None
             else:
-                dets_f = np.zeros((0, 5))
+                dets_f = self.det_schema.empty_detections()
                 embs_f = np.zeros((0, 128))
                 masks_f = None
 

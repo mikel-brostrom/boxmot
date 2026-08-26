@@ -40,7 +40,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate, iou_batch
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
+from boxmot.trackers.common.geometry.obb import align_obb_measurement, wrap_pi_periodic
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
@@ -182,12 +182,14 @@ class OccluBoost(BoostTrack):
         self.gta_max_gap = max(int(gta_max_gap), 1)
         # Graveyard of recently-dead tracks, keyed by track ID.
         self._gta_graveyard: dict[int, dict] = {}
-        # Accumulated gap-fill rows (MOT format, 9 cols).
+        # Accumulated gap-fill rows in ``[frame, *tracker_output]`` form.
+        # Keeping native tracker geometry here lets the engine apply exactly
+        # the same AABB/OBB MOT conversion as it does for online emissions.
         self._gta_gap_entries: list[np.ndarray] = []
         # ---- Adaptive KF ----
         self.adaptive_kf = bool(adaptive_kf)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,
@@ -316,18 +318,24 @@ class OccluBoost(BoostTrack):
                 if (gated > 0).any():
                     row_ind, col_ind = linear_sum_assignment(-gated)
                     matched_dets_set = set()
+                    matched_tracks_set = set()
                     for r, c in zip(row_ind, col_ind):
                         if gated[r, c] <= 0:
                             continue
                         det_global = u_det_idx[r]
                         trk_global = elig[c]
                         matched_dets_set.add(det_global)
+                        matched_tracks_set.add(trk_global)
                         self._ams_update(self.trackers[trk_global], dets[det_global, :])
                         self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
                     if matched_dets_set:
                         unmatched_dets = np.array(
                             [d for d in unmatched_dets if int(d) not in matched_dets_set],
+                            dtype=int,
+                        )
+                        unmatched_trks = np.array(
+                            [t for t in unmatched_trks if int(t) not in matched_tracks_set],
                             dtype=int,
                         )
 
@@ -375,6 +383,11 @@ class OccluBoost(BoostTrack):
                         if self.with_reid and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
+                    if used:
+                        unmatched_trks = np.array(
+                            [t for t in unmatched_trks if int(t) not in used],
+                            dtype=int,
+                        )
 
         # ---- GTA: pure-appearance recovery for remaining unmatched dets ----
         # The IoU-gated recovery above can miss when the KF prediction has
@@ -599,9 +612,21 @@ class OccluBoost(BoostTrack):
         det_e = dets_embs[u_det_idx].reshape(len(u_det_idx), -1)
         sim = det_e @ grave_embs.T
 
-        # Gate by appearance threshold
+        # Resurrection is identity- and class-preserving.  The graveyard is
+        # shared by the public tracker (including per-class orchestration), so
+        # appearance alone must never let a detection consume another class's
+        # dead ID.
+        cls_col = 6 if is_obb else 5
+        det_classes = dets[u_det_idx, cls_col].astype(np.int64, copy=False)
+        grave_classes = np.asarray(
+            [int(self._gta_graveyard[gid]["cls"]) for gid in grave_ids],
+            dtype=np.int64,
+        )
+
+        # Gate by appearance threshold and detector class.
         gated = sim.copy()
         gated[sim < self.gta_appearance_thresh] = -1.0
+        gated[det_classes[:, None] != grave_classes[None, :]] = -1.0
 
         if not (gated > 0).any():
             return unmatched_dets
@@ -616,11 +641,12 @@ class OccluBoost(BoostTrack):
             grave_id = grave_ids[c]
             grave_entry = self._gta_graveyard[grave_id]
 
-            # Determine detection confidence column index
+            # Determine the mode-specific confidence and new-track threshold.
             conf_col = 5 if is_obb else 4
+            new_track_thresh = self.obb_new_track_thresh if is_obb else self.new_track_thresh
 
             # Only resurrect if detection confidence is high enough
-            if dets[det_global, conf_col] < self.new_track_thresh:
+            if dets[det_global, conf_col] < new_track_thresh:
                 continue
 
             matched_dets_set.add(det_global)
@@ -645,26 +671,26 @@ class OccluBoost(BoostTrack):
                 if 1 < gap <= self.gta_max_gap:
                     last_box = grave_entry["last_box"]  # [x1,y1,x2,y2] or [cx,cy,w,h,a]
                     cur_box = new_trk.get_state()[0]
+                    if is_obb:
+                        cur_box = align_obb_measurement(cur_box, last_box)
+                        # Interpolate along the shortest pi-periodic rectangle
+                        # orientation rather than through a wrap discontinuity.
+                        cur_box[4] = float(last_box[4]) + wrap_pi_periodic(float(cur_box[4]) - float(last_box[4]))
                     for t in range(1, gap):
                         alpha_t = t / gap
                         interp_box = (1.0 - alpha_t) * last_box + alpha_t * cur_box
                         frame_id = death_frame + t
-                        # MOT format: [frame, id, x1/cx, y1/cy, x2/w, y2/h, conf, cls, det_ind]
-                        row = np.array(
-                            [
-                                frame_id,
-                                grave_id,
-                                interp_box[0],
-                                interp_box[1],
-                                interp_box[2],
-                                interp_box[3],
-                                grave_entry["conf"],
-                                grave_entry["cls"],
-                                -1.0,
-                            ],
-                            dtype=float,
+                        track_row = self.format_output_row(
+                            interp_box,
+                            grave_id,
+                            grave_entry["conf"],
+                            grave_entry["cls"],
+                            -1,
+                            dtype=np.float32,
                         )
-                        self._gta_gap_entries.append(row)
+                        self._gta_gap_entries.append(
+                            np.concatenate((np.array([frame_id], dtype=np.float32), track_row))
+                        )
 
             # Remove from graveyard
             del self._gta_graveyard[grave_id]
@@ -677,15 +703,17 @@ class OccluBoost(BoostTrack):
         return unmatched_dets
 
     def flush_gta(self) -> np.ndarray:
-        """Return accumulated gap-fill entries and reset state.
+        """Return frame-tagged canonical tracker rows and reset GTA state.
 
         Called once at the end of a sequence by the replay loop.
 
         Returns:
-            np.ndarray: Interpolated gap entries in MOT format (9 cols).
+            Interpolated rows as ``[frame, *tracker_output]``. The shape is
+            ``(N, 9)`` for AABB and ``(N, 10)`` for OBB. The engine converts
+            these through its normal MOT/MMOT formatter before writing.
         """
         if not self._gta_gap_entries:
-            return np.empty((0, 9))
+            return np.empty((0, self.detection_layout.output_cols + 1), dtype=np.float32)
 
         entries = list(self._gta_gap_entries)
 
@@ -717,26 +745,31 @@ class OccluBoost(BoostTrack):
         except ImportError:
             return entries
 
-        # Group by track_id (column 1)
+        # The frame prefix shifts the native track ID column by one. AABB
+        # entries have 9 columns, OBB entries have 10.
+        id_col = 6 if entries[0].shape[0] == 10 else 5
         from collections import defaultdict
 
         groups: dict[int, list[int]] = defaultdict(list)
         for idx, row in enumerate(entries):
-            groups[int(row[1])].append(idx)
+            groups[int(row[id_col])].append(idx)
 
         tau = self.gta_smooth_tau
         for tid, indices in groups.items():
             if len(indices) < 3:
                 continue
             frames = np.array([entries[i][0] for i in indices]).reshape(-1, 1)
-            boxes = np.array([entries[i][2:6] for i in indices])
+            # Smooth the four positional/size coordinates in canonical tracker
+            # geometry. OBB angle interpolation is deliberately left alone so
+            # GP regression cannot create wrap-boundary rotations.
+            boxes = np.array([entries[i][1:5] for i in indices])
             n = len(indices)
             length_scale = np.clip(tau * np.log(max(tau**3 / n, 1e-6)), tau**-1, tau**2)
             kernel = RBF(length_scale, length_scale_bounds="fixed")
             gpr = GPR(kernel)
             smoothed = gpr.fit(frames, boxes).predict(frames)
             for k, idx in enumerate(indices):
-                entries[idx][2:6] = smoothed[k]
+                entries[idx][1:5] = smoothed[k]
 
         return entries
 
@@ -827,11 +860,11 @@ class OccluBoost(BoostTrack):
         alpha = self._compute_ams_alpha(trk, det[:4])
         trk.time_since_update = 0
         trk.hit_streak += 1
-        trk.history_observations.append(trk.get_state()[0])
         trk.kf.update(trk.motion_model.to_measurement(det[:4], column=False), alpha=alpha)
-        trk.conf = det[4]
-        trk.cls = det[5]
-        trk.det_ind = det[6]
+        trk.conf = float(det[4])
+        trk.cls = int(det[5])
+        trk.det_ind = int(det[6])
+        trk._append_current_history()
         sync_track_meta(trk, TrackState.TRACKED)
 
     def _suppress_duplicate_emissions(
@@ -888,14 +921,9 @@ class OccluBoost(BoostTrack):
         for OBB KFs), so we just route the update through the OBB-aware KF
         and keep the same bookkeeping as :meth:`_ams_update`.
         """
-        trk.time_since_update = 0
-        trk.hit_streak += 1
-        trk.history_observations.append(trk.get_state()[0])
-        trk.kf.update(trk.motion_model.to_measurement(det[:5], column=False))
-        trk.conf = det[5]
-        trk.cls = det[6]
-        trk.det_ind = det[7]
-        sync_track_meta(trk, TrackState.TRACKED)
+        # The track-level update performs equivalent-form alignment before
+        # correcting the filter and records the resulting post-update state.
+        trk.update(det)
 
     def _update_obb(
         self,
@@ -908,9 +936,7 @@ class OccluBoost(BoostTrack):
         Differences vs the AABB path:
         * Detections use the 7-col layout ``(cx, cy, w, h, angle, conf, cls)``;
           ``self.detection_layout.with_detection_indices`` appends ``det_ind``.
-        * Camera-motion compensation, DLO/DUO confidence boosting, and
-          Mahalanobis association are skipped (they are tied to the xyxy/xyhr
-          AABB representation).
+        * Camera-motion compensation, DLO, and DUO use native OBB geometry.
         * Association uses oriented IoU via
           :meth:`AssociationFunction.iou_batch_obb`, optionally fused with a
           ReID cosine-similarity term BoTSORT-style.
@@ -922,6 +948,9 @@ class OccluBoost(BoostTrack):
         dets = batch.as_indexed_detections(dtype=det_dtype)
         self.frame_count += 1
 
+        if self.cmc is not None:
+            self.apply_cmc(img, dets, self.trackers)
+
         # Predict all current trackers
         trks_xywha = []
         confs = []
@@ -931,11 +960,19 @@ class OccluBoost(BoostTrack):
             confs.append(trk.get_confidence())
         trks_xywha = np.vstack(trks_xywha) if len(trks_xywha) > 0 else np.empty((0, 5))
 
-        # Confidence-based detection split (high / low for second pass)
+        # Confidence-based detection split (high / low for second pass).
+        # Preserve the detector scores so ByteTrack recovery remains a true
+        # low-confidence pass even when an OBB boost promotes a row.
         orig_confs = batch.confs.copy()
-        keep_mask = orig_confs >= self.det_thresh
+        if self.use_dlo_boost:
+            dets = self.dlo_confidence_boost_obb(dets, threshold=self.obb_det_thresh)
+        if self.use_duo_boost:
+            dets = self.duo_confidence_boost_obb(dets, threshold=self.obb_det_thresh)
+        boosted_confs = self.detection_layout.confidences(dets)
+        batch = batch.with_confs(boosted_confs)
+        keep_mask = boosted_confs >= self.obb_det_thresh
         second_mask = (
-            ((~keep_mask) & (orig_confs >= self.track_low_thresh) & (orig_confs < self.det_thresh))
+            ((~keep_mask) & (orig_confs >= self.track_low_thresh) & (orig_confs < self.obb_det_thresh))
             if self.use_second_pass
             else np.zeros_like(keep_mask, dtype=bool)
         )
@@ -949,7 +986,7 @@ class OccluBoost(BoostTrack):
             img,
             model=self.reid_model,
             enabled=self.with_reid,
-            boxes=xywha_to_xyxy(high_batch.boxes),
+            boxes=high_batch.boxes,
             placeholder_value=1.0,
         )
         dets_embs_second = resolve_batch_embeddings(
@@ -957,7 +994,7 @@ class OccluBoost(BoostTrack):
             img,
             model=self.reid_model,
             enabled=self.with_reid,
-            boxes=xywha_to_xyxy(second_batch.boxes),
+            boxes=second_batch.boxes,
             placeholder_value=1.0,
         )
 
@@ -971,7 +1008,7 @@ class OccluBoost(BoostTrack):
         else:
             iou = AssociationFunction.iou_batch_obb(self.detection_layout.boxes(dets), trks_xywha)
             cost = 1.0 - iou
-            cost[iou < self.iou_threshold] = 1e6
+            cost[iou < self.obb_iou_threshold] = 1e6
 
             if self.with_reid and dets_embs.shape[0] > 0 and self.trackers[0].get_emb() is not None:
                 tracker_embs = np.stack([trk.get_emb() for trk in self.trackers], axis=0).reshape(n_trks, -1)
@@ -980,7 +1017,7 @@ class OccluBoost(BoostTrack):
                 lambda_emb = float(getattr(self, "lambda_iou", 0.5)) + 0.5
                 cost = cost - lambda_emb * emb_sim
                 # Re-apply IoU gate so good appearance can't bypass geometry.
-                cost[iou < self.iou_threshold] = 1e6
+                cost[iou < self.obb_iou_threshold] = 1e6
 
             row_ind, col_ind = linear_sum_assignment(cost)
             matched_pairs = []
@@ -1001,7 +1038,7 @@ class OccluBoost(BoostTrack):
             if self.with_reid:
                 alpha_emb = confidence_aware_alpha(
                     self.detection_layout.confidences(dets)[m[0] : m[0] + 1],
-                    self.det_thresh,
+                    self.obb_det_thresh,
                 )[0]
                 self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=float(alpha_emb))
             self._maybe_activate(self.trackers[m[1]])
@@ -1011,7 +1048,7 @@ class OccluBoost(BoostTrack):
             elig = [
                 int(t)
                 for t in unmatched_trks
-                if self.trackers[int(t)].time_since_update <= self.recovery_max_age
+                if self.trackers[int(t)].time_since_update <= self.obb_recovery_max_age
                 and self.trackers[int(t)].get_emb() is not None
             ]
             if elig:
@@ -1030,18 +1067,24 @@ class OccluBoost(BoostTrack):
                 if (gated > 0).any():
                     row_ind, col_ind = linear_sum_assignment(-gated)
                     matched_dets_set = set()
+                    matched_tracks_set = set()
                     for r, c in zip(row_ind, col_ind):
                         if gated[r, c] <= 0:
                             continue
                         det_global = u_det_idx[r]
                         trk_global = elig[c]
                         matched_dets_set.add(det_global)
+                        matched_tracks_set.add(trk_global)
                         self._ams_update_obb(self.trackers[trk_global], dets[det_global, :])
                         self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
                     if matched_dets_set:
                         unmatched_dets = np.array(
                             [d for d in unmatched_dets if int(d) not in matched_dets_set],
+                            dtype=int,
+                        )
+                        unmatched_trks = np.array(
+                            [t for t in unmatched_trks if int(t) not in matched_tracks_set],
                             dtype=int,
                         )
 
@@ -1058,7 +1101,7 @@ class OccluBoost(BoostTrack):
                 trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig_sec], axis=0)
                 ious2 = AssociationFunction.iou_batch_obb(self.detection_layout.boxes(dets_second), trks_pos)
                 cost2 = 1.0 - ious2
-                cost2[ious2 < self.second_iou_thresh] = 1.0
+                cost2[ious2 < self.obb_second_iou_thresh] = 1.0
 
                 if (
                     self.with_reid
@@ -1084,6 +1127,11 @@ class OccluBoost(BoostTrack):
                         if self.with_reid and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
+                    if used:
+                        unmatched_trks = np.array(
+                            [t for t in unmatched_trks if int(t) not in used],
+                            dtype=int,
+                        )
 
         # ---- GTA: pure-appearance recovery for remaining unmatched dets ----
         if self.gta_enabled and len(unmatched_dets) > 0 and len(unmatched_trks) > 0:
@@ -1096,7 +1144,7 @@ class OccluBoost(BoostTrack):
         # ---- New tracks for remaining unmatched high-conf detections ----
         for i in unmatched_dets:
             det_conf = self.detection_layout.confidences(dets)[i]
-            if det_conf >= self.new_track_thresh:
+            if det_conf >= self.obb_new_track_thresh:
                 det_emb = dets_embs[i] if self.with_reid else None
                 new_trk = KalmanBoxTracker(
                     dets[i, :],
@@ -1106,7 +1154,7 @@ class OccluBoost(BoostTrack):
                     adaptive_kf=self.adaptive_kf,
                     id_allocator=self.id_allocator,
                 )
-                new_trk.is_activated = bool(det_conf >= self.instant_confirm_thresh or self.confirm_hits <= 1)
+                new_trk.is_activated = bool(det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)
 
         # ---- Build outputs ----
@@ -1131,7 +1179,7 @@ class OccluBoost(BoostTrack):
         surviving = []
         dead_tracks = []
         for trk in self.trackers:
-            alive = trk.time_since_update <= self.max_age and (
+            alive = trk.time_since_update <= self.obb_max_age and (
                 getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age
             )
             if alive:
@@ -1142,6 +1190,5 @@ class OccluBoost(BoostTrack):
         self._gta_evict_stale()
         self.trackers = surviving
 
-        if len(outputs) == 0:
-            return self.empty_output(dtype=np.float32)
-        return self.format_output_rows(outputs, dtype=np.float32)
+        outputs = self.format_output_rows(outputs, dtype=np.float32)
+        return self.filter_outputs(outputs)

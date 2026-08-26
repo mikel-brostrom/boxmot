@@ -15,7 +15,7 @@ Reference material:
 
         ```bash
         boxmot research \
-          --benchmark mot17 --split ablation \
+          --experiment mot17-ablation-yolox-lmbn \
           --tracker bytetrack \
           --proposal-model openai/gpt-5.4 \
           --max-metric-calls 24
@@ -27,8 +27,7 @@ Reference material:
         from boxmot import BoxMOT
 
         result = BoxMOT(tracker="bytetrack").research(
-            benchmark="mot17",
-            split="ablation",
+            experiment="mot17-ablation-yolox-lmbn",
             proposal_model="openai/gpt-5.4",
             max_metric_calls=24,
         )
@@ -39,7 +38,11 @@ Reference material:
 
 See [Mode-specific extras](../getting-started/installation.md#mode-specific-extras).
 
-`research` needs the `research` extra for GEPA, plus whatever detector backend the selected benchmark uses.
+`research` needs the `research` extra for GEPA, plus whatever detector backend the selected experiment uses.
+
+The experiment fixes the dataset split and detection source for the research
+run. The shared CLI options `--split` and `--detection-source` are not applied
+by this mode; select or author an experiment with the required values instead.
 
 ## Proposal models
 
@@ -65,24 +68,21 @@ export ANTHROPIC_API_KEY=...
 - `max_metric_calls` limits how many benchmark evaluations GEPA can spend.
 - `eval_timeout` is per evaluation subprocess, not the total wall-clock runtime of the full research job.
 
-## Native C++ scoring
+## Tracker implementation scope
 
-Use `--tracker-backend cpp` to score candidate changes through a native C++ replay backend:
-
-```bash
-boxmot research --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-```
-
-This is only useful for trackers with registered native replay support: `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+Research currently edits and evaluates Python tracker source. The shared
+`--tracker-backend` and `--tracking-backend` options do not change candidate
+scoring in this mode. Use native backend selection with `track`, `eval`, or
+`tune` instead.
 
 ## Outputs
 
-`research` writes:
+The run directory contains:
 
-- GEPA state and logs
-- accepted and rejected candidate artifacts
-- best-candidate code snapshots
-- benchmark summaries before and after optimization
+- GEPA state and logs under `gepa/`
+- the selected source snapshot under `best_candidate/`
+- `research_result.json`, with baseline, best, and delta summaries
+- the temporary candidate workspace when `--keep-workspace` is set
 
 ## CLI Arguments
 

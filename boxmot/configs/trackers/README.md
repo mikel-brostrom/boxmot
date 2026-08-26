@@ -1,32 +1,12 @@
-# Tracker Configs
+# Tracker configuration assets
 
-This directory contains one YAML file per tracker. The filename must match the
-tracker name used from the CLI.
+Each `<tracker>.yaml` is the single source of truth for that tracker's runtime
+defaults and tuning search space. The filename matches the tracker name used by
+the CLI and registry.
 
-Examples:
+## Schema
 
-- `--tracker bytetrack` loads `boxmot/configs/trackers/bytetrack.yaml`
-- `--tracker boosttrack` loads `boxmot/configs/trackers/boosttrack.yaml`
-
-These YAMLs are used in two ways:
-
-- `track` and `eval` read each parameter's `default` value
-- `tune` reads the search space from each parameter's `type`, `range`, or
-  `options`
-
-Each parameter entry follows this shape:
-
-```yaml
-parameter_name:
-  type: uniform | randint | qrandint | choice
-  default: <runtime default>
-  range: [min, max]
-  options: [a, b, c]
-```
-
-Only the keys required by that parameter type need to be present.
-
-Example:
+Each parameter colocates its scalar runtime `default` with its tuning metadata:
 
 ```yaml
 track_thresh:
@@ -38,18 +18,14 @@ track_buffer:
   type: qrandint
   default: 30
   range: [10, 61, 10]
-
-frame_rate:
-  type: choice
-  default: 30
-  options: [25, 30]
 ```
 
-Use a tracker config by selecting the tracker:
+Normal tracker construction extracts only `default`. The tuning engine reads
+`type`, `range`, `options`, `values`, and conditional `activates` metadata from
+the same entries.
 
-```bash
-boxmot eval --benchmark mot17 --split ablation --tracker bytetrack
-```
+## Presets
 
-There is no separate `--tracker-config` flag at the moment. The tracker name is
-the config selector.
+`presets/` contains named scalar parameter profiles for a particular dataset,
+split, or published result. Presets and generated tuning results contain
+resolved runtime values only and overlay the defaults in `<tracker>.yaml`.

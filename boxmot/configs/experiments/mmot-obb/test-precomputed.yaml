@@ -1,0 +1,12 @@
+id: mmot-obb-test-precomputed
+
+dataset:
+  ref: mmot
+  split: test
+
+detections:
+  source: precomputed
+  artifact: test
+
+evaluation:
+  class_map: auto

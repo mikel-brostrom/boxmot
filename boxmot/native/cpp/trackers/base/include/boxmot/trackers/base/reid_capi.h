@@ -2,10 +2,10 @@
 // pipeline (via ctypes) to populate the embedding cache with the same C++
 // inference path that the native trackers use at replay time.
 //
-// All boxes are AABBs in image coordinates ``[x1, y1, x2, y2]``. Output
-// embeddings are L2-normalized row-major floats of shape ``(n_boxes,
-// feature_dim)``. The feature dimension is fixed for a given model and can be
-// queried up-front via ``boxmot_reid_capi_feature_dim``.
+// AABB and OBB preprocessing entry points accept image-coordinate
+// ``[x1,y1,x2,y2]`` and ``[cx,cy,w,h,theta_rad]`` rows respectively. Output
+// embeddings are L2-normalized row-major floats of shape
+// ``(n_boxes, feature_dim)``.
 
 #pragma once
 
@@ -45,6 +45,17 @@ BOXMOT_REID_CAPI void boxmot_reid_capi_destroy(void* handle);
 // pass on the first invocation, then returns the cached value.
 BOXMOT_REID_CAPI int boxmot_reid_capi_feature_dim(void* handle, int* out_feature_dim);
 
+// Read the ONNX graph's NCHW input specification without running inference.
+// ``out_batch`` receives 0 for a dynamic batch dimension, otherwise the
+// graph's required fixed batch. Height and width are always static positive
+// dimensions for accepted native ReID models.
+BOXMOT_REID_CAPI int boxmot_reid_capi_input_spec(
+    void* handle,
+    int* out_batch,
+    int* out_channels,
+    int* out_height,
+    int* out_width);
+
 // Compute L2-normalized features for ``n_boxes`` AABB boxes against a single
 // image. Output is written contiguously row-major into ``out_features``.
 BOXMOT_REID_CAPI int boxmot_reid_capi_compute_features(
@@ -73,6 +84,16 @@ BOXMOT_REID_CAPI int boxmot_reid_capi_compute_features(
 BOXMOT_REID_CAPI int boxmot_reid_capi_preprocess(
     void* handle,
     const float* boxes_xyxy,
+    int n_boxes,
+    const std::uint8_t* image_data,
+    int image_rows,
+    int image_cols,
+    int image_channels);
+
+// Stage 1 (OBB): rectify each oriented rectangle before resize/standardize.
+BOXMOT_REID_CAPI int boxmot_reid_capi_preprocess_obb(
+    void* handle,
+    const float* boxes_xywha,
     int n_boxes,
     const std::uint8_t* image_data,
     int image_rows,

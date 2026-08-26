@@ -1,5 +1,7 @@
 """Engine entry point for ReID model export."""
 
+from __future__ import annotations
+
 import logging
 import time
 import warnings
@@ -7,17 +9,23 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 
 from boxmot.engine.workflows.results import ExportResult
-from boxmot.reid.core import ReID, export_formats
+from boxmot.reid import ReID
+from boxmot.reid.backbones import get_backbone_spec
+from boxmot.reid.core import export_formats
+from boxmot.reid.core.formats import ReIDFormat, resolve_export_formats
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.registry import get_exporter_class
 from boxmot.utils import WEIGHTS
 from boxmot.utils.rich.reporters.export import ExportWorkflowReporter
 from boxmot.utils.torch_utils import select_device
+
+if TYPE_CHECKING:
+    from boxmot.reid.exporters.base_exporter import BaseExporter
 
 __all__ = [
     "ExportWorkflowReporter",
@@ -38,12 +46,13 @@ class ExportTask:
 
 
 def validate_export_formats(include):
-    available_formats = tuple(export_formats()["Argument"][1:])
-    include_lower = [fmt.lower() for fmt in include]
-    flags = [fmt in include_lower for fmt in available_formats]
-    if sum(flags) != len(include_lower):
-        raise AssertionError(f"ERROR: Invalid --include {include}, valid arguments are {available_formats}")
-    return tuple(flags)
+    try:
+        return resolve_export_formats(include)
+    except ValueError as exc:
+        available_formats = tuple(export_formats()["Argument"][1:])
+        raise AssertionError(
+            f"ERROR: Invalid --include {include}, valid arguments are {available_formats}"
+        ) from exc
 
 
 @contextmanager
@@ -98,6 +107,20 @@ def _suppress_export_noise(enabled: bool):
             target.propagate = propagate
 
 
+def _default_export_img_size(weights: Path, model_name: str) -> tuple[int, int]:
+    """Resolve a model's registered crop while preserving square vehicle crops."""
+    weights_name = weights.name.lower()
+    if "vehicleid" in weights_name or "veri" in weights_name:
+        return (256, 256)
+    checkpoint_size = ReIDModelRegistry.get_checkpoint_model_kwargs(weights).get("img_size")
+    if checkpoint_size:
+        return tuple(checkpoint_size)
+    try:
+        return get_backbone_spec(model_name).default_img_size
+    except (KeyError, TypeError):
+        return (256, 128)
+
+
 def setup_model(args):
     args.device = select_device(args.device)
     include = tuple(str(fmt).lower() for fmt in (getattr(args, "include", ()) or ()))
@@ -113,14 +136,7 @@ def setup_model(args):
     if args.optimize and args.device.type != "cpu":
         raise AssertionError("--optimize not compatible with CUDA devices, use --device cpu")
 
-    if "vehicleid" in args.weights.name or "veri" in args.weights.name:
-        args.imgsz = (256, 256)
-    elif "lmbn" in model_name or "csl_tinyvit" in model_name or "mobilenetv4" in model_name:
-        args.imgsz = (384, 128)
-    elif "hacnn" in model_name:
-        args.imgsz = (160, 64)
-    else:
-        args.imgsz = (256, 128)
+    args.imgsz = _default_export_img_size(args.weights, model_name)
 
     if backend_half:
         model = model.half()
@@ -146,7 +162,8 @@ def setup_model(args):
 
 
 def create_export_tasks(args, model, dummy_input):
-    torchscript_flag, onnx_flag, openvino_flag, engine_flag, tflite_flag = validate_export_formats(args.include)
+    selected_formats: tuple[ReIDFormat, ...] = validate_export_formats(args.include)
+    selected_ids = {format_.id for format_ in selected_formats}
     tasks = {}
     common_kwargs = {
         "model": model,
@@ -162,11 +179,9 @@ def create_export_tasks(args, model, dummy_input):
         "verbose": args.verbose,
     }
 
-    if torchscript_flag:
-        from boxmot.reid.exporters.torchscript_exporter import TorchScriptExporter
-
+    if "torchscript" in selected_ids:
         tasks["torchscript"] = ExportTask(
-            TorchScriptExporter,
+            get_exporter_class("torchscript"),
             {
                 **common_kwargs,
                 "optimize": args.optimize,
@@ -174,31 +189,44 @@ def create_export_tasks(args, model, dummy_input):
             },
         )
 
-    if onnx_flag or engine_flag or openvino_flag:
-        from boxmot.reid.exporters.onnx_exporter import ONNXExporter
-
+    needs_onnx = bool(selected_ids & {"onnx", "tensorrt", "openvino"})
+    if needs_onnx:
         tasks["onnx"] = ExportTask(
-            ONNXExporter,
+            get_exporter_class("onnx"),
             dict(onnx_kwargs),
-            report=onnx_flag,
+            report="onnx" in selected_ids,
         )
 
-    if engine_flag:
-        from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
-
+    if "tensorrt" in selected_ids:
         tasks["engine"] = ExportTask(
-            EngineExporter,
+            get_exporter_class("tensorrt"),
             {
                 **onnx_kwargs,
                 "workspace": args.workspace,
             },
         )
 
-    if tflite_flag:
-        from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
+    if "coreml" in selected_ids:
+        tasks["coreml"] = ExportTask(
+            get_exporter_class("coreml"),
+            {
+                **common_kwargs,
+                "batch_buckets": getattr(args, "coreml_batch_buckets", (1, 8, 16, 32)),
+                "minimum_deployment_target": getattr(
+                    args,
+                    "coreml_minimum_deployment_target",
+                    "macOS15",
+                ),
+                "compute_units": getattr(args, "coreml_compute_units", "CPUAndGPU"),
+                "timeout_s": getattr(args, "coreml_timeout", 600.0),
+                "max_memory_gb": getattr(args, "coreml_max_memory_gb", 16.0),
+                "verbose": args.verbose,
+            },
+        )
 
+    if "tflite" in selected_ids:
         tasks["tflite"] = ExportTask(
-            TFLiteExporter,
+            get_exporter_class("tflite"),
             {
                 **common_kwargs,
                 "opset": args.opset,
@@ -216,11 +244,9 @@ def create_export_tasks(args, model, dummy_input):
             },
         )
 
-    if openvino_flag:
-        from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
-
+    if "openvino" in selected_ids:
         tasks["openvino"] = ExportTask(
-            OpenVINOExporter,
+            get_exporter_class("openvino"),
             dict(onnx_kwargs),
         )
 
@@ -339,8 +365,16 @@ def _verify_export_parity(
             # TensorRT requires the matching CUDA runtime. Skip parity here.
             continue
         try:
+            format_input = cpu_input
+            format_ref_np = ref_np
+            # Native Core ML loads MLPrograms lazily. Verifying with the B=1
+            # bucket proves graph correctness without compiling a larger
+            # package solely for this informational parity check.
+            if fmt == "coreml" and cpu_input.shape[0] > 1:
+                format_input = cpu_input[:1]
+                format_ref_np = ref_np[:1]
             if fmt == "tflite":
-                out = _run_tflite_for_parity(fpath, cpu_input)
+                out = _run_tflite_for_parity(fpath, format_input)
             else:
                 # OpenVINO exporters return the .xml path, but ReID's suffix
                 # check expects the ``_openvino_model`` directory. Pass the
@@ -351,7 +385,7 @@ def _verify_export_parity(
                     if parent.name.endswith("_openvino_model"):
                         load_path = str(parent)
                 reid = ReID(weights=load_path, device="cpu", half=False)
-                out = reid.model.forward(cpu_input)
+                out = reid.model.forward(format_input)
             if isinstance(out, (tuple, list)):
                 out = out[0]
             if hasattr(out, "detach"):
@@ -359,7 +393,7 @@ def _verify_export_parity(
             else:
                 out_np = np.asarray(out, dtype=np.float32)
 
-            if out_np.shape != ref_np.shape:
+            if out_np.shape != format_ref_np.shape:
                 report[fmt] = {
                     "max_abs": float("nan"),
                     "mean_abs": float("nan"),
@@ -367,20 +401,20 @@ def _verify_export_parity(
                     "parity_ok": False,
                     "embedding_ok": False,
                     "ok": False,
-                    "error": f"shape mismatch: {out_np.shape} vs {ref_np.shape}",
+                    "error": f"shape mismatch: {out_np.shape} vs {format_ref_np.shape}",
                 }
                 continue
 
-            diff = np.abs(out_np - ref_np)
+            diff = np.abs(out_np - format_ref_np)
             max_abs = float(diff.max())
             mean_abs = float(diff.mean())
-            parity_ok = bool(np.allclose(out_np, ref_np, rtol=rtol, atol=atol))
+            parity_ok = bool(np.allclose(out_np, format_ref_np, rtol=rtol, atol=atol))
 
             # Embedding-aware metric: ReID features are consumed by
             # cosine similarity, so two embeddings that point in the
             # same direction are functionally equivalent. Flatten any
             # spatial dims and average the per-sample cosine.
-            ref_flat = ref_np.reshape(ref_np.shape[0], -1)
+            ref_flat = format_ref_np.reshape(format_ref_np.shape[0], -1)
             out_flat = out_np.reshape(out_np.shape[0], -1)
             denom = np.linalg.norm(ref_flat, axis=1) * np.linalg.norm(out_flat, axis=1)
             denom = np.where(denom == 0, 1.0, denom)
@@ -459,11 +493,12 @@ def main(args):
         output = model(dummy_input)
         output_tensor = output[0] if isinstance(output, tuple) else output
         output_shape = tuple(output_tensor.shape)
+        checkpoint_size_mb = Path(args.weights).stat().st_size / 1e6
         pipeline.update(
             (
                 f"Input shape:  {tuple(dummy_input.shape)}\n"
                 f"Output shape: {output_shape} "
-                f"({BaseExporter.file_size(args.weights):.1f} MB)"
+                f"({checkpoint_size_mb:.1f} MB)"
             ),
         )
         pipeline.advance("Exporting model...")

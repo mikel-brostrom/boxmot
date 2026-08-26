@@ -43,6 +43,9 @@ std::vector<Detection> SliceDetectionsForFrame(
 }
 
 cv::Mat ReadImage(const fs::path& path) {
+    if (path.extension() == ".npy") {
+        return boxmot::trackers::base::LoadNpyImage(path);
+    }
     return cv::imread(path.string(), cv::IMREAD_COLOR);
 }
 

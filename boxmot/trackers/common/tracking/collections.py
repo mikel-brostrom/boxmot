@@ -3,10 +3,9 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Mapping
 
-
 TRACK_STATE_GROUPS = {
     "active": ("active_tracks",),
-    "pool": ("trackers", "_tracks"),
+    "pool": ("trackers", "_tracks", "tracks"),
     "lost": ("lost_stracks", "lost_tracks"),
     "removed": ("removed_stracks", "removed_tracks"),
 }

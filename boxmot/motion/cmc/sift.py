@@ -103,7 +103,7 @@ class SIFT(BaseCMC):
         spatial_distances = np.asarray(spatial_distances, dtype=np.float32)
         mean = spatial_distances.mean(axis=0)
         std = spatial_distances.std(axis=0) + 1e-6
-        inliers_spatial = np.all((spatial_distances - mean) < 2.5 * std, axis=1)
+        inliers_spatial = np.all(np.abs(spatial_distances - mean) < 2.5 * std, axis=1)
 
         good_matches = [matches[i] for i in range(len(matches)) if inliers_spatial[i]]
         if len(good_matches) < 4:
@@ -116,23 +116,36 @@ class SIFT(BaseCMC):
         curr_pts = np.array([keypoints[m.trainIdx].pt for m in good_matches], dtype=np.float32)
 
         H_est, ransac_inliers = cv2.estimateAffinePartial2D(prev_pts, curr_pts, method=cv2.RANSAC)
-        if H_est is None:
+        if (
+            H_est is None
+            or not self.has_enough_inliers(
+                ransac_inliers,
+                len(good_matches),
+                min_inliers=4,
+                min_inlier_ratio=0.2,
+            )
+            or not self.is_valid_transform(H_est)
+        ):
             H_est = H
+            self.prev_img_aligned = None
         else:
             H_est = H_est.astype(np.float32, copy=False)
-
-            if self.scale < 1.0:
-                H_est = H_est.copy()
-                H_est[0, 2] /= self.scale
-                H_est[1, 2] /= self.scale
 
             if self.align:
                 self.prev_img_aligned = cv2.warpAffine(self.prev_img, H_est, (w, h), flags=cv2.INTER_LINEAR)
             else:
                 self.prev_img_aligned = None
+            H_est = self.restore_transform_scale(H_est)
 
         if self.draw_keypoint_matches:
-            self.matches_img = ORBLikeDraw.draw(prev=self.prev_img, curr=img_p, prev_kp=self.prev_keypoints, curr_kp=keypoints, matches=good_matches, dets=dets)
+            self.matches_img = ORBLikeDraw.draw(
+                prev=self.prev_img,
+                curr=img_p,
+                prev_kp=self.prev_keypoints,
+                curr_kp=keypoints,
+                matches=good_matches,
+                dets=dets,
+            )
         else:
             self.matches_img = None
 

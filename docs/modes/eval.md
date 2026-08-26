@@ -9,7 +9,7 @@ Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MO
     === "CLI"
 
         ```bash
-        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --verbose
+        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --verbose
         ```
 
     === "Python"
@@ -18,9 +18,20 @@ Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MO
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17", split="ablation")
+        metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
         print(metrics)
         ```
+
+Use a model-free dataset profile when the detector and ReID models should come
+from the CLI options or runtime defaults instead of an experiment:
+
+```bash
+boxmot eval --dataset mot17 --split ablation --tracker boosttrack
+```
+
+`--dataset` and `--experiment` are mutually exclusive. An experiment selected
+with `--experiment` remains the reproducible option when detector, ReID, and
+detection-source choices must be fixed by configuration.
 
 ## Typical workflow
 
@@ -31,8 +42,8 @@ Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MO
         For repeated experiments:
 
         ```bash
-        boxmot generate --benchmark mot17 --split ablation
-        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack
+        boxmot generate --experiment mot17-ablation-yolox-lmbn
+        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack
         ```
 
         This lets `eval` reuse precomputed detections and embeddings.
@@ -43,36 +54,66 @@ Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MO
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(benchmark="mot17", split="ablation")
+        metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
         print(metrics)
         ```
 
 ## Public detections
 
-Use `--detection-source` to run with public MOTChallenge detections instead of the benchmark's configured detector:
+Select an experiment whose `detections.source` is `public`:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-source frcnn
-boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-source sdp
-boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --detection-source dpm
+boxmot eval --experiment mot17-ablation-frcnn-lmbn --tracker boosttrack
+boxmot eval --experiment mot17-ablation-sdp-lmbn --tracker boosttrack
+boxmot eval --experiment mot17-ablation-dpm-lmbn --tracker boosttrack
 ```
 
-`--detection-source public` uses the default public detector defined in the benchmark YAML.
-When omitted (or `--detection-source private`), `eval` runs the configured detector model.
+The selected experiment identifies the public source in the central artifact
+profile. The compatibility option `--detection-source` accepts `public` or
+`private`, but a source-specific experiment ID is the reproducible way to
+choose FRCNN, SDP, or DPM.
 
-See [Benchmark Workflows](../guides/benchmarks.md#public-detections) for details on how public detections are resolved.
+See [Experiment Workflows](../guides/experiments.md#detection-sources) for details on how public detections are resolved.
 
 ## Kalman filter noise tuning
 
 Use `--tune-kf` to estimate per-sequence Kalman filter process and measurement noise (Q/R matrices) from the cached detections and ground truth before tracking:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --tune-kf
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --tune-kf
 ```
 
 This is most useful for trackers with Kalman-filter-based motion models. It requires cached detections and ground truth to be available.
 
-For runtime adaptation without ground truth, use `--adaptive-kf` instead, which estimates noise online via the Mehra (1970) method.
+For runtime adaptation without ground truth, `boosttrack` and `occluboost`
+expose the `adaptive_kf` tracker setting, which estimates noise online via the
+Mehra (1970) method. It is a tracker configuration value, not a CLI flag. For
+example, the Python facade can override it directly:
+
+```python
+from boxmot import BoxMOT
+
+boxmot = BoxMOT(
+    detector="yolov8n",
+    reid="lmbn_n_duke",
+    tracker="boosttrack",
+    tracker_kwargs={"adaptive_kf": True},
+)
+metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
+```
+
+## Compare with TrackEval
+
+Install the optional TrackEval reference implementation and request an independent comparison:
+
+```bash
+uv sync --extra yolo --extra trackeval
+boxmot eval --experiment mot17-ablation-yolox-lmbn \
+  --tracker boosttrack \
+  --compare-trackeval
+```
+
+The report shows BoxMOT's in-repo metrics followed by `Δ vs TrackEval` rows. TrackEval reads the generated MOT files and runs its own MOTChallenge preprocessing, including distractor removal. This comparison currently supports AABB MOT15, MOT16, MOT17, and MOT20 benchmarks.
 
 ## Postprocessing
 
@@ -85,10 +126,10 @@ For runtime adaptation without ground truth, use `--adaptive-kf` instead, which 
 
         ```bash
         # Single step
-        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gsi
+        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --postprocessing gsi
 
         # Chained: GSI runs first, then GTA reads GSI's output
-        boxmot eval --benchmark mot17 --split ablation --tracker boosttrack --postprocessing gsi,gta
+        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --postprocessing gsi,gta
         ```
 
         Available steps:
@@ -108,18 +149,20 @@ For runtime adaptation without ground truth, use `--adaptive-kf` instead, which 
 
 See [Evaluation and Postprocessing](../guides/evaluation.md).
 
-See [Benchmark Workflows](../guides/benchmarks.md) for cache reuse, MMOT benchmark ids, and replay image-loading behavior.
+See [Experiment Workflows](../guides/experiments.md) for cache reuse, MMOT experiment IDs, and replay image-loading behavior.
 
 ## Native C++ replay
 
 Use `--tracker-backend cpp` to run the cached replay stage through a native tracker implementation:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
-boxmot eval --benchmark mot17 --split ablation --tracker ocsort:cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker ocsort --tracker-backend cpp
 ```
 
-Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. `--tracking-backend cpp` is still accepted as a compatibility alias, but `--tracker-backend cpp` is the canonical selector.
+Native replay is currently available for `botsort`, `bytetrack`, `ocsort`,
+`occluboost`, and `sfsort`. Select the implementation with the separate
+`--tracker-backend` option; tracker names do not accept a `:cpp` suffix.
 
 ## Main outputs
 

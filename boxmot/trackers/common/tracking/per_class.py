@@ -43,7 +43,7 @@ class PerClassUpdateMixin:
 
     class_track_collection_attrs = TRACK_COLLECTION_ATTRS
 
-    def _update_per_class(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
+    def _track_per_class(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
         """Run one frame with class-local tracker collections."""
         self._ensure_class_track_states()
         per_class_tracks = []
@@ -58,8 +58,18 @@ class PerClassUpdateMixin:
 
         try:
             for cls_id in classes_to_update:
+                class_indices = self._class_detection_indices(dets, cls_id)
                 class_dets, class_embs = self.get_class_dets_n_embs(dets, embs, cls_id)
                 class_masks = self._get_class_masks(dets, masks, cls_id)
+                # Carry the original frame row through the class-local tracker
+                # itself.  This keeps both public outputs and saved track
+                # objects aligned with frame-level detections; remapping only
+                # the returned ndarray left ``active_tracks`` and histories
+                # with ambiguous class-local indices.
+                class_dets = np.column_stack((class_dets, class_indices)).astype(
+                    class_dets.dtype,
+                    copy=False,
+                )
 
                 LOGGER.debug(
                     f"Processing class {int(cls_id)}: {class_dets.shape} with embeddings"
@@ -69,7 +79,7 @@ class PerClassUpdateMixin:
                 self._load_class_track_state(cls_id)
                 self.frame_count = frame_count
 
-                result = self._update_impl(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
+                result = self._track_detections(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
                 if isinstance(result, tuple):
                     tracks, track_masks = result
                 else:
@@ -79,8 +89,7 @@ class PerClassUpdateMixin:
 
                 if tracks.size > 0:
                     per_class_tracks.append(tracks)
-                    if track_masks is not None:
-                        per_class_masks.append(track_masks)
+                    per_class_masks.append(track_masks)
         finally:
             if precomputed_cmc is not None:
                 self.cmc = original_cmc
@@ -89,12 +98,31 @@ class PerClassUpdateMixin:
         self._restore_class_track_collections()
         if per_class_tracks:
             combined_tracks = np.vstack(per_class_tracks)
-            combined_masks = np.vstack(per_class_masks) if per_class_masks else None
-            if combined_masks is not None:
-                return combined_tracks, combined_masks
+            available_masks = [np.asarray(value) for value in per_class_masks if value is not None]
+            if available_masks:
+                mask_shape = available_masks[0].shape[1:]
+                mask_dtype = available_masks[0].dtype
+                aligned_masks = []
+                for tracks, track_masks in zip(per_class_tracks, per_class_masks):
+                    if track_masks is None:
+                        aligned_masks.append(np.zeros((len(tracks), *mask_shape), dtype=mask_dtype))
+                        continue
+                    track_masks = np.asarray(track_masks)
+                    if len(track_masks) != len(tracks) or track_masks.shape[1:] != mask_shape:
+                        raise ValueError(
+                            "Per-class tracker masks must stay row-aligned and share one spatial shape"
+                        )
+                    aligned_masks.append(track_masks)
+                return combined_tracks, np.vstack(aligned_masks)
             return combined_tracks
 
         return self.empty_output()
+
+    def _class_detection_indices(self, dets: np.ndarray, cls_id: int) -> np.ndarray:
+        """Return frame-global row indices for one detector class."""
+        if dets.size == 0:
+            return np.empty((0,), dtype=np.int32)
+        return np.flatnonzero(dets[:, self.detection_layout.cls_idx] == cls_id).astype(np.int32)
 
     def _initialize_class_track_states(self) -> None:
         self.class_track_states = {}

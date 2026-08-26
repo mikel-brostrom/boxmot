@@ -36,6 +36,14 @@ for each frame from iter_source(source):
         |   AABB: (N, 6) = x1, y1, x2, y2, conf, cls
         |   OBB:  (N, 7) = cx, cy, w, h, angle, conf, cls
         |
+        +--> sanitize_detections(detections, masks, image_shape)
+        |       |
+        |       +--> drop non-finite or invalid geometry rows
+        |       +--> keep detection masks aligned with retained rows
+        |       |
+        |       v
+        |   sanitized detections and masks
+        |
         +--> optional ReID
         |       |
         |       +--> preprocess crops / boxes
@@ -59,7 +67,7 @@ for each frame from iter_source(source):
         |   OBB:  (N, 9) = cx, cy, w, h, angle, id, conf, cls, det_ind
         |
         v
-Tracks(frame_idx, frame, tracks, detections)
+FrameResult(frame_idx, frame, tracks, detections, embeddings, masks)
         |
         +--> render / show
         +--> save video
@@ -119,7 +127,7 @@ numpy tracks returned to Python
         +--> OBB:  (N, 9)
         |
         v
-same Tracks rendering, saving, and summary path as Python
+same FrameResult rendering, saving, and summary path as Python
 ```
 
 ## Standalone C++ embedding
@@ -159,7 +167,10 @@ vector of <tracker>::TrackOutput
 
 ## Cached benchmark tracking
 
-`eval`, `tune`, and `research` run tracking from cached detections and embeddings. The detector and ReID stages can be generated once, then replayed by either Python trackers or native C++ trackers.
+`eval`, `tune`, and `research` run tracking from cached detections and
+embeddings. The detector and ReID stages can be generated once. `eval` and
+`tune` can replay them with Python or native C++ trackers; `research` evaluates
+editable Python tracker code.
 
 ```text
 eval / tune / research
@@ -171,9 +182,15 @@ generate cache if needed
         +--> detector outputs
         +--> ReID embeddings
         |       |
-        |       +--> Python ReID by default
-        |       +--> CppOnnxReID when tracker_backend == "cpp" and available
-        +--> runs/dets_n_embs/<benchmark>/...
+        |       +--> effective producer: python or cpp
+        |       +--> model format + runtime + optional artifact hash
+        |       +--> preprocessing + crop schema version
+        +--> runs/dets_n_embs/<dataset>/<split>/<detector>/
+                |
+                +--> dets/<sequence>.npy
+                +--> embs/<python|cpp>/
+                      <model>-<format>-<runtime>[-wHASH]/
+                      <preprocess>-cropvN/<sequence>.npy
         |
         v
 run_generate_mot_results(...)
@@ -185,7 +202,7 @@ run_generate_mot_results(...)
         |       +--> Python tracker.update(...)
         |       +--> write MOT / MMOT result txt
         |
-        +--> tracker_backend == "cpp"
+        +--> tracker_backend == "cpp" (eval / tune)
                 |
                 +--> get_native_replay_backend(tracker)
                 +--> ensure_<tracker>_cpp_executable()
@@ -201,6 +218,19 @@ optional postprocessing
         v
 MOT metrics and workflow summary
 ```
+
+The embedding producer is the implementation that computed the descriptor, not
+the tracker algorithm that later consumes it. Native tracker selection normally
+requests the C++ producer for ReID-aware trackers. If the native adapter cannot
+be imported, generation selects the Python producer and stores the output in the
+Python bucket; errors after the C++ producer is selected are reported instead of
+being silently reclassified. Trackers may share cached embeddings when the
+producer, model artifact, runtime, preprocessing, and crop version all match.
+
+Compatible legacy caches with flat `embs/<model>/<preprocess>/` paths may be
+reused only when trusted and when their embedding rows align exactly with the
+cached detection rows. All newly generated embeddings use the producer-first
+layout.
 
 ## Related pages
 

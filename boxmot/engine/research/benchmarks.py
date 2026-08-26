@@ -5,36 +5,40 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from boxmot.configs import DEFAULT_DETECTOR, DEFAULT_REID
-from boxmot.configs.benchmark import (
-    apply_benchmark_config,
+from boxmot.data.dataset import _collect_seq_info
+from boxmot.engine.config import DEFAULT_DETECTOR, DEFAULT_REID
+from boxmot.engine.workflows.benchmark import (
+    apply_evaluation_config,
     resolve_required_reid_model,
     resolve_required_yolo_model,
 )
-from boxmot.data.dataset import _collect_seq_info
 from boxmot.utils.misc import resolve_model_path
 
 
-def _resolve_benchmark_runtime(
-    benchmark: str | Path,
+def _resolve_experiment_runtime(
+    experiment: str | Path,
     *,
     source: str | Path | None = None,
     detector: str | Path | None = None,
     reid: str | Path | None = None,
-) -> tuple[Path, str, Path, Path, dict[str, Any]]:
-    probe = SimpleNamespace(data=str(benchmark))
-    cfg = apply_benchmark_config(probe)
+) -> tuple[Path, str, str, str, Path, Path, dict[str, Any]]:
+    probe = SimpleNamespace(experiment=str(experiment), dataset=None)
+    cfg = apply_evaluation_config(probe)
     if cfg is None:
-        raise FileNotFoundError(f"Unable to resolve benchmark config: {benchmark}")
+        raise FileNotFoundError(f"Unable to resolve experiment config: {experiment}")
 
-    benchmark_id = str(getattr(probe, "benchmark_id", getattr(probe, "benchmark", benchmark)))
+    experiment_id = str(getattr(probe, "experiment_id", experiment))
+    dataset_id = str(getattr(probe, "dataset_id", "") or getattr(probe, "benchmark", ""))
+    benchmark = str(getattr(probe, "benchmark", "") or dataset_id)
     source_root = Path(source or probe.source).resolve()
     detector_ref = detector or resolve_required_yolo_model(cfg) or DEFAULT_DETECTOR
     reid_ref = reid or resolve_required_reid_model(cfg) or DEFAULT_REID
 
     return (
         source_root,
-        benchmark_id,
+        experiment_id,
+        dataset_id,
+        benchmark,
         resolve_model_path(detector_ref).resolve(),
         resolve_model_path(reid_ref).resolve(),
         cfg,
@@ -105,5 +109,3 @@ def _select_examples(
 
     ordered_unique = list(dict.fromkeys(requested))
     return [by_name[name] for name in ordered_unique]
-
-

@@ -14,8 +14,11 @@ from boxmot.trackers.common.association.boost import (
     associate,
     iou_batch,
     shape_similarity,
+    shape_similarity_obb,
     soft_biou_batch,
+    soft_biou_batch_obb,
 )
+from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion import MotionModelKind, create_motion_model
 from boxmot.trackers.common.motion.cmc import create_cmc
@@ -109,7 +112,7 @@ class BoostTrack(BaseTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,
@@ -139,6 +142,7 @@ class BoostTrack(BaseTracker):
             self.apply_cmc(img, indexed_dets, self.trackers)
 
         trks = []
+        trks_obb = []
         confs = []
 
         for trk in self.trackers:
@@ -147,13 +151,26 @@ class BoostTrack(BaseTracker):
             confs.append(conf)
             assoc_pos = xywha_to_xyxy(pos.reshape(1, 5))[0] if self.is_obb else pos[:4]
             trks.append(np.concatenate([assoc_pos, [conf]]))
+            if self.is_obb:
+                trks_obb.append(np.concatenate([pos[:5], [conf]]))
         trks_np = np.vstack(trks) if len(trks) > 0 else np.empty((0, 5))
+        trks_obb_np = np.vstack(trks_obb) if trks_obb else np.empty((0, 6))
 
         assoc_dets = self.aabb_detections_for_association(indexed_dets).copy()
         if self.use_dlo_boost:
-            assoc_dets = self.dlo_confidence_boost(assoc_dets)
-        if self.use_duo_boost and not self.is_obb:
-            assoc_dets = self.duo_confidence_boost(assoc_dets)
+            if self.is_obb:
+                indexed_dets = self.dlo_confidence_boost_obb(indexed_dets)
+                batch = batch.with_confs(self.detection_layout.confidences(indexed_dets))
+                assoc_dets = self.aabb_detections_for_association(indexed_dets)
+            else:
+                assoc_dets = self.dlo_confidence_boost(assoc_dets)
+        if self.use_duo_boost:
+            if self.is_obb:
+                indexed_dets = self.duo_confidence_boost_obb(indexed_dets)
+                batch = batch.with_confs(self.detection_layout.confidences(indexed_dets))
+                assoc_dets = self.aabb_detections_for_association(indexed_dets)
+            else:
+                assoc_dets = self.duo_confidence_boost(assoc_dets)
 
         keep = assoc_dets[:, 4] >= self.det_thresh
         assoc_dets = assoc_dets[keep]
@@ -166,7 +183,7 @@ class BoostTrack(BaseTracker):
             img,
             model=self.reid_model,
             enabled=self.with_reid,
-            boxes=assoc_dets[:, :4],
+            boxes=batch.boxes,
             placeholder_value=1.0,
         )
 
@@ -183,9 +200,15 @@ class BoostTrack(BaseTracker):
 
         mh_dist_matrix = self.get_mh_dist_matrix(dets)
 
+        association_dets = dets[:, : self.detection_layout.box_with_conf_cols] if self.is_obb else assoc_dets
+        association_trks = trks_obb_np if self.is_obb else trks_np
+        oriented_iou = (
+            AssociationFunction.iou_batch_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
+        )
+        oriented_shape = shape_similarity_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
         matched, unmatched_dets, unmatched_trks, _ = associate(
-            assoc_dets,
-            trks_np,
+            association_dets,
+            association_trks,
             self.iou_threshold,
             mahalanobis_distance=mh_dist_matrix,
             track_confidence=np.array(confs).reshape(-1, 1),
@@ -195,6 +218,8 @@ class BoostTrack(BaseTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
+            iou_matrix=oriented_iou,
+            shape_matrix=oriented_shape,
         )
 
         dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh)
@@ -351,3 +376,97 @@ class BoostTrack(BaseTracker):
             scores[tmp] = np.maximum(scores[tmp], self.det_thresh + 1e-5)
             detections[:, 4] = scores
         return detections
+
+    def dlo_confidence_boost_obb(
+        self,
+        detections: np.ndarray,
+        *,
+        threshold: float | None = None,
+    ) -> np.ndarray:
+        """Apply DLO boosting with oriented, representation-invariant geometry."""
+        if len(detections) == 0 or len(self.trackers) == 0:
+            return detections
+
+        boosted = detections.copy()
+        score_threshold = self.det_thresh if threshold is None else float(threshold)
+        tracker_rows = []
+        for trk in self.trackers:
+            pos = trk.get_state()[0]
+            tracker_rows.append([*pos[:5], trk.get_confidence()])
+        trackers = np.asarray(tracker_rows, dtype=np.float32)
+        boxes = self.detection_layout.boxes(boosted)
+        iou_matrix = AssociationFunction.iou_batch_obb(boxes, trackers[:, :5])
+
+        if self.use_rich_s:
+            mhd_sim = MhDist_similarity(self.get_mh_dist_matrix(boosted), 1)
+            shape_sim = shape_similarity_obb(boxes, trackers[:, :5])
+            soft_iou = soft_biou_batch_obb(
+                np.column_stack((boxes, self.detection_layout.confidences(boosted))),
+                trackers,
+            )
+            similarity = (mhd_sim + shape_sim + soft_iou) / 3
+        else:
+            similarity = iou_matrix
+
+        conf_idx = self.detection_layout.conf_idx
+        max_similarity = similarity.max(axis=1)
+        if not self.use_sb and not self.use_vt:
+            boosted[:, conf_idx] = np.maximum(
+                boosted[:, conf_idx],
+                max_similarity * self.dlo_boost_coef,
+            )
+            return boosted
+
+        if self.use_sb:
+            alpha = 0.65
+            boosted[:, conf_idx] = np.maximum(
+                boosted[:, conf_idx],
+                alpha * boosted[:, conf_idx] + (1 - alpha) * max_similarity**1.5,
+            )
+        if self.use_vt:
+            visibility_thresholds = np.maximum(
+                0.95 - np.array([trk.time_since_update - 1 for trk in self.trackers]),
+                0.8,
+            )
+            visible = (similarity > visibility_thresholds).max(axis=1)
+            boosted[visible, conf_idx] = np.maximum(
+                boosted[visible, conf_idx],
+                score_threshold + 1e-5,
+            )
+        return boosted
+
+    def duo_confidence_boost_obb(
+        self,
+        detections: np.ndarray,
+        *,
+        threshold: float | None = None,
+    ) -> np.ndarray:
+        """Apply DUO boosting using native OBB motion and pairwise overlap."""
+        if len(detections) == 0:
+            return detections
+        threshold = self.det_thresh if threshold is None else float(threshold)
+        mh_dist = self.get_mh_dist_matrix(detections)
+        if mh_dist.size == 0:
+            return detections
+
+        conf_idx = self.detection_layout.conf_idx
+        boost_indices = np.flatnonzero(
+            (mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold)
+        )
+        if not len(boost_indices):
+            return detections
+
+        candidate_boxes = self.detection_layout.boxes(detections)[boost_indices]
+        pairwise_iou = AssociationFunction.iou_batch_obb(candidate_boxes, candidate_boxes)
+        np.fill_diagonal(pairwise_iou, 0.0)
+        max_iou = pairwise_iou.max(axis=1)
+        remaining = list(boost_indices[max_iou <= 0.3])
+        for local_index in np.flatnonzero(max_iou > 0.3):
+            neighbors = np.flatnonzero(pairwise_iou[local_index] > 0.3)
+            group = boost_indices[np.append(neighbors, local_index)]
+            best = group[np.argmax(detections[group, conf_idx])]
+            remaining.append(int(best))
+
+        boosted = detections.copy()
+        boosted[np.unique(remaining), conf_idx] = threshold + 1e-4
+        return boosted

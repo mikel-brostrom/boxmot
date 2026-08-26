@@ -1,10 +1,17 @@
 # Export
 
-Use `export` to convert ReID models to deployment formats such as ONNX and TensorRT.
+Use `export` to convert ReID models to TorchScript, ONNX, OpenVINO, TensorRT,
+native Core ML, or TFLite.
 
 Format-specific Python packages are installed on first use when possible. TensorRT export also attempts to install `nvidia-tensorrt`, but the resulting wheel still needs a compatible CUDA/NVIDIA runtime.
 
 TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` or `openvino`, BoxMOT creates or reuses a fresh `.onnx` file next to the source weights before building the requested format.
+
+Core ML export is native and does not pass through ONNX Runtime. It produces an
+FP16 MLProgram bundle with static batch buckets (1, 8, 16, and 32 by default).
+The runtime pads or chunks arbitrary detection counts and lazily keeps one
+compiled package resident. Conversion workers have configurable time and RAM
+limits to prevent runaway Apple graph compilation.
 
 ## Examples
 
@@ -16,13 +23,34 @@ TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` 
         boxmot export --weights osnet_x0_25_msmt17.pt --include onnx
         ```
 
+        Export a transformer ReID model for Apple GPU/CPU inference:
+
+        ```bash
+        boxmot export \
+          --weights runs/reid_train/exp/best.pt \
+          --include coreml \
+          --device cpu \
+          --coreml-batch-buckets 1,8,16,32 \
+          --coreml-minimum-deployment-target macOS15 \
+          --coreml-compute-units CPUAndGPU \
+          --coreml-timeout 600 \
+          --coreml-max-memory-gb 16
+        ```
+
+        The output is `best_coreml_model/`. Pass that directory directly as
+        ReID weights. `BOXMOT_COREML_MAX_LOADED_BUCKETS=1` is the safe default;
+        increasing it trades RAM for fewer bucket recompilations.
+
         Export multiple formats:
 
         ```bash
         boxmot export \
           --weights osnet_x0_25_msmt17.pt \
+          --include onnx \
           --include engine \
-          --dynamic
+          --dynamic \
+          --batch-size 16 \
+          --device 0
         ```
 
         Export calibrated TFLite int8 using representative ReID crops:
@@ -49,12 +77,24 @@ TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` 
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(reid="osnet_x0_25_msmt17")
-        exported = boxmot.export(include=("onnx", "engine"), dynamic=True)
+        exported = boxmot.export(
+            include=("onnx", "engine"),
+            dynamic=True,
+            batch_size=16,
+            device="0",
+        )
         print(exported.files)
 
         reid = BoxMOT(reid="models/lmbn_n_duke.pt")
-        reid = reid.export(format="onnx", half=True)
-        embeddings = reid.embed(source="path/to/image.jpg")
+        exported = reid.export(format="onnx")
+        embeddings = exported.embed(source="path/to/image.jpg")
+
+        apple_reid = BoxMOT(reid="runs/reid_train/exp/best.pt")
+        apple_export = apple_reid.export(
+            format="coreml",
+            coreml_batch_buckets=(1, 8, 16, 32),
+        )
+        print(apple_export.files["coreml"])
         ```
 
 ## Typical use cases

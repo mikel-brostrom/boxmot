@@ -29,15 +29,17 @@
 
 </div>
 
-BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, cached benchmark evaluation, tuning, research loops, ReID training and evaluation, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
+BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, catalog-backed evaluation, tuning, research loops, ReID training and evaluation, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
 
 ## Why BoxMOT
 
-- One interface for `track`, `generate`, `eval`, `tune`, `research`, `train`, `eval-reid`, and `export`.
+- One interface for `track`, `generate`, `eval`, `tune`, `research`,
+  `train-reid`, `eval-reid`, `export`, and native `build`
+  workflows.
 - Swappable trackers with shared detector and ReID plumbing.
-- Benchmark-oriented workflows with reusable detections and embeddings.
+- Dataset and experiment workflows with reusable detections and embeddings.
 - Support for both AABB and OBB tracking paths.
-- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/guides/native-cpp.md)).
+- Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md)).
 - Public Python API for embedding the same workflows in applications and notebooks.
 
 ## Installation
@@ -82,29 +84,29 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
     <tr>
       <td align="left"><sub>occluboost</sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub><b>70.47</b><br>(70.48)</sub></td>
-      <td align="right"><sub><b>78.32</b><br>(78.31)</sub></td>
-      <td align="right"><sub><b>84.14</b><br>(84.14)</sub></td>
+      <td align="right"><sub><b>71.10</b><br>(71.10)</sub></td>
+      <td align="right"><sub><b>78.50</b><br>(78.50)</sub></td>
+      <td align="right"><sub><b>85.28</b><br>(85.28)</sub></td>
       <td align="right"><sub><b>83.17</b></sub></td>
       <td align="right"><sub>97.48</sub></td>
       <td align="right"><sub><b>89.36</b></sub></td>
-      <td align="right"><sub>28.14</sub></td>
-      <td align="right"><sub>28.21</sub></td>
-      <td align="right"><sub>29.66</sub></td>
+      <td align="right"><sub>49.84<br>(49.84)</sub></td>
+      <td align="right"><sub>39.41<br>(39.41)</sub></td>
+      <td align="right"><sub>58.60<br>(58.60)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2206.14651">botsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>69.44<br>(69.43)</sub></td>
-      <td align="right"><sub>78.24<br>(78.26)</sub></td>
-      <td align="right"><sub>81.94<br>(82.00)</sub></td>
+      <td align="right"><sub>69.68<br>(69.74)</sub></td>
+      <td align="right"><sub>78.23<br>(78.27)</sub></td>
+      <td align="right"><sub>82.33<br>(82.55)</sub></td>
       <td align="right"><sub>76.93</sub></td>
       <td align="right"><sub><b>98.11</b></sub></td>
       <td align="right"><sub>78.30</sub></td>
-      <td align="right"><sub>52.27</sub></td>
-      <td align="right"><sub><b>45.45</b></sub></td>
-      <td align="right"><sub>61.36</sub></td>
+      <td align="right"><sub>52.31<br>(52.40)</sub></td>
+      <td align="right"><sub>45.43<br>(45.53)</sub></td>
+      <td align="right"><sub>61.42<br>(61.42)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -116,9 +118,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>76.32</sub></td>
       <td align="right"><sub>97.08</sub></td>
       <td align="right"><sub>77.82</sub></td>
-      <td align="right"><sub>42.88</sub></td>
-      <td align="right"><sub>32.80</sub></td>
-      <td align="right"><sub>48.44</sub></td>
+      <td align="right"><sub>48.39<br>(—)</sub></td>
+      <td align="right"><sub>41.36<br>(—)</sub></td>
+      <td align="right"><sub>56.36<br>(—)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -130,9 +132,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>79.80</sub></td>
       <td align="right"><sub>97.31</sub></td>
       <td align="right"><sub>80.27</sub></td>
-      <td align="right"><sub>49.75</sub></td>
-      <td align="right"><sub>43.64</sub></td>
-      <td align="right"><sub>57.39</sub></td>
+      <td align="right"><sub>49.76<br>(—)</sub></td>
+      <td align="right"><sub>43.70<br>(—)</sub></td>
+      <td align="right"><sub>57.32<br>(—)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -144,23 +146,23 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>79.51</sub></td>
       <td align="right"><sub>97.94</sub></td>
       <td align="right"><sub>79.59</sub></td>
-      <td align="right"><sub>50.43</sub></td>
-      <td align="right"><sub>43.93</sub></td>
-      <td align="right"><sub>58.39</sub></td>
+      <td align="right"><sub>50.84<br>(—)</sub></td>
+      <td align="right"><sub>44.21<br>(—)</sub></td>
+      <td align="right"><sub>59.33<br>(—)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>67.68<br>(67.75)</sub></td>
-      <td align="right"><sub>78.04<br>(78.03)</sub></td>
-      <td align="right"><sub>79.16<br>(79.38)</sub></td>
+      <td align="right"><sub>67.68<br>(67.68)</sub></td>
+      <td align="right"><sub>78.04<br>(78.04)</sub></td>
+      <td align="right"><sub>79.16<br>(79.16)</sub></td>
       <td align="right"><sub>67.93</sub></td>
       <td align="right"><sub>97.25</sub></td>
       <td align="right"><sub>76.90</sub></td>
-      <td align="right"><sub>33.97</sub></td>
-      <td align="right"><sub>33.72</sub></td>
-      <td align="right"><sub>39.74</sub></td>
+      <td align="right"><sub>33.97<br>(33.97)</sub></td>
+      <td align="right"><sub>33.72<br>(33.72)</sub></td>
+      <td align="right"><sub>39.74<br>(39.74)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -172,9 +174,9 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>81.14</sub></td>
       <td align="right"><sub>98.07</sub></td>
       <td align="right"><sub>81.88</sub></td>
-      <td align="right"><sub><b>53.86</b></sub></td>
-      <td align="right"><sub>44.63</sub></td>
-      <td align="right"><sub><b>63.22</b></sub></td>
+      <td align="right"><sub><b>54.64</b><br>(—)</sub></td>
+      <td align="right"><sub><b>47.50</b><br>(—)</sub></td>
+      <td align="right"><sub><b>64.67</b><br>(—)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
@@ -186,39 +188,39 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
       <td align="right"><sub>76.34</sub></td>
       <td align="right"><sub>96.60</sub></td>
       <td align="right"><sub>75.64</sub></td>
-      <td align="right"><sub>28.57</sub></td>
-      <td align="right"><sub>26.19</sub></td>
-      <td align="right"><sub>29.95</sub></td>
+      <td align="right"><sub>28.64<br>(28.64)</sub></td>
+      <td align="right"><sub>26.17<br>(26.17)</sub></td>
+      <td align="right"><sub>30.06<br>(30.06)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>62.65<br>(62.66)</sub></td>
-      <td align="right"><sub>76.87<br>(76.74)</sub></td>
+      <td align="right"><sub>62.65<br>(62.65)</sub></td>
+      <td align="right"><sub>76.87<br>(76.87)</sub></td>
       <td align="right"><sub>69.18<br>(69.18)</sub></td>
       <td align="right"><sub>75.73</sub></td>
       <td align="right"><sub>98.39</sub></td>
       <td align="right"><sub>72.99</sub></td>
-      <td align="right"><sub>44.19</sub></td>
-      <td align="right"><sub>44.27</sub></td>
-      <td align="right"><sub>46.25</sub></td>
+      <td align="right"><sub>47.83<br>(47.83)</sub></td>
+      <td align="right"><sub>45.42<br>(45.42)</sub></td>
+      <td align="right"><sub>52.09<br>(52.09)</sub></td>
       <td align="center"><sub>✅</sub></td>
     </tr>
   </tbody>
 </table>
 <!-- END TRACKER TABLE -->
 
-<sub>MMOT OBB results report the TrackEval <code>Class Avg (Cls)</code> across all eight categories on the 5,466-frame test split, using <code>yolo11l_3ch</code> detections and <code>lmbn_n_duke</code> ReID features. All trackers use their Python backend.</sub>
+<sub>MOT17 AABB uses the canonical <code>mot17-ablation-yolox-lmbn</code> experiment. MMOT OBB uses <code>mmot-obb-test-precomputed</code> and reports TrackEval <code>Class Avg (Cls)</code> across all eight categories on the 5,466-frame test split, using <code>yolo11l_3ch</code> detections at the detector's default <code>0.2</code> confidence threshold and <code>lmbn_n_duke</code> ReID features.</sub>
 
-<sub>Py (C++); <code>—</code> unavailable. See <a href="docs/guides/benchmarks.md">Benchmark Workflows</a>.</sub>
+<sub>MOT17 and MMOT cells show Py<br>(C++); SportsMOT values are Python-only. <code>—</code> means no published native C++ result. For trackers with native backends, benchmark publication requires every Python/C++ HOTA, MOTA, and IDF1 pair to differ by at most 0.25 percentage points. See <a href="docs/guides/experiments.md">Experiment Workflows</a>.</sub>
 
 </div>
 
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
-- [Benchmark Workflows](docs/guides/benchmarks.md)
+- [Experiment Workflows](docs/guides/experiments.md)
 - [Native C++ Integration](docs/native/index.md)
 
 ## Minimal Usage
@@ -239,9 +241,11 @@ tracker = OccluBoost()
 
 # dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
 dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
+# OBB alternative: (N, 7) with [cx, cy, w, h, angle_radians, conf, cls]
+# dets = np.array([[200, 300, 200, 200, 0.25, 0.9, 0]], dtype=np.float32)
 img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
 
-# tracks: (M, 8) array with [x1, y1, x2, y2, id, conf, cls, det_ind] per track
+# tracks: AABB (M, 8), or OBB (M, 9) with angle after h
 tracks = tracker.update(dets, img)
 print(tracks)
 ```

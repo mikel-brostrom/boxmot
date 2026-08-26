@@ -13,8 +13,8 @@ from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import embedding_distance, fuse_score, iou_distance
 from boxmot.trackers.common.motion.cmc import create_cmc
-from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 from boxmot.trackers.common.track_models.botsort import STrack, TrackState
+from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
 class BotSort(BaseTracker):
@@ -120,7 +120,7 @@ class BotSort(BaseTracker):
         return self.detection_layout.boxes(dets)
 
     def _obb_detections_to_cmc_boxes(self, dets: np.ndarray) -> np.ndarray:
-        """Convert OBB detections to enclosing AABBs for CMC feature masking."""
+        """Return oriented detections for polygon-aware CMC masking."""
         return self.cmc_detection_boxes(dets)
 
     def _apply_aabb_camera_motion_compensation(
@@ -142,7 +142,7 @@ class BotSort(BaseTracker):
         strack_pool: list[STrack],
         unconfirmed: list[STrack],
     ) -> None:
-        """Apply OBB-specific CMC using enclosing AABBs for estimation."""
+        """Apply OBB-specific CMC using oriented masks and state correction."""
         warp = self.cmc.apply(img, self.cmc_detection_boxes(dets))
         STrack.multi_gmc_obb(strack_pool, warp)
         STrack.multi_gmc_obb(unconfirmed, warp)
@@ -162,7 +162,7 @@ class BotSort(BaseTracker):
             return
         self._apply_aabb_camera_motion_compensation(dets, img, strack_pool, unconfirmed)
 
-    def _update_impl(
+    def _track_detections(
         self,
         dets: np.ndarray,
         img: np.ndarray,

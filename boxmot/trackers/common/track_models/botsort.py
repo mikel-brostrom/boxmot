@@ -6,10 +6,14 @@ import numpy as np
 
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
-from boxmot.trackers.common.geometry import xyxy2xywh
-from boxmot.trackers.common.geometry.obb import xywha_to_corners
-from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
+from boxmot.trackers.common.geometry.obb import (
+    transform_aabb_kalman_state,
+    transform_obb_kalman_state,
+    xywha_to_corners,
+)
 from boxmot.trackers.common.track_models.base import BoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator
 
 
 class TrackState:
@@ -115,15 +119,17 @@ class STrack(BaseTrack):
             return
         if getattr(stracks[0], "is_obb", False):
             return
-        R = H[:2, :2]
-        R8x8 = np.kron(np.eye(4), R)
-        t = H[:2, 2]
-
         for st in stracks:
-            mean = R8x8.dot(st.mean)
-            mean[:2] += t
-            st.mean = mean
-            st.covariance = R8x8.dot(st.covariance).dot(R8x8.T)
+            if st.mean is None or st.covariance is None:
+                continue
+            st.mean, st.covariance = transform_aabb_kalman_state(
+                st.mean,
+                st.covariance,
+                H,
+                measurement_to_box=lambda values: xywh2xyxy(values[:4]),
+                box_to_measurement=lambda box: xyxy2xywh(box[:4]),
+                velocity_measurement_indices=(0, 1, 2, 3),
+            )
 
     @staticmethod
     def _warp_points(points: np.ndarray, H: np.ndarray) -> np.ndarray:
@@ -175,30 +181,14 @@ class STrack(BaseTrack):
         if not stracks:
             return
 
-        warp = np.asarray(H, dtype=np.float32)
-        linear = warp[:2, :2]
-        scale_x, scale_y, _ = cls._affine_components(linear)
-        transform = np.eye(10, dtype=np.float32)
-        transform[:2, :2] = linear
-        transform[5:7, 5:7] = linear
-        transform[2, 2] = scale_x
-        transform[3, 3] = scale_y
-        transform[7, 7] = scale_x
-        transform[8, 8] = scale_y
-
         for st in stracks:
             if st.mean is None or st.covariance is None:
                 continue
-
-            reference_box = np.asarray(st.mean[:5], dtype=np.float32)
-            warped_corners = cls._warp_points(cls._xywha_to_corners(reference_box), warp)
-            warped_box = cls._corners_to_xywha(warped_corners, reference_box)
-
-            warped_mean = st.mean.copy()
-            warped_mean[:5] = warped_box
-            warped_mean[5:7] = linear @ warped_mean[5:7]
-            warped_mean[7] *= scale_x
-            warped_mean[8] *= scale_y
-
-            st.mean = warped_mean
-            st.covariance = transform @ st.covariance @ transform.T
+            st.mean, st.covariance = transform_obb_kalman_state(
+                st.mean,
+                st.covariance,
+                H,
+                measurement_to_box=lambda values: values,
+                box_to_measurement=lambda box: box,
+                velocity_measurement_indices=(0, 1, 2, 3, 4),
+            )

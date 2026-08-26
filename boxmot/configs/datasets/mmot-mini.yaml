@@ -1,0 +1,31 @@
+id: mmot-mini
+
+format:
+  layout: mot
+  box_type: obb
+
+storage:
+  root: assets/mmot-mini
+
+default_split: train
+
+splits:
+  train:
+    path: train/npy
+    has_ground_truth: true
+
+classes:
+  target:
+    car: 1
+    bike: 2
+    pedestrian: 3
+    van: 4
+    truck: 5
+    bus: 6
+    tricycle: 7
+    awning-bike: 8
+
+resources:
+  dataset:
+    type: archive
+    uri: https://github.com/mikel-brostrom/boxmot/releases/download/v16.0.11/MMOT-OBB.zip

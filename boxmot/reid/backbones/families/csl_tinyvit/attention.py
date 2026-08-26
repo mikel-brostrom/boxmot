@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 __all__ = ["Attention"]
@@ -72,16 +73,40 @@ class Attention(nn.Module):
             self.attention_bias_h[:, self.attention_bias_h_idxs] + self.attention_bias_w[:, self.attention_bias_w_idxs]
         )
 
+    def _refresh_eval_bias(self) -> None:
+        """Invalidate and, in eval mode, rebuild the derived bias cache."""
+        if hasattr(self, "ab"):
+            del self.ab
+        if not self.training:
+            self.register_buffer("ab", self._attention_bias(), persistent=False)
+
+    def _load_from_state_dict(
+        self,
+        state_dict,
+        prefix,
+        local_metadata,
+        strict,
+        missing_keys,
+        unexpected_keys,
+        error_msgs,
+    ):
+        """Keep the nonpersistent eval cache coherent across weight reloads."""
+        super()._load_from_state_dict(
+            state_dict,
+            prefix,
+            local_metadata,
+            strict,
+            missing_keys,
+            unexpected_keys,
+            error_msgs,
+        )
+        self._refresh_eval_bias()
+
     @torch.no_grad()
     def train(self, mode=True):
         super().train(mode)
-        if mode:
-            if hasattr(self, "ab"):
-                del self.ab
-        else:
-            if hasattr(self, "ab"):
-                del self.ab
-            self.register_buffer("ab", self._attention_bias(), persistent=False)
+        self._refresh_eval_bias()
+        return self
 
     def forward(self, x, attn_mask: torch.Tensor | None = None):
         B, N, _ = x.shape
@@ -92,12 +117,20 @@ class Attention(nn.Module):
         k = k.permute(0, 2, 1, 3)
         v = v.permute(0, 2, 1, 3)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
         bias = self._attention_bias() if self.training else self.ab
-        attn = attn + bias
+        attention_bias = bias.unsqueeze(0)
         if attn_mask is not None:
-            attn = attn.masked_fill(~attn_mask[:, None, :, :], torch.finfo(attn.dtype).min)
-        attn = attn.softmax(dim=-1)
-        x = (attn @ v).transpose(1, 2).reshape(B, N, self.dh)
+            attention_bias = attention_bias.masked_fill(
+                ~attn_mask[:, None, :, :],
+                torch.finfo(q.dtype).min,
+            )
+        x = F.scaled_dot_product_attention(
+            q,
+            k,
+            v,
+            attn_mask=attention_bias,
+            dropout_p=0.0,
+        )
+        x = x.transpose(1, 2).reshape(B, N, self.dh)
         x = self.proj(x)
         return x

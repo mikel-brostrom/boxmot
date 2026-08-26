@@ -97,4 +97,3 @@ adaptive_kf:
   type: choice
   default: False
   options: [False, True]
-

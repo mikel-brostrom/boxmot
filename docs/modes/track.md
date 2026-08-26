@@ -1,6 +1,8 @@
 # Track
 
 Use `track` when you want end-to-end detector + tracker execution on a real source such as a webcam, video file, image directory, or stream.
+You can also select a configured dataset and split; BoxMOT then resolves the
+dataset source while keeping the detector and ReID models you selected.
 
 ## Examples
 
@@ -17,6 +19,19 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
           --save
         ```
 
+        Track a configured dataset split with explicitly selected models:
+
+        ```bash
+        boxmot track \
+          --detector yolo26n \
+          --reid lmbn_n_duke \
+          --tracker occluboost \
+          --dataset mot17 \
+          --split ablation \
+          --save \
+          --show
+        ```
+
     === "Python"
 
         ```python
@@ -28,6 +43,10 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         ```
 
 ## Common source values
+
+Pass either `--source` or `--dataset`, not both. Omitting both retains the
+default webcam source (`0`). `--split` selects a configured dataset split and
+defaults to the split declared by the dataset profile.
 
 - `0` for a webcam
 - `video.mp4` for a local video
@@ -42,11 +61,11 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
 
     === "CLI"
 
-        Track with trajectories:
+        Track with trajectories and Kalman-filter predictions during missed detections:
 
         ```bash
         boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort \
-          --source video.mp4 --show-trajectories --save
+          --source video.mp4 --show-trajectories --show-kf-preds --save
         ```
 
         Track selected classes only:
@@ -67,7 +86,13 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="botsort")
-        saved = boxmot.track(source="video.mp4", save=True, save_txt=True)
+        saved = boxmot.track(
+            source="video.mp4",
+            save=True,
+            save_txt=True,
+            show_trajectories=True,
+            show_kf_preds=True,
+        )
         print(saved.video_path)
         print(saved.text_path)
 
@@ -77,6 +102,37 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         ```
 
         Class filtering in Python is configured on `BoxMOT(...)` via `classes=[...]`, not passed to `track(...)` directly.
+
+## Startup and CPU performance
+
+The final tracking summary reports startup costs for detector loading, tracker/ReID loading,
+output preparation, and first-frame acquisition separately from per-frame
+inference. A first run can also download missing weights or populate dependency
+caches; those one-time costs should disappear on later runs.
+
+When tracking people only, filter the detector before ReID so unrelated COCO
+objects do not become extra embedding crops:
+
+```bash
+boxmot track \
+  --detector yolo26n \
+  --reid lmbn_n_duke.onnx \
+  --tracker occluboost \
+  --source 0 \
+  --classes 0 \
+  --fps 30 \
+  --save \
+  --show
+```
+
+The ONNX ReID artifact is often faster than the PyTorch artifact on CPU. On
+Apple Silicon, keep the PyTorch artifact and try `--device mps` instead. The
+`--fps` option controls saved-video playback rate; live sources otherwise use a
+30 FPS fallback without opening the camera a second time just to query it.
+
+If every fresh process says that Matplotlib is rebuilding its font cache, make
+`MPLCONFIGDIR` point to a persistent writable directory. An unwritable or
+temporary font cache can add many seconds before the detector is ready.
 
 ## Outputs
 
@@ -97,6 +153,9 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --tr
 ```
 
 Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. See [Native C++ Integration](../native/index.md) for build requirements and embedding details.
+
+Native live trackers do not yet provide class-separated state, so `--per-class`
+requires the Python tracker backend.
 
 ## Detection geometry
 

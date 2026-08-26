@@ -1,0 +1,30 @@
+batch_size: 1
+imgsz:
+- 256
+- 128
+device: cpu
+optimize: false
+dynamic: false
+simplify: false
+opset: 17
+workspace: 4
+weights: osnet_x0_25_msmt17
+half: false
+coreml_batch_buckets:
+- 1
+- 8
+- 16
+- 32
+coreml_minimum_deployment_target: macOS15
+coreml_compute_units: CPUAndGPU
+coreml_timeout: 600.0
+coreml_max_memory_gb: 16.0
+tflite_quantize: none
+tflite_calibration_data: null
+tflite_calibration_samples: 256
+tflite_calibration_preprocess: resize
+tflite_calibration_seed: 0
+tflite_calibration_update: minmax
+tflite_static_activation_bits: 16
+include:
+- onnx

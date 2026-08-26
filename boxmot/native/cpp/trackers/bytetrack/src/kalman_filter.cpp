@@ -134,11 +134,11 @@ std::pair<KalmanFilterXYAH::Vector, KalmanFilterXYAH::Matrix> KalmanFilterXYAH::
     const Vector& mean,
     const Matrix& covariance
 ) const {
+    const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
     Vector predicted_mean = motion_mat_ * mean;
     predicted_mean[2] = std::max(predicted_mean[2], 1.0e-4);
     predicted_mean[3] = std::max(predicted_mean[3], 1.0e-4);
 
-    const auto [std_pos, std_vel] = ProcessNoiseStd(predicted_mean);
     Vector std(8);
     std << std_pos, std_vel;
     Matrix motion_cov = std.array().square().matrix().asDiagonal();
@@ -269,10 +269,10 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
     const Vector& mean,
     const Matrix& covariance
 ) const {
+    const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
     Vector predicted_mean = motion_mat_ * mean;
     predicted_mean = EnforceXywhConstraints(predicted_mean, is_obb_);
 
-    const auto [std_pos, std_vel] = ProcessNoiseStd(predicted_mean);
     Vector std(dim_x_);
     std << std_pos, std_vel;
     Matrix motion_cov = std.array().square().matrix().asDiagonal();

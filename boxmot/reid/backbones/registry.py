@@ -22,6 +22,7 @@ class BackboneSpec:
     default_img_size: ImageSize
     supports_layer_decay: bool = False
     supports_drop_path: bool = False
+    accepts_model_kwargs: bool = False
     pretrained_source: str | None = None
 
 
@@ -36,6 +37,7 @@ class BackboneVariant:
     pretrained_source: str | None = None
     supports_layer_decay: bool = False
     supports_drop_path: bool = False
+    accepts_model_kwargs: bool = False
     aliases: tuple[str, ...] = ()
 
     def spec(self, name: str | None = None) -> BackboneSpec:
@@ -46,6 +48,7 @@ class BackboneVariant:
             default_img_size=self.default_img_size,
             supports_layer_decay=self.supports_layer_decay,
             supports_drop_path=self.supports_drop_path,
+            accepts_model_kwargs=self.accepts_model_kwargs,
             pretrained_source=self.pretrained_source,
         )
 
@@ -111,6 +114,7 @@ def register_backbone(
     default_img_size: ImageSize = (256, 128),
     supports_layer_decay: bool = False,
     supports_drop_path: bool = False,
+    accepts_model_kwargs: bool = False,
     pretrained_source: str | None = None,
     aliases: tuple[str, ...] = (),
 ) -> Callable[[BackboneBuilder], BackboneBuilder]:
@@ -124,6 +128,7 @@ def register_backbone(
         pretrained_source=pretrained_source,
         supports_layer_decay=supports_layer_decay,
         supports_drop_path=supports_drop_path,
+        accepts_model_kwargs=accepts_model_kwargs,
         aliases=aliases,
     )
 
@@ -148,6 +153,7 @@ def register_variant(spec: BackboneVariant) -> Callable[[BackboneBuilder], Backb
         default_img_size=spec.default_img_size,
         supports_layer_decay=spec.supports_layer_decay,
         supports_drop_path=spec.supports_drop_path,
+        accepts_model_kwargs=spec.accepts_model_kwargs,
         pretrained_source=spec.pretrained_source,
         aliases=spec.aliases,
     )
@@ -201,6 +207,7 @@ def _lazy_variant(
     default_img_size: ImageSize = (256, 128),
     supports_layer_decay: bool = False,
     supports_drop_path: bool = False,
+    accepts_model_kwargs: bool = False,
     pretrained_source: str | None = None,
 ) -> LazyBackboneImport:
     return LazyBackboneImport(
@@ -212,6 +219,7 @@ def _lazy_variant(
             pretrained_source=pretrained_source,
             supports_layer_decay=supports_layer_decay,
             supports_drop_path=supports_drop_path,
+            accepts_model_kwargs=accepts_model_kwargs,
         ),
         module=module,
         attr=attr or name,
@@ -227,6 +235,7 @@ def _lazy_variants(
     default_img_size: ImageSize = (256, 128),
     supports_layer_decay: bool = False,
     supports_drop_path: bool = False,
+    accepts_model_kwargs: bool = False,
     pretrained_source: str | None = None,
 ) -> tuple[LazyBackboneImport, ...]:
     return tuple(
@@ -238,6 +247,7 @@ def _lazy_variants(
             default_img_size=default_img_size,
             supports_layer_decay=supports_layer_decay,
             supports_drop_path=supports_drop_path,
+            accepts_model_kwargs=accepts_model_kwargs,
             pretrained_source=pretrained_source,
         )
         for name in names
@@ -332,11 +342,23 @@ def _register_builtin_backbones() -> None:
             default_recipe="lmbn_reid",
             default_img_size=(384, 128),
         ),
+        _lazy_variant(
+            "hi_afa",
+            "boxmot.reid.backbones.hi_afa",
+            attr="HiAFA",
+            family="cnn",
+            default_recipe="cnn_reid",
+            default_img_size=(384, 128),
+            accepts_model_kwargs=True,
+            pretrained_source="imagenet",
+        ),
         # CSL-TinyViT family
         *_lazy_variants(
             (
                 "csl_tinyvit_7m",
+                "csl_tinyvit_7m_v20",
                 "csl_tinyvit_11m",
+                "csl_tinyvit_11m_v20",
                 "csl_tinyvit_23m",
                 "csl_tinyvit_small",
                 "csl_tinyvit_normal",
@@ -362,6 +384,8 @@ def _register_builtin_backbones() -> None:
                 "mobilenetv4_conv_large",
                 "mobilenetv4_hybrid_medium",
                 "mobilenetv4_hybrid_large",
+                "mobilenetv4_conv_medium_v20",
+                "mobilenetv4_hybrid_medium_v20",
             ),
             mobilenetv4_module,
             family="hybrid",

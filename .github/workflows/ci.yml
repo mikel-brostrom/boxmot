@@ -17,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  CUDA_VISIBLE_DEVICES: ""
   UV_TORCH_BACKEND: cpu
   UV_INDEX_STRATEGY: unsafe-best-match
 
@@ -45,6 +46,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
+      - uses: ./.github/actions/prepare-ci-assets
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
@@ -53,7 +55,7 @@ jobs:
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do
-            track_args=(boxmot track --detector yolov10n.pt --imgsz 320 --tracker "$tracker" --source "$IMG" --verbose)
+            track_args=(boxmot track --detector "$BOXMOT_CI_DETECTOR" --imgsz 320 --tracker "$tracker" --source "$IMG" --verbose)
             if echo " $REID_TRACKERS " | grep -q " $tracker "; then
               track_args+=(--reid osnet_x0_25_msmt17.pt)
             fi
@@ -106,6 +108,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
+      - uses: ./.github/actions/prepare-ci-assets
       - name: Install native build dependencies (Linux)
         if: runner.os == 'Linux'
         shell: bash
@@ -120,7 +123,7 @@ jobs:
       - name: Install boxmot with native extension
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
       - name: Verify native libraries are present
         shell: bash
         run: |
@@ -137,12 +140,17 @@ jobs:
               backend.ensure_built()
               print(f"  {name}: built OK")
           PY
+      - name: Run native unit tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          .venv/bin/python -m pytest -q tests/unit/native
       - name: Run cpp tracking method
         shell: bash
         run: |
           source .venv/bin/activate
           for tracker in $CPP_TRACKERS; do
-            track_args=(boxmot track --detector yolov10n.pt --imgsz 320 \
+            track_args=(boxmot track --detector "$BOXMOT_CI_DETECTOR" --imgsz 320 \
                         --tracker "$tracker" --tracker-backend cpp \
                         --source "$IMG" --verbose)
             if echo " $REID_TRACKERS " | grep -q " $tracker "; then
@@ -171,6 +179,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
+      - uses: ./.github/actions/prepare-ci-assets
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
@@ -179,7 +188,7 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          boxmot tune --detector yolov8n.pt --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --benchmark mot17-mini --ci --classes 0
+          boxmot tune --detector "$BOXMOT_CI_DETECTOR" --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --experiment mot17-mini-train-yolox-lmbn --ci --classes 0
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -201,17 +210,24 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip' # caching pip dependencies
+      - uses: ./.github/actions/prepare-ci-assets
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh ".[yolo,trackeval]" --group test
+
+      - name: Check metric parity with TrackEval
+        shell: bash
+        run: |
+          .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
+
       - name: Generate detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --benchmark mot17-mini --detector yolov10n.pt --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          boxmot generate --experiment mot17-mini-train-yolox-lmbn --detector "$BOXMOT_CI_DETECTOR" --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
@@ -219,7 +235,7 @@ jobs:
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
           for tracker in $TRACKERS; do
-            if boxmot eval --detector yolov10n.pt --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --benchmark mot17-mini --ci --classes 0; then
+            if boxmot eval --detector "$BOXMOT_CI_DETECTOR" --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --experiment mot17-mini-train-yolox-lmbn --ci --classes 0; then
               STATUS="✅"
             else
               STATUS="❌"
@@ -278,7 +294,7 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
-          boxmot train \
+          boxmot train-reid \
             --model mobilenetv2_x1_0 \
             --dataset market1501 \
             --data-dir assets/reid-mini \
@@ -311,7 +327,7 @@ jobs:
       TRACKERS: "ocsort bytetrack botsort deepocsort strongsort boosttrack occluboost hybridsort sfsort"
       REID_TRACKERS: "botsort deepocsort strongsort boosttrack occluboost hybridsort"
       EXPECTED_OBB_TRACKERS: "ocsort bytetrack botsort sfsort occluboost"
-      SMOKE_SOURCE: ./assets/mmot-mini/train/npy/data23-1
+      SMOKE_SOURCE: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
 
     timeout-minutes: 50
     steps:
@@ -321,6 +337,9 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
+      - uses: ./.github/actions/prepare-ci-assets
+        with:
+          assets: obb
       - name: Install requirements
         shell: bash
         run: |
@@ -334,12 +353,15 @@ jobs:
           set +e
           for tracker in $TRACKERS; do
             log_file="${tracker}_obb.log"
-            track_args=(boxmot track --detector yolo11s-obb.pt --tracker "$tracker" --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok)
+            track_args=(boxmot track --detector "$BOXMOT_CI_OBB_DETECTOR" --tracker "$tracker" --source "$SMOKE_SOURCE" --project runs/ci_smoke --name "$tracker" --exist-ok)
             if echo " $REID_TRACKERS " | grep -q " $tracker "; then
               track_args+=(--reid lmbn_n_duke.pt)
             fi
             "${track_args[@]}" >"$log_file" 2>&1
             tracker_exit=$?
+            if [ "$tracker_exit" -eq 0 ] && grep -q "No frames processed" "$log_file"; then
+              tracker_exit=1
+            fi
             if [ "$tracker_exit" -eq 0 ]; then
               OBB_STATUS="✅"
               OBB_REASON="ok"
@@ -393,6 +415,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/prepare-ci-assets
+        with:
+          assets: pose
       - run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
       - name: Test tracking with pose models
@@ -400,7 +425,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run:  |
           source .venv/bin/activate
-          boxmot track --detector yolov8n-pose.pt --imgsz 320 --source $IMG
+          boxmot track --detector "$BOXMOT_CI_POSE_DETECTOR" --imgsz 320 --source $IMG
   yolos:
     runs-on: ubuntu-latest
     outputs:
@@ -412,18 +437,19 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - uses: ./.github/actions/prepare-ci-assets
       - run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-      - name: Test tracking with pose models
+      - name: Test detector backends
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
           uv pip list
-          boxmot track --detector yolov10n.pt --imgsz 320 --source $IMG
+          boxmot track --detector "$BOXMOT_CI_DETECTOR" --imgsz 320 --source $IMG
           boxmot track --detector yolox_n.pt --imgsz 320 --source $IMG
           boxmot track --detector rtdetr_v2_r18vd --imgsz 320 --source $IMG
 
@@ -438,6 +464,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/prepare-ci-assets
+        with:
+          assets: seg
       - name: Install dependencies
         run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo]"
@@ -446,7 +475,7 @@ jobs:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
         run: |
           source .venv/bin/activate
-          boxmot track --tracker bytetrack --detector yolov8n-seg.pt --source $IMG
+          boxmot track --tracker bytetrack --detector "$BOXMOT_CI_SEG_DETECTOR" --source $IMG
   
   export:
     runs-on: ubuntu-latest
@@ -459,6 +488,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/prepare-ci-assets
       - name: Install dependencies
         run: |
           bash .github/scripts/uv_ci_install.sh ".[yolo,onnx,openvino,tflite]"
@@ -493,7 +523,7 @@ jobs:
 
             if [ -n "$model_path" ] && [ -e "$model_path" ]; then
               export_status="✅"
-              if boxmot track --tracker strongsort --reid "$model_path" --imgsz 320 --source "$IMG"; then
+              if boxmot track --detector "$BOXMOT_CI_DETECTOR" --tracker strongsort --reid "$model_path" --imgsz 320 --source "$IMG"; then
                 inference_status="✅"
               else
                 failed=1
@@ -541,7 +571,37 @@ jobs:
               echo "| $engine | $export_status | $inference_status | \`$model_path\` |"
             done < engine_results.csv
           } >> "$GITHUB_STEP_SUMMARY"
-               
+
+  python_api:
+    runs-on: ubuntu-latest
+    outputs:
+      status: ${{ job.status }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cache uv downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-${{ hashFiles('uv.lock', 'pyproject.toml') }}
+          restore-keys: |
+            uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-
+      - uses: ./.github/actions/prepare-ci-assets
+      - name: Install requirements
+        shell: bash
+        run: |
+          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
+      - name: Smoke-test Python API
+        shell: bash
+        run: |
+          # Keep uv from re-resolving the CPU-only environment from the
+          # platform-neutral lockfile and pulling CUDA wheels back in.
+          .venv/bin/python -m pytest -p no:cacheprovider -q -s --durations=5 tests/ci/python_api_smoke.py
+
   tests:
     runs-on: ubuntu-latest
     outputs:
@@ -564,8 +624,22 @@ jobs:
           # minimum acceptable test coverage
           COVERAGE_FAIL_UNDER: 25
         run: |
-          uv run python -m pytest --cov="$PACKAGE_DIR" --cov-report=html -v -s tests
-          uv run python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
+          # CI-only integration and native tests run in their dedicated jobs.
+          # Local dataset-preparation and launcher tests are opt-in.
+          # Use the prepared CPU-only environment without an implicit uv sync.
+          .venv/bin/python -m pytest \
+            --cov="$PACKAGE_DIR" \
+            --cov-report=html \
+            -v -s \
+            --ignore=tests/ci \
+            --ignore=tests/unit/native \
+            --ignore=tests/unit/tools \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_contract \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_validate_only_cannot_train \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_rejects_incomplete_market1501 \
+            --deselect=tests/unit/reid/backbones/csl_tinyvit/test_csl_tinyvit_7m_multilevel_suppression.py::test_multilevel_suppression_launcher_rejects_empty_metadata \
+            tests
+          .venv/bin/python -m coverage report --fail-under="$COVERAGE_FAIL_UNDER"
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
@@ -596,7 +670,7 @@ jobs:
   #         COVERAGE_FAIL_UNDER: 25
   #       shell: bash  # for Windows compatibility
   #       run: |
-  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/test_cuda.py
+  #         pytest --cov=$PACKAGE_DIR --cov-report=html -v tests/unit/reid/backends/test_cuda.py
 
 
   check-failures:
@@ -609,6 +683,7 @@ jobs:
       - obb
       - tune
       - export
+      - python_api
       - tests
       - pose
       - seg
@@ -627,6 +702,7 @@ jobs:
             "obb=${{ needs.obb.result }}"
             "tune=${{ needs.tune.result }}"
             "export=${{ needs.export.result }}"
+            "python_api=${{ needs.python_api.result }}"
             "tests=${{ needs.tests.result }}"
             "pose=${{ needs.pose.result }}"
             "seg=${{ needs.seg.result }}"

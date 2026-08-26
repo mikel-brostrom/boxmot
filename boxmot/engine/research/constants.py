@@ -63,7 +63,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from boxmot.configs import build_mode_namespace
+from boxmot.engine.config import build_mode_namespace
 from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_motmetrics
 from boxmot.engine.eval.results import build_mot_feedback
 

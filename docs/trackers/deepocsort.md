@@ -7,7 +7,7 @@ Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearanc
 ## What BoxMOT Needs For DeepOcSort
 
 - A detector plus a ReID model.
-- AABB detections only in BoxMOT.
+- Supports both AABB and OBB detections in BoxMOT.
 - Useful when OC-SORT is close but still loses IDs in crowded scenes where appearance recovery matters.
 
 ::: boxmot.trackers.bbox.deepocsort.DeepOcSort

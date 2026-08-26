@@ -1,0 +1,24 @@
+id: yolox-x-visdrone
+
+box_type: aabb
+
+classes:
+  0: pedestrian
+  1: people
+  2: bicycle
+  3: car
+  4: van
+  5: truck
+  6: tricycle
+  7: awning-tricycle
+  8: bus
+  9: motor
+
+inference:
+  image_size: [896, 1600]
+  confidence_threshold: 0.01
+
+checkpoints:
+  default:
+    path: models/yolox_x_visdrone.pt
+    uri: https://huggingface.co/Lekim89/yolox/resolve/main/yolox_x_visdrone.pt

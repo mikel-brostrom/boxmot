@@ -27,6 +27,7 @@ public:
     const Vector& mean() const { return mean_; }
     Vector& mutable_mean() { return mean_; }
     const Matrix& covariance() const { return covariance_; }
+    Matrix& mutable_covariance() { return covariance_; }
 
     int dim_x() const { return dim_x_; }
     int dim_z() const { return dim_z_; }

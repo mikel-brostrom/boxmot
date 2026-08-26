@@ -3,27 +3,37 @@
 """MobileNetV4 ReID backbones using timm ImageNet weights.
 
 The backbone comes from Hugging Face's pytorch-image-models (``timm``). BoxMOT
-adds the ReID-specific CSL-TinyViT head path on top: multi-scale feature fusion,
-the 512-channel neck, global/stripe BNNeck branches, optional post-fusion local
-mixer, and optional dropped-global CE auxiliary supervision.
+adds a configurable multi-scale ReID neck, global/stripe BNNeck branches,
+optional post-fusion mixing, and training-only privileged anatomy supervision.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from typing import Any
 
 import torch
 import torch.nn as nn
 
+from boxmot.reid.backbones.anatomical_registry import (
+    DEFAULT_ANATOMICAL_TARGET_TYPE,
+)
 from boxmot.reid.backbones.base import ReIDBackbone
+from boxmot.reid.backbones.families.csl_tinyvit.blocks import LayerNorm2d
 from boxmot.reid.backbones.families.csl_tinyvit.fusion import (
     CSLTinyViTFeatureFusion,
     PostFusionLocalMixer,
+    make_spatial_conv,
 )
 from boxmot.reid.backbones.families.csl_tinyvit.heads import (
     GPCLiteMultiBranchHead,
     MultiBranchHead,
+)
+from boxmot.reid.backbones.families.csl_tinyvit.transport import MCPT_MODES
+from boxmot.reid.backbones.head_registry import (
+    HeadImplementation,
+    get_reid_head_spec,
 )
 from boxmot.reid.backbones.registry import BackboneVariant, register_variant
 from boxmot.utils import logger as LOGGER
@@ -34,6 +44,8 @@ _MOBILENETV4_PUBLIC_NAMES = (
     "mobilenetv4_conv_large",
     "mobilenetv4_hybrid_medium",
     "mobilenetv4_hybrid_large",
+    "mobilenetv4_conv_medium_v20",
+    "mobilenetv4_hybrid_medium_v20",
 )
 
 __all__ = ["TimmMobileNetV4ReID", *_MOBILENETV4_PUBLIC_NAMES]
@@ -60,7 +72,27 @@ _TIMM_MODEL_CANDIDATES = {
         "mobilenetv4_hybrid_large.e600_r384_in1k",
         "mobilenetv4_hybrid_large",
     ),
+    "mobilenetv4_conv_medium_v20": (
+        "mobilenetv4_conv_medium.e250_r384_in12k_ft_in1k",
+        "mobilenetv4_conv_medium.e500_r256_in1k",
+        "mobilenetv4_conv_medium",
+    ),
+    "mobilenetv4_hybrid_medium_v20": (
+        "mobilenetv4_hybrid_medium.ix_e550_r256_in1k",
+        "mobilenetv4_hybrid_medium",
+    ),
 }
+
+_TIMM_HEAD_MODES = frozenset(
+    {
+        "pooled",
+        "spatial",
+        "spatial_adapt_norm",
+        "spatial_linear",
+        "off",
+    }
+)
+_MOBILENETV4_NECK_MODES = frozenset({"cnn", "spatial_ln"})
 
 
 def _import_timm():
@@ -79,17 +111,18 @@ def _resolve_timm_model_name(timm, alias: str, candidates: Sequence[str], pretra
     available = set(timm.list_models("mobilenetv4*", pretrained=pretrained))
     if not available and pretrained:
         available = set(timm.list_models("mobilenetv4*", pretrained=False))
-    for candidate in candidates:
+    ordered_candidates = tuple(dict.fromkeys((str(alias), *candidates)))
+    for candidate in ordered_candidates:
         if candidate in available:
             return candidate
-    for candidate in candidates:
+    for candidate in ordered_candidates:
         matches = sorted(name for name in available if name.startswith(candidate))
         if matches:
             return matches[0]
     available_text = ", ".join(sorted(available)) or "(none)"
     raise RuntimeError(
         f"timm does not expose a MobileNetV4 model for '{alias}'. "
-        f"Tried {tuple(candidates)}. Available MobileNetV4 models: {available_text}"
+        f"Tried {ordered_candidates}. Available MobileNetV4 models: {available_text}"
     )
 
 
@@ -102,18 +135,29 @@ def _feature_channels(backbone: nn.Module) -> list[int]:
     return [int(item["num_chs"]) for item in feature_info]
 
 
-def _fusion_path_channels(feature_fusion: str, channels: Sequence[int]) -> dict[int, int]:
+def _fusion_source_indices() -> dict[int, int]:
+    """Map shared fusion roles onto MobileNetV4 pyramid endpoints.
+
+    MobileNetV4 exposes stride-8 C3, stride-16 C4, and stride-32 C5 maps.
+    The Stage-0 semantic-fine ReID head uses C3 for its 48x16 fine branch,
+    C4 for its 24x8 coarse branch, and the timm C5 head for global semantics.
+    Stage 1 also uses C3 as the intermediate semantic residual because timm
+    exposes one endpoint per stride, unlike CSL-TinyViT's two stride-16 stages.
+    """
+    return {0: -3, 1: -3, 2: -2}
+
+
+def _fusion_path_channels(
+    feature_fusion: str,
+    channels: Sequence[int],
+    source_indices: dict[int, int],
+) -> dict[int, int]:
     stage_indices = CSLTinyViTFeatureFusion.stage_indices_for_mode(feature_fusion)
     path_channels: dict[int, int] = {}
     for stage_index in stage_indices:
-        if stage_index == 0:
-            source_index = -4
-        elif stage_index == 1:
-            source_index = -3
-        elif stage_index == 2:
-            source_index = -2
-        else:
+        if stage_index not in source_indices:
             raise ValueError(f"Unsupported MobileNetV4 fusion stage index: {stage_index}")
+        source_index = source_indices[stage_index]
         try:
             path_channels[stage_index] = int(channels[source_index])
         except IndexError as exc:
@@ -135,11 +179,87 @@ def _cnn_projection(in_channels: int, out_channels: int) -> nn.Module:
     )
 
 
+def _mobilenetv4_reid_neck(
+    in_channels: int,
+    out_channels: int,
+    *,
+    mode: str,
+    spatial_conv_mode: str,
+) -> nn.Module:
+    """Build either the current CNN projection or TinyViT-matched ReID neck."""
+    normalized = str(mode).lower()
+    if normalized == "cnn":
+        return _cnn_projection(in_channels, out_channels)
+    if normalized == "spatial_ln":
+        return nn.Sequential(
+            nn.Conv2d(int(in_channels), int(out_channels), kernel_size=1, bias=False),
+            LayerNorm2d(int(out_channels)),
+            make_spatial_conv(int(out_channels), mode=spatial_conv_mode),
+            LayerNorm2d(int(out_channels)),
+        )
+    raise ValueError(
+        "mobilenetv4_neck_mode must be one of: "
+        + ", ".join(sorted(_MOBILENETV4_NECK_MODES))
+    )
+
+
+def _set_mobilenetv4_last_stride(backbone: nn.Module, last_stride: int) -> None:
+    """Optionally retain stride-16 C5 maps by removing the final stride-2 conv."""
+    normalized = int(last_stride)
+    if normalized == 2:
+        return
+    if normalized != 1:
+        raise ValueError("mobilenetv4_last_stride must be 1 or 2")
+    for module in reversed(list(backbone.modules())):
+        if isinstance(module, nn.Conv2d) and tuple(module.stride) == (2, 2):
+            module.stride = (1, 1)
+            return
+    raise RuntimeError("Could not locate MobileNetV4's final stride-2 convolution")
+
+
 def _timm_head_channels(backbone: nn.Module, fallback: int) -> int:
     conv_head = getattr(backbone, "conv_head", None)
     if isinstance(conv_head, nn.Conv2d):
         return int(conv_head.out_channels)
     return int(fallback)
+
+
+def _timm_pretrained_url(backbone: nn.Module, model_name: str) -> str:
+    """Return the concrete timm/Hugging Face source selected by the model."""
+    config = getattr(backbone, "pretrained_cfg", None)
+    if isinstance(config, dict):
+        if config.get("url"):
+            return str(config["url"])
+        if config.get("hf_hub_id"):
+            return f"https://huggingface.co/{config['hf_hub_id']}"
+    return f"https://huggingface.co/timm/{model_name}"
+
+
+def _module_state_sha256(module: nn.Module) -> str:
+    """Fingerprint the exact pretrained tensors materialized by timm."""
+    digest = hashlib.sha256()
+    for name, tensor in sorted(module.state_dict().items()):
+        value = tensor.detach().cpu().contiguous()
+        digest.update(name.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(str(value.dtype).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(repr(tuple(value.shape)).encode("ascii"))
+        digest.update(b"\0")
+        digest.update(value.numpy().tobytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _normalize_timm_head_mode(mode: str) -> str:
+    """Normalize how the pretrained timm classification head handles C5."""
+    normalized = str(mode).lower()
+    if normalized not in _TIMM_HEAD_MODES:
+        raise ValueError(
+            "timm_head_mode must be one of: "
+            + ", ".join(sorted(_TIMM_HEAD_MODES))
+        )
+    return normalized
 
 
 class TimmMobileNetV4ReID(ReIDBackbone):
@@ -160,6 +280,8 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         metric_feature: str = "auto",
         inference_feature: str = "concat_bn",
         feature_fusion: str = "final",
+        pyramid_resize_mode: str = "bilinear",
+        spatial_conv_mode: str = "standard",
         post_fusion_mixer: str = "none",
         post_fusion_mixer_reduction: int = 4,
         post_fusion_mixer_kernel: tuple[int, int] = (5, 3),
@@ -176,8 +298,30 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         drop_global_aux: bool = False,
         drop_global_aux_ratio: float = 0.25,
         branch_metric: bool = False,
+        scale_balanced_branches: bool = False,
         drop_path_rate: float = 0.0,
         use_timm_head: bool = True,
+        timm_head_mode: str | None = None,
+        mobilenetv4_last_stride: int = 2,
+        mobilenetv4_neck_mode: str = "cnn",
+        anatomical_auxiliary: bool = False,
+        anatomical_token_dim: int = 128,
+        anatomical_descriptor_distill: bool = False,
+        anatomical_branch_distill: bool = False,
+        anatomical_multiscale: bool = False,
+        anatomical_target_type: str = DEFAULT_ANATOMICAL_TARGET_TYPE,
+        anatomical_accessory_query: bool = False,
+        anatomical_deployment: bool = False,
+        anatomical_deployment_dim: int = 64,
+        anatomical_deployment_alpha: float = 0.25,
+        mcpt_mode: str = "none",
+        mcpt_hidden_dim: int = 64,
+        mcpt_max_displacement: float = 0.15,
+        mcpt_start_epoch: int = 10,
+        mcpt_ramp_end_epoch: int = 40,
+        return_cross_scale_features: bool = False,
+        return_treeboost_features: bool = False,
+        return_auxiliary_features: bool = False,
         **kwargs: Any,
     ):
         super().__init__()
@@ -187,13 +331,34 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         self.loss = loss
         self.img_size = tuple(int(value) for value in img_size)
         self.feature_fusion = CSLTinyViTFeatureFusion.normalize_mode(feature_fusion)
+        self.pyramid_resize_mode = CSLTinyViTFeatureFusion.normalize_resize_mode(pyramid_resize_mode)
+        self.spatial_conv_mode = CSLTinyViTFeatureFusion.normalize_spatial_conv_mode(spatial_conv_mode)
         self.post_fusion_mixer = self._normalize_post_fusion_mixer(post_fusion_mixer)
         self.post_fusion_mixer_reduction = int(post_fusion_mixer_reduction)
         self.post_fusion_mixer_kernel = self._normalize_pair(post_fusion_mixer_kernel)
         self.post_fusion_mixer_gamma_init = float(post_fusion_mixer_gamma_init)
         self.head_type = str(head_type).lower()
-        if self.head_type not in {"standard", "gpc_lite"}:
-            raise ValueError("MobileNetV4 ReID head_type must be one of: standard, gpc_lite")
+        self.head_spec = get_reid_head_spec(
+            self.head_type,
+            family="mobilenetv4",
+        )
+        self.mcpt_mode = str(mcpt_mode).lower()
+        self.mcpt_hidden_dim = int(mcpt_hidden_dim)
+        self.mcpt_max_displacement = float(mcpt_max_displacement)
+        self.mcpt_start_epoch = int(mcpt_start_epoch)
+        self.mcpt_ramp_end_epoch = int(mcpt_ramp_end_epoch)
+        if self.mcpt_mode not in MCPT_MODES:
+            raise ValueError(
+                f"mcpt_mode must be one of {sorted(MCPT_MODES)}, "
+                f"got {mcpt_mode!r}"
+            )
+        if self.mcpt_mode != "none" and self.head_type != "standard":
+            raise ValueError("MobileNetV4 MCPT requires head_type='standard'")
+        self.scale_balanced_branches = bool(scale_balanced_branches)
+        if self.scale_balanced_branches and self.head_type != "standard":
+            raise ValueError("MobileNetV4 scale-balanced branches require head_type='standard'")
+        if self.scale_balanced_branches and branch_metric:
+            raise ValueError("MobileNetV4 scale-balanced branches use one selected metric descriptor")
         if drop_global_aux and self.head_type != "standard":
             raise ValueError("drop_global_aux requires MobileNetV4 head_type='standard'")
 
@@ -214,26 +379,74 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         except TypeError:
             create_kwargs.pop("drop_path_rate")
             self.backbone = timm.create_model(self.timm_model_name, **create_kwargs)
+        self.pretrained_url = (
+            _timm_pretrained_url(self.backbone, self.timm_model_name)
+            if pretrained
+            else None
+        )
+        self.pretrained_sha256 = (
+            _module_state_sha256(self.backbone) if pretrained else None
+        )
+
+        self.mobilenetv4_last_stride = int(mobilenetv4_last_stride)
+        _set_mobilenetv4_last_stride(
+            self.backbone,
+            self.mobilenetv4_last_stride,
+        )
+        self.mobilenetv4_neck_mode = str(mobilenetv4_neck_mode).lower()
+        if self.mobilenetv4_neck_mode not in _MOBILENETV4_NECK_MODES:
+            raise ValueError(
+                "mobilenetv4_neck_mode must be one of: "
+                + ", ".join(sorted(_MOBILENETV4_NECK_MODES))
+            )
 
         channels = _feature_channels(self.backbone)
         if len(channels) < 2:
             raise RuntimeError(f"Expected multiple MobileNetV4 feature maps, got channels={channels}")
         self.feature_channels = tuple(channels)
         final_channels = channels[-1]
-        self.use_timm_head = bool(use_timm_head)
+        if timm_head_mode is None:
+            timm_head_mode = "pooled" if use_timm_head else "off"
+        self.timm_head_mode = _normalize_timm_head_mode(timm_head_mode)
+        if not use_timm_head and self.timm_head_mode != "off":
+            raise ValueError(
+                "use_timm_head=False is only compatible with timm_head_mode='off'"
+            )
+        self.use_timm_head = self.timm_head_mode != "off"
         self.timm_head_channels = _timm_head_channels(self.backbone, final_channels)
 
         global_input_channels = self.timm_head_channels if self.use_timm_head else final_channels
-        self.neck = _cnn_projection(global_input_channels, neck_dim)
-        self.spatial_neck = _cnn_projection(final_channels, neck_dim)
-        fusion_path_channels = _fusion_path_channels(self.feature_fusion, channels)
-        self.feature_fusion_module = CSLTinyViTFeatureFusion.from_mode(
-            mode=self.feature_fusion,
-            path_channels=fusion_path_channels,
-            out_channels=neck_dim,
+        self.neck = _mobilenetv4_reid_neck(
+            global_input_channels,
+            neck_dim,
+            mode=self.mobilenetv4_neck_mode,
+            spatial_conv_mode=self.spatial_conv_mode,
         )
+        self.spatial_neck = _mobilenetv4_reid_neck(
+            final_channels,
+            neck_dim,
+            mode=self.mobilenetv4_neck_mode,
+            spatial_conv_mode=self.spatial_conv_mode,
+        )
+        self._fusion_source_indices = _fusion_source_indices()
+        fusion_path_channels = _fusion_path_channels(
+            self.feature_fusion,
+            channels,
+            self._fusion_source_indices,
+        )
+        # Fusion arms contain different numbers of randomly initialized layers.
+        # Keep their construction from shifting the RNG state seen by the
+        # shared post-fusion mixer and ReID head so same-seed ablations retain
+        # identical initialization outside the treatment module.
+        with torch.random.fork_rng(devices=[]):
+            self.feature_fusion_module = CSLTinyViTFeatureFusion.from_mode(
+                mode=self.feature_fusion,
+                path_channels=fusion_path_channels,
+                out_channels=neck_dim,
+                resize_mode=self.pyramid_resize_mode,
+                spatial_conv_mode=self.spatial_conv_mode,
+            )
         self._fusion_stage_indices = self.feature_fusion_module.stage_indices
-        self._fusion_source_indices = {0: -4, 1: -3, 2: -2}
 
         if self.post_fusion_mixer == "dwconv":
             self.post_fusion_mixer_module = PostFusionLocalMixer(
@@ -248,7 +461,7 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         metric_feature = str(metric_feature).lower()
         if metric_feature == "auto":
             metric_feature = "concat_bn" if loss == "ms" else "raw_mean"
-        if self.head_type == "gpc_lite":
+        if self.head_spec.implementation == HeadImplementation.GPC_LITE:
             self.head = GPCLiteMultiBranchHead(
                 neck_dim,
                 feat_dim=feat_dim,
@@ -277,11 +490,38 @@ class TimmMobileNetV4ReID(ReIDBackbone):
                 drop_global_aux=drop_global_aux,
                 drop_global_aux_ratio=drop_global_aux_ratio,
                 branch_metric=branch_metric,
+                scale_balanced_branches=self.scale_balanced_branches,
+                hierarchical_scales=(
+                    CSLTinyViTFeatureFusion.uses_hierarchical_scales(
+                        self.feature_fusion
+                    )
+                ),
+                anatomical_auxiliary=anatomical_auxiliary,
+                anatomical_token_dim=anatomical_token_dim,
+                anatomical_descriptor_distill=anatomical_descriptor_distill,
+                anatomical_branch_distill=anatomical_branch_distill,
+                anatomical_multiscale=anatomical_multiscale,
+                anatomical_target_type=anatomical_target_type,
+                anatomical_accessory_query=anatomical_accessory_query,
+                anatomical_deployment=anatomical_deployment,
+                anatomical_deployment_dim=anatomical_deployment_dim,
+                anatomical_deployment_alpha=anatomical_deployment_alpha,
+                mcpt_mode=self.mcpt_mode,
+                mcpt_hidden_dim=self.mcpt_hidden_dim,
+                mcpt_max_displacement=self.mcpt_max_displacement,
+                mcpt_start_epoch=self.mcpt_start_epoch,
+                mcpt_ramp_end_epoch=self.mcpt_ramp_end_epoch,
+                return_cross_scale_features=return_cross_scale_features,
+                return_treeboost_features=return_treeboost_features,
+                return_auxiliary_features=return_auxiliary_features,
             )
         self.pretrained_source = "huggingface/pytorch-image-models (timm)"
         LOGGER.info(
             f"MobileNetV4 ReID backbone: timm_model={self.timm_model_name}, "
-            f"pretrained={pretrained}, source={self.pretrained_source}"
+            f"pretrained={pretrained}, timm_head_mode={self.timm_head_mode}, "
+            f"last_stride={self.mobilenetv4_last_stride}, "
+            f"neck_mode={self.mobilenetv4_neck_mode}, "
+            f"source={self.pretrained_source}"
         )
 
     @staticmethod
@@ -315,40 +555,84 @@ class TimmMobileNetV4ReID(ReIDBackbone):
         return intermediates[-1], intermediates
 
     def _forward_timm_head(self, final_feature: torch.Tensor) -> torch.Tensor:
-        if not self.use_timm_head:
+        if self.timm_head_mode == "off":
             return final_feature
-        required = ("global_pool", "conv_head", "norm_head")
+        required = ("conv_head",)
+        if self.timm_head_mode != "spatial_linear":
+            required += ("norm_head",)
+        if self.timm_head_mode == "pooled":
+            required = ("global_pool", *required)
         if not all(hasattr(self.backbone, name) for name in required):
             return final_feature
-        feature = self.backbone.global_pool(final_feature)
+        feature = final_feature
+        if self.timm_head_mode == "pooled":
+            feature = self.backbone.global_pool(feature)
         feature = self.backbone.conv_head(feature)
-        feature = self.backbone.norm_head(feature)
-        act2 = getattr(self.backbone, "act2", None)
-        if act2 is not None:
-            feature = act2(feature)
+        if self.timm_head_mode != "spatial_linear":
+            feature = self.backbone.norm_head(feature)
+            act2 = getattr(self.backbone, "act2", None)
+            if act2 is not None:
+                feature = act2(feature)
         if feature.ndim == 2:
             feature = feature[:, :, None, None]
         return feature
 
     def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         final_raw, features = self._forward_intermediates(x)
-        final = self.neck(self._forward_timm_head(final_raw))
-        spatial_final = self.spatial_neck(final_raw)
         path_features = {
             stage_index: features[self._fusion_source_indices[stage_index]]
             for stage_index in self._fusion_stage_indices
         }
-        if not self._fusion_stage_indices:
-            fused = final
+
+        # A MobileNet checkpoint retains both projections so older runs remain
+        # strictly resumable, but each fixed fusion mode consumes only one of
+        # them. Avoid executing the other 1x1 projection on every image.
+        uses_final_global = (
+            not self._fusion_stage_indices
+            or CSLTinyViTFeatureFusion.uses_final_global_branch(self.feature_fusion)
+        )
+        if uses_final_global:
+            fusion_final = self.neck(self._forward_timm_head(final_raw))
         else:
-            fusion_final = final if self.feature_fusion_module.split_global_local else spatial_final
+            fusion_final = self.spatial_neck(final_raw)
+
+        if not self._fusion_stage_indices:
+            fused = fusion_final
+        else:
             fused = self.feature_fusion_module(fusion_final, path_features)
         if isinstance(fused, tuple):
             return tuple(self.post_fusion_mixer_module(feature) for feature in fused)
         return self.post_fusion_mixer_module(fused)
 
-    def forward_head(self, features):
-        return self.head(features)
+    def forward_head(
+        self,
+        features,
+        *,
+        anatomical_pose: torch.Tensor | None = None,
+        anatomical_query_masks: torch.Tensor | None = None,
+    ):
+        """Convert pyramid features into ReID outputs and optional pose targets."""
+        if anatomical_pose is None and anatomical_query_masks is None:
+            return self.head(features)
+        return self.head(
+            features,
+            anatomical_pose=anatomical_pose,
+            anatomical_query_masks=anatomical_query_masks,
+        )
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        *,
+        anatomical_pose: torch.Tensor | None = None,
+        anatomical_query_masks: torch.Tensor | None = None,
+    ):
+        """Run RGB inference with optional privileged inputs during training."""
+        return self.forward_head(
+            self.forward_features(x),
+            anatomical_pose=anatomical_pose,
+            anatomical_query_masks=anatomical_query_masks,
+        )
 
 
 def _build_mobilenetv4_variant(
