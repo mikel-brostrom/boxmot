@@ -12,16 +12,24 @@ BoxMOT switches tracking behavior from the detection tensor shape rather than fr
 ## Shared behavior
 
 - OBB mode is enabled automatically when OBB detections are provided.
+- The first valid detection tensor fixes the tracker's layout; later updates must
+  keep the same column count.
 - `track` and tracker internals use the tensor layout to choose AABB vs OBB behavior.
-- Benchmark evaluation also depends on dataset `box_type`, so runtime geometry and dataset geometry stay aligned.
+- Evaluation also depends on dataset `box_type`, so runtime geometry and dataset
+  geometry stay aligned.
 - `det_ind` lets you map a track back to the detector output row.
 
 ## Current OBB tracker support
 
-OBB-capable trackers in the current repo are:
+All currently registered Python trackers support OBB detections:
 
-- `bytetrack`
+- `boosttrack`
 - `botsort`
-- `ocsort`
+- `bytetrack`
+- `deepocsort`
+- `hybridsort`
 - `occluboost`
+- `ocsort`
+- `sam2mot`
 - `sfsort`
+- `strongsort`

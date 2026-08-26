@@ -54,7 +54,14 @@ Catalog references resolve by unique ID, filename, or explicit YAML path.
 Built-in IDs use kebab-case, and built-in asset paths must be portable
 repository-relative paths rather than workstation-specific absolute paths.
 
-Use `--experiment` to select an experiment ID or YAML, for example:
+Use `--dataset` when the detector, ReID model, and other runtime choices stay
+caller-controlled:
+
+```bash
+boxmot eval --dataset mot17 --split ablation --tracker boosttrack
+```
+
+Use `--experiment` to select a complete catalog composition by ID or YAML:
 
 ```bash
 boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack

@@ -14,7 +14,7 @@ OC-SORT focuses on a specific failure mode in Kalman-filter trackers: error accu
 
 BoxMOT ships a native C++17 OCSORT implementation under `boxmot/native/cpp/trackers/ocsort/`. It supports:
 
-- cached replay for `eval`, `tune`, and `research`
+- cached replay for `eval` and `tune`
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detection layouts in the native tracker path
 
@@ -28,10 +28,12 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker ocsort --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker ocsort --tracker-backend cpp
 boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 
-The native backend currently supports `asso_func=iou`. Use the Python backend if you need the other OCSORT association functions from `boxmot/configs/trackers/ocsort.yaml`.
+The native backend currently supports `asso_func=iou`. Use the Python backend
+if you need the other OCSORT association functions from
+`boxmot/configs/trackers/ocsort.yaml`.
 
 ::: boxmot.trackers.bbox.ocsort.OcSort

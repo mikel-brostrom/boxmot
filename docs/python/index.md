@@ -14,13 +14,13 @@ run = boxmot.track(source="video.mp4", save=True, fps=30)
 print(run)
 print(run.setup_timings)
 
-cache = BoxMOT().generate(benchmark="mot17-mini")
+cache = BoxMOT().generate(experiment="mot17-mini-train-yolox-lmbn")
 print(cache.cache_dir)
 
-metrics = boxmot.val(benchmark="mot17-mini")
+metrics = boxmot.val(experiment="mot17-mini-train-yolox-lmbn")
 print(metrics)
 
-tuned = boxmot.tune(benchmark="mot17-mini", n_trials=2)
+tuned = boxmot.tune(experiment="mot17-mini-train-yolox-lmbn", n_trials=2)
 print(tuned)
 ```
 
@@ -50,10 +50,12 @@ model = BoxMOT(
 )
 ```
 
-Tracker selection supports the three public forms:
+Tracker selection accepts a string key, a registered tracker class, or an
+initialized tracker instance. A string can use built-in defaults or
+`tracker_kwargs` overrides:
 
 ```python
-from boxmot import BoxMOT
+from boxmot import BoxMOT, ReIDModel
 from boxmot.trackers import OccluBoost
 
 simple = BoxMOT(tracker="occluboost")
@@ -68,6 +70,7 @@ by_class = BoxMOT(
     tracker_kwargs={"with_reid": True},
 )
 
+my_reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
 tracker = OccluBoost(reid_model=my_reid, with_reid=True)
 injected = BoxMOT(tracker=tracker)
 ```
@@ -104,8 +107,8 @@ training, export, and direct embedding extraction:
 from boxmot import BoxMOT
 
 reid = BoxMOT(reid="models/lmbn_n_duke.pt")
-reid.train(cfg="custom_config.yaml")
-reid = reid.export(format="onnx", half=True)
+train_result = reid.train(cfg="custom_config.yaml")
+export_result = reid.export(format="onnx", half=True)
 embeddings = reid.embed(source="path/to/image.jpg")
 ```
 
@@ -124,10 +127,15 @@ native_track = BoxMOT(detector="yolov8n", tracker="bytetrack")
 run = native_track.track(source="video.mp4", tracker_backend="cpp")
 
 native_eval = BoxMOT(tracker="ocsort")
-metrics = native_eval.val(benchmark="mot17", split="ablation", tracker_backend="cpp")
+metrics = native_eval.val(experiment="mot17-ablation-yolox-lmbn", tracker_backend="cpp")
 ```
 
 Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+
+Native replay is supported by `val(...)` and `tune(...)`. The current
+`research(...)` workflow evaluates Python tracker code and does not forward
+native backend selectors. Native live trackers also do not support
+`per_class=True`.
 
 ## Streaming frame results
 
@@ -140,12 +148,14 @@ model = BoxMOT(detector="yolov8l.pt", reid="lmbn_n_duke.pt", tracker="occluboost
 results = model.track(source=0)
 
 for frame_result in results:
-    tracks = frame_result.tracks          # (M, 8) TrackResults array
+    tracks = frame_result.tracks          # (M, 8) AABB or (M, 9) OBB TrackResults
     ids    = frame_result.tracks.id       # (M,) track IDs
     confs  = frame_result.tracks.conf     # (M,) confidences
-    boxes  = frame_result.tracks.xyxy     # (M, 4) bounding boxes
-    dets   = frame_result.detections      # (M, 6) matched detections, aligned to tracks
+    boxes  = frame_result.tracks.xyxy     # (M, 4) AABBs (enclosing AABBs in OBB mode)
+    obbs   = frame_result.tracks.xywha    # (M, 5) in OBB mode
+    dets   = frame_result.detections      # (M, 6/7) matched detections, aligned to tracks
     embs   = frame_result.embeddings      # (M, D) matched embeddings, aligned to tracks
+    masks  = frame_result.masks           # (M, H, W) aligned/refined masks, or None
 
     print(f"Frame {frame_result.frame_idx}: {len(ids)} tracks")
 
@@ -158,15 +168,20 @@ for frame_result in results:
 frame_result.close_vid()                  # finalize the video file
 ```
 
-!!! note "Detections and embeddings are track-aligned"
+!!! note "Detections, embeddings, and masks are track-aligned"
     `frame_result.detections[i]` and `frame_result.embeddings[i]` correspond to `frame_result.tracks[i]`.
     Coasting tracks (no matched detection) have zero-filled rows.
     Use `frame_result.tracks.det_ind` to check which tracks are coasting (`-1`).
+    When masks are available, `frame_result.masks[i]` is the detector-aligned or
+    tracker-refined mask for the same output row.
 
-!!! warning "Avoid `show=True` / `save=True` when iterating"
-    Passing `show=True` or `save=True` to `model.track(...)` consumes the stream
-    internally. The returned object will be exhausted, so your `for` loop gets nothing.
-    Handle display and saving yourself inside the loop as shown above.
+!!! warning "Know when the facade consumes the stream"
+    A live source such as a camera index or URL remains lazy when `show` and
+    `save` are false. Finite file and directory sources are consumed before the
+    facade returns so their summary is immediately complete. Passing
+    `show=True`, `save=True`, or `save_txt=True` also consumes results internally.
+    For lazy iteration over a finite source, compose explicit components and use
+    `boxmot.api.functional.track(...)`.
 
 ## Composable runtime
 
@@ -184,9 +199,13 @@ reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
 tracker = OccluBoost(reid_model=reid, with_reid=True)
 
 detections = detector.predict(image)
-embeddings = reid.embed(image, boxes=detections.xyxy)
+embeddings = reid.embed(image, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
 tracks = tracker.update(detections, image=image, embeddings=embeddings)
 ```
+
+`detections.xyxy` always returns axis-aligned geometry; in OBB mode it is the
+enclosing AABB. Use `detections.boxes` or `detections.xywha` when extracting
+orientation-aware ReID crops.
 
 ## Importing trackers directly
 
@@ -259,17 +278,18 @@ print(tracks.conf)  # confidences
 
 ### Available trackers
 
-| Import name | String key | Uses ReID |
-| --- | --- | --- |
-| `boxmot.trackers.bbox.bytetrack.ByteTrack` | `bytetrack` | No |
-| `boxmot.trackers.bbox.botsort.BotSort` | `botsort` | Yes |
-| `boxmot.trackers.bbox.strongsort.StrongSort` | `strongsort` | Yes |
-| `boxmot.trackers.bbox.ocsort.OcSort` | `ocsort` | No |
-| `boxmot.trackers.bbox.deepocsort.DeepOcSort` | `deepocsort` | Yes |
-| `boxmot.trackers.bbox.hybridsort.HybridSort` | `hybridsort` | Yes |
-| `boxmot.trackers.bbox.boosttrack.BoostTrack` | `boosttrack` | Yes |
-| `OccluBoost` | `occluboost` | Yes |
-| `boxmot.trackers.bbox.sfsort.SFSORT` | `sfsort` | No |
+| Import name | String key | Uses ReID | Uses masks |
+| --- | --- | --- | --- |
+| `boxmot.trackers.bbox.bytetrack.ByteTrack` | `bytetrack` | No | No |
+| `boxmot.trackers.bbox.botsort.BotSort` | `botsort` | Yes | No |
+| `boxmot.trackers.bbox.strongsort.StrongSort` | `strongsort` | Yes | No |
+| `boxmot.trackers.bbox.ocsort.OcSort` | `ocsort` | No | No |
+| `boxmot.trackers.bbox.deepocsort.DeepOcSort` | `deepocsort` | Yes | No |
+| `boxmot.trackers.bbox.hybridsort.HybridSort` | `hybridsort` | Yes | No |
+| `boxmot.trackers.bbox.boosttrack.BoostTrack` | `boosttrack` | Yes | No |
+| `boxmot.trackers.bbox.occluboost.OccluBoost` | `occluboost` | Yes | No |
+| `boxmot.trackers.bbox.sfsort.SFSORT` | `sfsort` | No | No |
+| `boxmot.trackers.hybrid.sam2mot.Sam2Mot` | `sam2mot` | No | Yes |
 
 !!! tip "Custom config overrides"
     Pass `tracker_config` to `create_tracker` to load a non-default YAML, or
@@ -281,11 +301,11 @@ print(tracks.conf)  # confidences
 
     tracker = create_tracker(
         "ocsort",
-        evolve_param_dict={"det_thresh": 0.3, "iou_thresh": 0.2, "max_age": 50},
+        evolve_param_dict={"det_thresh": 0.3, "iou_threshold": 0.2, "max_age": 50},
     )
     ```
 
 ## Reference pages
 
 - [High-level API](high-level.md) — `BoxMOT`, `Detector`, `ReIDModel`, explicit workflow helpers, and result objects
-- [Low-level API](low-level.md) — `Detector`, `ReID`, and the tracker factory
+- [Low-level API](low-level.md) — `Detector`, `Detections`, `ReID`, the tracker factory, and `TrackResults`

@@ -1,38 +1,36 @@
 # Detectors
 
-Detector settings are defined inline in benchmark YAMLs under `boxmot/configs/benchmarks`.
-
-## Organization
-
-Each benchmark includes a detector block, for example:
-
-```text
-detector:
-  id: yolox_x_mot17_ablation
-  model: models/yolox_x_MOT17_ablation.pt
-  url: https://...
-  imgsz: [800, 1440]
-  conf: 0.01
-  classes:
-    0: person
-```
-
-## Resolution order
-
-1. benchmark-selected detector block for the active benchmark
-2. model filename lookup across benchmark detector blocks
-
-## Typical fields
+Detector configs live under `boxmot/configs/detectors` and define
+reusable models independently of datasets and experiments.
 
 ```yaml
-id: yolox_x_mot17_ablation
-model: models/yolox_x_MOT17_ablation.pt
-url: https://...
-imgsz: [800, 1440]
-conf: 0.01
+id: yolox-x-mot17
+
 box_type: aabb
+
 classes:
   0: person
+
+inference:
+  image_size: [800, 1440]
+  confidence_threshold: 0.01
+
+checkpoints:
+  ablation:
+    path: models/yolox_x_MOT17_ablation.pt
+    uri: https://...
+  test:
+    path: models/yolox_x_MOT17_test.pt
+    uri: https://...
 ```
 
-Use detector defaults through `--benchmark`, or override with `--detector`.
+Experiments select checkpoints explicitly. A dataset split never implicitly
+chooses a detector checkpoint.
+
+The resolver requires exactly two positive `image_size` values in height-width
+order, a confidence threshold in `[0, 1]`, and matching detector/dataset box
+types.
+
+Detector profiles belong to experiment resolution. In direct-source and
+model-free `--dataset` workflows, the CLI's `--detector` option is a detector
+weight path or model identifier such as `yolov8n`; it is not a profile selector.

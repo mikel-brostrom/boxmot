@@ -11,7 +11,10 @@ pip install boxmot
 boxmot --help
 ```
 
-This installs the core package. It is enough for simple tracking and Python API usage. Optional detector and ReID runtime packages are installed on first use when BoxMOT can resolve a safe package for the selected backend.
+This installs the CLI, Python API, tracker implementations, and core ReID
+stack. Detector-backed workflows should also install the matching detector
+extra. Some backends can install a missing package on first use, but an explicit
+extra gives a repeatable environment.
 
 ## Mode-specific extras
 
@@ -19,11 +22,14 @@ BoxMOT keeps heavier workflow dependencies optional. Install the extras that mat
 
 | Workflow | PyPI install | Source checkout with `uv` | Notes |
 | --- | --- | --- | --- |
-| `track`, `generate`, `eval` with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra yolo` | Preinstalls Ultralytics and YOLOX. If you skip this, BoxMOT can install some detector packages on first use. |
-| `train` and `eval-reid` | `pip install boxmot` | `uv sync` | Uses the built-in ReID training and evaluation stack. You still need to place the chosen ReID dataset under your `--data-dir`. |
+| Tracking workflows with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra yolo` | Preinstalls Ultralytics and YOLOX. |
+| Detector inference with RT-DETR v2 | `pip install "boxmot[rtdetr]"` | `uv sync --extra rtdetr` | Installs the Transformers detector backend. |
+| `train-reid`, `eval-reid`, and `compare-reid` | `pip install boxmot` | `uv sync` | Uses the built-in ReID training and evaluation stack. Place each selected ReID dataset under its configured `--data-dir` or `--target` path. |
 | `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra research` | Installs GEPA for the code-evolution loop. |
+| `eval --compare-trackeval` | `pip install "boxmot[trackeval]"` | `uv sync --extra trackeval` | Adds the TrackEval reference comparison for AABB MOTChallenge datasets. |
 | `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra onnx` | The default export path uses ONNX. |
+| `export --include coreml` | `pip install "boxmot[coreml]"` | `uv sync --extra coreml` | Native FP16 MLProgram export and inference on macOS. |
 | `export --include openvino` | `pip install "boxmot[openvino]"` | `uv sync --extra openvino` | Usually paired with `--include onnx`. |
 | `export --include tflite` | `pip install "boxmot[tflite]"` | `uv sync --extra tflite` | Installs both TFLite export and LiteRT inference packages. |
 
@@ -34,7 +40,7 @@ uv sync --extra yolo --extra evolve --extra research
 pip install "boxmot[yolo,evolve,research]"
 ```
 
-When an optional ReID runtime is missing, BoxMOT attempts a first-use install with `uv pip install` when `uv` is available, otherwise with the active `python -m pip`. This covers ONNX Runtime, OpenVINO, LiteRT, and NVIDIA TensorRT. TensorRT still requires a compatible CUDA/NVIDIA stack for the installed wheel to import and run correctly.
+When an optional ReID runtime is missing, BoxMOT attempts a first-use install with `uv pip install` when `uv` is available, otherwise with the active `python -m pip`. This covers ONNX Runtime, Core ML, OpenVINO, LiteRT, and NVIDIA TensorRT. Native Core ML requires macOS; TensorRT still requires a compatible CUDA/NVIDIA stack for the installed wheel to import and run correctly.
 
 ## Native C++ backends
 
@@ -51,10 +57,14 @@ Example:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
 ```
 
 The generated build files are kept under `build/native/<tracker>/`.
+For editable installs or an up-front build, compile native ReID and all live
+tracker libraries with `boxmot build`, or select one with
+`boxmot build --tracker bytetrack`. Cached replay executables are still built
+on first `eval` or `tune` use.
 
 ## Verify the install
 
@@ -83,5 +93,6 @@ The generated build files are kept under `build/native/<tracker>/`.
 ## Next steps
 
 - Use [Quickstart](../index.md) for a minimal path.
-- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, `train`, `eval-reid`, and `export`.
+- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, and `export`.
+- Use [Native C++ Integration](../native/index.md) for native build and embedding details.
 - Use the workflow table above to add the extras your workflow needs.

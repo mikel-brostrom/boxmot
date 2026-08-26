@@ -1,6 +1,9 @@
 # Tracker YAMLs
 
-Tracker configs live under `boxmot/configs/trackers`.
+Each `boxmot/configs/trackers/<tracker>.yaml` file contains both runtime
+defaults and the corresponding tuning search space. Tuned presets remain plain
+scalar overlays under `boxmot/configs/trackers/presets` and declare their owning
+tracker with a top-level `tracker` field.
 
 ## Role
 
@@ -11,14 +14,16 @@ The filename matches the tracker name used from the CLI:
 
 ## Runtime vs tuning
 
-Tracker YAMLs are used in two ways:
+Runtime values and optimization policy share a file but remain separate in
+code:
 
-- `track` and `eval` read each parameter's `default`
-- `tune` reads search-space metadata such as `type`, `range`, and `options`
+- `track` and `eval` extract each parameter's scalar `default`
+- a preset overlays those defaults
+- `tune` reads `type`, `range`, `options`, `values`, and `activates`
 
 ## Example schema
 
-```yaml
+```yaml title="trackers/bytetrack.yaml"
 track_thresh:
   type: uniform
   default: 0.6
@@ -30,4 +35,8 @@ track_buffer:
   range: [10, 61, 10]
 ```
 
-There is no separate `--tracker-config` flag. The tracker name is the selector.
+There is no separate `--tracker-config` CLI flag. The tracker name selects its
+combined built-in file. The low-level `create_tracker(...)` factory accepts a
+scalar YAML path or built-in preset name through `tracker_config`; mapping
+overrides use `tracker_kwargs` or `evolve_param_dict`. Tuning writes fully
+resolved scalar YAML that can be passed back through `tracker_config`.

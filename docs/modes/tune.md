@@ -9,7 +9,7 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
     === "CLI"
 
         ```bash
-        boxmot tune --benchmark mot17 --split ablation --tracker ocsort --n-trials 10
+        boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker ocsort --n-trials 10
         ```
 
     === "Python"
@@ -18,21 +18,24 @@ Use `tune` to search tracker hyperparameters against one or more objective metri
         from boxmot import BoxMOT
 
         boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="ocsort")
-        tuned = boxmot.tune(benchmark="mot17", split="ablation", n_trials=10)
+        tuned = boxmot.tune(experiment="mot17-ablation-yolox-lmbn", n_trials=10)
         print(tuned)
         print(tuned.best_yaml)
         ```
 
 ## How it works
 
-Tracker search spaces come from the selected tracker YAML in `boxmot/configs/trackers`. Runtime defaults use each parameter's `default` value, while tuning uses its `type`, `range`, and `options`.
+Runtime defaults and search metadata come from the same
+`boxmot/configs/trackers/<tracker>.yaml`. Runtime construction extracts each
+parameter's `default`, while the tuner reads its search policy and combines it
+with any selected runtime overrides to form the baseline.
 
 ## Public detections
 
-Use `--detection-source` to tune against public MOTChallenge detections instead of the configured detector:
+Select a public-detection experiment to tune against public MOTChallenge detections:
 
 ```bash
-boxmot tune --benchmark mot17 --split ablation --tracker ocsort --detection-source frcnn --n-trials 10
+boxmot tune --experiment mot17-ablation-frcnn-lmbn --tracker ocsort --n-trials 10
 ```
 
 See [Evaluate — Public detections](eval.md#public-detections) for the full list of sources.
@@ -42,7 +45,7 @@ See [Evaluate — Public detections](eval.md#public-detections) for the full lis
 Use `--tune-kf` to estimate Kalman filter noise matrices (Q/R) once before the tuning loop. The estimated noise is then reused for all trials:
 
 ```bash
-boxmot tune --benchmark mot17 --split ablation --tracker botsort --tune-kf --n-trials 20
+boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker botsort --tune-kf --n-trials 20
 ```
 
 This is especially useful for KF-based trackers where the default noise parameters may not suit the dataset.
@@ -52,7 +55,7 @@ This is especially useful for KF-based trackers where the default noise paramete
 Use `--postprocessing` to apply postprocessing after each trial's tracking run before scoring:
 
 ```bash
-boxmot tune --benchmark mot17 --split ablation --tracker ocsort --postprocessing gsi --n-trials 10
+boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker ocsort --postprocessing gsi --n-trials 10
 ```
 
 See [Evaluate — Postprocessing](eval.md#postprocessing) for available steps and chaining behavior.
@@ -62,10 +65,10 @@ See [Evaluate — Postprocessing](eval.md#postprocessing) for available steps an
 Use `--tracker-backend cpp` when you want each trial to score the native C++ tracker backend instead of the Python backend:
 
 ```bash
-boxmot tune --benchmark mot17 --split ablation --tracker sfsort --tracker-backend cpp --n-trials 10
+boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker sfsort --tracker-backend cpp --n-trials 10
 ```
 
-Native tuning uses the same search space YAML as the Python tracker and swaps only the tracker implementation used during cached replay. Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+Native tuning uses the same tracker YAML search space as the Python tracker and swaps only the tracker implementation used during cached replay. Native replay is currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
 
 ## Objective configuration
 
@@ -76,15 +79,15 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
         Single-objective tuning:
 
         ```bash
-        boxmot tune --benchmark mot17 --split ablation --tracker bytetrack --objectives HOTA
+        boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --objectives HOTA
         ```
 
         Multi-objective tuning:
 
         ```bash
-        boxmot tune --benchmark mot17 --split ablation --tracker bytetrack \
-          --objectives HOTA IDF1_rate \
-          --maximize HOTA \
+        boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack \
+          --objectives HOTA IDF1 IDSW_rate \
+          --maximize HOTA IDF1 \
           --minimize IDSW_rate
         ```
 
@@ -95,7 +98,7 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
 
         boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="bytetrack")
         tuned = boxmot.tune(
-            benchmark="mot17",
+            experiment="mot17-ablation-yolox-lmbn",
             split="ablation",
             n_trials=10,
             maximize=("HOTA",),
@@ -107,7 +110,8 @@ Native tuning uses the same search space YAML as the Python tracker and swaps on
 
 ## Outputs
 
-Tuning writes trial artifacts and a `best.yaml` tracker config that can be reused in later runs.
+Tuning writes trial artifacts and a fully resolved scalar `best.yaml` tracker
+config that can be reused by `create_tracker`.
 
 ## CLI Arguments
 

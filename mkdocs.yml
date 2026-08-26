@@ -81,11 +81,12 @@ nav:
       - Research: modes/research.md
       - Train ReID: modes/train.md
       - Evaluate ReID: modes/eval-reid.md
+      - Compare ReID: modes/compare-reid.md
       - Export: modes/export.md
   - Configuration:
       - Config System Overview: config/index.md
       - Mode Defaults: config/modes.md
-      - Benchmarks: config/benchmarks.md
+      - Experiments: config/experiments.md
       - Datasets: config/datasets.md
       - Detectors: config/detectors.md
       - ReID Models: config/reid-models.md
@@ -93,22 +94,24 @@ nav:
       - Tracker YAMLs: config/trackers.md
   - Trackers:
       - Tracker Overview: trackers/index.md
-      - ByteTrack:    trackers/bytetrack.md
-      - BotSort:      trackers/botsort.md
-      - SFSORT:       trackers/sfsort.md
-      - StrongSort:   trackers/strongsort.md
-      - OcSort:       trackers/ocsort.md
-      - DeepOcSort:   trackers/deepocsort.md
-      - HybridSort:   trackers/hybridsort.md
-      - BoostTrack:   trackers/boosttrack.md
-      - OccluBoost:    trackers/occluboost.md
+      - ByteTrack: trackers/bytetrack.md
+      - BotSort: trackers/botsort.md
+      - SFSORT: trackers/sfsort.md
+      - StrongSort: trackers/strongsort.md
+      - OcSort: trackers/ocsort.md
+      - DeepOcSort: trackers/deepocsort.md
+      - HybridSort: trackers/hybridsort.md
+      - BoostTrack: trackers/boosttrack.md
+      - OccluBoost: trackers/occluboost.md
+      - Sam2MOT: trackers/sam2mot.md
   - CLI: usage/index.md
   - Concepts:
       - Detection Layouts: concepts/index.md
       - Tracking Pipeline: concepts/tracking-pipeline.md
   - Guides:
-      - Benchmark Workflows: guides/benchmarks.md
+      - Experiment Workflows: guides/experiments.md
       - Evaluation and Postprocessing: guides/evaluation.md
+      - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
   - Native C++: native/index.md
   - Python API:
@@ -119,6 +122,6 @@ nav:
       - Contributing Guide: contributing/index.md
       - Add a Tracker: contributing/add-tracker.md
       - Add OBB Support: contributing/obb-support.md
-      - Add Configs and Benchmarks: contributing/configs.md
+      - Add Catalog Entries: contributing/configs.md
       - Testing: contributing/testing.md
       - CI and Benchmarks: contributing/ci.md

@@ -7,7 +7,7 @@ Hybrid-SORT argues that MOT pipelines lean too heavily on strong cues such as ap
 ## What BoxMOT Needs For HybridSort
 
 - A detector and, for the intended setup, a ReID model.
-- AABB detections only in BoxMOT.
+- Supports both AABB and OBB detections in BoxMOT.
 - A good fit when you want richer association than OC-SORT or BoT-SORT-style matching, especially on crowded MOT benchmarks.
 
 ::: boxmot.trackers.bbox.hybridsort.HybridSort

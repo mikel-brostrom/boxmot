@@ -1,6 +1,8 @@
 # Track
 
 Use `track` when you want end-to-end detector + tracker execution on a real source such as a webcam, video file, image directory, or stream.
+You can also select a configured dataset and split; BoxMOT then resolves the
+dataset source while keeping the detector and ReID models you selected.
 
 ## Examples
 
@@ -17,6 +19,19 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
           --save
         ```
 
+        Track a configured dataset split with explicitly selected models:
+
+        ```bash
+        boxmot track \
+          --detector yolo26n \
+          --reid lmbn_n_duke \
+          --tracker occluboost \
+          --dataset mot17 \
+          --split ablation \
+          --save \
+          --show
+        ```
+
     === "Python"
 
         ```python
@@ -28,6 +43,10 @@ Use `track` when you want end-to-end detector + tracker execution on a real sour
         ```
 
 ## Common source values
+
+Pass either `--source` or `--dataset`, not both. Omitting both retains the
+default webcam source (`0`). `--split` selects a configured dataset split and
+defaults to the split declared by the dataset profile.
 
 - `0` for a webcam
 - `video.mp4` for a local video
@@ -134,6 +153,9 @@ boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --tr
 ```
 
 Native live tracking is currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`. See [Native C++ Integration](../native/index.md) for build requirements and embedding details.
+
+Native live trackers do not yet provide class-separated state, so `--per-class`
+requires the Python tracker backend.
 
 ## Detection geometry
 

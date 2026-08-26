@@ -7,7 +7,7 @@ BoostTrack++ focuses on a neglected part of MOT pipelines: deciding which detect
 ## What BoxMOT Needs For BoostTrack
 
 - A detector and, by default, a ReID model for the full configuration.
-- AABB detections only in BoxMOT.
+- Supports both AABB and OBB detections in BoxMOT.
 - Best when low-confidence true positives are a recurring problem and you want stronger association scoring than plain IoU or Mahalanobis distance.
 
 ## Tuning notes
@@ -27,17 +27,25 @@ When enabled, the process noise covariance **Q** is estimated online from innova
 - You already have a tuned static Q from `boxmot eval --tune-kf` on representative data — the static solution is cheaper and deterministic.
 - Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
 
-Enable it from the CLI:
+Enable it through the Python facade:
 
-```bash
-boxmot track --tracker boosttrack --adaptive-kf
-boxmot eval  --tracker boosttrack --adaptive-kf
+```python
+from boxmot import BoxMOT
+
+model = BoxMOT(
+    tracker="boosttrack",
+    tracker_kwargs={"adaptive_kf": True},
+)
+model.track(source="video.mp4")
 ```
 
-Or in the tracker config YAML:
+Or set it in a custom tracker config YAML:
 
 ```yaml
 adaptive_kf: true
 ```
+
+Use `boxmot eval --tune-kf` when you want to calibrate a static Kalman model
+against representative ground truth instead.
 
 ::: boxmot.trackers.bbox.boosttrack.BoostTrack

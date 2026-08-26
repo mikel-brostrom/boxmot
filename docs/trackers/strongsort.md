@@ -7,7 +7,7 @@ StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The pap
 ## What BoxMOT Needs For StrongSort
 
 - A detector plus a ReID model. Appearance cues are central to this tracker.
-- AABB detections only in BoxMOT.
+- Supports both AABB and OBB detections in BoxMOT.
 - Good when appearance matching matters more than raw speed, especially for pedestrian-style MOT benchmarks.
 
 ::: boxmot.trackers.bbox.strongsort.StrongSort

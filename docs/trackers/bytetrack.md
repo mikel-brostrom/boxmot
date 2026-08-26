@@ -1,4 +1,3 @@
-<!-- docs/api/trackers/bytetrack.md -->
 # ByteTrack
 
 [Paper: ByteTrack: Multi-Object Tracking by Associating Every Detection Box](https://arxiv.org/abs/2110.06864)
@@ -15,7 +14,7 @@ ByteTrack's main idea is simple: do not throw away low-confidence detections too
 
 BoxMOT also ships a native C++17 ByteTrack implementation under `boxmot/native/cpp/trackers/bytetrack/`. It supports:
 
-- cached replay for `eval`, `tune`, and `research`
+- cached replay for `eval` and `tune`
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detection layouts in the native tracker path
 
@@ -29,10 +28,12 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
 boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 ```
 
-`--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
+For cached `eval` and `tune` workflows, `--tracking-backend cpp`
+remains available as a compatibility alias. Live `track` uses
+`--tracker-backend cpp`.
 
 ::: boxmot.trackers.bbox.bytetrack.ByteTrack

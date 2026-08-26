@@ -34,6 +34,8 @@ Auto-generated reference for the public Python surface: the `BoxMOT` facade, run
 
 ::: boxmot.api.results.ExportResult
 
+::: boxmot.reid.training.trainer.TrainResult
+
 ::: boxmot.engine.tracking.results.Results
 
 ::: boxmot.engine.tracking.results.FrameResult

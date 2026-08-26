@@ -14,7 +14,7 @@ SFSORT is designed around speed. The paper removes the Kalman filter entirely, i
 
 BoxMOT also ships a native C++17 SFSORT implementation under `boxmot/native/cpp/trackers/sfsort/`. It supports:
 
-- cached replay for `eval`, `tune`, and `research`
+- cached replay for `eval` and `tune`
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detection layouts in the native tracker path
 
@@ -28,10 +28,12 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --benchmark mot17 --split ablation --tracker sfsort --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker sfsort --tracker-backend cpp
 boxmot track --tracker sfsort --tracker-backend cpp --source 0
 ```
 
-`--tracking-backend cpp` remains available as a compatibility alias for existing benchmark scripts.
+For cached `eval` and `tune` workflows, `--tracking-backend cpp`
+remains available as a compatibility alias. Live `track` uses
+`--tracker-backend cpp`.
 
 ::: boxmot.trackers.bbox.sfsort.SFSORT

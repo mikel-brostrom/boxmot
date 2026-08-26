@@ -2,7 +2,7 @@
 
 Thank you for improving this project! Please follow these guidelines.
 
-# Pull Requests
+## Pull Requests
 
 Proposed workflow
 
@@ -24,11 +24,14 @@ git checkout -b feature/short-desc
 # Run functionality where changes were introduced
 uv run boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
 uv run boxmot generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
-uv run boxmot eval --benchmark mot17 --split ablation --tracker bytetrack
-uv run boxmot tune --benchmark mot17 --split ablation --tracker bytetrack
+uv run boxmot eval --dataset mot17 --split ablation --tracker bytetrack
+uv run boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack
 
 # Run tests
 uv run pytest
+
+# For documentation changes
+uv run mkdocs build --strict
 
 # Commit & push
 git add .
