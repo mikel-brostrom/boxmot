@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from boxmot.box_schema import (
+from boxmot.core.box_schema import (
     AABB_SCHEMA,
     OBB_SCHEMA,
     schema_from_frame_tagged_track_columns,

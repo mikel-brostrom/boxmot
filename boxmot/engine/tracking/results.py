@@ -8,7 +8,7 @@ from typing import Any, Callable, Iterator
 import cv2
 import numpy as np
 
-from boxmot.box_schema import schema_from_detection_columns, schema_from_mot_columns
+from boxmot.core.box_schema import schema_from_detection_columns, schema_from_mot_columns
 from boxmot.data import iter_source
 from boxmot.engine.tracking.detections import (
     as_2d_array,

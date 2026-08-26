@@ -8,7 +8,7 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.box_schema import BoxSchema, get_box_schema_for_mode, schema_from_track_columns
+from boxmot.core.box_schema import BoxSchema, get_box_schema_for_mode, schema_from_track_columns
 from boxmot.trackers.common.geometry.obb import xywha_to_corners, xywha_to_xyxy
 
 

@@ -11,7 +11,7 @@ import numpy as np
 import torch
 from numpy.lib import format as npy_format
 
-from boxmot.box_schema import schema_from_detection_columns
+from boxmot.core.box_schema import schema_from_detection_columns
 from boxmot.data.dataset import (
     _collect_seq_info,
     _list_sequence_frames,

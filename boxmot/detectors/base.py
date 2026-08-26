@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 import torch
 
-from boxmot.box_schema import (
+from boxmot.core.box_schema import (
     AABB_SCHEMA,
     OBB_SCHEMA,
     BoxSchema,

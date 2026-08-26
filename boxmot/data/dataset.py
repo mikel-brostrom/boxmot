@@ -72,7 +72,7 @@ from typing import Dict, Generator, List, Optional, Union
 import cv2
 import numpy as np
 
-from boxmot.box_schema import AABB_SCHEMA, BoxSchema, schema_from_cache_columns
+from boxmot.core.box_schema import AABB_SCHEMA, BoxSchema, schema_from_cache_columns
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 

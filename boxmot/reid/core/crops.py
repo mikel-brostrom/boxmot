@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import torch
 
-from boxmot.box_schema import AABB_SCHEMA, OBB_SCHEMA
+from boxmot.core.box_schema import AABB_SCHEMA, OBB_SCHEMA
 
 AABB_COLUMN_COUNTS = frozenset((AABB_SCHEMA.geometry_cols, AABB_SCHEMA.detection_cols, AABB_SCHEMA.track_cols))
 OBB_COLUMN_COUNTS = frozenset((OBB_SCHEMA.geometry_cols, OBB_SCHEMA.detection_cols, OBB_SCHEMA.track_cols))
