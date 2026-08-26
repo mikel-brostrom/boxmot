@@ -211,9 +211,10 @@ For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino
 </table>
 <!-- END TRACKER TABLE -->
 
-<sub>MOT17 AABB uses the canonical <code>mot17-ablation-yolox-lmbn</code> experiment. MMOT OBB uses <code>mmot-obb-test-precomputed</code> and reports TrackEval <code>Class Avg (Cls)</code> across all eight categories on the 5,466-frame test split, using <code>yolo11l_3ch</code> detections at the detector's default <code>0.2</code> confidence threshold and <code>lmbn_n_duke</code> ReID features.</sub>
-
-<sub>MOT17 and MMOT cells show Py<br>(C++); SportsMOT values are Python-only. <code>—</code> means no published native C++ result. For trackers with native backends, benchmark publication requires every Python/C++ HOTA, MOTA, and IDF1 pair to differ by at most 0.25 percentage points. See <a href="docs/guides/experiments.md">Experiment Workflows</a>.</sub>
+<p align="center">
+  <sub>Scores are Python first and C++ in parentheses.</sub><br>
+  <sub>MMOT reported metrics are 'class average'. See <a href="docs/guides/experiments.md">Experiment Workflows</a> for details.</sub>
+</p>
 
 </div>
 
