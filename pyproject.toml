@@ -30,10 +30,10 @@ select = ["E", "W", "F", "I"]
 ignore = ["E731", "F405", "E402", "E741"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 norecursedirs = [
   "boxmot/datasets/mot",
   "boxmot/datasets/reid",
-  "data",
   "runs",
 ]
 
@@ -165,6 +165,12 @@ onnx = [
   "onnxruntime==1.24.3",
   "onnxslim>=0.1.67",
   "onnxscript>=0.1.0"
+]
+
+coreml = [
+  "coremltools==9.0",
+  # Guard Core ML conversion/compilation subprocesses by aggregate resident RAM.
+  "psutil>=5.9.5,<8.0.0",
 ]
 
 openvino = ["openvino>=2025.2.0"]

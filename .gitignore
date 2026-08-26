@@ -28,7 +28,7 @@ weights/*.engine
 weights/*.tflite
 
 # runtime evaluation downloads
-data/
+/data/
 boxmot/datasets/mot/*
 boxmot/datasets/reid/*
 !boxmot/datasets/mot/.gitkeep
@@ -39,6 +39,7 @@ boxmot/datasets/reid/*
 
 # exports
 *_openvino_model
+*_coreml_model/
 *.torchscript
 *.pt
 *.pth
