@@ -239,9 +239,11 @@ tracker = OccluBoost()
 
 # dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
 dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
+# OBB alternative: (N, 7) with [cx, cy, w, h, angle_radians, conf, cls]
+# dets = np.array([[200, 300, 200, 200, 0.25, 0.9, 0]], dtype=np.float32)
 img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
 
-# tracks: (M, 8) array with [x1, y1, x2, y2, id, conf, cls, det_ind] per track
+# tracks: AABB (M, 8), or OBB (M, 9) with angle after h
 tracks = tracker.update(dets, img)
 print(tracks)
 ```
