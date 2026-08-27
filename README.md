@@ -1,8 +1,12 @@
 <div align="center" markdown="1">
 
-  <img width="400"
-       src="docs/logo/logo.png"
-       alt="BoxMOT logo">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo_white.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/logo/logo_black.png">
+    <img width="400"
+         src="docs/logo/logo_black.png"
+         alt="BoxMOT logo">
+  </picture>
 
   <p><b>Pluggable Python and C++ multi-object tracking modules for axis-aligned and oriented bounding box detections from any model.</b></p>
 
