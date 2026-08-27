@@ -3,7 +3,7 @@ repo_url: https://github.com/mikel-brostrom/boxmot
 repo_name: mikel-brostrom/boxmot
 theme:
   name: material
-  logo: logo/logo.png
+  logo: logo/logo_white.png
   icon:
     repo: fontawesome/brands/github
   palette:
