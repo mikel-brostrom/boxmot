@@ -3,13 +3,55 @@ description: Download and verify the pinned model assets used by BoxMOT CI.
 
 inputs:
   assets:
-    description: Space-separated asset kinds to prepare (detector, obb, pose, seg).
+    description: Space-separated asset kinds to prepare (detector, obb, pose, seg, reid-osnet, reid-lmbn).
     required: false
     default: detector
 
 runs:
   using: composite
   steps:
+    - name: Restore cached detector asset
+      if: contains(inputs.assets, 'detector')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/yolo26n.pt
+        key: boxmot-ci-asset-${{ runner.os }}-detector-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
+    - name: Restore cached OBB detector asset
+      if: contains(inputs.assets, 'obb')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/yolo11n-obb.pt
+        key: boxmot-ci-asset-${{ runner.os }}-obb-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
+    - name: Restore cached pose detector asset
+      if: contains(inputs.assets, 'pose')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/yolo26n-pose.pt
+        key: boxmot-ci-asset-${{ runner.os }}-pose-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
+    - name: Restore cached segmentation detector asset
+      if: contains(inputs.assets, 'seg')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/yolo26n-seg.pt
+        key: boxmot-ci-asset-${{ runner.os }}-seg-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
+    - name: Restore cached OSNet ReID asset
+      if: contains(inputs.assets, 'reid-osnet')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/osnet_x0_25_msmt17.pt
+        key: boxmot-ci-asset-${{ runner.os }}-reid-osnet-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
+    - name: Restore cached LMBN ReID asset
+      if: contains(inputs.assets, 'reid-lmbn')
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: models/lmbn_n_duke.pt
+        key: boxmot-ci-asset-${{ runner.os }}-reid-lmbn-${{ hashFiles('.github/scripts/prepare_ci_assets.sh') }}
+
     - name: Prepare pinned model assets
       shell: bash
       env:

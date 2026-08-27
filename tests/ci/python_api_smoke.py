@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 import torch
@@ -23,6 +24,11 @@ def test_python_api_smoke(tmp_path, monkeypatch):
 
     project = tmp_path / "runs"
     reid_weights = tmp_path / "osnet_x0_25_msmt17.pt"
+    prepared_reid = os.environ.get("BOXMOT_CI_REID_OSNET")
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        assert prepared_reid, "CI must provide the checksum-verified OSNet checkpoint"
+    if prepared_reid:
+        shutil.copy2(prepared_reid, reid_weights)
     detector_weights = os.environ.get("BOXMOT_CI_DETECTOR", "yolo26n.pt")
     api = BoxMOT(
         detector=detector_weights,
@@ -44,8 +50,8 @@ def test_python_api_smoke(tmp_path, monkeypatch):
     )
     assert METRICS <= evaluated.summary.keys()
 
-    # Resolve the downloadable checkpoint into pytest's temporary directory so
-    # the export never overwrites a developer's existing model artifact.
+    # Resolve (or reuse CI's verified copy of) the checkpoint in pytest's
+    # temporary directory so export never overwrites a developer artifact.
     reid = ReIDModel(reid_weights, device="cpu")
     assert reid.path == reid_weights
     del reid

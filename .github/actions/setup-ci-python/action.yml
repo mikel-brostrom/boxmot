@@ -1,0 +1,54 @@
+name: Set up BoxMOT CI Python
+description: Set up Python and the pinned uv release with dependency caching.
+
+inputs:
+  python-version:
+    description: Python version to install.
+    required: true
+  cache-profile:
+    description: Dependency profile used to keep uv caches complete and reusable.
+    required: false
+    default: core
+
+outputs:
+  python-version:
+    description: Exact Python version installed.
+    value: ${{ steps.setup-python.outputs.python-version }}
+  python-path:
+    description: Absolute path to the installed Python executable.
+    value: ${{ steps.setup-python.outputs.python-path }}
+  uv-version:
+    description: Exact uv version installed.
+    value: ${{ steps.setup-uv.outputs.uv-version }}
+
+runs:
+  using: composite
+  steps:
+    - name: Read pinned uv version
+      id: uv-pin
+      shell: bash
+      run: |
+        uv_version=$(<"$GITHUB_ACTION_PATH/../../uv-version")
+        if [[ ! "$uv_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Invalid uv version pin: $uv_version" >&2
+          exit 2
+        fi
+        echo "version=$uv_version" >> "$GITHUB_OUTPUT"
+
+    - name: Set up Python
+      id: setup-python
+      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Set up uv
+      id: setup-uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      with:
+        version: ${{ steps.uv-pin.outputs.version }}
+        cache-suffix: ${{ inputs.cache-profile }}
+        cache-dependency-glob: |
+          .github/uv-version
+          .github/scripts/uv_ci_install.sh
+          pyproject.toml
+          uv.lock
