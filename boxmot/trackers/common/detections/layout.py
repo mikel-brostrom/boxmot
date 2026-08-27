@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from boxmot.box_schema import (
+from boxmot.core.box_schema import (
     AABB_SCHEMA,
     OBB_SCHEMA,
     BoxSchema,

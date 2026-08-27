@@ -21,7 +21,7 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.box_schema import AABB_SCHEMA, OBB_SCHEMA, schema_from_mot_columns
+from boxmot.core.box_schema import AABB_SCHEMA, OBB_SCHEMA, schema_from_mot_columns
 from boxmot.data.benchmark import (
     COCO_CLASSES,
     _ordered_benchmark_eval_class_names,

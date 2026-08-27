@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
-from boxmot.box_schema import BoxType, normalize_box_type
+from boxmot.core.box_schema import BoxType, normalize_box_type
 from boxmot.data.config import (
     DATASET_CONFIGS_DIR,
     ConfigurationError,

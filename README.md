@@ -265,5 +265,6 @@ Start with [CONTRIBUTING.md](CONTRIBUTING.md) and the [contributor docs](docs/co
 
 - Bugs and feature requests: [GitHub Issues](https://github.com/mikel-brostrom/boxmot/issues)
 - Questions and discussion: [GitHub Discussions](https://github.com/mikel-brostrom/boxmot/discussions) or [Discord](https://discord.gg/tUmFEcYU4q)
+- Limited free consulting is available for nonprofit nature conservation projects using BoxMOT. Contact `box-mot@outlook.com` to discuss your project.
 - Citation metadata: [CITATION.cff](https://github.com/mikel-brostrom/boxmot/blob/master/CITATION.cff)
 - Commercial support: `box-mot@outlook.com`

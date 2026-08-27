@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 from rich.markup import escape as _escape_markup
 
-from boxmot.box_schema import BoxType, normalize_box_type
+from boxmot.core.box_schema import BoxType, normalize_box_type
 from boxmot.utils import logger as LOGGER
 
 COCO_CLASSES = [

@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from boxmot.box_schema import OBB_SCHEMA
+from boxmot.core.box_schema import OBB_SCHEMA
 
 Scale = Union[float, Tuple[int, int], None]
 

@@ -13,7 +13,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
-from boxmot.box_schema import BoxType, get_box_schema, normalize_box_type, schema_from_detection_columns
+from boxmot.core.box_schema import BoxType, get_box_schema, normalize_box_type, schema_from_detection_columns
 from boxmot.data import MOTDataset
 from boxmot.detectors import default_conf
 from boxmot.engine.experiment import write_experiment_snapshots

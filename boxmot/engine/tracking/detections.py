@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.box_schema import get_box_schema_for_mode, schema_from_detection_columns
+from boxmot.core.box_schema import get_box_schema_for_mode, schema_from_detection_columns
 from boxmot.detectors.base import Detections
 
 MIN_DETECTION_AREA = 10.0

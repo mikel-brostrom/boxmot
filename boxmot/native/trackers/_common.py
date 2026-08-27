@@ -11,7 +11,7 @@ from typing import Any, Iterable
 
 import numpy as np
 
-from boxmot.box_schema import (
+from boxmot.core.box_schema import (
     AABB_SCHEMA,
     OBB_SCHEMA,
     get_box_schema_for_mode,

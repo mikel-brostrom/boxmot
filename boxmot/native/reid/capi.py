@@ -26,7 +26,7 @@ from pathlib import Path
 
 import numpy as np
 
-from boxmot.box_schema import OBB_SCHEMA
+from boxmot.core.box_schema import OBB_SCHEMA
 from boxmot.native import _common
 from boxmot.reid.core.crops import coerce_boxes
 from boxmot.utils import logger as LOGGER

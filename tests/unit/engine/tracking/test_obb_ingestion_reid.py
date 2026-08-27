@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 
-from boxmot.box_schema import OBB_SCHEMA, BoxSchema
+from boxmot.core.box_schema import OBB_SCHEMA, BoxSchema
 from boxmot.data.cache import REID_CROP_SCHEMA_VERSION, reid_cache_key, reid_preprocess_cache_key
 from boxmot.detectors.base import Detections
 from boxmot.engine.tracking.detections import extract_detection_array
