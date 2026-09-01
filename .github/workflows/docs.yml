@@ -31,7 +31,7 @@ jobs:
 
       - name: Install docs dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh "." --group docs
+          bash .github/scripts/uv_ci_install.sh cpu --group docs
 
       - name: Build docs
         run: |

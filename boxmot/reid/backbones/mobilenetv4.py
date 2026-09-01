@@ -101,7 +101,8 @@ def _import_timm():
     except ImportError as exc:
         raise ImportError(
             "MobileNetV4 ReID backbones require timm. Install project dependencies "
-            "with `uv sync --all-extras --all-groups` or install `timm>=1.0.15`."
+            "with `uv sync --extra cpu` (or `--extra cu130`) or install "
+            "`timm>=1.0.15`."
         ) from exc
     return timm
 

@@ -5,7 +5,7 @@ loads a registered ReID teacher checkpoint, aligns semantic masks with each
 training image, and writes the tensor-only input consumed by
 ``boxmot.engine.reid.privileged_cache``::
 
-    uv run python -m boxmot.engine.reid.teacher_extractor \
+    uv run --no-sync python -m boxmot.engine.reid.teacher_extractor \
       --teacher teacher.pt --dataset-index train-samples.json \
       --image-root datasets/Market-1501-v15.09.15 \
       --anatomical-metadata runs/anatomical-metadata \

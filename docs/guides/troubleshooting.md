@@ -38,7 +38,7 @@ Run BoxMOT entry points as modules from the repo root, not as loose scripts:
 
 ```bash
 # Good
-uv run python -m boxmot.engine.cli --help
+uv run --no-sync python -m boxmot.engine.cli --help
 
 # Avoid
 python boxmot/engine/cli.py --help

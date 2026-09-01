@@ -208,6 +208,7 @@ def create_tracker(
     reid_model=None,
     tracker_backend="python",
     precomputed_reid: bool = False,
+    warmup_model: bool = True,
 ):
     """
     Creates and returns an instance of the specified tracker type.
@@ -235,6 +236,8 @@ def create_tracker(
     - precomputed_reid: Whether appearance embeddings will be supplied by the
         caller. When enabled, ReID-capable trackers keep appearance matching
         active without constructing a live ReID backend from ``reid_weights``.
+    - warmup_model: Whether to warm a tracker-owned ReID backend after construction.
+        Disable this when the caller already warmed a backend shared by multiple trackers.
 
     Returns:
     - An instance of the selected tracker.
@@ -298,7 +301,7 @@ def create_tracker(
 
     tracker_class = _load_tracker_class(definition)
     tracker = tracker_class(**tracker_args)
-    if definition.warmup_model and hasattr(tracker, "model") and tracker.model is not None:
+    if warmup_model and definition.warmup_model and hasattr(tracker, "model") and tracker.model is not None:
         tracker.model.warmup()
     return tracker
 

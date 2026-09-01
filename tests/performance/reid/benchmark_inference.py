@@ -2,7 +2,7 @@
 
 The defaults reproduce the CSL-TinyViT-11M FPN versus LMBN-n comparison::
 
-    uv run python -m tests.performance.reid.benchmark_inference
+    uv run --no-sync python -m tests.performance.reid.benchmark_inference
 
 The benchmark exports missing/stale artifacts, then measures PyTorch CPU/MPS,
 native Core ML MLProgram, and ONNX Runtime CPU. ONNX Runtime's legacy Core ML

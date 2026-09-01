@@ -55,7 +55,47 @@ pip install boxmot
 boxmot --help
 ```
 
-For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
+The default package uses the standard PyPI PyTorch build. Source checkouts and
+CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
+those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
+`research`, `onnx`, `openvino`, and `tflite`, see the
+[installation guide](docs/getting-started/installation.md).
+
+## Docker images
+
+Published images cover GPU and CPU CLI workflows plus separate CPU geometry
+and GPU ReID tracker services:
+
+```bash
+# GPU-enabled detector, CLI, evaluation, and interactive workflows
+docker run --rm -it --gpus all boxmot/boxmot:latest
+
+# The same CLI workflows on CPU
+docker run --rm -it boxmot/boxmot:latest-cpu
+
+# CPU-only stateful HTTP tracking from externally supplied detections
+docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
+
+# CUDA/ReID stateful tracking from detections plus an encoded image per frame
+docker run --rm --gpus all -p 8000:8000 \
+  -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
+  -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
+  boxmot/boxmot-service:latest-gpu
+```
+
+Versioned and commit-addressed tags are also published. GPU CLI tags are
+`<version>` and `sha-<commit>`; CPU CLI tags append `-cpu`. The CPU service uses
+canonical `<version>` and `sha-<commit>` tags in its own repository, while the
+GPU service appends `-gpu`. See the
+[installation guide](docs/getting-started/installation.md) for local builds.
+
+Both services accept ordered AABB or OBB detections and keep isolated state per
+stream/session; neither runs a detector. The CPU image supports ByteTrack,
+OCSort, and SFSORT without image pixels. The GPU image supports StrongSORT,
+BotSORT, DeepOCSORT, HybridSORT, BoostTrack, and OccluBoost, and requires a raw
+base64-encoded JPEG or PNG in `image_base64` for every frame, including empty
+detection frames. See the [deployment guide](docs/guides/deployment.md) for the
+request schema and horizontal-scaling requirements.
 
 ## Benchmark Results
 

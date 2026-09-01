@@ -2,7 +2,7 @@
 
 Run from the repository root::
 
-    uv run python -m tests.performance.motion.benchmark_cmc
+    uv run --no-sync python -m tests.performance.motion.benchmark_cmc
 
 Use ``--help`` to select methods, images, iteration counts, and JSON output.
 """

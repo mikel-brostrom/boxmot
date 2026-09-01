@@ -1,10 +1,15 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from typing import Tuple, Union
+from typing import Any, Tuple, Union
 
 import cv2
 import numpy as np
-import torch
+
+
+def _copy_coordinates(x: Any) -> Any:
+    """Copy a NumPy-like array while preserving tensor-backed inputs."""
+    clone = getattr(x, "clone", None)
+    return clone() if callable(clone) else np.copy(x)
 
 
 def xyxy2xywh(x):
@@ -16,7 +21,7 @@ def xyxy2xywh(x):
     Returns:
        y (np.ndarray) or (torch.Tensor): The bounding box coordinates in (x, y, width, height) format.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = (x[..., 0] + x[..., 2]) / 2  # x center
     y[..., 1] = (x[..., 1] + x[..., 3]) / 2  # y center
     y[..., 2] = x[..., 2] - x[..., 0]  # width
@@ -35,7 +40,7 @@ def xywh2xyxy(x):
     Returns:
         y (np.ndarray) or (torch.Tensor): The bounding box coordinates in (x1, y1, x2, y2) format.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = x[..., 0] - x[..., 2] / 2  # top left x
     y[..., 1] = x[..., 1] - x[..., 3] / 2  # top left y
     y[..., 2] = x[..., 0] + x[..., 2] / 2  # bottom right x
@@ -53,7 +58,7 @@ def xywh2tlwh(x):
     Returns:
         y (np.ndarray) or (torch.Tensor): The bounding box coordinates in (x1, y1, x2, y2) format.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = x[..., 0] - x[..., 2] / 2.0  # xc --> t
     y[..., 1] = x[..., 1] - x[..., 3] / 2.0  # yc --> l
     y[..., 2] = x[..., 2]  # width
@@ -66,7 +71,7 @@ def tlwh2xyxy(x):
     Convert bounding box coordinates from (t, l ,w ,h) format to (t, l, w, h) format where (t, l) is the
     top-left corner and (w, h) is width and height.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = x[..., 0]
     y[..., 1] = x[..., 1]
     y[..., 2] = x[..., 0] + x[..., 2]
@@ -79,7 +84,7 @@ def xyxy2tlwh(x):
     Convert bounding box coordinates from (t, l ,w ,h) format to (t, l, w, h) format where (t, l) is the
     top-left corner and (w, h) is width and height.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = x[..., 0]
     y[..., 1] = x[..., 1]
     y[..., 2] = x[..., 2] - x[..., 0]
@@ -92,7 +97,7 @@ def tlwh2xyah(x):
     Convert bounding box coordinates from (t, l ,w ,h)
     to (center x, center y, aspect ratio, height)`, where the aspect ratio is `width / height`.
     """
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     y[..., 0] = x[..., 0] + (x[..., 2] / 2)
     y[..., 1] = x[..., 1] + (x[..., 3] / 2)
     y[..., 2] = x[..., 2] / x[..., 3]
@@ -113,7 +118,7 @@ def xyxy2xysr(x):
                                           r is the aspect ratio.
     """
     x = x[0:4]
-    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y = _copy_coordinates(x)
     w = y[..., 2] - y[..., 0]  # width
     h = y[..., 3] - y[..., 1]  # height
     y[..., 0] = y[..., 0] + w / 2.0  # x center

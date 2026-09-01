@@ -107,7 +107,7 @@ metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
 Install the optional TrackEval reference implementation and request an independent comparison:
 
 ```bash
-uv sync --extra yolo --extra trackeval
+uv sync --extra cpu --extra yolo --extra trackeval
 boxmot eval --experiment mot17-ablation-yolox-lmbn \
   --tracker boosttrack \
   --compare-trackeval

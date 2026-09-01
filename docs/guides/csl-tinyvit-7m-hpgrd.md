@@ -113,7 +113,7 @@ Export the exact training mapping from the same registered dataset and root
 that fine-tuning will use:
 
 ```bash
-uv run python -m boxmot.engine.reid.privileged_cache index \
+uv run --no-sync python -m boxmot.engine.reid.privileged_cache index \
   --dataset market1501 \
   --data-dir boxmot/datasets/reid/Market-1501-v15.09.15 \
   --output artifacts/hpgrd/market1501_v20_teacher/train-samples.json
@@ -140,7 +140,7 @@ Extract those tensors with the promoted V20 checkpoint and the same offline
 six-part anatomical metadata used by training:
 
 ```bash
-uv run python -m boxmot.engine.reid.teacher_extractor \
+uv run --no-sync python -m boxmot.engine.reid.teacher_extractor \
   --teacher runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
   --image-root boxmot/datasets/reid/Market-1501-v15.09.15 \
@@ -168,14 +168,14 @@ with `--part-names`; the extractor propagates them into `teacher-signals.pt`.
 Build and validate the immutable cache:
 
 ```bash
-uv run python -m boxmot.engine.reid.privileged_cache build \
+uv run --no-sync python -m boxmot.engine.reid.privileged_cache build \
   --tensor-input artifacts/hpgrd/market1501_v20_teacher/teacher-signals.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
   --teacher-provenance runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
   --part-names head torso left_arm right_arm left_leg right_leg \
   --output artifacts/hpgrd/market1501_v20_teacher/privileged_graph.pt
 
-uv run python -m boxmot.engine.reid.privileged_cache validate \
+uv run --no-sync python -m boxmot.engine.reid.privileged_cache validate \
   --cache artifacts/hpgrd/market1501_v20_teacher/privileged_graph.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
   --teacher-provenance runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \

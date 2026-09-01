@@ -92,6 +92,31 @@ def test_create_tracker_applies_tuned_values_before_tracker_kwargs(monkeypatch, 
     assert captured["match_thresh"] == 0.75
 
 
+def test_create_tracker_can_skip_warmup_for_a_shared_reid_model(monkeypatch):
+    class _Model:
+        def __init__(self):
+            self.warmup_calls = 0
+
+        def warmup(self):
+            self.warmup_calls += 1
+
+    class _Tracker:
+        def __init__(self, **kwargs):
+            self.model = kwargs["reid_model"]
+
+    model = _Model()
+    monkeypatch.setattr(tracker_registry, "_load_tracker_class", lambda definition: _Tracker)
+
+    tracker = tracker_registry.create_tracker(
+        "botsort",
+        reid_model=model,
+        warmup_model=False,
+    )
+
+    assert tracker.model is model
+    assert model.warmup_calls == 0
+
+
 @pytest.mark.parametrize(
     ("tracker_name", "preset_name"),
     [

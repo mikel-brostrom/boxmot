@@ -1,20 +1,48 @@
 name: Docker Image CI
 
 on:
+  pull_request:
+    paths:
+      - .dockerignore
+      - .github/workflows/docker.yml
+      - boxmot/**
+      - docker/**
+      - pyproject.toml
+      - uv.lock
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: cli-gpu
+            repository: boxmot/boxmot
+            tag_suffix: ""
+          - target: cli-cpu
+            repository: boxmot/boxmot
+            tag_suffix: -cpu
+          - target: service-cpu
+            repository: boxmot/boxmot-service
+            tag_suffix: ""
+          - target: service-gpu
+            repository: boxmot/boxmot-service
+            tag_suffix: -gpu
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -26,10 +54,107 @@ jobs:
           version=$(python3 -c 'import tomllib, sys; data = tomllib.loads(open("pyproject.toml","r", encoding="utf-8").read()); sys.stdout.write(data["project"]["version"])')
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
-      - name: Build and push Docker image
+      - name: Build and push ${{ matrix.target }} image
         uses: docker/build-push-action@v6
         with:
-          push: true
+          context: .
+          file: ./docker/Dockerfile
+          target: ${{ matrix.target }}
+          load: ${{ github.event_name == 'pull_request' }}
+          push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            boxmot/boxmot:${{ env.VERSION }}
-            boxmot/boxmot:latest
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+            ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
+            ${{ matrix.repository }}:sha-${{ github.sha }}${{ matrix.tag_suffix }}
+          cache-from: type=gha,scope=${{ matrix.target }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.target }}
+
+      - name: Smoke test CPU CLI image
+        if: github.event_name == 'pull_request' && matrix.target == 'cli-cpu'
+        run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} boxmot --help
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import torch; assert torch.version.cuda is None, f"expected a CPU-only PyTorch build, got CUDA {torch.version.cuda!r}"'
+
+      - name: Smoke test GPU CLI image
+        if: github.event_name == 'pull_request' && matrix.target == 'cli-gpu'
+        run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} boxmot --help
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import torch; assert torch.version.cuda == "13.0", f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"'
+
+      - name: Smoke test CPU service image
+        if: github.event_name == 'pull_request' && matrix.target == 'service-cpu'
+        run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import importlib.util; from boxmot.engine.service.config import ServiceSettings; settings = ServiceSettings.from_env(); assert importlib.util.find_spec("torch") is None, "torch must not be installed in the service image"; assert settings.profile == "cpu"; assert settings.tracker_type == "bytetrack"'
+          docker run --rm --detach \
+            --name boxmot-service-cpu-smoke \
+            --publish 8000:8000 \
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+          service_ready=false
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8000/healthz > /dev/null; then
+              service_ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [ "$service_ready" != true ]; then
+            docker logs boxmot-service-cpu-smoke
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --request POST \
+            --url http://127.0.0.1:8000/v1/streams/smoke-camera/sessions/smoke-run/frames \
+            --header 'content-type: application/json' \
+            --data '{"frame_id":0,"width":640,"height":480,"frame_rate":30,"box_type":"aabb","detections":[[100.0,100.0,200.0,300.0,0.9,0]]}' \
+            > /dev/null
+
+      - name: Smoke test GPU service image contract
+        if: github.event_name == 'pull_request' && matrix.target == 'service-gpu'
+        run: |
+          docker run --rm --interactive \
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          import torch
+
+          from boxmot.engine.service.config import ServiceSettings
+          from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+          from boxmot.reid.core import ReID
+          from boxmot.trackers.registry import get_tracker_class
+
+          settings = ServiceSettings.from_env()
+          assert torch.version.cuda == "13.0", (
+              f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"
+          )
+          assert importlib.util.find_spec("ultralytics") is None
+          assert importlib.util.find_spec("yolox") is None
+          assert importlib.util.find_spec("trackeval") is None
+          assert settings.profile == "gpu"
+          assert settings.tracker_type == "botsort"
+          assert settings.device == "0"
+          assert settings.half is True
+          assert settings.max_concurrent_updates == 1
+          assert Path(settings.reid_weights) == Path("/models/osnet_x0_25_msmt17.pt")
+          assert Path("/models").is_dir()
+          assert not Path(settings.reid_weights).exists(), "ReID weights must be mounted at runtime"
+          assert ReID is not None
+          assert PyTorchBackend is not None
+          for tracker_name in (
+              "strongsort",
+              "botsort",
+              "deepocsort",
+              "hybridsort",
+              "boosttrack",
+              "occluboost",
+          ):
+              assert get_tracker_class(tracker_name) is not None
+          PY
+
+      - name: Stop CPU service smoke container
+        if: always() && github.event_name == 'pull_request' && matrix.target == 'service-cpu'
+        run: docker stop boxmot-service-cpu-smoke || true
