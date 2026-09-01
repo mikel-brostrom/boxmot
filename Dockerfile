@@ -16,9 +16,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # ffmpeg and the GL/GLib libraries cover the common OpenCV video runtime.
 # git remains available for dependencies or workflows backed by a VCS checkout.
+# g++ is required to build YOLOX's native fast_cocoeval extension.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ffmpeg \
+        g++ \
         git \
         libgl1 \
         libglib2.0-0 \
