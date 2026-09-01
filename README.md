@@ -61,16 +61,24 @@ For mode-specific extras such as `yolo`, `service`, `evolve`, `research`,
 
 ## Docker images
 
-The repository ships one multi-stage Dockerfile with two production targets:
+Published images cover GPU and CPU CLI workflows plus the CPU-only tracker
+service:
 
 ```bash
-# Detector, CLI, evaluation, and interactive workflows
-docker build --target cli -f docker/Dockerfile -t boxmot/boxmot:local .
+# GPU-enabled detector, CLI, evaluation, and interactive workflows
+docker run --rm -it --gpus all boxmot/boxmot:latest
 
-# Stateful HTTP tracking from externally supplied detections
-docker build --target service -f docker/Dockerfile -t boxmot/boxmot-service:local .
-docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+# The same CLI workflows on CPU
+docker run --rm -it boxmot/boxmot:latest-cpu
+
+# CPU-only stateful HTTP tracking from externally supplied detections
+docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
+
+Versioned and commit-addressed tags are also published. GPU CLI tags are
+`<version>` and `sha-<commit>`; CPU CLI tags append `-cpu`. The service uses
+canonical `<version>` and `sha-<commit>` tags in its own repository. See the
+[installation guide](docs/getting-started/installation.md) for local builds.
 
 The service accepts ordered AABB or OBB detections and keeps isolated state per
 stream/session. See the [deployment guide](docs/guides/deployment.md) for the

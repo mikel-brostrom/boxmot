@@ -21,10 +21,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: cli
+          - target: cli-gpu
             repository: boxmot/boxmot
+            tag_suffix: ""
+          - target: cli-cpu
+            repository: boxmot/boxmot
+            tag_suffix: -cpu
           - target: service
             repository: boxmot/boxmot-service
+            tag_suffix: ""
 
     steps:
       - name: Checkout repository
@@ -55,31 +60,53 @@ jobs:
           load: ${{ github.event_name == 'pull_request' }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: |
-            ${{ matrix.repository }}:${{ env.VERSION }}
-            ${{ matrix.repository }}:latest
-            ${{ matrix.repository }}:sha-${{ github.sha }}
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+            ${{ matrix.repository }}:latest${{ matrix.tag_suffix }}
+            ${{ matrix.repository }}:sha-${{ github.sha }}${{ matrix.tag_suffix }}
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
 
-      - name: Smoke test CLI image
-        if: github.event_name == 'pull_request' && matrix.target == 'cli'
-        run: docker run --rm ${{ matrix.repository }}:${{ env.VERSION }} boxmot --help
+      - name: Smoke test CPU CLI image
+        if: github.event_name == 'pull_request' && matrix.target == 'cli-cpu'
+        run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} boxmot --help
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import torch; assert torch.version.cuda is None, f"expected a CPU-only PyTorch build, got CUDA {torch.version.cuda!r}"'
+
+      - name: Smoke test GPU CLI image
+        if: github.event_name == 'pull_request' && matrix.target == 'cli-gpu'
+        run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} boxmot --help
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import torch; assert torch.version.cuda == "13.0", f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"'
 
       - name: Smoke test service image
         if: github.event_name == 'pull_request' && matrix.target == 'service'
         run: |
+          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python -c 'import importlib.util; assert importlib.util.find_spec("torch") is None, "torch must not be installed in the service image"'
           docker run --rm --detach \
             --name boxmot-service-smoke \
             --publish 8000:8000 \
-            ${{ matrix.repository }}:${{ env.VERSION }}
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
+          service_ready=false
           for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8000/healthz; then
-              exit 0
+            if curl --fail --silent --show-error http://127.0.0.1:8000/healthz > /dev/null; then
+              service_ready=true
+              break
             fi
             sleep 1
           done
-          docker logs boxmot-service-smoke
-          exit 1
+          if [ "$service_ready" != true ]; then
+            docker logs boxmot-service-smoke
+            exit 1
+          fi
+          curl --fail --silent --show-error \
+            --request POST \
+            --url http://127.0.0.1:8000/v1/streams/smoke-camera/sessions/smoke-run/frames \
+            --header 'content-type: application/json' \
+            --data '{"frame_id":0,"width":640,"height":480,"frame_rate":30,"box_type":"aabb","detections":[[100.0,100.0,200.0,300.0,0.9,0]]}' \
+            > /dev/null
 
       - name: Stop service smoke container
         if: always() && github.event_name == 'pull_request' && matrix.target == 'service'

@@ -45,35 +45,57 @@ When an optional ReID runtime is missing, BoxMOT attempts a first-use install wi
 
 ## Docker
 
-The shared Dockerfile provides separate `cli` and `service` targets. The CLI
-image includes the `yolo` and `trackeval` extras for detector, evaluation, and
+The shared Dockerfile provides three production targets. Both CLI images
+include the `yolo` and `trackeval` extras for detector, evaluation, and
 interactive workflows:
 
-```bash
-docker build --target cli -f docker/Dockerfile -t boxmot/boxmot:local .
-```
+| Workload | Build target | Published image | Runtime |
+| --- | --- | --- | --- |
+| Full CLI | `cli-gpu` | `boxmot/boxmot:latest` | NVIDIA GPU |
+| Full CLI | `cli-cpu` | `boxmot/boxmot:latest-cpu` | CPU |
+| Detection-to-track service | `service` | `boxmot/boxmot-service:latest` | CPU only |
 
-Run an interactive shell with the project virtual environment already on
-`PATH`. Mount a host directory for videos, datasets, and generated results:
+Run the published GPU image with the NVIDIA Container Toolkit and a compatible
+host driver:
 
 ```bash
 docker run --rm -it --gpus all \
   -v "$PWD:/workspace" \
   --workdir /workspace \
-  boxmot/boxmot:local
+  boxmot/boxmot:latest
 ```
 
-Inside the container, verify the CLI with `boxmot --help`. Omit `--gpus all`
-for CPU-only use. GPU use requires the NVIDIA Container Toolkit and a host
-driver compatible with the CUDA runtime selected by the locked PyTorch build.
-Other optional workflows, such as model export or tuning, require their
-corresponding extras and are not included in the default image.
-
-Build and run the HTTP image when detections come from a separate detector:
+Use the CPU-suffixed image on hosts without NVIDIA GPUs:
 
 ```bash
+docker run --rm -it \
+  -v "$PWD:/workspace" \
+  --workdir /workspace \
+  boxmot/boxmot:latest-cpu
+```
+
+Inside either container, the project virtual environment is already on `PATH`;
+verify it with `boxmot --help`. Other optional workflows, such as model export
+or tuning, require their corresponding extras and are not included in the CLI
+images.
+
+To build the same variants locally from the repository root:
+
+```bash
+docker build --target cli-gpu -f docker/Dockerfile -t boxmot/boxmot:local .
+docker build --target cli-cpu -f docker/Dockerfile -t boxmot/boxmot:local-cpu .
 docker build --target service -f docker/Dockerfile -t boxmot/boxmot-service:local .
-docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+```
+
+Published GPU CLI tags are `latest`, `<version>`, and `sha-<commit>`. Published
+CPU CLI tags append `-cpu`, for example `<version>-cpu` and
+`sha-<commit>-cpu`. The CPU-only service publishes canonical tags in the
+separate `boxmot/boxmot-service` repository.
+
+Run the HTTP image when detections come from a separate detector:
+
+```bash
+docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
 
 The service image runs as a non-root user and exposes health checks, OpenAPI at

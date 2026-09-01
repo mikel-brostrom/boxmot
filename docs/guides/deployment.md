@@ -1,12 +1,19 @@
 # Tracker service deployment
 
-Use the service image when detection runs elsewhere and BoxMOT only needs to
-associate detections into persistent tracks. Each stream/session URL owns one
-tracker instance.
+Use the CPU-only service image when detection runs elsewhere and BoxMOT only
+needs to associate detections into persistent tracks. Each stream/session URL
+owns one tracker instance.
 
 ## Build and run
 
-Build the production target from the repository root:
+Run the published image:
+
+```bash
+docker pull boxmot/boxmot-service:latest
+docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
+```
+
+Or build the same CPU-only production target from the repository root:
 
 ```bash
 docker build \
@@ -92,7 +99,7 @@ docker run --rm \
   -e BOXMOT_SERVICE_PORT=8080 \
   -e BOXMOT_SERVICE_TRACKER=ocsort \
   -e BOXMOT_SERVICE_MAX_STREAMS=512 \
-  boxmot/boxmot-service:local
+  boxmot/boxmot-service:latest
 ```
 
 ## Scale replicas
@@ -107,9 +114,10 @@ the sequence from its first required frame if state must be reconstructed.
 Persistent shared storage alone cannot move a live tracker object between
 workers.
 
-The service does not receive image pixels. It therefore limits the tracker
-choice to ByteTrack and OCSort and does not provide ReID, camera-motion
-compensation, or detector inference. Use the CLI image or Python API when those
-features are needed. The image omits detector and evaluation extras but still
-contains BoxMOT's shared core ML dependencies. Place authentication, TLS,
+The service image is CPU-only and does not receive image pixels. It therefore
+limits the tracker choice to ByteTrack and OCSort and does not provide ReID,
+camera-motion compensation, or detector inference. Use `boxmot/boxmot:latest`
+for the GPU CLI, `boxmot/boxmot:latest-cpu` for the CPU CLI, or the Python API
+when those features are needed. The service image omits detector and evaluation
+extras and contains neither PyTorch nor CUDA. Place authentication, TLS,
 request-size limits, and rate limiting at the ingress or API gateway.

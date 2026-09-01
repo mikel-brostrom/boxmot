@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import textwrap
 import threading
 
 import numpy as np
@@ -444,3 +447,51 @@ def test_default_factory_processes_canonical_empty_and_nonempty_frames(
     assert empty_response.status_code == 200
     assert tracked_response.status_code == 200
     assert len(tracked_response.json()["track_columns"]) == column_count
+
+
+def test_supported_service_trackers_do_not_import_torch() -> None:
+    """Keep the detection-only service usable in its Torch-free image."""
+
+    script = textwrap.dedent(
+        """
+        import builtins
+
+        original_import = builtins.__import__
+
+        def import_without_torch(name, *args, **kwargs):
+            if name == "torch" or name.startswith("torch."):
+                raise AssertionError(f"service tracker imported {name}")
+            return original_import(name, *args, **kwargs)
+
+        builtins.__import__ = import_without_torch
+
+        import numpy as np
+
+        from boxmot.trackers.registry import create_tracker
+
+        image = np.zeros((120, 160, 3), dtype=np.uint8)
+        cases = (
+            ("bytetrack", np.array([[10, 20, 60, 100, 0.95, 0]], dtype=np.float32)),
+            ("ocsort", np.array([[35, 60, 50, 80, 0.1, 0.95, 0]], dtype=np.float32)),
+        )
+        for tracker_type, detections in cases:
+            tracker_kwargs = {"frame_rate": 30} if tracker_type == "bytetrack" else None
+            tracker = create_tracker(
+                tracker_type,
+                per_class=True,
+                tracker_backend="python",
+                tracker_kwargs=tracker_kwargs,
+            )
+            tracker.update(detections, image)
+        """
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr
