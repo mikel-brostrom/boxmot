@@ -48,6 +48,14 @@ version pinned in the Dockerfile and CI helper:
 uvx --from uv==0.12.4 uv lock
 ```
 
+## Publish
+
+GitHub Actions builds, smoke-tests, and pushes all four targets only when a
+GitHub release is published. Pull requests, branch pushes, and manual workflow
+runs do not build or publish these images. Each target is pushed only after its
+smoke test passes. The release tag may optionally start with `v`, but its
+remaining value must match `[project].version` in `pyproject.toml`.
+
 ## Run
 
 Run the CUDA CLI image with the NVIDIA Container Toolkit:
