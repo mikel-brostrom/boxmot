@@ -74,11 +74,53 @@ Run the CPU geometry-only detection-to-track service:
 
 ```bash
 docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+```
+
+From another terminal, verify that it is ready:
+
+```bash
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. Run
-the CUDA/ReID service with an NVIDIA GPU and a mounted checkpoint:
+It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. Send
+one request per frame. AABB detection rows use
+`(x1, y1, x2, y2, confidence, class_id)`:
+
+```bash
+curl --fail --request POST \
+  --url http://127.0.0.1:8000/v1/streams/camera-01/sessions/aabb-demo/frames \
+  --header 'content-type: application/json' \
+  --data '{
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "box_type": "aabb",
+    "detections": [[10, 20, 60, 120, 0.95, 0]]
+  }'
+```
+
+OBB detection rows use
+`(center_x, center_y, width, height, angle_radians, confidence, class_id)`:
+
+```bash
+curl --fail --request POST \
+  --url http://127.0.0.1:8000/v1/streams/camera-01/sessions/obb-demo/frames \
+  --header 'content-type: application/json' \
+  --data '{
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "box_type": "obb",
+    "detections": [[35, 70, 50, 100, 0.1, 0.95, 0]]
+  }'
+```
+
+Use a separate session when changing `box_type`. Continue each session with
+contiguous `frame_id` values (`1`, `2`, ...) and send `"detections": []` when
+a frame has no detections. The response's `track_columns` field defines the
+column order of each returned track.
+
+Run the CUDA/ReID service with an NVIDIA GPU and a mounted checkpoint:
 
 ```bash
 docker run --rm --gpus all -p 8000:8000 \
