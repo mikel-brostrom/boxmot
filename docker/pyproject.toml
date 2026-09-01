@@ -2,11 +2,14 @@
 name = "boxmot-docker"
 version = "0.0.0"
 requires-python = ">=3.10,<3.14"
-dependencies = [
-  "boxmot[yolo,trackeval]",
-]
+dependencies = []
 
 [project.optional-dependencies]
+# Full interactive CLI dependency stack. Keeping it behind an extra prevents
+# either service profile from inheriting detector and evaluation packages.
+cli = [
+  "boxmot[yolo,trackeval]",
+]
 cpu = [
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
@@ -14,6 +17,14 @@ cpu = [
 cu130 = [
   "torch>=2.2.1,<3.0.0",
   "torchvision>=0.17.1,<1.0.0",
+]
+# The GPU service runs BoxMOT from source and receives the CUDA PyTorch stack
+# through the separate `cu130` selector. FileLock is a direct ReID runtime
+# import; model download clients are intentionally omitted because production
+# weights must be mounted at the configured path.
+service-gpu = [
+  "filelock>=3.13.1,<4.0.0",
+  "packaging>=23.0,<27.0.0",
 ]
 
 [dependency-groups]

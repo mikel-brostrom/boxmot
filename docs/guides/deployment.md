@@ -1,25 +1,47 @@
 # Tracker service deployment
 
-Use the CPU-only service image when detection runs elsewhere and BoxMOT only
-needs to associate detections into persistent tracks. Each stream/session URL
-owns one tracker instance.
+The tracker service has two deployment profiles. Both receive detections from
+an external detector and associate them into persistent tracks; neither image
+runs detector inference. Each stream/session URL owns one tracker instance.
+
+| Profile | Image | Trackers | Frame pixels |
+| --- | --- | --- | --- |
+| CPU geometry | `boxmot/boxmot-service:latest` | ByteTrack, OCSort, SFSORT | Not required |
+| CUDA/ReID | `boxmot/boxmot-service:latest-gpu` | StrongSORT, BotSORT (default), DeepOCSORT, HybridSORT, BoostTrack, OccluBoost | Required on every frame |
 
 ## Build and run
 
-Run the published image:
+Run the published CPU image:
 
 ```bash
 docker pull boxmot/boxmot-service:latest
 docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
 
-Or build the same CPU-only production target from the repository root:
+Run the GPU image with the NVIDIA Container Toolkit and mount the ReID
+checkpoint at `/models/osnet_x0_25_msmt17.pt`:
+
+```bash
+docker pull boxmot/boxmot-service:latest-gpu
+docker run --rm --gpus all -p 8000:8000 \
+  -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
+  -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
+  boxmot/boxmot-service:latest-gpu
+```
+
+Build either production target from the repository root:
 
 ```bash
 docker build \
-  --target service \
+  --target service-cpu \
   -f docker/Dockerfile \
   -t boxmot/boxmot-service:local \
+  .
+
+docker build \
+  --target service-gpu \
+  -f docker/Dockerfile \
+  -t boxmot/boxmot-service:local-gpu \
   .
 
 docker run --rm -p 8000:8000 boxmot/boxmot-service:local
@@ -55,6 +77,57 @@ For an empty frame, send `"detections": []` with the next `frame_id`. For OBB,
 set `"box_type": "obb"` and use
 `(cx, cy, width, height, angle_radians, confidence, class_id)` rows.
 
+The CPU profile does not require pixels. The GPU profile requires
+`image_base64` to contain the raw base64 text of a valid JPEG or PNG for every
+request, including frames whose `detections` array is empty:
+
+```json
+{
+  "frame_id": 0,
+  "width": 1920,
+  "height": 1080,
+  "frame_rate": 30,
+  "box_type": "aabb",
+  "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
+  "image_base64": "<raw base64-encoded JPEG or PNG>"
+}
+```
+
+Do not include a `data:image/...;base64,` prefix. The decoded image dimensions
+must exactly match `width` and `height`. ReID and camera-motion compensation
+need the real frame even when the detector found nothing, so an empty detection
+frame cannot omit `image_base64`.
+
+For example, a Python client can attach a compressed frame to the same metadata
+used by the CPU endpoint:
+
+```python
+import base64
+from pathlib import Path
+
+import requests
+
+payload = {
+    "frame_id": 0,
+    "width": 1920,
+    "height": 1080,
+    "frame_rate": 30,
+    "box_type": "aabb",
+    "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
+    "image_base64": base64.b64encode(Path("frame.jpg").read_bytes()).decode("ascii"),
+}
+requests.post(
+    "http://localhost:8000/v1/streams/camera-01/sessions/run-01/frames",
+    json=payload,
+    timeout=30,
+).raise_for_status()
+```
+
+Base64 adds roughly 33% to the compressed image size and JSON adds a small
+additional cost. Prefer compressed JPEG where its quality is sufficient, and
+configure ingress request-body limits and timeouts for the resulting payloads.
+The service also validates compressed-byte and decoded-pixel limits described below.
+
 The response includes a `track_columns` array that describes each dense track
 row. AABB output is
 `(x1, y1, x2, y2, id, confidence, class_id, detection_index)`; OBB adds the
@@ -79,17 +152,24 @@ curl --request DELETE \
 
 ## Configure the process
 
-The service defaults to ByteTrack. Its process-level settings are:
+The CPU image defaults to ByteTrack; the GPU image defaults to BotSORT. Their
+process-level settings are:
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `BOXMOT_SERVICE_TRACKER` | `bytetrack` | Geometry-only tracker: `bytetrack` or `ocsort`. |
-| `BOXMOT_SERVICE_PORT` | `8000` | Internal HTTP port. |
-| `BOXMOT_SERVICE_MAX_STREAMS` | `256` | Maximum resident tracker sessions. |
-| `BOXMOT_SERVICE_STREAM_TTL_SECONDS` | `900` | Idle time before an unlocked session can be evicted. |
-| `BOXMOT_SERVICE_MAX_DETECTIONS` | `1000` | Per-frame detection limit; configurable up to 2000. |
-| `BOXMOT_SERVICE_MAX_CLASSES` | `32` | Maximum distinct class IDs retained by one session. |
-| `BOXMOT_SERVICE_MAX_CONCURRENT_UPDATES` | `4` | Process-wide tracker updates allowed at once. |
+| Variable | CPU default | GPU default | Purpose |
+| --- | --- | --- | --- |
+| `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
+| `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
+| `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
+| `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
+| `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |
+| `BOXMOT_SERVICE_PORT` | `8000` | `8000` | Internal HTTP port. |
+| `BOXMOT_SERVICE_MAX_STREAMS` | `256` | `256` | Maximum resident tracker sessions. |
+| `BOXMOT_SERVICE_STREAM_TTL_SECONDS` | `900` | `900` | Idle time before an unlocked session can be evicted. |
+| `BOXMOT_SERVICE_MAX_DETECTIONS` | `1000` | `1000` | Per-frame detection limit; configurable up to 2000. |
+| `BOXMOT_SERVICE_MAX_CLASSES` | `32` | `32` | Maximum distinct class IDs retained by one session. |
+| `BOXMOT_SERVICE_MAX_CONCURRENT_UPDATES` | `4` | `1` | Process-wide tracker updates. Keep the GPU default when sharing one ReID model. |
+| `BOXMOT_SERVICE_MAX_IMAGE_BYTES` | `20000000` | `20000000` | Maximum compressed image size after base64 decoding. |
+| `BOXMOT_SERVICE_MAX_FRAME_PIXELS` | `33177600` | `33177600` | Maximum decoded pixel count when an image is supplied. |
 
 For example:
 
@@ -109,15 +189,19 @@ that process, so all requests for the same stream/session must reach the same
 replica. Configure the load balancer for sticky routing or consistent hashing
 on the stream/session key, then scale by adding containers.
 
+The GPU process loads and warms one ReID model, then shares it across all of
+that process's tracker sessions. Its default concurrency is therefore one.
+Keep one worker process per GPU container unless model memory, inference
+synchronization, and capacity have been explicitly designed for a different
+layout. Add GPU containers to scale and retain sticky stream/session routing.
+
 A container restart discards its sessions. Start a new session ID and replay
 the sequence from its first required frame if state must be reconstructed.
 Persistent shared storage alone cannot move a live tracker object between
 workers.
 
-The service image is CPU-only and does not receive image pixels. It therefore
-limits the tracker choice to ByteTrack and OCSort and does not provide ReID,
-camera-motion compensation, or detector inference. Use `boxmot/boxmot:latest`
-for the GPU CLI, `boxmot/boxmot:latest-cpu` for the CPU CLI, or the Python API
-when those features are needed. The service image omits detector and evaluation
-extras and contains neither PyTorch nor CUDA. Place authentication, TLS,
-request-size limits, and rate limiting at the ingress or API gateway.
+The CPU service omits detector and evaluation extras and contains neither
+PyTorch nor CUDA. The GPU service adds CUDA/ReID but still does not run a
+detector. Use `boxmot/boxmot:latest` for full GPU CLI/detector workflows or
+`boxmot/boxmot:latest-cpu` for their CPU counterpart. Place authentication,
+TLS, request-size limits, and rate limiting at the ingress or API gateway.

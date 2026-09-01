@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
+import struct
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Protocol, TypeAlias
 
+import cv2
 import numpy as np
 
 from boxmot.core.box_schema import BoxSchema, BoxType, get_box_schema
@@ -28,6 +33,7 @@ class TrackerProtocol(Protocol):
 
 
 TrackerFactory: TypeAlias = Callable[[int], TrackerProtocol]
+ReIDModelFactory: TypeAlias = Callable[[ServiceSettings], object]
 
 
 class ServiceRequestError(Exception):
@@ -36,6 +42,10 @@ class ServiceRequestError(Exception):
 
 class DetectionValidationError(ServiceRequestError):
     """A detection matrix does not satisfy the public BoxMOT contract."""
+
+
+class ImageValidationError(ServiceRequestError):
+    """An encoded frame does not satisfy the service image contract."""
 
 
 class FrameConflictError(ServiceRequestError):
@@ -87,9 +97,14 @@ class TrackerManager:
         settings: ServiceSettings,
         *,
         tracker_factory: TrackerFactory | None = None,
+        reid_model_factory: ReIDModelFactory | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
+        self._reid_model = None
+        if settings.requires_image and tracker_factory is None:
+            model_factory = reid_model_factory or self._build_reid_model
+            self._reid_model = model_factory(settings)
         self._tracker_factory = tracker_factory or self._build_tracker
         self._clock = clock
         self._states: dict[StreamKey, StreamState] = {}
@@ -97,19 +112,54 @@ class TrackerManager:
         self._update_slots = asyncio.Semaphore(settings.max_concurrent_updates)
 
     def _build_tracker(self, frame_rate: int) -> TrackerProtocol:
-        tracker_kwargs = {"frame_rate": frame_rate} if self.settings.tracker_type == "bytetrack" else None
+        tracker_kwargs = {"frame_rate": frame_rate} if self.settings.tracker_type in {"bytetrack", "botsort"} else None
         return create_tracker(
             self.settings.tracker_type,
             per_class=True,
             tracker_backend="python",
             tracker_kwargs=tracker_kwargs,
+            reid_model=self._reid_model,
+            warmup_model=False,
         )
+
+    @staticmethod
+    def _build_reid_model(settings: ServiceSettings) -> object:
+        """Load and warm one ReID backend shared by all streams in this process."""
+
+        from boxmot.reid.core import ReID
+        from boxmot.utils.misc import resolve_model_path
+
+        weights = resolve_model_path(Path(settings.reid_weights))
+        if not weights.is_file():
+            raise FileNotFoundError(
+                f"ReID weights were not found at {weights}. Mount the checkpoint and set "
+                "BOXMOT_SERVICE_REID_WEIGHTS to its path."
+            )
+        model = ReID(weights=weights, device=settings.device, half=settings.half).model
+        model.warmup()
+        return model
 
     async def process(self, key: StreamKey, request: FrameRequest) -> FrameResult:
         """Validate and process one sequential frame for ``key``."""
 
         detections, schema = self._prepare_detections(request)
-        request_digest = self._request_digest(request, detections)
+        await self._update_slots.acquire()
+        try:
+            return await self._process_with_slot(key, request, detections, schema)
+        finally:
+            self._update_slots.release()
+
+    async def _process_with_slot(
+        self,
+        key: StreamKey,
+        request: FrameRequest,
+        detections: np.ndarray,
+        schema: BoxSchema,
+    ) -> FrameResult:
+        """Decode and update while holding one process-wide frame slot."""
+
+        image, image_digest = await self._prepare_image(request)
+        request_digest = self._request_digest(request, detections, image_digest)
         state = await self._get_or_create_state(key, request)
 
         async with state.lock:
@@ -119,9 +169,7 @@ class TrackerManager:
 
             if state.last_frame_id is not None and request.frame_id == state.last_frame_id:
                 if request_digest != state.last_request_digest or state.last_result is None:
-                    raise FrameConflictError(
-                        f"Frame {request.frame_id} was already processed with different input."
-                    )
+                    raise FrameConflictError(f"Frame {request.frame_id} was already processed with different input.")
                 state.last_seen = self._clock()
                 return replace(state.last_result, replayed=True)
 
@@ -134,19 +182,15 @@ class TrackerManager:
             frame_class_ids = self._frame_class_ids(detections, schema)
             if len(state.observed_class_ids | frame_class_ids) > self.settings.max_classes_per_stream:
                 raise DetectionValidationError(
-                    "A tracker session may contain at most "
-                    f"{self.settings.max_classes_per_stream} distinct class IDs."
+                    f"A tracker session may contain at most {self.settings.max_classes_per_stream} distinct class IDs."
                 )
 
             try:
-                await self._update_slots.acquire()
-                try:
-                    raw_tracks, was_cancelled = await self._update_without_releasing_lock(
-                        state,
-                        detections,
-                    )
-                finally:
-                    self._update_slots.release()
+                raw_tracks, was_cancelled = await self._update_without_releasing_lock(
+                    state,
+                    detections,
+                    state.image if image is None else image,
+                )
                 tracks = self._serialize_tracks(raw_tracks, schema)
             except Exception as exc:
                 await self._discard_state(key, state)
@@ -253,11 +297,128 @@ class TrackerManager:
             raise DetectionValidationError("Detection class IDs must not exceed 16777215.")
         if np.unique(class_ids).size > self.settings.max_classes_per_stream:
             raise DetectionValidationError(
-                "A frame may contain at most "
-                f"{self.settings.max_classes_per_stream} distinct class IDs."
+                f"A frame may contain at most {self.settings.max_classes_per_stream} distinct class IDs."
             )
 
         return values.astype(np.float32), schema
+
+    async def _prepare_image(self, request: FrameRequest) -> tuple[np.ndarray | None, bytes]:
+        """Decode and validate an optional frame without blocking the event loop."""
+
+        if request.image_base64 is None:
+            if self.settings.requires_image:
+                raise ImageValidationError(
+                    "image_base64 is required by the GPU service profile, including on frames with no detections."
+                )
+            return None, b""
+        if request.width * request.height > self.settings.max_frame_pixels:
+            raise ImageValidationError(f"Frame dimensions exceed the {self.settings.max_frame_pixels}-pixel limit.")
+        decode_task = asyncio.create_task(asyncio.to_thread(self._decode_image, request))
+        was_cancelled = False
+        while not decode_task.done():
+            try:
+                await asyncio.shield(decode_task)
+            except asyncio.CancelledError:
+                was_cancelled = True
+        result = decode_task.result()
+        if was_cancelled:
+            raise asyncio.CancelledError
+        return result
+
+    def _decode_image(self, request: FrameRequest) -> tuple[np.ndarray, bytes]:
+        try:
+            encoded = request.image_base64.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ImageValidationError("image_base64 must contain ASCII base64 data.") from exc
+        max_encoded_length = 4 * ((self.settings.max_image_bytes + 2) // 3)
+        if len(encoded) > max_encoded_length:
+            raise ImageValidationError(f"Encoded image exceeds the {self.settings.max_image_bytes}-byte limit.")
+        try:
+            image_bytes = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ImageValidationError("image_base64 is not valid base64 data.") from exc
+        if not image_bytes:
+            raise ImageValidationError("image_base64 must encode a non-empty JPEG or PNG image.")
+        if len(image_bytes) > self.settings.max_image_bytes:
+            raise ImageValidationError(f"Encoded image exceeds the {self.settings.max_image_bytes}-byte limit.")
+
+        encoded_width, encoded_height = self._encoded_image_dimensions(image_bytes)
+        if encoded_width * encoded_height > self.settings.max_frame_pixels:
+            raise ImageValidationError(f"Encoded image exceeds the {self.settings.max_frame_pixels}-pixel limit.")
+        if (encoded_width, encoded_height) != (request.width, request.height):
+            raise ImageValidationError(
+                "Encoded image dimensions must match the declared frame dimensions: "
+                f"expected {(request.width, request.height)}, got {(encoded_width, encoded_height)}."
+            )
+
+        decode_flags = cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION
+        image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), decode_flags)
+        if image is None:
+            raise ImageValidationError("image_base64 must encode a valid JPEG or PNG image.")
+        expected_shape = (request.height, request.width, 3)
+        if image.shape != expected_shape:
+            raise ImageValidationError(f"Decoded image must have shape {expected_shape}, got {image.shape}.")
+        image_digest = hashlib.blake2b(image_bytes, digest_size=16).digest()
+        return np.ascontiguousarray(image), image_digest
+
+    @staticmethod
+    def _encoded_image_dimensions(image_bytes: bytes) -> tuple[int, int]:
+        """Read JPEG/PNG dimensions before OpenCV allocates the decoded frame."""
+
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            if len(image_bytes) < 24 or image_bytes[12:16] != b"IHDR":
+                raise ImageValidationError("image_base64 contains an invalid PNG header.")
+            width, height = struct.unpack(">II", image_bytes[16:24])
+            if width == 0 or height == 0:
+                raise ImageValidationError("image_base64 contains invalid PNG dimensions.")
+            return width, height
+
+        if image_bytes.startswith(b"\xff\xd8"):
+            sof_markers = {
+                0xC0,
+                0xC1,
+                0xC2,
+                0xC3,
+                0xC5,
+                0xC6,
+                0xC7,
+                0xC9,
+                0xCA,
+                0xCB,
+                0xCD,
+                0xCE,
+                0xCF,
+            }
+            offset = 2
+            while offset + 3 < len(image_bytes):
+                if image_bytes[offset] != 0xFF:
+                    offset += 1
+                    continue
+                while offset < len(image_bytes) and image_bytes[offset] == 0xFF:
+                    offset += 1
+                if offset >= len(image_bytes):
+                    break
+                marker = image_bytes[offset]
+                offset += 1
+                if marker in {0x01, *range(0xD0, 0xDA)}:
+                    continue
+                if offset + 2 > len(image_bytes):
+                    break
+                segment_length = int.from_bytes(image_bytes[offset : offset + 2], "big")
+                if segment_length < 2 or offset + segment_length > len(image_bytes):
+                    break
+                if marker in sof_markers:
+                    if segment_length < 7:
+                        break
+                    height = int.from_bytes(image_bytes[offset + 3 : offset + 5], "big")
+                    width = int.from_bytes(image_bytes[offset + 5 : offset + 7], "big")
+                    if width == 0 or height == 0:
+                        break
+                    return width, height
+                offset += segment_length
+            raise ImageValidationError("image_base64 contains an invalid JPEG header.")
+
+        raise ImageValidationError("image_base64 must encode a JPEG or PNG image.")
 
     @staticmethod
     def _frame_class_ids(detections: np.ndarray, schema: BoxSchema) -> set[int]:
@@ -272,20 +433,25 @@ class TrackerManager:
                 return state
             if request.frame_id != 0:
                 raise FrameConflictError(
-                    "The tracker session does not exist or has expired. "
-                    "Start a new session with frame 0."
+                    "The tracker session does not exist or has expired. Start a new session with frame 0."
                 )
             if len(self._states) >= self.settings.max_streams:
-                raise StreamCapacityError(
-                    f"Tracker capacity reached ({self.settings.max_streams} active streams)."
-                )
+                raise StreamCapacityError(f"Tracker capacity reached ({self.settings.max_streams} active streams).")
+
+            try:
+                tracker = self._tracker_factory(request.frame_rate)
+            except Exception as exc:
+                LOGGER.exception("Failed to create tracker for stream %s/%s", *key)
+                raise TrackerExecutionError(
+                    "Tracker creation failed; verify the selected tracker and service profile."
+                ) from exc
 
             image = np.broadcast_to(
                 np.zeros((1, 1, 3), dtype=np.uint8),
                 (request.height, request.width, 3),
             )
             state = StreamState(
-                tracker=self._tracker_factory(request.frame_rate),
+                tracker=tracker,
                 width=request.width,
                 height=request.height,
                 frame_rate=request.frame_rate,
@@ -339,12 +505,11 @@ class TrackerManager:
     async def _update_without_releasing_lock(
         state: StreamState,
         detections: np.ndarray,
+        image: np.ndarray,
     ) -> tuple[np.ndarray, bool]:
         """Drain a tracker thread before allowing cancellation to release its lock."""
 
-        update_task = asyncio.create_task(
-            asyncio.to_thread(state.tracker.update, detections, state.image)
-        )
+        update_task = asyncio.create_task(asyncio.to_thread(state.tracker.update, detections, image))
         was_cancelled = False
         while not update_task.done():
             try:
@@ -354,12 +519,17 @@ class TrackerManager:
         return update_task.result(), was_cancelled
 
     @staticmethod
-    def _request_digest(request: FrameRequest, detections: np.ndarray) -> bytes:
+    def _request_digest(
+        request: FrameRequest,
+        detections: np.ndarray,
+        image_digest: bytes,
+    ) -> bytes:
         digest = hashlib.blake2b(digest_size=16)
         digest.update(
             f"{request.frame_id}:{request.width}:{request.height}:{request.frame_rate}:{request.box_type.value}".encode()
         )
         digest.update(detections.tobytes(order="C"))
+        digest.update(image_digest)
         return digest.digest()
 
     @staticmethod
@@ -369,8 +539,7 @@ class TrackerManager:
             tracks = schema.empty_tracks()
         if tracks.ndim != 2 or tracks.shape[1] != schema.track_cols:
             raise ValueError(
-                f"Tracker returned shape {tracks.shape}; expected (N, {schema.track_cols}) "
-                f"for {schema.box_type.value}."
+                f"Tracker returned shape {tracks.shape}; expected (N, {schema.track_cols}) for {schema.box_type.value}."
             )
         if not np.isfinite(tracks).all():
             raise ValueError("Tracker returned non-finite values.")
@@ -387,10 +556,7 @@ class TrackerManager:
         rows: list[tuple[TrackValue, ...]] = []
         for row in tracks:
             rows.append(
-                tuple(
-                    int(value) if column in integer_columns else float(value)
-                    for column, value in enumerate(row)
-                )
+                tuple(int(value) if column in integer_columns else float(value) for column, value in enumerate(row))
             )
         return tuple(rows)
 
@@ -399,6 +565,8 @@ __all__ = (
     "DetectionValidationError",
     "FrameConflictError",
     "FrameResult",
+    "ImageValidationError",
+    "ReIDModelFactory",
     "ServiceRequestError",
     "StreamCapacityError",
     "TrackerExecutionError",

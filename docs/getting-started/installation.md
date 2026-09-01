@@ -45,7 +45,7 @@ When an optional ReID runtime is missing, BoxMOT attempts a first-use install wi
 
 ## Docker
 
-The shared Dockerfile provides three production targets. Both CLI images
+The shared Dockerfile provides four production targets. Both CLI images
 include the `yolo` and `trackeval` extras for detector, evaluation, and
 interactive workflows:
 
@@ -53,7 +53,8 @@ interactive workflows:
 | --- | --- | --- | --- |
 | Full CLI | `cli-gpu` | `boxmot/boxmot:latest` | NVIDIA GPU |
 | Full CLI | `cli-cpu` | `boxmot/boxmot:latest-cpu` | CPU |
-| Detection-to-track service | `service` | `boxmot/boxmot-service:latest` | CPU only |
+| Geometry-only tracker service | `service-cpu` | `boxmot/boxmot-service:latest` | CPU only |
+| ReID tracker service | `service-gpu` | `boxmot/boxmot-service:latest-gpu` | NVIDIA GPU |
 
 Run the published GPU image with the NVIDIA Container Toolkit and a compatible
 host driver:
@@ -84,13 +85,15 @@ To build the same variants locally from the repository root:
 ```bash
 docker build --target cli-gpu -f docker/Dockerfile -t boxmot/boxmot:local .
 docker build --target cli-cpu -f docker/Dockerfile -t boxmot/boxmot:local-cpu .
-docker build --target service -f docker/Dockerfile -t boxmot/boxmot-service:local .
+docker build --target service-cpu -f docker/Dockerfile -t boxmot/boxmot-service:local .
+docker build --target service-gpu -f docker/Dockerfile -t boxmot/boxmot-service:local-gpu .
 ```
 
 Published GPU CLI tags are `latest`, `<version>`, and `sha-<commit>`. Published
 CPU CLI tags append `-cpu`, for example `<version>-cpu` and
-`sha-<commit>-cpu`. The CPU-only service publishes canonical tags in the
-separate `boxmot/boxmot-service` repository.
+`sha-<commit>-cpu`. The CPU service publishes canonical tags in the separate
+`boxmot/boxmot-service` repository; its GPU counterpart appends `-gpu`, for
+example `<version>-gpu` and `sha-<commit>-gpu`.
 
 Run the HTTP image when detections come from a separate detector:
 
@@ -98,9 +101,24 @@ Run the HTTP image when detections come from a separate detector:
 docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
 
-The service image runs as a non-root user and exposes health checks, OpenAPI at
-`/docs`, and a stateful frame endpoint. See [Tracker service deployment](../guides/deployment.md)
-for its detection schema and scaling model.
+This CPU image supports ByteTrack, OCSort, and SFSORT without image pixels. Run
+the CUDA/ReID image with a mounted checkpoint:
+
+```bash
+docker run --rm --gpus all -p 8000:8000 \
+  -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
+  -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
+  boxmot/boxmot-service:latest-gpu
+```
+
+The GPU image defaults to BotSORT and also supports StrongSORT, DeepOCSORT,
+HybridSORT, BoostTrack, and OccluBoost. It requires a raw base64-encoded JPEG or
+PNG in `image_base64` on every frame, including frames without detections. Both
+service images run as a non-root user and expose health checks, OpenAPI at
+`/docs`, and a stateful frame endpoint. They consume external detections and do
+not run detector inference. See
+[Tracker service deployment](../guides/deployment.md) for the request schema,
+payload guidance, and scaling model.
 
 ## Native C++ backends
 

@@ -16,6 +16,10 @@ class FrameRequest(BaseModel):
     frame_rate: int = Field(default=30, ge=1, le=240)
     box_type: BoxType = BoxType.AABB
     detections: list[list[float]] = Field(default_factory=list, max_length=2_000)
+    image_base64: str | None = Field(
+        default=None,
+        description="Base64-encoded JPEG or PNG frame; required by the GPU/ReID service profile.",
+    )
 
 
 class FrameResponse(BaseModel):
@@ -33,7 +37,10 @@ class ReadinessResponse(BaseModel):
     """Current service capacity and tracker configuration."""
 
     status: str
+    profile: str
     tracker: str
+    device: str
+    requires_image: bool
     active_streams: int
     max_streams: int
 

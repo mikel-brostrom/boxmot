@@ -116,11 +116,11 @@ yolo = [
 name = "boxmot-docker"
 version = "0.0.0"
 source = { virtual = "." }
-dependencies = [
-    { name = "boxmot", extra = ["trackeval", "yolo"] },
-]
 
 [package.optional-dependencies]
+cli = [
+    { name = "boxmot", extra = ["trackeval", "yolo"] },
+]
 cpu = [
     { name = "torch", version = "2.13.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform == 'darwin' and extra == 'extra-13-boxmot-docker-cpu') or (extra == 'extra-13-boxmot-docker-cpu' and extra == 'extra-13-boxmot-docker-cu130')" },
     { name = "torch", version = "2.13.0+cpu", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "(sys_platform != 'darwin' and extra == 'extra-13-boxmot-docker-cpu') or (extra == 'extra-13-boxmot-docker-cpu' and extra == 'extra-13-boxmot-docker-cu130')" },
@@ -130,6 +130,10 @@ cpu = [
 cu130 = [
     { name = "torch", version = "2.13.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchvision", version = "0.28.0+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
+]
+service-gpu = [
+    { name = "filelock" },
+    { name = "packaging" },
 ]
 
 [package.dev-dependencies]

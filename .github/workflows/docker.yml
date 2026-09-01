@@ -27,9 +27,12 @@ jobs:
           - target: cli-cpu
             repository: boxmot/boxmot
             tag_suffix: -cpu
-          - target: service
+          - target: service-cpu
             repository: boxmot/boxmot-service
             tag_suffix: ""
+          - target: service-gpu
+            repository: boxmot/boxmot-service
+            tag_suffix: -gpu
 
     steps:
       - name: Checkout repository
@@ -80,13 +83,13 @@ jobs:
           docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
             python -c 'import torch; assert torch.version.cuda == "13.0", f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"'
 
-      - name: Smoke test service image
-        if: github.event_name == 'pull_request' && matrix.target == 'service'
+      - name: Smoke test CPU service image
+        if: github.event_name == 'pull_request' && matrix.target == 'service-cpu'
         run: |
           docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python -c 'import importlib.util; assert importlib.util.find_spec("torch") is None, "torch must not be installed in the service image"'
+            python -c 'import importlib.util; from boxmot.engine.service.config import ServiceSettings; settings = ServiceSettings.from_env(); assert importlib.util.find_spec("torch") is None, "torch must not be installed in the service image"; assert settings.profile == "cpu"; assert settings.tracker_type == "bytetrack"'
           docker run --rm --detach \
-            --name boxmot-service-smoke \
+            --name boxmot-service-cpu-smoke \
             --publish 8000:8000 \
             ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
           service_ready=false
@@ -98,7 +101,7 @@ jobs:
             sleep 1
           done
           if [ "$service_ready" != true ]; then
-            docker logs boxmot-service-smoke
+            docker logs boxmot-service-cpu-smoke
             exit 1
           fi
           curl --fail --silent --show-error \
@@ -108,6 +111,50 @@ jobs:
             --data '{"frame_id":0,"width":640,"height":480,"frame_rate":30,"box_type":"aabb","detections":[[100.0,100.0,200.0,300.0,0.9,0]]}' \
             > /dev/null
 
-      - name: Stop service smoke container
-        if: always() && github.event_name == 'pull_request' && matrix.target == 'service'
-        run: docker stop boxmot-service-smoke || true
+      - name: Smoke test GPU service image contract
+        if: github.event_name == 'pull_request' && matrix.target == 'service-gpu'
+        run: |
+          docker run --rm --interactive \
+            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
+            python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          import torch
+
+          from boxmot.engine.service.config import ServiceSettings
+          from boxmot.reid.backends.pytorch_backend import PyTorchBackend
+          from boxmot.reid.core import ReID
+          from boxmot.trackers.registry import get_tracker_class
+
+          settings = ServiceSettings.from_env()
+          assert torch.version.cuda == "13.0", (
+              f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"
+          )
+          assert importlib.util.find_spec("ultralytics") is None
+          assert importlib.util.find_spec("yolox") is None
+          assert importlib.util.find_spec("trackeval") is None
+          assert settings.profile == "gpu"
+          assert settings.tracker_type == "botsort"
+          assert settings.device == "0"
+          assert settings.half is True
+          assert settings.max_concurrent_updates == 1
+          assert Path(settings.reid_weights) == Path("/models/osnet_x0_25_msmt17.pt")
+          assert Path("/models").is_dir()
+          assert not Path(settings.reid_weights).exists(), "ReID weights must be mounted at runtime"
+          assert ReID is not None
+          assert PyTorchBackend is not None
+          for tracker_name in (
+              "strongsort",
+              "botsort",
+              "deepocsort",
+              "hybridsort",
+              "boosttrack",
+              "occluboost",
+          ):
+              assert get_tracker_class(tracker_name) is not None
+          PY
+
+      - name: Stop CPU service smoke container
+        if: always() && github.event_name == 'pull_request' && matrix.target == 'service-cpu'
+        run: docker stop boxmot-service-cpu-smoke || true

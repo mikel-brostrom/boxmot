@@ -8,8 +8,8 @@ from fastapi import FastAPI, HTTPException, Path, Response, status
 
 from boxmot.engine.service.config import ServiceSettings
 from boxmot.engine.service.manager import (
-    DetectionValidationError,
     FrameConflictError,
+    ServiceRequestError,
     StreamCapacityError,
     TrackerExecutionError,
     TrackerFactory,
@@ -59,7 +59,10 @@ def create_app(
         capacity = await manager.stats()
         return ReadinessResponse(
             status="ready",
+            profile=resolved_settings.profile,
             tracker=resolved_settings.tracker_type,
+            device=resolved_settings.device,
+            requires_image=resolved_settings.requires_image,
             **capacity,
         )
 
@@ -74,8 +77,6 @@ def create_app(
     ) -> FrameResponse:
         try:
             result = await manager.process((stream_id, session_id), frame)
-        except DetectionValidationError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         except FrameConflictError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
         except StreamCapacityError as exc:
@@ -84,6 +85,8 @@ def create_app(
                 detail=str(exc),
                 headers={"Retry-After": "1"},
             ) from exc
+        except ServiceRequestError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
         except TrackerExecutionError as exc:
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
 

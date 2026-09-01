@@ -47,6 +47,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --locked \
         --no-dev \
         --no-install-package boxmot \
+        --extra cli \
         --extra cu130
 
 COPY boxmot ./boxmot
@@ -57,6 +58,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --locked \
         --no-dev \
         --no-editable \
+        --extra cli \
         --extra cu130
 
 
@@ -68,6 +70,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --locked \
         --no-dev \
         --no-install-package boxmot \
+        --extra cli \
         --extra cpu
 
 COPY boxmot ./boxmot
@@ -78,10 +81,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --locked \
         --no-dev \
         --no-editable \
+        --extra cli \
         --extra cpu
 
 
-FROM build-base AS service-builder
+FROM build-base AS service-cpu-builder
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
@@ -89,6 +93,23 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --locked \
         --no-dev \
         --only-group service-runtime
+
+COPY boxmot ./boxmot
+
+
+FROM build-base AS service-gpu-builder
+
+# The shared service group supplies the HTTP/tracker runtime. The service-gpu
+# extra adds only direct ReID support, while cu130 selects the locked CUDA
+# PyTorch wheels. BoxMOT itself runs from the source copied below.
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --project docker \
+        --locked \
+        --no-dev \
+        --group service-runtime \
+        --extra service-gpu \
+        --extra cu130
 
 COPY boxmot ./boxmot
 
@@ -129,9 +150,9 @@ FROM cli-runtime AS cli-cpu
 COPY --from=cli-cpu-builder /opt/boxmot/.venv /opt/boxmot/.venv
 
 
-# Detection-to-track HTTP service. It uses the minimal Torch-free runtime group,
-# runs without root privileges, and contains no build toolchain.
-FROM python:${PYTHON_VERSION}-slim-bookworm AS service
+# Shared non-root, headless service runtime. Individual CPU/GPU targets copy
+# only their locked virtual environment and the BoxMOT source tree into it.
+FROM python:${PYTHON_VERSION}-slim-bookworm AS service-runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -149,12 +170,10 @@ RUN apt-get update \
         libgomp1 \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 boxmot \
-    && useradd --uid 10001 --gid boxmot --create-home --shell /usr/sbin/nologin boxmot
+    && useradd --uid 10001 --gid boxmot --create-home --shell /usr/sbin/nologin boxmot \
+    && install --directory --mode=0755 /models
 
 WORKDIR /opt/boxmot
-
-COPY --from=service-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
-COPY --from=service-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
 
 USER boxmot
 EXPOSE 8000
@@ -163,6 +182,32 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD ["python", "-c", "import os, urllib.request; port = os.environ.get('BOXMOT_SERVICE_PORT', '8000'); urllib.request.urlopen(f'http://127.0.0.1:{port}/healthz', timeout=2).read()"]
 
 CMD ["python", "-m", "boxmot.engine.service"]
+
+
+# Geometry-only detection-to-track service. It contains neither PyTorch nor
+# CUDA and remains the image published under the canonical service tags.
+FROM service-runtime AS service-cpu
+
+ENV BOXMOT_SERVICE_PROFILE=cpu \
+    BOXMOT_SERVICE_TRACKER=bytetrack
+
+COPY --from=service-cpu-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
+COPY --from=service-cpu-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
+
+
+# CUDA ReID service. The model is not baked into the image: mount the expected
+# checkpoint read-only at /models/osnet_x0_25_msmt17.pt when starting it.
+FROM service-runtime AS service-gpu
+
+ENV BOXMOT_SERVICE_PROFILE=gpu \
+    BOXMOT_SERVICE_TRACKER=botsort \
+    BOXMOT_SERVICE_DEVICE=0 \
+    BOXMOT_SERVICE_HALF=true \
+    BOXMOT_SERVICE_MAX_CONCURRENT_UPDATES=1 \
+    BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt
+
+COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
+COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
 
 
 # Full CUDA image. The cu130 profile installs the CUDA 13.0 PyTorch wheels and
