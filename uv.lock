@@ -408,6 +408,11 @@ research = [
 rtdetr = [
     { name = "transformers" },
 ]
+service = [
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "uvicorn" },
+]
 tflite = [
     { name = "ai-edge-litert" },
     { name = "litert-torch" },

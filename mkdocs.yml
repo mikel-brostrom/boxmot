@@ -111,6 +111,7 @@ nav:
   - Guides:
       - Experiment Workflows: guides/experiments.md
       - Evaluation and Postprocessing: guides/evaluation.md
+      - Tracker Service Deployment: guides/deployment.md
       - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
   - Native C++: native/index.md

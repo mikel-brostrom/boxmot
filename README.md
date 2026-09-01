@@ -55,7 +55,26 @@ pip install boxmot
 boxmot --help
 ```
 
-For mode-specific extras such as `yolo`, `evolve`, `research`, `onnx`, `openvino`, and `tflite`, see the [installation guide](docs/getting-started/installation.md).
+For mode-specific extras such as `yolo`, `service`, `evolve`, `research`,
+`onnx`, `openvino`, and `tflite`, see the
+[installation guide](docs/getting-started/installation.md).
+
+## Docker images
+
+The repository ships one multi-stage Dockerfile with two production targets:
+
+```bash
+# Detector, CLI, evaluation, and interactive workflows
+docker build --target cli -f docker/Dockerfile -t boxmot/boxmot:local .
+
+# Stateful HTTP tracking from externally supplied detections
+docker build --target service -f docker/Dockerfile -t boxmot/boxmot-service:local .
+docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+```
+
+The service accepts ordered AABB or OBB detections and keeps isolated state per
+stream/session. See the [deployment guide](docs/guides/deployment.md) for the
+request schema and horizontal-scaling requirements.
 
 ## Benchmark Results
 

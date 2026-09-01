@@ -27,6 +27,7 @@ BoxMOT keeps heavier workflow dependencies optional. Install the extras that mat
 | `train-reid`, `eval-reid`, and `compare-reid` | `pip install boxmot` | `uv sync` | Uses the built-in ReID training and evaluation stack. Place each selected ReID dataset under its configured `--data-dir` or `--target` path. |
 | `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra research` | Installs GEPA for the code-evolution loop. |
+| Detection-to-track HTTP service | `pip install "boxmot[service]"` | `uv sync --extra service` | Installs FastAPI and Uvicorn for `boxmot-service`. |
 | `eval --compare-trackeval` | `pip install "boxmot[trackeval]"` | `uv sync --extra trackeval` | Adds the TrackEval reference comparison for AABB MOTChallenge datasets. |
 | `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra onnx` | The default export path uses ONNX. |
 | `export --include coreml` | `pip install "boxmot[coreml]"` | `uv sync --extra coreml` | Native FP16 MLProgram export and inference on macOS. |
@@ -44,11 +45,12 @@ When an optional ReID runtime is missing, BoxMOT attempts a first-use install wi
 
 ## Docker
 
-The repository image is built from the current checkout and installs the locked
-runtime environment with the `yolo` and `trackeval` extras. Build it locally:
+The shared Dockerfile provides separate `cli` and `service` targets. The CLI
+image includes the `yolo` and `trackeval` extras for detector, evaluation, and
+interactive workflows:
 
 ```bash
-docker build -t boxmot/boxmot:local .
+docker build --target cli -f docker/Dockerfile -t boxmot/boxmot:local .
 ```
 
 Run an interactive shell with the project virtual environment already on
@@ -66,6 +68,17 @@ for CPU-only use. GPU use requires the NVIDIA Container Toolkit and a host
 driver compatible with the CUDA runtime selected by the locked PyTorch build.
 Other optional workflows, such as model export or tuning, require their
 corresponding extras and are not included in the default image.
+
+Build and run the HTTP image when detections come from a separate detector:
+
+```bash
+docker build --target service -f docker/Dockerfile -t boxmot/boxmot-service:local .
+docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+```
+
+The service image runs as a non-root user and exposes health checks, OpenAPI at
+`/docs`, and a stateful frame endpoint. See [Tracker service deployment](../guides/deployment.md)
+for its detection schema and scaling model.
 
 ## Native C++ backends
 
