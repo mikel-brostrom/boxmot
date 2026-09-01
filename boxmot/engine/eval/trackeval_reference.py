@@ -15,7 +15,8 @@ def _load_trackeval():
     except ImportError as exc:
         raise RuntimeError(
             "TrackEval is required for --compare-trackeval. "
-            "Install it with `uv sync --extra trackeval`."
+            "Install it with `uv sync --extra cpu --extra trackeval` "
+            "(or use `cu130` instead of `cpu`)."
         ) from exc
     return trackeval
 

@@ -109,13 +109,13 @@ Do not update one and knowingly leave the other stale.
 For docs-only changes, run from the repo root when possible:
 
 ```bash
-uv run mkdocs build --strict
+uv run --no-sync mkdocs build --strict
 ```
 
 If the docs change depends on CLI or API behavior, also run the relevant verification command, for example:
 
 ```bash
-uv run python -m boxmot.engine.cli --help
+uv run --no-sync python -m boxmot.engine.cli --help
 ```
 
 If you cannot run verification, state exactly which command was skipped and why.

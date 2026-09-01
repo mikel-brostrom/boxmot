@@ -32,7 +32,8 @@ def _import_installed_gepa() -> Any:
     except PackageNotFoundError as exc:
         raise RuntimeError(
             "`gepa` is not installed. Install the BoxMOT research extra with "
-            "`uv sync --extra research` or `uv pip install '.[research]'`."
+            "`uv sync --extra cpu --extra research` (or use `cu130` instead of "
+            "`cpu`) or `uv pip install '.[research]'`."
         ) from exc
 
     dist_root = Path(gepa_dist.locate_file("")).resolve()
@@ -117,4 +118,3 @@ def _run_instruction_proposal_signature(
         return runner(lm=lm, input_dict=input_dict)
 
     raise AttributeError(f"{signature_cls!r} does not expose a supported run method")
-

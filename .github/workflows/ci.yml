@@ -18,8 +18,6 @@ concurrency:
 
 env:
   CUDA_VISIBLE_DEVICES: ""
-  UV_TORCH_BACKEND: cpu
-  UV_INDEX_STRATEGY: unsafe-best-match
 
 
 jobs:
@@ -50,7 +48,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
       - name: Run tracking method
         run: |
           source .venv/bin/activate
@@ -123,7 +121,7 @@ jobs:
       - name: Install boxmot with native extension
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --group test
       - name: Verify native libraries are present
         shell: bash
         run: |
@@ -184,7 +182,7 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -217,7 +215,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-          bash .github/scripts/uv_ci_install.sh ".[yolo,trackeval]" --group test
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --extra trackeval --group test
 
       - name: Check metric parity with TrackEval
         shell: bash
@@ -289,7 +287,7 @@ jobs:
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
       - name: Smoke-test ReID train and eval
         shell: bash
         run: |
@@ -343,7 +341,7 @@ jobs:
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
       - name: Run obb tracking method
         shell: bash
         run: |
@@ -419,7 +417,7 @@ jobs:
         with:
           assets: pose
       - run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -439,7 +437,7 @@ jobs:
           python-version: '3.11'
       - uses: ./.github/actions/prepare-ci-assets
       - run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
@@ -469,7 +467,7 @@ jobs:
           assets: seg
       - name: Install dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]"
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -491,7 +489,11 @@ jobs:
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo,onnx,openvino,tflite]"
+          bash .github/scripts/uv_ci_install.sh cpu \
+            --extra yolo \
+            --extra onnx \
+            --extra openvino \
+            --extra tflite
 
       - name: Test export models
         run: | 
@@ -594,12 +596,12 @@ jobs:
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh ".[yolo]" --group test
+          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --group test
       - name: Smoke-test Python API
         shell: bash
         run: |
           # Keep uv from re-resolving the CPU-only environment from the
-          # platform-neutral lockfile and pulling CUDA wheels back in.
+          # profile-selected lockfile and pulling CUDA wheels back in.
           .venv/bin/python -m pytest -p no:cacheprovider -q -s --durations=5 tests/ci/python_api_smoke.py
 
   tests:
@@ -616,7 +618,11 @@ jobs:
       - run: |
           # The dedicated export job installs and smoke-tests export runtimes.
           # The unit suite only needs the runtime/test stacks it imports directly.
-          bash .github/scripts/uv_ci_install.sh ".[yolo,evolve,service]" --group test
+          bash .github/scripts/uv_ci_install.sh cpu \
+            --extra yolo \
+            --extra evolve \
+            --extra service \
+            --group test
       - name: Pytest tests  # after tracking options as this does not download models
         env:
           # directory of PyPi package to be tested

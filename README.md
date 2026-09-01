@@ -55,8 +55,10 @@ pip install boxmot
 boxmot --help
 ```
 
-For mode-specific extras such as `yolo`, `service`, `evolve`, `research`,
-`onnx`, `openvino`, and `tflite`, see the
+The default package uses the standard PyPI PyTorch build. Source checkouts and
+CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
+those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
+`research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
 
 ## Docker images

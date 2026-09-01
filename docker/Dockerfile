@@ -23,11 +23,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/boxmot
 
-# The Docker-only project selects CPU/CUDA variants without changing BoxMOT's
-# published dependency contract. Copy metadata first for dependency-layer cache
-# reuse; the package source is added only after third-party dependencies.
-COPY pyproject.toml README.md LICENSE ./
-COPY docker/pyproject.toml docker/uv.lock ./docker/
+# The root project owns the CPU/CUDA profiles and the single lockfile used by
+# local development, CI, and Docker. Copy metadata first for dependency-layer
+# cache reuse; package source is added only after third-party dependencies.
+COPY pyproject.toml uv.lock README.md LICENSE ./
 
 
 FROM build-base AS cli-build-base
@@ -43,22 +42,22 @@ FROM cli-build-base AS cli-gpu-builder
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
         --no-install-package boxmot \
-        --extra cli \
+        --extra yolo \
+        --extra trackeval \
         --extra cu130
 
 COPY boxmot ./boxmot
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
         --no-editable \
-        --extra cli \
+        --extra yolo \
+        --extra trackeval \
         --extra cu130
 
 
@@ -66,22 +65,22 @@ FROM cli-build-base AS cli-cpu-builder
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
         --no-install-package boxmot \
-        --extra cli \
+        --extra yolo \
+        --extra trackeval \
         --extra cpu
 
 COPY boxmot ./boxmot
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
         --no-editable \
-        --extra cli \
+        --extra yolo \
+        --extra trackeval \
         --extra cpu
 
 
@@ -89,7 +88,6 @@ FROM build-base AS service-cpu-builder
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
         --only-group service-runtime
@@ -99,15 +97,14 @@ COPY boxmot ./boxmot
 
 FROM build-base AS service-gpu-builder
 
-# The shared service group supplies the HTTP/tracker runtime. The service-gpu
-# extra adds only direct ReID support, while cu130 selects the locked CUDA
-# PyTorch wheels. BoxMOT itself runs from the source copied below.
+# The root runtime plus service extras supply HTTP/tracker/ReID dependencies;
+# cu130 activates the locked CUDA PyTorch source. BoxMOT runs from copied source.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
-        --project docker \
         --locked \
         --no-dev \
-        --group service-runtime \
+        --no-install-package boxmot \
+        --extra service \
         --extra service-gpu \
         --extra cu130
 
@@ -206,8 +203,15 @@ ENV BOXMOT_SERVICE_PROFILE=gpu \
     BOXMOT_SERVICE_MAX_CONCURRENT_UPDATES=1 \
     BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt
 
+USER root
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
 COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
+
+USER boxmot
 
 
 # Full CUDA image. The cu130 profile installs the CUDA 13.0 PyTorch wheels and

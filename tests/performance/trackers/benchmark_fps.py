@@ -7,18 +7,18 @@ default, so the timing isolates tracker work from detector and ReID inference.
 
 Run the default sweep::
 
-    uv run python -m tests.performance.trackers.benchmark_fps
+    uv run --no-sync python -m tests.performance.trackers.benchmark_fps
 
 Restrict the sweep or include live ReID inference::
 
-    uv run python -m tests.performance.trackers.benchmark_fps \
+    uv run --no-sync python -m tests.performance.trackers.benchmark_fps \
         --trackers botsort,ocsort --backends python --counts 50,100
-    uv run python -m tests.performance.trackers.benchmark_fps \
+    uv run --no-sync python -m tests.performance.trackers.benchmark_fps \
         --trackers botsort --reid-mode live --reid osnet_x0_25_msmt17.pt
 
 Save the same result rows as JSON or CSV::
 
-    uv run python -m tests.performance.trackers.benchmark_fps \
+    uv run --no-sync python -m tests.performance.trackers.benchmark_fps \
         --json results/tracker_fps.json --csv results/tracker_fps.csv
 """
 

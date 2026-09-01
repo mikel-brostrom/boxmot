@@ -228,9 +228,9 @@ A new backend usually does not need to reimplement that workflow layer. Focus on
 After adding a new detector or config:
 
 ```bash
-uv run python -m boxmot.engine.cli track --source path/to/image_or_video --detector path/to/weights.pt
-uv run python -m boxmot.engine.cli eval --experiment mot17-ablation-yolox-lmbn --detector path/to/weights.pt
-uv run pytest tests/unit/detectors tests/unit/engine/tracking/test_inference.py
+uv run --no-sync python -m boxmot.engine.cli track --source path/to/image_or_video --detector path/to/weights.pt
+uv run --no-sync python -m boxmot.engine.cli eval --experiment mot17-ablation-yolox-lmbn --detector path/to/weights.pt
+uv run --no-sync pytest tests/unit/detectors tests/unit/engine/tracking/test_inference.py
 ```
 
 ## Practical summary

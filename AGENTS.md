@@ -19,14 +19,21 @@
 - Install dependencies using the existing workflow:
 
   ```bash
-  uv sync --all-extras --all-groups
+  # CPU PyTorch profile (use --extra cu130 instead on CUDA 13.0 hosts)
+  uv sync --extra cpu --extra yolo --extra evolve --extra service \
+    --group dev --group test --group docs
   ```
+
+- The `cpu` and `cu130` extras are mutually exclusive and uv does not remember
+  the selected extra. Repeat it on later `uv sync` commands. After syncing,
+  use `uv run --no-sync` or the executables under `.venv/bin` so a plain
+  `uv run` does not replace the selected PyTorch build.
 
 - `uv` will create a `.venv` in the project root. Prefer running everything through `uv` so you don’t have to manage activation manually:
 
   ```bash
   # Generic command wrapper
-  uv run <command> [args...]
+  uv run --no-sync <command> [args...]
   ```
 
 #### Running with the package context
@@ -35,7 +42,7 @@ Always run Python entry points as modules from the repo root, not as loose scrip
 
 ```bash
 # ✅ Good – uses package context
-uv run python -m boxmot.engine.cli --help
+uv run --no-sync python -m boxmot.engine.cli --help
 
 # ❌ Avoid – can break imports (e.g., ModuleNotFoundError: boxmot)
 python boxmot/engine/cli.py --help
@@ -151,26 +158,26 @@ PR / task descriptions should include:
 - Default: run the pytest suite from the repo root:
 
   ```bash
-  uv run pytest
+  uv run --no-sync pytest
   ```
 
 - If the full suite is too heavy, at least run the tests relevant to your change, e.g.:
 
   ```bash
-  uv run pytest tests/unit/engine/test_cli.py
-  uv run pytest tests/path/to/affected_module_tests.py
+  uv run --no-sync pytest tests/unit/engine/test_cli.py
+  uv run --no-sync pytest tests/path/to/affected_module_tests.py
   ```
 
 - When touching CLI / engine entry points, it’s useful to smoke-test common commands:
 
   ```bash
-  uv run python -m boxmot.engine.cli --help
+  uv run --no-sync python -m boxmot.engine.cli --help
 
   # Example invocations (adjust source/paths as available in your env)
-  uv run python -m boxmot.engine.cli track --source <path-or-url> ...
-  uv run python -m boxmot.engine.cli generate --source <path-or-url> ...
-  uv run python -m boxmot.engine.cli eval --source <path-or-url> ...
-  uv run python -m boxmot.engine.cli tune --source <path-or-url> ...
+  uv run --no-sync python -m boxmot.engine.cli track --source <path-or-url> ...
+  uv run --no-sync python -m boxmot.engine.cli generate --source <path-or-url> ...
+  uv run --no-sync python -m boxmot.engine.cli eval --source <path-or-url> ...
+  uv run --no-sync python -m boxmot.engine.cli tune --source <path-or-url> ...
   ```
 
 **If tests or commands cannot be run**
@@ -180,22 +187,23 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 1. Try the following first:
 
    ```bash
-   uv sync --all-extras --all-groups
+   uv sync --extra cpu --extra yolo --extra evolve --extra service \
+     --group dev --group test --group docs
 
-   uv run python -m boxmot.engine.cli --help
+   uv run --no-sync python -m boxmot.engine.cli --help
 
-   uv run pytest
+   uv run --no-sync pytest
    ```
 
 2. If something still fails for reasons outside your control (e.g., missing CUDA runtime, no network for model downloads, etc.), do not fake test results. Instead, document clearly in your Testing section, for example:
 
    ```text
    Testing
-   - uv run python -m boxmot.engine.cli --help  ✅
-   - uv run pytest ❌ (not run)
+   - uv run --no-sync python -m boxmot.engine.cli --help  ✅
+   - uv run --no-sync pytest ❌ (not run)
 
    Reason: pytest requires GPU / CUDA dependencies that are not available in the current container.
-   Please run `uv sync --all-extras --all-groups` and `uv run pytest` in a fully configured environment.
+   Please run `uv sync --extra cpu --extra yolo --extra evolve --extra service --group dev --group test --group docs` and `uv run --no-sync pytest` in a fully configured environment.
    ```
 
 - Include the exact commands you ran and a brief reason why anything couldn’t be completed.

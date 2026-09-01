@@ -13,7 +13,9 @@ Proposed workflow
 git clone https://github.com/your-username/boxmot.git
 cd boxmot
 pip install uv
-uv sync --all-extras --all-groups  # installs boxmot in editable mode with all dependencies
+# Select exactly one PyTorch profile. Use cu130 instead of cpu on CUDA 13.0 hosts.
+uv sync --extra cpu --extra yolo --extra evolve --extra service \
+  --group dev --group test --group docs
 
 # Create a branch
 git checkout -b feature/short-desc
@@ -22,16 +24,16 @@ git checkout -b feature/short-desc
 # ...
 
 # Run functionality where changes were introduced
-uv run boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
-uv run boxmot generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
-uv run boxmot eval --dataset mot17 --split ablation --tracker bytetrack
-uv run boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack
+uv run --no-sync boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
+uv run --no-sync boxmot generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
+uv run --no-sync boxmot eval --dataset mot17 --split ablation --tracker bytetrack
+uv run --no-sync boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack
 
 # Run tests
-uv run pytest
+uv run --no-sync pytest
 
 # For documentation changes
-uv run mkdocs build --strict
+uv run --no-sync mkdocs build --strict
 
 # Commit & push
 git add .

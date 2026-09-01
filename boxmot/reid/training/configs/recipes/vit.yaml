@@ -9,7 +9,7 @@
 # the full configuration is explicit and documented in one place.
 #
 # Usage:
-#   uv run python -m boxmot.engine.cli train-reid \
+#   uv run --no-sync python -m boxmot.engine.cli train-reid \
 #     --recipe vit \
 #     --model csl_tinyvit_7m \
 #     --data-dir ./Market-1501-v15.09.15 \

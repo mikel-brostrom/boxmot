@@ -457,7 +457,8 @@ def _run_engine_workflow(module_name: str, args) -> None:
     except ImportError as exc:
         raise click.ClickException(
             f"Failed to import engine module '{module_name}': {exc}\n"
-            f"Try running: uv sync --all-extras --all-groups"
+            "Install the required feature extra while repeating one PyTorch profile; "
+            "for example: uv sync --extra cpu --extra yolo"
         ) from exc
     main_fn = getattr(module, "main", None)
     if main_fn is None:

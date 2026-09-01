@@ -24,10 +24,11 @@ update a pull request targeting `master`, or push the commit to `master` through
 the normal merge flow. There are currently no path filters in `ci.yml`.
 
 The `python_api` job has no job-level `if:` or `needs:` condition. Once
-`ci.yml` is triggered, it installs `.[yolo,evolve]` plus the test group and runs:
+`ci.yml` is triggered, it installs the CPU profile, `yolo` extra, and test
+group, then runs:
 
 ```bash
-uv run python -m pytest -p no:cacheprovider -q -s tests/ci/python_api_smoke.py
+.venv/bin/python -m pytest -p no:cacheprovider -q -s tests/ci/python_api_smoke.py
 ```
 
 If that job is absent from a run that otherwise matches the trigger, confirm
@@ -41,10 +42,15 @@ integrations, export runtimes, the Python API smoke test, and the full pytest
 suite. The final `check-failures` job collects their results.
 
 Dependency installation is centralized in
-`.github/scripts/uv_ci_install.sh`. Pass the smallest project extras and uv
-groups that the job imports; for example, the Python API smoke job needs the
-`yolo` and `evolve` extras plus `--group test`, while the docs job installs
-`--group docs` and runs `uv run mkdocs build --strict`.
+`.github/scripts/uv_ci_install.sh`. Its first argument is the explicit `cpu` or
+`cu130` PyTorch profile; remaining arguments are passed to locked `uv sync`.
+Pass the smallest project extras and groups that the job imports. For example,
+the Python API smoke job uses `cpu --extra yolo --group test`, while the docs
+job uses `cpu --group docs` and runs `.venv/bin/mkdocs build --strict`.
+
+CI invokes `.venv/bin` commands directly after syncing because uv does not
+persist an activated optional extra. A later plain `uv run` could otherwise
+re-sync without the selected CPU/CUDA profile.
 
 ## Typical CI-sensitive changes
 

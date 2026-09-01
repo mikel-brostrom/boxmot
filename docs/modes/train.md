@@ -63,7 +63,7 @@ Use `train-reid` to fit a ReID backbone on a supported person or vehicle re-iden
         The equivalent direct command is:
 
         ```bash
-        uv run python -m boxmot.engine.cli train-reid \
+        uv run --no-sync python -m boxmot.engine.cli train-reid \
           --recipe csl_tinyvit_11m \
           --model csl_tinyvit_11m_v20 \
           --data-dir /data/Market-1501-v15.09.15 \
@@ -94,7 +94,7 @@ Use `train-reid` to fit a ReID backbone on a supported person or vehicle re-iden
         The equivalent direct command is:
 
         ```bash
-        uv run python -m boxmot.engine.cli train-reid \
+        uv run --no-sync python -m boxmot.engine.cli train-reid \
           --recipe csl_tinyvit_11m_v20_pose_teacher \
           --model csl_tinyvit_11m_v20 \
           --data-dir /data/Market-1501-v15.09.15 \
@@ -230,7 +230,7 @@ augmentation is never applied to query or gallery evaluation images.
 Generate dedicated high-confidence masks for the training split first:
 
 ```bash
-uv run python -m tools.create_market1501_person_masks \
+uv run --no-sync python -m tools.create_market1501_person_masks \
   --source Market-1501-v15.09.15 \
   --output Market-1501-mosaic-highconf \
   --model weights/yolo26x-seg.pt \
@@ -306,7 +306,7 @@ Generate the training-only metadata first. YOLO26x-seg supplies the person
 foreground and separate bag masks used to constrain the pose-derived regions:
 
 ```bash
-uv run python -m tools.create_market1501_pav_metadata \
+uv run --no-sync python -m tools.create_market1501_pav_metadata \
   --source Market-1501-v15.09.15 \
   --output Market-1501-pav-metadata \
   --pose-model https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt \
@@ -595,7 +595,7 @@ PAV_METADATA_DIR=/data/Market-1501-pav-metadata-clean \
 The equivalent direct command is:
 
 ```bash
-uv run python -m boxmot.engine.cli train-reid \
+uv run --no-sync python -m boxmot.engine.cli train-reid \
   --recipe csl_tinyvit_7m_hi_afa_lite \
   --data-dir /data/Market-1501-v15.09.15 \
   --anatomical-metadata-dir /data/Market-1501-pav-metadata-clean

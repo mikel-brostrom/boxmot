@@ -3,7 +3,7 @@
 This standalone entrypoint consumes precomputed tensors only; it never
 imports or downloads a teacher model.  Example::
 
-    uv run python -m boxmot.engine.reid.privileged_cache build \
+    uv run --no-sync python -m boxmot.engine.reid.privileged_cache build \
       --tensor-input teacher-signals.pt \
       --dataset-index train-samples.json \
       --teacher-provenance teacher-provenance.json \

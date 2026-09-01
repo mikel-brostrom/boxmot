@@ -34,5 +34,5 @@ overlays and should identify their target tracker.
 Validate catalog and tracker-config changes with:
 
 ```bash
-uv run pytest tests/unit/configs tests/unit/trackers/test_tracker_registry.py tests/test_config.py
+uv run --no-sync pytest tests/unit/configs tests/unit/trackers/test_tracker_registry.py tests/test_config.py
 ```

@@ -11,12 +11,12 @@ images:
 | `service-gpu` | `boxmot/boxmot-service:latest-gpu` | Non-root CUDA/ReID detection-to-track HTTP service |
 
 The CPU and CUDA selections come from mutually exclusive, lockfile-backed `cpu`
-and `cu130` extras in the Docker-only project. This keeps the published BoxMOT
-dependency contract unchanged. The CPU service installs only the minimal
-`service-runtime` group and runs BoxMOT directly from its source package. It
-therefore contains neither PyTorch nor CUDA, and uses headless OpenCV. The GPU
-service combines that service runtime with the locked `cu130` PyTorch profile
-for ReID. A final `default` stage aliases `cli-gpu`, so no-target builds still
+and `cu130` extras in the root project. Docker, local development, and CI all
+consume the same `pyproject.toml` and `uv.lock`. The CPU service installs only
+the minimal `service-runtime` group and runs BoxMOT directly from source, so it
+contains neither PyTorch nor CUDA and uses headless OpenCV. The GPU service
+selects the root CUDA/ReID and HTTP extras, without detector or evaluation
+extras. A final `default` stage aliases `cli-gpu`, so no-target builds still
 produce the full CUDA image.
 
 The GPU target intentionally starts from the same Python slim base as the CPU
@@ -41,11 +41,11 @@ The default build is equivalent to `--target cli-gpu`:
 docker build -f docker/Dockerfile -t boxmot/boxmot:local .
 ```
 
-When image dependencies change, regenerate the Docker-specific lock with the
-same uv version pinned in the Dockerfile:
+When dependencies change, regenerate the single root lock with the same uv
+version pinned in the Dockerfile and CI helper:
 
 ```bash
-uvx --from uv==0.12.4 uv lock --project docker
+uvx --from uv==0.12.4 uv lock
 ```
 
 ## Run

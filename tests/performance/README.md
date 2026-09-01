@@ -17,9 +17,9 @@ The benchmarks are grouped by domain:
 Run each benchmark as a module from the repository root:
 
 ```bash
-uv run python -m tests.performance.motion.benchmark_cmc
-uv run python -m tests.performance.trackers.benchmark_fps
-uv run python -m tests.performance.reid.benchmark_inference --weights models/osnet_x0_25_msmt17.pt
+uv run --no-sync python -m tests.performance.motion.benchmark_cmc
+uv run --no-sync python -m tests.performance.trackers.benchmark_fps
+uv run --no-sync python -m tests.performance.reid.benchmark_inference --weights models/osnet_x0_25_msmt17.pt
 ```
 
 Use `--help` for benchmark-specific controls and JSON/CSV output options. Warmup
