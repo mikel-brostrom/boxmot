@@ -42,6 +42,31 @@ pip install "boxmot[yolo,evolve,research]"
 
 When an optional ReID runtime is missing, BoxMOT attempts a first-use install with `uv pip install` when `uv` is available, otherwise with the active `python -m pip`. This covers ONNX Runtime, Core ML, OpenVINO, LiteRT, and NVIDIA TensorRT. Native Core ML requires macOS; TensorRT still requires a compatible CUDA/NVIDIA stack for the installed wheel to import and run correctly.
 
+## Docker
+
+The repository image is built from the current checkout and installs the locked
+runtime environment with the `yolo` and `trackeval` extras. Build it locally:
+
+```bash
+docker build -t boxmot/boxmot:local .
+```
+
+Run an interactive shell with the project virtual environment already on
+`PATH`. Mount a host directory for videos, datasets, and generated results:
+
+```bash
+docker run --rm -it --gpus all \
+  -v "$PWD:/workspace" \
+  --workdir /workspace \
+  boxmot/boxmot:local
+```
+
+Inside the container, verify the CLI with `boxmot --help`. Omit `--gpus all`
+for CPU-only use. GPU use requires the NVIDIA Container Toolkit and a host
+driver compatible with the CUDA runtime selected by the locked PyTorch build.
+Other optional workflows, such as model export or tuning, require their
+corresponding extras and are not included in the default image.
+
 ## Native C++ backends
 
 Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.

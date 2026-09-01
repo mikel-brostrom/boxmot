@@ -1,43 +1,52 @@
-# Build the image and tag it for easier later reference
-# Example:
-#   docker build -t mikel-brostrom/boxmot .
+# syntax=docker/dockerfile:1.7
 
-# Base image: Nvidia PyTorch https://ngc.nvidia.com/catalog/containers/nvidia:pytorch
-FROM pytorch/pytorch:2.3.1-cuda11.8-cudnn8-runtime
+# Build from the checked-out source so the image always matches the commit that
+# was selected locally or by CI.
+FROM python:3.11-slim-bookworm
 
-# Update and install necessary packages
-RUN apt update && apt install -y git
+# Keep this aligned with the uv release used by CI and the lockfile format.
+ARG UV_VERSION=0.12.4
 
-# Set the parent working directory
-WORKDIR /usr/src
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/boxmot/.venv \
+    PATH="/opt/boxmot/.venv/bin:${PATH}"
 
-# Clone the repository with submodules into a subdirectory 'boxmot'
-RUN git clone https://github.com/mikel-brostrom/boxmot.git -b master boxmot
+# ffmpeg and the GL/GLib libraries cover the common OpenCV video runtime.
+# git remains available for dependencies or workflows backed by a VCS checkout.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        ffmpeg \
+        git \
+        libgl1 \
+        libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Set the working directory to the cloned repository
-WORKDIR /usr/src/boxmot
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
-# Install uv and sync dependencies
-RUN pip install uv && \
-    uv sync --all-extras --all-groups
+WORKDIR /opt/boxmot
 
-# ------------------------------------------------------------------------------
+# Install locked dependencies before copying the package source. This layer is
+# reused until pyproject.toml or uv.lock changes.
+COPY pyproject.toml uv.lock README.md LICENSE ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --locked \
+        --no-dev \
+        --extra yolo \
+        --extra trackeval \
+        --no-install-project
 
-# A Docker container exits when its main process finishes, which in this case is bash.
-# To avoid this, use detach mode.
+COPY boxmot ./boxmot
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync \
+        --locked \
+        --no-dev \
+        --extra yolo \
+        --extra trackeval
 
-# Run interactively with all GPUs accessible:
-#   docker run -it --gpus all mikel-brostrom/boxmot bash
-
-# Run interactively with specific GPUs accessible (e.g., first and third GPU):
-#   docker run -it --gpus '"device=0,2"' mikel-brostrom/boxmot bash
-
-# Run in detached mode (if you exit the container, it won't stop):
-# Create a detached Docker container from an image:
-#   docker run -it --gpus all -d mikel-brostrom/boxmot
-
-# Access the running container:
-#   docker exec -it <container_id> bash
-
-# When you are done with the container, stop it by:
-#   docker stop <container_id>
+# Keep the image convenient for interactive use while allowing a command such
+# as `boxmot --help` to replace the default at `docker run` time.
+CMD ["bash"]
