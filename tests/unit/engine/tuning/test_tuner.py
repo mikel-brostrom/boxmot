@@ -125,6 +125,7 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "track_thresh": 0.6,
         "track_buffer": 30,
         "match_thresh": 0.9,
+        "asso_func": "iou",
         "frame_rate": 30,
     }
 
