@@ -57,6 +57,8 @@ class BoostTrack(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     def __init__(
         self,
@@ -111,6 +113,23 @@ class BoostTrack(BaseTracker):
         self.adaptive_kf = bool(adaptive_kf)
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
+        self.uses_embs = self.with_reid
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or self._requires_live_embeddings(dets, embs, enabled=self.with_reid)
+        )
 
     def _track_detections(
         self,
@@ -132,7 +151,6 @@ class BoostTrack(BaseTracker):
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        self.check_inputs(dets=dets, embs=embs, img=img)
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
 

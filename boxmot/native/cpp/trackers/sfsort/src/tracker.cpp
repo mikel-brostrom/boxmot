@@ -450,6 +450,12 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
     if (!margins_ready_) {
         const int frame_width = config_.frame_width > 0 ? config_.frame_width : image.cols;
         const int frame_height = config_.frame_height > 0 ? config_.frame_height : image.rows;
+        if (config_.central_timeout != config_.marginal_timeout && (frame_width <= 0 || frame_height <= 0)) {
+            throw std::runtime_error(
+                "Native SFSORT requires an image to infer frame dimensions when central_timeout and "
+                "marginal_timeout differ; configure frame_width and frame_height to track without images."
+            );
+        }
         MaybeSetMargins(frame_width, frame_height);
     }
 

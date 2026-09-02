@@ -14,6 +14,12 @@ def _empty_tracks_for(dets):
     return native_module.np.empty((0, columns), dtype=native_module.np.float32)
 
 
+def test_native_ocsort_tracker_advertises_actual_inputs():
+    assert native_module.NativeOCSORTTracker.supports_masks is False
+    assert native_module.NativeOCSORTTracker.uses_img is False
+    assert native_module.NativeOCSORTTracker.uses_embs is False
+
+
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
     monkeypatch.setattr(
         native_module, "ensure_ocsort_cpp_executable", lambda force_rebuild=False: Path("/tmp/ocsort_replay")
@@ -101,7 +107,7 @@ def test_native_ocsort_tracker_uses_live_library_wrapper():
             calls.append(("reset", handle))
 
         def update(self, handle, dets, img):
-            calls.append(("update", handle, dets.shape, img.shape))
+            calls.append(("update", handle, dets.shape, img))
             return _empty_tracks_for(dets)
 
         def destroy(self, handle):
@@ -116,16 +122,14 @@ def test_native_ocsort_tracker_uses_live_library_wrapper():
         [[1, 1, 4, 5, 0.9, 0], [2, 2, 6, 7, 0.8, 0]],
         dtype=native_module.np.float32,
     )
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
     tracker.reset()
     tracker.close()
 
     assert out.shape == (0, 8)
     assert calls == [
         ("create", 0.55, 0.27, True),
-        ("update", "handle", (2, 6), (8, 8, 3)),
+        ("update", "handle", (2, 6), None),
         ("reset", "handle"),
         ("destroy", "handle"),
     ]
@@ -142,7 +146,7 @@ def test_native_ocsort_tracker_accepts_obb_rows():
             return None
 
         def update(self, handle, dets, img):
-            calls.append((handle, dets.shape, img.shape))
+            calls.append((handle, dets.shape, img))
             return native_module.np.ones((1, 9), dtype=native_module.np.float32)
 
         def destroy(self, handle):
@@ -150,12 +154,10 @@ def test_native_ocsort_tracker_accepts_obb_rows():
 
     tracker = native_module.NativeOCSORTTracker(library=_FakeLibrary())
     dets = native_module.np.ones((1, 7), dtype=native_module.np.float32)
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
 
     assert out.shape == (1, 9)
-    assert calls == [("handle", (1, 7), (8, 8, 3))]
+    assert calls == [("handle", (1, 7), None)]
     tracker.close()
 
 
@@ -170,7 +172,6 @@ def test_native_ocsort_live_obb_emits_last_observation_like_python():
         },
         library=library,
     )
-    image = native_module.np.zeros((120, 160, 3), dtype=native_module.np.uint8)
     first = native_module.np.array(
         [[80, 60, 80, 20, (4 * native_module.np.pi) + 0.2, 0.95, 0]],
         dtype=native_module.np.float32,
@@ -181,8 +182,8 @@ def test_native_ocsort_live_obb_emits_last_observation_like_python():
     )
 
     try:
-        first_output = tracker.update(first, image)
-        equivalent_output = tracker.update(equivalent, image)
+        first_output = tracker.update(first)
+        equivalent_output = tracker.update(equivalent)
     finally:
         tracker.close()
 

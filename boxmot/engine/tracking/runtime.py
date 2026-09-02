@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import inspect
 import time
 from typing import Any
 
 import numpy as np
 
+from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.engine.tracking.mot import convert_to_mmot_obb_format, convert_to_mot_format
 from boxmot.trackers.registry import TRACKER_MAPPING, create_tracker, get_tracker_config
 from boxmot.trackers.results import TrackResults
@@ -18,20 +18,27 @@ class TrackerRuntime:
     def __init__(self, tracker: Any, timing_stats: TimingStats | None = None) -> None:
         self.tracker = tracker
         self.timing_stats = timing_stats
-        self._accepts_embs = True
-        self._accepts_masks = True
-        self._inspect_update_signature()
+        self.input_adapter = TrackerInputAdapter(tracker)
 
-    def _inspect_update_signature(self) -> None:
-        try:
-            signature = inspect.signature(self.tracker.update)
-        except (ValueError, TypeError):
-            return
+    @property
+    def uses_img(self) -> bool:
+        return self.input_adapter.uses_img
 
-        params = signature.parameters
-        accepts_kwargs = any(param.kind == inspect.Parameter.VAR_KEYWORD for param in params.values())
-        self._accepts_embs = "embs" in params or accepts_kwargs
-        self._accepts_masks = "masks" in params or accepts_kwargs
+    @property
+    def uses_embs(self) -> bool:
+        return self.input_adapter.uses_embs
+
+    @property
+    def supports_masks(self) -> bool:
+        return self.input_adapter.supports_masks
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        return self.input_adapter.requires_image(dets=dets, embs=embs, masks=masks)
 
     @classmethod
     def create(
@@ -102,7 +109,7 @@ class TrackerRuntime:
     def update(
         self,
         dets: np.ndarray,
-        img: np.ndarray,
+        img: np.ndarray | None = None,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
     ) -> tuple[np.ndarray, float]:
@@ -115,13 +122,7 @@ class TrackerRuntime:
             start_time = time.perf_counter()
 
         try:
-            kwargs = {}
-            if embs is not None and self._accepts_embs:
-                kwargs["embs"] = embs
-            if masks is not None and self._accepts_masks:
-                kwargs["masks"] = masks
-
-            tracks = self.tracker.update(dets, img, **kwargs) if kwargs else self.tracker.update(dets, img)
+            tracks = self.input_adapter.update(dets, img=img, embs=embs, masks=masks)
         finally:
             if started:
                 self.timing_stats.end_tracking()

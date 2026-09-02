@@ -144,14 +144,16 @@ class _OCSORTLiveLibrary:
         if self._library.boxmot_ocsort_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray) -> np.ndarray:
+    def update(self, handle, dets: np.ndarray, img: np.ndarray | None = None) -> np.ndarray:
+        del img
         return _native_trackers.call_update(
             self._library.boxmot_ocsort_update,
             handle=handle,
             dets=dets,
-            img=img,
+            img=None,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
 
@@ -165,6 +167,9 @@ def _get_live_ocsort_library() -> _OCSORTLiveLibrary:
 
 class NativeOCSORTTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = False
+    uses_embs = False
     tracker_name = "ocsort"
     tracker_backend = "cpp"
     provides_reid = False
@@ -183,10 +188,16 @@ class NativeOCSORTTracker(_native_trackers.NativeTrackerMixin):
         native_library = library if library is not None else _get_live_ocsort_library()
         self._init_native_handle(library=native_library, cfg=_resolve_tracker_cfg(cfg_dict))
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        del embs
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del img, embs, masks
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img)
+        tracks = self._library.update(self._handle, det_arr, None)
         return self._normalize_tracks_for_mode(tracks)
 
 

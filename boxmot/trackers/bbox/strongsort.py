@@ -54,6 +54,8 @@ class _Detection:
 
 class StrongSort(BaseTracker):
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     """Initialize the StrongSort tracker.
 
@@ -134,7 +136,6 @@ class StrongSort(BaseTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets, img, embs)
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs >= self.min_conf)
         indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
@@ -179,6 +180,16 @@ class StrongSort(BaseTracker):
 
             outputs.append(self.format_output_row(box, id, conf, cls, det_ind))
         return self.format_output_rows(outputs, dtype=np.float32)
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """StrongSORT always advances its ECC estimator with the current frame."""
+        del dets, embs, masks
+        return True
 
     def _predict_tracks(self) -> None:
         """Propagate all active track states to the current frame."""

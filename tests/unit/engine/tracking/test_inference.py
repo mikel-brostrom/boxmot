@@ -21,7 +21,6 @@ import boxmot.engine.tracking.runtime as tracker_runtime_module
 import boxmot.engine.workflows.reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
 import boxmot.utils.rich.core.ui as ui_module
-from boxmot.engine.config import ensure_model_extension
 from boxmot.data import iter_source
 from boxmot.data.cache import (
     AppendableNpyWriter,
@@ -32,6 +31,7 @@ from boxmot.data.cache import (
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.base import Detections
 from boxmot.detectors.ultralytics import UltralyticsDetector
+from boxmot.engine.config import ensure_model_extension
 from boxmot.engine.tracking.detections import sanitize_detections
 from boxmot.engine.tracking.inference import prepare_detections
 from boxmot.engine.tracking.mot import convert_to_mot_format, write_mot_results
@@ -51,9 +51,8 @@ _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 class _DummyTracker(BaseTracker):
     def _track_detections(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray | None, embs: np.ndarray = None, masks: np.ndarray = None
     ) -> np.ndarray:
-        self.check_inputs(dets, img, embs)
         return np.empty((0, 9 if self.is_obb else 8), dtype=np.float32)
 
     def _display_groups(self):

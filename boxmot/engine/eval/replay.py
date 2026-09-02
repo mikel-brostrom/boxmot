@@ -19,9 +19,11 @@ from boxmot.detectors import default_conf
 from boxmot.engine.experiment import write_experiment_snapshots
 from boxmot.engine.tracking.detections import sanitize_detections
 from boxmot.engine.tracking.inference import resolve_reid_producer_backend
+from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
 from boxmot.engine.tracking.runtime import TrackerRuntime
 from boxmot.native import get_native_replay_backend
+from boxmot.trackers.registry import get_tracker_definition
 from boxmot.trackers.specs import normalize_tracker_backend
 from boxmot.utils import configure_logging as _base_configure_logging
 from boxmot.utils import logger as LOGGER
@@ -317,7 +319,8 @@ def process_sequence(
             reid_weights = reid_weights.with_suffix(".pt")
     else:
         reid_weights = None
-    precomputed_reid = reid_weights is not None
+    tracker_definition = get_tracker_definition(str(tracker_name).lower())
+    precomputed_reid = reid_weights is not None and tracker_definition.needs_reid
 
     timing_stats = TimingStats()
 
@@ -340,14 +343,12 @@ def process_sequence(
     if kf_tuning:
         _apply_kf_tuning_to_runtime(kf_tuning)
 
-    # Trackers with camera motion compensation need real image data
     tracker_obj = tracker_runtime.tracker
-    needs_images = hasattr(tracker_obj, "cmc") and tracker_obj.cmc is not None
-    needs_precomputed_reid = (
-        precomputed_reid
-        and bool(getattr(tracker_obj, "with_reid", True))
-        and not bool(getattr(tracker_obj, "embedding_off", False))
-    )
+    input_adapter = getattr(tracker_runtime, "input_adapter", None) or TrackerInputAdapter(tracker_runtime)
+    needs_precomputed_reid = precomputed_reid and input_adapter.uses_embs
+    probe_dets = np.array([[0.0, 0.0, 1.0, 1.0, 1.0, 0.0]], dtype=np.float32)
+    probe_embs = np.zeros((1, 1), dtype=np.float32) if needs_precomputed_reid else None
+    needs_images = input_adapter.requires_image(dets=probe_dets, embs=probe_embs)
 
     # Detect whether real frame files are available for this sequence
     _seq_img_dir = Path(mot_root) / seq_name / "img1"
@@ -365,8 +366,8 @@ def process_sequence(
         reid_name=None,
         target_fps=target_fps,
         reid_preprocess=preprocess_name,
-        masks_dir=masks_dir,
-        embedding_cache_dir=embedding_cache_dir,
+        masks_dir=masks_dir if input_adapter.supports_masks else None,
+        embedding_cache_dir=embedding_cache_dir if input_adapter.uses_embs else None,
     )
     sequence = dataset.get_sequence(
         seq_name,
@@ -393,6 +394,9 @@ def process_sequence(
         embs = frame["embs"]
         img = frame["img"]
         masks = frame.get("masks")
+        image_shape = frame.get("image_shape")
+        if image_shape is None and img is not None:
+            image_shape = img.shape
 
         # Masks are passed at their stored resolution (e.g. 640x640).
         # The tracker handles coordinate scaling internally.
@@ -407,7 +411,7 @@ def process_sequence(
         dets, masks, valid_geometry = sanitize_detections(
             dets,
             masks,
-            image_shape=img.shape,
+            image_shape=image_shape,
         )
         if embs.size:
             embs = embs[valid_geometry]
@@ -428,7 +432,7 @@ def process_sequence(
             LOGGER.error(message)
             raise ValueError(message)
 
-        embs_arg = embs if embs.size else None
+        embs_arg = embs if input_adapter.uses_embs and embs.size else None
         if dets.size and embs_arg is None and needs_precomputed_reid:
             raise ValueError(
                 f"Cached ReID embeddings are missing for {seq_name} frame {frame_id}; "
@@ -438,11 +442,12 @@ def process_sequence(
         # never pass None embeddings for detections — that would trigger live
         # ReID on blank stub images, which is slow and meaningless. Empty frames
         # still need a tracker update for aging, prediction, and CMC state.
-        if dets.size and embs_arg is None and not _has_real_frames:
+        if input_adapter.uses_embs and dets.size and embs_arg is None and not _has_real_frames:
             embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
-        masks_arg = masks if (masks is not None and masks.size) else None
+        masks_arg = masks if input_adapter.supports_masks and masks is not None and masks.size else None
+        img_arg = img if input_adapter.requires_image(dets=dets, embs=embs_arg, masks=masks_arg) else None
         try:
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
+            tracks, elapsed_ms = tracker_runtime.update(dets, img_arg, embs_arg, masks=masks_arg)
         except Exception as exc:
             LOGGER.warning(f"Tracker update failed on {seq_name} frame {frame_id}: {exc}")
             continue

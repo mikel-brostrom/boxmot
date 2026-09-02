@@ -9,8 +9,8 @@ from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import fuse_score, iou_distance
-from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 from boxmot.trackers.common.track_models.bytetrack import STrack, TrackState
+from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
 class ByteTrack(BaseTracker):
@@ -40,6 +40,8 @@ class ByteTrack(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = False
+    uses_embs = False
 
     def __init__(
         self,
@@ -81,8 +83,6 @@ class ByteTrack(BaseTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets, img)
-
         self.kalman_filter = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         self.frame_count += 1

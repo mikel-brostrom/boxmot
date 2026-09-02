@@ -47,6 +47,8 @@ class OcSort(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = False
+    uses_embs = False
 
     def __init__(
         self,
@@ -101,10 +103,7 @@ class OcSort(BaseTracker):
             number of detections provided.
         """
 
-        self.check_inputs(dets, img)
-
         self.frame_count += 1
-        h, w = img.shape[0:2]
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         high_batch, second_batch = batch.split_by_confidence(
@@ -151,8 +150,6 @@ class OcSort(BaseTracker):
                     velocities,
                     k_observations,
                     self.inertia,
-                    w,
-                    h,
                     is_obb=self.is_obb,
                 )
             ),

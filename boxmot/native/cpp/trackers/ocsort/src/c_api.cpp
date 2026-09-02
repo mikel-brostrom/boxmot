@@ -98,8 +98,11 @@ int boxmot_ocsort_update(
         }
         const std::vector<ocsort::Detection> detections =
             boxmot::trackers::base::ConvertLiveDetections<ocsort::Detection>(dets, det_rows, det_cols, "OCSORT");
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "OCSORT");
+        (void)image_data;
+        (void)image_rows;
+        (void)image_cols;
+        (void)image_channels;
+        const cv::Mat image;
         const std::vector<ocsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "OCSORT");
         *out_rows = static_cast<int>(tracks.size());

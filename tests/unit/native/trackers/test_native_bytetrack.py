@@ -17,6 +17,9 @@ def _empty_tracks_for(dets):
 
 def test_native_bytetrack_tracker_advertises_obb_support():
     assert native_module.NativeByteTrackTracker.supports_obb is True
+    assert native_module.NativeByteTrackTracker.supports_masks is False
+    assert native_module.NativeByteTrackTracker.uses_img is False
+    assert native_module.NativeByteTrackTracker.uses_embs is False
 
 
 def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
@@ -101,7 +104,7 @@ def test_native_bytetrack_tracker_uses_live_library_wrapper():
             calls.append(("reset", handle))
 
         def update(self, handle, dets, img):
-            calls.append(("update", handle, dets.shape, img.shape))
+            calls.append(("update", handle, dets.shape, img))
             return _empty_tracks_for(dets)
 
         def destroy(self, handle):
@@ -113,9 +116,7 @@ def test_native_bytetrack_tracker_uses_live_library_wrapper():
         [[1, 1, 4, 5, 0.9, 0], [2, 2, 6, 7, 0.8, 0]],
         dtype=native_module.np.float32,
     )
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
     tracker.reset()
     tracker.close()
 
@@ -123,7 +124,7 @@ def test_native_bytetrack_tracker_uses_live_library_wrapper():
     assert out.is_obb is False
     assert calls == [
         ("create", 15, 0.5),
-        ("update", "handle", (2, 6), (8, 8, 3)),
+        ("update", "handle", (2, 6), None),
         ("reset", "handle"),
         ("destroy", "handle"),
     ]
@@ -140,7 +141,7 @@ def test_native_bytetrack_tracker_accepts_obb_rows():
             return None
 
         def update(self, handle, dets, img):
-            calls.append((handle, dets.shape, img.shape))
+            calls.append((handle, dets.shape, img))
             return native_module.np.ones((1, 9), dtype=native_module.np.float32)
 
         def destroy(self, handle):
@@ -148,13 +149,11 @@ def test_native_bytetrack_tracker_accepts_obb_rows():
 
     tracker = native_module.NativeByteTrackTracker(library=_FakeLibrary())
     dets = native_module.np.ones((1, 7), dtype=native_module.np.float32)
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
 
     assert out.shape == (1, 9)
     assert out.is_obb is True
-    assert calls == [("handle", (1, 7), (8, 8, 3))]
+    assert calls == [("handle", (1, 7), None)]
     tracker.close()
 
 

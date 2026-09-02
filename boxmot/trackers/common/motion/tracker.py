@@ -38,7 +38,7 @@ class TrackerMotionMixin:
 
     def apply_cmc(
         self,
-        img: np.ndarray,
+        img: np.ndarray | None,
         dets: np.ndarray,
         tracks,
         update_method: str = "camera_update",

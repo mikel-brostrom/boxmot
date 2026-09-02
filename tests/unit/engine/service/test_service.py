@@ -25,6 +25,10 @@ from boxmot.engine.service.models import FrameRequest
 
 
 class _FakeTracker:
+    uses_img = True
+    uses_embs = False
+    supports_masks = False
+
     def __init__(self, instance_id: int, frame_rate: int) -> None:
         self.instance_id = instance_id
         self.frame_rate = frame_rate
@@ -42,6 +46,23 @@ class _FakeTracker:
             output[:, geometry_cols + 2] = detections[:, geometry_cols + 1]
             output[:, geometry_cols + 3] = np.arange(len(detections))
         return output
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+
+class _DetectionsOnlyTracker:
+    uses_img = False
+    uses_embs = False
+    supports_masks = False
+
+    def __init__(self) -> None:
+        self.calls: list[np.ndarray] = []
+        self.reset_calls = 0
+
+    def update(self, detections: np.ndarray) -> np.ndarray:
+        self.calls.append(detections.copy())
+        return np.empty((0, detections.shape[1] + 2), dtype=np.float32)
 
     def reset(self) -> None:
         self.reset_calls += 1
@@ -240,6 +261,29 @@ def test_service_tracks_aabb_detections_with_isolated_stream_state() -> None:
     assert factory.instances[0].calls[0][1].strides[:2] == (0, 0)
 
 
+def test_cpu_motion_only_tracker_receives_detections_without_a_dummy_image() -> None:
+    tracker = _DetectionsOnlyTracker()
+    manager = TrackerManager(_settings(), tracker_factory=lambda _: tracker)
+    key = ("camera", "run")
+
+    async def scenario() -> None:
+        result = await manager.process(key, FrameRequest(**_aabb_frame()))
+        state = manager._states[key]
+
+        assert result.tracks == ()
+        assert state.input_adapter.uses_img is False
+        assert state.image is None
+        await manager.close()
+
+    asyncio.run(scenario())
+
+    assert len(tracker.calls) == 1
+    np.testing.assert_array_equal(
+        tracker.calls[0],
+        np.array([[10, 20, 30, 50, 0.9, 0]], dtype=np.float32),
+    )
+
+
 def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
     factory = _FakeFactory()
     encoded, source = _encoded_image()
@@ -249,6 +293,7 @@ def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
         response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
 
     assert response.status_code == 200
+    assert factory.instances[0].uses_img is True
     decoded = factory.instances[0].calls[0][1]
     assert decoded.flags.c_contiguous
     np.testing.assert_array_equal(decoded, source)

@@ -162,6 +162,8 @@ class SFSORT(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = False
+    uses_embs = False
 
     def __init__(
         self,
@@ -232,8 +234,6 @@ class SFSORT(BaseTracker):
         embs: np.ndarray | None = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets=dets, img=img, embs=embs)
-
         if not self._margins_ready and hasattr(self, "w") and hasattr(self, "h"):
             self._maybe_set_margins(self.w, self.h)
 
@@ -342,6 +342,17 @@ class SFSORT(BaseTracker):
 
         return self.format_outputs(next_active_tracks, dtype=np.float32)
 
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require frame dimensions only while distinct region timeouts need margins."""
+        return super().requires_image(dets, embs, masks) or (
+            not self._margins_ready and self.central_timeout != self.marginal_timeout
+        )
+
     def _dynamic_thresholds(self, scores: np.ndarray) -> tuple[float, float, float]:
         hth = self.high_th
         nth = self.new_track_th
@@ -386,6 +397,7 @@ class SFSORT(BaseTracker):
 
     def _maybe_set_margins(self, frame_width: int | None, frame_height: int | None) -> None:
         if frame_width is None or frame_height is None:
+            self._refresh_image_capability()
             return
 
         self.l_margin = 0.0
@@ -401,6 +413,14 @@ class SFSORT(BaseTracker):
             self.b_margin = float(self.clamp(frame_height - self.vertical_margin, 0, frame_height))
 
         self._margins_ready = True
+        self._refresh_image_capability()
+
+    def _refresh_image_capability(self) -> None:
+        """Expose whether this configuration still needs frame dimensions."""
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"}
+            or (not self._margins_ready and self.central_timeout != self.marginal_timeout)
+        )
 
     def _new_track(self, box: np.ndarray, frame_id: int, conf: float, cls: float, det_ind: int) -> Track:
         track_id = self.id_allocator.alloc()
@@ -421,6 +441,7 @@ class SFSORT(BaseTracker):
         self._reset_common_state()
         self.id_counter = self.id_allocator.next_id
         self._margins_ready = False
+        self._maybe_set_margins(self.frame_width, self.frame_height)
 
     @staticmethod
     def _format_track(track: Track) -> list[float]:

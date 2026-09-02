@@ -257,7 +257,13 @@ class _OccluBoostLiveLibrary:
         if self._library.boxmot_occluboost_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+    def update(
+        self,
+        handle,
+        dets: np.ndarray,
+        img: np.ndarray | None,
+        embs: np.ndarray | None = None,
+    ) -> np.ndarray:
         return _native_trackers.call_update(
             self._library.boxmot_occluboost_update,
             handle=handle,
@@ -267,6 +273,7 @@ class _OccluBoostLiveLibrary:
             accepts_embeddings=True,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
     def get_last_reid_time_ms(self, handle) -> float:
@@ -305,6 +312,9 @@ def _get_live_occluboost_library() -> _OccluBoostLiveLibrary:
 
 class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = True
+    uses_embs = True
     tracker_name = "occluboost"
     tracker_backend = "cpp"
     _native_display_name = _NATIVE_DISPLAY_NAME
@@ -333,7 +343,7 @@ class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
                     cfg["with_reid"] = False
             if bool(cfg.get("with_reid", True)):
                 native_reid_path = _ensure_native_reid_model_path(reid_weights)
-        else:
+        elif bool(cfg.get("with_reid", True)):
             native_reid_path = _ensure_native_reid_model_path(reid_weights)
         self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
         self.reid_preprocess = str(reid_preprocess or _default_preprocess())
@@ -341,14 +351,41 @@ class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
         cfg["reid_preprocess"] = self.reid_preprocess
         cfg["reid_device"] = str(reid_device or cfg.get("reid_device") or _default_native_reid_device())
         self.with_reid = bool(cfg.get("with_reid", True))
-        self.provides_reid = bool(self.reid_model_path and Path(self.reid_model_path).suffix.lower() == ".onnx")
+        self.uses_embs = self.with_reid
+        self.provides_reid = bool(
+            self.with_reid
+            and self.reid_model_path
+            and Path(self.reid_model_path).suffix.lower() == ".onnx"
+        )
+        self.use_cmc = bool(cfg.get("use_cmc", True))
+        self.uses_img = self.use_cmc or self.provides_reid
         native_library = library if library is not None else _get_live_occluboost_library()
         self._init_native_handle(library=native_library, cfg=cfg)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require pixels for active CMC or native extraction of missing embeddings."""
+        del masks
+        return self.use_cmc or bool(self.provides_reid and len(dets) and embs is None)
+
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del masks
         det_arr = self._coerce_detections_for_mode(dets)
-        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0]))
-        tracks = self._library.update(self._handle, det_arr, img, emb_arr)
+        if self.requires_image(det_arr, embs=embs) and img is None:
+            raise ValueError("Native OccluBoost requires img for live tracking.")
+        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0])) if self.uses_embs else None
+        routed_img = img if self.requires_image(det_arr, embs=emb_arr) else None
+        tracks = self._library.update(self._handle, det_arr, routed_img, emb_arr)
         self._refresh_reid_timings()
         return self._normalize_tracks_for_mode(tracks)
 

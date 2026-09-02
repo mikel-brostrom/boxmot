@@ -111,6 +111,21 @@ inline cv::Mat WrapLiveImage(
     );
 }
 
+inline cv::Mat WrapOptionalLiveImage(
+    const std::uint8_t* image_data,
+    const int image_rows,
+    const int image_cols,
+    const int image_channels,
+    const std::string_view tracker_name
+) {
+    const bool image_omitted =
+        image_data == nullptr && image_rows == 0 && image_cols == 0 && image_channels == 0;
+    if (image_omitted) {
+        return {};
+    }
+    return WrapLiveImage(image_data, image_rows, image_cols, image_channels, tracker_name);
+}
+
 template <typename TrackOutput>
 void WriteLiveOutputs(
     const std::vector<TrackOutput>& tracks,

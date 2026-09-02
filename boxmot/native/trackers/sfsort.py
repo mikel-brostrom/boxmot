@@ -45,6 +45,13 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     return resolved
 
 
+def _needs_image_for_margins(cfg: dict[str, Any]) -> bool:
+    """Return whether frame dimensions must be inferred from an image."""
+    has_frame_dimensions = int(cfg.get("frame_width", 0) or 0) > 0 and int(cfg.get("frame_height", 0) or 0) > 0
+    uses_distinct_timeouts = int(cfg.get("central_timeout", 0)) != int(cfg.get("marginal_timeout", 0))
+    return uses_distinct_timeouts and not has_frame_dimensions
+
+
 def ensure_sfsort_cpp_executable(force_rebuild: bool = False) -> Path:
     return _native_trackers.ensure_tracker_executable(
         tracker_name=_TRACKER_NAME,
@@ -148,7 +155,7 @@ class _SFSORTLiveLibrary:
         if self._library.boxmot_sfsort_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray) -> np.ndarray:
+    def update(self, handle, dets: np.ndarray, img: np.ndarray | None = None) -> np.ndarray:
         return _native_trackers.call_update(
             self._library.boxmot_sfsort_update,
             handle=handle,
@@ -156,6 +163,7 @@ class _SFSORTLiveLibrary:
             img=img,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
 
@@ -169,6 +177,9 @@ def _get_live_sfsort_library() -> _SFSORTLiveLibrary:
 
 class NativeSFSORTTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = False
+    uses_embs = False
     tracker_name = "sfsort"
     tracker_backend = "cpp"
     provides_reid = False
@@ -184,14 +195,33 @@ class NativeSFSORTTracker(_native_trackers.NativeTrackerMixin):
         library: _SFSORTLiveLibrary | None = None,
     ) -> None:
         del reid_weights, reid_preprocess
+        cfg = _resolve_tracker_cfg(cfg_dict)
+        self._needs_initial_image = _needs_image_for_margins(cfg)
+        self.uses_img = self._needs_initial_image
         native_library = library if library is not None else _get_live_sfsort_library()
-        self._init_native_handle(library=native_library, cfg=_resolve_tracker_cfg(cfg_dict))
+        self._init_native_handle(library=native_library, cfg=cfg)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        del embs
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del embs, masks
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img)
+        if self.uses_img and img is None:
+            raise ValueError(
+                "Native SFSORT requires img to infer frame dimensions when central_timeout and "
+                "marginal_timeout differ; configure frame_width and frame_height to track without images."
+            )
+        tracks = self._library.update(self._handle, det_arr, img if self.uses_img else None)
+        self.uses_img = False
         return self._normalize_tracks_for_mode(tracks)
+
+    def reset(self) -> None:
+        super().reset()
+        self.uses_img = self._needs_initial_image
 
 
 def create_sfsort_live_tracker(

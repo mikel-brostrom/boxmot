@@ -16,6 +16,7 @@ from boxmot.engine.tracking.detections import (
     extract_masks,
     sanitize_detections,
 )
+from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.engine.tracking.mot import (
     MMOT_ROW_FORMAT,
     MOT_ROW_FORMAT,
@@ -326,6 +327,7 @@ class Results:
         self.detector = detector
         self.reid = reid
         self.tracker = tracker
+        self.input_adapter = TrackerInputAdapter(tracker)
         self.verbose = bool(verbose)
         self.drawer = drawer
         self._progress_callback = progress_callback
@@ -454,7 +456,7 @@ class Results:
         self.print_summary()
 
     def _run_reid(self, frame: np.ndarray, dets: np.ndarray) -> np.ndarray | None:
-        if self.reid is None:
+        if self.reid is None or not self.input_adapter.uses_embs:
             return None
         try:
             return self.reid(frame, boxes=dets)
@@ -506,7 +508,7 @@ class Results:
         return dets, masks, det_ms
 
     def _run_reid_timed(self, frame: np.ndarray, dets: np.ndarray) -> tuple[np.ndarray | None, float]:
-        if self.reid is None:
+        if self.reid is None or not self.input_adapter.uses_embs:
             return None, 0.0
 
         if all(hasattr(self.reid, attr) for attr in ("preprocess", "process", "postprocess")):
@@ -551,25 +553,7 @@ class Results:
         features: np.ndarray | None,
         masks: np.ndarray | None = None,
     ) -> TrackResults:
-        kwargs: dict[str, Any] = {}
-        if features is not None:
-            kwargs["embs"] = features
-        if masks is not None:
-            kwargs["masks"] = masks
-        if kwargs:
-            try:
-                result = self.tracker.update(dets, frame, **kwargs)
-            except TypeError:
-                # Tracker doesn't accept these kwargs; fall back
-                if features is not None:
-                    try:
-                        result = self.tracker.update(dets, frame, features)
-                    except TypeError:
-                        result = self.tracker.update(dets, frame)
-                else:
-                    result = self.tracker.update(dets, frame)
-        else:
-            result = self.tracker.update(dets, frame)
+        result = self.input_adapter.update(dets, img=frame, embs=features, masks=masks)
         if isinstance(result, TrackResults):
             return result
         return TrackResults(result)

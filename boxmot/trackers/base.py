@@ -34,6 +34,8 @@ class BaseTracker(
     """
 
     supports_obb = False
+    uses_img = False
+    uses_embs = False
     supports_masks = False
 
     def __init__(
@@ -85,6 +87,8 @@ class BaseTracker(
         self.detection_layout = get_detection_layout(is_obb)
         self.asso_func_name = self.detection_layout.association_mode_name(asso_func)
         self.is_obb = self.detection_layout.is_obb
+        self.uses_img = bool(self.uses_img or self.asso_func_name in {"centroid", "centroid_obb"})
+        self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
         self.id_allocator = TrackIdAllocator()
 
         self.frame_count = 0
@@ -140,7 +144,8 @@ class BaseTracker(
             embs=embs,
             masks=masks,
         )
-        self._validate_update_inputs(dets, masks)
+        self._validate_update_inputs(dets=dets, img=img, embs=embs, masks=masks)
+        self._initialize_frame_context(img)
 
         if self.per_class:
             result = self._track_per_class(dets=dets, img=img, embs=embs, masks=masks)
@@ -159,7 +164,7 @@ class BaseTracker(
         img: np.ndarray = None,
         embs: np.ndarray = None,
         masks: np.ndarray = None,
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
         """Unwrap detections and initialize frame context."""
         if hasattr(dets, "dets"):
             if img is None:
@@ -199,16 +204,39 @@ class BaseTracker(
                 self._set_detection_mode(inferred_layout.is_obb)
                 self._first_dets_processed = True
 
-        if not self._first_frame_processed and img is not None:
-            self.h, self.w = img.shape[0:2]
-            self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
-            self._first_frame_processed = True
-
         masks = self._prepare_update_masks(dets, masks)
         if dets is None or len(dets) == 0:
             dets = self.empty_detections()
             masks = None
         return dets, img, embs, masks
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Return whether this update needs an image for the active configuration."""
+        del dets, embs, masks
+        return not self._first_frame_processed and self.asso_func_name in {"centroid", "centroid_obb"}
+
+    @staticmethod
+    def _requires_live_embeddings(
+        dets: np.ndarray,
+        embs: np.ndarray | None,
+        *,
+        enabled: bool,
+    ) -> bool:
+        """Return whether non-empty detections need image-based ReID extraction."""
+        return bool(enabled and embs is None and len(dets) > 0)
+
+    def _initialize_frame_context(self, img: np.ndarray | None) -> None:
+        """Record frame dimensions and bind dimension-aware association once."""
+        if self._first_frame_processed or img is None:
+            return
+        self.h, self.w = img.shape[0:2]
+        self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
+        self._first_frame_processed = True
 
     def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray | None:
         """Normalize optional masks and discard them for unsupported trackers."""
@@ -223,8 +251,14 @@ class BaseTracker(
 
         return np.asarray(masks)
 
-    def _validate_update_inputs(self, dets: np.ndarray, masks: np.ndarray = None) -> None:
-        """Validate canonical detections, class IDs, and aligned masks."""
+    def _validate_update_inputs(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> None:
+        """Validate canonical detections and optional frame-aligned inputs."""
         self.detection_layout.validate_dets(dets)
         if dets.size and not np.isfinite(dets).all():
             raise ValueError("Tracker detections must contain only finite values.")
@@ -236,6 +270,32 @@ class BaseTracker(
             elif np.any(boxes[:, 2] <= boxes[:, 0]) or np.any(boxes[:, 3] <= boxes[:, 1]):
                 raise ValueError("AABB detections must satisfy x2 > x1 and y2 > y1.")
         self.class_catalog.validate_detections(dets, self.detection_layout)
+
+        if img is not None:
+            if not isinstance(img, np.ndarray):
+                raise TypeError(f"Unsupported image type {type(img).__name__}; expected numpy.ndarray.")
+            if img.ndim not in (2, 3):
+                raise ValueError(f"Image must be a 2D or 3D array, got shape {img.shape}.")
+            if img.shape[0] == 0 or img.shape[1] == 0:
+                raise ValueError(f"Image must have non-zero height and width, got shape {img.shape}.")
+
+        if embs is not None:
+            if not isinstance(embs, np.ndarray):
+                raise TypeError(f"Unsupported embeddings type {type(embs).__name__}; expected numpy.ndarray.")
+            if embs.ndim != 2:
+                raise ValueError(f"Embeddings must be a 2D array, got shape {embs.shape}.")
+            if len(embs) != len(dets):
+                raise ValueError("Detections and embeddings must have the same number of rows.")
+            if embs.size and not np.isfinite(embs).all():
+                raise ValueError("Embeddings must contain only finite values.")
+
+        if img is None and self.requires_image(dets=dets, embs=embs, masks=masks):
+            if self.asso_func_name in {"centroid", "centroid_obb"}:
+                raise ValueError(
+                    f"{self.__class__.__name__} requires img when using "
+                    f"'{self._asso_func_base_name}' association."
+                )
+            raise ValueError(f"{self.__class__.__name__} requires img for the current tracker configuration.")
 
         if masks is None:
             return
@@ -250,7 +310,7 @@ class BaseTracker(
     def _track_detections(
         self,
         dets: np.ndarray,
-        img: np.ndarray,
+        img: np.ndarray | None,
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
@@ -262,9 +322,13 @@ class BaseTracker(
         self.detection_layout = get_detection_layout(is_obb)
         self.is_obb = self.detection_layout.is_obb
         self.asso_func_name = self.detection_layout.association_mode_name(self._asso_func_base_name)
+        if self.asso_func_name in {"centroid", "centroid_obb"}:
+            self.uses_img = True
 
         if self._first_frame_processed and hasattr(self, "w") and hasattr(self, "h"):
             self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
+        else:
+            self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
 
     def empty_detections(self, dtype=np.float32) -> np.ndarray:
         return self.detection_layout.empty_dets(dtype=dtype)
@@ -294,27 +358,6 @@ class BaseTracker(
     ) -> list[DetectionRecord]:
         """Convert raw detections to canonical detection records."""
         return self.make_detection_batch(dets, embs=embs, masks=masks).as_records()
-
-    def check_inputs(self, dets, img, embs=None):
-        if not isinstance(dets, np.ndarray):
-            raise TypeError(f"Unsupported detections type {type(dets).__name__}; expected numpy.ndarray.")
-        if not isinstance(img, np.ndarray):
-            raise TypeError(f"Unsupported image type {type(img).__name__}; expected numpy.ndarray.")
-        if dets.ndim != 2:
-            raise ValueError(f"Detections must be a 2D array, got shape {dets.shape}.")
-
-        if embs is not None:
-            if dets.shape[0] != embs.shape[0]:
-                raise ValueError("Detections and embeddings must have the same number of rows.")
-
-        if dets.shape[1] not in (
-            self.detection_layout.det_cols,
-            self.detection_layout.det_cols + 1,
-        ):
-            raise ValueError(
-                "Unsupported internal detection column count; expected raw detections "
-                "or raw detections with a trailing frame-level det_ind."
-            )
 
     def configure_class_catalog(
         self,

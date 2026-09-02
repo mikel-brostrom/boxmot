@@ -38,8 +38,6 @@ def test_obb_velocity_association_uses_negative_angle_observation():
         velocities=np.array([[0.0, 1.0]], dtype=np.float32),
         previous_obs=previous,
         vdc_weight=0.2,
-        w=100,
-        h=100,
         is_obb=True,
     )
 

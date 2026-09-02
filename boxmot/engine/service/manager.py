@@ -17,6 +17,7 @@ import numpy as np
 from boxmot.core.box_schema import BoxSchema, BoxType, get_box_schema
 from boxmot.engine.service.config import ServiceSettings
 from boxmot.engine.service.models import FrameRequest
+from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.trackers.registry import create_tracker
 from boxmot.utils import logger as LOGGER
 
@@ -27,7 +28,13 @@ TrackValue: TypeAlias = float | int
 class TrackerProtocol(Protocol):
     """Small tracker surface required by the service manager."""
 
-    def update(self, dets: np.ndarray, img: np.ndarray) -> np.ndarray: ...
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray: ...
 
     def reset(self) -> None: ...
 
@@ -76,11 +83,12 @@ class StreamState:
     """Mutable state owned by exactly one stream/session key."""
 
     tracker: TrackerProtocol
+    input_adapter: TrackerInputAdapter
     width: int
     height: int
     frame_rate: int
     box_type: BoxType
-    image: np.ndarray
+    image: np.ndarray | None
     lock: asyncio.Lock
     last_seen: float
     last_frame_id: int | None = None
@@ -446,12 +454,16 @@ class TrackerManager:
                     "Tracker creation failed; verify the selected tracker and service profile."
                 ) from exc
 
-            image = np.broadcast_to(
-                np.zeros((1, 1, 3), dtype=np.uint8),
-                (request.height, request.width, 3),
-            )
+            input_adapter = TrackerInputAdapter(tracker)
+            image = None
+            if input_adapter.uses_img:
+                image = np.broadcast_to(
+                    np.zeros((1, 1, 3), dtype=np.uint8),
+                    (request.height, request.width, 3),
+                )
             state = StreamState(
                 tracker=tracker,
+                input_adapter=input_adapter,
                 width=request.width,
                 height=request.height,
                 frame_rate=request.frame_rate,
@@ -505,11 +517,17 @@ class TrackerManager:
     async def _update_without_releasing_lock(
         state: StreamState,
         detections: np.ndarray,
-        image: np.ndarray,
+        image: np.ndarray | None,
     ) -> tuple[np.ndarray, bool]:
         """Drain a tracker thread before allowing cancellation to release its lock."""
 
-        update_task = asyncio.create_task(asyncio.to_thread(state.tracker.update, detections, image))
+        update_task = asyncio.create_task(
+            asyncio.to_thread(
+                state.input_adapter.update,
+                detections,
+                img=image,
+            )
+        )
         was_cancelled = False
         while not update_task.done():
             try:

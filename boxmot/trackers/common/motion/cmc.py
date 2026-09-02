@@ -30,7 +30,7 @@ def cmc_detection_boxes(dets: np.ndarray, layout: DetectionLayout) -> np.ndarray
 
 def apply_cmc_to_tracks(
     cmc,
-    img: np.ndarray,
+    img: np.ndarray | None,
     dets: np.ndarray,
     layout: DetectionLayout,
     tracks: Sequence,
@@ -45,6 +45,8 @@ def apply_cmc_to_tracks(
     """
     if cmc is None:
         return None
+    if img is None:
+        raise ValueError("img is required when camera-motion compensation is enabled")
 
     warp = cmc.apply(img, cmc_detection_boxes(dets, layout))
     for track in tracks:

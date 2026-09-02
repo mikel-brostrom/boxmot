@@ -103,7 +103,7 @@ def test_native_sfsort_tracker_uses_live_library_wrapper():
             calls.append(("reset", handle))
 
         def update(self, handle, dets, img):
-            calls.append(("update", handle, dets.shape, img.shape))
+            calls.append(("update", handle, dets.shape, img))
             return _empty_tracks_for(dets)
 
         def destroy(self, handle):
@@ -115,16 +115,14 @@ def test_native_sfsort_tracker_uses_live_library_wrapper():
         [[1, 1, 4, 5, 0.9, 0], [2, 2, 6, 7, 0.8, 0]],
         dtype=native_module.np.float32,
     )
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
     tracker.reset()
     tracker.close()
 
     assert out.shape == (0, 8)
     assert calls == [
         ("create", 0.55, True),
-        ("update", "handle", (2, 6), (8, 8, 3)),
+        ("update", "handle", (2, 6), None),
         ("reset", "handle"),
         ("destroy", "handle"),
     ]
@@ -141,7 +139,7 @@ def test_native_sfsort_tracker_accepts_obb_rows():
             return None
 
         def update(self, handle, dets, img):
-            calls.append((handle, dets.shape, img.shape))
+            calls.append((handle, dets.shape, img))
             return native_module.np.ones((1, 9), dtype=native_module.np.float32)
 
         def destroy(self, handle):
@@ -149,13 +147,106 @@ def test_native_sfsort_tracker_accepts_obb_rows():
 
     tracker = native_module.NativeSFSORTTracker(library=_FakeLibrary())
     dets = native_module.np.ones((1, 7), dtype=native_module.np.float32)
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
+    out = tracker.update(dets)
 
     assert out.shape == (1, 9)
-    assert calls == [("handle", (1, 7), (8, 8, 3))]
+    assert calls == [("handle", (1, 7), None)]
     tracker.close()
+
+
+def test_native_sfsort_image_capability_follows_margin_configuration():
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img):
+            return _empty_tracks_for(dets)
+
+        def destroy(self, handle):
+            return None
+
+    no_region_split = native_module.NativeSFSORTTracker(library=_FakeLibrary())
+    configured_dimensions = native_module.NativeSFSORTTracker(
+        {
+            "central_timeout": 5,
+            "marginal_timeout": 1,
+            "frame_width": 640,
+            "frame_height": 480,
+        },
+        library=_FakeLibrary(),
+    )
+    inferred_dimensions = native_module.NativeSFSORTTracker(
+        {"central_timeout": 5, "marginal_timeout": 1},
+        library=_FakeLibrary(),
+    )
+
+    try:
+        assert no_region_split.supports_masks is False
+        assert no_region_split.uses_embs is False
+        assert no_region_split.uses_img is False
+        assert configured_dimensions.uses_img is False
+        assert inferred_dimensions.uses_img is True
+    finally:
+        no_region_split.close()
+        configured_dimensions.close()
+        inferred_dimensions.close()
+
+
+def test_native_sfsort_requires_image_only_for_margin_inference():
+    calls = []
+
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img):
+            calls.append(None if img is None else img.shape)
+            return _empty_tracks_for(dets)
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeSFSORTTracker(
+        {"central_timeout": 5, "marginal_timeout": 1},
+        library=_FakeLibrary(),
+    )
+    dets = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+
+    try:
+        with pytest.raises(ValueError, match="requires img to infer frame dimensions"):
+            tracker.update(dets)
+        output = tracker.update(dets, np.zeros((8, 8, 3), dtype=np.uint8))
+        second = tracker.update(dets)
+        assert tracker.uses_img is False
+        tracker.reset()
+        assert tracker.uses_img is True
+    finally:
+        tracker.close()
+
+    assert output.shape == (0, 8)
+    assert second.shape == (0, 8)
+    assert calls == [(8, 8, 3), None]
+
+
+def test_native_sfsort_c_api_rejects_missing_margin_image():
+    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+    tracker = native_module.NativeSFSORTTracker(
+        {"central_timeout": 5, "marginal_timeout": 1},
+        library=library,
+    )
+    detections = np.empty((0, 6), dtype=np.float32)
+
+    try:
+        with pytest.raises(RuntimeError, match="requires an image to infer frame dimensions"):
+            library.update(tracker._handle, detections)
+    finally:
+        tracker.close()
 
 
 def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant():
@@ -174,7 +265,6 @@ def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant():
         },
         library=library,
     )
-    image = native_module.np.zeros((120, 160, 3), dtype=native_module.np.uint8)
     first = native_module.np.array(
         [[80, 60, 80, 20, (4 * native_module.np.pi) + 0.2, 0.95, 0]],
         dtype=native_module.np.float32,
@@ -185,8 +275,8 @@ def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant():
     )
 
     try:
-        first_output = tracker.update(first, image)
-        equivalent_output = tracker.update(equivalent, image)
+        first_output = tracker.update(first)
+        equivalent_output = tracker.update(equivalent)
     finally:
         tracker.close()
 

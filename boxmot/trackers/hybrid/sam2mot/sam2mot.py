@@ -235,6 +235,8 @@ class Sam2Mot(HybridBaseTracker):
 
     supports_masks = True
     supports_obb = True
+    uses_img = True
+    uses_embs = False
 
     def __init__(
         self,
@@ -657,6 +659,16 @@ class Sam2Mot(HybridBaseTracker):
         else:
             self.active_tracks = []
             return self.empty_output(dtype=np.float32), None
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Sam2Mot needs frame dimensions for image-to-mask coordinate scaling."""
+        del dets, embs, masks
+        return True
 
     # ------------------------------------------------------------------
     # Matching helpers

@@ -106,8 +106,13 @@ int boxmot_sfsort_update(
         }
         const std::vector<sfsort::Detection> detections =
             boxmot::trackers::base::ConvertLiveDetections<sfsort::Detection>(dets, det_rows, det_cols, "SFSORT");
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "SFSORT");
+        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
+            image_data,
+            image_rows,
+            image_cols,
+            image_channels,
+            "SFSORT"
+        );
         const std::vector<sfsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "SFSORT");
         *out_rows = static_cast<int>(tracks.size());

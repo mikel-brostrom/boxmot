@@ -250,11 +250,25 @@ tracker = ByteTrack(
     track_buffer=30,
 )
 
-# Feed detections frame-by-frame
+# Feed detections frame-by-frame. ByteTrack is motion-only, so no image is needed.
 # dets: (N, 6) array with columns [x1, y1, x2, y2, conf, cls]
-# img:  the current frame as a numpy array (H, W, 3)
-tracks = tracker.update(dets, img)
+tracks = tracker.update(dets)
 ```
+
+Every tracker exposes the same `update(dets, img=None, embs=None, masks=None)`
+interface, but the engine only supplies inputs the selected tracker consumes:
+
+| Tracker | Image | Embeddings | Masks |
+| --- | --- | --- | --- |
+| ByteTrack, OCSort | Not used | Not used | Not used |
+| SFSORT | Only needed to infer frame margins when unequal central/marginal timeouts are configured without frame dimensions | Not used | Not used |
+| BotSort, DeepOCSort, BoostTrack, OccluBoost, HybridSort | Needed when CMC is enabled, or when live ReID must compute missing embeddings | Used when ReID is enabled | Not used |
+| StrongSort | Required by CMC | Used; precomputed values avoid live ReID extraction | Not used |
+| Sam2Mot | Required for image-to-mask coordinate scaling | Not used | Optional; bbox matching is the fallback |
+
+Precomputed embeddings let a ReID-aware tracker run without image pixels when
+its CMC path is disabled. If live ReID or CMC is active, omitting `img` raises a
+focused input error.
 
 For ReID-aware trackers, supply a ReID model:
 

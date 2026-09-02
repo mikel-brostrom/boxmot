@@ -63,6 +63,8 @@ class BotSort(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     def __init__(
         self,
@@ -112,6 +114,26 @@ class BotSort(BaseTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=use_cmc)
         self.fuse_first_associate = fuse_first_associate
+        self.uses_embs = bool(self.with_reid)
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        has_reid_detections = bool(
+            len(dets) and np.any(self.detection_layout.confidences(dets) > self.track_high_thresh)
+        )
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or (self.with_reid and embs is None and has_reid_detections)
+        )
 
     def _kalman_ndim(self) -> int:
         return self.detection_layout.box_cols
@@ -169,7 +191,6 @@ class BotSort(BaseTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets, img, embs)
         self.kalman_filter = KalmanFilterXYWH(ndim=self._kalman_ndim())
         self.frame_count += 1
 

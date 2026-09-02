@@ -56,7 +56,7 @@ def test_native_bytetrack_kalman_prediction_matches_python(is_obb):
                 )
 
             python_output = np.asarray(python_tracker.update(detections, image))
-            native_output = np.asarray(native_tracker.update(detections, image))
+            native_output = np.asarray(native_tracker.update(detections))
 
             assert python_output.shape == native_output.shape == (1, geometry_cols + 4)
             np.testing.assert_allclose(

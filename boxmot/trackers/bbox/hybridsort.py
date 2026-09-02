@@ -45,6 +45,8 @@ ASSO_FUNCS = {
 
 class HybridSort(BaseTracker):
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     """Initialize the HybridSort tracker.
 
@@ -160,6 +162,23 @@ class HybridSort(BaseTracker):
 
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
+        self.uses_embs = self.with_reid
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or self._requires_live_embeddings(dets, embs, enabled=self.with_reid)
+        )
 
     def _track_detections(
         self,
@@ -174,7 +193,6 @@ class HybridSort(BaseTracker):
         embs: optional [N,D] appearance features. If None and with_reid=True, we extract features for provided dets.
         Returns: ndarray [M,8]: [x1,y1,x2,y2,track_id,conf,cls,det_ind]
         """
-        self.check_inputs(dets, img, embs)
         if self.is_obb:
             return self._update_obb(dets, img, embs, masks)
         self.frame_count += 1

@@ -138,8 +138,25 @@ int boxmot_botsort_update(
         }
         const std::vector<botsort::Detection> detections =
             ConvertDetections(dets, det_rows, det_cols, embs, emb_rows, emb_cols);
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "BoTSORT");
+        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
+            image_data,
+            image_rows,
+            image_cols,
+            image_channels,
+            "BoTSORT"
+        );
+        const bool cmc_needs_image =
+            !handle->config.cmc_method.empty() && handle->config.cmc_method != "none";
+        const bool live_reid_needs_image =
+            handle->config.with_reid
+            && !handle->config.reid_model_path.empty()
+            && !detections.empty()
+            && (embs == nullptr || emb_cols <= 0);
+        if (image.empty() && (cmc_needs_image || live_reid_needs_image)) {
+            throw std::runtime_error(
+                "Native BoTSORT requires an image when CMC or live ReID extraction is active."
+            );
+        }
         const std::vector<botsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "BoTSORT");
         *out_rows = static_cast<int>(tracks.size());

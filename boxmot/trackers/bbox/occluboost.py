@@ -67,6 +67,8 @@ class OccluBoost(BoostTrack):
     """
 
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     def __init__(
         self,
@@ -196,8 +198,6 @@ class OccluBoost(BoostTrack):
         embs: Optional[np.ndarray] = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets=dets, embs=embs, img=img)
-
         if self.is_obb:
             return self._update_obb(dets, img, embs)
 

@@ -30,6 +30,8 @@ from boxmot.trackers.common.track_models.ocsort import k_previous_obs
 
 class DeepOcSort(BaseTracker):
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     """Initialize the DeepOcSort tracker.
 
@@ -93,6 +95,26 @@ class DeepOcSort(BaseTracker):
         self.aw_off = aw_off
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
+        self.uses_embs = not self.embedding_off
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"}
+            or self.cmc is not None
+            or not self.embedding_off
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        has_reid_detections = bool(len(dets) and np.any(self.detection_layout.confidences(dets) > self.det_thresh))
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or (not self.embedding_off and embs is None and has_reid_detections)
+        )
 
     def _track_detections(
         self,
@@ -120,10 +142,7 @@ class DeepOcSort(BaseTracker):
         """
         # dets, s, c = dets.data
         # print(dets, s, c)
-        self.check_inputs(dets, img, embs)
-
         self.frame_count += 1
-        self.height, self.width = img.shape[:2]
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs > self.det_thresh)
@@ -199,8 +218,6 @@ class DeepOcSort(BaseTracker):
                     velocities,
                     k_observations,
                     self.inertia,
-                    img.shape[1],  # w
-                    img.shape[0],  # h
                     stage1_emb_cost,
                     self.w_association_emb,
                     self.aw_off,

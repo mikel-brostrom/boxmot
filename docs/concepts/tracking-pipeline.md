@@ -53,8 +53,9 @@ for each frame from iter_source(source):
         |       v
         |   embeddings or None
         |
-        +--> tracker.update(dets, img[, embs])
+        +--> tracker.update(dets, img=None, embs=None, masks=None)
         |       |
+        |       +--> route only inputs consumed by this tracker
         |       +--> select AABB or OBB layout from detection shape
         |       +--> predict existing tracks
         |       +--> associate detections to tracks
@@ -106,9 +107,9 @@ Results loop stays in Python
         |       +--> fallback: external Python ReID features when needed
         |
         v
-Native<Tracker>Tracker.update(dets, img[, embs])
+Native<Tracker>Tracker.update(dets, img=None, embs=None)
         |
-        +--> normalize numpy detections and uint8 image
+        +--> normalize detections and only the optional inputs this tracker consumes
         +--> validate 6-column AABB or 7-column OBB detections
         +--> call C ABI update function
         |

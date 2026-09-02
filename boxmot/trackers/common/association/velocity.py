@@ -64,8 +64,6 @@ def associate(
     velocities,
     previous_obs,
     vdc_weight,
-    w,
-    h,
     emb_cost=None,
     w_assoc_emb=None,
     aw_off=None,
