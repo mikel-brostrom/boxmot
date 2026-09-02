@@ -62,6 +62,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert cmd[cmd.index("--second-match-thresh") + 1] == "0.31"
             assert cmd[cmd.index("--unconfirmed-match-thresh") + 1] == "0.42"
             assert cmd[cmd.index("--unconfirmed-emb-scale") + 1] == "2.75"
+            assert cmd[cmd.index("--asso-func") + 1] == "giou"
             assert "--reid-model" in cmd
             assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke.onnx"
             assert stdout is native_module.subprocess.PIPE
@@ -99,6 +100,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             "unconfirmed_match_thresh": 0.42,
             "unconfirmed_emb_scale": 2.75,
             "cmc_method": "ecc",
+            "asso_func": "giou",
         },
         dataset_name="mot17-mini",
         conf_threshold=0.25,

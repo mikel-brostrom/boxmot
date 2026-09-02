@@ -74,7 +74,9 @@ docker run --rm -it --gpus all boxmot/boxmot:latest
 docker run --rm -it boxmot/boxmot:latest-cpu
 
 # CPU-only stateful HTTP tracking from externally supplied detections
-docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
+docker run --rm -p 8000:8000 \
+  -e BOXMOT_SERVICE_ASSO_FUNC=giou \
+  boxmot/boxmot-service:latest
 
 # CUDA/ReID stateful tracking from detections plus an encoded image per frame
 docker run --rm --gpus all -p 8000:8000 \
@@ -273,7 +275,8 @@ Related guides:
 CLI:
 
 ```bash
-boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost --source 0 --save --show
+boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
+  --asso-func diou --source 0 --save --show
 ```
 
 Python:
@@ -287,6 +290,7 @@ tracker = create_tracker(
     reid_weights="osnet_x0_25_msmt17.pt",
     device="cpu",
     half=False,
+    tracker_kwargs={"asso_func": "diou"},
 )
 
 # dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection

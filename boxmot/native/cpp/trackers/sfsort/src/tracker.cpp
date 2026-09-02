@@ -63,26 +63,6 @@ Eigen::Vector4d ObbToXyxy(const Eigen::Matrix<double, 5, 1>& box) {
     return xyxy;
 }
 
-double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
-    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
-    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
-
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-
-    const double inter_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double denom = lhs_area + rhs_area - inter_area;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter_area / denom;
-}
-
 bool ContainsTrackId(const std::vector<SFSORTTracker::TrackData>& tracks, const int track_id) {
     return std::any_of(tracks.begin(), tracks.end(), [track_id](const SFSORTTracker::TrackData& track) {
         return track.track_id == track_id;
@@ -167,25 +147,8 @@ Eigen::Matrix<double, 5, 1> AlignObbMeasurement(
     return aligned;
 }
 
-double AabbIoU(const Eigen::Vector4d& lhs, const Eigen::Vector4d& rhs) {
-    const double x1 = std::max(lhs[0], rhs[0]);
-    const double y1 = std::max(lhs[1], rhs[1]);
-    const double x2 = std::min(lhs[2], rhs[2]);
-    const double y2 = std::min(lhs[3], rhs[3]);
-    const double inter_w = std::max(0.0, x2 - x1);
-    const double inter_h = std::max(0.0, y2 - y1);
-    const double intersection = inter_w * inter_h;
-    const double lhs_area = std::max(0.0, lhs[2] - lhs[0]) * std::max(0.0, lhs[3] - lhs[1]);
-    const double rhs_area = std::max(0.0, rhs[2] - rhs[0]) * std::max(0.0, rhs[3] - rhs[1]);
-    const double union_area = lhs_area + rhs_area - intersection;
-    if (union_area <= 1.0e-12) {
-        return 0.0;
-    }
-    return intersection / union_area;
-}
-
 double CombinedCost(
-    const double iou,
+    const double geometry_similarity,
     const double centerx1,
     const double centery1,
     const double centerx2,
@@ -202,15 +165,18 @@ double CombinedCost(
     const double xxc2 = std::max(lhs_xyxy[2], rhs_xyxy[2]);
     const double yyc2 = std::max(lhs_xyxy[3], rhs_xyxy[3]);
     const double outer_diag = std::max(std::abs(xxc2 - xxc1) + std::abs(yyc2 - yyc1), eps);
-    const double diou = iou - (inner_diag / outer_diag);
-    const double bbsi = diou + sh + sw;
+    const double position_adjusted_similarity = geometry_similarity - (inner_diag / outer_diag);
+    const double bbsi = position_adjusted_similarity + sh + sw;
     return 1.0 - (bbsi / 3.0);
 }
 
 Eigen::MatrixXd CalculateAabbCost(
     const std::vector<SFSORTTracker::TrackData*>& tracks,
     const std::vector<Detection>& detections,
-    const bool iou_only
+    const bool geometry_only,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
@@ -226,9 +192,11 @@ Eigen::MatrixXd CalculateAabbCost(
             const double rhs_h = rhs[3] - rhs[1];
             const double rhs_cx = (rhs[0] + rhs[2]) / 2.0;
             const double rhs_cy = (rhs[1] + rhs[3]) / 2.0;
-            const double iou = AabbIoU(lhs, rhs);
-            if (iou_only) {
-                cost(row, col) = 1.0 - iou;
+            const double geometry = boxmot::trackers::base::AabbAssociationSimilarity(
+                lhs, rhs, association_mode, frame_width, frame_height
+            );
+            if (geometry_only) {
+                cost(row, col) = 1.0 - geometry;
                 continue;
             }
 
@@ -236,7 +204,7 @@ Eigen::MatrixXd CalculateAabbCost(
             const double inter_h = std::max(0.0, std::min(lhs[3], rhs[3]) - std::max(lhs[1], rhs[1]));
             const double sw = inter_w / std::abs(inter_w + std::abs(rhs_w - lhs_w) + 1.0e-7);
             const double sh = inter_h / std::abs(inter_h + std::abs(rhs_h - lhs_h) + 1.0e-7);
-            cost(row, col) = CombinedCost(iou, lhs_cx, lhs_cy, rhs_cx, rhs_cy, lhs, rhs, sw, sh);
+            cost(row, col) = CombinedCost(geometry, lhs_cx, lhs_cy, rhs_cx, rhs_cy, lhs, rhs, sw, sh);
         }
     }
     return cost;
@@ -245,7 +213,10 @@ Eigen::MatrixXd CalculateAabbCost(
 Eigen::MatrixXd CalculateObbCost(
     const std::vector<SFSORTTracker::TrackData*>& tracks,
     const std::vector<Detection>& detections,
-    const bool iou_only
+    const bool geometry_only,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
@@ -256,9 +227,11 @@ Eigen::MatrixXd CalculateObbCost(
         const double lhs_h = track->xywha[3];
         for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
             const Detection& detection = detections[static_cast<std::size_t>(col)];
-            const double iou = ObbIoU(track->xywha, detection.xywha);
-            if (iou_only) {
-                cost(row, col) = 1.0 - iou;
+            const double geometry = boxmot::trackers::base::ObbAssociationSimilarity(
+                track->xywha, detection.xywha, association_mode, frame_width, frame_height
+            );
+            if (geometry_only) {
+                cost(row, col) = 1.0 - geometry;
                 continue;
             }
 
@@ -272,7 +245,7 @@ Eigen::MatrixXd CalculateObbCost(
             const double sw = use_swapped ? swapped_sw : direct_sw;
             const double sh = use_swapped ? swapped_sh : direct_sh;
             cost(row, col) = CombinedCost(
-                iou,
+                geometry,
                 lhs_cx,
                 lhs_cy,
                 detection.xywha[0],
@@ -314,7 +287,9 @@ void SFSORTTracker::TrackData::Update(const Detection& detection, const int fram
     det_ind = detection.det_ind;
 }
 
-SFSORTTracker::SFSORTTracker(Config config) : config_(std::move(config)) {}
+SFSORTTracker::SFSORTTracker(Config config)
+    : config_(std::move(config)),
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {}
 
 void SFSORTTracker::Reset() {
     frame_count_ = 0;
@@ -322,6 +297,8 @@ void SFSORTTracker::Reset() {
     margins_ready_ = false;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
+    association_frame_width_ = 0;
+    association_frame_height_ = 0;
     l_margin_ = 0.0;
     r_margin_ = 0.0;
     t_margin_ = 0.0;
@@ -435,15 +412,22 @@ TrackOutput SFSORTTracker::FormatTrack(const TrackData& track) {
 Eigen::MatrixXd SFSORTTracker::CalculateCost(
     const std::vector<TrackData*>& tracks,
     const std::vector<Detection>& detections,
-    const bool iou_only
+    const bool geometry_only,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     if (tracks.empty() || detections.empty()) {
         return Eigen::MatrixXd(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     }
     if (detections.front().is_obb) {
-        return CalculateObbCost(tracks, detections, iou_only);
+        return CalculateObbCost(
+            tracks, detections, geometry_only, association_mode, frame_width, frame_height
+        );
     }
-    return CalculateAabbCost(tracks, detections, iou_only);
+    return CalculateAabbCost(
+        tracks, detections, geometry_only, association_mode, frame_width, frame_height
+    );
 }
 
 std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
@@ -459,11 +443,21 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
         MaybeSetMargins(frame_width, frame_height);
     }
 
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
+        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+        association_frame_width_ = config_.frame_width > 0 ? config_.frame_width : image.cols;
+        association_frame_height_ = config_.frame_height > 0 ? config_.frame_height : image.rows;
+        if (association_frame_width_ <= 0 || association_frame_height_ <= 0) {
+            throw std::runtime_error("Native SFSORT requires an image to initialize centroid association.");
+        }
+    }
+
     if (!detections.empty()) {
         const bool det_is_obb = detections.front().is_obb;
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error("Native SFSORT cannot switch between AABB and OBB detections after initialization.");
         }
@@ -508,7 +502,14 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
     if (!definite_detections.empty()) {
         if (!track_pool.empty()) {
             const AssignmentResult first_matches = LinearAssignment(
-                CalculateCost(track_pool, definite_detections, false),
+                CalculateCost(
+                    track_pool,
+                    definite_detections,
+                    false,
+                    association_mode_,
+                    association_frame_width_,
+                    association_frame_height_
+                ),
                 static_cast<double>(mth)
             );
             for (const auto& match : first_matches.matches) {
@@ -548,7 +549,14 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
 
     if (!possible_detections.empty() && !unmatched_track_pool.empty()) {
         const AssignmentResult second_matches = LinearAssignment(
-            CalculateCost(unmatched_track_pool, possible_detections, true),
+            CalculateCost(
+                unmatched_track_pool,
+                possible_detections,
+                true,
+                association_mode_,
+                association_frame_width_,
+                association_frame_height_
+            ),
             static_cast<double>(config_.match_th_second)
         );
         for (const auto& match : second_matches.matches) {

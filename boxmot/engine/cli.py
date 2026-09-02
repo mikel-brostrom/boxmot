@@ -325,6 +325,19 @@ def tracker_backend_option(func):
     )(func)
 
 
+def association_function_option(func):
+    """Attach the shared detection-track geometry selector."""
+    return click.option(
+        "--asso-func",
+        type=click.Choice(
+            ("iou", "giou", "diou", "ciou", "hmiou", "centroid"),
+            case_sensitive=False,
+        ),
+        default=None,
+        help="Association geometry override; OBB supports iou, diou, and centroid.",
+    )(func)
+
+
 def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
     """Return True when a Click option came from the command line instead of defaults."""
     return ctx.get_parameter_source(option_name) != ParameterSource.DEFAULT
@@ -806,6 +819,7 @@ def boxmot(ctx):
 @source_option(default=TRACK_DEFAULTS.source, help_text='file/dir/URL/glob, 0 for webcam')
 @split_option
 @tracker_backend_option
+@association_function_option
 @core_options
 @singular_model_options
 @click.pass_context
@@ -879,6 +893,7 @@ def generate(ctx, experiment, detector, reid, classes, split, detection_source, 
 @detection_source_option
 @replay_backend_option
 @tracker_backend_option
+@association_function_option
 @core_options
 @plural_model_options
 @click.option('--tune-kf/--no-tune-kf', 'tune_kf', default=False,

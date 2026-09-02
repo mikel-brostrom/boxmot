@@ -24,6 +24,19 @@ Normal tracker construction extracts only `default`. The tuning engine reads
 `type`, `range`, `options`, `values`, and conditional `activates` metadata from
 the same entries.
 
+Every registered Python tracker declares the canonical association selector:
+
+```yaml
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+```
+
+The full list applies to AABB detections. OBB detections currently support
+`iou`, `diou`, and `centroid`; the runtime layout validation rejects the other
+choices when OBB mode is initialized.
+
 ## Presets
 
 `presets/` contains named scalar parameter profiles for a particular dataset,

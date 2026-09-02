@@ -35,6 +35,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert "--min-conf" in cmd
             assert "--track-thresh" in cmd
             assert "--match-thresh" in cmd
+            assert cmd[cmd.index("--asso-func") + 1] == "giou"
             assert stdout is native_module.subprocess.PIPE
             assert stderr is native_module.subprocess.PIPE
             assert text is True
@@ -64,6 +65,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             "track_buffer": 30,
             "match_thresh": 0.9,
             "frame_rate": 30,
+            "asso_func": "giou",
         },
         dataset_name="mot17-mini",
         conf_threshold=0.25,

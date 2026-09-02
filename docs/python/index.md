@@ -62,7 +62,7 @@ simple = BoxMOT(tracker="occluboost")
 
 configured = BoxMOT(
     tracker="occluboost",
-    tracker_kwargs={"with_reid": True},
+    tracker_kwargs={"with_reid": True, "asso_func": "giou"},
 )
 
 by_class = BoxMOT(
@@ -250,7 +250,7 @@ tracker = ByteTrack(
     track_buffer=30,
 )
 
-# Feed detections frame-by-frame. ByteTrack is motion-only, so no image is needed.
+# Feed detections frame-by-frame. Default-IoU ByteTrack needs no image.
 # dets: (N, 6) array with columns [x1, y1, x2, y2, conf, cls]
 tracks = tracker.update(dets)
 ```
@@ -260,10 +260,10 @@ interface, but the engine only supplies inputs the selected tracker consumes:
 
 | Tracker | Image | Embeddings | Masks |
 | --- | --- | --- | --- |
-| ByteTrack | Never used | Not used | Not used |
+| ByteTrack | Required on the first frame only when centroid association must infer frame dimensions; otherwise not used | Not used | Not used |
 | OCSort | Required initially when centroid association must infer frame dimensions; otherwise not used | Not used | Not used |
-| SFSORT | Only needed to infer frame margins when unequal central/marginal timeouts are configured without frame dimensions | Not used | Not used |
-| BotSort, BoostTrack, OccluBoost | Needed when CMC is enabled, or when live ReID must compute missing embeddings | Used when ReID is enabled | Not used |
+| SFSORT | Required initially for centroid association or frame margins unless `frame_width` and `frame_height` are configured | Not used | Not used |
+| BotSort, BoostTrack, OccluBoost | Needed for CMC or live ReID; also required initially when centroid association must infer frame dimensions | Used when ReID is enabled | Not used |
 | DeepOCSort, HybridSort | Needed for CMC or live ReID; also required initially when centroid association must infer frame dimensions | Used when ReID is enabled | Not used |
 | StrongSort | Required by CMC | Used; precomputed values avoid live ReID extraction | Not used |
 | Sam2Mot | Required for image-to-mask coordinate scaling | Not used | Optional; bbox matching is the fallback |

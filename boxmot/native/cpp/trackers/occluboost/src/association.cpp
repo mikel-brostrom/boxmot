@@ -209,7 +209,10 @@ AssociationResult Associate(
     const double lambda_iou,
     const double lambda_mhd,
     const double lambda_shape,
-    const double lambda_emb_multiplier
+    const double lambda_emb_multiplier,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     AssociationResult result;
     const int nd = static_cast<int>(detections.rows());
@@ -219,7 +222,7 @@ AssociationResult Associate(
         for (int i = 0; i < nd; ++i) {
             result.unmatched_dets[i] = i;
         }
-        result.iou_matrix = Eigen::MatrixXd::Zero(nd, 0);
+        result.geometry_matrix = Eigen::MatrixXd::Zero(nd, 0);
         return result;
     }
     if (nd == 0) {
@@ -227,12 +230,14 @@ AssociationResult Associate(
         for (int j = 0; j < nt; ++j) {
             result.unmatched_trks[j] = j;
         }
-        result.iou_matrix = Eigen::MatrixXd::Zero(0, nt);
+        result.geometry_matrix = Eigen::MatrixXd::Zero(0, nt);
         return result;
     }
 
-    Eigen::MatrixXd iou_matrix = IouBatch(detections, trackers);
-    Eigen::MatrixXd cost_matrix = iou_matrix;
+    Eigen::MatrixXd geometry_matrix = boxmot::trackers::base::AabbAssociationMatrix(
+        detections, trackers, association_mode, frame_width, frame_height
+    );
+    Eigen::MatrixXd cost_matrix = geometry_matrix;
 
     // Confidence-weighted IoU contribution.
     Eigen::MatrixXd conf = Eigen::MatrixXd::Zero(nd, nt);
@@ -241,12 +246,12 @@ AssociationResult Associate(
         for (int i = 0; i < nd; ++i) {
             for (int j = 0; j < nt; ++j) {
                 conf(i, j) = detection_confidence(i) * track_confidence(j);
-                if (iou_matrix(i, j) < iou_threshold) {
+                if (geometry_matrix(i, j) < iou_threshold) {
                     conf(i, j) = 0.0;
                 }
             }
         }
-        cost_matrix += lambda_iou * conf.cwiseProduct(IouBatch(detections, trackers));
+        cost_matrix += lambda_iou * conf.cwiseProduct(geometry_matrix);
     }
 
     if (mh_dist.size() > 0) {
@@ -276,10 +281,10 @@ AssociationResult Associate(
     for (const auto& match : hungarian.matches) {
         const int d = match.first;
         const int t = match.second;
-        const bool iou_ok = iou_matrix(d, t) >= iou_threshold;
+        const bool iou_ok = geometry_matrix(d, t) >= iou_threshold;
         bool emb_ok = false;
         if (emb_cost.size() > 0
-            && iou_matrix(d, t) >= 0.5 * iou_threshold
+            && geometry_matrix(d, t) >= 0.5 * iou_threshold
             && emb_cost(d, t) >= 0.75) {
             emb_ok = true;
         }
@@ -300,7 +305,7 @@ AssociationResult Associate(
             result.unmatched_trks.push_back(j);
         }
     }
-    result.iou_matrix = std::move(iou_matrix);
+    result.geometry_matrix = std::move(geometry_matrix);
     return result;
 }
 

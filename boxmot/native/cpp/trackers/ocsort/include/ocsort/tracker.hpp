@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boxmot/trackers/base/assignment.hpp"
+#include "boxmot/trackers/base/association.hpp"
 #include "boxmot/trackers/base/base_tracker.hpp"
 #include "ocsort/kalman_filter.hpp"
 #include "ocsort/types.hpp"
@@ -85,7 +86,10 @@ private:
     [[nodiscard]] static Eigen::MatrixXd SimilarityMatrix(
         const std::vector<Eigen::VectorXd>& detections,
         const std::vector<Eigen::VectorXd>& tracks,
-        bool is_obb_mode
+        bool is_obb_mode,
+        boxmot::trackers::base::AssociationMode association_mode,
+        int frame_width,
+        int frame_height
     );
     [[nodiscard]] static Eigen::MatrixXd DirectionCost(
         const std::vector<Eigen::VectorXd>& detections,
@@ -102,11 +106,17 @@ private:
         const std::vector<Eigen::VectorXd>& previous_obs,
         float iou_threshold,
         float inertia,
-        bool is_obb_mode
+        bool is_obb_mode,
+        boxmot::trackers::base::AssociationMode association_mode,
+        int frame_width,
+        int frame_height
     );
     [[nodiscard]] static TrackOutput FormatTrack(const KalmanBoxTracker& track);
 
     Config config_;
+    boxmot::trackers::base::AssociationMode association_mode_;
+    int association_frame_width_ = 0;
+    int association_frame_height_ = 0;
     int frame_count_ = 0;
     bool detection_mode_ready_ = false;
     bool is_obb_mode_ = false;

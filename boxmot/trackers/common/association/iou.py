@@ -381,7 +381,7 @@ class AssociationFunction:
         alpha = v / (S + v + epsilon)
 
         # Compute CIoU
-        ciou = iou - (inner_diag / outer_diag) + (alpha * v)
+        ciou = iou - (inner_diag / outer_diag) - (alpha * v)
 
         # Scale CIoU to [0, 1]
         return (ciou + 1) / 2.0

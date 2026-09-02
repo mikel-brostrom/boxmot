@@ -207,13 +207,28 @@ def test_obb_diou_uses_rotated_overlap_and_center_distance():
     assert displaced_diou < 1.0
 
 
-def test_obb_detection_layout_routes_diou_to_rotated_diou():
-    assert OBB_DETECTIONS.association_mode_name("diou") == "diou_obb"
+def test_ciou_penalizes_aspect_ratio_more_than_diou():
+    horizontal = np.array([[0.0, 2.0, 10.0, 8.0]], dtype=np.float32)
+    vertical = np.array([[2.0, 0.0, 8.0, 10.0]], dtype=np.float32)
+
+    ciou = AssociationFunction.ciou_batch(horizontal, vertical)[0, 0]
+    diou = AssociationFunction.diou_batch(horizontal, vertical)[0, 0]
+
+    assert ciou < diou
 
 
-def test_obb_detection_layout_rejects_unimplemented_geometry_metrics():
+@pytest.mark.parametrize(
+    ("mode", "oriented_mode"),
+    (("iou", "iou_obb"), ("diou", "diou_obb"), ("centroid", "centroid_obb")),
+)
+def test_obb_detection_layout_routes_supported_association_modes(mode, oriented_mode):
+    assert OBB_DETECTIONS.association_mode_name(mode) == oriented_mode
+
+
+@pytest.mark.parametrize("mode", ("giou", "ciou", "hmiou"))
+def test_obb_detection_layout_rejects_unimplemented_geometry_metrics(mode):
     with pytest.raises(ValueError, match="no oriented-box implementation"):
-        OBB_DETECTIONS.association_mode_name("giou")
+        OBB_DETECTIONS.association_mode_name(mode)
 
 
 def test_boost_association_uses_oriented_overlap_for_ambiguous_enclosing_boxes():

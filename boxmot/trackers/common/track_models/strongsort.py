@@ -97,6 +97,11 @@ class Track:
         return ret
 
     @property
+    def xyxy(self):
+        """Return axis-aligned geometry for shared association helpers."""
+        return self.to_tlbr()
+
+    @property
     def xywha(self):
         if not self.is_obb:
             raise AttributeError("xywha is only available for OBB tracks")

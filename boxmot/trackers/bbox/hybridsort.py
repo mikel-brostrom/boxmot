@@ -20,27 +20,14 @@ from boxmot.trackers.common.association.hybrid import (
     associate_4_points_with_score,
     associate_4_points_with_score_with_reid,
     cal_score_dif_batch_two_score,
-    ciou_batch,
-    ct_dist,
-    diou_batch,
     embedding_distance,
-    giou_batch,
-    hmiou,
-    iou_batch,
     linear_assignment,
 )
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker, k_previous_obs
-from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker as OBBKalmanBoxTracker
-
-ASSO_FUNCS = {
-    "iou": iou_batch,
-    "giou": giou_batch,
-    "ciou": ciou_batch,
-    "diou": diou_batch,
-    "ct_dist": ct_dist,
-    "hmiou": hmiou,
-}
+from boxmot.trackers.common.track_models.ocsort import (
+    KalmanBoxTracker as OBBKalmanBoxTracker,
+)
 
 
 class HybridSort(BaseTracker):
@@ -196,11 +183,7 @@ class HybridSort(BaseTracker):
         """
         if self.is_obb:
             return self._update_obb(dets, img, embs, masks)
-        association_function = (
-            self.asso_func
-            if self.asso_func_name in {"centroid", "centroid_obb"}
-            else ASSO_FUNCS[self.asso_func_name]
-        )
+        association_function = self.asso_func
         self.frame_count += 1
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)

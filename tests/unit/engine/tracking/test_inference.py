@@ -1333,6 +1333,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
         tracker="bytetrack",
+        asso_func="centroid",
         experiment="mot17-mini",
         benchmark="mot17-mini",
         source=None,
@@ -1354,6 +1355,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert "pipeline" in calls[0]
+    assert calls[0]["evolve_config"] == {"asso_func": "centroid"}
     assert calls[0]["verbose"] is False
 
 

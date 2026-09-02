@@ -44,8 +44,18 @@ on first `eval` or `tune` use.
 | `botsort`    | Yes | Yes | AABB/OBB; uses native C++ ReID. |
 | `bytetrack`  | Yes | Yes | AABB/OBB; no ReID. |
 | `occluboost` | Yes | Yes | AABB/OBB; uses native C++ ReID for embeddings, recovery, and second pass. |
-| `ocsort`     | Yes | Yes | AABB/OBB; native backend currently uses `asso_func=iou`. |
+| `ocsort`     | Yes | Yes | AABB/OBB; no ReID. |
 | `sfsort`     | Yes | Yes | AABB/OBB; no ReID. |
+
+Every native tracker honors the `asso_func` value from its tracker
+configuration. AABB tracking supports `iou`, `giou`, `diou`, `ciou`, `hmiou`,
+and `centroid`; OBB tracking supports `iou`, `diou`, and `centroid`. Selecting
+an unsupported metric fails explicitly instead of falling back to IoU.
+
+`centroid` normalizes distances by the frame dimensions. Live trackers infer
+and cache those dimensions from the first image. SFSORT can instead use its
+configured `frame_width` and `frame_height`; the other native trackers require
+the initial image. Cached replay reads the image dimensions from the sequence.
 
 Native live trackers do not currently support `per_class=True`. Use the Python
 backend when each class needs separate tracker state.
@@ -224,6 +234,7 @@ int main() {
     cfg.track_thresh = 0.5F;
     cfg.match_thresh = 0.8F;
     cfg.track_buffer = 30;
+    cfg.asso_func    = "iou";
 
     bytetrack::ByteTrackTracker tracker(cfg);
 
@@ -241,10 +252,12 @@ int main() {
 }
 ```
 
-ByteTrack does not consume image pixels. Its native C++ implementation shares
-the common `Update(detections, const cv::Mat&)` interface, so pass an empty
-`cv::Mat`. The Python `NativeByteTrackTracker` wrapper expresses the same call
-as `tracker.update(dets)` and forwards no image buffer.
+ByteTrack does not consume image pixels with the default IoU association, so
+the example passes an empty `cv::Mat`. With `cfg.asso_func = "centroid"`, pass
+the first frame so the tracker can cache its dimensions; later calls can again
+use an empty matrix. The Python wrapper follows the same contract with
+`tracker.update(dets, img)` for the initial centroid call and
+`tracker.update(dets)` afterward.
 
 Build and run:
 

@@ -36,6 +36,7 @@ botsort::Config ConvertConfig(const BoxMOTBotSortConfig& config) {
     native_config.max_obs = config.max_obs;
     native_config.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
     native_config.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 

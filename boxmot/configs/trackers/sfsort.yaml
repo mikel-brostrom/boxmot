@@ -23,6 +23,11 @@ match_th_second:
   default: 0.3
   range: [0.1, 0.6]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 dynamic_tuning:
   type: choice
   default: false

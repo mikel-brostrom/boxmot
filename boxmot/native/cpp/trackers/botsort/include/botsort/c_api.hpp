@@ -32,6 +32,7 @@ struct BoxMOTBotSortConfig {
     int max_obs;
     const char* reid_model_path;
     const char* reid_preprocess;
+    const char* asso_func;
 };
 
 struct BoxMOTBotSortHandle;

@@ -262,6 +262,7 @@ class OccluBoost(BoostTrack):
             emb_cost = None
 
         mh_dist_matrix = self.get_mh_dist_matrix(dets)
+        geometry_similarity = self.asso_func(high_batch.boxes, trks_np[:, :4])
 
         matched, unmatched_dets, unmatched_trks, _ = associate(
             dets,
@@ -276,6 +277,7 @@ class OccluBoost(BoostTrack):
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
             lambda_emb_multiplier=self.lambda_emb_multiplier,
+            iou_matrix=geometry_similarity,
         )
 
         dets_alpha = confidence_aware_alpha(
@@ -309,7 +311,7 @@ class OccluBoost(BoostTrack):
                     pos = self.trackers[t].get_state()[0]
                     trks_pos[j, :4] = pos
                     trks_pos[j, 4] = self.trackers[t].get_confidence()
-                ious = iou_batch(dets[u_det_idx], trks_pos)
+                ious = self.asso_func(high_batch.boxes[u_det_idx], trks_pos[:, :4])
 
                 gated = sim.copy()
                 gated[ious < self.recovery_iou_thresh] = -1.0
@@ -354,7 +356,7 @@ class OccluBoost(BoostTrack):
                     pos = self.trackers[t].get_state()[0]
                     trks_pos[j, :4] = pos
                     trks_pos[j, 4] = self.trackers[t].get_confidence()
-                ious2 = iou_batch(dets_second, trks_pos)
+                ious2 = self.asso_func(second_batch.boxes, trks_pos[:, :4])
 
                 cost = 1.0 - ious2
                 cost[ious2 < self.second_iou_thresh] = 1.0
@@ -937,9 +939,8 @@ class OccluBoost(BoostTrack):
         * Detections use the 7-col layout ``(cx, cy, w, h, angle, conf, cls)``;
           ``self.detection_layout.with_detection_indices`` appends ``det_ind``.
         * Camera-motion compensation, DLO, and DUO use native OBB geometry.
-        * Association uses oriented IoU via
-          :meth:`AssociationFunction.iou_batch_obb`, optionally fused with a
-          ReID cosine-similarity term BoTSORT-style.
+        * Association uses the selected oriented geometry, optionally fused
+          with a ReID cosine-similarity term BoTSORT-style.
         * Outputs follow the OBB schema
           ``[cx, cy, w, h, angle, id, conf, cls, det_ind]`` (9 cols).
         """
@@ -1006,7 +1007,7 @@ class OccluBoost(BoostTrack):
             unmatched_dets = np.arange(n_dets, dtype=int)
             unmatched_trks = np.arange(n_trks, dtype=int)
         else:
-            iou = AssociationFunction.iou_batch_obb(self.detection_layout.boxes(dets), trks_xywha)
+            iou = self.asso_func(high_batch.boxes, trks_xywha)
             cost = 1.0 - iou
             cost[iou < self.obb_iou_threshold] = 1e6
 
@@ -1058,7 +1059,7 @@ class OccluBoost(BoostTrack):
                 sim = det_e @ trk_e.T
 
                 trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig], axis=0)
-                ious = AssociationFunction.iou_batch_obb(self.detection_layout.boxes(dets)[u_det_idx], trks_pos)
+                ious = self.asso_func(high_batch.boxes[u_det_idx], trks_pos)
 
                 gated = sim.copy()
                 gated[ious < self.recovery_iou_thresh] = -1.0
@@ -1099,7 +1100,7 @@ class OccluBoost(BoostTrack):
             ]
             if elig_sec:
                 trks_pos = np.stack([self.trackers[t].get_state()[0] for t in elig_sec], axis=0)
-                ious2 = AssociationFunction.iou_batch_obb(self.detection_layout.boxes(dets_second), trks_pos)
+                ious2 = self.asso_func(second_batch.boxes, trks_pos)
                 cost2 = 1.0 - ious2
                 cost2[ious2 < self.obb_second_iou_thresh] = 1.0
 

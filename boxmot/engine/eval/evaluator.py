@@ -536,9 +536,15 @@ def run_eval(
 
 def main(args):
     _normalize_eval_models(args)
+    tracker_overrides = None
+    if getattr(args, "asso_func", None):
+        tracker_overrides = {"asso_func": args.asso_func}
     pipeline = EvalWorkflowReporter(args).pipeline()
     with pipeline:
-        result = run_eval(args, verbose=False, pipeline=pipeline)
+        run_kwargs = {"verbose": False, "pipeline": pipeline}
+        if tracker_overrides is not None:
+            run_kwargs["evolve_config"] = tracker_overrides
+        result = run_eval(args, **run_kwargs)
 
     plot_class, metrics_data = _get_lazy_export("_select_plot_metrics_data")(result.raw)
     if metrics_data:

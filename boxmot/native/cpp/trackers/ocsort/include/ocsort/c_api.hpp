@@ -26,6 +26,7 @@ struct BoxMOTOCSORTConfig {
     float q_xy_scaling;
     float q_s_scaling;
     int max_obs;
+    const char* asso_func;
 };
 
 struct BoxMOTOCSORTHandle;

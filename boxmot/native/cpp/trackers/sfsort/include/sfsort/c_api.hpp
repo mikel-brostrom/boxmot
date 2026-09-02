@@ -34,6 +34,7 @@ struct BoxMOTSFSORTConfig {
     int vertical_margin;
     int frame_rate;
     int max_obs;
+    const char* asso_func;
 };
 
 struct BoxMOTSFSORTHandle;

@@ -23,6 +23,11 @@ match_thresh:
   default: 0.7722224024589055
   range: [0.1, 0.9]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 use_cmc:
   type: choice
   default: True

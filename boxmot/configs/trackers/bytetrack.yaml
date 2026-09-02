@@ -18,6 +18,11 @@ match_thresh:
   default: 0.9  # from the default parameters
   range: [0.7, 0.9]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 frame_rate:
   type: choice
   default: 30  # from the default parameters

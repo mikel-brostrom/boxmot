@@ -23,6 +23,9 @@ BoxMOT ships multiple tracker backends behind one interface.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
 - Use `sam2mot` when each detection has a row-aligned segmentation mask and you want mask-aware association without ReID.
 - All registered Python trackers accept both AABB and OBB detections.
+- All registered Python trackers expose the same selectable `asso_func`; see
+  [tracker configuration](../config/trackers.md#association-function) for the
+  supported AABB and OBB choices.
 - Use `--tracker-backend cpp` for native C++ implementations when the selected tracker has a native backend.
 
 ## Config and factory

@@ -5,7 +5,7 @@ import yaml
 
 import boxmot.trackers.registry as tracker_registry
 from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.config import TRACKER_CONFIGS_DIR, load_tracker_config
+from boxmot.trackers.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
 from boxmot.trackers.registry import (
     REID_TRACKERS,
     TRACKER_CLASS_TO_NAME,
@@ -67,6 +67,16 @@ def test_sfsort_canonical_config_includes_obb_theta_damping():
     assert defaults["obb_theta_damping"] == 0.8
 
 
+@pytest.mark.parametrize("tracker_name", TRACKER_DEFINITIONS)
+def test_all_python_tracker_configs_expose_canonical_association_choices(tracker_name):
+    association = load_tracker_schema(tracker_name)["asso_func"]
+
+    assert association["type"] == "choice"
+    assert association["options"] == ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
+    assert association["default"] in association["options"]
+    assert load_tracker_config(tracker_name)["asso_func"] == association["default"]
+
+
 def test_create_tracker_applies_tuned_values_before_tracker_kwargs(monkeypatch, tmp_path):
     captured = {}
     custom_path = tmp_path / "bytetrack.yaml"
@@ -82,7 +92,7 @@ def test_create_tracker_applies_tuned_values_before_tracker_kwargs(monkeypatch, 
         "bytetrack",
         tracker_config=custom_path,
         evolve_param_dict={"track_buffer": 45, "match_thresh": 0.8},
-        tracker_kwargs={"match_thresh": 0.75},
+        tracker_kwargs={"match_thresh": 0.75, "asso_func": "giou"},
         per_class=False,
     )
 
@@ -90,6 +100,7 @@ def test_create_tracker_applies_tuned_values_before_tracker_kwargs(monkeypatch, 
     assert captured["track_thresh"] == 0.7
     assert captured["track_buffer"] == 45
     assert captured["match_thresh"] == 0.75
+    assert captured["asso_func"] == "giou"
 
 
 def test_create_tracker_can_skip_warmup_for_a_shared_reid_model(monkeypatch):

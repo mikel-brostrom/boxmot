@@ -36,6 +36,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert "--use-byte" in cmd
             assert "--q-xy-scaling" in cmd
             assert "--max-obs" in cmd
+            assert cmd[cmd.index("--asso-func") + 1] == "giou"
             assert stdout is native_module.subprocess.PIPE
             assert stderr is native_module.subprocess.PIPE
             assert text is True
@@ -71,6 +72,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             "Q_xy_scaling": 0.02,
             "Q_s_scaling": 0.0002,
             "max_obs": 25,
+            "asso_func": "giou",
         },
         dataset_name="mot17-mini",
         conf_threshold=0.25,
@@ -292,8 +294,13 @@ def test_process_sequence_cpp_streams_progress_updates(monkeypatch, tmp_path):
     assert progress_queue.get_nowait() == ("MOT17-02-FRCNN", 2, 2)
 
 
-def test_native_ocsort_rejects_non_iou_association():
-    with pytest.raises(NotImplementedError, match="asso_func='iou' only"):
-        native_module.NativeOCSORTTracker(
-            {"asso_func": "giou"}, library=type("L", (), {"create": lambda self, cfg: None})()
-        )
+def test_native_ocsort_accepts_non_iou_association():
+    captured = {}
+
+    class _FakeLibrary:
+        def create(self, cfg):
+            captured.update(cfg)
+            return None
+
+    native_module.NativeOCSORTTracker({"asso_func": "giou"}, library=_FakeLibrary())
+    assert captured["asso_func"] == "giou"

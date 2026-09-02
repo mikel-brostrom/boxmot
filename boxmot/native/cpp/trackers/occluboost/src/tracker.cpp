@@ -61,6 +61,7 @@ boxmot::trackers::base::ReIdDevice ParseReIdDevice(const std::string& s) {
 
 OccluBoostTracker::OccluBoostTracker(Config config)
     : config_(std::move(config)),
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
     config_.obb_det_thresh = std::max(config_.obb_det_thresh, 0.0F);
     config_.obb_iou_threshold = std::clamp(config_.obb_iou_threshold, 0.0F, 1.0F);
@@ -97,6 +98,8 @@ void OccluBoostTracker::Reset() {
     last_reid_postprocess_time_ms_ = 0.0;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
+    association_frame_width_ = 0;
+    association_frame_height_ = 0;
 }
 
 std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
@@ -634,12 +637,21 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
     const std::vector<Detection>& detections,
     const cv::Mat& image
 ) {
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
+        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+        if (image.empty()) {
+            throw std::runtime_error("Native OccluBoost requires an image to initialize centroid association.");
+        }
+        association_frame_width_ = image.cols;
+        association_frame_height_ = image.rows;
+    }
     // Latch detection mode (AABB vs OBB) from first non-empty frame.
     if (!detections.empty()) {
         const bool det_is_obb = detections.front().is_obb;
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error(
                 "Native OccluBoost cannot switch between AABB and OBB detections after initialization."
@@ -776,7 +788,10 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         config_.lambda_iou,
         config_.lambda_mhd,
         config_.lambda_shape,
-        config_.lambda_emb_multiplier
+        config_.lambda_emb_multiplier,
+        association_mode_,
+        association_frame_width_,
+        association_frame_height_
     );
 
     // dets_alpha for ReID EMA on matched pairs.
@@ -847,7 +862,13 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                     trk_box_mat(static_cast<int>(j), 3) = xyxy[3];
                     trk_box_mat(static_cast<int>(j), 4) = trackers_[elig[j]]->GetConfidence();
                 }
-                Eigen::MatrixXd ious = IouBatch(det_box_mat, trk_box_mat);
+                Eigen::MatrixXd ious = boxmot::trackers::base::AabbAssociationMatrix(
+                    det_box_mat,
+                    trk_box_mat,
+                    association_mode_,
+                    association_frame_width_,
+                    association_frame_height_
+                );
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
@@ -925,7 +946,13 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                 trk_box_mat(static_cast<int>(j), 3) = xyxy[3];
                 trk_box_mat(static_cast<int>(j), 4) = trackers_[elig[j]]->GetConfidence();
             }
-            Eigen::MatrixXd ious = IouBatch(det_box_mat, trk_box_mat);
+            Eigen::MatrixXd ious = boxmot::trackers::base::AabbAssociationMatrix(
+                det_box_mat,
+                trk_box_mat,
+                association_mode_,
+                association_frame_width_,
+                association_frame_height_
+            );
             Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {
@@ -1166,7 +1193,13 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         for (int i = 0; i < n_dets; ++i) unmatched_dets.push_back(i);
         for (int j = 0; j < n_trks; ++j) unmatched_trks.push_back(j);
     } else {
-        const Eigen::MatrixXd iou = IouBatchObb(dets_xywha, trks_xywha);
+        const Eigen::MatrixXd iou = boxmot::trackers::base::ObbAssociationMatrix(
+            dets_xywha,
+            trks_xywha,
+            association_mode_,
+            association_frame_width_,
+            association_frame_height_
+        );
         Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(n_dets, n_trks, 1.0);
         for (int i = 0; i < n_dets; ++i) {
             for (int j = 0; j < n_trks; ++j) {
@@ -1248,7 +1281,13 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
                 for (std::size_t j = 0; j < elig.size(); ++j) {
                     trk_xywha_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->xywha().transpose();
                 }
-                const Eigen::MatrixXd ious = IouBatchObb(det_xywha_mat, trk_xywha_mat);
+                const Eigen::MatrixXd ious = boxmot::trackers::base::ObbAssociationMatrix(
+                    det_xywha_mat,
+                    trk_xywha_mat,
+                    association_mode_,
+                    association_frame_width_,
+                    association_frame_height_
+                );
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
@@ -1319,7 +1358,13 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
             for (std::size_t j = 0; j < elig.size(); ++j) {
                 trk_xywha_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->xywha().transpose();
             }
-            const Eigen::MatrixXd ious = IouBatchObb(det_xywha_mat, trk_xywha_mat);
+            const Eigen::MatrixXd ious = boxmot::trackers::base::ObbAssociationMatrix(
+                det_xywha_mat,
+                trk_xywha_mat,
+                association_mode_,
+                association_frame_width_,
+                association_frame_height_
+            );
             Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {

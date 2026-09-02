@@ -59,6 +59,7 @@ class BoostTrack(BaseTracker):
     supports_obb = True
     uses_img = True
     uses_embs = True
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -114,7 +115,11 @@ class BoostTrack(BaseTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
         self.uses_embs = self.with_reid
-        self.uses_img = bool(self.cmc is not None or self.with_reid)
+        self.uses_img = bool(
+            self.cmc is not None
+            or self.with_reid
+            or self.asso_func_name in {"centroid", "centroid_obb"}
+        )
 
     def requires_image(
         self,
@@ -218,9 +223,8 @@ class BoostTrack(BaseTracker):
 
         association_dets = dets[:, : self.detection_layout.box_with_conf_cols] if self.is_obb else assoc_dets
         association_trks = trks_obb_np if self.is_obb else trks_np
-        oriented_iou = (
-            AssociationFunction.iou_batch_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
-        )
+        tracker_boxes = trks_obb_np[:, :5] if self.is_obb else trks_np[:, :4]
+        geometry_similarity = self.asso_func(batch.boxes, tracker_boxes)
         oriented_shape = shape_similarity_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
         matched, unmatched_dets, unmatched_trks, _ = associate(
             association_dets,
@@ -234,7 +238,7 @@ class BoostTrack(BaseTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
-            iou_matrix=oriented_iou,
+            iou_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
         )
 

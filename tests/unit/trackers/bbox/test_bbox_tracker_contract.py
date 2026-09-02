@@ -604,13 +604,18 @@ def test_trackers_without_active_pixel_paths_accept_detections_only(name, factor
         ("sfsort", lambda: SFSORT(asso_func="centroid")),
     ),
 )
-def test_unused_association_setting_does_not_require_image(name, factory) -> None:
+def test_centroid_association_requires_only_the_initial_image(name, factory) -> None:
     tracker = factory()
+    dets = _aabb_dets()
 
-    assert tracker.uses_img is False, name
-    assert tracker.requires_image(_aabb_dets()) is False, name
-    assert tracker.update(_aabb_dets()).ndim == 2, name
-    assert tracker.uses_img is False, name
+    assert tracker.uses_img is True, name
+    assert tracker.requires_image(dets) is True, name
+    with pytest.raises(ValueError, match="requires img when using 'centroid' association"):
+        tracker.update(dets)
+
+    assert tracker.update(dets, img=_img()).ndim == 2, name
+    assert tracker.requires_image(dets) is False, name
+    assert tracker.update(dets).ndim == 2, name
 
 
 @pytest.mark.parametrize(
@@ -658,10 +663,10 @@ def test_centroid_association_only_requires_initial_image(name, factory) -> None
         ("sam2mot", lambda: Sam2Mot(asso_func="centroid")),
     ),
 )
-def test_independent_image_requirements_do_not_report_centroid(name, factory) -> None:
+def test_centroid_reason_is_reported_for_initial_image_requirement(name, factory) -> None:
     tracker = factory()
 
-    with pytest.raises(ValueError, match="requires img for the current tracker configuration"):
+    with pytest.raises(ValueError, match="requires img when using 'centroid' association"):
         tracker.update(_aabb_dets())
 
 
@@ -742,6 +747,18 @@ def test_sfsort_only_requires_image_to_initialize_distinct_region_timeouts() -> 
     )
     assert configured.uses_img is False
     assert configured.update(dets).ndim == 2
+
+
+def test_sfsort_centroid_uses_explicit_frame_dimensions_without_image() -> None:
+    tracker = SFSORT(
+        asso_func="centroid",
+        frame_width=128,
+        frame_height=96,
+    )
+
+    assert tracker.uses_img is False
+    assert tracker.requires_image(_aabb_dets()) is False
+    assert tracker.update(_aabb_dets()).ndim == 2
 
 
 def test_optional_inputs_are_validated_centrally() -> None:

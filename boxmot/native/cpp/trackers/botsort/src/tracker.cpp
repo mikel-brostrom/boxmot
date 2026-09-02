@@ -17,71 +17,39 @@ using boxmot::trackers::base::LinearAssignment;
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
-
-cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
-    return cv::RotatedRect(
-        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-        cv::Size2f(
-            static_cast<float>(std::max(box[2], 1.0e-4)),
-            static_cast<float>(std::max(box[3], 1.0e-4))
-        ),
-        static_cast<float>(box[4] * 180.0 / kPi)
+double PairwiseSimilarity(
+    const Track::Ptr& lhs,
+    const Track::Ptr& rhs,
+    const boxmot::trackers::base::AssociationMode mode,
+    const int frame_width = 0,
+    const int frame_height = 0
+) {
+    if (lhs->UsesObb() || rhs->UsesObb()) {
+        return boxmot::trackers::base::ObbAssociationSimilarity(
+            lhs->xywha(), rhs->xywha(), mode, frame_width, frame_height
+        );
+    }
+    return boxmot::trackers::base::AabbAssociationSimilarity(
+        lhs->xyxy(), rhs->xyxy(), mode, frame_width, frame_height
     );
 }
 
-double AabbIoU(const Eigen::Vector4d& lhs, const Eigen::Vector4d& rhs) {
-    const double x1 = std::max(lhs[0], rhs[0]);
-    const double y1 = std::max(lhs[1], rhs[1]);
-    const double x2 = std::min(lhs[2], rhs[2]);
-    const double y2 = std::min(lhs[3], rhs[3]);
-    const double inter_w = std::max(0.0, x2 - x1);
-    const double inter_h = std::max(0.0, y2 - y1);
-    const double inter = inter_w * inter_h;
-    const double lhs_area = std::max(0.0, lhs[2] - lhs[0]) * std::max(0.0, lhs[3] - lhs[1]);
-    const double rhs_area = std::max(0.0, rhs[2] - rhs[0]) * std::max(0.0, rhs[3] - rhs[1]);
-    const double denom = lhs_area + rhs_area - inter;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter / denom;
-}
-
-double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
-    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
-    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
-
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-
-    const double inter_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double denom = lhs_area + rhs_area - inter_area;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter_area / denom;
-}
-
-double PairwiseIoU(const Track::Ptr& lhs, const Track::Ptr& rhs) {
-    if (lhs->UsesObb() || rhs->UsesObb()) {
-        return ObbIoU(lhs->xywha(), rhs->xywha());
-    }
-    return AabbIoU(lhs->xyxy(), rhs->xyxy());
-}
-
-Eigen::MatrixXd IouDistance(const std::vector<Track::Ptr>& tracks, const std::vector<Track::Ptr>& detections) {
+Eigen::MatrixXd AssociationDistance(
+    const std::vector<Track::Ptr>& tracks,
+    const std::vector<Track::Ptr>& detections,
+    const boxmot::trackers::base::AssociationMode mode,
+    const int frame_width = 0,
+    const int frame_height = 0
+) {
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     if (tracks.empty() || detections.empty()) {
         return cost;
     }
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
         for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
-            cost(row, col) = 1.0 - PairwiseIoU(tracks[row], detections[col]);
+            cost(row, col) = 1.0 - PairwiseSimilarity(
+                tracks[row], detections[col], mode, frame_width, frame_height
+            );
         }
     }
     return cost;
@@ -159,7 +127,11 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTrack
     const std::vector<Track::Ptr>& lhs,
     const std::vector<Track::Ptr>& rhs
 ) {
-    const Eigen::MatrixXd distances = IouDistance(lhs, rhs);
+    const Eigen::MatrixXd distances = AssociationDistance(
+        lhs,
+        rhs,
+        boxmot::trackers::base::AssociationMode::kIou
+    );
     std::unordered_set<int> dup_lhs;
     std::unordered_set<int> dup_rhs;
     for (int row = 0; row < distances.rows(); ++row) {
@@ -195,6 +167,7 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTrack
 
 BotSortTracker::BotSortTracker(Config config)
     : config_(std::move(config)),
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) * static_cast<double>(config_.track_buffer))),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
     Track::ResetCount();
@@ -214,6 +187,8 @@ void BotSortTracker::Reset() {
     }
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
+    association_frame_width_ = 0;
+    association_frame_height_ = 0;
     kalman_filter_ = KalmanFilterXYWH(4);
     Track::ResetCount();
     active_tracks_.clear();
@@ -327,11 +302,20 @@ std::vector<TrackOutput> BotSortTracker::PrepareOutput(
 }
 
 std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
+        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+        if (image.empty()) {
+            throw std::runtime_error("Native BoTSORT requires an image to initialize centroid association.");
+        }
+        association_frame_width_ = image.cols;
+        association_frame_height_ = image.rows;
+    }
     if (!detections.empty()) {
         const bool det_is_obb = detections.front().is_obb;
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
             kalman_filter_ = KalmanFilterXYWH(det_is_obb ? 5 : 4);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error("Native BoTSORT cannot switch between AABB and OBB detections after initialization.");
@@ -396,14 +380,22 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
     }
     ApplyCameraMotionCompensation(image, working_detections, strack_pool, unconfirmed);
 
-    const Eigen::MatrixXd iou_first = IouDistance(strack_pool, detections_first);
-    Eigen::MatrixXd dist_first = config_.fuse_first_associate ? FuseScore(iou_first, detections_first) : iou_first;
+    const Eigen::MatrixXd geometry_first = AssociationDistance(
+        strack_pool,
+        detections_first,
+        association_mode_,
+        association_frame_width_,
+        association_frame_height_
+    );
+    Eigen::MatrixXd dist_first =
+        config_.fuse_first_associate ? FuseScore(geometry_first, detections_first) : geometry_first;
 
     if (config_.with_reid && dist_first.size() > 0) {
         Eigen::MatrixXd emb_first = EmbeddingDistance(strack_pool, detections_first);
         for (int row = 0; row < emb_first.rows(); ++row) {
             for (int col = 0; col < emb_first.cols(); ++col) {
-                if (emb_first(row, col) > config_.appearance_thresh || iou_first(row, col) > config_.proximity_thresh) {
+                if (emb_first(row, col) > config_.appearance_thresh
+                    || geometry_first(row, col) > config_.proximity_thresh) {
                     emb_first(row, col) = 1.0;
                 }
                 dist_first(row, col) = std::min(dist_first(row, col), emb_first(row, col));
@@ -431,7 +423,13 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         }
     }
 
-    const Eigen::MatrixXd second_dist = IouDistance(remaining_tracked, detections_second);
+    const Eigen::MatrixXd second_dist = AssociationDistance(
+        remaining_tracked,
+        detections_second,
+        association_mode_,
+        association_frame_width_,
+        association_frame_height_
+    );
     const AssignmentResult second_matches = LinearAssignment(second_dist, config_.second_match_thresh);
     for (const auto& match : second_matches.matches) {
         const auto& track = remaining_tracked[match.first];
@@ -458,14 +456,21 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         remaining_high.push_back(detections_first[index]);
     }
 
-    const Eigen::MatrixXd iou_unc = IouDistance(unconfirmed, remaining_high);
-    Eigen::MatrixXd dist_unc = FuseScore(iou_unc, remaining_high);
+    const Eigen::MatrixXd geometry_unc = AssociationDistance(
+        unconfirmed,
+        remaining_high,
+        association_mode_,
+        association_frame_width_,
+        association_frame_height_
+    );
+    Eigen::MatrixXd dist_unc = FuseScore(geometry_unc, remaining_high);
     if (config_.with_reid && dist_unc.size() > 0) {
         Eigen::MatrixXd emb_unc = EmbeddingDistance(unconfirmed, remaining_high);
         emb_unc /= std::max(static_cast<double>(config_.unconfirmed_emb_scale), 1.0e-12);
         for (int row = 0; row < emb_unc.rows(); ++row) {
             for (int col = 0; col < emb_unc.cols(); ++col) {
-                if (emb_unc(row, col) > config_.appearance_thresh || iou_unc(row, col) > config_.proximity_thresh) {
+                if (emb_unc(row, col) > config_.appearance_thresh
+                    || geometry_unc(row, col) > config_.proximity_thresh) {
                     emb_unc(row, col) = 1.0;
                 }
                 dist_unc(row, col) = std::min(dist_unc(row, col), emb_unc(row, col));

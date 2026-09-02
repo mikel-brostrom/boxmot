@@ -159,6 +159,7 @@ process-level settings are:
 | --- | --- | --- | --- |
 | `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
 | `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
+| `BOXMOT_SERVICE_ASSO_FUNC` | `iou` | `iou` | Geometry used for detection-track matching. AABB: `iou`, `giou`, `diou`, `ciou`, `hmiou`, or `centroid`; OBB: `iou`, `diou`, or `centroid`. |
 | `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
 | `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
 | `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |
@@ -178,9 +179,13 @@ docker run --rm \
   -p 8080:8080 \
   -e BOXMOT_SERVICE_PORT=8080 \
   -e BOXMOT_SERVICE_TRACKER=ocsort \
+  -e BOXMOT_SERVICE_ASSO_FUNC=centroid \
   -e BOXMOT_SERVICE_MAX_STREAMS=512 \
   boxmot/boxmot-service:latest
 ```
+
+Centroid normalization uses the session's fixed `width` and `height`. The CPU
+profile therefore remains pixel-free when centroid is selected.
 
 ## Scale replicas
 

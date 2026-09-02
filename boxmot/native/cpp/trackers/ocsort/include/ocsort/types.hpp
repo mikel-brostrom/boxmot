@@ -11,6 +11,7 @@ namespace ocsort {
 namespace fs = std::filesystem;
 
 struct Config {
+    std::string asso_func = "iou";
     float min_conf = 0.1F;
     float det_thresh = 0.6F;
     float iou_threshold = 0.3F;

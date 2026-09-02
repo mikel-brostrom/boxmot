@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boxmot/trackers/base/base_tracker.hpp"
+#include "boxmot/trackers/base/association.hpp"
 #include "botsort/cmc.hpp"
 #include "botsort/reid_onnx.hpp"
 #include "botsort/track.hpp"
@@ -44,6 +45,9 @@ private:
     );
 
     Config config_;
+    boxmot::trackers::base::AssociationMode association_mode_;
+    int association_frame_width_ = 0;
+    int association_frame_height_ = 0;
     int frame_count_ = 0;
     int max_time_lost_ = 30;
     KalmanFilterXYWH kalman_filter_{4};

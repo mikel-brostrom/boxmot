@@ -28,6 +28,7 @@ _TRACKER_NAME = "bytetrack"
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved = _native_trackers.load_tracker_cfg("bytetrack", cfg_dict)
+    _native_trackers.resolve_association_function(resolved)
     resolved.setdefault("frame_rate", 30)
     resolved.setdefault("max_obs", 50)
     return resolved
@@ -59,6 +60,7 @@ class _ByteTrackCConfig(ctypes.Structure):
         ("track_buffer", ctypes.c_int),
         ("frame_rate", ctypes.c_int),
         ("max_obs", ctypes.c_int),
+        ("asso_func", ctypes.c_char_p),
     ]
 
 
@@ -96,6 +98,7 @@ class _ByteTrackLiveLibrary:
             track_buffer=int(cfg["track_buffer"]),
             frame_rate=int(cfg.get("frame_rate", 30)),
             max_obs=int(cfg.get("max_obs", 50)),
+            asso_func=str(cfg["asso_func"]).encode("utf-8"),
         )
         handle = self._library.boxmot_bytetrack_create(ctypes.byref(c_cfg))
         if not handle:
@@ -111,12 +114,11 @@ class _ByteTrackLiveLibrary:
             raise RuntimeError(self._last_error())
 
     def update(self, handle, dets: np.ndarray, img: np.ndarray | None = None) -> np.ndarray:
-        del img
         return _native_trackers.call_update(
             self._library.boxmot_bytetrack_update,
             handle=handle,
             dets=dets,
-            img=None,
+            img=img,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
             requires_image=False,
@@ -151,8 +153,16 @@ class NativeByteTrackTracker(_native_trackers.NativeTrackerMixin):
         library: _ByteTrackLiveLibrary | None = None,
     ) -> None:
         del reid_weights, reid_preprocess
+        cfg = _resolve_tracker_cfg(cfg_dict)
+        self.asso_func_name = cfg["asso_func"]
+        self._needs_initial_image = _native_trackers.association_requires_initial_image(cfg)
+        self.uses_img = self._needs_initial_image
         native_library = library if library is not None else _get_live_bytetrack_library()
-        self._init_native_handle(library=native_library, cfg=_resolve_tracker_cfg(cfg_dict))
+        self._init_native_handle(library=native_library, cfg=cfg)
+
+    def requires_image(self, dets, embs=None, masks=None) -> bool:
+        del dets, embs, masks
+        return self._needs_initial_image
 
     def update(
         self,
@@ -161,10 +171,19 @@ class NativeByteTrackTracker(_native_trackers.NativeTrackerMixin):
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
     ) -> np.ndarray:
-        del img, embs, masks
+        del embs, masks
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, None)
+        if self._needs_initial_image and img is None:
+            raise ValueError("Native ByteTrack requires img to initialize centroid association.")
+        tracks = self._library.update(self._handle, det_arr, img if self._needs_initial_image else None)
+        self._needs_initial_image = False
+        self.uses_img = False
         return self._normalize_tracks_for_mode(tracks)
+
+    def reset(self) -> None:
+        super().reset()
+        self._needs_initial_image = self.asso_func_name == "centroid"
+        self.uses_img = self._needs_initial_image
 
 
 def create_bytetrack_live_tracker(
@@ -217,6 +236,8 @@ def process_sequence_cpp(
         conf_threshold=conf_threshold,
         target_fps=target_fps,
         extra_args=[
+            "--asso-func",
+            str(cfg["asso_func"]),
             "--min-conf",
             str(float(cfg["min_conf"])),
             "--track-thresh",

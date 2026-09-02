@@ -37,6 +37,7 @@ sfsort::Config ConvertConfig(const BoxMOTSFSORTConfig& config) {
     native_config.vertical_margin = config.vertical_margin;
     native_config.frame_rate = config.frame_rate;
     native_config.max_obs = config.max_obs;
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 

@@ -58,6 +58,32 @@ LIVE_UPDATE_WITH_EMBS_ARGTYPES = [
     ctypes.POINTER(ctypes.c_int),
 ]
 
+AABB_ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
+OBB_ASSOCIATION_FUNCTIONS = frozenset({"centroid", "diou", "iou"})
+
+
+def resolve_association_function(cfg: dict[str, Any]) -> str:
+    """Normalize and validate a native tracker's association function."""
+    asso_func = str(cfg.get("asso_func", "iou") or "iou").strip().lower()
+    if asso_func not in AABB_ASSOCIATION_FUNCTIONS:
+        available = ", ".join(sorted(AABB_ASSOCIATION_FUNCTIONS))
+        raise ValueError(f"Unknown association function {asso_func!r}. Choose from: {available}.")
+    cfg["asso_func"] = asso_func
+    return asso_func
+
+
+def association_requires_initial_image(
+    cfg: Mapping[str, Any],
+    *,
+    allow_configured_dimensions: bool = False,
+) -> bool:
+    """Return whether centroid normalization still needs frame dimensions."""
+    if str(cfg.get("asso_func", "iou")).strip().lower() != "centroid":
+        return False
+    if not allow_configured_dimensions:
+        return True
+    return int(cfg.get("frame_width", 0) or 0) <= 0 or int(cfg.get("frame_height", 0) or 0) <= 0
+
 
 def bool_arg(value: Any) -> str:
     return "1" if bool(value) else "0"
@@ -326,6 +352,13 @@ class NativeTrackerMixin:
                 )
 
             schema = schema_from_detection_columns(det_arr.shape[1])
+            asso_func = str(getattr(self, "cfg", {}).get("asso_func", "iou"))
+            if schema.is_obb and asso_func not in OBB_ASSOCIATION_FUNCTIONS:
+                available = ", ".join(sorted(OBB_ASSOCIATION_FUNCTIONS))
+                raise ValueError(
+                    f"Association function {asso_func!r} has no oriented-box implementation. "
+                    f"Choose from: {available}."
+                )
             layout = get_detection_layout(schema.is_obb)
             if det_arr.size:
                 boxes = layout.boxes(det_arr)

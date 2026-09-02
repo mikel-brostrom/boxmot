@@ -121,6 +121,22 @@ def test_eval_accepts_tracker_backend_option(monkeypatch):
     assert captured["args"].tracker_backend == "cpp"
 
 
+def test_eval_accepts_association_function_option(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--experiment", "mot17-mini", "--tracker", "ocsort", "--asso-func", "giou"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].asso_func == "giou"
+
+
 def test_track_accepts_tracker_backend_option(monkeypatch):
     captured = {}
 
@@ -137,6 +153,22 @@ def test_track_accepts_tracker_backend_option(monkeypatch):
     assert captured["args"].tracker == "botsort"
     assert captured["args"].tracker_backend == "cpp"
     assert captured["args"].show is True
+
+
+def test_track_accepts_association_function_option(monkeypatch):
+    captured = {}
+
+    def fake_main(args):
+        captured["args"] = args
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tracking.workflow", SimpleNamespace(main=fake_main))
+
+    result = CliRunner().invoke(
+        boxmot,
+        ["track", "--source", "0", "--tracker", "bytetrack", "--asso-func", "centroid"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].asso_func == "centroid"
 
 
 def test_track_rejects_non_positive_saved_video_fps():

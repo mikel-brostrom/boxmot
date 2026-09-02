@@ -29,6 +29,7 @@ ocsort::Config ConvertConfig(const BoxMOTOCSORTConfig& config) {
     native_config.q_xy_scaling = config.q_xy_scaling;
     native_config.q_s_scaling = config.q_s_scaling;
     native_config.max_obs = config.max_obs;
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 
@@ -98,11 +99,13 @@ int boxmot_ocsort_update(
         }
         const std::vector<ocsort::Detection> detections =
             boxmot::trackers::base::ConvertLiveDetections<ocsort::Detection>(dets, det_rows, det_cols, "OCSORT");
-        (void)image_data;
-        (void)image_rows;
-        (void)image_cols;
-        (void)image_channels;
-        const cv::Mat image;
+        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
+            image_data,
+            image_rows,
+            image_cols,
+            image_channels,
+            "OCSORT"
+        );
         const std::vector<ocsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "OCSORT");
         *out_rows = static_cast<int>(tracks.size());

@@ -24,6 +24,7 @@ bytetrack::Config ConvertConfig(const BoxMOTByteTrackConfig& config) {
     native_config.track_buffer = config.track_buffer;
     native_config.frame_rate = config.frame_rate;
     native_config.max_obs = config.max_obs;
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 
@@ -98,11 +99,13 @@ int boxmot_bytetrack_update(
                 det_cols,
                 "ByteTrack"
             );
-        (void)image_data;
-        (void)image_rows;
-        (void)image_cols;
-        (void)image_channels;
-        const cv::Mat image;
+        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
+            image_data,
+            image_rows,
+            image_cols,
+            image_channels,
+            "ByteTrack"
+        );
         const std::vector<bytetrack::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "ByteTrack");
         *out_rows = static_cast<int>(tracks.size());

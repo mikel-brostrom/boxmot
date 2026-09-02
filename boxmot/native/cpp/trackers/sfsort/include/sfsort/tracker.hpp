@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boxmot/trackers/base/base_tracker.hpp"
+#include "boxmot/trackers/base/association.hpp"
 #include "sfsort/types.hpp"
 
 #include <opencv2/core.hpp>
@@ -45,10 +46,16 @@ private:
     [[nodiscard]] static Eigen::MatrixXd CalculateCost(
         const std::vector<TrackData*>& tracks,
         const std::vector<Detection>& detections,
-        bool iou_only
+        bool geometry_only,
+        boxmot::trackers::base::AssociationMode association_mode,
+        int frame_width,
+        int frame_height
     );
 
     Config config_;
+    boxmot::trackers::base::AssociationMode association_mode_;
+    int association_frame_width_ = 0;
+    int association_frame_height_ = 0;
     int frame_count_ = 0;
     int id_counter_ = 0;
     bool margins_ready_ = false;

@@ -31,6 +31,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert "--obb-theta-damping" in cmd
             assert cmd[cmd.index("--obb-theta-damping") + 1] == "0.75"
             assert "--dynamic-tuning" in cmd
+            assert cmd[cmd.index("--asso-func") + 1] == "giou"
             assert stdout is native_module.subprocess.PIPE
             assert stderr is native_module.subprocess.PIPE
             assert text is True
@@ -63,6 +64,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             "dynamic_tuning": True,
             "cth": 0.5,
             "obb_theta_damping": 0.75,
+            "asso_func": "giou",
         },
         dataset_name="mot17-mini",
         conf_threshold=0.25,

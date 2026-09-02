@@ -56,6 +56,7 @@ ReplayOptions ParseArgs(const int argc, char** argv) {
     options.target_fps = GetI(args, "target-fps", 0);
 
     auto& t = options.tracker;
+    t.asso_func = GetS(args, "asso-func", "iou");
     t.max_age = GetI(args, "max-age", t.max_age);
     t.min_hits = GetI(args, "min-hits", t.min_hits);
     t.det_thresh = Get(args, "det-thresh", t.det_thresh);
@@ -128,7 +129,11 @@ int main(int argc, char** argv) {
         const bool cmc_disabled = options.tracker.cmc_method.empty() || options.tracker.cmc_method == "none";
         const bool runtime_reid_needs_pixels =
             options.tracker.with_reid && !options.tracker.reid_model_path.empty();
-        const bool can_skip_decode = cmc_disabled && !runtime_reid_needs_pixels;
+        const bool centroid_needs_frame_dimensions = boxmot::trackers::base::AssociationModeRequiresFrameDimensions(
+            boxmot::trackers::base::ParseAssociationMode(options.tracker.asso_func)
+        );
+        const bool can_skip_decode =
+            cmc_disabled && !runtime_reid_needs_pixels && !centroid_needs_frame_dimensions;
         auto read_image = [can_skip_decode](const occluboost::fs::path& path) -> cv::Mat {
             // Cached embeddings make pixels unnecessary when CMC is disabled.
             // A configured runtime ReID model, however, must receive the real

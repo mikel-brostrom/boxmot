@@ -24,54 +24,6 @@ double WrapAngle(const double angle) {
     return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
 }
 
-cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
-    return cv::RotatedRect(
-        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-        cv::Size2f(
-            static_cast<float>(std::max(box[2], 1.0e-4)),
-            static_cast<float>(std::max(box[3], 1.0e-4))
-        ),
-        static_cast<float>(box[4] * 180.0 / kPi)
-    );
-}
-
-double AabbIoU(const Eigen::Vector4d& lhs, const Eigen::Vector4d& rhs) {
-    const double x1 = std::max(lhs[0], rhs[0]);
-    const double y1 = std::max(lhs[1], rhs[1]);
-    const double x2 = std::min(lhs[2], rhs[2]);
-    const double y2 = std::min(lhs[3], rhs[3]);
-    const double inter_w = std::max(0.0, x2 - x1);
-    const double inter_h = std::max(0.0, y2 - y1);
-    const double inter = inter_w * inter_h;
-    const double lhs_area = std::max(0.0, lhs[2] - lhs[0]) * std::max(0.0, lhs[3] - lhs[1]);
-    const double rhs_area = std::max(0.0, rhs[2] - rhs[0]) * std::max(0.0, rhs[3] - rhs[1]);
-    const double denom = lhs_area + rhs_area - inter;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter / denom;
-}
-
-double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
-    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
-    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
-
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-
-    const double inter_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double denom = lhs_area + rhs_area - inter_area;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter_area / denom;
-}
-
 Eigen::VectorXd DetectionRow(const Detection& detection) {
     if (detection.is_obb) {
         Eigen::VectorXd row(6);
@@ -314,7 +266,9 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::CurrentOutputBox() const {
     return output;
 }
 
-OCSORTTracker::OCSORTTracker(Config config) : config_(std::move(config)) {
+OCSORTTracker::OCSORTTracker(Config config)
+    : config_(std::move(config)),
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {
     KalmanBoxTracker::ResetCount();
 }
 
@@ -322,6 +276,8 @@ void OCSORTTracker::Reset() {
     frame_count_ = 0;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
+    association_frame_width_ = 0;
+    association_frame_height_ = 0;
     KalmanBoxTracker::ResetCount();
     active_tracks_.clear();
 }
@@ -361,7 +317,10 @@ Eigen::VectorXd OCSORTTracker::KPreviousObs(
 Eigen::MatrixXd OCSORTTracker::SimilarityMatrix(
     const std::vector<Eigen::VectorXd>& detections,
     const std::vector<Eigen::VectorXd>& tracks,
-    const bool is_obb_mode
+    const bool is_obb_mode,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     Eigen::MatrixXd similarity = Eigen::MatrixXd::Zero(
         static_cast<int>(detections.size()),
@@ -370,14 +329,20 @@ Eigen::MatrixXd OCSORTTracker::SimilarityMatrix(
     for (int det_index = 0; det_index < static_cast<int>(detections.size()); ++det_index) {
         for (int track_index = 0; track_index < static_cast<int>(tracks.size()); ++track_index) {
             if (is_obb_mode) {
-                similarity(det_index, track_index) = ObbIoU(
+                similarity(det_index, track_index) = boxmot::trackers::base::ObbAssociationSimilarity(
                     detections[det_index].head<5>(),
-                    tracks[track_index].head<5>()
+                    tracks[track_index].head<5>(),
+                    association_mode,
+                    frame_width,
+                    frame_height
                 );
             } else {
-                similarity(det_index, track_index) = AabbIoU(
+                similarity(det_index, track_index) = boxmot::trackers::base::AabbAssociationSimilarity(
                     detections[det_index].head<4>(),
-                    tracks[track_index].head<4>()
+                    tracks[track_index].head<4>(),
+                    association_mode,
+                    frame_width,
+                    frame_height
                 );
             }
         }
@@ -430,7 +395,10 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
     const std::vector<Eigen::VectorXd>& previous_obs,
     const float iou_threshold,
     const float inertia,
-    const bool is_obb_mode
+    const bool is_obb_mode,
+    const boxmot::trackers::base::AssociationMode association_mode,
+    const int frame_width,
+    const int frame_height
 ) {
     AssignmentResult result;
     if (trackers.empty()) {
@@ -439,7 +407,14 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
         return result;
     }
 
-    const Eigen::MatrixXd iou_matrix = SimilarityMatrix(detections, trackers, is_obb_mode);
+    const Eigen::MatrixXd iou_matrix = SimilarityMatrix(
+        detections,
+        trackers,
+        is_obb_mode,
+        association_mode,
+        frame_width,
+        frame_height
+    );
     std::vector<std::pair<int, int>> matched_indices;
     if (std::min(iou_matrix.rows(), iou_matrix.cols()) > 0) {
         const Eigen::ArrayXXi admissible = (iou_matrix.array() > static_cast<double>(iou_threshold)).cast<int>();
@@ -508,12 +483,20 @@ TrackOutput OCSORTTracker::FormatTrack(const KalmanBoxTracker& track) {
 }
 
 std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
-    (void)image;
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
+        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+        if (image.empty()) {
+            throw std::runtime_error("Native OCSORT requires an image to initialize centroid association.");
+        }
+        association_frame_width_ = image.cols;
+        association_frame_height_ = image.rows;
+    }
     if (!detections.empty()) {
         const bool det_is_obb = detections.front().is_obb;
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error("Native OCSORT cannot switch between AABB and OBB detections after initialization.");
         }
@@ -566,7 +549,10 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
         k_observations,
         config_.iou_threshold,
         config_.inertia,
-        is_obb_mode_
+        is_obb_mode_,
+        association_mode_,
+        association_frame_width_,
+        association_frame_height_
     );
     for (const auto& match : matched.matches) {
         active_tracks_[match.second].Update(&detections_first[match.first]);
@@ -584,7 +570,14 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             unmatched_predictions.push_back(predicted_tracks[trk_index]);
         }
 
-        const Eigen::MatrixXd second_similarity = SimilarityMatrix(second_rows, unmatched_predictions, is_obb_mode_);
+        const Eigen::MatrixXd second_similarity = SimilarityMatrix(
+            second_rows,
+            unmatched_predictions,
+            is_obb_mode_,
+            association_mode_,
+            association_frame_width_,
+            association_frame_height_
+        );
         if (second_similarity.size() != 0 && second_similarity.maxCoeff() > association_threshold) {
             const auto second_matches = LinearAssignment(-second_similarity, kAssignmentThreshold).matches;
             std::vector<int> consumed_tracks;
@@ -619,7 +612,14 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             left_trks.push_back(last_boxes[trk_index]);
         }
 
-        const Eigen::MatrixXd rematch_similarity = SimilarityMatrix(left_dets, left_trks, is_obb_mode_);
+        const Eigen::MatrixXd rematch_similarity = SimilarityMatrix(
+            left_dets,
+            left_trks,
+            is_obb_mode_,
+            association_mode_,
+            association_frame_width_,
+            association_frame_height_
+        );
         if (rematch_similarity.size() != 0 && rematch_similarity.maxCoeff() > association_threshold) {
             const auto rematched = LinearAssignment(-rematch_similarity, kAssignmentThreshold).matches;
             std::vector<int> consumed_det_indices;

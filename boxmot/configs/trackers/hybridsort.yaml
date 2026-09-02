@@ -26,7 +26,7 @@ iou_threshold:
 asso_func:
   type: choice
   default: diou
-  options: [iou, giou, diou, ciou, hmiou, ct_dist]
+  options: [iou, giou, diou, ciou, hmiou, centroid]
 
 dataset:
   type: choice

@@ -180,7 +180,7 @@ def test_native_occluboost_replay_honors_disabled_cmc(monkeypatch, tmp_path):
         tracker_name="occluboost",
         exp_folder=str(tmp_path),
         target_fps=None,
-        cfg_dict={"use_cmc": False, "with_reid": False},
+        cfg_dict={"use_cmc": False, "with_reid": False, "asso_func": "giou"},
         conf_threshold=0.2,
     )
 
@@ -188,6 +188,7 @@ def test_native_occluboost_replay_honors_disabled_cmc(monkeypatch, tmp_path):
     assert isinstance(cmd, list)
     assert cmd[cmd.index("--cmc-method") + 1] == "none"
     assert cmd[cmd.index("--conf-threshold") + 1] == "0.2"
+    assert cmd[cmd.index("--asso-func") + 1] == "giou"
 
 
 def test_native_occluboost_cmc_masks_match_python_scaling_and_rounding():

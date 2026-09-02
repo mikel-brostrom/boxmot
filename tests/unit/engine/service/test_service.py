@@ -170,6 +170,7 @@ def test_service_profiles_have_disjoint_expected_tracker_sets() -> None:
         ({"profile": "gpu", "tracker_type": "bytetrack"}, "not available in the 'gpu'"),
         ({"device": " "}, "device must not be empty"),
         ({"reid_weights": " "}, "weights must not be empty"),
+        ({"asso_func": "overlap"}, "Unsupported association function"),
     ],
 )
 def test_service_settings_reject_invalid_profile_configuration(overrides, detail) -> None:
@@ -181,6 +182,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     environment_names = (
         "BOXMOT_SERVICE_PROFILE",
         "BOXMOT_SERVICE_TRACKER",
+        "BOXMOT_SERVICE_ASSO_FUNC",
         "BOXMOT_SERVICE_DEVICE",
         "BOXMOT_SERVICE_HALF",
         "BOXMOT_SERVICE_REID_WEIGHTS",
@@ -194,12 +196,14 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     assert defaults.profile == "gpu"
     assert defaults.tracker_type == "botsort"
+    assert defaults.asso_func == "iou"
     assert defaults.device == "0"
     assert defaults.half is True
     assert defaults.max_concurrent_updates == 1
     assert defaults.requires_image is True
 
     monkeypatch.setenv("BOXMOT_SERVICE_TRACKER", "boosttrack")
+    monkeypatch.setenv("BOXMOT_SERVICE_ASSO_FUNC", " GIoU ")
     monkeypatch.setenv("BOXMOT_SERVICE_DEVICE", "cuda:1")
     monkeypatch.setenv("BOXMOT_SERVICE_HALF", "off")
     monkeypatch.setenv("BOXMOT_SERVICE_REID_WEIGHTS", "/models/reid.pt")
@@ -208,6 +212,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     overridden = ServiceSettings.from_env()
 
     assert overridden.tracker_type == "boosttrack"
+    assert overridden.asso_func == "giou"
     assert overridden.device == "cuda:1"
     assert overridden.half is False
     assert overridden.reid_weights == "/models/reid.pt"
@@ -465,8 +470,8 @@ def test_gpu_manager_shares_one_prebuilt_reid_backend_across_trackers(monkeypatc
     assert first is not second
     assert [call[0] for call in tracker_calls] == ["botsort", "botsort"]
     assert [call[1]["tracker_kwargs"] for call in tracker_calls] == [
-        {"frame_rate": 24},
-        {"frame_rate": 30},
+        {"asso_func": "iou", "frame_rate": 24},
+        {"asso_func": "iou", "frame_rate": 30},
     ]
     assert all(call[1]["reid_model"] is shared_model for call in tracker_calls)
     assert all(call[1]["warmup_model"] is False for call in tracker_calls)
@@ -499,6 +504,22 @@ def test_empty_obb_frame_preserves_the_seven_column_detection_schema() -> None:
     assert response.json()["tracks"] == []
     assert response.json()["track_columns"][:5] == ["cx", "cy", "w", "h", "angle"]
     assert factory.instances[0].calls[0][0].shape == (0, 7)
+
+
+@pytest.mark.parametrize("asso_func", ["giou", "ciou", "hmiou"])
+def test_unsupported_obb_association_returns_422_without_creating_a_tracker(asso_func) -> None:
+    factory = _FakeFactory()
+    frame = _aabb_frame(box_type="obb", detections=[])
+
+    with TestClient(create_app(_settings(asso_func=asso_func), tracker_factory=factory)) as client:
+        response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        f"Association function '{asso_func}' is not supported for OBB tracking; "
+        "choose one of: iou, diou, centroid."
+    )
+    assert factory.instances == []
 
 
 def test_exact_retry_is_replayed_but_conflicts_and_gaps_are_rejected() -> None:

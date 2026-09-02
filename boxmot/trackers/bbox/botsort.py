@@ -11,7 +11,7 @@ from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
-from boxmot.trackers.common.association.matching import embedding_distance, fuse_score, iou_distance
+from boxmot.trackers.common.association.matching import embedding_distance, fuse_score
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.botsort import STrack, TrackState
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
@@ -115,7 +115,9 @@ class BotSort(BaseTracker):
         self.cmc = create_cmc(cmc_method, enabled=use_cmc)
         self.fuse_first_associate = fuse_first_associate
         self.uses_embs = bool(self.with_reid)
-        self.uses_img = bool(self.cmc is not None or self.with_reid)
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
+        )
 
     def requires_image(
         self,
@@ -347,18 +349,18 @@ class BotSort(BaseTracker):
         return matches, u_track, u_detection
 
     def _first_association_cost(self, tracks, detections) -> np.ndarray:
-        ious_dists = iou_distance(tracks, detections, is_obb=self.is_obb)
-        ious_dists_mask = ious_dists > self.proximity_thresh
+        geometry_dists = self.association_distance(tracks, detections)
+        geometry_dists_mask = geometry_dists > self.proximity_thresh
         if self.fuse_first_associate:
-            ious_dists = fuse_score(ious_dists, detections)
+            geometry_dists = fuse_score(geometry_dists, detections)
 
         if not self.with_reid:
-            return ious_dists
+            return geometry_dists
 
         emb_dists = embedding_distance(tracks, detections)
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        return np.minimum(ious_dists, emb_dists)
+        emb_dists[geometry_dists_mask] = 1.0
+        return np.minimum(geometry_dists, emb_dists)
 
     def _second_association(
         self,
@@ -386,11 +388,7 @@ class BotSort(BaseTracker):
 
         second_stage = AssociationStage(
             name="botsort_low",
-            cost=lambda tracks, dets: iou_distance(
-                tracks,
-                dets,
-                is_obb=self.is_obb,
-            ),
+            cost=self.association_distance,
             threshold=self.second_match_thresh,
         )
         second_result = run_association_stage(
@@ -461,17 +459,17 @@ class BotSort(BaseTracker):
         return matches, u_unconfirmed, u_detection
 
     def _unconfirmed_association_cost(self, tracks, detections) -> np.ndarray:
-        ious_dists = iou_distance(tracks, detections, is_obb=self.is_obb)
-        ious_dists_mask = ious_dists > self.proximity_thresh
-        ious_dists = fuse_score(ious_dists, detections)
+        geometry_dists = self.association_distance(tracks, detections)
+        geometry_dists_mask = geometry_dists > self.proximity_thresh
+        geometry_dists = fuse_score(geometry_dists, detections)
 
         if not self.with_reid:
-            return ious_dists
+            return geometry_dists
 
         emb_dists = embedding_distance(tracks, detections) / self.unconfirmed_emb_scale
         emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[ious_dists_mask] = 1.0
-        return np.minimum(ious_dists, emb_dists)
+        emb_dists[geometry_dists_mask] = 1.0
+        return np.minimum(geometry_dists, emb_dists)
 
     def _initialize_new_tracks(self, u_detections, activated_stracks, detections):
         for inew in u_detections:

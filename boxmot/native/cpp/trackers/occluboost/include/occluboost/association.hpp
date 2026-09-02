@@ -1,5 +1,7 @@
 #pragma once
 
+#include "boxmot/trackers/base/association.hpp"
+
 #include <Eigen/Dense>
 
 #include <utility>
@@ -11,7 +13,7 @@ struct AssociationResult {
     std::vector<std::pair<int, int>> matches;  // (det_index, trk_index)
     std::vector<int> unmatched_dets;
     std::vector<int> unmatched_trks;
-    Eigen::MatrixXd iou_matrix;
+    Eigen::MatrixXd geometry_matrix;
 };
 
 // Pairwise IoU for [x1,y1,x2,y2] boxes.
@@ -39,7 +41,10 @@ AssociationResult Associate(
     double lambda_iou,
     double lambda_mhd,
     double lambda_shape,
-    double lambda_emb_multiplier = 1.5
+    double lambda_emb_multiplier,
+    boxmot::trackers::base::AssociationMode association_mode,
+    int frame_width,
+    int frame_height
 );
 
 }  // namespace occluboost
