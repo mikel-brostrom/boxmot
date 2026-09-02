@@ -33,10 +33,8 @@ boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 
 The native backend honors `asso_func` from
-`boxmot/configs/trackers/ocsort.yaml`. AABB tracking supports `iou`, `giou`,
-`diou`, `ciou`, `hmiou`, and `centroid`; OBB tracking supports `iou`, `diou`,
-and `centroid`. Unsupported OBB metrics are rejected explicitly. Centroid
-association uses the first live image to initialize and cache the frame
-dimensions.
+`boxmot/configs/trackers/ocsort.yaml`. AABB and OBB tracking support `iou`,
+`giou`, `diou`, `ciou`, `hmiou`, and `centroid`. Centroid association uses the
+first live image to initialize and cache the frame dimensions.
 
 ::: boxmot.trackers.bbox.ocsort.OcSort

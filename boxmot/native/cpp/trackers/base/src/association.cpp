@@ -3,6 +3,7 @@
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <stdexcept>
@@ -15,7 +16,12 @@ namespace boxmot::trackers::base {
 namespace {
 
 constexpr double kEpsilon = 1.0e-12;
+constexpr double kEquivalentObbAngleTolerance = 1.0e-6;
+constexpr double kEquivalentObbLinearTolerance = 1.0e-9;
+constexpr double kMinimumObbSide = 1.0e-4;
 constexpr double kPi = 3.14159265358979323846;
+
+using ObbGeometry = Eigen::Matrix<double, 5, 1>;
 
 std::string NormalizeName(const std::string_view value) {
     std::string normalized(value);
@@ -83,28 +89,95 @@ double CentroidSimilarity(const double lhs_x,
     return 1.0 - (std::hypot(lhs_x - rhs_x, lhs_y - rhs_y) / frame_diagonal);
 }
 
-cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
+ObbGeometry NormalizeObbGeometry(const ObbGeometry& box) {
+    ObbGeometry normalized = box;
+    normalized[2] = std::max(normalized[2], kMinimumObbSide);
+    normalized[3] = std::max(normalized[3], kMinimumObbSide);
+    return normalized;
+}
+
+bool ObbGeometryEquivalent(const ObbGeometry& lhs, const ObbGeometry& rhs) {
+    const auto nearly_equal = [](const double first, const double second) {
+        return std::abs(first - second) <= kEquivalentObbLinearTolerance;
+    };
+    if (!nearly_equal(lhs[0], rhs[0]) || !nearly_equal(lhs[1], rhs[1])) {
+        return false;
+    }
+
+    const double angle_difference = lhs[4] - rhs[4];
+    const bool direct =
+        nearly_equal(lhs[2], rhs[2]) && nearly_equal(lhs[3], rhs[3]) &&
+        std::abs(std::remainder(angle_difference, kPi)) <= kEquivalentObbAngleTolerance;
+    const bool swapped =
+        nearly_equal(lhs[2], rhs[3]) && nearly_equal(lhs[3], rhs[2]) &&
+        std::abs(std::remainder(angle_difference - kPi / 2.0, kPi)) <= kEquivalentObbAngleTolerance;
+    return direct || swapped;
+}
+
+struct LocalObbPair {
+    ObbGeometry lhs;
+    ObbGeometry rhs;
+};
+
+LocalObbPair CenterObbPair(const ObbGeometry& lhs, const ObbGeometry& rhs) {
+    const double origin_x = lhs[0] + (rhs[0] - lhs[0]) / 2.0;
+    const double origin_y = lhs[1] + (rhs[1] - lhs[1]) / 2.0;
+    LocalObbPair local{lhs, rhs};
+    local.lhs[0] -= origin_x;
+    local.lhs[1] -= origin_y;
+    local.rhs[0] -= origin_x;
+    local.rhs[1] -= origin_y;
+    return local;
+}
+
+cv::RotatedRect RotatedRectFromXywha(const ObbGeometry& box) {
     return cv::RotatedRect(cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-                           cv::Size2f(static_cast<float>(std::max(box[2], 1.0e-4)),
-                                      static_cast<float>(std::max(box[3], 1.0e-4))),
+                           cv::Size2f(static_cast<float>(box[2]), static_cast<float>(box[3])),
                            static_cast<float>(box[4] * 180.0 / kPi));
 }
 
-double ObbIou(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
+struct ObbOverlapTerms {
+    double union_area = 0.0;
+    double iou = 0.0;
+};
+
+ObbOverlapTerms ComputeObbOverlapTerms(const ObbGeometry& lhs, const ObbGeometry& rhs) {
+    const LocalObbPair local = CenterObbPair(lhs, rhs);
     std::vector<cv::Point2f> intersection;
     const int status = cv::rotatedRectangleIntersection(
-        RotatedRectFromXywha(lhs), RotatedRectFromXywha(rhs), intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-    const double intersection_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double union_area = lhs_area + rhs_area - intersection_area;
-    return union_area > kEpsilon ? intersection_area / union_area : 0.0;
+        RotatedRectFromXywha(local.lhs), RotatedRectFromXywha(local.rhs), intersection);
+    const double intersection_area = status == cv::INTERSECT_NONE || intersection.empty()
+                                         ? 0.0
+                                         : std::abs(cv::contourArea(intersection));
+    const double lhs_area = lhs[2] * lhs[3];
+    const double rhs_area = rhs[2] * rhs[3];
+    const double area_sum = lhs_area + rhs_area;
+    const double raw_union_area = area_sum - intersection_area;
+    ObbOverlapTerms terms;
+    terms.iou =
+        raw_union_area > kEpsilon ? std::clamp(intersection_area / raw_union_area, 0.0, 1.0) : 0.0;
+    terms.union_area = area_sum / (1.0 + terms.iou);
+    return terms;
 }
 
-Eigen::Vector4d ObbEnclosingAabb(const Eigen::Matrix<double, 5, 1>& box) {
+double ObbConvexEnclosureArea(const ObbGeometry& lhs, const ObbGeometry& rhs) {
+    const LocalObbPair local = CenterObbPair(lhs, rhs);
+    std::array<cv::Point2f, 4> lhs_corners;
+    std::array<cv::Point2f, 4> rhs_corners;
+    RotatedRectFromXywha(local.lhs).points(lhs_corners.data());
+    RotatedRectFromXywha(local.rhs).points(rhs_corners.data());
+
+    std::vector<cv::Point2f> corners;
+    corners.reserve(lhs_corners.size() + rhs_corners.size());
+    corners.insert(corners.end(), lhs_corners.begin(), lhs_corners.end());
+    corners.insert(corners.end(), rhs_corners.begin(), rhs_corners.end());
+
+    std::vector<cv::Point2f> hull;
+    cv::convexHull(corners, hull);
+    return hull.empty() ? 0.0 : std::abs(cv::contourArea(hull));
+}
+
+Eigen::Vector4d ObbEnclosingAabb(const ObbGeometry& box) {
     const double half_width = box[2] / 2.0;
     const double half_height = box[3] / 2.0;
     const double cos_angle = std::abs(std::cos(box[4]));
@@ -158,15 +231,17 @@ bool AssociationModeRequiresFrameDimensions(const AssociationMode mode) noexcept
 }
 
 bool AssociationModeSupportsObb(const AssociationMode mode) noexcept {
-    return mode == AssociationMode::kIou || mode == AssociationMode::kDiou ||
-           mode == AssociationMode::kCentroid;
+    return mode == AssociationMode::kIou || mode == AssociationMode::kGiou ||
+           mode == AssociationMode::kDiou || mode == AssociationMode::kCiou ||
+           mode == AssociationMode::kHmiou || mode == AssociationMode::kCentroid;
 }
 
 void ValidateAssociationModeForDetections(const AssociationMode mode, const bool is_obb) {
     if (is_obb && !AssociationModeSupportsObb(mode)) {
         throw std::invalid_argument(
             "Association function '" + AssociationModeName(mode) +
-            "' has no oriented-box implementation. Choose from: centroid, diou, iou.");
+            "' has no oriented-box implementation. Choose from: centroid, ciou, diou, giou, "
+            "hmiou, iou.");
     }
 }
 
@@ -232,23 +307,74 @@ double ObbAssociationSimilarity(const Eigen::Matrix<double, 5, 1>& lhs,
                                 const int frame_width,
                                 const int frame_height) {
     ValidateAssociationModeForDetections(mode, true);
+    const ObbGeometry normalized_lhs = NormalizeObbGeometry(lhs);
+    const ObbGeometry normalized_rhs = NormalizeObbGeometry(rhs);
     if (mode == AssociationMode::kCentroid) {
-        return CentroidSimilarity(lhs[0], lhs[1], rhs[0], rhs[1], frame_width, frame_height);
+        return CentroidSimilarity(normalized_lhs[0],
+                                  normalized_lhs[1],
+                                  normalized_rhs[0],
+                                  normalized_rhs[1],
+                                  frame_width,
+                                  frame_height);
     }
-    const double iou = ObbIou(lhs, rhs);
+    if (ObbGeometryEquivalent(normalized_lhs, normalized_rhs)) {
+        return 1.0;
+    }
+    const ObbOverlapTerms overlap = ComputeObbOverlapTerms(normalized_lhs, normalized_rhs);
     if (mode == AssociationMode::kIou) {
-        return iou;
+        return overlap.iou;
     }
-    const Eigen::Vector4d lhs_bounds = ObbEnclosingAabb(lhs);
-    const Eigen::Vector4d rhs_bounds = ObbEnclosingAabb(rhs);
+    const Eigen::Vector4d lhs_bounds = ObbEnclosingAabb(normalized_lhs);
+    const Eigen::Vector4d rhs_bounds = ObbEnclosingAabb(normalized_rhs);
     const double enclosing_width =
         std::max(lhs_bounds[2], rhs_bounds[2]) - std::min(lhs_bounds[0], rhs_bounds[0]);
     const double enclosing_height =
         std::max(lhs_bounds[3], rhs_bounds[3]) - std::min(lhs_bounds[1], rhs_bounds[1]);
     const double enclosing_diagonal =
         enclosing_width * enclosing_width + enclosing_height * enclosing_height;
-    const double center_distance = std::pow(lhs[0] - rhs[0], 2.0) + std::pow(lhs[1] - rhs[1], 2.0);
-    return (iou - center_distance / std::max(enclosing_diagonal, kEpsilon) + 1.0) / 2.0;
+    const double center_distance = std::pow(normalized_lhs[0] - normalized_rhs[0], 2.0) +
+                                   std::pow(normalized_lhs[1] - normalized_rhs[1], 2.0);
+    switch (mode) {
+        case AssociationMode::kGiou: {
+            const double enclosing_area = std::max(
+                ObbConvexEnclosureArea(normalized_lhs, normalized_rhs), overlap.union_area);
+            const double giou = overlap.iou - ((enclosing_area - overlap.union_area) /
+                                               std::max(enclosing_area, kEpsilon));
+            return (giou + 1.0) / 2.0;
+        }
+        case AssociationMode::kDiou: {
+            const double diou =
+                overlap.iou - center_distance / std::max(enclosing_diagonal, kEpsilon);
+            return (diou + 1.0) / 2.0;
+        }
+        case AssociationMode::kCiou: {
+            constexpr double epsilon = 1.0e-7;
+            const double lhs_long_side = std::max(normalized_lhs[2], normalized_lhs[3]);
+            const double lhs_short_side = std::min(normalized_lhs[2], normalized_lhs[3]);
+            const double rhs_long_side = std::max(normalized_rhs[2], normalized_rhs[3]);
+            const double rhs_short_side = std::min(normalized_rhs[2], normalized_rhs[3]);
+            const double aspect_difference = std::atan(rhs_long_side / rhs_short_side) -
+                                             std::atan(lhs_long_side / lhs_short_side);
+            const double v = (4.0 / (kPi * kPi)) * aspect_difference * aspect_difference;
+            const double alpha = v / std::max(1.0 - overlap.iou + v, epsilon);
+            const double ciou =
+                overlap.iou - center_distance / std::max(enclosing_diagonal, epsilon) - alpha * v;
+            return (ciou + 1.0) / 2.0;
+        }
+        case AssociationMode::kHmiou: {
+            const double overlap_height = std::max(
+                0.0,
+                std::min(lhs_bounds[3], rhs_bounds[3]) - std::max(lhs_bounds[1], rhs_bounds[1]));
+            const double union_height = std::max(
+                1.0e-10,
+                std::max(lhs_bounds[3], rhs_bounds[3]) - std::min(lhs_bounds[1], rhs_bounds[1]));
+            return overlap.iou * (overlap_height / union_height);
+        }
+        case AssociationMode::kIou:
+        case AssociationMode::kCentroid:
+            break;
+    }
+    throw std::invalid_argument("Unknown association mode value.");
 }
 
 Eigen::MatrixXd AabbAssociationMatrix(const Eigen::MatrixXd& lhs,

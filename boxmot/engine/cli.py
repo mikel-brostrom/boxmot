@@ -334,7 +334,7 @@ def association_function_option(func):
             case_sensitive=False,
         ),
         default=None,
-        help="Association geometry override; OBB supports iou, diou, and centroid.",
+        help="Association geometry override for AABB and OBB tracking.",
     )(func)
 
 

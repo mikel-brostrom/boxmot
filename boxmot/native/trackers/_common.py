@@ -58,15 +58,14 @@ LIVE_UPDATE_WITH_EMBS_ARGTYPES = [
     ctypes.POINTER(ctypes.c_int),
 ]
 
-AABB_ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
-OBB_ASSOCIATION_FUNCTIONS = frozenset({"centroid", "diou", "iou"})
+ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
 
 
 def resolve_association_function(cfg: dict[str, Any]) -> str:
     """Normalize and validate a native tracker's association function."""
     asso_func = str(cfg.get("asso_func", "iou") or "iou").strip().lower()
-    if asso_func not in AABB_ASSOCIATION_FUNCTIONS:
-        available = ", ".join(sorted(AABB_ASSOCIATION_FUNCTIONS))
+    if asso_func not in ASSOCIATION_FUNCTIONS:
+        available = ", ".join(sorted(ASSOCIATION_FUNCTIONS))
         raise ValueError(f"Unknown association function {asso_func!r}. Choose from: {available}.")
     cfg["asso_func"] = asso_func
     return asso_func
@@ -352,13 +351,6 @@ class NativeTrackerMixin:
                 )
 
             schema = schema_from_detection_columns(det_arr.shape[1])
-            asso_func = str(getattr(self, "cfg", {}).get("asso_func", "iou"))
-            if schema.is_obb and asso_func not in OBB_ASSOCIATION_FUNCTIONS:
-                available = ", ".join(sorted(OBB_ASSOCIATION_FUNCTIONS))
-                raise ValueError(
-                    f"Association function {asso_func!r} has no oriented-box implementation. "
-                    f"Choose from: {available}."
-                )
             layout = get_detection_layout(schema.is_obb)
             if det_arr.size:
                 boxes = layout.boxes(det_arr)

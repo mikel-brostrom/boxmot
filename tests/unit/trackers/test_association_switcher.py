@@ -323,16 +323,9 @@ def test_centroid_only_needs_the_initial_image_for_image_optional_trackers(name:
 
 
 @pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
-@pytest.mark.parametrize("mode", ("iou", "diou", "centroid"))
+@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou", "centroid"))
 def test_every_registered_tracker_accepts_supported_obb_association_modes(name: str, mode: str) -> None:
     tracker = TRACKER_FACTORIES[name](asso_func=mode, is_obb=True)
 
     assert tracker.is_obb
     assert tracker.asso_func_name == f"{mode}_obb"
-
-
-@pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
-@pytest.mark.parametrize("mode", ("giou", "ciou", "hmiou"))
-def test_every_registered_tracker_rejects_unimplemented_obb_association_modes(name: str, mode: str) -> None:
-    with pytest.raises(ValueError, match="has no oriented-box implementation"):
-        TRACKER_FACTORIES[name](asso_func=mode, is_obb=True)

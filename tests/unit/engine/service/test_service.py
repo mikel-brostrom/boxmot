@@ -506,20 +506,17 @@ def test_empty_obb_frame_preserves_the_seven_column_detection_schema() -> None:
     assert factory.instances[0].calls[0][0].shape == (0, 7)
 
 
-@pytest.mark.parametrize("asso_func", ["giou", "ciou", "hmiou"])
-def test_unsupported_obb_association_returns_422_without_creating_a_tracker(asso_func) -> None:
+@pytest.mark.parametrize("asso_func", ["iou", "giou", "diou", "ciou", "hmiou", "centroid"])
+def test_all_association_functions_accept_obb_requests(asso_func) -> None:
     factory = _FakeFactory()
     frame = _aabb_frame(box_type="obb", detections=[])
 
     with TestClient(create_app(_settings(asso_func=asso_func), tracker_factory=factory)) as client:
         response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
 
-    assert response.status_code == 422
-    assert response.json()["detail"] == (
-        f"Association function '{asso_func}' is not supported for OBB tracking; "
-        "choose one of: iou, diou, centroid."
-    )
-    assert factory.instances == []
+    assert response.status_code == 200
+    assert response.json()["box_type"] == "obb"
+    assert len(factory.instances) == 1
 
 
 def test_exact_retry_is_replayed_but_conflicts_and_gaps_are_rejected() -> None:

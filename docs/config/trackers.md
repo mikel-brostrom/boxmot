@@ -24,9 +24,9 @@ code:
 ## Association function
 
 Every registered Python tracker exposes `asso_func` through the same config
-entry. Axis-aligned tracking supports `iou`, `giou`, `diou`, `ciou`, `hmiou`,
-and `centroid`. Select one without editing the built-in file by passing a
-runtime override:
+entry. AABB and OBB tracking both support `iou`, `giou`, `diou`, `ciou`,
+`hmiou`, and `centroid`. Select one without editing the built-in file by
+passing a runtime override:
 
 ```python
 from boxmot import BoxMOT
@@ -50,15 +50,15 @@ boxmot track --tracker bytetrack --asso-func giou --source video.mp4
 boxmot eval --dataset mot17 --tracker ocsort --asso-func centroid
 ```
 
-Oriented-box tracking currently supports `iou`, `diou`, and `centroid`.
-Selecting an AABB-only function such as `giou`, `ciou`, or `hmiou` raises a
-clear error when the tracker receives OBB detections. Centroid association
-uses the frame diagonal for normalization, so trackers using it need an image
-until the frame dimensions have been initialized. SFSORT can instead use its
-explicit `frame_width` and `frame_height` constructor settings.
+In OBB mode, overlap terms use oriented intersections while enclosure and
+support terms use the corresponding enclosing bounds required by each metric.
+Centroid association uses the frame diagonal for normalization, so trackers
+using it need an image until the frame dimensions have been initialized. SFSORT
+can instead use its explicit `frame_width` and `frame_height` constructor
+settings.
 
-The native backends expose the same AABB choices and the same narrower OBB
-set; see the native tracker documentation for C++ integration details.
+The native backends expose the same choices for both box layouts; see the
+native tracker documentation for C++ integration details.
 
 ## Example schema
 

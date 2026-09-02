@@ -67,9 +67,8 @@ class BaseTracker(
         - per_class: Enable class-separated tracking.
         - class_ids: Optional detector class IDs allowed by this tracker.
         - class_names: Optional detector class names keyed by detector class ID.
-        - asso_func: Association geometry. AABB supports ``iou``, ``giou``,
-          ``diou``, ``ciou``, ``hmiou``, and ``centroid``; OBB supports
-          ``iou``, ``diou``, and ``centroid``.
+        - asso_func: Association geometry: ``iou``, ``giou``, ``diou``,
+          ``ciou``, ``hmiou``, or ``centroid`` for AABB and OBB detections.
         - is_obb: Use oriented detections instead of axis-aligned detections.
 
         Detection layouts:

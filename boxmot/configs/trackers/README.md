@@ -33,9 +33,9 @@ asso_func:
   options: [iou, giou, diou, ciou, hmiou, centroid]
 ```
 
-The full list applies to AABB detections. OBB detections currently support
-`iou`, `diou`, and `centroid`; the runtime layout validation rejects the other
-choices when OBB mode is initialized.
+The full list applies to both AABB and OBB detections. In OBB mode, overlap
+terms use oriented intersections while enclosure and support terms use the
+corresponding enclosing bounds required by each metric.
 
 ## Presets
 

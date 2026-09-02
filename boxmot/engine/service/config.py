@@ -19,7 +19,6 @@ SERVICE_TRACKERS_BY_PROFILE = {
 SUPPORTED_SERVICE_PROFILES = tuple(SERVICE_TRACKERS_BY_PROFILE)
 SUPPORTED_SERVICE_TRACKERS = CPU_SERVICE_TRACKERS + REID_SERVICE_TRACKERS
 ASSOCIATION_FUNCTIONS = ("iou", "giou", "diou", "ciou", "hmiou", "centroid")
-OBB_ASSOCIATION_FUNCTIONS = ("iou", "diou", "centroid")
 
 
 def _environment_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -186,7 +185,6 @@ class ServiceSettings:
 __all__ = (
     "ASSOCIATION_FUNCTIONS",
     "CPU_SERVICE_TRACKERS",
-    "OBB_ASSOCIATION_FUNCTIONS",
     "REID_SERVICE_TRACKERS",
     "SERVICE_TRACKERS_BY_PROFILE",
     "SUPPORTED_SERVICE_PROFILES",

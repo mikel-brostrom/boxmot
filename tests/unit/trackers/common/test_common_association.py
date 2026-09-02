@@ -187,6 +187,93 @@ def test_obb_diou_uses_rotated_overlap_and_center_distance():
     assert displaced_diou < 1.0
 
 
+@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou"))
+def test_obb_overlap_metrics_are_one_for_identical_boxes(mode):
+    box = np.array([[20.0, 30.0, 12.0, 6.0, 0.4, 0.95]], dtype=np.float32)
+    similarity = AssociationFunction(w=100, h=80, asso_mode=f"{mode}_obb").asso_func(box, box)
+
+    np.testing.assert_allclose(similarity, np.array([[1.0]]), atol=1e-6)
+    assert np.all((0.0 <= similarity) & (similarity <= 1.0))
+
+
+@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou"))
+def test_obb_overlap_metrics_normalize_identical_ultra_thin_boxes(mode):
+    box = np.array([[20.0, 30.0, 1e-9, 2e-8, 0.4]], dtype=np.float64)
+    original = box.copy()
+    metric = AssociationFunction(w=100, h=80, asso_mode=f"{mode}_obb").asso_func
+
+    similarity = metric(box, box)
+
+    np.testing.assert_allclose(similarity, np.array([[1.0]]), atol=1e-6)
+    assert np.all((0.0 <= similarity) & (similarity <= 1.0))
+    np.testing.assert_array_equal(box, original)
+
+
+@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou"))
+def test_obb_overlap_metrics_return_exact_identity_for_swapped_ultra_thin_representation(mode):
+    box = np.array([[1e6, -1e6, 5e-5, 2e-4, 0.4]], dtype=np.float32)
+    equivalent = box.copy()
+    equivalent[:, 2:4] = equivalent[:, [3, 2]]
+    equivalent[:, 4] += np.pi / 2.0
+    metric = AssociationFunction(w=100, h=80, asso_mode=f"{mode}_obb").asso_func
+
+    assert metric(box, equivalent).item() == 1.0
+
+
+@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou", "centroid"))
+def test_obb_metrics_are_invariant_to_equivalent_width_height_representation(mode):
+    box = np.array([[20.0, 30.0, 12.0, 6.0, 0.4]], dtype=np.float32)
+    equivalent = box.copy()
+    equivalent[:, 2:4] = equivalent[:, [3, 2]]
+    equivalent[:, 4] += np.pi / 2.0
+    metric = AssociationFunction(w=100, h=80, asso_mode=f"{mode}_obb").asso_func
+
+    np.testing.assert_allclose(metric(box, equivalent), np.array([[1.0]]), atol=1e-6)
+
+
+def test_obb_giou_penalizes_empty_space_in_convex_enclosure():
+    reference = np.array([[0.0, 0.0, 10.0, 4.0, 0.0]], dtype=np.float32)
+    nearby = np.array([[8.0, 0.0, 10.0, 4.0, 0.0]], dtype=np.float32)
+    distant = np.array([[20.0, 0.0, 10.0, 4.0, 0.0]], dtype=np.float32)
+
+    nearby_giou = AssociationFunction.giou_batch_obb(reference, nearby)[0, 0]
+    distant_giou = AssociationFunction.giou_batch_obb(reference, distant)[0, 0]
+
+    assert distant_giou < nearby_giou < 1.0
+
+
+def test_obb_ciou_adds_representation_invariant_aspect_ratio_penalty():
+    horizontal = np.array([[20.0, 30.0, 12.0, 4.0, 0.2]], dtype=np.float32)
+    square = np.array([[20.0, 30.0, 8.0, 8.0, 0.2]], dtype=np.float32)
+
+    ciou = AssociationFunction.ciou_batch_obb(horizontal, square)[0, 0]
+    diou = AssociationFunction.diou_batch_obb(horizontal, square)[0, 0]
+
+    assert ciou < diou
+
+
+def test_obb_hmiou_modulates_rotated_iou_by_global_vertical_overlap():
+    reference = np.array([[0.0, 0.0, 10.0, 10.0, 0.0]], dtype=np.float32)
+    horizontal_offset = np.array([[5.0, 0.0, 10.0, 10.0, 0.0]], dtype=np.float32)
+    vertical_offset = np.array([[0.0, 5.0, 10.0, 10.0, 0.0]], dtype=np.float32)
+
+    horizontal_hmiou = AssociationFunction.hmiou_batch_obb(reference, horizontal_offset)[0, 0]
+    vertical_hmiou = AssociationFunction.hmiou_batch_obb(reference, vertical_offset)[0, 0]
+
+    np.testing.assert_allclose(horizontal_hmiou, 1.0 / 3.0, atol=1e-6)
+    np.testing.assert_allclose(vertical_hmiou, 1.0 / 9.0, atol=1e-6)
+
+
+@pytest.mark.parametrize("mode", ("giou", "ciou", "hmiou"))
+def test_new_obb_metrics_preserve_empty_pairwise_shape(mode):
+    empty = np.empty((0, 5), dtype=np.float32)
+    boxes = np.array([[20.0, 30.0, 12.0, 6.0, 0.4]], dtype=np.float32)
+    metric = AssociationFunction(w=100, h=80, asso_mode=f"{mode}_obb").asso_func
+
+    assert metric(empty, boxes).shape == (0, 1)
+    assert metric(boxes, empty).shape == (1, 0)
+
+
 def test_ciou_penalizes_aspect_ratio_more_than_diou():
     horizontal = np.array([[0.0, 2.0, 10.0, 8.0]], dtype=np.float32)
     vertical = np.array([[2.0, 0.0, 8.0, 10.0]], dtype=np.float32)
@@ -199,16 +286,17 @@ def test_ciou_penalizes_aspect_ratio_more_than_diou():
 
 @pytest.mark.parametrize(
     ("mode", "oriented_mode"),
-    (("iou", "iou_obb"), ("diou", "diou_obb"), ("centroid", "centroid_obb")),
+    (
+        ("iou", "iou_obb"),
+        ("giou", "giou_obb"),
+        ("diou", "diou_obb"),
+        ("ciou", "ciou_obb"),
+        ("hmiou", "hmiou_obb"),
+        ("centroid", "centroid_obb"),
+    ),
 )
 def test_obb_detection_layout_routes_supported_association_modes(mode, oriented_mode):
     assert OBB_DETECTIONS.association_mode_name(mode) == oriented_mode
-
-
-@pytest.mark.parametrize("mode", ("giou", "ciou", "hmiou"))
-def test_obb_detection_layout_rejects_unimplemented_geometry_metrics(mode):
-    with pytest.raises(ValueError, match="no oriented-box implementation"):
-        OBB_DETECTIONS.association_mode_name(mode)
 
 
 def test_boost_association_uses_oriented_overlap_for_ambiguous_enclosing_boxes():

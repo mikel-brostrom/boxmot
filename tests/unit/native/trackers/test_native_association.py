@@ -129,14 +129,18 @@ def test_native_trackers_reject_unknown_association_function(resolver):
         occluboost.NativeOccluBoostTracker,
     ],
 )
-def test_native_trackers_reject_unsupported_obb_association(tracker_cls):
+@pytest.mark.parametrize("asso_func", ["iou", "giou", "diou", "ciou", "hmiou", "centroid"])
+def test_native_trackers_accept_all_obb_association_functions(tracker_cls, asso_func):
     library = _FakeLibrary()
-    cfg = {"asso_func": "giou", "use_cmc": False, "with_reid": False}
+    cfg = {"asso_func": asso_func, "use_cmc": False, "with_reid": False}
     tracker = tracker_cls(cfg, library=library)
     dets = np.array([[10, 10, 20, 10, 0.2, 0.95, 0]], dtype=np.float32)
+    image = np.zeros((80, 100, 3), dtype=np.uint8)
 
-    with pytest.raises(ValueError, match="no oriented-box implementation"):
-        tracker.update(dets)
+    tracks = tracker.update(dets, image)
+
+    assert tracks.shape == (0, 9)
+    assert tracker.cfg["asso_func"] == asso_func
     tracker.close()
 
 

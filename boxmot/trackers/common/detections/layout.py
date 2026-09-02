@@ -53,8 +53,11 @@ class DetectionLayout:
             return base_name
         oriented_modes = {
             "iou": "iou_obb",
+            "giou": "giou_obb",
             "centroid": "centroid_obb",
             "diou": "diou_obb",
+            "ciou": "ciou_obb",
+            "hmiou": "hmiou_obb",
         }
         try:
             return oriented_modes[base_name]

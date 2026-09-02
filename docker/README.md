@@ -87,10 +87,10 @@ docker run --rm -p 8000:8000 \
   boxmot/boxmot-service:local
 ```
 
-Available AABB choices are `iou`, `giou`, `diou`, `ciou`, `hmiou`, and
-`centroid`; OBB sessions support `iou`, `diou`, and `centroid`. The CPU service
-uses each request's declared width and height to initialize centroid
-normalization, so it still does not need image pixels.
+Available choices for AABB and OBB sessions are `iou`, `giou`, `diou`, `ciou`,
+`hmiou`, and `centroid`. The CPU service uses each request's declared width and
+height to initialize centroid normalization, so it still does not need image
+pixels.
 
 From another terminal, verify that it is ready:
 

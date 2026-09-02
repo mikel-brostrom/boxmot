@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from boxmot.core.box_schema import BoxSchema, BoxType, get_box_schema
-from boxmot.engine.service.config import OBB_ASSOCIATION_FUNCTIONS, ServiceSettings
+from boxmot.engine.service.config import ServiceSettings
 from boxmot.engine.service.models import FrameRequest
 from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.trackers.registry import create_tracker
@@ -152,23 +152,12 @@ class TrackerManager:
     async def process(self, key: StreamKey, request: FrameRequest) -> FrameResult:
         """Validate and process one sequential frame for ``key``."""
 
-        self._validate_association_contract(request)
         detections, schema = self._prepare_detections(request)
         await self._update_slots.acquire()
         try:
             return await self._process_with_slot(key, request, detections, schema)
         finally:
             self._update_slots.release()
-
-    def _validate_association_contract(self, request: FrameRequest) -> None:
-        """Reject association modes that cannot operate on the request geometry."""
-
-        if request.box_type is BoxType.OBB and self.settings.asso_func not in OBB_ASSOCIATION_FUNCTIONS:
-            available = ", ".join(OBB_ASSOCIATION_FUNCTIONS)
-            raise DetectionValidationError(
-                f"Association function {self.settings.asso_func!r} is not supported for OBB tracking; "
-                f"choose one of: {available}."
-            )
 
     async def _process_with_slot(
         self,

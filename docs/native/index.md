@@ -48,9 +48,10 @@ on first `eval` or `tune` use.
 | `sfsort`     | Yes | Yes | AABB/OBB; no ReID. |
 
 Every native tracker honors the `asso_func` value from its tracker
-configuration. AABB tracking supports `iou`, `giou`, `diou`, `ciou`, `hmiou`,
-and `centroid`; OBB tracking supports `iou`, `diou`, and `centroid`. Selecting
-an unsupported metric fails explicitly instead of falling back to IoU.
+configuration. AABB and OBB tracking both support `iou`, `giou`, `diou`,
+`ciou`, `hmiou`, and `centroid`. In OBB mode, overlap terms use oriented
+intersections while enclosure and support terms use the corresponding
+enclosing bounds required by each metric.
 
 `centroid` normalizes distances by the frame dimensions. Live trackers infer
 and cache those dimensions from the first image. SFSORT can instead use its
