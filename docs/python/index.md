@@ -193,14 +193,14 @@ import cv2
 from boxmot import Detector, ReIDModel
 from boxmot.trackers import OccluBoost
 
-image = cv2.imread("image.jpg")
+img = cv2.imread("image.jpg")
 detector = Detector("yolov8n.pt", device="cpu")
 reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
 tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-detections = detector.predict(image)
-embeddings = reid.embed(image, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
-tracks = tracker.update(detections, image=image, embeddings=embeddings)
+detections = detector.predict(img)
+embs = reid.embed(img, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
+tracks = tracker.update(detections, img=img, embs=embs)
 ```
 
 `detections.xyxy` always returns axis-aligned geometry; in OBB mode it is the
@@ -266,8 +266,8 @@ reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu", half=False)
 
 tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-embeddings = reid.embed(img, boxes=dets[:, :4])
-tracks = tracker.update(dets, image=img, embeddings=embeddings)
+embs = reid.embed(img, boxes=dets[:, :4])
+tracks = tracker.update(dets, img=img, embs=embs)
 
 # tracks is a TrackResults array (M, 8) with columns:
 # [x1, y1, x2, y2, id, conf, cls, det_ind]

@@ -132,9 +132,6 @@ class BaseTracker(
         img: np.ndarray = None,
         embs: np.ndarray = None,
         masks: np.ndarray = None,
-        *,
-        image: np.ndarray = None,
-        embeddings: np.ndarray = None,
     ) -> TrackResults:
         """Update the tracker with one frame of detections."""
         dets, img, embs, masks = self._prepare_update_inputs(
@@ -142,8 +139,6 @@ class BaseTracker(
             img=img,
             embs=embs,
             masks=masks,
-            image=image,
-            embeddings=embeddings,
         )
         self._validate_update_inputs(dets, masks)
 
@@ -164,20 +159,8 @@ class BaseTracker(
         img: np.ndarray = None,
         embs: np.ndarray = None,
         masks: np.ndarray = None,
-        *,
-        image: np.ndarray = None,
-        embeddings: np.ndarray = None,
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
-        """Normalize aliases, unwrap detections, and initialize frame context."""
-        if image is not None:
-            if img is not None:
-                raise ValueError("Use only one of img=... or image=...")
-            img = image
-        if embeddings is not None:
-            if embs is not None:
-                raise ValueError("Use only one of embs=... or embeddings=...")
-            embs = embeddings
-
+        """Unwrap detections and initialize frame context."""
         if hasattr(dets, "dets"):
             if img is None:
                 img = getattr(dets, "orig_img", None)
