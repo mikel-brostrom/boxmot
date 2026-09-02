@@ -1,11 +1,10 @@
 #include "boxmot/trackers/base/association.hpp"
 
-#include <opencv2/imgproc.hpp>
-
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -16,12 +15,41 @@ namespace boxmot::trackers::base {
 namespace {
 
 constexpr double kEpsilon = 1.0e-12;
-constexpr double kEquivalentObbAngleTolerance = 1.0e-6;
 constexpr double kEquivalentObbLinearTolerance = 1.0e-9;
-constexpr double kMinimumObbSide = 1.0e-4;
+constexpr double kEquivalentObbRelativeTolerance =
+    8.0 * static_cast<double>(std::numeric_limits<float>::epsilon());
 constexpr double kPi = 3.14159265358979323846;
 
 using ObbGeometry = Eigen::Matrix<double, 5, 1>;
+
+struct Point2d {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+long double Cross(const Point2d& lhs, const Point2d& rhs) {
+    return static_cast<long double>(lhs.x) * static_cast<long double>(rhs.y) -
+           static_cast<long double>(lhs.y) * static_cast<long double>(rhs.x);
+}
+
+Point2d Difference(const Point2d& lhs, const Point2d& rhs) {
+    return Point2d{lhs.x - rhs.x, lhs.y - rhs.y};
+}
+
+void ValidateObbGeometry(const ObbGeometry& box) {
+    if (!box.allFinite()) {
+        throw std::invalid_argument("OBB geometry values must be finite.");
+    }
+    if (box[2] <= 0.0 || box[3] <= 0.0) {
+        throw std::invalid_argument("OBB width and height must be strictly positive.");
+    }
+}
+
+ObbGeometry CanonicalizeObbGeometry(const ObbGeometry& box) {
+    ObbGeometry canonical = box;
+    canonical[4] = std::remainder(canonical[4], kPi);
+    return canonical;
+}
 
 std::string NormalizeName(const std::string_view value) {
     std::string normalized(value);
@@ -89,28 +117,22 @@ double CentroidSimilarity(const double lhs_x,
     return 1.0 - (std::hypot(lhs_x - rhs_x, lhs_y - rhs_y) / frame_diagonal);
 }
 
-ObbGeometry NormalizeObbGeometry(const ObbGeometry& box) {
-    ObbGeometry normalized = box;
-    normalized[2] = std::max(normalized[2], kMinimumObbSide);
-    normalized[3] = std::max(normalized[3], kMinimumObbSide);
-    return normalized;
-}
-
 bool ObbGeometryEquivalent(const ObbGeometry& lhs, const ObbGeometry& rhs) {
-    const auto nearly_equal = [](const double first, const double second) {
-        return std::abs(first - second) <= kEquivalentObbLinearTolerance;
-    };
-    if (!nearly_equal(lhs[0], rhs[0]) || !nearly_equal(lhs[1], rhs[1])) {
+    if (lhs[0] != rhs[0] || lhs[1] != rhs[1]) {
         return false;
     }
 
     const double angle_difference = lhs[4] - rhs[4];
     const bool direct =
-        nearly_equal(lhs[2], rhs[2]) && nearly_equal(lhs[3], rhs[3]) &&
-        std::abs(std::remainder(angle_difference, kPi)) <= kEquivalentObbAngleTolerance;
-    const bool swapped =
-        nearly_equal(lhs[2], rhs[3]) && nearly_equal(lhs[3], rhs[2]) &&
-        std::abs(std::remainder(angle_difference - kPi / 2.0, kPi)) <= kEquivalentObbAngleTolerance;
+        lhs[2] == rhs[2] && lhs[3] == rhs[3] && std::remainder(angle_difference, kPi) == 0.0;
+    const double swapped_angle_difference =
+        std::abs(std::remainder(angle_difference - kPi / 2.0, kPi));
+    const double corner_radius = std::hypot(lhs[2] / 2.0, lhs[3] / 2.0);
+    const double corner_displacement =
+        corner_radius * (2.0 * std::sin(swapped_angle_difference / 2.0));
+    const bool swapped = lhs[2] == rhs[3] && lhs[3] == rhs[2] &&
+                         corner_displacement <= kEquivalentObbLinearTolerance &&
+                         corner_displacement <= corner_radius * kEquivalentObbRelativeTolerance;
     return direct || swapped;
 }
 
@@ -119,21 +141,196 @@ struct LocalObbPair {
     ObbGeometry rhs;
 };
 
-LocalObbPair CenterObbPair(const ObbGeometry& lhs, const ObbGeometry& rhs) {
-    const double origin_x = lhs[0] + (rhs[0] - lhs[0]) / 2.0;
-    const double origin_y = lhs[1] + (rhs[1] - lhs[1]) / 2.0;
+LocalObbPair NormalizeObbPair(const ObbGeometry& lhs, const ObbGeometry& rhs) {
+    const long double half_delta_x =
+        static_cast<long double>(rhs[0]) / 2.0L - static_cast<long double>(lhs[0]) / 2.0L;
+    const long double half_delta_y =
+        static_cast<long double>(rhs[1]) / 2.0L - static_cast<long double>(lhs[1]) / 2.0L;
+    const long double scale = std::max({std::abs(half_delta_x),
+                                        std::abs(half_delta_y),
+                                        static_cast<long double>(lhs[2]),
+                                        static_cast<long double>(lhs[3]),
+                                        static_cast<long double>(rhs[2]),
+                                        static_cast<long double>(rhs[3])});
+    if (!std::isfinite(scale) || scale <= 0.0L) {
+        throw std::invalid_argument("OBB pair geometry exceeds the finite numeric range.");
+    }
+    const long double normalized_half_delta_x = half_delta_x / scale;
+    const long double normalized_half_delta_y = half_delta_y / scale;
+    const long double half_distance = std::hypot(normalized_half_delta_x, normalized_half_delta_y);
+    long double frame_angle = 0.0L;
+    if (half_distance > 0.0L) {
+        const long double unit_x = normalized_half_delta_x / half_distance;
+        const long double unit_y = normalized_half_delta_y / half_distance;
+        frame_angle = 0.5L * std::atan2(2.0L * unit_x * unit_y, unit_x * unit_x - unit_y * unit_y);
+    } else {
+        frame_angle =
+            static_cast<long double>(lhs[4]) / 2.0L + static_cast<long double>(rhs[4]) / 2.0L;
+    }
+    const long double cosine = std::cos(frame_angle);
+    const long double sine = std::sin(frame_angle);
+    const long double local_half_delta_x =
+        cosine * normalized_half_delta_x + sine * normalized_half_delta_y;
+    const long double local_half_delta_y =
+        -sine * normalized_half_delta_x + cosine * normalized_half_delta_y;
+
     LocalObbPair local{lhs, rhs};
-    local.lhs[0] -= origin_x;
-    local.lhs[1] -= origin_y;
-    local.rhs[0] -= origin_x;
-    local.rhs[1] -= origin_y;
+    local.lhs[0] = static_cast<double>(-local_half_delta_x);
+    local.lhs[1] = static_cast<double>(-local_half_delta_y);
+    local.rhs[0] = static_cast<double>(local_half_delta_x);
+    local.rhs[1] = static_cast<double>(local_half_delta_y);
+    for (const int side_index : {2, 3}) {
+        local.lhs[side_index] =
+            static_cast<double>(static_cast<long double>(lhs[side_index]) / scale);
+        local.rhs[side_index] =
+            static_cast<double>(static_cast<long double>(rhs[side_index]) / scale);
+    }
+    const double frame_angle_double = static_cast<double>(frame_angle);
+    local.lhs[4] = std::remainder(lhs[4] - frame_angle_double, kPi);
+    local.rhs[4] = std::remainder(rhs[4] - frame_angle_double, kPi);
+    if (!local.lhs.allFinite() || !local.rhs.allFinite() || local.lhs[2] <= 0.0 ||
+        local.lhs[3] <= 0.0 || local.rhs[2] <= 0.0 || local.rhs[3] <= 0.0) {
+        throw std::invalid_argument("OBB pair geometry exceeds the finite numeric range.");
+    }
     return local;
 }
 
-cv::RotatedRect RotatedRectFromXywha(const ObbGeometry& box) {
-    return cv::RotatedRect(cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-                           cv::Size2f(static_cast<float>(box[2]), static_cast<float>(box[3])),
-                           static_cast<float>(box[4] * 180.0 / kPi));
+std::array<Point2d, 4> ObbCorners(const ObbGeometry& box) {
+    const double cosine = std::cos(box[4]);
+    const double sine = std::sin(box[4]);
+    const double half_width = box[2] / 2.0;
+    const double half_height = box[3] / 2.0;
+    const Point2d width_axis{half_width * cosine, half_width * sine};
+    const Point2d height_axis{-half_height * sine, half_height * cosine};
+    return {
+        Point2d{box[0] - width_axis.x - height_axis.x, box[1] - width_axis.y - height_axis.y},
+        Point2d{box[0] + width_axis.x - height_axis.x, box[1] + width_axis.y - height_axis.y},
+        Point2d{box[0] + width_axis.x + height_axis.x, box[1] + width_axis.y + height_axis.y},
+        Point2d{box[0] - width_axis.x + height_axis.x, box[1] - width_axis.y + height_axis.y},
+    };
+}
+
+long double HalfPlaneValue(const Point2d& edge_start,
+                           const Point2d& edge_end,
+                           const Point2d& point) {
+    return Cross(Difference(edge_end, edge_start), Difference(point, edge_start));
+}
+
+long double HalfPlaneTolerance(const Point2d& edge_start,
+                               const Point2d& edge_end,
+                               const Point2d& point) {
+    const Point2d edge = Difference(edge_end, edge_start);
+    const Point2d relative = Difference(point, edge_start);
+    constexpr long double factor =
+        64.0L * static_cast<long double>(std::numeric_limits<double>::epsilon());
+    return factor * (std::abs(static_cast<long double>(edge.x) * relative.y) +
+                     std::abs(static_cast<long double>(edge.y) * relative.x));
+}
+
+bool InsideHalfPlane(const Point2d& edge_start, const Point2d& edge_end, const Point2d& point) {
+    return HalfPlaneValue(edge_start, edge_end, point) >=
+           -HalfPlaneTolerance(edge_start, edge_end, point);
+}
+
+Point2d SegmentLineIntersection(const Point2d& segment_start,
+                                const Point2d& segment_end,
+                                const Point2d& line_start,
+                                const Point2d& line_end) {
+    const long double start_value = HalfPlaneValue(line_start, line_end, segment_start);
+    const long double end_value = HalfPlaneValue(line_start, line_end, segment_end);
+    const long double denominator = start_value - end_value;
+    if (denominator == 0.0L) {
+        return segment_end;
+    }
+    const double interpolation =
+        std::clamp(static_cast<double>(start_value / denominator), 0.0, 1.0);
+    return Point2d{
+        segment_start.x + interpolation * (segment_end.x - segment_start.x),
+        segment_start.y + interpolation * (segment_end.y - segment_start.y),
+    };
+}
+
+std::vector<Point2d> ConvexPolygonIntersection(const std::array<Point2d, 4>& lhs,
+                                               const std::array<Point2d, 4>& rhs) {
+    std::vector<Point2d> polygon(lhs.begin(), lhs.end());
+    for (std::size_t edge_index = 0; edge_index < rhs.size() && !polygon.empty(); ++edge_index) {
+        const Point2d& edge_start = rhs[edge_index];
+        const Point2d& edge_end = rhs[(edge_index + 1) % rhs.size()];
+        std::vector<Point2d> clipped;
+        clipped.reserve(polygon.size() + 1);
+        Point2d previous = polygon.back();
+        bool previous_inside = InsideHalfPlane(edge_start, edge_end, previous);
+        for (const Point2d& current : polygon) {
+            const bool current_inside = InsideHalfPlane(edge_start, edge_end, current);
+            if (current_inside != previous_inside) {
+                clipped.push_back(SegmentLineIntersection(previous, current, edge_start, edge_end));
+            }
+            if (current_inside) {
+                clipped.push_back(current);
+            }
+            previous = current;
+            previous_inside = current_inside;
+        }
+        polygon = std::move(clipped);
+    }
+    return polygon;
+}
+
+double PolygonArea(const std::vector<Point2d>& polygon) {
+    if (polygon.size() < 3) {
+        return 0.0;
+    }
+    long double twice_area = 0.0L;
+    for (std::size_t index = 0; index < polygon.size(); ++index) {
+        twice_area += Cross(polygon[index], polygon[(index + 1) % polygon.size()]);
+    }
+    return static_cast<double>(std::abs(twice_area) / 2.0L);
+}
+
+std::vector<Point2d> ConvexHull(std::vector<Point2d> points) {
+    std::sort(points.begin(), points.end(), [](const Point2d& lhs, const Point2d& rhs) {
+        return lhs.x < rhs.x || (lhs.x == rhs.x && lhs.y < rhs.y);
+    });
+    points.erase(std::unique(points.begin(),
+                             points.end(),
+                             [](const Point2d& lhs, const Point2d& rhs) {
+                                 return lhs.x == rhs.x && lhs.y == rhs.y;
+                             }),
+                 points.end());
+    if (points.size() <= 1) {
+        return points;
+    }
+
+    std::vector<Point2d> hull(2 * points.size());
+    std::size_t count = 0;
+    for (const Point2d& point : points) {
+        while (count >= 2 && Cross(Difference(hull[count - 1], hull[count - 2]),
+                                   Difference(point, hull[count - 1])) <= 0.0L) {
+            --count;
+        }
+        hull[count++] = point;
+    }
+    const std::size_t lower_count = count;
+    for (std::size_t index = points.size() - 1; index > 0; --index) {
+        const Point2d& point = points[index - 1];
+        while (count > lower_count && Cross(Difference(hull[count - 1], hull[count - 2]),
+                                            Difference(point, hull[count - 1])) <= 0.0L) {
+            --count;
+        }
+        hull[count++] = point;
+    }
+    hull.resize(count - 1);
+    return hull;
+}
+
+std::vector<Point2d> PairConvexHull(const LocalObbPair& pair) {
+    const std::array<Point2d, 4> lhs_corners = ObbCorners(pair.lhs);
+    const std::array<Point2d, 4> rhs_corners = ObbCorners(pair.rhs);
+    std::vector<Point2d> corners;
+    corners.reserve(lhs_corners.size() + rhs_corners.size());
+    corners.insert(corners.end(), lhs_corners.begin(), lhs_corners.end());
+    corners.insert(corners.end(), rhs_corners.begin(), rhs_corners.end());
+    return ConvexHull(std::move(corners));
 }
 
 struct ObbOverlapTerms {
@@ -141,51 +338,75 @@ struct ObbOverlapTerms {
     double iou = 0.0;
 };
 
-ObbOverlapTerms ComputeObbOverlapTerms(const ObbGeometry& lhs, const ObbGeometry& rhs) {
-    const LocalObbPair local = CenterObbPair(lhs, rhs);
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(
-        RotatedRectFromXywha(local.lhs), RotatedRectFromXywha(local.rhs), intersection);
-    const double intersection_area = status == cv::INTERSECT_NONE || intersection.empty()
-                                         ? 0.0
-                                         : std::abs(cv::contourArea(intersection));
-    const double lhs_area = lhs[2] * lhs[3];
-    const double rhs_area = rhs[2] * rhs[3];
+ObbOverlapTerms ComputeObbOverlapTerms(const LocalObbPair& pair) {
+    const double intersection_area =
+        PolygonArea(ConvexPolygonIntersection(ObbCorners(pair.lhs), ObbCorners(pair.rhs)));
+    const double lhs_area = pair.lhs[2] * pair.lhs[3];
+    const double rhs_area = pair.rhs[2] * pair.rhs[3];
     const double area_sum = lhs_area + rhs_area;
-    const double raw_union_area = area_sum - intersection_area;
+    const double bounded_intersection =
+        std::clamp(intersection_area, 0.0, std::min(lhs_area, rhs_area));
+    const double raw_union_area = area_sum - bounded_intersection;
     ObbOverlapTerms terms;
     terms.iou =
-        raw_union_area > kEpsilon ? std::clamp(intersection_area / raw_union_area, 0.0, 1.0) : 0.0;
-    terms.union_area = area_sum / (1.0 + terms.iou);
+        raw_union_area > 0.0 ? std::clamp(bounded_intersection / raw_union_area, 0.0, 1.0) : 0.0;
+    terms.union_area = raw_union_area;
     return terms;
 }
 
-double ObbConvexEnclosureArea(const ObbGeometry& lhs, const ObbGeometry& rhs) {
-    const LocalObbPair local = CenterObbPair(lhs, rhs);
-    std::array<cv::Point2f, 4> lhs_corners;
-    std::array<cv::Point2f, 4> rhs_corners;
-    RotatedRectFromXywha(local.lhs).points(lhs_corners.data());
-    RotatedRectFromXywha(local.rhs).points(rhs_corners.data());
-
-    std::vector<cv::Point2f> corners;
-    corners.reserve(lhs_corners.size() + rhs_corners.size());
-    corners.insert(corners.end(), lhs_corners.begin(), lhs_corners.end());
-    corners.insert(corners.end(), rhs_corners.begin(), rhs_corners.end());
-
-    std::vector<cv::Point2f> hull;
-    cv::convexHull(corners, hull);
-    return hull.empty() ? 0.0 : std::abs(cv::contourArea(hull));
+double ObbConvexEnclosureArea(const LocalObbPair& pair) {
+    return PolygonArea(PairConvexHull(pair));
 }
 
-Eigen::Vector4d ObbEnclosingAabb(const ObbGeometry& box) {
-    const double half_width = box[2] / 2.0;
-    const double half_height = box[3] / 2.0;
-    const double cos_angle = std::abs(std::cos(box[4]));
-    const double sin_angle = std::abs(std::sin(box[4]));
-    const double extent_x = half_width * cos_angle + half_height * sin_angle;
-    const double extent_y = half_width * sin_angle + half_height * cos_angle;
-    return Eigen::Vector4d(
-        box[0] - extent_x, box[1] - extent_y, box[0] + extent_x, box[1] + extent_y);
+double ObbMinimumEnclosingRectangleDiagonalSquared(const LocalObbPair& pair) {
+    const std::vector<Point2d> hull = PairConvexHull(pair);
+    double best_area = std::numeric_limits<double>::infinity();
+    double best_diagonal = std::numeric_limits<double>::infinity();
+    for (std::size_t edge_index = 0; edge_index < hull.size(); ++edge_index) {
+        const Point2d edge = Difference(hull[(edge_index + 1) % hull.size()], hull[edge_index]);
+        const double edge_length = std::hypot(edge.x, edge.y);
+        if (edge_length == 0.0) {
+            continue;
+        }
+        const Point2d axis{edge.x / edge_length, edge.y / edge_length};
+        const Point2d normal{-axis.y, axis.x};
+        double min_axis = std::numeric_limits<double>::infinity();
+        double max_axis = -std::numeric_limits<double>::infinity();
+        double min_normal = std::numeric_limits<double>::infinity();
+        double max_normal = -std::numeric_limits<double>::infinity();
+        for (const Point2d& point : hull) {
+            const double axis_projection = point.x * axis.x + point.y * axis.y;
+            const double normal_projection = point.x * normal.x + point.y * normal.y;
+            min_axis = std::min(min_axis, axis_projection);
+            max_axis = std::max(max_axis, axis_projection);
+            min_normal = std::min(min_normal, normal_projection);
+            max_normal = std::max(max_normal, normal_projection);
+        }
+        const double width = max_axis - min_axis;
+        const double height = max_normal - min_normal;
+        const double area = width * height;
+        const double diagonal = width * width + height * height;
+        const double area_tolerance = std::isfinite(best_area)
+                                          ? 1.0e-12 * std::max(std::abs(area), std::abs(best_area))
+                                          : 0.0;
+        if (!std::isfinite(best_area) || area < best_area - area_tolerance ||
+            (std::abs(area - best_area) <= area_tolerance && diagonal < best_diagonal)) {
+            best_area = area;
+            best_diagonal = diagonal;
+        }
+    }
+    if (!std::isfinite(best_diagonal) || best_diagonal <= 0.0) {
+        throw std::runtime_error("Unable to construct an enclosing rectangle for OBB pair.");
+    }
+    return best_diagonal;
+}
+
+long double NormalizedObbEnclosingHalfHeight(const ObbGeometry& box, const long double scale) {
+    const long double normalized_width = static_cast<long double>(box[2]) / scale;
+    const long double normalized_height = static_cast<long double>(box[3]) / scale;
+    const long double cosine = std::abs(std::cos(box[4]));
+    const long double sine = std::abs(std::sin(box[4]));
+    return 0.5L * (normalized_width * sine + normalized_height * cosine);
 }
 
 }  // namespace
@@ -281,7 +502,7 @@ double AabbAssociationSimilarity(const Eigen::Vector4d& lhs,
             const double ciou =
                 terms.iou - terms.center_distance_squared / std::max(enclosing_diagonal, 1.0e-7) -
                 alpha * v;
-            return (ciou + 1.0) / 2.0;
+            return std::clamp((ciou + 1.0) / 2.0, 0.0, 1.0);
         }
         case AssociationMode::kHmiou: {
             const double overlap_height =
@@ -307,68 +528,74 @@ double ObbAssociationSimilarity(const Eigen::Matrix<double, 5, 1>& lhs,
                                 const int frame_width,
                                 const int frame_height) {
     ValidateAssociationModeForDetections(mode, true);
-    const ObbGeometry normalized_lhs = NormalizeObbGeometry(lhs);
-    const ObbGeometry normalized_rhs = NormalizeObbGeometry(rhs);
+    ValidateObbGeometry(lhs);
+    ValidateObbGeometry(rhs);
     if (mode == AssociationMode::kCentroid) {
-        return CentroidSimilarity(normalized_lhs[0],
-                                  normalized_lhs[1],
-                                  normalized_rhs[0],
-                                  normalized_rhs[1],
-                                  frame_width,
-                                  frame_height);
+        return CentroidSimilarity(lhs[0], lhs[1], rhs[0], rhs[1], frame_width, frame_height);
     }
-    if (ObbGeometryEquivalent(normalized_lhs, normalized_rhs)) {
+    const ObbGeometry canonical_lhs = CanonicalizeObbGeometry(lhs);
+    const ObbGeometry canonical_rhs = CanonicalizeObbGeometry(rhs);
+    if (ObbGeometryEquivalent(canonical_lhs, canonical_rhs)) {
         return 1.0;
     }
-    const ObbOverlapTerms overlap = ComputeObbOverlapTerms(normalized_lhs, normalized_rhs);
+    const LocalObbPair normalized_pair = NormalizeObbPair(canonical_lhs, canonical_rhs);
+    const ObbOverlapTerms overlap = ComputeObbOverlapTerms(normalized_pair);
     if (mode == AssociationMode::kIou) {
         return overlap.iou;
     }
-    const Eigen::Vector4d lhs_bounds = ObbEnclosingAabb(normalized_lhs);
-    const Eigen::Vector4d rhs_bounds = ObbEnclosingAabb(normalized_rhs);
-    const double enclosing_width =
-        std::max(lhs_bounds[2], rhs_bounds[2]) - std::min(lhs_bounds[0], rhs_bounds[0]);
-    const double enclosing_height =
-        std::max(lhs_bounds[3], rhs_bounds[3]) - std::min(lhs_bounds[1], rhs_bounds[1]);
-    const double enclosing_diagonal =
-        enclosing_width * enclosing_width + enclosing_height * enclosing_height;
-    const double center_distance = std::pow(normalized_lhs[0] - normalized_rhs[0], 2.0) +
-                                   std::pow(normalized_lhs[1] - normalized_rhs[1], 2.0);
+    const double center_distance = std::pow(normalized_pair.lhs[0] - normalized_pair.rhs[0], 2.0) +
+                                   std::pow(normalized_pair.lhs[1] - normalized_pair.rhs[1], 2.0);
     switch (mode) {
         case AssociationMode::kGiou: {
-            const double enclosing_area = std::max(
-                ObbConvexEnclosureArea(normalized_lhs, normalized_rhs), overlap.union_area);
-            const double giou = overlap.iou - ((enclosing_area - overlap.union_area) /
-                                               std::max(enclosing_area, kEpsilon));
-            return (giou + 1.0) / 2.0;
+            const double enclosing_area =
+                std::max(ObbConvexEnclosureArea(normalized_pair), overlap.union_area);
+            const double giou =
+                overlap.iou - ((enclosing_area - overlap.union_area) / enclosing_area);
+            return std::clamp((giou + 1.0) / 2.0, 0.0, 1.0);
         }
         case AssociationMode::kDiou: {
-            const double diou =
-                overlap.iou - center_distance / std::max(enclosing_diagonal, kEpsilon);
-            return (diou + 1.0) / 2.0;
+            const double enclosing_diagonal =
+                ObbMinimumEnclosingRectangleDiagonalSquared(normalized_pair);
+            const double diou = overlap.iou - center_distance / enclosing_diagonal;
+            return std::clamp((diou + 1.0) / 2.0, 0.0, 1.0);
         }
         case AssociationMode::kCiou: {
-            constexpr double epsilon = 1.0e-7;
-            const double lhs_long_side = std::max(normalized_lhs[2], normalized_lhs[3]);
-            const double lhs_short_side = std::min(normalized_lhs[2], normalized_lhs[3]);
-            const double rhs_long_side = std::max(normalized_rhs[2], normalized_rhs[3]);
-            const double rhs_short_side = std::min(normalized_rhs[2], normalized_rhs[3]);
+            const double enclosing_diagonal =
+                ObbMinimumEnclosingRectangleDiagonalSquared(normalized_pair);
+            const double lhs_long_side = std::max(canonical_lhs[2], canonical_lhs[3]);
+            const double lhs_short_side = std::min(canonical_lhs[2], canonical_lhs[3]);
+            const double rhs_long_side = std::max(canonical_rhs[2], canonical_rhs[3]);
+            const double rhs_short_side = std::min(canonical_rhs[2], canonical_rhs[3]);
             const double aspect_difference = std::atan(rhs_long_side / rhs_short_side) -
                                              std::atan(lhs_long_side / lhs_short_side);
             const double v = (4.0 / (kPi * kPi)) * aspect_difference * aspect_difference;
-            const double alpha = v / std::max(1.0 - overlap.iou + v, epsilon);
-            const double ciou =
-                overlap.iou - center_distance / std::max(enclosing_diagonal, epsilon) - alpha * v;
-            return (ciou + 1.0) / 2.0;
+            const double alpha = v == 0.0 ? 0.0 : v / (1.0 - overlap.iou + v);
+            const double ciou = overlap.iou - center_distance / enclosing_diagonal - alpha * v;
+            return std::clamp((ciou + 1.0) / 2.0, 0.0, 1.0);
         }
         case AssociationMode::kHmiou: {
-            const double overlap_height = std::max(
-                0.0,
-                std::min(lhs_bounds[3], rhs_bounds[3]) - std::max(lhs_bounds[1], rhs_bounds[1]));
-            const double union_height = std::max(
-                1.0e-10,
-                std::max(lhs_bounds[3], rhs_bounds[3]) - std::min(lhs_bounds[1], rhs_bounds[1]));
-            return overlap.iou * (overlap_height / union_height);
+            const long double half_delta_y = static_cast<long double>(canonical_rhs[1]) / 2.0L -
+                                             static_cast<long double>(canonical_lhs[1]) / 2.0L;
+            const long double scale = std::max({std::abs(half_delta_y),
+                                                static_cast<long double>(canonical_lhs[2]),
+                                                static_cast<long double>(canonical_lhs[3]),
+                                                static_cast<long double>(canonical_rhs[2]),
+                                                static_cast<long double>(canonical_rhs[3])});
+            const long double lhs_half_height =
+                NormalizedObbEnclosingHalfHeight(canonical_lhs, scale);
+            const long double rhs_half_height =
+                NormalizedObbEnclosingHalfHeight(canonical_rhs, scale);
+            const long double center_distance = 2.0L * std::abs(half_delta_y / scale);
+            const long double overlap_height =
+                std::max(0.0L,
+                         std::min({2.0L * lhs_half_height,
+                                   2.0L * rhs_half_height,
+                                   lhs_half_height + rhs_half_height - center_distance}));
+            const long double enclosing_height =
+                std::max({2.0L * lhs_half_height,
+                          2.0L * rhs_half_height,
+                          lhs_half_height + rhs_half_height + center_distance});
+            return overlap.iou * static_cast<double>(overlap_height / enclosing_height);
         }
         case AssociationMode::kIou:
         case AssociationMode::kCentroid:

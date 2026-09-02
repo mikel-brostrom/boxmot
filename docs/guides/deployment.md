@@ -54,6 +54,13 @@ Check `http://localhost:8000/healthz` for liveness,
 ## Send detections
 
 Send exactly one request for each frame, including frames with no detections.
+In-process BoxMOT trackers infer AABB or OBB mode automatically from each
+non-empty detection row's column count. The HTTP contract still declares
+`box_type` because it fixes the session schema before tracker input, makes empty
+frames unambiguous, and determines the response column layout. Non-empty row
+widths are validated against it. AABB is the HTTP default; OBB sessions must set
+`"box_type": "obb"`.
+
 The default AABB row is `(x1, y1, x2, y2, confidence, class_id)`:
 
 ```bash
@@ -186,6 +193,15 @@ docker run --rm \
 
 Centroid normalization uses the session's fixed `width` and `height`. The CPU
 profile therefore remains pixel-free when centroid is selected.
+
+For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
+convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint
+oriented enclosure for center-distance normalization. OBB `ciou` is a custom
+experimental long/short-side aspect adaptation. OBB `hmiou` is an experimental
+product of oriented IoU and global-y projection IoU and is intended only for
+scenes where image vertical is a meaningful height or depth cue. The
+[association function guide](../config/trackers.md#association-function)
+defines every OBB mode and its score normalization.
 
 ## Scale replicas
 

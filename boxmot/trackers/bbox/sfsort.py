@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal
 
-import cv2
 import numpy as np
 
 from boxmot.trackers.base import BaseTracker
@@ -429,10 +428,7 @@ class SFSORT(BaseTracker):
         """Expose whether this configuration still needs frame dimensions."""
         self.uses_img = bool(
             (not self._margins_ready and self.central_timeout != self.marginal_timeout)
-            or (
-                not self._first_frame_processed
-                and self.asso_func_name in {"centroid", "centroid_obb"}
-            )
+            or (not self._first_frame_processed and self.asso_func_name in {"centroid", "centroid_obb"})
         )
 
     def _new_track(self, box: np.ndarray, frame_id: int, conf: float, cls: float, det_ind: int) -> Track:
@@ -476,14 +472,30 @@ class SFSORT(BaseTracker):
         return SFSORT.clamp(resolved, min_value, max_value)
 
     @staticmethod
-    def _obb_to_xyxy(box: np.ndarray) -> np.ndarray:
-        box = np.asarray(box, dtype=np.float32).reshape(-1)
-        cx, cy, w, h, angle = box[:5]
-        rect = ((float(cx), float(cy)), (max(float(w), 1e-4), max(float(h), 1e-4)), float(np.degrees(angle)))
-        corners = cv2.boxPoints(rect)
-        x1, y1 = corners.min(axis=0)
-        x2, y2 = corners.max(axis=0)
-        return np.array([x1, y1, x2, y2], dtype=np.float32)
+    def _obb_center_penalty(active_boxes: np.ndarray, boxes: np.ndarray) -> np.ndarray:
+        """Normalize center displacement by each OBB's support along that displacement."""
+        active = np.asarray(active_boxes, dtype=np.float64)
+        candidates = np.asarray(boxes, dtype=np.float64)
+        delta_x = candidates[None, :, 0] - active[:, None, 0]
+        delta_y = candidates[None, :, 1] - active[:, None, 1]
+        distance = np.hypot(delta_x, delta_y)
+        direction_x = np.divide(delta_x, distance, out=np.zeros_like(delta_x), where=distance > 0.0)
+        direction_y = np.divide(delta_y, distance, out=np.zeros_like(delta_y), where=distance > 0.0)
+
+        active_cos = np.cos(active[:, 4])[:, None]
+        active_sin = np.sin(active[:, 4])[:, None]
+        candidate_cos = np.cos(candidates[:, 4])[None, :]
+        candidate_sin = np.sin(candidates[:, 4])[None, :]
+        active_support = 0.5 * (
+            active[:, 2, None] * np.abs(direction_x * active_cos + direction_y * active_sin)
+            + active[:, 3, None] * np.abs(-direction_x * active_sin + direction_y * active_cos)
+        )
+        candidate_support = 0.5 * (
+            candidates[None, :, 2] * np.abs(direction_x * candidate_cos + direction_y * candidate_sin)
+            + candidates[None, :, 3] * np.abs(-direction_x * candidate_sin + direction_y * candidate_cos)
+        )
+        outer_support = distance + active_support + candidate_support
+        return np.divide(distance, outer_support, out=np.zeros_like(distance), where=outer_support > 0.0)
 
     @staticmethod
     def calculate_cost(
@@ -522,43 +534,25 @@ class SFSORT(BaseTracker):
         iou_only: bool = False,
         association_function: Callable[[np.ndarray, np.ndarray], np.ndarray] | None = None,
     ) -> np.ndarray:
-        eps = 1e-7
         association_function = association_function or AssociationFunction.iou_batch_obb
         iou = association_function(active_boxes, boxes)
         if iou_only:
             return 1.0 - iou
 
-        centerx1 = active_boxes[:, 0]
-        centery1 = active_boxes[:, 1]
-        centerx2 = boxes[:, 0]
-        centery2 = boxes[:, 1]
-        active_xyxy = np.vstack([SFSORT._obb_to_xyxy(box) for box in active_boxes])
-        boxes_xyxy = np.vstack([SFSORT._obb_to_xyxy(box) for box in boxes])
         box1_width = active_boxes[:, 2]
         box2_width = boxes[:, 2]
         box1_height = active_boxes[:, 3]
         box2_height = boxes[:, 3]
-        direct_sw = np.minimum(box1_width[:, None], box2_width) / (np.maximum(box1_width[:, None], box2_width) + eps)
-        direct_sh = np.minimum(box1_height[:, None], box2_height) / (
-            np.maximum(box1_height[:, None], box2_height) + eps
-        )
-        swapped_sw = np.minimum(box1_width[:, None], box2_height) / (np.maximum(box1_width[:, None], box2_height) + eps)
-        swapped_sh = np.minimum(box1_height[:, None], box2_width) / (np.maximum(box1_height[:, None], box2_width) + eps)
+        direct_sw = np.minimum(box1_width[:, None], box2_width) / np.maximum(box1_width[:, None], box2_width)
+        direct_sh = np.minimum(box1_height[:, None], box2_height) / np.maximum(box1_height[:, None], box2_height)
+        swapped_sw = np.minimum(box1_width[:, None], box2_height) / np.maximum(box1_width[:, None], box2_height)
+        swapped_sh = np.minimum(box1_height[:, None], box2_width) / np.maximum(box1_height[:, None], box2_width)
         use_swapped = (swapped_sw + swapped_sh) > (direct_sw + direct_sh)
         sw = np.where(use_swapped, swapped_sw, direct_sw)
         sh = np.where(use_swapped, swapped_sh, direct_sh)
 
-        return SFSORT._combine_cost_terms(
-            iou=iou,
-            centerx1=centerx1,
-            centery1=centery1,
-            centerx2=centerx2,
-            centery2=centery2,
-            active_xyxy=active_xyxy,
-            boxes_xyxy=boxes_xyxy,
-            sw=sw,
-            sh=sh,
-        )
+        center_penalty = SFSORT._obb_center_penalty(active_boxes, boxes)
+        return 1.0 - ((iou - center_penalty + sh + sw) / 3.0)
 
     @staticmethod
     def _calculate_cost_aabb(

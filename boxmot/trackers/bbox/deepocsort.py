@@ -231,30 +231,34 @@ class DeepOcSort(BaseTracker):
         """
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
-            left_trks = last_boxes[unmatched_trks]
-
-            similarity = np.asarray(self.asso_func(left_dets, left_trks))
-            rematch_stage = AssociationStage(
-                name="deepocsort_ocr_rematch",
-                threshold=self.iou_threshold,
-                matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
-                    similarity,
-                    self.iou_threshold,
-                    solve_assignment,
-                ),
-            )
-            rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
-            to_remove_det_indices = []
-            to_remove_trk_indices = []
-            for trk_rel, det_rel in rematch_result.matches:
-                det_ind = unmatched_dets[det_rel]
-                trk_ind = unmatched_trks[trk_rel]
-                self.active_tracks[trk_ind].update(dets[det_ind, :])
-                self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
-                to_remove_det_indices.append(det_ind)
-                to_remove_trk_indices.append(trk_ind)
-            unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
-            unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
+            # New tracks retain a negative-confidence sentinel until their first
+            # explicit update. Keep those rows out of strict OBB geometry while
+            # preserving the mapping back to active-track indices.
+            rematch_trk_indices = unmatched_trks[last_boxes[unmatched_trks, -1] >= 0]
+            if rematch_trk_indices.size:
+                left_trks = last_boxes[rematch_trk_indices]
+                similarity = np.asarray(self.asso_func(left_dets, left_trks))
+                rematch_stage = AssociationStage(
+                    name="deepocsort_ocr_rematch",
+                    threshold=self.iou_threshold,
+                    matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                        similarity,
+                        self.iou_threshold,
+                        solve_assignment,
+                    ),
+                )
+                rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
+                to_remove_det_indices = []
+                to_remove_trk_indices = []
+                for trk_rel, det_rel in rematch_result.matches:
+                    det_ind = unmatched_dets[det_rel]
+                    trk_ind = rematch_trk_indices[trk_rel]
+                    self.active_tracks[trk_ind].update(dets[det_ind, :])
+                    self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
+                    to_remove_det_indices.append(det_ind)
+                    to_remove_trk_indices.append(trk_ind)
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.active_tracks[m].update(None)

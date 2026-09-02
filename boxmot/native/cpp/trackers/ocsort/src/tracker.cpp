@@ -556,13 +556,20 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
     if (!matched.unmatched_rows.empty() && !matched.unmatched_cols.empty()) {
         std::vector<Eigen::VectorXd> left_dets;
         std::vector<Eigen::VectorXd> left_trks;
+        std::vector<int> left_trk_indices;
         left_dets.reserve(matched.unmatched_rows.size());
         left_trks.reserve(matched.unmatched_cols.size());
+        left_trk_indices.reserve(matched.unmatched_cols.size());
         for (const int det_index : matched.unmatched_rows) {
             left_dets.push_back(first_rows[det_index]);
         }
         for (const int trk_index : matched.unmatched_cols) {
-            left_trks.push_back(last_boxes[trk_index]);
+            // A newly created track carries a sentinel here until its first explicit update.
+            // Keep that non-observation out of strict geometry validation during OCR rematch.
+            if (ObservationIsValid(last_boxes[trk_index])) {
+                left_trks.push_back(last_boxes[trk_index]);
+                left_trk_indices.push_back(trk_index);
+            }
         }
 
         const Eigen::MatrixXd rematch_similarity =
@@ -584,7 +591,7 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
                     continue;
                 }
                 const int det_index = matched.unmatched_rows[match_indices.first];
-                const int trk_index = matched.unmatched_cols[match_indices.second];
+                const int trk_index = left_trk_indices[match_indices.second];
                 active_tracks_[trk_index].Update(&detections_first[det_index]);
                 consumed_det_indices.push_back(det_index);
                 consumed_trk_indices.push_back(trk_index);

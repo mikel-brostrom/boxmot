@@ -344,7 +344,7 @@ def test_live_native_tracker_uses_selected_geometry_for_matching(
                 "high_th": 0.1,
                 "new_track_th": 0.1,
                 "low_th": 0.01,
-                "match_th_first": 0.2,
+                "match_th_first": 0.25,
                 "dynamic_tuning": False,
                 "frame_width": 100,
                 "frame_height": 100,

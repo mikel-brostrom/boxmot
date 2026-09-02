@@ -69,6 +69,9 @@ class BaseTracker(
         - class_names: Optional detector class names keyed by detector class ID.
         - asso_func: Association geometry: ``iou``, ``giou``, ``diou``,
           ``ciou``, ``hmiou``, or ``centroid`` for AABB and OBB detections.
+          OBB ``ciou`` is a custom experimental long/short-side adaptation.
+          OBB ``hmiou`` is an experimental global-y height cue intended only
+          where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
 
         Detection layouts:

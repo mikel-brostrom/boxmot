@@ -787,6 +787,43 @@ def test_ocsort_obb_state_history_uses_post_update_state_center():
     np.testing.assert_allclose(history_center, state_center, atol=0.75)
 
 
+@pytest.mark.parametrize(
+    ("Tracker", "kwargs"),
+    (
+        (OcSort, {}),
+        (DeepOcSort, {"reid_model": None, "embedding_off": True, "cmc_off": True}),
+    ),
+    ids=("ocsort", "deepocsort"),
+)
+def test_ocr_obb_rematch_skips_uninitialized_last_observation(Tracker, kwargs):
+    tracker = Tracker(
+        det_thresh=0.1,
+        min_conf=0.01,
+        iou_threshold=0.5,
+        min_hits=0,
+        inertia=0.0,
+        asso_func="iou",
+        **kwargs,
+    )
+    first_dets = np.array(
+        [
+            [10, 10, 10, 10, 0, 0.95, 0],
+            [100, 100, 10, 10, 0, 0.95, 0],
+        ],
+        dtype=np.float32,
+    )
+    rematch_dets = np.array([[55, 55, 10, 10, 0, 0.95, 0]], dtype=np.float32)
+
+    first_output = tracker.update(first_dets)
+    expected_track_id = tracker.active_tracks[1].id
+    tracker.active_tracks[1].last_observation = np.array([55, 55, 10, 10, 0, 0.95], dtype=np.float32)
+    second_output = tracker.update(rematch_dets)
+
+    assert first_output.shape == (2, 9)
+    assert second_output.shape == (1, 9)
+    assert second_output[0, 5] == expected_track_id
+
+
 def test_sfsort_obb_state_history_uses_state_corners():
     tracker = SFSORT()
     rgb = np.random.randint(255, size=(640, 640, 3), dtype=np.uint8)
@@ -813,6 +850,44 @@ def test_sfsort_supports_obb_outputs():
     assert out1.shape == (1, 9)
     assert out2.shape == (1, 9)
     np.testing.assert_allclose(out2[0, :5], det[0, :5], atol=1e-2)
+
+
+@pytest.mark.parametrize("common_rotation", [0.0, 0.73])
+def test_sfsort_obb_center_penalty_uses_oriented_support(common_rotation):
+    center = np.array([150.0, 100.0])
+    short_axis_move = np.array([-50.0 / np.sqrt(2.0), 50.0 / np.sqrt(2.0)])
+    cosine = np.cos(common_rotation)
+    sine = np.sin(common_rotation)
+    rotation = np.array([[cosine, -sine], [sine, cosine]])
+    moved_center = center + rotation @ short_axis_move
+    angle = (np.pi / 4.0) + common_rotation
+    active = np.array([[*center, 100.0, 10.0, angle]], dtype=np.float32)
+    equivalent = active.copy()
+    equivalent[:, 2:4] = equivalent[:, [3, 2]]
+    equivalent[:, 4] += np.pi / 2.0
+    moved = np.array([[*moved_center, 100.0, 10.0, angle]], dtype=np.float32)
+
+    penalty = SFSORT._obb_center_penalty(active, moved)
+    cost = SFSORT._calculate_cost_obb(active, moved)
+
+    np.testing.assert_allclose(penalty, [[5.0 / 6.0]], atol=1e-6)
+    np.testing.assert_allclose(SFSORT._obb_center_penalty(equivalent, moved), penalty, atol=1e-7)
+    np.testing.assert_allclose(SFSORT._calculate_cost_obb(equivalent, moved), cost, atol=1e-6)
+    assert cost[0, 0] > 0.55
+
+
+def test_sfsort_obb_cost_is_scale_invariant_for_tiny_boxes():
+    active = np.array([[1.5, -2.0, 4.0, 2.0, 0.3]])
+    candidate = np.array([[1.8, -1.9, 3.0, 1.5, -0.2]])
+    tiny_active = active.copy()
+    tiny_candidate = candidate.copy()
+    tiny_active[:, :4] *= 1e-12
+    tiny_candidate[:, :4] *= 1e-12
+
+    baseline = SFSORT._calculate_cost_obb(active, candidate)
+    tiny = SFSORT._calculate_cost_obb(tiny_active, tiny_candidate)
+
+    np.testing.assert_allclose(tiny, baseline, rtol=1e-12, atol=1e-12)
 
 
 @pytest.mark.parametrize(

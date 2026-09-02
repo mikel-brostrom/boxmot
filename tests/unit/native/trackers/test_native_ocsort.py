@@ -204,6 +204,39 @@ def test_native_ocsort_live_obb_emits_last_observation_like_python():
     assert equivalent_output[0, 5] == first_output[0, 5]
 
 
+def test_native_ocsort_obb_rematch_skips_uninitialized_last_observation():
+    library = native_module._OCSORTLiveLibrary(native_module.ensure_ocsort_cpp_library())
+    tracker = native_module.NativeOCSORTTracker(
+        {
+            "min_conf": 0.01,
+            "det_thresh": 0.1,
+            "iou_threshold": 0.5,
+            "min_hits": 0,
+            "inertia": 0.0,
+            "asso_func": "iou",
+        },
+        library=library,
+    )
+    first_dets = native_module.np.array(
+        [[10, 10, 10, 10, 0, 0.95, 0]],
+        dtype=native_module.np.float32,
+    )
+    shifted_dets = native_module.np.array(
+        [[15, 10, 10, 10, 0, 0.95, 0]],
+        dtype=native_module.np.float32,
+    )
+
+    try:
+        first_output = tracker.update(first_dets)
+        second_output = tracker.update(shifted_dets)
+    finally:
+        tracker.close()
+
+    assert first_output.shape == (1, 9)
+    assert second_output.shape == (1, 9)
+    assert second_output[0, 5] != first_output[0, 5]
+
+
 @pytest.mark.parametrize(
     ("first", "second", "box_columns"),
     [

@@ -170,6 +170,39 @@ double CombinedCost(
     return 1.0 - (bbsi / 3.0);
 }
 
+double ObbCenterPenalty(const Eigen::Matrix<double, 5, 1>& lhs,
+                        const Eigen::Matrix<double, 5, 1>& rhs) {
+    const long double delta_x = static_cast<long double>(rhs[0]) - static_cast<long double>(lhs[0]);
+    const long double delta_y = static_cast<long double>(rhs[1]) - static_cast<long double>(lhs[1]);
+    const long double distance = std::hypot(delta_x, delta_y);
+    if (distance == 0.0L) {
+        return 0.0;
+    }
+
+    const long double direction_x = delta_x / distance;
+    const long double direction_y = delta_y / distance;
+    const auto support = [direction_x, direction_y](const Eigen::Matrix<double, 5, 1>& box) {
+        const long double cosine = std::cos(static_cast<long double>(box[4]));
+        const long double sine = std::sin(static_cast<long double>(box[4]));
+        const long double width_projection = std::abs(direction_x * cosine + direction_y * sine);
+        const long double height_projection = std::abs(-direction_x * sine + direction_y * cosine);
+        return 0.5L * (static_cast<long double>(box[2]) * width_projection +
+                       static_cast<long double>(box[3]) * height_projection);
+    };
+
+    const long double outer_support = distance + support(lhs) + support(rhs);
+    return static_cast<double>(distance / outer_support);
+}
+
+double CombinedObbCost(const double geometry_similarity,
+                       const Eigen::Matrix<double, 5, 1>& lhs,
+                       const Eigen::Matrix<double, 5, 1>& rhs,
+                       const double sw,
+                       const double sh) {
+    const double position_adjusted_similarity = geometry_similarity - ObbCenterPenalty(lhs, rhs);
+    return 1.0 - ((position_adjusted_similarity + sh + sw) / 3.0);
+}
+
 Eigen::MatrixXd CalculateAabbCost(
     const std::vector<SFSORTTracker::TrackData*>& tracks,
     const std::vector<Detection>& detections,
@@ -221,8 +254,6 @@ Eigen::MatrixXd CalculateObbCost(
     Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
     for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
         const auto* track = tracks[static_cast<std::size_t>(row)];
-        const double lhs_cx = track->xywha[0];
-        const double lhs_cy = track->xywha[1];
         const double lhs_w = track->xywha[2];
         const double lhs_h = track->xywha[3];
         for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
@@ -237,24 +268,14 @@ Eigen::MatrixXd CalculateObbCost(
 
             const double rhs_w = detection.xywha[2];
             const double rhs_h = detection.xywha[3];
-            const double direct_sw = std::min(lhs_w, rhs_w) / (std::max(lhs_w, rhs_w) + 1.0e-7);
-            const double direct_sh = std::min(lhs_h, rhs_h) / (std::max(lhs_h, rhs_h) + 1.0e-7);
-            const double swapped_sw = std::min(lhs_w, rhs_h) / (std::max(lhs_w, rhs_h) + 1.0e-7);
-            const double swapped_sh = std::min(lhs_h, rhs_w) / (std::max(lhs_h, rhs_w) + 1.0e-7);
+            const double direct_sw = std::min(lhs_w, rhs_w) / std::max(lhs_w, rhs_w);
+            const double direct_sh = std::min(lhs_h, rhs_h) / std::max(lhs_h, rhs_h);
+            const double swapped_sw = std::min(lhs_w, rhs_h) / std::max(lhs_w, rhs_h);
+            const double swapped_sh = std::min(lhs_h, rhs_w) / std::max(lhs_h, rhs_w);
             const bool use_swapped = (swapped_sw + swapped_sh) > (direct_sw + direct_sh);
             const double sw = use_swapped ? swapped_sw : direct_sw;
             const double sh = use_swapped ? swapped_sh : direct_sh;
-            cost(row, col) = CombinedCost(
-                geometry,
-                lhs_cx,
-                lhs_cy,
-                detection.xywha[0],
-                detection.xywha[1],
-                track->xyxy,
-                ObbToXyxy(detection.xywha),
-                sw,
-                sh
-            );
+            cost(row, col) = CombinedObbCost(geometry, track->xywha, detection.xywha, sw, sh);
         }
     }
     return cost;

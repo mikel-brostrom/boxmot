@@ -92,6 +92,15 @@ Available choices for AABB and OBB sessions are `iou`, `giou`, `diou`, `ciou`,
 height to initialize centroid normalization, so it still does not need image
 pixels.
 
+For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
+convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint
+oriented enclosure for center-distance normalization. OBB `ciou` is a custom
+experimental long/short-side aspect adaptation. OBB `hmiou` is an experimental
+product of oriented IoU and global-y projection IoU; use it only when image
+vertical is a meaningful height or depth cue. See the
+[association function guide](../docs/config/trackers.md#association-function)
+for all OBB definitions and score normalization.
+
 From another terminal, verify that it is ready:
 
 ```bash
@@ -100,8 +109,16 @@ curl --fail http://127.0.0.1:8000/healthz
 
 It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. The
 service forwards `img=None` for these motion-only/default configurations instead
-of allocating a dummy frame. Send one request per frame. AABB detection rows use
-`(x1, y1, x2, y2, confidence, class_id)`:
+of allocating a dummy frame. Send one request per frame.
+
+In-process BoxMOT trackers infer AABB or OBB mode automatically from each
+non-empty detection row's column count. The HTTP API still declares `box_type`
+because it fixes one session schema before detections reach the tracker, keeps
+empty frames unambiguous, and determines the response's `track_columns` layout.
+The server checks non-empty row widths against that declaration. AABB is the
+HTTP default; OBB sessions must set `"box_type": "obb"`.
+
+AABB detection rows use `(x1, y1, x2, y2, confidence, class_id)`:
 
 ```bash
 curl --fail --request POST \

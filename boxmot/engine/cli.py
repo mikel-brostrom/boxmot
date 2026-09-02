@@ -334,7 +334,11 @@ def association_function_option(func):
             case_sensitive=False,
         ),
         default=None,
-        help="Association geometry override for AABB and OBB tracking.",
+        help=(
+            "Association geometry override for AABB and OBB tracking. "
+            "OBB ciou is a custom experimental adaptation; OBB hmiou is an "
+            "experimental global-y height cue for scenes where image vertical is meaningful."
+        ),
     )(func)
 
 

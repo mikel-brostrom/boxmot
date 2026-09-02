@@ -293,6 +293,75 @@ def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant():
     )
 
 
+@pytest.mark.parametrize("common_rotation", [0.0, 0.73])
+def test_native_sfsort_obb_directional_center_penalty_matches_python(common_rotation):
+    cfg = {
+        "high_th": 0.1,
+        "new_track_th": 0.1,
+        "low_th": 0.01,
+        "match_th_first": 0.55,
+        "dynamic_tuning": False,
+        "frame_width": 320,
+        "frame_height": 240,
+    }
+    center = np.array([150.0, 100.0])
+    short_axis_move = np.array([-50.0 / np.sqrt(2.0), 50.0 / np.sqrt(2.0)])
+    cosine = np.cos(common_rotation)
+    sine = np.sin(common_rotation)
+    rotation = np.array([[cosine, -sine], [sine, cosine]])
+    moved_center = center + rotation @ short_axis_move
+    angle = (np.pi / 4.0) + common_rotation
+    first_detection = np.array([[*center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
+    moved_detection = np.array([[*moved_center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
+
+    python_tracker = SFSORT(**cfg)
+    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, library=library)
+    image = np.zeros((240, 320, 3), dtype=np.uint8)
+    try:
+        python_first = np.asarray(python_tracker.update(first_detection, image))
+        native_first = np.asarray(native_tracker.update(first_detection, image))
+        python_moved = np.asarray(python_tracker.update(moved_detection, image))
+        native_moved = np.asarray(native_tracker.update(moved_detection, image))
+    finally:
+        native_tracker.close()
+
+    np.testing.assert_allclose(native_first, python_first, atol=1e-5)
+    np.testing.assert_allclose(native_moved, python_moved, atol=1e-5)
+    assert python_moved[0, 5] != python_first[0, 5]
+    assert native_moved[0, 5] != native_first[0, 5]
+
+
+def test_native_sfsort_tiny_obb_shape_cost_matches_python():
+    cfg = {
+        "high_th": 0.1,
+        "new_track_th": 0.1,
+        "low_th": 0.01,
+        "match_th_first": 0.5,
+        "dynamic_tuning": False,
+        "frame_width": 320,
+        "frame_height": 240,
+    }
+    first_detection = np.array([[0, 0, 4e-9, 2e-9, 0.3, 0.999, 0]], dtype=np.float32)
+    candidate_detection = np.array([[0, 0, 3e-9, 1.5e-9, -0.2, 0.999, 0]], dtype=np.float32)
+
+    python_tracker = SFSORT(**cfg)
+    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, library=library)
+    try:
+        python_first = np.asarray(python_tracker.update(first_detection))
+        native_first = np.asarray(native_tracker.update(first_detection))
+        python_candidate = np.asarray(python_tracker.update(candidate_detection))
+        native_candidate = np.asarray(native_tracker.update(candidate_detection))
+    finally:
+        native_tracker.close()
+
+    assert python_first.shape == native_first.shape == (1, 9)
+    assert python_candidate.shape == native_candidate.shape == (1, 9)
+    assert python_candidate[0, 5] == python_first[0, 5]
+    assert native_candidate[0, 5] == native_first[0, 5]
+
+
 def test_native_sfsort_low_only_obb_frame_keeps_track():
     library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
     tracker = native_module.NativeSFSORTTracker(

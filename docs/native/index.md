@@ -49,9 +49,18 @@ on first `eval` or `tune` use.
 
 Every native tracker honors the `asso_func` value from its tracker
 configuration. AABB and OBB tracking both support `iou`, `giou`, `diou`,
-`ciou`, `hmiou`, and `centroid`. In OBB mode, overlap terms use oriented
-intersections while enclosure and support terms use the corresponding
-enclosing bounds required by each metric.
+`ciou`, `hmiou`, and `centroid`. The native and Python OBB definitions match:
+`iou` uses oriented-rectangle overlap, `giou` uses the joint convex hull, and
+`diou`/`ciou` use the rotation-invariant minimum-area joint oriented enclosure
+for center-distance normalization. `centroid` uses center distance normalized
+by the frame diagonal.
+
+OBB `ciou` is an experimental custom adaptation whose aspect term compares
+ordered long and short sides. OBB `hmiou` is an experimental product of
+oriented IoU and global-y projection IoU; select it only when image vertical is
+a meaningful object-height or depth cue. It is not a rotation-invariant metric.
+The [tracker configuration guide](../config/trackers.md#association-function)
+defines every mode and its score normalization.
 
 `centroid` normalizes distances by the frame dimensions. Live trackers infer
 and cache those dimensions from the first image. SFSORT can instead use its

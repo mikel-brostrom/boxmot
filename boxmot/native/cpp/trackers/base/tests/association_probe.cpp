@@ -9,10 +9,11 @@
 
 int main(const int argc, char** argv) {
     try {
-        if (argc != 2 && argc != 3 && argc != 13) {
+        if (argc != 2 && argc != 3 && argc != 11 && argc != 13) {
             throw std::invalid_argument(
                 "Usage: boxmot_association_probe <mode> "
-                "[obb [lhs_cx lhs_cy lhs_w lhs_h lhs_a rhs_cx rhs_cy rhs_w rhs_h rhs_a]]");
+                "[aabb [lhs_x1 lhs_y1 lhs_x2 lhs_y2 rhs_x1 rhs_y1 rhs_x2 rhs_y2] | "
+                "obb [lhs_cx lhs_cy lhs_w lhs_h lhs_a rhs_cx rhs_cy rhs_w rhs_h rhs_a]]");
         }
         const auto mode = boxmot::trackers::base::ParseAssociationMode(argv[1]);
         double similarity = 0.0;
@@ -45,8 +46,14 @@ int main(const int argc, char** argv) {
             }
             similarity = boxmot::trackers::base::ObbAssociationSimilarity(lhs, rhs, mode, 100, 80);
         } else if (geometry == "aabb") {
-            const Eigen::Vector4d lhs(0.0, 0.0, 10.0, 10.0);
-            const Eigen::Vector4d rhs(5.0, 2.0, 15.0, 12.0);
+            Eigen::Vector4d lhs(0.0, 0.0, 10.0, 10.0);
+            Eigen::Vector4d rhs(5.0, 2.0, 15.0, 12.0);
+            if (argc == 11) {
+                for (int idx = 0; idx < 4; ++idx) {
+                    lhs[idx] = std::stod(argv[3 + idx]);
+                    rhs[idx] = std::stod(argv[7 + idx]);
+                }
+            }
             similarity = boxmot::trackers::base::AabbAssociationSimilarity(lhs, rhs, mode, 100, 80);
         } else {
             throw std::invalid_argument("Unknown probe geometry '" + geometry + "'.");
