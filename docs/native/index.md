@@ -44,8 +44,28 @@ on first `eval` or `tune` use.
 | `botsort`    | Yes | Yes | AABB/OBB; uses native C++ ReID. |
 | `bytetrack`  | Yes | Yes | AABB/OBB; no ReID. |
 | `occluboost` | Yes | Yes | AABB/OBB; uses native C++ ReID for embeddings, recovery, and second pass. |
-| `ocsort`     | Yes | Yes | AABB/OBB; native backend currently uses `asso_func=iou`. |
+| `ocsort`     | Yes | Yes | AABB/OBB; no ReID. |
 | `sfsort`     | Yes | Yes | AABB/OBB; no ReID. |
+
+Every native tracker honors the `asso_func` value from its tracker
+configuration. AABB and OBB tracking both support `iou`, `giou`, `diou`,
+`ciou`, `hmiou`, and `centroid`. The native and Python OBB definitions match:
+`iou` uses oriented-rectangle overlap, `giou` uses the joint convex hull, and
+`diou`/`ciou` use the rotation-invariant minimum-area joint oriented enclosure
+for center-distance normalization. `centroid` uses center distance normalized
+by the frame diagonal.
+
+OBB `ciou` is an experimental custom adaptation whose aspect term compares
+ordered long and short sides. OBB `hmiou` is an experimental product of
+oriented IoU and global-y projection IoU; select it only when image vertical is
+a meaningful object-height or depth cue. It is not a rotation-invariant metric.
+The [tracker configuration guide](../config/trackers.md#association-function)
+defines every mode and its score normalization.
+
+`centroid` normalizes distances by the frame dimensions. Live trackers infer
+and cache those dimensions from the first image. SFSORT can instead use its
+configured `frame_width` and `frame_height`; the other native trackers require
+the initial image. Cached replay reads the image dimensions from the sequence.
 
 Native live trackers do not currently support `per_class=True`. Use the Python
 backend when each class needs separate tracker state.
@@ -224,9 +244,9 @@ int main() {
     cfg.track_thresh = 0.5F;
     cfg.match_thresh = 0.8F;
     cfg.track_buffer = 30;
+    cfg.asso_func    = "iou";
 
     bytetrack::ByteTrackTracker tracker(cfg);
-    cv::Mat frame(720, 1280, CV_8UC3, cv::Scalar::all(0));
 
     bytetrack::Detection det;
     det.xyxy << 100.0, 50.0, 200.0, 300.0;
@@ -234,13 +254,20 @@ int main() {
     det.cls = 0;
     det.det_ind = 0;
 
-    for (const auto& t : tracker.Update({det}, frame)) {
+    for (const auto& t : tracker.Update({det}, cv::Mat{})) {
         std::cout << "id=" << t.id << " xyxy=("
                   << t.xyxy[0] << ", " << t.xyxy[1] << ", "
                   << t.xyxy[2] << ", " << t.xyxy[3] << ")\n";
     }
 }
 ```
+
+ByteTrack does not consume image pixels with the default IoU association, so
+the example passes an empty `cv::Mat`. With `cfg.asso_func = "centroid"`, pass
+the first frame so the tracker can cache its dimensions; later calls can again
+use an empty matrix. The Python wrapper follows the same contract with
+`tracker.update(dets, img)` for the initial centroid call and
+`tracker.update(dets)` afterward.
 
 Build and run:
 

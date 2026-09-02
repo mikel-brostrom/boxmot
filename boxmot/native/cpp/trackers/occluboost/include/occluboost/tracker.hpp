@@ -1,6 +1,7 @@
 #pragma once
 
 #include "boxmot/trackers/base/base_tracker.hpp"
+#include "boxmot/trackers/base/association.hpp"
 #include "occluboost/cmc.hpp"
 #include "occluboost/reid_onnx.hpp"
 #include "occluboost/track.hpp"
@@ -59,6 +60,9 @@ private:
     bool PassesObbFilter(const Eigen::Matrix<double, 5, 1>& xywha) const;
 
     Config config_;
+    boxmot::trackers::base::AssociationMode association_mode_;
+    int association_frame_width_ = 0;
+    int association_frame_height_ = 0;
     int frame_count_ = 0;
     std::vector<KalmanBoxTracker::Ptr> trackers_;
     std::unique_ptr<CameraMotionCompensator> cmc_;

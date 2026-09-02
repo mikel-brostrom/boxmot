@@ -2,10 +2,7 @@
 
 #include "boxmot/trackers/base/assignment.hpp"
 
-#include <opencv2/imgproc.hpp>
-
 #include <algorithm>
-#include <cmath>
 #include <stdexcept>
 #include <unordered_set>
 
@@ -16,76 +13,6 @@ using boxmot::trackers::base::LinearAssignment;
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
-
-cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
-    return cv::RotatedRect(
-        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-        cv::Size2f(
-            static_cast<float>(std::max(box[2], 1.0e-4)),
-            static_cast<float>(std::max(box[3], 1.0e-4))
-        ),
-        static_cast<float>(box[4] * 180.0 / kPi)
-    );
-}
-
-double AabbIoU(const Eigen::Vector4d& lhs, const Eigen::Vector4d& rhs) {
-    const double x1 = std::max(lhs[0], rhs[0]);
-    const double y1 = std::max(lhs[1], rhs[1]);
-    const double x2 = std::min(lhs[2], rhs[2]);
-    const double y2 = std::min(lhs[3], rhs[3]);
-    const double inter_w = std::max(0.0, x2 - x1);
-    const double inter_h = std::max(0.0, y2 - y1);
-    const double inter = inter_w * inter_h;
-    const double lhs_area = std::max(0.0, lhs[2] - lhs[0]) * std::max(0.0, lhs[3] - lhs[1]);
-    const double rhs_area = std::max(0.0, rhs[2] - rhs[0]) * std::max(0.0, rhs[3] - rhs[1]);
-    const double denom = lhs_area + rhs_area - inter;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter / denom;
-}
-
-double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
-    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
-    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
-
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-
-    const double inter_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double denom = lhs_area + rhs_area - inter_area;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter_area / denom;
-}
-
-double PairwiseIoU(const Track::Ptr& lhs, const Track::Ptr& rhs) {
-    if (lhs->UsesObb() || rhs->UsesObb()) {
-        return ObbIoU(lhs->xywha(), rhs->xywha());
-    }
-    return AabbIoU(lhs->xyxy(), rhs->xyxy());
-}
-
-Eigen::MatrixXd IouDistance(const std::vector<Track::Ptr>& tracks, const std::vector<Track::Ptr>& detections) {
-    Eigen::MatrixXd cost(static_cast<int>(tracks.size()), static_cast<int>(detections.size()));
-    if (tracks.empty() || detections.empty()) {
-        return cost;
-    }
-    for (int row = 0; row < static_cast<int>(tracks.size()); ++row) {
-        for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
-            cost(row, col) = 1.0 - PairwiseIoU(tracks[row], detections[col]);
-        }
-    }
-    return cost;
-}
-
 Eigen::MatrixXd FuseScore(Eigen::MatrixXd cost_matrix, const std::vector<Track::Ptr>& detections) {
     if (cost_matrix.size() == 0) {
         return cost_matrix;
@@ -93,14 +20,15 @@ Eigen::MatrixXd FuseScore(Eigen::MatrixXd cost_matrix, const std::vector<Track::
     for (int col = 0; col < static_cast<int>(detections.size()); ++col) {
         const double conf = static_cast<double>(detections[col]->conf);
         for (int row = 0; row < cost_matrix.rows(); ++row) {
-            const double iou_similarity = 1.0 - cost_matrix(row, col);
-            cost_matrix(row, col) = 1.0 - (iou_similarity * conf);
+            const double geometry_similarity = 1.0 - cost_matrix(row, col);
+            cost_matrix(row, col) = 1.0 - (geometry_similarity * conf);
         }
     }
     return cost_matrix;
 }
 
-std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs) {
+std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs,
+                                    const std::vector<Track::Ptr>& rhs) {
     std::vector<Track::Ptr> result;
     result.reserve(lhs.size() + rhs.size());
     std::unordered_set<int> seen;
@@ -116,7 +44,8 @@ std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs, const st
     return result;
 }
 
-std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs) {
+std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs,
+                                  const std::vector<Track::Ptr>& rhs) {
     std::unordered_set<int> remove_ids;
     for (const auto& track : rhs) {
         remove_ids.insert(track->id);
@@ -132,10 +61,9 @@ std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs, const std:
 }
 
 std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTracks(
-    const std::vector<Track::Ptr>& lhs,
-    const std::vector<Track::Ptr>& rhs
-) {
-    const Eigen::MatrixXd distances = IouDistance(lhs, rhs);
+    const std::vector<Track::Ptr>& lhs, const std::vector<Track::Ptr>& rhs) {
+    const Eigen::MatrixXd distances = boxmot::trackers::base::TrackAssociationDistance(
+        lhs, rhs, boxmot::trackers::base::AssociationMode::kIou);
     std::unordered_set<int> dup_lhs;
     std::unordered_set<int> dup_rhs;
     for (int row = 0; row < distances.rows(); ++row) {
@@ -171,7 +99,9 @@ std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> RemoveDuplicateTrack
 
 ByteTrackTracker::ByteTrackTracker(Config config)
     : config_(std::move(config)),
-      max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) * static_cast<double>(config_.track_buffer))) {
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
+      max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
+                                      static_cast<double>(config_.track_buffer))) {
     Track::ResetCount();
     if (max_time_lost_ <= 0) {
         max_time_lost_ = config_.track_buffer;
@@ -180,19 +110,23 @@ ByteTrackTracker::ByteTrackTracker(Config config)
 
 void ByteTrackTracker::Reset() {
     frame_count_ = 0;
-    max_time_lost_ = static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) * static_cast<double>(config_.track_buffer));
+    max_time_lost_ = static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
+                                      static_cast<double>(config_.track_buffer));
     if (max_time_lost_ <= 0) {
         max_time_lost_ = config_.track_buffer;
     }
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
+    association_frame_width_ = 0;
+    association_frame_height_ = 0;
     Track::ResetCount();
     active_tracks_.clear();
     lost_tracks_.clear();
     removed_tracks_.clear();
 }
 
-std::vector<Track::Ptr> ByteTrackTracker::CreateDetectionTracks(const std::vector<Detection>& detections) const {
+std::vector<Track::Ptr> ByteTrackTracker::CreateDetectionTracks(
+    const std::vector<Detection>& detections) const {
     std::vector<Track::Ptr> result;
     result.reserve(detections.size());
     for (const auto& detection : detections) {
@@ -201,7 +135,8 @@ std::vector<Track::Ptr> ByteTrackTracker::CreateDetectionTracks(const std::vecto
     return result;
 }
 
-std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> ByteTrackTracker::SeparateTracks() const {
+std::pair<std::vector<Track::Ptr>, std::vector<Track::Ptr>> ByteTrackTracker::SeparateTracks()
+    const {
     std::vector<Track::Ptr> unconfirmed;
     std::vector<Track::Ptr> active;
     for (const auto& track : active_tracks_) {
@@ -227,8 +162,7 @@ std::vector<TrackOutput> ByteTrackTracker::PrepareOutput(
     const std::vector<Track::Ptr>& activated_tracks,
     const std::vector<Track::Ptr>& refind_tracks,
     const std::vector<Track::Ptr>& lost_tracks,
-    const std::vector<Track::Ptr>& removed_tracks
-) {
+    const std::vector<Track::Ptr>& removed_tracks) {
     std::vector<Track::Ptr> tracked_only;
     for (const auto& track : active_tracks_) {
         if (track->state == TrackState::kTracked) {
@@ -265,15 +199,28 @@ std::vector<TrackOutput> ByteTrackTracker::PrepareOutput(
     return outputs;
 }
 
-std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
-    (void)image;
+std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& detections,
+                                                  const cv::Mat& image) {
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
+        (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+        if (image.empty()) {
+            throw std::runtime_error(
+                "Native ByteTrack requires an image to initialize centroid association.");
+        }
+        association_frame_width_ = image.cols;
+        association_frame_height_ = image.rows;
+    }
     if (!detections.empty()) {
         const bool det_is_obb = detections.front().is_obb;
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_,
+                                                                         det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
-            throw std::runtime_error("Native ByteTrack cannot switch between AABB and OBB detections after initialization.");
+            throw std::runtime_error(
+                "Native ByteTrack cannot switch between AABB and OBB detections after "
+                "initialization.");
         }
     }
 
@@ -310,7 +257,13 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
         }
     }
 
-    Eigen::MatrixXd dist_first = FuseScore(IouDistance(strack_pool, detections_first), detections_first);
+    Eigen::MatrixXd dist_first =
+        FuseScore(boxmot::trackers::base::TrackAssociationDistance(strack_pool,
+                                                                   detections_first,
+                                                                   association_mode_,
+                                                                   association_frame_width_,
+                                                                   association_frame_height_),
+                  detections_first);
     const AssignmentResult first_matches = LinearAssignment(dist_first, config_.match_thresh);
     for (const auto& match : first_matches.matches) {
         const auto& track = strack_pool[match.first];
@@ -339,7 +292,13 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
         }
     }
 
-    const AssignmentResult second_matches = LinearAssignment(IouDistance(remaining_tracked, detections_second), 0.5F);
+    const AssignmentResult second_matches = LinearAssignment(
+        boxmot::trackers::base::TrackAssociationDistance(remaining_tracked,
+                                                         detections_second,
+                                                         association_mode_,
+                                                         association_frame_width_,
+                                                         association_frame_height_),
+        0.5F);
     for (const auto& match : second_matches.matches) {
         const auto& track = remaining_tracked[match.first];
         const auto& detection = detections_second[match.second];
@@ -374,9 +333,13 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
     }
 
     const AssignmentResult unconfirmed_matches = LinearAssignment(
-        FuseScore(IouDistance(unconfirmed, remaining_high), remaining_high),
-        0.7F
-    );
+        FuseScore(boxmot::trackers::base::TrackAssociationDistance(unconfirmed,
+                                                                   remaining_high,
+                                                                   association_mode_,
+                                                                   association_frame_width_,
+                                                                   association_frame_height_),
+                  remaining_high),
+        0.7F);
     for (const auto& match : unconfirmed_matches.matches) {
         const auto& track = unconfirmed[match.first];
         if (is_obb_mode_) {

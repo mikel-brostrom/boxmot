@@ -35,15 +35,10 @@ jobs:
           # is authenticated such that you and can bypass the protected ref
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Set up Python environment
-        uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel uv
-          uv sync
 
       - name: Bump project version
         id: get_version
@@ -52,7 +47,7 @@ jobs:
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
           old_version=$(uv version --short)
-          uv version --bump "$bump_type"
+          uv version --bump "$bump_type" --no-sync
           new_version=$(uv version --short)
           commit_message="Bump version from $old_version to $new_version"
           git add pyproject.toml uv.lock
@@ -63,10 +58,12 @@ jobs:
         if: ${{ success() }}
 
       - name: Commit and push updated version
+        id: release_commit
         run: |
           if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
             git commit -m "${{ steps.get_version.outputs.commit_message }}"
             git push
+            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           fi
         if: ${{ success() }}
 
@@ -83,10 +80,13 @@ jobs:
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A PAT is required so the release.published event can start the
+          # release-only Docker workflow; GITHUB_TOKEN suppresses chained runs.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
           tag_name: v${{ steps.get_version.outputs.new_version }}
           release_name: Release v${{ steps.get_version.outputs.new_version }}
+          commitish: ${{ steps.release_commit.outputs.sha }}
           draft: false
           prerelease: false
-        if: ${{ success() }}
+        if: ${{ success() && github.event.inputs.pypi == 'pypi' }}

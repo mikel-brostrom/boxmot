@@ -18,6 +18,11 @@ iou_threshold:
   default: 0.2957128153631725
   range: [0.05, 0.99]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 use_cmc:
   type: choice
   default: True

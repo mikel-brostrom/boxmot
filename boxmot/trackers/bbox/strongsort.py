@@ -9,9 +9,9 @@ import numpy as np
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association.strongsort import (
+    INFTY_COST,
     NearestNeighborDistanceMetric,
     gate_cost_matrix,
-    iou_cost,
     matching_cascade,
     min_cost_matching,
 )
@@ -51,9 +51,25 @@ class _Detection:
         """Return the Kalman-filter measurement for the active box mode."""
         return self.tlwh.copy() if self.is_obb else self.to_xyah()
 
+    @property
+    def xyxy(self) -> np.ndarray:
+        """Return axis-aligned detection geometry for shared association."""
+        box = self.tlwh.copy()
+        box[2:] += box[:2]
+        return box
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Return oriented detection geometry for shared association."""
+        if not self.is_obb:
+            raise AttributeError("xywha is only available for OBB detections")
+        return self.tlwh.copy()
+
 
 class StrongSort(BaseTracker):
     supports_obb = True
+    uses_img = True
+    uses_embs = True
 
     """Initialize the StrongSort tracker.
 
@@ -134,7 +150,6 @@ class StrongSort(BaseTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets, img, embs)
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs >= self.min_conf)
         indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
@@ -180,6 +195,16 @@ class StrongSort(BaseTracker):
             outputs.append(self.format_output_row(box, id, conf, cls, det_ind))
         return self.format_output_rows(outputs, dtype=np.float32)
 
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """StrongSORT always advances its ECC estimator with the current frame."""
+        del dets, embs, masks
+        return True
+
     def _predict_tracks(self) -> None:
         """Propagate all active track states to the current frame."""
         for track in self.tracks:
@@ -209,7 +234,7 @@ class StrongSort(BaseTracker):
         self.metric.partial_fit(np.asarray(features), np.asarray(targets), active_targets)
 
     def _match(self, detections: list[_Detection]) -> tuple[list[tuple[int, int]], list[int], list[int]]:
-        """Run StrongSORT appearance cascade followed by IoU association."""
+        """Run StrongSORT appearance cascade followed by geometric association."""
 
         def gated_metric(tracks, dets, track_indices, detection_indices):
             features = np.asarray([dets[index].feat for index in detection_indices])
@@ -240,7 +265,7 @@ class StrongSort(BaseTracker):
         ]
         unmatched_tracks_a = [index for index in unmatched_tracks_a if self.tracks[index].time_since_update != 1]
         matches_b, unmatched_tracks_b, unmatched_detections = min_cost_matching(
-            iou_cost,
+            self._association_cost,
             self.max_iou_dist,
             self.tracks,
             detections,
@@ -251,6 +276,27 @@ class StrongSort(BaseTracker):
         matches = matches_a + matches_b
         unmatched_tracks = list(set(unmatched_tracks_a + unmatched_tracks_b))
         return matches, unmatched_tracks, unmatched_detections
+
+    def _association_cost(
+        self,
+        tracks,
+        detections,
+        track_indices=None,
+        detection_indices=None,
+    ) -> np.ndarray:
+        """Build the selected geometric distance matrix for StrongSORT fallback matching."""
+        if track_indices is None:
+            track_indices = np.arange(len(tracks))
+        if detection_indices is None:
+            detection_indices = np.arange(len(detections))
+
+        selected_tracks = [tracks[int(index)] for index in track_indices]
+        selected_detections = [detections[int(index)] for index in detection_indices]
+        cost_matrix = self.association_distance(selected_tracks, selected_detections)
+        for row, track in enumerate(selected_tracks):
+            if track.time_since_update > 1:
+                cost_matrix[row, :] = INFTY_COST
+        return cost_matrix
 
     def _initiate_track(self, detection: _Detection) -> None:
         """Create one track from an unmatched detection."""

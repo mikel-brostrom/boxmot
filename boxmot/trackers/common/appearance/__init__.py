@@ -56,7 +56,7 @@ def placeholder_embeddings(
 
 def resolve_batch_embeddings(
     batch: DetectionBatch,
-    img: np.ndarray,
+    img: np.ndarray | None,
     model=None,
     enabled: bool = True,
     boxes: np.ndarray | None = None,
@@ -92,6 +92,8 @@ def resolve_batch_embeddings(
 
     if model is None:
         raise ValueError("A ReID model is required when embeddings are not provided")
+    if img is None:
+        raise ValueError("img is required for live ReID extraction when embeddings are not provided")
 
     feature_boxes = batch.boxes if boxes is None else np.asarray(boxes)
     return model.get_features(feature_boxes, img)

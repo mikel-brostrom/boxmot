@@ -105,6 +105,21 @@ def _sequence_name_from_img_dir(img_dir: Path) -> str:
     return img_dir.parent.name if img_dir.name == "img1" else img_dir.name
 
 
+def _read_sequence_image_shape(seq_dir: Path) -> tuple[int, int, int] | None:
+    """Return the normalized BGR image shape declared by ``seqinfo.ini``."""
+    seqinfo_file = seq_dir / "seqinfo.ini"
+    if not seqinfo_file.exists():
+        return None
+
+    cfg = configparser.ConfigParser()
+    cfg.read(seqinfo_file)
+    height = cfg.getint("Sequence", "imHeight", fallback=0)
+    width = cfg.getint("Sequence", "imWidth", fallback=0)
+    if height <= 0 or width <= 0:
+        return None
+    return height, width, 3
+
+
 def _collect_seq_info(source: Path) -> tuple[list[Path], dict[str, int]]:
     seq_paths: list[Path] = []
     seq_info: dict[str, int] = {}
@@ -214,25 +229,20 @@ class MOTDataset:
                     continue
             img_dir = _sequence_img_dir(seq_dir)
             imgs = _list_sequence_frames(img_dir)
-            if not imgs:
-                # Fall back to seqinfo.ini for frame count
+            image_shape = _read_sequence_image_shape(seq_dir)
+            if imgs:
+                frame_ids = [int(path.stem) for path in imgs]
+            else:
+                # Fall back to seqinfo.ini for frame count (e.g. cache-only replay).
                 seqinfo_file = seq_dir / "seqinfo.ini"
-                if seqinfo_file.exists():
-                    cfg = configparser.ConfigParser()
-                    cfg.read(seqinfo_file)
-                    seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
-                    if seq_length > 0:
-                        frame_ids = list(range(1, seq_length + 1))
-                        self.seqs[name] = {
-                            "seq_dir": seq_dir,
-                            "frame_ids": np.array(frame_ids, dtype=int),
-                            "frame_paths": [],
-                            "det_path": None,
-                            "emb_path": None,
-                            "mask_path": None,
-                        }
-                continue
-            frame_ids = [int(path.stem) for path in imgs]
+                if not seqinfo_file.exists():
+                    continue
+                cfg = configparser.ConfigParser()
+                cfg.read(seqinfo_file)
+                seq_length = cfg.getint("Sequence", "seqLength", fallback=0)
+                if seq_length <= 0:
+                    continue
+                frame_ids = list(range(1, seq_length + 1))
 
             if self.dets_dir:
                 npy_path = self.dets_dir / f"{name}.npy"
@@ -256,6 +266,7 @@ class MOTDataset:
                 "seq_dir": seq_dir,
                 "frame_ids": np.array(frame_ids, dtype=int),
                 "frame_paths": imgs,
+                "image_shape": image_shape,
                 "det_path": det_path,
                 "emb_path": emb_path,
                 "mask_path": mask_path,
@@ -272,7 +283,7 @@ class MOTDataset:
         progress_queue=None,
         skip_image_load: bool = False,
     ) -> "MOTSequence":
-        """Return a :class:`MOTSequence` iterator for the given sequence."""
+        """Return an iterator, optionally yielding metadata without decoding images."""
         if name not in self.seqs:
             raise KeyError(f"Unknown sequence {name}")
         return MOTSequence(
@@ -311,6 +322,9 @@ class MOTSequence:
         self._masks_flat: Optional[np.ndarray] = None
         self.frame_ids: np.ndarray = meta["frame_ids"]
         self.frame_paths: List[Path] = meta["frame_paths"]
+        self.image_shape: tuple[int, int, int] | None = meta.get("image_shape")
+        if self.image_shape is None:
+            self.image_shape = _read_sequence_image_shape(Path(meta["seq_dir"]))
         self._prepare()
 
     def _prepare(self) -> None:
@@ -388,14 +402,20 @@ class MOTSequence:
     def __len__(self) -> int:
         return len(self.frame_ids)
 
-    def __iter__(self) -> Generator[Dict[str, Union[int, np.ndarray]], None, None]:
+    def __iter__(
+        self,
+    ) -> Generator[Dict[str, Union[int, np.ndarray, tuple[int, int, int], None]], None, None]:
         """Yield frame dictionaries one by one."""
         total = len(self.frame_ids)
         progress_queue = self.progress_queue
-        _img_stub: Optional[np.ndarray] = None
+        frame_paths: list[Path | None]
+        if self.skip_image_load:
+            frame_paths = [None] * total
+        else:
+            frame_paths = self.frame_paths
         for index, (fid, img_path) in enumerate(
             tqdm(
-                zip(self.frame_ids, self.frame_paths),
+                zip(self.frame_ids, frame_paths),
                 total=total,
                 desc=f"Frames {self.name}",
                 disable=not self.show_progress,
@@ -407,10 +427,8 @@ class MOTSequence:
                 except Exception:
                     pass
 
-            # After the first frame, reuse a small stub image when caller
-            # only needs shape (e.g. tracking replay with cached embeddings).
-            if self.skip_image_load and _img_stub is not None:
-                img = _img_stub
+            if img_path is None:
+                img = None
             elif img_path.suffix == ".npy":
                 img = np.load(str(img_path))
                 # Convert multi-channel arrays to 3-channel BGR for tracker compatibility
@@ -420,13 +438,11 @@ class MOTSequence:
                     img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
             else:
                 img = cv2.imread(str(img_path))
-            if img is None:
+            if img_path is not None and img is None:
                 LOGGER.warning(f"Failed to load {img_path}")
                 continue
 
-            # Create a tiny stub with same shape metadata for subsequent frames
-            if self.skip_image_load and _img_stub is None:
-                _img_stub = np.empty((img.shape[0], img.shape[1], 3), dtype=np.uint8)
+            image_shape = img.shape if img is not None else self.image_shape
 
             if self.dets is not None:
                 if self._det_index is not None and fid in self._det_index:
@@ -461,6 +477,7 @@ class MOTSequence:
             yield {
                 "frame_id": fid,
                 "img": img,
+                "image_shape": image_shape,
                 "dets": dets_f,
                 "embs": embs_f,
                 "masks": masks_f,
@@ -472,6 +489,7 @@ __all__ = (
     "MOTSequence",
     "_collect_seq_info",
     "_list_sequence_frames",
+    "_read_sequence_image_shape",
     "_sequence_img_dir",
     "_sequence_name_from_img_dir",
     "compute_fps_mask",

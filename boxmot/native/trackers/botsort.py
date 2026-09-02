@@ -53,6 +53,7 @@ def _is_ci_macos_runner() -> bool:
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved = _native_trackers.load_tracker_cfg("botsort", cfg_dict, flatten=True)
+    _native_trackers.resolve_association_function(resolved)
     resolved.setdefault("fuse_first_associate", False)
     resolved.setdefault("with_reid", True)
     resolved.setdefault("frame_rate", 30)
@@ -112,6 +113,7 @@ class _BotSortCConfig(ctypes.Structure):
         ("max_obs", ctypes.c_int),
         ("reid_model_path", ctypes.c_char_p),
         ("reid_preprocess", ctypes.c_char_p),
+        ("asso_func", ctypes.c_char_p),
     ]
 
 
@@ -175,6 +177,7 @@ class _BotSortLiveLibrary:
             max_obs=int(cfg.get("max_obs", 50)),
             reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
             reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
+            asso_func=str(cfg["asso_func"]).encode("utf-8"),
         )
         handle = self._library.boxmot_botsort_create(ctypes.byref(c_cfg))
         if not handle:
@@ -189,7 +192,13 @@ class _BotSortLiveLibrary:
         if self._library.boxmot_botsort_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+    def update(
+        self,
+        handle,
+        dets: np.ndarray,
+        img: np.ndarray | None,
+        embs: np.ndarray | None = None,
+    ) -> np.ndarray:
         return _native_trackers.call_update(
             self._library.boxmot_botsort_update,
             handle=handle,
@@ -199,6 +208,7 @@ class _BotSortLiveLibrary:
             accepts_embeddings=True,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
     def get_last_reid_time_ms(self, handle) -> float:
@@ -237,6 +247,9 @@ def _get_live_botsort_library() -> _BotSortLiveLibrary:
 
 class NativeBotSortTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = True
+    uses_embs = True
     tracker_name = "botsort"
     tracker_backend = "cpp"
     _native_display_name = _NATIVE_DISPLAY_NAME
@@ -264,23 +277,59 @@ class NativeBotSortTracker(_native_trackers.NativeTrackerMixin):
                     cfg["with_reid"] = False
             if bool(cfg.get("with_reid", True)):
                 native_reid_path = _ensure_native_reid_model_path(reid_weights)
-        else:
+        elif bool(cfg.get("with_reid", True)):
             native_reid_path = _ensure_native_reid_model_path(reid_weights)
         self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
         self.reid_preprocess = str(reid_preprocess or _default_preprocess())
         cfg["reid_model_path"] = self.reid_model_path
         cfg["reid_preprocess"] = self.reid_preprocess
         self.with_reid = bool(cfg.get("with_reid", True))
-        self.provides_reid = bool(self.reid_model_path and Path(self.reid_model_path).suffix.lower() == ".onnx")
+        self.uses_embs = self.with_reid
+        self.provides_reid = bool(
+            self.with_reid
+            and self.reid_model_path
+            and Path(self.reid_model_path).suffix.lower() == ".onnx"
+        )
+        self.use_cmc = bool(cfg.get("use_cmc", True))
+        self.asso_func_name = cfg["asso_func"]
+        self._needs_association_image = _native_trackers.association_requires_initial_image(cfg)
+        self.uses_img = self.use_cmc or self.provides_reid or self._needs_association_image
         native_library = library if library is not None else _get_live_botsort_library()
         self._init_native_handle(library=native_library, cfg=cfg)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require pixels for active CMC or native extraction of missing embeddings."""
+        del masks
+        return self._needs_association_image or self.use_cmc or bool(self.provides_reid and len(dets) and embs is None)
+
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del masks
         det_arr = self._coerce_detections_for_mode(dets)
-        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0]))
-        tracks = self._library.update(self._handle, det_arr, img, emb_arr)
+        if self.requires_image(det_arr, embs=embs) and img is None:
+            raise ValueError("Native BoTSORT requires img for live tracking.")
+        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0])) if self.uses_embs else None
+        routed_img = img if self.requires_image(det_arr, embs=emb_arr) else None
+        tracks = self._library.update(self._handle, det_arr, routed_img, emb_arr)
+        self._needs_association_image = False
+        self.uses_img = self.use_cmc or self.provides_reid
         self._refresh_reid_timings()
         return self._normalize_tracks_for_mode(tracks)
+
+    def reset(self) -> None:
+        super().reset()
+        self._needs_association_image = self.asso_func_name == "centroid"
+        self.uses_img = self.use_cmc or self.provides_reid or self._needs_association_image
 
 
 def create_botsort_live_tracker(
@@ -350,6 +399,8 @@ def process_sequence_cpp(
         conf_threshold=conf_threshold,
         target_fps=target_fps,
         extra_args=[
+            "--asso-func",
+            str(cfg["asso_func"]),
             "--reid-name",
             reid_key,
             "--reid-model",

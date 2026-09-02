@@ -43,7 +43,13 @@ class PerClassUpdateMixin:
 
     class_track_collection_attrs = TRACK_COLLECTION_ATTRS
 
-    def _track_per_class(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None):
+    def _track_per_class(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None,
+        embs: np.ndarray = None,
+        masks: np.ndarray = None,
+    ):
         """Run one frame with class-local tracker collections."""
         self._ensure_class_track_states()
         per_class_tracks = []
@@ -206,9 +212,11 @@ class PerClassUpdateMixin:
             tracks.extend(state.tracks(group))
         return tracks
 
-    def _precompute_per_frame_cmc(self, cmc, dets: np.ndarray, img: np.ndarray, class_count: int):
+    def _precompute_per_frame_cmc(self, cmc, dets: np.ndarray, img: np.ndarray | None, class_count: int):
         if cmc is None or class_count <= 1 or not callable(getattr(cmc, "apply", None)):
             return None
+        if img is None:
+            raise ValueError("img is required when camera-motion compensation is enabled")
         warp = cmc.apply(img, self.cmc_detection_boxes(dets))
         return _PrecomputedCMC(warp)
 

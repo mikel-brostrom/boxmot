@@ -54,6 +54,13 @@ Check `http://localhost:8000/healthz` for liveness,
 ## Send detections
 
 Send exactly one request for each frame, including frames with no detections.
+In-process BoxMOT trackers infer AABB or OBB mode automatically from each
+non-empty detection row's column count. The HTTP contract still declares
+`box_type` because it fixes the session schema before tracker input, makes empty
+frames unambiguous, and determines the response column layout. Non-empty row
+widths are validated against it. AABB is the HTTP default; OBB sessions must set
+`"box_type": "obb"`.
+
 The default AABB row is `(x1, y1, x2, y2, confidence, class_id)`:
 
 ```bash
@@ -159,6 +166,7 @@ process-level settings are:
 | --- | --- | --- | --- |
 | `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
 | `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
+| `BOXMOT_SERVICE_ASSO_FUNC` | `iou` | `iou` | Geometry used for AABB or OBB detection-track matching: `iou`, `giou`, `diou`, `ciou`, `hmiou`, or `centroid`. |
 | `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
 | `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
 | `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |
@@ -178,9 +186,22 @@ docker run --rm \
   -p 8080:8080 \
   -e BOXMOT_SERVICE_PORT=8080 \
   -e BOXMOT_SERVICE_TRACKER=ocsort \
+  -e BOXMOT_SERVICE_ASSO_FUNC=centroid \
   -e BOXMOT_SERVICE_MAX_STREAMS=512 \
   boxmot/boxmot-service:latest
 ```
+
+Centroid normalization uses the session's fixed `width` and `height`. The CPU
+profile therefore remains pixel-free when centroid is selected.
+
+For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
+convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint
+oriented enclosure for center-distance normalization. OBB `ciou` is a custom
+experimental long/short-side aspect adaptation. OBB `hmiou` is an experimental
+product of oriented IoU and global-y projection IoU and is intended only for
+scenes where image vertical is a meaningful height or depth cue. The
+[association function guide](../config/trackers.md#association-function)
+defines every OBB mode and its score normalization.
 
 ## Scale replicas
 

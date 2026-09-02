@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 from contextlib import nullcontext
 from importlib.metadata import version
 from pathlib import Path
@@ -609,10 +610,10 @@ def test_public_reid_model_embed_export_and_tracker_contract(monkeypatch, tmp_pa
     assert exported.half is True
 
 
-def test_tracker_update_accepts_image_and_embeddings_aliases():
+def test_tracker_update_uses_img_and_embs_keywords():
     from boxmot.trackers.base import BaseTracker
 
-    class _AliasTracker(BaseTracker):
+    class _CaptureTracker(BaseTracker):
         def __init__(self):
             super().__init__(det_thresh=0.1)
             self.captured = None
@@ -625,16 +626,18 @@ def test_tracker_update_accepts_image_and_embeddings_aliases():
         dets=np.array([[1, 2, 3, 4, 0.9, 0]], dtype=np.float32),
         orig_img=_DUMMY_IMG,
     )
-    embeddings = np.ones((1, 2), dtype=np.float32)
+    embs = np.ones((1, 2), dtype=np.float32)
 
-    tracker = _AliasTracker()
-    tracks = tracker.update(detections, image=_DUMMY_IMG, embeddings=embeddings)
+    assert tuple(inspect.signature(BaseTracker.update).parameters) == ("self", "dets", "img", "embs", "masks")
+
+    tracker = _CaptureTracker()
+    tracks = tracker.update(detections, img=_DUMMY_IMG, embs=embs)
 
     assert tracks.shape == (0, 8)
     captured_dets, captured_img, captured_embs, captured_masks = tracker.captured
     np.testing.assert_array_equal(captured_dets, detections.dets)
     assert captured_img is _DUMMY_IMG
-    assert captured_embs is embeddings
+    assert captured_embs is embs
     assert captured_masks is None
 
 

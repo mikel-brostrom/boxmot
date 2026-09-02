@@ -3,6 +3,7 @@
 __all__ = (
     "detections",
     "inference",
+    "inputs",
     "rendering",
     "results",
     "runtime",

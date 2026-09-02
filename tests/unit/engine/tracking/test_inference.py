@@ -21,7 +21,6 @@ import boxmot.engine.tracking.runtime as tracker_runtime_module
 import boxmot.engine.workflows.reporting as workflow_reporting_module
 import boxmot.reid.core as reid_core_module
 import boxmot.utils.rich.core.ui as ui_module
-from boxmot.engine.config import ensure_model_extension
 from boxmot.data import iter_source
 from boxmot.data.cache import (
     AppendableNpyWriter,
@@ -32,12 +31,13 @@ from boxmot.data.cache import (
 from boxmot.detectors import default_conf, default_imgsz, get_detector_url, get_runtime_detector_cfg, load_detector_cfg
 from boxmot.detectors.base import Detections
 from boxmot.detectors.ultralytics import UltralyticsDetector
+from boxmot.engine.config import ensure_model_extension
 from boxmot.engine.tracking.detections import sanitize_detections
 from boxmot.engine.tracking.inference import prepare_detections
 from boxmot.engine.tracking.mot import convert_to_mot_format, write_mot_results
 from boxmot.engine.workflows import support as workflow_support_module
 from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.common.association.iou import iou_obb_pair
+from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.trackers.common.motion import (
     xysr_state_to_xywha,
@@ -51,9 +51,8 @@ _DUMMY_IMG = np.zeros((64, 64, 3), dtype=np.uint8)
 
 class _DummyTracker(BaseTracker):
     def _track_detections(
-        self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray = None, masks: np.ndarray = None
+        self, dets: np.ndarray, img: np.ndarray | None, embs: np.ndarray = None, masks: np.ndarray = None
     ) -> np.ndarray:
-        self.check_inputs(dets, img, embs)
         return np.empty((0, 9 if self.is_obb else 8), dtype=np.float32)
 
     def _display_groups(self):
@@ -900,11 +899,11 @@ def test_ocsort_obb_state_roundtrip_handles_column_vectors():
     np.testing.assert_allclose(decoded[0], obb, rtol=1e-6, atol=1e-6)
 
 
-def test_iou_obb_pair_accepts_column_like_inputs_and_radians():
+def test_iou_batch_obb_accepts_metadata_columns_and_radians():
     dets = np.array([[32, 24, 20, 10, 0.25, 0.9]], dtype=object)
     trks = np.array([[32, 24, 20, 10, 0.25, 0.8]], dtype=object)
 
-    iou = iou_obb_pair(0, 0, dets, trks)
+    iou = AssociationFunction.iou_batch_obb(dets, trks)[0, 0]
 
     assert iou > 0.99
 
@@ -1334,6 +1333,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
         detector=[tmp_path / "detector.pt"],
         reid=[tmp_path / "reid.pt"],
         tracker="bytetrack",
+        asso_func="centroid",
         experiment="mot17-mini",
         benchmark="mot17-mini",
         source=None,
@@ -1355,6 +1355,7 @@ def test_evaluator_main_prints_validation_report_without_verbose(monkeypatch, tm
     assert (evaluator_module.EVAL_SETUP_STEP, "active") in workflow.steps
     assert workflow.details == []
     assert "pipeline" in calls[0]
+    assert calls[0]["evolve_config"] == {"asso_func": "centroid"}
     assert calls[0]["verbose"] is False
 
 

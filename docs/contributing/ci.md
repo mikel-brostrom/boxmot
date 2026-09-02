@@ -41,12 +41,24 @@ metric parity/evaluation, ReID training, OBB, pose/detection/segmentation
 integrations, export runtimes, the Python API smoke test, and the full pytest
 suite. The final `check-failures` job collects their results.
 
-Dependency installation is centralized in
-`.github/scripts/uv_ci_install.sh`. Its first argument is the explicit `cpu` or
-`cu130` PyTorch profile; remaining arguments are passed to locked `uv sync`.
-Pass the smallest project extras and groups that the job imports. For example,
-the Python API smoke job uses `cpu --extra yolo --group test`, while the docs
-job uses `cpu --group docs` and runs `.venv/bin/mkdocs build --strict`.
+The local `.github/actions/setup-ci-python` action installs Python and the uv
+version required by the root `pyproject.toml`, and enables uv's dependency
+cache. Each job then runs a locked sync and explicitly selects exactly one
+PyTorch profile. Pass the smallest project extras and groups that the job
+imports. For example, the Python API smoke job uses:
+
+```bash
+uv sync --locked --no-default-groups --extra cpu --extra yolo --group test
+```
+
+The docs job uses:
+
+```bash
+uv sync --locked --no-default-groups --extra cpu --group docs
+```
+
+CUDA jobs should replace `--extra cpu` with `--extra cu130`; the two profiles
+are mutually exclusive.
 
 CI invokes `.venv/bin` commands directly after syncing because uv does not
 persist an activated optional extra. A later plain `uv run` could otherwise

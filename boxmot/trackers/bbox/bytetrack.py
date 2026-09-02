@@ -8,9 +8,9 @@ from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
-from boxmot.trackers.common.association.matching import fuse_score, iou_distance
-from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
+from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.track_models.bytetrack import STrack, TrackState
+from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 
 
 class ByteTrack(BaseTracker):
@@ -27,7 +27,7 @@ class ByteTrack(BaseTracker):
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+            and ``is_obb``.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -40,6 +40,8 @@ class ByteTrack(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = False
+    uses_embs = False
 
     def __init__(
         self,
@@ -81,8 +83,6 @@ class ByteTrack(BaseTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.check_inputs(dets, img)
-
         self.kalman_filter = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         self.frame_count += 1
@@ -126,7 +126,7 @@ class ByteTrack(BaseTracker):
         STrack.multi_predict(strack_pool)
         first_stage = AssociationStage(
             name="bytetrack_high",
-            cost=self._fused_iou_cost,
+            cost=self._fused_association_cost,
             threshold=self.match_thresh,
         )
         first_result = run_association_stage(first_stage, strack_pool, detections)
@@ -162,7 +162,7 @@ class ByteTrack(BaseTracker):
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         second_stage = AssociationStage(
             name="bytetrack_low",
-            cost=self._iou_cost,
+            cost=self.association_distance,
             threshold=0.5,
         )
         second_result = run_association_stage(
@@ -192,7 +192,7 @@ class ByteTrack(BaseTracker):
         detections = [detections[i] for i in u_detection]
         unconfirmed_stage = AssociationStage(
             name="bytetrack_unconfirmed",
-            cost=self._fused_iou_cost,
+            cost=self._fused_association_cost,
             threshold=0.7,
         )
         unconfirmed_result = run_association_stage(
@@ -236,13 +236,9 @@ class ByteTrack(BaseTracker):
         output_stracks = [track for track in self.active_tracks if track.is_activated]
         return self.format_outputs(output_stracks, dtype=np.float32)
 
-    def _iou_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
-        """Build an IoU distance matrix using the current AABB/OBB tracker mode."""
-        return iou_distance(tracks, detections, is_obb=self.is_obb)
-
-    def _fused_iou_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
-        """Build the ByteTrack score-fused IoU distance matrix."""
-        return fuse_score(self._iou_cost(tracks, detections), detections)
+    def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Build the ByteTrack score-fused geometric distance matrix."""
+        return fuse_score(self.association_distance(tracks, detections), detections)
 
     def reset(self) -> None:
         self._reset_common_state()

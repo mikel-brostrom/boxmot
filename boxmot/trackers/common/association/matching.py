@@ -24,21 +24,30 @@ chi2inv95 = {
 }
 
 
+def solve_assignment(cost_matrix: np.ndarray, cost_limit: float | None = None) -> np.ndarray:
+    """Return ``(row, column)`` pairs from the shared LAP solver."""
+    cost_matrix = np.asarray(cost_matrix)
+    if cost_matrix.size == 0:
+        return np.empty((0, 2), dtype=int)
+
+    kwargs = {"extend_cost": True}
+    if cost_limit is not None:
+        kwargs["cost_limit"] = cost_limit
+    _, row_to_col, _ = lap.lapjv(cost_matrix, **kwargs)
+    assigned_rows = np.flatnonzero(row_to_col >= 0)
+    return np.column_stack((assigned_rows, row_to_col[assigned_rows])).astype(int, copy=False)
+
+
 def linear_assignment(cost_matrix, thresh):
     if cost_matrix.size == 0:
         return (
             np.empty((0, 2), dtype=int),
-            tuple(range(cost_matrix.shape[0])),
-            tuple(range(cost_matrix.shape[1])),
+            np.arange(cost_matrix.shape[0], dtype=int),
+            np.arange(cost_matrix.shape[1], dtype=int),
         )
-    matches, unmatched_a, unmatched_b = [], [], []
-    cost, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=thresh)
-    for ix, mx in enumerate(x):
-        if mx >= 0:
-            matches.append([ix, mx])
-    unmatched_a = np.where(x < 0)[0]
-    unmatched_b = np.where(y < 0)[0]
-    matches = np.asarray(matches)
+    matches = solve_assignment(cost_matrix, cost_limit=thresh)
+    unmatched_a = np.setdiff1d(np.arange(cost_matrix.shape[0]), matches[:, 0])
+    unmatched_b = np.setdiff1d(np.arange(cost_matrix.shape[1]), matches[:, 1])
     return matches, unmatched_a, unmatched_b
 
 
@@ -77,6 +86,15 @@ def iou_distance(atracks, btracks, is_obb: bool = False):
     return cost_matrix
 
 
+def feature_distance(features_a, features_b, metric="cosine"):
+    """Compute a non-negative pairwise distance matrix for feature arrays."""
+    features_a = np.asarray(features_a, dtype=np.float32)
+    features_b = np.asarray(features_b, dtype=np.float32)
+    if len(features_a) == 0 or len(features_b) == 0:
+        return np.zeros((len(features_a), len(features_b)), dtype=np.float32)
+    return np.maximum(0.0, cdist(features_a, features_b, metric))
+
+
 def embedding_distance(tracks, detections, metric="cosine"):
     """
     :param tracks: list[STrack]
@@ -85,50 +103,17 @@ def embedding_distance(tracks, detections, metric="cosine"):
     :return: cost_matrix np.ndarray
     """
 
-    cost_matrix = np.zeros((len(tracks), len(detections)), dtype=np.float32)
-    if cost_matrix.size == 0:
-        return cost_matrix
     det_features = np.asarray([track.curr_feat for track in detections], dtype=np.float32)
-    # for i, track in enumerate(tracks):
-    # cost_matrix[i, :] = np.maximum(0.0, cdist(track.smooth_feat.reshape(1,-1), det_features, metric))
     track_features = np.asarray([track.smooth_feat for track in tracks], dtype=np.float32)
-    cost_matrix = np.maximum(0.0, cdist(track_features, det_features, metric))  # Nomalized features
-    return cost_matrix
-
-
-def fuse_motion(kf, cost_matrix, tracks, detections, only_position=False, lambda_=0.98):
-    if cost_matrix.size == 0:
-        return cost_matrix
-    gating_dim = 2 if only_position else 4
-    gating_threshold = chi2inv95[gating_dim]
-    measurements = np.asarray([det.to_xyah() for det in detections])
-    for row, track in enumerate(tracks):
-        gating_distance = kf.gating_distance(track.mean, track.covariance, measurements, only_position, metric="maha")
-        cost_matrix[row, gating_distance > gating_threshold] = np.inf
-        cost_matrix[row] = lambda_ * cost_matrix[row] + (1 - lambda_) * gating_distance
-    return cost_matrix
-
-
-def fuse_iou(cost_matrix, tracks, detections):
-    if cost_matrix.size == 0:
-        return cost_matrix
-    reid_sim = 1 - cost_matrix
-    iou_dist = iou_distance(tracks, detections)
-    iou_sim = 1 - iou_dist
-    fuse_sim = reid_sim * (1 + iou_sim) / 2
-    det_confs = np.array([det.conf for det in detections])
-    det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    # fuse_sim = fuse_sim * (1 + det_confs) / 2
-    fuse_cost = 1 - fuse_sim
-    return fuse_cost
+    return feature_distance(track_features, det_features, metric)
 
 
 def fuse_score(cost_matrix, detections):
     if cost_matrix.size == 0:
         return cost_matrix
-    iou_sim = 1 - cost_matrix
+    geometry_similarity = 1 - cost_matrix
     det_confs = np.array([det.conf for det in detections])
     det_confs = np.expand_dims(det_confs, axis=0).repeat(cost_matrix.shape[0], axis=0)
-    fuse_sim = iou_sim * det_confs
+    fuse_sim = geometry_similarity * det_confs
     fuse_cost = 1 - fuse_sim
     return fuse_cost

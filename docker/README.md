@@ -41,12 +41,21 @@ The default build is equivalent to `--target cli-gpu`:
 docker build -f docker/Dockerfile -t boxmot/boxmot:local .
 ```
 
-When dependencies change, regenerate the single root lock with the same uv
-version pinned in the Dockerfile and CI helper:
+When dependencies change, regenerate the single root lock. The root
+`pyproject.toml` declares and enforces the supported uv version; keep the
+Dockerfile's bootstrap uv version aligned with it:
 
 ```bash
-uvx --from uv==0.12.4 uv lock
+uv lock
 ```
+
+## Publish
+
+GitHub Actions builds, smoke-tests, and pushes all four targets only when a
+GitHub release is published. Pull requests, branch pushes, and manual workflow
+runs do not build or publish these images. Each target is pushed only after its
+smoke test passes. The release tag may optionally start with `v`, but its
+remaining value must match `[project].version` in `pyproject.toml`.
 
 ## Run
 
@@ -66,11 +75,86 @@ Run the CPU geometry-only detection-to-track service:
 
 ```bash
 docker run --rm -p 8000:8000 boxmot/boxmot-service:local
+```
+
+Select the geometric association function process-wide with
+`BOXMOT_SERVICE_ASSO_FUNC`:
+
+```bash
+docker run --rm -p 8000:8000 \
+  -e BOXMOT_SERVICE_TRACKER=bytetrack \
+  -e BOXMOT_SERVICE_ASSO_FUNC=centroid \
+  boxmot/boxmot-service:local
+```
+
+Available choices for AABB and OBB sessions are `iou`, `giou`, `diou`, `ciou`,
+`hmiou`, and `centroid`. The CPU service uses each request's declared width and
+height to initialize centroid normalization, so it still does not need image
+pixels.
+
+For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
+convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint
+oriented enclosure for center-distance normalization. OBB `ciou` is a custom
+experimental long/short-side aspect adaptation. OBB `hmiou` is an experimental
+product of oriented IoU and global-y projection IoU; use it only when image
+vertical is a meaningful height or depth cue. See the
+[association function guide](../docs/config/trackers.md#association-function)
+for all OBB definitions and score normalization.
+
+From another terminal, verify that it is ready:
+
+```bash
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. Run
-the CUDA/ReID service with an NVIDIA GPU and a mounted checkpoint:
+It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. The
+service forwards `img=None` for these motion-only/default configurations instead
+of allocating a dummy frame. Send one request per frame.
+
+In-process BoxMOT trackers infer AABB or OBB mode automatically from each
+non-empty detection row's column count. The HTTP API still declares `box_type`
+because it fixes one session schema before detections reach the tracker, keeps
+empty frames unambiguous, and determines the response's `track_columns` layout.
+The server checks non-empty row widths against that declaration. AABB is the
+HTTP default; OBB sessions must set `"box_type": "obb"`.
+
+AABB detection rows use `(x1, y1, x2, y2, confidence, class_id)`:
+
+```bash
+curl --fail --request POST \
+  --url http://127.0.0.1:8000/v1/streams/camera-01/sessions/aabb-demo/frames \
+  --header 'content-type: application/json' \
+  --data '{
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "box_type": "aabb",
+    "detections": [[10, 20, 60, 120, 0.95, 0]]
+  }'
+```
+
+OBB detection rows use
+`(center_x, center_y, width, height, angle_radians, confidence, class_id)`:
+
+```bash
+curl --fail --request POST \
+  --url http://127.0.0.1:8000/v1/streams/camera-01/sessions/obb-demo/frames \
+  --header 'content-type: application/json' \
+  --data '{
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "box_type": "obb",
+    "detections": [[35, 70, 50, 100, 0.1, 0.95, 0]]
+  }'
+```
+
+Use a separate session when changing `box_type`. Continue each session with
+contiguous `frame_id` values (`1`, `2`, ...) and send `"detections": []` when
+a frame has no detections. The response's `track_columns` field defines the
+column order of each returned track.
+
+Run the CUDA/ReID service with an NVIDIA GPU and a mounted checkpoint:
 
 ```bash
 docker run --rm --gpus all -p 8000:8000 \
@@ -85,6 +169,35 @@ base64-encoded JPEG or PNG in `image_base64` for every frame, even when
 `detections` is empty. Base64 increases the compressed payload by roughly 33%,
 so prefer compressed JPEG for high-volume streams and enforce request-size
 limits at ingress.
+
+For example, send a 640 by 480 `frame.jpg` from Python:
+
+```python
+import base64
+from pathlib import Path
+
+import requests
+
+payload = {
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "frame_rate": 30,
+    "box_type": "aabb",
+    "detections": [[10, 20, 60, 120, 0.95, 0]],
+    "image_base64": base64.b64encode(Path("frame.jpg").read_bytes()).decode("ascii"),
+}
+response = requests.post(
+    "http://127.0.0.1:8000/v1/streams/camera-01/sessions/gpu-demo/frames",
+    json=payload,
+    timeout=30,
+)
+response.raise_for_status()
+print(response.json())
+```
+
+The declared `width` and `height` must exactly match the encoded image. Send
+only the raw base64 text, without a `data:image/...;base64,` prefix.
 
 Neither service runs detector inference. Keep one service process per
 container; the GPU process loads and warms one ReID model shared by its tracker

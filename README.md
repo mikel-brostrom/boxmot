@@ -74,7 +74,9 @@ docker run --rm -it --gpus all boxmot/boxmot:latest
 docker run --rm -it boxmot/boxmot:latest-cpu
 
 # CPU-only stateful HTTP tracking from externally supplied detections
-docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
+docker run --rm -p 8000:8000 \
+  -e BOXMOT_SERVICE_ASSO_FUNC=giou \
+  boxmot/boxmot-service:latest
 
 # CUDA/ReID stateful tracking from detections plus an encoded image per frame
 docker run --rm --gpus all -p 8000:8000 \
@@ -273,16 +275,23 @@ Related guides:
 CLI:
 
 ```bash
-boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost --source 0 --save --show
+boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
+  --asso-func diou --source 0 --save --show
 ```
 
 Python:
 
 ```python
 import numpy as np
-from boxmot.trackers import OccluBoost
+from boxmot.trackers.registry import create_tracker
 
-tracker = OccluBoost()
+tracker = create_tracker(
+    "occluboost",
+    reid_weights="osnet_x0_25_msmt17.pt",
+    device="cpu",
+    half=False,
+    tracker_kwargs={"asso_func": "diou"},
+)
 
 # dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
 dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
@@ -291,7 +300,7 @@ dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
 img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
 
 # tracks: AABB (M, 8), or OBB (M, 9) with angle after h
-tracks = tracker.update(dets, img)
+tracks = tracker.update(dets, img=img)
 print(tracks)
 ```
 

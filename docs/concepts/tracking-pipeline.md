@@ -53,8 +53,9 @@ for each frame from iter_source(source):
         |       v
         |   embeddings or None
         |
-        +--> tracker.update(dets, frame[, embeddings])
+        +--> tracker.update(dets, img=None, embs=None, masks=None)
         |       |
+        |       +--> route only inputs consumed by this tracker
         |       +--> select AABB or OBB layout from detection shape
         |       +--> predict existing tracks
         |       +--> associate detections to tracks
@@ -106,9 +107,9 @@ Results loop stays in Python
         |       +--> fallback: external Python ReID features when needed
         |
         v
-Native<Tracker>Tracker.update(dets, frame[, embeddings])
+Native<Tracker>Tracker.update(dets, img=None, embs=None, masks=None)
         |
-        +--> normalize numpy detections and uint8 image
+        +--> normalize detections and only the optional inputs this tracker consumes
         +--> validate 6-column AABB or 7-column OBB detections
         +--> call C ABI update function
         |
@@ -116,7 +117,13 @@ Native<Tracker>Tracker.update(dets, frame[, embeddings])
 <tracker>/src/c_api.cpp
         |
         +--> ConvertLiveDetections(...)
-        +--> WrapLiveImage(...)
+        +--> route the optional image by tracker capability
+        |       |
+        |       +--> ByteTrack / OCSORT: use an empty cv::Mat
+        |       +--> SFSORT: wrap an image only when frame dimensions are unresolved
+        |       +--> BoTSORT / OccluBoost: wrap pixels for active CMC or live ReID
+        |
+        +--> validate pixels only when the active tracker path requires them
         +--> <tracker>::Tracker.Update(detections, image)
         +--> WriteLiveOutputs(...)
         |
@@ -137,7 +144,7 @@ Use this path when your own C++ program links directly against a native tracker 
 ```text
 Your C++ application
         |
-        +--> read frame / camera input
+        +--> optionally read frame / camera input for CMC, live ReID, or frame dimensions
         +--> run your detector
         +--> optionally run your ReID model
         +--> create <tracker>::Config
@@ -152,7 +159,12 @@ for each frame:
         |       +--> OBB:  is_obb=true, xywha, conf, cls, det_ind
         |       +--> optional embedding for ReID-aware trackers
         |
-        +--> tracker.Update(detections, frame)
+        +--> choose the image argument for the active tracker configuration
+        |       |
+        |       +--> motion-only: empty cv::Mat
+        |       +--> image-dependent: current frame
+        |
+        +--> tracker.Update(detections, image)
         |       |
         |       +--> predict
         |       +--> associate
@@ -164,6 +176,11 @@ vector of <tracker>::TrackOutput
         |
         +--> render, write, stream, or use tracks in your application
 ```
+
+The native C++ base interface keeps a shared
+`Update(detections, const cv::Mat&)` signature. Motion-only implementations
+accept an empty matrix; Python wrappers expose the same call as
+`tracker.update(dets)`.
 
 ## Cached benchmark tracking
 

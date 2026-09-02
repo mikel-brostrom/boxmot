@@ -99,8 +99,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
 
@@ -108,7 +108,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
 
       - name: Restore HF benchmark cache
         uses: actions/cache/restore@v4

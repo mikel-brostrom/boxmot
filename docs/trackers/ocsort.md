@@ -32,8 +32,13 @@ boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker ocsort --tracker-ba
 boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 
-The native backend currently supports `asso_func=iou`. Use the Python backend
-if you need the other OCSORT association functions from
-`boxmot/configs/trackers/ocsort.yaml`.
+The native backend honors `asso_func` from
+`boxmot/configs/trackers/ocsort.yaml`. AABB and OBB tracking support `iou`,
+`giou`, `diou`, `ciou`, `hmiou`, and `centroid`. Centroid association uses the
+first live image to initialize and cache the frame dimensions. OBB `ciou` is a
+custom experimental aspect-ratio adaptation, while OBB `hmiou` is an
+experimental global-y height cue intended only for scenes where image vertical
+is meaningful. See the [association function guide](../config/trackers.md#association-function)
+for the exact OBB semantics.
 
 ::: boxmot.trackers.bbox.ocsort.OcSort

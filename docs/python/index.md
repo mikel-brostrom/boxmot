@@ -62,7 +62,7 @@ simple = BoxMOT(tracker="occluboost")
 
 configured = BoxMOT(
     tracker="occluboost",
-    tracker_kwargs={"with_reid": True},
+    tracker_kwargs={"with_reid": True, "asso_func": "giou"},
 )
 
 by_class = BoxMOT(
@@ -193,14 +193,14 @@ import cv2
 from boxmot import Detector, ReIDModel
 from boxmot.trackers import OccluBoost
 
-image = cv2.imread("image.jpg")
+img = cv2.imread("image.jpg")
 detector = Detector("yolov8n.pt", device="cpu")
 reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
 tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-detections = detector.predict(image)
-embeddings = reid.embed(image, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
-tracks = tracker.update(detections, image=image, embeddings=embeddings)
+detections = detector.predict(img)
+embs = reid.embed(img, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
+tracks = tracker.update(detections, img=img, embs=embs)
 ```
 
 `detections.xyxy` always returns axis-aligned geometry; in OBB mode it is the
@@ -245,16 +245,32 @@ import numpy as np
 from boxmot.trackers.bbox.bytetrack import ByteTrack
 
 tracker = ByteTrack(
-    track_high_thresh=0.6,
-    track_low_thresh=0.1,
+    track_thresh=0.6,
+    min_conf=0.1,
     track_buffer=30,
 )
 
-# Feed detections frame-by-frame
+# Feed detections frame-by-frame. Default-IoU ByteTrack needs no image.
 # dets: (N, 6) array with columns [x1, y1, x2, y2, conf, cls]
-# img:  the current frame as a numpy array (H, W, 3)
-tracks = tracker.update(dets, img)
+tracks = tracker.update(dets)
 ```
+
+Every tracker exposes the same `update(dets, img=None, embs=None, masks=None)`
+interface, but the engine only supplies inputs the selected tracker consumes:
+
+| Tracker | Image | Embeddings | Masks |
+| --- | --- | --- | --- |
+| ByteTrack | Required on the first frame only when centroid association must infer frame dimensions; otherwise not used | Not used | Not used |
+| OCSort | Required initially when centroid association must infer frame dimensions; otherwise not used | Not used | Not used |
+| SFSORT | Required initially for centroid association or frame margins unless `frame_width` and `frame_height` are configured | Not used | Not used |
+| BotSort, BoostTrack, OccluBoost | Needed for CMC or live ReID; also required initially when centroid association must infer frame dimensions | Used when ReID is enabled | Not used |
+| DeepOCSort, HybridSort | Needed for CMC or live ReID; also required initially when centroid association must infer frame dimensions | Used when ReID is enabled | Not used |
+| StrongSort | Required by CMC | Used; precomputed values avoid live ReID extraction | Not used |
+| Sam2Mot | Required for image-to-mask coordinate scaling | Not used | Optional; bbox matching is the fallback |
+
+Precomputed embeddings let a ReID-aware tracker run without image pixels when
+its CMC path is disabled. If live ReID or CMC is active, omitting `img` raises a
+focused input error.
 
 For ReID-aware trackers, supply a ReID model:
 
@@ -266,8 +282,8 @@ reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu", half=False)
 
 tracker = OccluBoost(reid_model=reid, with_reid=True)
 
-embeddings = reid.embed(img, boxes=dets[:, :4])
-tracks = tracker.update(dets, image=img, embeddings=embeddings)
+embs = reid.embed(img, boxes=dets[:, :4])
+tracks = tracker.update(dets, img=img, embs=embs)
 
 # tracks is a TrackResults array (M, 8) with columns:
 # [x1, y1, x2, y2, id, conf, cls, det_ind]

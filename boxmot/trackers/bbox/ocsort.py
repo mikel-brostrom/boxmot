@@ -11,16 +11,11 @@ import numpy as np
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association import (
     AssociationStage,
-    detection_track_iou_assignment,
-    detection_track_tuple_to_association_result,
+    detection_track_similarity_assignment,
     run_association_stage,
+    solve_assignment,
 )
-from boxmot.trackers.common.association.velocity import (
-    associate,
-)
-from boxmot.trackers.common.association.velocity import (
-    linear_assignment as legacy_linear_assignment,
-)
+from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker, k_previous_obs
 
 
@@ -47,6 +42,9 @@ class OcSort(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = False
+    uses_embs = False
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -65,7 +63,6 @@ class OcSort(BaseTracker):
 
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
-        self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
         self.delta_t: int = delta_t
         self.inertia: float = inertia
         self.use_byte: bool = use_byte
@@ -101,10 +98,7 @@ class OcSort(BaseTracker):
             number of detections provided.
         """
 
-        self.check_inputs(dets, img)
-
         self.frame_count += 1
-        h, w = img.shape[0:2]
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         high_batch, second_batch = batch.split_by_confidence(
@@ -141,20 +135,16 @@ class OcSort(BaseTracker):
         """
         first_stage = AssociationStage(
             name="ocsort_high",
-            threshold=self.asso_threshold,
-            matcher=lambda _tracks, _detections: detection_track_tuple_to_association_result(
-                associate(
-                    dets,
-                    trks,
-                    self.asso_func,
-                    self.asso_threshold,
-                    velocities,
-                    k_observations,
-                    self.inertia,
-                    w,
-                    h,
-                    is_obb=self.is_obb,
-                )
+            threshold=self.iou_threshold,
+            matcher=lambda _tracks, _detections: associate(
+                dets,
+                trks,
+                self.asso_func,
+                self.iou_threshold,
+                velocities,
+                k_observations,
+                self.inertia,
+                is_obb=self.is_obb,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -174,15 +164,14 @@ class OcSort(BaseTracker):
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = self.asso_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
-            iou_left = np.array(iou_left)
+            similarity = np.asarray(self.asso_func(dets_second, u_trks))
             low_stage = AssociationStage(
                 name="ocsort_low",
-                threshold=self.asso_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
-                    self.asso_threshold,
-                    legacy_linear_assignment,
+                threshold=self.iou_threshold,
+                matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                    similarity,
+                    self.iou_threshold,
+                    solve_assignment,
                 ),
             )
             low_result = run_association_stage(low_stage, u_trks, dets_second)
@@ -199,33 +188,37 @@ class OcSort(BaseTracker):
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
-            left_trks = last_boxes[unmatched_trks]
-            iou_left = self.asso_func(left_dets, left_trks)
-            iou_left = np.array(iou_left)
-            rematch_stage = AssociationStage(
-                name="ocsort_high_rematch",
-                threshold=self.asso_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
-                    self.asso_threshold,
-                    legacy_linear_assignment,
-                ),
-            )
-            rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
-            to_remove_det_indices = []
-            to_remove_trk_indices = []
-            for trk_rel, det_rel in rematch_result.matches:
-                det_ind = unmatched_dets[det_rel]
-                trk_ind = unmatched_trks[trk_rel]
-                self.active_tracks[trk_ind].update(
-                    dets[det_ind],
-                    high_batch.clss[det_ind],
-                    high_batch.det_inds[det_ind],
+            # New tracks retain a negative-confidence sentinel until their first
+            # explicit update. Keep those rows out of strict OBB geometry while
+            # preserving the mapping back to active-track indices.
+            rematch_trk_indices = unmatched_trks[last_boxes[unmatched_trks, -1] >= 0]
+            if rematch_trk_indices.size:
+                left_trks = last_boxes[rematch_trk_indices]
+                similarity = np.asarray(self.asso_func(left_dets, left_trks))
+                rematch_stage = AssociationStage(
+                    name="ocsort_high_rematch",
+                    threshold=self.iou_threshold,
+                    matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                        similarity,
+                        self.iou_threshold,
+                        solve_assignment,
+                    ),
                 )
-                to_remove_det_indices.append(det_ind)
-                to_remove_trk_indices.append(trk_ind)
-            unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
-            unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
+                rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
+                to_remove_det_indices = []
+                to_remove_trk_indices = []
+                for trk_rel, det_rel in rematch_result.matches:
+                    det_ind = unmatched_dets[det_rel]
+                    trk_ind = rematch_trk_indices[trk_rel]
+                    self.active_tracks[trk_ind].update(
+                        dets[det_ind],
+                        high_batch.clss[det_ind],
+                        high_batch.det_inds[det_ind],
+                    )
+                    to_remove_det_indices.append(det_ind)
+                    to_remove_trk_indices.append(trk_ind)
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.active_tracks[m].update(None, None, None)

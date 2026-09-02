@@ -68,6 +68,7 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/../../cmake/BoxMOTNative.cmake)
 
 add_library(boxmot_tracker_base STATIC
+    src/association.cpp
     src/assignment.cpp
     src/io.cpp
     src/reid_inference_backend.cpp
@@ -121,6 +122,11 @@ add_executable(boxmot_assignment_probe EXCLUDE_FROM_ALL tests/assignment_probe.c
 target_compile_features(boxmot_assignment_probe PRIVATE cxx_std_17)
 target_link_libraries(boxmot_assignment_probe PRIVATE boxmot_tracker_base)
 boxmot_enable_native_warnings(boxmot_assignment_probe)
+
+add_executable(boxmot_association_probe EXCLUDE_FROM_ALL tests/association_probe.cpp)
+target_compile_features(boxmot_association_probe PRIVATE cxx_std_17)
+target_link_libraries(boxmot_association_probe PRIVATE boxmot_tracker_base)
+boxmot_enable_native_warnings(boxmot_association_probe)
 
 add_executable(boxmot_io_probe EXCLUDE_FROM_ALL tests/io_probe.cpp)
 target_compile_features(boxmot_io_probe PRIVATE cxx_std_17)

@@ -11,6 +11,9 @@ class TrackerProtocol(Protocol):
 
     name: str
     supports_obb: bool
+    uses_img: bool
+    uses_embs: bool
+    supports_masks: bool
 
     def update(
         self,
@@ -18,13 +21,19 @@ class TrackerProtocol(Protocol):
         img: np.ndarray | None = None,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
-        *,
-        image: np.ndarray | None = None,
-        embeddings: np.ndarray | None = None,
     ) -> np.ndarray:
         """Update the tracker and return public track rows."""
         ...
 
     def reset(self) -> None:
         """Clear all sequence-local tracker state."""
+        ...
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Return whether the current update needs an image."""
         ...

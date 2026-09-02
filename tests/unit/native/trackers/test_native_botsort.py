@@ -62,6 +62,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             assert cmd[cmd.index("--second-match-thresh") + 1] == "0.31"
             assert cmd[cmd.index("--unconfirmed-match-thresh") + 1] == "0.42"
             assert cmd[cmd.index("--unconfirmed-emb-scale") + 1] == "2.75"
+            assert cmd[cmd.index("--asso-func") + 1] == "giou"
             assert "--reid-model" in cmd
             assert cmd[cmd.index("--reid-model") + 1] == "/weights/lmbn_n_duke.onnx"
             assert stdout is native_module.subprocess.PIPE
@@ -99,6 +100,7 @@ def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
             "unconfirmed_match_thresh": 0.42,
             "unconfirmed_emb_scale": 2.75,
             "cmc_method": "ecc",
+            "asso_func": "giou",
         },
         dataset_name="mot17-mini",
         conf_threshold=0.25,
@@ -393,6 +395,9 @@ def test_native_botsort_tracker_accepts_obb_rows_and_preserves_empty_mode():
     tracker.close()
 
     assert tracker.supports_obb is True
+    assert tracker.supports_masks is False
+    assert tracker.uses_img is True
+    assert tracker.uses_embs is False
     assert out.shape == (0, 9)
     assert empty.shape == (0, 9)
     assert calls == [
@@ -400,6 +405,98 @@ def test_native_botsort_tracker_accepts_obb_rows_and_preserves_empty_mode():
         ("update", "handle", (0, 7), (8, 8, 3), None),
         ("destroy", "handle"),
     ]
+
+
+def test_native_botsort_requires_image_for_live_tracking():
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            raise AssertionError("Missing images must not reach the native library")
+
+        def get_last_reid_time_ms(self, handle):
+            return 0.0
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeBotSortTracker({"with_reid": False}, library=_FakeLibrary())
+    dets = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+    try:
+        with pytest.raises(ValueError, match="Native BoTSORT requires img"):
+            tracker.update(dets)
+    finally:
+        tracker.close()
+
+
+def test_native_botsort_disabled_reid_model_does_not_require_pixels(monkeypatch):
+    calls = []
+
+    def fail_reid_resolution(_weights):
+        raise AssertionError("Disabled ReID weights must not be resolved")
+
+    monkeypatch.setattr(native_module, "_ensure_native_reid_model_path", fail_reid_resolution)
+
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            calls.append((img, embs))
+            return np.empty((0, 8), dtype=np.float32)
+
+        def get_last_reid_time_ms(self, handle):
+            return 0.0
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeBotSortTracker(
+        {"with_reid": False, "use_cmc": False},
+        reid_weights="models/disabled.onnx",
+        library=_FakeLibrary(),
+    )
+    try:
+        dets = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+        output = tracker.update(dets)
+        assert tracker.provides_reid is False
+        assert tracker.uses_img is False
+        assert tracker.uses_embs is False
+        assert tracker.requires_image(dets) is False
+        assert output.shape == (0, 8)
+        assert calls == [(None, None)]
+    finally:
+        tracker.close()
+
+
+def test_native_botsort_c_api_image_requirement_follows_cmc():
+    library = native_module._BotSortLiveLibrary(native_module.ensure_botsort_cpp_library())
+    active = native_module.NativeBotSortTracker(
+        {"with_reid": False, "use_cmc": True},
+        library=library,
+    )
+    inactive = native_module.NativeBotSortTracker(
+        {"with_reid": False, "use_cmc": False},
+        library=library,
+    )
+    detections = np.empty((0, 6), dtype=np.float32)
+
+    try:
+        with pytest.raises(RuntimeError, match=r"requires (?:an )?(?:img|image)"):
+            library.update(active._handle, detections, None)
+        output = library.update(inactive._handle, detections, None)
+    finally:
+        active.close()
+        inactive.close()
+
+    assert output.shape == (0, 8)
 
 
 def test_native_botsort_empty_obb_frame_latches_layout_before_first_detection():
@@ -473,7 +570,6 @@ def test_native_botsort_obb_motion_state_matches_python_across_updates():
     python_tracker = BotSort(reid_model=None, **cfg)
     native_library = native_module._BotSortLiveLibrary(native_module.ensure_botsort_cpp_library())
     native_tracker = native_module.NativeBotSortTracker(cfg, library=native_library)
-    image = np.zeros((100, 120, 3), dtype=np.uint8)
     frames = (
         np.array([[40.0, 40.0, 20.0, 10.0, 0.10, 0.95, 0.0]], dtype=np.float32),
         np.array([[43.0, 42.0, 24.0, 12.0, 0.14, 0.96, 0.0]], dtype=np.float32),
@@ -483,8 +579,8 @@ def test_native_botsort_obb_motion_state_matches_python_across_updates():
 
     try:
         for detections in frames:
-            python_output = np.asarray(python_tracker.update(detections, image))
-            native_output = native_tracker.update(detections, image)
+            python_output = np.asarray(python_tracker.update(detections))
+            native_output = native_tracker.update(detections)
             assert python_output.shape == native_output.shape == (1, 9)
             np.testing.assert_allclose(native_output[:, :5], python_output[:, :5], rtol=1e-6, atol=1e-6)
     finally:

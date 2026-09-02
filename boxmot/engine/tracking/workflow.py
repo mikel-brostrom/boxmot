@@ -297,16 +297,21 @@ def run_track(
 
 
 def main(args):
+    tracker_kwargs = None
+    if getattr(args, "asso_func", None):
+        tracker_kwargs = {"asso_func": args.asso_func}
     pipeline = TrackWorkflowReporter(args).pipeline()
     with pipeline:
-        return run_track(
-            args,
-            detector_spec=first_value(getattr(args, "detector", None)),
-            reid_spec=first_value(getattr(args, "reid", None)),
-            tracker_spec=getattr(args, "tracker", None),
-            classes=getattr(args, "classes", None),
-            pipeline=pipeline,
-        )
+        run_kwargs = {
+            "detector_spec": first_value(getattr(args, "detector", None)),
+            "reid_spec": first_value(getattr(args, "reid", None)),
+            "tracker_spec": getattr(args, "tracker", None),
+            "classes": getattr(args, "classes", None),
+            "pipeline": pipeline,
+        }
+        if tracker_kwargs is not None:
+            run_kwargs["tracker_kwargs"] = tracker_kwargs
+        return run_track(args, **run_kwargs)
 
 
 __all__ = (

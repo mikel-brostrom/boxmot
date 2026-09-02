@@ -15,7 +15,6 @@ from typing import List, Optional, Tuple
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import (
     align_obb_measurement,
     normalize_angle,
@@ -235,6 +234,9 @@ class Sam2Mot(HybridBaseTracker):
 
     supports_masks = True
     supports_obb = True
+    uses_img = True
+    uses_embs = False
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -658,32 +660,19 @@ class Sam2Mot(HybridBaseTracker):
             self.active_tracks = []
             return self.empty_output(dtype=np.float32), None
 
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Sam2Mot needs frame dimensions for image-to-mask coordinate scaling."""
+        del dets, embs, masks
+        return True
+
     # ------------------------------------------------------------------
     # Matching helpers
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _iou_matrix(bboxes_a: np.ndarray, bboxes_b: np.ndarray) -> np.ndarray:
-        """Compute IoU matrix between two sets of bboxes (vectorized).
-
-        Args:
-            bboxes_a: (M, 4) array [x1, y1, x2, y2]
-            bboxes_b: (N, 4) array [x1, y1, x2, y2]
-        Returns:
-            (M, N) IoU matrix
-        """
-        # Broadcast: (M, 1, 4) vs (1, N, 4)
-        a = bboxes_a[:, None, :]  # (M, 1, 4)
-        b = bboxes_b[None, :, :]  # (1, N, 4)
-        ix1 = np.maximum(a[..., 0], b[..., 0])
-        iy1 = np.maximum(a[..., 1], b[..., 1])
-        ix2 = np.minimum(a[..., 2], b[..., 2])
-        iy2 = np.minimum(a[..., 3], b[..., 3])
-        inter = np.maximum(0, ix2 - ix1) * np.maximum(0, iy2 - iy1)
-        area_a = (a[..., 2] - a[..., 0]) * (a[..., 3] - a[..., 1])
-        area_b = (b[..., 2] - b[..., 0]) * (b[..., 3] - b[..., 1])
-        union = area_a + area_b - inter
-        return inter / np.maximum(union, 1e-6)
 
     def _association_similarity(
         self,
@@ -716,7 +705,7 @@ class Sam2Mot(HybridBaseTracker):
                     box[2:4] = np.maximum(box[2:4], 1e-4)
                     box[4] = float(normalize_angle(box[4]))
                 predicted.append(box)
-            geometry = AssociationFunction.iou_batch_obb(det_obbs[det_indices], np.asarray(predicted))
+            geometry = self.asso_func(det_obbs[det_indices], np.asarray(predicted))
         else:
             predicted = np.asarray(
                 [
@@ -730,7 +719,16 @@ class Sam2Mot(HybridBaseTracker):
                 ],
                 dtype=np.float32,
             )
-            geometry = self._iou_matrix(det_bboxes[det_indices], predicted)
+            # A large coordinate velocity can make an extrapolated box cross
+            # over itself. Keep predicted AABBs valid before passing them to
+            # any of the selectable geometry functions.
+            predicted_x = np.sort(predicted[:, (0, 2)], axis=1)
+            predicted_y = np.sort(predicted[:, (1, 3)], axis=1)
+            predicted[:, 0], predicted[:, 2] = predicted_x[:, 0], predicted_x[:, 1]
+            predicted[:, 1], predicted[:, 3] = predicted_y[:, 0], predicted_y[:, 1]
+            predicted[:, 2] = np.maximum(predicted[:, 2], predicted[:, 0] + 1e-4)
+            predicted[:, 3] = np.maximum(predicted[:, 3], predicted[:, 1] + 1e-4)
+            geometry = self.asso_func(det_bboxes[det_indices], predicted)
 
         if det_masks is None or self.cost_weight <= 0:
             return geometry
@@ -877,7 +875,7 @@ class Sam2Mot(HybridBaseTracker):
                 ],
                 dtype=np.float32,
             )
-            similarity = AssociationFunction.iou_batch_obb(det_obbs[unmatched_dets], track_boxes)
+            similarity = self.asso_func(det_obbs[unmatched_dets], track_boxes)
         else:
             has_geometry = np.array([track.last_matched_bbox is not None for track in frame_out_tracks])
             track_boxes = np.asarray(
@@ -887,7 +885,7 @@ class Sam2Mot(HybridBaseTracker):
                 ],
                 dtype=np.float32,
             )
-            similarity = self._iou_matrix(det_bboxes[unmatched_dets], track_boxes)
+            similarity = self.asso_func(det_bboxes[unmatched_dets], track_boxes)
         similarity[:, ~has_geometry] = 0
         cost = 1.0 - similarity
 

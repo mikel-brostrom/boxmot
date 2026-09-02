@@ -28,6 +28,7 @@ _TRACKER_NAME = "sfsort"
 
 def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved = _native_trackers.load_tracker_cfg("sfsort", cfg_dict)
+    _native_trackers.resolve_association_function(resolved)
     resolved.setdefault("dynamic_tuning", False)
     resolved.setdefault("cth", 0.5)
     resolved.setdefault("high_th_m", 0.0)
@@ -43,6 +44,13 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved.setdefault("frame_rate", 30)
     resolved.setdefault("max_obs", 50)
     return resolved
+
+
+def _needs_image_for_margins(cfg: dict[str, Any]) -> bool:
+    """Return whether frame dimensions must be inferred from an image."""
+    has_frame_dimensions = int(cfg.get("frame_width", 0) or 0) > 0 and int(cfg.get("frame_height", 0) or 0) > 0
+    uses_distinct_timeouts = int(cfg.get("central_timeout", 0)) != int(cfg.get("marginal_timeout", 0))
+    return uses_distinct_timeouts and not has_frame_dimensions
 
 
 def ensure_sfsort_cpp_executable(force_rebuild: bool = False) -> Path:
@@ -84,6 +92,7 @@ class _SFSORTCConfig(ctypes.Structure):
         ("vertical_margin", ctypes.c_int),
         ("frame_rate", ctypes.c_int),
         ("max_obs", ctypes.c_int),
+        ("asso_func", ctypes.c_char_p),
     ]
 
 
@@ -134,6 +143,7 @@ class _SFSORTLiveLibrary:
             vertical_margin=int(cfg.get("vertical_margin", 0) or 0),
             frame_rate=int(cfg.get("frame_rate", 30)),
             max_obs=int(cfg.get("max_obs", 50)),
+            asso_func=str(cfg["asso_func"]).encode("utf-8"),
         )
         handle = self._library.boxmot_sfsort_create(ctypes.byref(c_cfg))
         if not handle:
@@ -148,7 +158,7 @@ class _SFSORTLiveLibrary:
         if self._library.boxmot_sfsort_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray) -> np.ndarray:
+    def update(self, handle, dets: np.ndarray, img: np.ndarray | None = None) -> np.ndarray:
         return _native_trackers.call_update(
             self._library.boxmot_sfsort_update,
             handle=handle,
@@ -156,6 +166,7 @@ class _SFSORTLiveLibrary:
             img=img,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
 
@@ -169,6 +180,9 @@ def _get_live_sfsort_library() -> _SFSORTLiveLibrary:
 
 class NativeSFSORTTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = False
+    uses_embs = False
     tracker_name = "sfsort"
     tracker_backend = "cpp"
     provides_reid = False
@@ -184,14 +198,48 @@ class NativeSFSORTTracker(_native_trackers.NativeTrackerMixin):
         library: _SFSORTLiveLibrary | None = None,
     ) -> None:
         del reid_weights, reid_preprocess
+        cfg = _resolve_tracker_cfg(cfg_dict)
+        self.asso_func_name = cfg["asso_func"]
+        self._needs_initial_image = (
+            _needs_image_for_margins(cfg)
+            or _native_trackers.association_requires_initial_image(
+                cfg,
+                allow_configured_dimensions=True,
+            )
+        )
+        self.uses_img = self._needs_initial_image
         native_library = library if library is not None else _get_live_sfsort_library()
-        self._init_native_handle(library=native_library, cfg=_resolve_tracker_cfg(cfg_dict))
+        self._init_native_handle(library=native_library, cfg=cfg)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        del embs
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del embs, masks
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img)
+        if self.uses_img and img is None:
+            raise ValueError(
+                "Native SFSORT requires img to infer frame dimensions for margins or initialize centroid association; "
+                "configure frame_width and frame_height to track without images."
+            )
+        tracks = self._library.update(self._handle, det_arr, img if self.uses_img else None)
+        self.uses_img = False
         return self._normalize_tracks_for_mode(tracks)
+
+    def reset(self) -> None:
+        super().reset()
+        cfg = self.cfg
+        self._needs_initial_image = (
+            _needs_image_for_margins(cfg)
+            or _native_trackers.association_requires_initial_image(
+                cfg,
+                allow_configured_dimensions=True,
+            )
+        )
+        self.uses_img = self._needs_initial_image
 
 
 def create_sfsort_live_tracker(
@@ -244,6 +292,8 @@ def process_sequence_cpp(
         conf_threshold=conf_threshold,
         target_fps=target_fps,
         extra_args=[
+            "--asso-func",
+            str(cfg["asso_func"]),
             "--high-th",
             str(float(cfg["high_th"])),
             "--match-th-first",

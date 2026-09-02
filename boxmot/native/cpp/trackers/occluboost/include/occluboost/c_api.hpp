@@ -72,6 +72,7 @@ struct BoxMOTOccluBoostConfig {
     const char* reid_model_path;
     const char* reid_preprocess;
     const char* reid_device;
+    const char* asso_func;
 };
 
 struct BoxMOTOccluBoostHandle;

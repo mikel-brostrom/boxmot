@@ -1,9 +1,13 @@
-import cv2 as cv
+import math
+
 import numpy as np
+
+_EQUIVALENT_OBB_LINEAR_ATOL = 1e-9
+_EQUIVALENT_OBB_RELATIVE_ATOL = 8.0 * np.finfo(np.float32).eps
 
 
 def _obb_geometry(boxes: np.ndarray) -> np.ndarray:
-    """Return canonical ``xywha`` geometry from OBB rows with optional metadata."""
+    """Return validated ``xywha`` geometry from OBB rows with optional metadata."""
     values = np.asarray(boxes, dtype=float)
     if values.ndim == 1:
         if values.size == 0:
@@ -13,49 +17,300 @@ def _obb_geometry(boxes: np.ndarray) -> np.ndarray:
         raise ValueError(f"OBB association expects rows with at least 5 columns, got {values.shape}.")
     if values.size == 0:
         return np.empty((0, 5), dtype=float)
-    return values[:, :5]
+    geometry = values[:, :5].copy()
+    if not np.isfinite(geometry).all():
+        raise ValueError("OBB association geometry must contain only finite values.")
+    if np.any(geometry[:, 2:4] <= 0.0):
+        raise ValueError("OBB association widths and heights must be positive.")
+    geometry[:, 4] = np.fromiter(
+        (math.remainder(float(angle), math.pi) for angle in geometry[:, 4]),
+        dtype=float,
+        count=len(geometry),
+    )
+    return geometry
 
 
-def iou_obb_pair(i, j, bboxes1, bboxes2):
-    """
-    Compute IoU for the rotated rectangles at index i and j in the batches `bboxes1`, `bboxes2` .
-    """
-    rect1 = np.asarray(bboxes1[int(i)], dtype=float).reshape(-1)
-    rect2 = np.asarray(bboxes2[int(j)], dtype=float).reshape(-1)
+def _pi_periodic_distance(delta: np.ndarray) -> np.ndarray:
+    """Return absolute angular distance for pi-periodic OBB orientations."""
+    return np.abs((delta + (np.pi / 2.0)) % np.pi - (np.pi / 2.0))
 
-    (cx1, cy1, w1, h1, angle1) = rect1[0:5]
-    (cx2, cy2, w2, h2, angle2) = rect2[0:5]
 
-    angle1 = np.degrees(angle1)
-    angle2 = np.degrees(angle2)
+def _equivalent_obb_mask(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
+    """Return pairwise equivalence under direct and width/height-swapped OBB forms."""
+    if boxes1.size == 0 or boxes2.size == 0:
+        return np.zeros((len(boxes1), len(boxes2)), dtype=bool)
 
-    r1 = ((cx1, cy1), (w1, h1), angle1)
-    r2 = ((cx2, cy2), (w2, h2), angle2)
+    center_equal = np.all(boxes1[:, None, :2] == boxes2[None, :, :2], axis=2)
+    angle_delta = boxes1[:, None, 4] - boxes2[None, :, 4]
+    direct = (
+        (boxes1[:, None, 2] == boxes2[None, :, 2])
+        & (boxes1[:, None, 3] == boxes2[None, :, 3])
+        & (_pi_periodic_distance(angle_delta) == 0.0)
+    )
+    swapped_angle_delta = _pi_periodic_distance(angle_delta - (np.pi / 2.0))
+    corner_radius = np.hypot(boxes1[:, None, 2] / 2.0, boxes1[:, None, 3] / 2.0)
+    swapped_corner_displacement = corner_radius * (2.0 * np.sin(swapped_angle_delta / 2.0))
+    swapped_equivalent = (swapped_corner_displacement <= _EQUIVALENT_OBB_LINEAR_ATOL) & (
+        swapped_corner_displacement <= corner_radius * _EQUIVALENT_OBB_RELATIVE_ATOL
+    )
+    swapped = (
+        (boxes1[:, None, 2] == boxes2[None, :, 3]) & (boxes1[:, None, 3] == boxes2[None, :, 2]) & swapped_equivalent
+    )
+    return center_equal & (direct | swapped)
 
-    # Compute intersection
-    ret, intersect = cv.rotatedRectangleIntersection(r1, r2)
-    if ret == 0 or intersect is None:
-        return 0.0  # No intersection
 
-    # Calculate intersection area
-    intersection_area = cv.contourArea(intersect)
+def _cross_2d(lhs: np.ndarray, rhs: np.ndarray) -> float:
+    """Return the scalar 2D cross product."""
+    return float(lhs[0] * rhs[1] - lhs[1] * rhs[0])
 
-    # Calculate union area
-    area1 = w1 * h1
-    area2 = w2 * h2
-    union_area = area1 + area2 - intersection_area
 
-    # Compute IoU
-    return intersection_area / union_area if union_area > 0 else 0.0
+def _polygon_signed_area(points: np.ndarray) -> float:
+    """Return the signed area of a polygon."""
+    if len(points) < 3:
+        return 0.0
+    return 0.5 * float(
+        np.dot(points[:, 0], np.roll(points[:, 1], -1)) - np.dot(points[:, 1], np.roll(points[:, 0], -1))
+    )
+
+
+def _polygon_area(points: np.ndarray) -> float:
+    """Return the absolute area of a polygon."""
+    return abs(_polygon_signed_area(points))
+
+
+def _rectangle_corners(
+    center_x: float,
+    center_y: float,
+    width: float,
+    height: float,
+    angle: float,
+) -> np.ndarray:
+    """Return counter-clockwise double-precision rotated-rectangle corners."""
+    half_width = width / 2.0
+    half_height = height / 2.0
+    offsets = np.array(
+        (
+            (-half_width, -half_height),
+            (half_width, -half_height),
+            (half_width, half_height),
+            (-half_width, half_height),
+        ),
+        dtype=float,
+    )
+    cosine = np.cos(angle)
+    sine = np.sin(angle)
+    rotation = np.array(((cosine, -sine), (sine, cosine)))
+    return offsets @ rotation.T + (center_x, center_y)
+
+
+def _normalized_pair_frame(lhs: np.ndarray, rhs: np.ndarray) -> tuple[float, float, float, float, float]:
+    """Return a symmetric normalized half-delta, relative angles, and scale."""
+    half_delta_x = rhs[0] / 2.0 - lhs[0] / 2.0
+    half_delta_y = rhs[1] / 2.0 - lhs[1] / 2.0
+    scale = float(
+        max(
+            abs(half_delta_x),
+            abs(half_delta_y),
+            lhs[2],
+            lhs[3],
+            rhs[2],
+            rhs[3],
+        )
+    )
+    normalized_half_delta_x = half_delta_x / scale
+    normalized_half_delta_y = half_delta_y / scale
+    half_distance = float(np.hypot(normalized_half_delta_x, normalized_half_delta_y))
+    if half_distance > 0.0:
+        unit_x = normalized_half_delta_x / half_distance
+        unit_y = normalized_half_delta_y / half_distance
+        frame_angle = 0.5 * float(np.arctan2(2.0 * unit_x * unit_y, unit_x**2 - unit_y**2))
+    else:
+        frame_angle = float(lhs[4] / 2.0 + rhs[4] / 2.0)
+    cosine = np.cos(frame_angle)
+    sine = np.sin(frame_angle)
+    local_half_delta_x = cosine * normalized_half_delta_x + sine * normalized_half_delta_y
+    local_half_delta_y = -sine * normalized_half_delta_x + cosine * normalized_half_delta_y
+    lhs_angle = math.remainder(float(lhs[4] - frame_angle), math.pi)
+    rhs_angle = math.remainder(float(rhs[4] - frame_angle), math.pi)
+    return (
+        local_half_delta_x,
+        local_half_delta_y,
+        lhs_angle,
+        rhs_angle,
+        scale,
+    )
+
+
+def _normalized_local_obb_corners(
+    lhs: np.ndarray,
+    rhs: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, float, float]:
+    """Return normalized pair-local corners, scale, and squared center distance."""
+    half_delta_x, half_delta_y, lhs_angle, rhs_angle, scale = _normalized_pair_frame(lhs, rhs)
+    lhs_corners = _rectangle_corners(
+        -half_delta_x,
+        -half_delta_y,
+        lhs[2] / scale,
+        lhs[3] / scale,
+        lhs_angle,
+    )
+    rhs_corners = _rectangle_corners(
+        half_delta_x,
+        half_delta_y,
+        rhs[2] / scale,
+        rhs[3] / scale,
+        rhs_angle,
+    )
+    center_distance_squared = 4.0 * (half_delta_x**2 + half_delta_y**2)
+    return lhs_corners, rhs_corners, scale, center_distance_squared
+
+
+def _line_intersection(
+    segment_start: np.ndarray,
+    segment_end: np.ndarray,
+    clip_start: np.ndarray,
+    clip_end: np.ndarray,
+) -> np.ndarray:
+    """Intersect a segment's line with a clipping edge's line."""
+    segment = segment_end - segment_start
+    clip_edge = clip_end - clip_start
+    denominator = _cross_2d(segment, clip_edge)
+    if denominator == 0.0:
+        return segment_end.copy()
+    factor = _cross_2d(clip_start - segment_start, clip_edge) / denominator
+    return segment_start + factor * segment
+
+
+def _convex_polygon_intersection(subject: np.ndarray, clipper: np.ndarray) -> np.ndarray:
+    """Clip one convex polygon by another using double precision."""
+    if _polygon_signed_area(clipper) < 0.0:
+        clipper = clipper[::-1]
+
+    output = [point.copy() for point in subject]
+    for clip_start, clip_end in zip(clipper, np.roll(clipper, -1, axis=0)):
+        if not output:
+            break
+        input_points = output
+        output = []
+        segment_start = input_points[-1]
+        for segment_end in input_points:
+            end_inside = _cross_2d(clip_end - clip_start, segment_end - clip_start) >= 0.0
+            start_inside = _cross_2d(clip_end - clip_start, segment_start - clip_start) >= 0.0
+            if end_inside:
+                if not start_inside:
+                    output.append(_line_intersection(segment_start, segment_end, clip_start, clip_end))
+                output.append(segment_end)
+            elif start_inside:
+                output.append(_line_intersection(segment_start, segment_end, clip_start, clip_end))
+            segment_start = segment_end
+
+    return np.asarray(output, dtype=float).reshape(-1, 2)
+
+
+def _convex_hull(points: np.ndarray) -> np.ndarray:
+    """Return the convex hull of a small 2D point set in counter-clockwise order."""
+    unique_points = sorted(set(map(tuple, np.asarray(points, dtype=float))))
+    if len(unique_points) <= 1:
+        return np.asarray(unique_points, dtype=float).reshape(-1, 2)
+
+    def build_half(sequence: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        half: list[tuple[float, float]] = []
+        for point in sequence:
+            while len(half) >= 2:
+                first = np.asarray(half[-2])
+                second = np.asarray(half[-1])
+                if _cross_2d(second - first, np.asarray(point) - second) > 0.0:
+                    break
+                half.pop()
+            half.append(point)
+        return half
+
+    lower = build_half(unique_points)
+    upper = build_half(list(reversed(unique_points)))
+    return np.asarray(lower[:-1] + upper[:-1], dtype=float)
+
+
+def _minimum_area_enclosing_rectangle_diagonal(points: np.ndarray) -> float:
+    """Return the squared diagonal of the minimum-area enclosing rectangle."""
+    hull = _convex_hull(points)
+    best_area = np.inf
+    best_diagonal = np.inf
+    for start, end in zip(hull, np.roll(hull, -1, axis=0)):
+        edge = end - start
+        edge_length = np.hypot(edge[0], edge[1])
+        if edge_length == 0.0:
+            continue
+        axis = edge / edge_length
+        perpendicular = np.array((-axis[1], axis[0]))
+        along = hull @ axis
+        across = hull @ perpendicular
+        width = float(np.max(along) - np.min(along))
+        height = float(np.max(across) - np.min(across))
+        area = width * height
+        diagonal = width**2 + height**2
+        area_tolerance = 1e-12 * max(abs(area), abs(best_area)) if np.isfinite(best_area) else 0.0
+        if (
+            not np.isfinite(best_area)
+            or area < best_area - area_tolerance
+            or (abs(area - best_area) <= area_tolerance and diagonal < best_diagonal)
+        ):
+            best_area = area
+            best_diagonal = diagonal
+    return best_diagonal
+
+
+def _obb_distance_penalty_matrix(boxes1: np.ndarray, boxes2: np.ndarray) -> np.ndarray:
+    """Return pairwise center-distance penalties in normalized local coordinates."""
+    penalties = np.empty((len(boxes1), len(boxes2)), dtype=float)
+    for row, lhs in enumerate(boxes1):
+        for col, rhs in enumerate(boxes2):
+            lhs_corners, rhs_corners, _, center_distance_squared = _normalized_local_obb_corners(lhs, rhs)
+            diagonal = _minimum_area_enclosing_rectangle_diagonal(np.vstack((lhs_corners, rhs_corners)))
+            penalties[row, col] = center_distance_squared / diagonal if diagonal > 0.0 else 0.0
+    return penalties
+
+
+def _normalized_obb_area_terms(lhs: np.ndarray, rhs: np.ndarray) -> tuple[float, float]:
+    """Return normalized area sum and convex-enclosure area for an OBB pair."""
+    lhs_corners, rhs_corners, scale, _ = _normalized_local_obb_corners(lhs, rhs)
+    area_sum = (lhs[2] / scale) * (lhs[3] / scale) + (rhs[2] / scale) * (rhs[3] / scale)
+    enclosure = _polygon_area(_convex_hull(np.vstack((lhs_corners, rhs_corners))))
+    return area_sum, enclosure
+
+
+def _obb_enclosing_half_extents(boxes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return global-axis half extents without adding them to box centers."""
+    half_w = boxes[:, 2] / 2.0
+    half_h = boxes[:, 3] / 2.0
+    cos_a = np.abs(np.cos(boxes[:, 4]))
+    sin_a = np.abs(np.sin(boxes[:, 4]))
+    extent_x = half_w * cos_a + half_h * sin_a
+    extent_y = half_w * sin_a + half_h * cos_a
+    return extent_x, extent_y
+
+
+def _double_precision_obb_iou(lhs: np.ndarray, rhs: np.ndarray) -> float:
+    """Compute pairwise OBB IoU with double-precision convex clipping."""
+    lhs_corners, rhs_corners, scale, _ = _normalized_local_obb_corners(lhs, rhs)
+    if tuple(rhs_corners.ravel()) < tuple(lhs_corners.ravel()):
+        lhs_corners, rhs_corners = rhs_corners, lhs_corners
+    intersection = _convex_polygon_intersection(lhs_corners, rhs_corners)
+    if len(intersection) < 3:
+        return 0.0
+    lhs_area = (lhs[2] / scale) * (lhs[3] / scale)
+    rhs_area = (rhs[2] / scale) * (rhs[3] / scale)
+    intersection_area = min(_polygon_area(intersection), lhs_area, rhs_area)
+    union_area = lhs_area + rhs_area - intersection_area
+    return float(np.clip(intersection_area / union_area, 0.0, 1.0))
 
 
 def _iou_obb_matrix(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
-    """Compute NxM rotated IoU matrix using vectorized AABB pre-filtering.
+    """Compute an NxM rotated IoU matrix using normalized pair-local geometry.
 
     Steps:
     1. Compute enclosing axis-aligned bounding boxes for all OBBs (vectorized).
     2. Compute AABB overlap mask to identify candidate pairs (vectorized).
-    3. Only call cv.rotatedRectangleIntersection for overlapping candidates.
+    3. Use normalized double-precision polygon clipping for every candidate.
 
     This skips the majority of pairs (typically >80%) that have zero IoU.
     """
@@ -68,59 +323,34 @@ def _iou_obb_matrix(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
     #   ex = |w/2 * cos(a)| + |h/2 * sin(a)|
     #   ey = |w/2 * sin(a)| + |h/2 * cos(a)|
     cx1, cy1 = bboxes1[:, 0], bboxes1[:, 1]
-    hw1, hh1 = bboxes1[:, 2] / 2, bboxes1[:, 3] / 2
-    cos1, sin1 = np.abs(np.cos(bboxes1[:, 4])), np.abs(np.sin(bboxes1[:, 4]))
-    ex1 = hw1 * cos1 + hh1 * sin1
-    ey1 = hw1 * sin1 + hh1 * cos1
-
     cx2, cy2 = bboxes2[:, 0], bboxes2[:, 1]
-    hw2, hh2 = bboxes2[:, 2] / 2, bboxes2[:, 3] / 2
-    cos2, sin2 = np.abs(np.cos(bboxes2[:, 4])), np.abs(np.sin(bboxes2[:, 4]))
-    ex2 = hw2 * cos2 + hh2 * sin2
-    ey2 = hw2 * sin2 + hh2 * cos2
+    ex1, ey1 = _obb_enclosing_half_extents(bboxes1)
+    ex2, ey2 = _obb_enclosing_half_extents(bboxes2)
 
     # AABB bounds: (cx - ex, cy - ey, cx + ex, cy + ey)
-    # Vectorized overlap check for all NxM pairs using broadcasting
-    # Separating axis: no overlap if gap_x > 0 or gap_y > 0
-    # gap_x = |cx1[i] - cx2[j]| - (ex1[i] + ex2[j])
-    dx = np.abs(cx1[:, None] - cx2[None, :])  # (N, M)
-    dy = np.abs(cy1[:, None] - cy2[None, :])  # (N, M)
-    sum_ex = ex1[:, None] + ex2[None, :]  # (N, M)
-    sum_ey = ey1[:, None] + ey2[None, :]  # (N, M)
+    # Compare half-distances and half-sums so subtracting opposite large
+    # centers or adding near-maximum extents cannot overflow.
+    half_dx = np.abs(cx1[:, None] / 2.0 - cx2[None, :] / 2.0)
+    half_dy = np.abs(cy1[:, None] / 2.0 - cy2[None, :] / 2.0)
+    half_sum_ex = ex1[:, None] / 2.0 + ex2[None, :] / 2.0
+    half_sum_ey = ey1[:, None] / 2.0 + ey2[None, :] / 2.0
 
-    # Candidate mask: AABBs overlap
-    candidates = (dx < sum_ex) & (dy < sum_ey)
+    equivalent = _equivalent_obb_mask(bboxes1, bboxes2)
+
+    # Candidate mask: AABBs overlap. Equivalent encodings have exact identity
+    # semantics and bypass the geometric intersection implementation.
+    candidates = (half_dx < half_sum_ex) & (half_dy < half_sum_ey) & ~equivalent
+    iou_matrix = np.zeros((N, M), dtype=np.float64)
+    iou_matrix[equivalent] = 1.0
 
     # -- Compute rotated IoU only for candidate pairs --
     cand_i, cand_j = np.nonzero(candidates)
     if len(cand_i) == 0:
-        return np.zeros((N, M), dtype=np.float64)
+        return iou_matrix
 
-    # Pre-compute OpenCV rotated rect tuples and areas
-    areas1 = bboxes1[:, 2] * bboxes1[:, 3]
-    areas2 = bboxes2[:, 2] * bboxes2[:, 3]
-    angles1_deg = np.degrees(bboxes1[:, 4])
-    angles2_deg = np.degrees(bboxes2[:, 4])
-
-    rects1 = [
-        ((float(cx1[i]), float(cy1[i])), (float(bboxes1[i, 2]), float(bboxes1[i, 3])), float(angles1_deg[i]))
-        for i in range(N)
-    ]
-    rects2 = [
-        ((float(cx2[j]), float(cy2[j])), (float(bboxes2[j, 2]), float(bboxes2[j, 3])), float(angles2_deg[j]))
-        for j in range(M)
-    ]
-
-    iou_matrix = np.zeros((N, M), dtype=np.float64)
     for idx in range(len(cand_i)):
         i, j = int(cand_i[idx]), int(cand_j[idx])
-        ret, intersect = cv.rotatedRectangleIntersection(rects1[i], rects2[j])
-        if ret == 0 or intersect is None:
-            continue
-        inter_area = cv.contourArea(intersect)
-        union = areas1[i] + areas2[j] - inter_area
-        if union > 0:
-            iou_matrix[i, j] = inter_area / union
+        iou_matrix[i, j] = _double_precision_obb_iou(bboxes1[i], bboxes2[j])
 
     return iou_matrix
 
@@ -172,30 +402,113 @@ class AssociationFunction:
         if boxes1.size == 0 or boxes2.size == 0:
             return iou
 
-        def enclosing_bounds(boxes):
-            half_w = boxes[:, 2] / 2.0
-            half_h = boxes[:, 3] / 2.0
-            cos_a = np.abs(np.cos(boxes[:, 4]))
-            sin_a = np.abs(np.sin(boxes[:, 4]))
-            extent_x = half_w * cos_a + half_h * sin_a
-            extent_y = half_w * sin_a + half_h * cos_a
-            return (
-                boxes[:, 0] - extent_x,
-                boxes[:, 1] - extent_y,
-                boxes[:, 0] + extent_x,
-                boxes[:, 1] + extent_y,
-            )
+        distance_penalty = _obb_distance_penalty_matrix(boxes1, boxes2)
+        diou = iou - distance_penalty
+        similarity = np.clip((diou + 1.0) / 2.0, 0.0, 1.0)
+        return np.where(_equivalent_obb_mask(boxes1, boxes2), 1.0, similarity)
 
-        x1_min, y1_min, x1_max, y1_max = enclosing_bounds(boxes1)
-        x2_min, y2_min, x2_max, y2_max = enclosing_bounds(boxes2)
-        enclosing_width = np.maximum(x1_max[:, None], x2_max[None, :]) - np.minimum(x1_min[:, None], x2_min[None, :])
-        enclosing_height = np.maximum(y1_max[:, None], y2_max[None, :]) - np.minimum(y1_min[:, None], y2_min[None, :])
-        enclosing_diagonal = enclosing_width**2 + enclosing_height**2
-        center_distance = (boxes1[:, None, 0] - boxes2[None, :, 0]) ** 2 + (
-            boxes1[:, None, 1] - boxes2[None, :, 1]
-        ) ** 2
-        diou = iou - center_distance / np.maximum(enclosing_diagonal, 1e-12)
-        return (diou + 1.0) / 2.0
+    @staticmethod
+    def giou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
+        """Compute normalized generalized-IoU similarity for oriented boxes.
+
+        The enclosure is the convex hull of both rotated rectangles, which is
+        the smallest convex region containing their geometry.
+        """
+        boxes1 = _obb_geometry(bboxes1)
+        boxes2 = _obb_geometry(bboxes2)
+        iou = _iou_obb_matrix(boxes1, boxes2)
+        if boxes1.size == 0 or boxes2.size == 0:
+            return iou
+
+        equivalent = _equivalent_obb_mask(boxes1, boxes2)
+        similarity = np.empty_like(iou)
+        for row in range(len(boxes1)):
+            for col in range(len(boxes2)):
+                if equivalent[row, col]:
+                    similarity[row, col] = 1.0
+                    continue
+                area_sum, enclosing_area = _normalized_obb_area_terms(boxes1[row], boxes2[col])
+                union = area_sum / (1.0 + iou[row, col])
+                enclosing_area = max(enclosing_area, union)
+                empty_fraction = (enclosing_area - union) / enclosing_area
+                giou = iou[row, col] - empty_fraction
+                similarity[row, col] = np.clip((giou + 1.0) / 2.0, 0.0, 1.0)
+        return similarity
+
+    @staticmethod
+    def ciou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
+        """Compute an experimental CIoU-style similarity for oriented boxes.
+
+        The aspect-ratio term uses ordered long and short sides so equivalent
+        ``(w, h, theta)`` and ``(h, w, theta + pi/2)`` rows score identically.
+        """
+        boxes1 = _obb_geometry(bboxes1)
+        boxes2 = _obb_geometry(bboxes2)
+        iou = _iou_obb_matrix(boxes1, boxes2)
+        if boxes1.size == 0 or boxes2.size == 0:
+            return iou
+
+        distance_penalty = _obb_distance_penalty_matrix(boxes1, boxes2)
+
+        long1 = np.maximum(boxes1[:, 2], boxes1[:, 3])
+        short1 = np.minimum(boxes1[:, 2], boxes1[:, 3])
+        long2 = np.maximum(boxes2[:, 2], boxes2[:, 3])
+        short2 = np.minimum(boxes2[:, 2], boxes2[:, 3])
+        aspect1 = np.arctan(long1 / short1)
+        aspect2 = np.arctan(long2 / short2)
+        aspect_penalty = (4.0 / (np.pi**2)) * (aspect1[:, None] - aspect2[None, :]) ** 2
+        alpha_denominator = 1.0 - iou + aspect_penalty
+        alpha = np.divide(
+            aspect_penalty,
+            alpha_denominator,
+            out=np.zeros_like(aspect_penalty),
+            where=alpha_denominator > 0.0,
+        )
+        ciou = iou - distance_penalty - alpha * aspect_penalty
+        similarity = np.clip((ciou + 1.0) / 2.0, 0.0, 1.0)
+        return np.where(_equivalent_obb_mask(boxes1, boxes2), 1.0, similarity)
+
+    @staticmethod
+    def hmiou_batch_obb(bboxes1, bboxes2) -> np.ndarray:
+        """Compute experimental global-y height-modulated IoU for oriented boxes."""
+        boxes1 = _obb_geometry(bboxes1)
+        boxes2 = _obb_geometry(bboxes2)
+        iou = _iou_obb_matrix(boxes1, boxes2)
+        if boxes1.size == 0 or boxes2.size == 0:
+            return iou
+
+        half_delta_y = boxes2[None, :, 1] / 2.0 - boxes1[:, None, 1] / 2.0
+        scale = np.maximum(np.abs(half_delta_y), boxes1[:, None, 2])
+        scale = np.maximum(scale, boxes1[:, None, 3])
+        scale = np.maximum(scale, boxes2[None, :, 2])
+        scale = np.maximum(scale, boxes2[None, :, 3])
+        center_distance = 2.0 * np.abs(half_delta_y / scale)
+        half_height1 = 0.5 * (
+            (boxes1[:, None, 2] / scale) * np.abs(np.sin(boxes1[:, None, 4]))
+            + (boxes1[:, None, 3] / scale) * np.abs(np.cos(boxes1[:, None, 4]))
+        )
+        half_height2 = 0.5 * (
+            (boxes2[None, :, 2] / scale) * np.abs(np.sin(boxes2[None, :, 4]))
+            + (boxes2[None, :, 3] / scale) * np.abs(np.cos(boxes2[None, :, 4]))
+        )
+        overlap_height = np.maximum(
+            0.0,
+            np.minimum(
+                np.minimum(2.0 * half_height1, 2.0 * half_height2),
+                half_height1 + half_height2 - center_distance,
+            ),
+        )
+        enclosing_height = np.maximum(
+            np.maximum(2.0 * half_height1, 2.0 * half_height2),
+            half_height1 + half_height2 + center_distance,
+        )
+        similarity = np.divide(
+            iou * overlap_height,
+            enclosing_height,
+            out=np.zeros_like(iou),
+            where=enclosing_height > 0.0,
+        )
+        return np.where(_equivalent_obb_mask(boxes1, boxes2), 1.0, similarity)
 
     @staticmethod
     def hmiou_batch(bboxes1, bboxes2):
@@ -381,10 +694,10 @@ class AssociationFunction:
         alpha = v / (S + v + epsilon)
 
         # Compute CIoU
-        ciou = iou - (inner_diag / outer_diag) + (alpha * v)
+        ciou = iou - (inner_diag / outer_diag) - (alpha * v)
 
         # Scale CIoU to [0, 1]
-        return (ciou + 1) / 2.0
+        return np.clip((ciou + 1) / 2.0, 0.0, 1.0)
 
     @staticmethod
     def diou_batch(bboxes1, bboxes2) -> np.ndarray:
@@ -429,17 +742,6 @@ class AssociationFunction:
 
         return (diou + 1) / 2.0
 
-    @staticmethod
-    def run_asso_func(self, bboxes1, bboxes2):
-        """
-        Runs the selected association function (based on the initialization string) on the input bounding boxes.
-
-        Parameters:
-        bboxes1: First set of bounding boxes.
-        bboxes2: Second set of bounding boxes.
-        """
-        return self.asso_func(bboxes1, bboxes2)
-
     def _get_asso_func(self, asso_mode):
         """
         Returns the corresponding association function based on the provided mode string.
@@ -453,7 +755,10 @@ class AssociationFunction:
         ASSO_FUNCS = {
             "iou": AssociationFunction.iou_batch,
             "iou_obb": AssociationFunction.iou_batch_obb,
+            "giou_obb": AssociationFunction.giou_batch_obb,
             "diou_obb": AssociationFunction.diou_batch_obb,
+            "ciou_obb": AssociationFunction.ciou_batch_obb,
+            "hmiou_obb": AssociationFunction.hmiou_batch_obb,
             "hmiou": AssociationFunction.hmiou_batch,
             "giou": AssociationFunction.giou_batch,
             "ciou": AssociationFunction.ciou_batch,

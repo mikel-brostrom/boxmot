@@ -11,6 +11,7 @@ namespace occluboost {
 namespace fs = std::filesystem;
 
 struct Config {
+    std::string asso_func = "iou";
     // BoostTrack inherited
     int max_age = 120;
     int min_hits = 1;

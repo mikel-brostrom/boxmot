@@ -781,6 +781,7 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
             reid=tmp_path / "reid.onnx",
             tracker="botsort",
             tracker_backend="python",
+            asso_func="giou",
             source="0",
             device="cpu",
             half=False,
@@ -816,6 +817,7 @@ def test_main_starts_and_stops_tracking_workflow(monkeypatch, tmp_path):
                 "reid_spec": tmp_path / "reid.onnx",
                 "tracker_spec": "botsort",
                 "classes": None,
+                "tracker_kwargs": {"asso_func": "giou"},
                 "pipeline": calls[0][1]["pipeline"],
             },
         )

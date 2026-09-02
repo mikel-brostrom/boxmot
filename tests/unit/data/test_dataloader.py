@@ -60,7 +60,7 @@ def simple_sequence(tmp_path):
 
     # seqinfo.ini fps=2
     cfg = configparser.ConfigParser()
-    cfg["Sequence"] = {"frameRate": "2"}
+    cfg["Sequence"] = {"frameRate": "2", "imHeight": "8", "imWidth": "8"}
     with open(seq_dir / "seqinfo.ini", "w") as f:
         cfg.write(f)
 
@@ -115,6 +115,52 @@ def test_dataset_indexing_and_iteration(simple_sequence):
         # without downsampling, dets and embs should match original
         assert frame["dets"].shape[0] == 1
         assert frame["embs"].shape == (1, 128)
+
+
+def test_skip_image_load_uses_seqinfo_shape_without_decoding(simple_sequence, monkeypatch):
+    def fail_imread(*_args, **_kwargs):
+        raise AssertionError("skip_image_load must not decode frame pixels")
+
+    monkeypatch.setattr(cv2, "imread", fail_imread)
+    dataset = MOTDataset(
+        mot_root=str(simple_sequence["mot_root"]),
+        det_emb_root=str(simple_sequence["det_emb_root"]),
+        model_name=simple_sequence["model_name"],
+        reid_name=simple_sequence["reid_name"],
+    )
+
+    frames = list(dataset.get_sequence(simple_sequence["seq_name"], show_progress=False, skip_image_load=True))
+
+    assert len(frames) == 2
+    assert all(frame["img"] is None for frame in frames)
+    assert all(frame["image_shape"] == (8, 8, 3) for frame in frames)
+
+
+def test_cache_only_sequence_iterates_without_fabricating_images(tmp_path):
+    seq_dir = tmp_path / "mot" / "SEQ"
+    (seq_dir / "img1").mkdir(parents=True)
+    (seq_dir / "seqinfo.ini").write_text(
+        "[Sequence]\nframeRate=30\nseqLength=3\nimHeight=1080\nimWidth=1920\n"
+    )
+
+    det_dir = tmp_path / "cache" / "model" / "dets"
+    det_dir.mkdir(parents=True)
+    np.save(
+        det_dir / "SEQ.npy",
+        np.array([[1, 0, 0, 10, 10, 0.9, 0], [3, 1, 1, 11, 11, 0.8, 0]], dtype=np.float32),
+    )
+    dataset = MOTDataset(
+        mot_root=str(tmp_path / "mot"),
+        det_emb_root=str(tmp_path / "cache"),
+        model_name="model",
+    )
+
+    frames = list(dataset.get_sequence("SEQ", show_progress=False, skip_image_load=True))
+
+    assert [int(frame["frame_id"]) for frame in frames] == [1, 2, 3]
+    assert [len(frame["dets"]) for frame in frames] == [1, 0, 1]
+    assert all(frame["img"] is None for frame in frames)
+    assert all(frame["image_shape"] == (1080, 1920, 3) for frame in frames)
 
 
 def test_unknown_sequence_raises(simple_sequence):

@@ -8,6 +8,7 @@
 
 [tool.uv]
 preview = true
+required-version = "==0.12.4"
 conflicts = [
   [
     { extra = "cpu" },

@@ -27,6 +27,7 @@ ReplayOptions ParseArgs(const int argc, char** argv) {
     options.output_path = args.at("output");
     options.conf_threshold = args.count("conf-threshold") ? std::stof(args.at("conf-threshold")) : 0.0F;
     options.target_fps = args.count("target-fps") ? std::stoi(args.at("target-fps")) : 0;
+    options.tracker.asso_func = args.count("asso-func") ? args.at("asso-func") : "iou";
     options.tracker.high_th = args.count("high-th") ? std::stof(args.at("high-th")) : 0.6F;
     options.tracker.match_th_first = args.count("match-th-first") ? std::stof(args.at("match-th-first")) : 0.67F;
     options.tracker.new_track_th = args.count("new-track-th") ? std::stof(args.at("new-track-th")) : 0.7F;

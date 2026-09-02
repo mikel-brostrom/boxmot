@@ -37,6 +37,7 @@ sfsort::Config ConvertConfig(const BoxMOTSFSORTConfig& config) {
     native_config.vertical_margin = config.vertical_margin;
     native_config.frame_rate = config.frame_rate;
     native_config.max_obs = config.max_obs;
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 
@@ -106,8 +107,13 @@ int boxmot_sfsort_update(
         }
         const std::vector<sfsort::Detection> detections =
             boxmot::trackers::base::ConvertLiveDetections<sfsort::Detection>(dets, det_rows, det_cols, "SFSORT");
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "SFSORT");
+        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
+            image_data,
+            image_rows,
+            image_cols,
+            image_channels,
+            "SFSORT"
+        );
         const std::vector<sfsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
         boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "SFSORT");
         *out_rows = static_cast<int>(tracks.size());

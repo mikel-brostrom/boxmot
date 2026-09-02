@@ -21,6 +21,7 @@ struct BoxMOTByteTrackConfig {
     int track_buffer;
     int frame_rate;
     int max_obs;
+    const char* asso_func;
 };
 
 struct BoxMOTByteTrackHandle;

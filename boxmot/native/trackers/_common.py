@@ -58,6 +58,31 @@ LIVE_UPDATE_WITH_EMBS_ARGTYPES = [
     ctypes.POINTER(ctypes.c_int),
 ]
 
+ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
+
+
+def resolve_association_function(cfg: dict[str, Any]) -> str:
+    """Normalize and validate a native tracker's association function."""
+    asso_func = str(cfg.get("asso_func", "iou") or "iou").strip().lower()
+    if asso_func not in ASSOCIATION_FUNCTIONS:
+        available = ", ".join(sorted(ASSOCIATION_FUNCTIONS))
+        raise ValueError(f"Unknown association function {asso_func!r}. Choose from: {available}.")
+    cfg["asso_func"] = asso_func
+    return asso_func
+
+
+def association_requires_initial_image(
+    cfg: Mapping[str, Any],
+    *,
+    allow_configured_dimensions: bool = False,
+) -> bool:
+    """Return whether centroid normalization still needs frame dimensions."""
+    if str(cfg.get("asso_func", "iou")).strip().lower() != "centroid":
+        return False
+    if not allow_configured_dimensions:
+        return True
+    return int(cfg.get("frame_width", 0) or 0) <= 0 or int(cfg.get("frame_height", 0) or 0) <= 0
+
 
 def bool_arg(value: Any) -> str:
     return "1" if bool(value) else "0"
@@ -155,7 +180,10 @@ def normalize_embeddings(embs: np.ndarray | None, *, rows: int) -> np.ndarray | 
     return np.ascontiguousarray(emb_arr, dtype=np.float32)
 
 
-def normalize_image(img: np.ndarray) -> tuple[np.ndarray, int]:
+def normalize_image(img: np.ndarray | None) -> tuple[np.ndarray | None, int]:
+    if img is None:
+        return None, 0
+
     img_arr = np.asarray(img)
     if img_arr.dtype != np.uint8:
         img_arr = img_arr.astype(np.uint8, copy=False)
@@ -171,15 +199,21 @@ def call_update(
     *,
     handle,
     dets: np.ndarray | None,
-    img: np.ndarray,
+    img: np.ndarray | None,
     display_name: str,
     last_error,
     embs: np.ndarray | None = None,
     accepts_embeddings: bool = False,
+    requires_image: bool = True,
 ) -> np.ndarray:
     det_arr = normalize_detections(dets, display_name=display_name)
     emb_arr = normalize_embeddings(embs, rows=int(det_arr.shape[0])) if accepts_embeddings else None
+    if img is None and requires_image:
+        raise ValueError(f"Native {display_name} requires img for live tracking.")
     img_arr, img_channels = normalize_image(img)
+    img_ptr = None if img_arr is None or img_arr.size == 0 else ctypes.c_void_p(img_arr.ctypes.data)
+    img_rows = 0 if img_arr is None else int(img_arr.shape[0])
+    img_cols = 0 if img_arr is None else int(img_arr.shape[1])
 
     out_capacity = max(int(det_arr.shape[0]), 1)
     out_arr = np.empty((out_capacity, 9), dtype=np.float32)
@@ -197,9 +231,9 @@ def call_update(
             emb_ptr,
             0 if emb_arr is None else int(emb_arr.shape[0]),
             0 if emb_arr is None else int(emb_arr.shape[1]),
-            ctypes.c_void_p(img_arr.ctypes.data),
-            int(img_arr.shape[0]),
-            int(img_arr.shape[1]),
+            img_ptr,
+            img_rows,
+            img_cols,
             img_channels,
             ctypes.c_void_p(out_arr.ctypes.data),
             int(out_arr.shape[0]),
@@ -213,9 +247,9 @@ def call_update(
             det_ptr,
             int(det_arr.shape[0]),
             int(det_arr.shape[1]),
-            ctypes.c_void_p(img_arr.ctypes.data),
-            int(img_arr.shape[0]),
-            int(img_arr.shape[1]),
+            img_ptr,
+            img_rows,
+            img_cols,
             img_channels,
             ctypes.c_void_p(out_arr.ctypes.data),
             int(out_arr.shape[0]),
@@ -252,6 +286,16 @@ def get_double_result(library, symbol: str, handle, last_error) -> float:
 class NativeTrackerMixin:
     _native_display_name: str
     _tracks_reid_timing = False
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Return whether this native tracker consumes images."""
+        del dets, embs, masks
+        return bool(self.uses_img)
 
     def _init_native_handle(self, *, library, cfg: dict[str, Any]) -> None:
         self.cfg = cfg

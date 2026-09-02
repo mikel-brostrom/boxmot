@@ -13,16 +13,11 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association import (
     AssociationStage,
-    detection_track_iou_assignment,
-    detection_track_tuple_to_association_result,
+    detection_track_similarity_assignment,
     run_association_stage,
+    solve_assignment,
 )
-from boxmot.trackers.common.association.velocity import (
-    associate,
-)
-from boxmot.trackers.common.association.velocity import (
-    linear_assignment as legacy_linear_assignment,
-)
+from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.deepocsort import DeepOBBKalmanBoxTracker, KalmanBoxTracker
 from boxmot.trackers.common.track_models.ocsort import k_previous_obs
@@ -30,6 +25,9 @@ from boxmot.trackers.common.track_models.ocsort import k_previous_obs
 
 class DeepOcSort(BaseTracker):
     supports_obb = True
+    uses_img = True
+    uses_embs = True
+    uses_frame_dimensions_for_association = True
 
     """Initialize the DeepOcSort tracker.
 
@@ -93,6 +91,24 @@ class DeepOcSort(BaseTracker):
         self.aw_off = aw_off
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
+        self.uses_embs = not self.embedding_off
+        self.uses_img = bool(
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or not self.embedding_off
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        has_reid_detections = bool(len(dets) and np.any(self.detection_layout.confidences(dets) > self.det_thresh))
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or (not self.embedding_off and embs is None and has_reid_detections)
+        )
 
     def _track_detections(
         self,
@@ -120,10 +136,7 @@ class DeepOcSort(BaseTracker):
         """
         # dets, s, c = dets.data
         # print(dets, s, c)
-        self.check_inputs(dets, img, embs)
-
         self.frame_count += 1
-        self.height, self.width = img.shape[:2]
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         batch = batch.select(batch.confs > self.det_thresh)
@@ -190,23 +203,19 @@ class DeepOcSort(BaseTracker):
         first_stage = AssociationStage(
             name="deepocsort_high",
             threshold=self.iou_threshold,
-            matcher=lambda _tracks, _detections: detection_track_tuple_to_association_result(
-                associate(
-                    dets[:, : self.detection_layout.box_with_conf_cols],
-                    trks,
-                    self.asso_func,
-                    self.iou_threshold,
-                    velocities,
-                    k_observations,
-                    self.inertia,
-                    img.shape[1],  # w
-                    img.shape[0],  # h
-                    stage1_emb_cost,
-                    self.w_association_emb,
-                    self.aw_off,
-                    self.aw_param,
-                    is_obb=self.is_obb,
-                )
+            matcher=lambda _tracks, _detections: associate(
+                dets[:, : self.detection_layout.box_with_conf_cols],
+                trks,
+                self.asso_func,
+                self.iou_threshold,
+                velocities,
+                k_observations,
+                self.inertia,
+                stage1_emb_cost,
+                self.w_association_emb,
+                self.aw_off,
+                self.aw_param,
+                is_obb=self.is_obb,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -222,31 +231,34 @@ class DeepOcSort(BaseTracker):
         """
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
-            left_trks = last_boxes[unmatched_trks]
-
-            iou_left = self.asso_func(left_dets, left_trks)
-            iou_left = np.array(iou_left)
-            rematch_stage = AssociationStage(
-                name="deepocsort_ocr_rematch",
-                threshold=self.iou_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
-                    self.iou_threshold,
-                    legacy_linear_assignment,
-                ),
-            )
-            rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
-            to_remove_det_indices = []
-            to_remove_trk_indices = []
-            for trk_rel, det_rel in rematch_result.matches:
-                det_ind = unmatched_dets[det_rel]
-                trk_ind = unmatched_trks[trk_rel]
-                self.active_tracks[trk_ind].update(dets[det_ind, :])
-                self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
-                to_remove_det_indices.append(det_ind)
-                to_remove_trk_indices.append(trk_ind)
-            unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
-            unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
+            # New tracks retain a negative-confidence sentinel until their first
+            # explicit update. Keep those rows out of strict OBB geometry while
+            # preserving the mapping back to active-track indices.
+            rematch_trk_indices = unmatched_trks[last_boxes[unmatched_trks, -1] >= 0]
+            if rematch_trk_indices.size:
+                left_trks = last_boxes[rematch_trk_indices]
+                similarity = np.asarray(self.asso_func(left_dets, left_trks))
+                rematch_stage = AssociationStage(
+                    name="deepocsort_ocr_rematch",
+                    threshold=self.iou_threshold,
+                    matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                        similarity,
+                        self.iou_threshold,
+                        solve_assignment,
+                    ),
+                )
+                rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
+                to_remove_det_indices = []
+                to_remove_trk_indices = []
+                for trk_rel, det_rel in rematch_result.matches:
+                    det_ind = unmatched_dets[det_rel]
+                    trk_ind = rematch_trk_indices[trk_rel]
+                    self.active_tracks[trk_ind].update(dets[det_ind, :])
+                    self.active_tracks[trk_ind].update_emb(dets_embs[det_ind], alpha=dets_alpha[det_ind])
+                    to_remove_det_indices.append(det_ind)
+                    to_remove_trk_indices.append(trk_ind)
+                unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
+                unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         for m in unmatched_trks:
             self.active_tracks[m].update(None)

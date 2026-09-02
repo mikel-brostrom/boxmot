@@ -25,13 +25,14 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/configure-pages@v5
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
 
       - name: Install docs dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --group docs
+          uv sync --locked --no-default-groups --extra cpu --group docs
 
       - name: Build docs
         run: |

@@ -40,15 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4  # Check out the repository
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
       - name: Run tracking method
         run: |
           source .venv/bin/activate
@@ -102,10 +101,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip'
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install native build dependencies (Linux)
         if: runner.os == 'Linux'
@@ -121,7 +119,7 @@ jobs:
       - name: Install boxmot with native extension
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --group test
       - name: Verify native libraries are present
         shell: bash
         run: |
@@ -173,16 +171,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4  # Check out the repository
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
       - uses: ./.github/actions/prepare-ci-assets
 
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --extra evolve
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra evolve
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
@@ -204,10 +201,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4  # Check out the repository
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: ${{ matrix.python-version }}
-          cache: 'pip' # caching pip dependencies
       - uses: ./.github/actions/prepare-ci-assets
 
       - name: Install requirements
@@ -215,7 +211,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --extra trackeval --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra trackeval --group test
 
       - name: Check metric parity with TrackEval
         shell: bash
@@ -280,14 +276,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
-          cache: 'pip'
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
       - name: Smoke-test ReID train and eval
         shell: bash
         run: |
@@ -331,17 +326,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
-          cache: 'pip'
       - uses: ./.github/actions/prepare-ci-assets
         with:
           assets: obb
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
       - name: Run obb tracking method
         shell: bash
         run: |
@@ -410,14 +404,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
       - uses: ./.github/actions/prepare-ci-assets
         with:
           assets: pose
       - run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
       - name: Test tracking with pose models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -432,12 +426,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.11'
       - uses: ./.github/actions/prepare-ci-assets
       - run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
@@ -459,7 +453,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
       - uses: ./.github/actions/prepare-ci-assets
@@ -467,7 +461,7 @@ jobs:
           assets: seg
       - name: Install dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
@@ -483,13 +477,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu \
+          uv sync --locked --no-default-groups --extra cpu \
             --extra yolo \
             --extra onnx \
             --extra openvino \
@@ -582,21 +576,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
-      - name: Cache uv downloads
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/uv
-          key: uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-${{ hashFiles('uv.lock', 'pyproject.toml') }}
-          restore-keys: |
-            uv-${{ runner.os }}-${{ runner.arch }}-py3.12-cpu-
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install requirements
         shell: bash
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --extra yolo --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --group test
       - name: Smoke-test Python API
         shell: bash
         run: |
@@ -612,13 +599,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
       - run: |
           # The dedicated export job installs and smoke-tests export runtimes.
           # The unit suite only needs the runtime/test stacks it imports directly.
-          bash .github/scripts/uv_ci_install.sh cpu \
+          uv sync --locked --no-default-groups --extra cpu \
             --extra yolo \
             --extra evolve \
             --extra service \

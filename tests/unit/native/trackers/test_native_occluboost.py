@@ -14,6 +14,101 @@ from boxmot.trackers.bbox.occluboost import OccluBoost
 from boxmot.trackers.common.geometry.obb import transform_obb_kalman_state
 
 
+def test_native_occluboost_advertises_inputs_and_requires_image():
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            raise AssertionError("Missing images must not reach the native library")
+
+        def get_last_reid_time_ms(self, handle):
+            return 0.0
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeOccluBoostTracker({"with_reid": False}, library=_FakeLibrary())
+    dets = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+    try:
+        assert tracker.supports_masks is False
+        assert tracker.uses_img is True
+        assert tracker.uses_embs is False
+        with pytest.raises(ValueError, match="Native OccluBoost requires img"):
+            tracker.update(dets)
+    finally:
+        tracker.close()
+
+
+def test_native_occluboost_disabled_reid_model_does_not_require_pixels(monkeypatch):
+    calls = []
+
+    def fail_reid_resolution(_weights):
+        raise AssertionError("Disabled ReID weights must not be resolved")
+
+    monkeypatch.setattr(native_module, "_ensure_native_reid_model_path", fail_reid_resolution)
+
+    class _FakeLibrary:
+        def create(self, cfg):
+            return "handle"
+
+        def reset(self, handle):
+            return None
+
+        def update(self, handle, dets, img, embs):
+            calls.append((img, embs))
+            return np.empty((0, 8), dtype=np.float32)
+
+        def get_last_reid_time_ms(self, handle):
+            return 0.0
+
+        def destroy(self, handle):
+            return None
+
+    tracker = native_module.NativeOccluBoostTracker(
+        {"with_reid": False, "use_cmc": False},
+        reid_weights="models/disabled.onnx",
+        library=_FakeLibrary(),
+    )
+    try:
+        dets = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
+        output = tracker.update(dets)
+        assert tracker.provides_reid is False
+        assert tracker.uses_img is False
+        assert tracker.uses_embs is False
+        assert tracker.requires_image(dets) is False
+        assert output.shape == (0, 8)
+        assert calls == [(None, None)]
+    finally:
+        tracker.close()
+
+
+def test_native_occluboost_c_api_image_requirement_follows_cmc():
+    library = native_module._OccluBoostLiveLibrary(native_module.ensure_occluboost_cpp_library())
+    active = native_module.NativeOccluBoostTracker(
+        {"with_reid": False, "use_cmc": True},
+        library=library,
+    )
+    inactive = native_module.NativeOccluBoostTracker(
+        {"with_reid": False, "use_cmc": False},
+        library=library,
+    )
+    detections = np.empty((0, 6), dtype=np.float32)
+
+    try:
+        with pytest.raises(RuntimeError, match=r"requires (?:an )?(?:img|image)"):
+            library.update(active._handle, detections, None)
+        output = library.update(inactive._handle, detections, None)
+    finally:
+        active.close()
+        inactive.close()
+
+    assert output.shape == (0, 8)
+
+
 def test_native_occluboost_resolves_flattened_defaults():
     cfg = native_module._resolve_tracker_cfg(None)
 
@@ -85,7 +180,7 @@ def test_native_occluboost_replay_honors_disabled_cmc(monkeypatch, tmp_path):
         tracker_name="occluboost",
         exp_folder=str(tmp_path),
         target_fps=None,
-        cfg_dict={"use_cmc": False, "with_reid": False},
+        cfg_dict={"use_cmc": False, "with_reid": False, "asso_func": "giou"},
         conf_threshold=0.2,
     )
 
@@ -93,6 +188,7 @@ def test_native_occluboost_replay_honors_disabled_cmc(monkeypatch, tmp_path):
     assert isinstance(cmd, list)
     assert cmd[cmd.index("--cmc-method") + 1] == "none"
     assert cmd[cmd.index("--conf-threshold") + 1] == "0.2"
+    assert cmd[cmd.index("--asso-func") + 1] == "giou"
 
 
 def test_native_occluboost_cmc_masks_match_python_scaling_and_rounding():
@@ -276,7 +372,6 @@ def test_native_occluboost_live_obb_damps_angular_velocity():
         },
         library=library,
     )
-    image = native_module.np.zeros((120, 160, 3), dtype=native_module.np.uint8)
 
     def detection(angle: float):
         return native_module.np.array(
@@ -285,9 +380,9 @@ def test_native_occluboost_live_obb_damps_angular_velocity():
         )
 
     try:
-        first = tracker.update(detection(0.2), image)
-        second = tracker.update(detection(0.7), image)
-        third = tracker.update(detection(0.7), image)
+        first = tracker.update(detection(0.2))
+        second = tracker.update(detection(0.7))
+        third = tracker.update(detection(0.7))
     finally:
         tracker.close()
 

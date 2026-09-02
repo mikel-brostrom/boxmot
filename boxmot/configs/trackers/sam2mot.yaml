@@ -13,6 +13,11 @@ cost_weight:
   default: 0.5
   range: [0.1, 0.9]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 tau_r:
   type: uniform
   default: 0.8

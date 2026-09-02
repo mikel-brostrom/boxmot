@@ -12,7 +12,6 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.association.boost import (
     MhDist_similarity,
     associate,
-    iou_batch,
     shape_similarity,
     shape_similarity_obb,
     soft_biou_batch,
@@ -57,6 +56,9 @@ class BoostTrack(BaseTracker):
     """
 
     supports_obb = True
+    uses_img = True
+    uses_embs = True
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -111,6 +113,23 @@ class BoostTrack(BaseTracker):
         self.adaptive_kf = bool(adaptive_kf)
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
+        self.uses_embs = self.with_reid
+        self.uses_img = bool(
+            self.cmc is not None or self.with_reid or self.asso_func_name in {"centroid", "centroid_obb"}
+        )
+
+    def requires_image(
+        self,
+        dets: np.ndarray,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> bool:
+        """Require an image only for CMC or live appearance extraction."""
+        return (
+            super().requires_image(dets, embs, masks)
+            or self.cmc is not None
+            or self._requires_live_embeddings(dets, embs, enabled=self.with_reid)
+        )
 
     def _track_detections(
         self,
@@ -132,7 +151,6 @@ class BoostTrack(BaseTracker):
                       [x1, y1, x2, y2, id, confidence, cls, det_ind]
                       (with cls and det_ind set to -1 if unused)
         """
-        self.check_inputs(dets=dets, embs=embs, img=img)
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
         indexed_dets = batch.as_indexed_detections(dtype=dets.dtype)
 
@@ -202,9 +220,8 @@ class BoostTrack(BaseTracker):
 
         association_dets = dets[:, : self.detection_layout.box_with_conf_cols] if self.is_obb else assoc_dets
         association_trks = trks_obb_np if self.is_obb else trks_np
-        oriented_iou = (
-            AssociationFunction.iou_batch_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
-        )
+        tracker_boxes = trks_obb_np[:, :5] if self.is_obb else trks_np[:, :4]
+        geometry_similarity = self.asso_func(batch.boxes, tracker_boxes)
         oriented_shape = shape_similarity_obb(batch.boxes, trks_obb_np[:, :5]) if self.is_obb else None
         matched, unmatched_dets, unmatched_trks, _ = associate(
             association_dets,
@@ -218,7 +235,7 @@ class BoostTrack(BaseTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
-            iou_matrix=oriented_iou,
+            geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
         )
 
@@ -277,7 +294,11 @@ class BoostTrack(BaseTracker):
                 self.trackers[t].get_confidence(),
             ]
 
-        return iou_batch(detections, trackers) if not buffered else soft_biou_batch(detections, trackers)
+        return (
+            AssociationFunction.iou_batch(detections, trackers)
+            if not buffered
+            else soft_biou_batch(detections, trackers)
+        )
 
     def get_mh_dist_matrix(self, detections: np.ndarray, n_dims: int | None = None) -> np.ndarray:
         if len(self.trackers) == 0:
@@ -319,7 +340,7 @@ class BoostTrack(BaseTracker):
         if len(boost_inds) == 0:
             return detections
 
-        bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
+        bdiou = AssociationFunction.iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
         bdiou_max = bdiou.max(axis=1)
         remaining = boost_inds[bdiou_max <= iou_limit]
         args = np.where(bdiou_max > iou_limit)[0]
@@ -450,9 +471,7 @@ class BoostTrack(BaseTracker):
             return detections
 
         conf_idx = self.detection_layout.conf_idx
-        boost_indices = np.flatnonzero(
-            (mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold)
-        )
+        boost_indices = np.flatnonzero((mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold))
         if not len(boost_indices):
             return detections
 

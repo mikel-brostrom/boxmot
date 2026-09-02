@@ -26,12 +26,7 @@ iou_threshold:
 asso_func:
   type: choice
   default: diou
-  options: [iou, giou, diou, ciou, hmiou, ct_dist]
-
-dataset:
-  type: choice
-  default: ""
-  options: [""]
+  options: [iou, giou, diou, ciou, hmiou, centroid]
 
 cmc_method:
   type: choice
@@ -102,10 +97,6 @@ with_reid:
       type: uniform
       default: 0.5096125821683565
       range: [0.5, 3.0]
-    high_score_matching_thresh:
-      type: uniform
-      default: 0.6764212909416498
-      range: [0.5, 0.99]
     with_longterm_reid:
       type: choice
       default: True

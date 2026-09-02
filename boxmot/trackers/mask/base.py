@@ -17,6 +17,8 @@ class MaskBaseTracker(BaseTracker):
     of (tracks_array, output_masks) where output_masks has shape (M, H, W).
     """
 
+    uses_img = False
+    uses_embs = False
     supports_masks = True
 
     def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray:

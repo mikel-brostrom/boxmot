@@ -18,6 +18,7 @@ enum class TrackState {
 };
 
 struct Config {
+    std::string asso_func = "iou";
     float min_conf = 0.1F;
     float track_thresh = 0.6F;
     float match_thresh = 0.9F;

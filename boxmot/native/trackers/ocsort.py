@@ -39,9 +39,7 @@ def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
     resolved = _native_trackers.load_tracker_cfg("ocsort", cfg_dict)
     resolved = _normalize_cfg_keys(resolved)
 
-    asso_func = str(resolved.get("asso_func", "iou") or "iou").lower()
-    if asso_func != "iou":
-        raise NotImplementedError(f"Native OCSORT currently supports asso_func='iou' only, got {asso_func!r}.")
+    _native_trackers.resolve_association_function(resolved)
 
     resolved.setdefault("min_conf", 0.1)
     resolved.setdefault("det_thresh", 0.6)
@@ -88,6 +86,7 @@ class _OCSORTCConfig(ctypes.Structure):
         ("q_xy_scaling", ctypes.c_float),
         ("q_s_scaling", ctypes.c_float),
         ("max_obs", ctypes.c_int),
+        ("asso_func", ctypes.c_char_p),
     ]
 
 
@@ -130,6 +129,7 @@ class _OCSORTLiveLibrary:
             q_xy_scaling=float(cfg.get("q_xy_scaling", 0.01)),
             q_s_scaling=float(cfg.get("q_s_scaling", 0.0001)),
             max_obs=int(cfg.get("max_obs", int(cfg["max_age"]) + 5)),
+            asso_func=str(cfg["asso_func"]).encode("utf-8"),
         )
         handle = self._library.boxmot_ocsort_create(ctypes.byref(c_cfg))
         if not handle:
@@ -144,7 +144,7 @@ class _OCSORTLiveLibrary:
         if self._library.boxmot_ocsort_reset(handle) == 0:
             raise RuntimeError(self._last_error())
 
-    def update(self, handle, dets: np.ndarray, img: np.ndarray) -> np.ndarray:
+    def update(self, handle, dets: np.ndarray, img: np.ndarray | None = None) -> np.ndarray:
         return _native_trackers.call_update(
             self._library.boxmot_ocsort_update,
             handle=handle,
@@ -152,6 +152,7 @@ class _OCSORTLiveLibrary:
             img=img,
             display_name=_NATIVE_DISPLAY_NAME,
             last_error=self._last_error,
+            requires_image=False,
         )
 
 
@@ -165,6 +166,9 @@ def _get_live_ocsort_library() -> _OCSORTLiveLibrary:
 
 class NativeOCSORTTracker(_native_trackers.NativeTrackerMixin):
     supports_obb = True
+    supports_masks = False
+    uses_img = False
+    uses_embs = False
     tracker_name = "ocsort"
     tracker_backend = "cpp"
     provides_reid = False
@@ -180,14 +184,37 @@ class NativeOCSORTTracker(_native_trackers.NativeTrackerMixin):
         library: _OCSORTLiveLibrary | None = None,
     ) -> None:
         del reid_weights, reid_preprocess
+        cfg = _resolve_tracker_cfg(cfg_dict)
+        self.asso_func_name = cfg["asso_func"]
+        self._needs_initial_image = _native_trackers.association_requires_initial_image(cfg)
+        self.uses_img = self._needs_initial_image
         native_library = library if library is not None else _get_live_ocsort_library()
-        self._init_native_handle(library=native_library, cfg=_resolve_tracker_cfg(cfg_dict))
+        self._init_native_handle(library=native_library, cfg=cfg)
 
-    def update(self, dets: np.ndarray, img: np.ndarray, embs: np.ndarray | None = None) -> np.ndarray:
-        del embs
+    def requires_image(self, dets, embs=None, masks=None) -> bool:
+        del dets, embs, masks
+        return self._needs_initial_image
+
+    def update(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray | None = None,
+        embs: np.ndarray | None = None,
+        masks: np.ndarray | None = None,
+    ) -> np.ndarray:
+        del embs, masks
         det_arr = self._coerce_detections_for_mode(dets)
-        tracks = self._library.update(self._handle, det_arr, img)
+        if self._needs_initial_image and img is None:
+            raise ValueError("Native OCSORT requires img to initialize centroid association.")
+        tracks = self._library.update(self._handle, det_arr, img if self._needs_initial_image else None)
+        self._needs_initial_image = False
+        self.uses_img = False
         return self._normalize_tracks_for_mode(tracks)
+
+    def reset(self) -> None:
+        super().reset()
+        self._needs_initial_image = self.asso_func_name == "centroid"
+        self.uses_img = self._needs_initial_image
 
 
 def create_ocsort_live_tracker(
@@ -240,6 +267,8 @@ def process_sequence_cpp(
         conf_threshold=conf_threshold,
         target_fps=target_fps,
         extra_args=[
+            "--asso-func",
+            str(cfg["asso_func"]),
             "--min-conf",
             str(float(cfg["min_conf"])),
             "--det-thresh",

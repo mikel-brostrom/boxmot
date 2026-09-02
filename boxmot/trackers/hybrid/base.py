@@ -17,4 +17,6 @@ class HybridBaseTracker(BaseTracker):
     ``_track_detections`` when masks are available.
     """
 
+    uses_img = False
+    uses_embs = False
     supports_masks = True

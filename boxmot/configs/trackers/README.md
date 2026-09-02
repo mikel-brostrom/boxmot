@@ -24,6 +24,26 @@ Normal tracker construction extracts only `default`. The tuning engine reads
 `type`, `range`, `options`, `values`, and conditional `activates` metadata from
 the same entries.
 
+Every registered Python tracker declares the canonical association selector:
+
+```yaml
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+```
+
+The full list applies to both AABB and OBB detections. OBB `iou` uses
+oriented-rectangle overlap; `giou` uses the joint convex hull; `diou` and
+`ciou` normalize center distance with the rotation-invariant minimum-area joint
+oriented enclosure; and `centroid` uses frame-diagonal-normalized center
+distance. OBB `ciou` is an experimental custom long/short-side aspect
+adaptation. OBB `hmiou` is an experimental product of oriented IoU and global-y
+projection IoU and should be used only where image vertical is a meaningful
+height/depth cue.
+See the [association function guide](../../../docs/config/trackers.md#association-function)
+for the complete formulas and limitations.
+
 ## Presets
 
 `presets/` contains named scalar parameter profiles for a particular dataset,
