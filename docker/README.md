@@ -137,22 +137,30 @@ base64-encoded JPEG or PNG in `image_base64` for every frame, even when
 so prefer compressed JPEG for high-volume streams and enforce request-size
 limits at ingress.
 
-For example, if `frame.jpg` is exactly 640 by 480 pixels, stream its base64
-bytes directly into an AABB request without storing the encoded image in a
-shell variable:
+For example, send a 640 by 480 `frame.jpg` from Python:
 
-```bash
-{
-  printf '%s' \
-    '{"frame_id":0,"width":640,"height":480,"frame_rate":30,' \
-    '"box_type":"aabb","detections":[[10,20,60,120,0.95,0]],' \
-    '"image_base64":"'
-  base64 < frame.jpg | tr -d '\r\n'
-  printf '%s' '"}'
-} | curl --fail --request POST \
-  --url http://127.0.0.1:8000/v1/streams/camera-01/sessions/gpu-demo/frames \
-  --header 'content-type: application/json' \
-  --data-binary @-
+```python
+import base64
+from pathlib import Path
+
+import requests
+
+payload = {
+    "frame_id": 0,
+    "width": 640,
+    "height": 480,
+    "frame_rate": 30,
+    "box_type": "aabb",
+    "detections": [[10, 20, 60, 120, 0.95, 0]],
+    "image_base64": base64.b64encode(Path("frame.jpg").read_bytes()).decode("ascii"),
+}
+response = requests.post(
+    "http://127.0.0.1:8000/v1/streams/camera-01/sessions/gpu-demo/frames",
+    json=payload,
+    timeout=30,
+)
+response.raise_for_status()
+print(response.json())
 ```
 
 The declared `width` and `height` must exactly match the encoded image. Send
