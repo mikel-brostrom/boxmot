@@ -27,11 +27,13 @@ double WrapAngle(const double angle) {
 Eigen::VectorXd DetectionRow(const Detection& detection) {
     if (detection.is_obb) {
         Eigen::VectorXd row(6);
-        row << detection.xywha[0], detection.xywha[1], detection.xywha[2], detection.xywha[3], detection.xywha[4], detection.conf;
+        row << detection.xywha[0], detection.xywha[1], detection.xywha[2], detection.xywha[3],
+            detection.xywha[4], detection.conf;
         return row;
     }
     Eigen::VectorXd row(5);
-    row << detection.xyxy[0], detection.xyxy[1], detection.xyxy[2], detection.xyxy[3], detection.conf;
+    row << detection.xyxy[0], detection.xyxy[1], detection.xyxy[2], detection.xyxy[3],
+        detection.conf;
     return row;
 }
 
@@ -42,6 +44,15 @@ Eigen::VectorXd PredictionRow(const Eigen::VectorXd& box, const bool is_obb_mode
     return row;
 }
 
+Eigen::MatrixXd GeometryRows(const std::vector<Eigen::VectorXd>& rows, const bool is_obb_mode) {
+    const int geometry_columns = is_obb_mode ? 5 : 4;
+    Eigen::MatrixXd geometry(static_cast<int>(rows.size()), geometry_columns);
+    for (int row = 0; row < geometry.rows(); ++row) {
+        geometry.row(row) = rows[static_cast<std::size_t>(row)].head(geometry_columns).transpose();
+    }
+    return geometry;
+}
+
 Eigen::Vector2d CenterOf(const Eigen::VectorXd& box, const bool is_obb_mode) {
     if (is_obb_mode) {
         return Eigen::Vector2d(box[0], box[1]);
@@ -49,7 +60,9 @@ Eigen::Vector2d CenterOf(const Eigen::VectorXd& box, const bool is_obb_mode) {
     return Eigen::Vector2d((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0);
 }
 
-Eigen::Vector2d DirectionBetween(const Eigen::VectorXd& lhs, const Eigen::VectorXd& rhs, const bool is_obb_mode) {
+Eigen::Vector2d DirectionBetween(const Eigen::VectorXd& lhs,
+                                 const Eigen::VectorXd& rhs,
+                                 const bool is_obb_mode) {
     const Eigen::Vector2d center1 = CenterOf(lhs, is_obb_mode);
     const Eigen::Vector2d center2 = CenterOf(rhs, is_obb_mode);
     Eigen::Vector2d direction(center2[1] - center1[1], center2[0] - center1[0]);
@@ -70,14 +83,11 @@ Eigen::Vector4d OCSORTTracker::KalmanBoxTracker::XyxyToXysr(const Eigen::Vector4
     const double width = std::max(bbox[2] - bbox[0], 1.0e-6);
     const double height = std::max(bbox[3] - bbox[1], 1.0e-6);
     return Eigen::Vector4d(
-        (bbox[0] + bbox[2]) / 2.0,
-        (bbox[1] + bbox[3]) / 2.0,
-        width * height,
-        width / height
-    );
+        (bbox[0] + bbox[2]) / 2.0, (bbox[1] + bbox[3]) / 2.0, width * height, width / height);
 }
 
-Eigen::Matrix<double, 5, 1> OCSORTTracker::KalmanBoxTracker::ConvertObbToZ(const Eigen::Matrix<double, 5, 1>& obb) {
+Eigen::Matrix<double, 5, 1> OCSORTTracker::KalmanBoxTracker::ConvertObbToZ(
+    const Eigen::Matrix<double, 5, 1>& obb) {
     Eigen::Matrix<double, 5, 1> z;
     const double width = std::max(obb[2], 1.0e-6);
     const double height = std::max(obb[3], 1.0e-6);
@@ -85,15 +95,18 @@ Eigen::Matrix<double, 5, 1> OCSORTTracker::KalmanBoxTracker::ConvertObbToZ(const
     return z;
 }
 
-Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ConvertXToBbox(const KalmanFilterXYSR::Vector& state) {
+Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ConvertXToBbox(
+    const KalmanFilterXYSR::Vector& state) {
     const double width = std::sqrt(std::max(state[2] * state[3], 1.0e-12));
     const double height = state[2] / std::max(width, 1.0e-6);
     Eigen::VectorXd bbox(4);
-    bbox << state[0] - (width / 2.0), state[1] - (height / 2.0), state[0] + (width / 2.0), state[1] + (height / 2.0);
+    bbox << state[0] - (width / 2.0), state[1] - (height / 2.0), state[0] + (width / 2.0),
+        state[1] + (height / 2.0);
     return bbox;
 }
 
-Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ConvertXToObb(const KalmanFilterXYSR::Vector& state) {
+Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ConvertXToObb(
+    const KalmanFilterXYSR::Vector& state) {
     const double width = std::sqrt(std::max(state[2] * state[3], 1.0e-12));
     const double height = state[2] / std::max(width, 1.0e-6);
     Eigen::VectorXd obb(5);
@@ -101,11 +114,9 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ConvertXToObb(const KalmanFilte
     return obb;
 }
 
-Eigen::Vector2d OCSORTTracker::KalmanBoxTracker::SpeedDirection(
-    const Eigen::VectorXd& bbox1,
-    const Eigen::VectorXd& bbox2,
-    const bool is_obb_mode
-) {
+Eigen::Vector2d OCSORTTracker::KalmanBoxTracker::SpeedDirection(const Eigen::VectorXd& bbox1,
+                                                                const Eigen::VectorXd& bbox2,
+                                                                const bool is_obb_mode) {
     return DirectionBetween(bbox1, bbox2, is_obb_mode);
 }
 
@@ -113,43 +124,30 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ObservationVector(const Detecti
     return DetectionRow(detection);
 }
 
-OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(
-    const Detection& detection,
-    const int delta_t_value,
-    const int max_obs_value,
-    const double q_xy_scaling_value,
-    const double q_s_scaling_value,
-    const bool is_obb_mode
-) :
-    det_ind(detection.det_ind),
-    q_xy_scaling(q_xy_scaling_value),
-    q_s_scaling(q_s_scaling_value),
-    q_a_scaling(q_s_scaling_value),
-    is_obb(is_obb_mode),
-    kf(is_obb_mode ? 9 : 7, is_obb_mode ? 5 : 4, max_obs_value),
-    id(count++),
-    max_obs(max_obs_value),
-    conf(detection.conf),
-    cls(detection.cls),
-    last_observation(OCSORTTracker::PlaceholderObservation(is_obb_mode)),
-    delta_t(delta_t_value) {
+OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
+                                                  const int delta_t_value,
+                                                  const int max_obs_value,
+                                                  const double q_xy_scaling_value,
+                                                  const double q_s_scaling_value,
+                                                  const bool is_obb_mode)
+    : det_ind(detection.det_ind),
+      q_xy_scaling(q_xy_scaling_value),
+      q_s_scaling(q_s_scaling_value),
+      q_a_scaling(q_s_scaling_value),
+      is_obb(is_obb_mode),
+      kf(is_obb_mode ? 9 : 7, is_obb_mode ? 5 : 4, max_obs_value),
+      id(count++),
+      max_obs(max_obs_value),
+      conf(detection.conf),
+      cls(detection.cls),
+      last_observation(OCSORTTracker::PlaceholderObservation(is_obb_mode)),
+      delta_t(delta_t_value) {
     if (is_obb) {
-        kf.F <<
-            1, 0, 0, 0, 0, 1, 0, 0, 0,
-            0, 1, 0, 0, 0, 0, 1, 0, 0,
-            0, 0, 1, 0, 0, 0, 0, 1, 0,
-            0, 0, 0, 1, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 1, 0, 0, 0, 1,
-            0, 0, 0, 0, 0, 1, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 1;
-        kf.H <<
-            1, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 1, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 1, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 1, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 1, 0, 0, 0, 0;
+        kf.F << 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0,
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1;
+        kf.H << 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0;
         kf.R.block(2, 2, 3, 3) *= 10.0;
         kf.P.block(5, 5, 4, 4) *= 1000.0;
         kf.P *= 10.0;
@@ -158,19 +156,9 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(
         kf.Q(8, 8) *= q_a_scaling;
         kf.x.head(5) = ConvertObbToZ(detection.xywha);
     } else {
-        kf.F <<
-            1, 0, 0, 0, 1, 0, 0,
-            0, 1, 0, 0, 0, 1, 0,
-            0, 0, 1, 0, 0, 0, 1,
-            0, 0, 0, 1, 0, 0, 0,
-            0, 0, 0, 0, 1, 0, 0,
-            0, 0, 0, 0, 0, 1, 0,
-            0, 0, 0, 0, 0, 0, 1;
-        kf.H <<
-            1, 0, 0, 0, 0, 0, 0,
-            0, 1, 0, 0, 0, 0, 0,
-            0, 0, 1, 0, 0, 0, 0,
-            0, 0, 0, 1, 0, 0, 0;
+        kf.F << 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
+            0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1;
+        kf.H << 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0;
         kf.R.block(2, 2, 2, 2) *= 10.0;
         kf.P.block(4, 4, 3, 3) *= 1000.0;
         kf.P *= 10.0;
@@ -290,8 +278,7 @@ Eigen::VectorXd OCSORTTracker::KPreviousObs(
     const std::unordered_map<int, Eigen::VectorXd>& observations,
     const int current_age,
     const int k,
-    const bool is_obb_mode
-) {
+    const bool is_obb_mode) {
     if (observations.empty()) {
         return PlaceholderObservation(is_obb_mode);
     }
@@ -314,54 +301,14 @@ Eigen::VectorXd OCSORTTracker::KPreviousObs(
     return last != nullptr ? *last : PlaceholderObservation(is_obb_mode);
 }
 
-Eigen::MatrixXd OCSORTTracker::SimilarityMatrix(
-    const std::vector<Eigen::VectorXd>& detections,
-    const std::vector<Eigen::VectorXd>& tracks,
-    const bool is_obb_mode,
-    const boxmot::trackers::base::AssociationMode association_mode,
-    const int frame_width,
-    const int frame_height
-) {
-    Eigen::MatrixXd similarity = Eigen::MatrixXd::Zero(
-        static_cast<int>(detections.size()),
-        static_cast<int>(tracks.size())
-    );
-    for (int det_index = 0; det_index < static_cast<int>(detections.size()); ++det_index) {
-        for (int track_index = 0; track_index < static_cast<int>(tracks.size()); ++track_index) {
-            if (is_obb_mode) {
-                similarity(det_index, track_index) = boxmot::trackers::base::ObbAssociationSimilarity(
-                    detections[det_index].head<5>(),
-                    tracks[track_index].head<5>(),
-                    association_mode,
-                    frame_width,
-                    frame_height
-                );
-            } else {
-                similarity(det_index, track_index) = boxmot::trackers::base::AabbAssociationSimilarity(
-                    detections[det_index].head<4>(),
-                    tracks[track_index].head<4>(),
-                    association_mode,
-                    frame_width,
-                    frame_height
-                );
-            }
-        }
-    }
-    return similarity;
-}
-
-Eigen::MatrixXd OCSORTTracker::DirectionCost(
-    const std::vector<Eigen::VectorXd>& detections,
-    const std::vector<Eigen::VectorXd>& previous_obs,
-    const std::vector<Eigen::Vector2d>& velocities,
-    const std::vector<float>& scores,
-    const float inertia,
-    const bool is_obb_mode
-) {
-    Eigen::MatrixXd cost = Eigen::MatrixXd::Zero(
-        static_cast<int>(detections.size()),
-        static_cast<int>(previous_obs.size())
-    );
+Eigen::MatrixXd OCSORTTracker::DirectionCost(const std::vector<Eigen::VectorXd>& detections,
+                                             const std::vector<Eigen::VectorXd>& previous_obs,
+                                             const std::vector<Eigen::Vector2d>& velocities,
+                                             const std::vector<float>& scores,
+                                             const float inertia,
+                                             const bool is_obb_mode) {
+    Eigen::MatrixXd cost = Eigen::MatrixXd::Zero(static_cast<int>(detections.size()),
+                                                 static_cast<int>(previous_obs.size()));
     for (int track_index = 0; track_index < static_cast<int>(previous_obs.size()); ++track_index) {
         if (!ObservationIsValid(previous_obs[track_index])) {
             continue;
@@ -369,20 +316,17 @@ Eigen::MatrixXd OCSORTTracker::DirectionCost(
         const Eigen::Vector2d velocity = velocities[track_index];
         const double velocity_norm = std::max(velocity.norm(), 1.0e-6);
         for (int det_index = 0; det_index < static_cast<int>(detections.size()); ++det_index) {
-            const Eigen::Vector2d det_direction = DirectionBetween(
-                previous_obs[track_index],
-                detections[det_index],
-                is_obb_mode
-            );
-            const double diff_angle_cos = std::clamp(
-                ((velocity[1] / velocity_norm) * det_direction[1]) +
-                ((velocity[0] / velocity_norm) * det_direction[0]),
-                -1.0,
-                1.0
-            );
+            const Eigen::Vector2d det_direction =
+                DirectionBetween(previous_obs[track_index], detections[det_index], is_obb_mode);
+            const double diff_angle_cos =
+                std::clamp(((velocity[1] / velocity_norm) * det_direction[1]) +
+                               ((velocity[0] / velocity_norm) * det_direction[0]),
+                           -1.0,
+                           1.0);
             const double diff_angle = std::acos(diff_angle_cos);
             const double angle_score = (kPi / 2.0 - std::abs(diff_angle)) / kPi;
-            cost(det_index, track_index) = angle_score * static_cast<double>(inertia) * static_cast<double>(scores[det_index]);
+            cost(det_index, track_index) =
+                angle_score * static_cast<double>(inertia) * static_cast<double>(scores[det_index]);
         }
     }
     return cost;
@@ -393,13 +337,12 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
     const std::vector<Eigen::VectorXd>& trackers,
     const std::vector<Eigen::Vector2d>& velocities,
     const std::vector<Eigen::VectorXd>& previous_obs,
-    const float iou_threshold,
+    const float similarity_threshold,
     const float inertia,
     const bool is_obb_mode,
     const boxmot::trackers::base::AssociationMode association_mode,
     const int frame_width,
-    const int frame_height
-) {
+    const int frame_height) {
     AssignmentResult result;
     if (trackers.empty()) {
         result.unmatched_rows.resize(static_cast<int>(detections.size()));
@@ -407,17 +350,17 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
         return result;
     }
 
-    const Eigen::MatrixXd iou_matrix = SimilarityMatrix(
-        detections,
-        trackers,
-        is_obb_mode,
-        association_mode,
-        frame_width,
-        frame_height
-    );
+    const Eigen::MatrixXd similarity_matrix =
+        boxmot::trackers::base::AssociationMatrix(GeometryRows(detections, is_obb_mode),
+                                                  GeometryRows(trackers, is_obb_mode),
+                                                  is_obb_mode,
+                                                  association_mode,
+                                                  frame_width,
+                                                  frame_height);
     std::vector<std::pair<int, int>> matched_indices;
-    if (std::min(iou_matrix.rows(), iou_matrix.cols()) > 0) {
-        const Eigen::ArrayXXi admissible = (iou_matrix.array() > static_cast<double>(iou_threshold)).cast<int>();
+    if (std::min(similarity_matrix.rows(), similarity_matrix.cols()) > 0) {
+        const Eigen::ArrayXXi admissible =
+            (similarity_matrix.array() > static_cast<double>(similarity_threshold)).cast<int>();
         const int max_row_sum = admissible.rows() == 0 ? 0 : admissible.rowwise().sum().maxCoeff();
         const int max_col_sum = admissible.cols() == 0 ? 0 : admissible.colwise().sum().maxCoeff();
         if (max_row_sum == 1 && max_col_sum == 1) {
@@ -434,17 +377,21 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
             for (const auto& detection : detections) {
                 scores.push_back(static_cast<float>(detection[detection.size() - 1]));
             }
-            matched_indices = LinearAssignment(
-                -(iou_matrix + DirectionCost(detections, previous_obs, velocities, scores, inertia, is_obb_mode)),
-                kAssignmentThreshold
-            ).matches;
+            matched_indices =
+                LinearAssignment(
+                    -(similarity_matrix +
+                      DirectionCost(
+                          detections, previous_obs, velocities, scores, inertia, is_obb_mode)),
+                    kAssignmentThreshold)
+                    .matches;
         }
     }
 
     std::vector<bool> matched_det(detections.size(), false);
     std::vector<bool> matched_trk(trackers.size(), false);
     for (const auto& match : matched_indices) {
-        if (iou_matrix(match.first, match.second) < static_cast<double>(iou_threshold)) {
+        if (similarity_matrix(match.first, match.second) <
+            static_cast<double>(similarity_threshold)) {
             continue;
         }
         matched_det[match.first] = true;
@@ -482,11 +429,13 @@ TrackOutput OCSORTTracker::FormatTrack(const KalmanBoxTracker& track) {
     return output;
 }
 
-std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& detections, const cv::Mat& image) {
-    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
-        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& detections,
+                                               const cv::Mat& image) {
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
+        (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
-            throw std::runtime_error("Native OCSORT requires an image to initialize centroid association.");
+            throw std::runtime_error(
+                "Native OCSORT requires an image to initialize centroid association.");
         }
         association_frame_width_ = image.cols;
         association_frame_height_ = image.rows;
@@ -496,9 +445,12 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
-            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_,
+                                                                         det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
-            throw std::runtime_error("Native OCSORT cannot switch between AABB and OBB detections after initialization.");
+            throw std::runtime_error(
+                "Native OCSORT cannot switch between AABB and OBB detections after "
+                "initialization.");
         }
     }
 
@@ -532,7 +484,8 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
     for (const auto& track : active_tracks_) {
         velocities.push_back(track.velocity.value_or(Eigen::Vector2d::Zero()));
         last_boxes.push_back(track.last_observation);
-        k_observations.push_back(KPreviousObs(track.observations, track.age, config_.delta_t, is_obb_mode_));
+        k_observations.push_back(
+            KPreviousObs(track.observations, track.age, config_.delta_t, is_obb_mode_));
     }
 
     std::vector<Eigen::VectorXd> first_rows;
@@ -542,18 +495,16 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
     }
 
     const double association_threshold = static_cast<double>(config_.iou_threshold);
-    AssignmentResult matched = Associate(
-        first_rows,
-        predicted_tracks,
-        velocities,
-        k_observations,
-        config_.iou_threshold,
-        config_.inertia,
-        is_obb_mode_,
-        association_mode_,
-        association_frame_width_,
-        association_frame_height_
-    );
+    AssignmentResult matched = Associate(first_rows,
+                                         predicted_tracks,
+                                         velocities,
+                                         k_observations,
+                                         config_.iou_threshold,
+                                         config_.inertia,
+                                         is_obb_mode_,
+                                         association_mode_,
+                                         association_frame_width_,
+                                         association_frame_height_);
     for (const auto& match : matched.matches) {
         active_tracks_[match.second].Update(&detections_first[match.first]);
     }
@@ -570,19 +521,20 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             unmatched_predictions.push_back(predicted_tracks[trk_index]);
         }
 
-        const Eigen::MatrixXd second_similarity = SimilarityMatrix(
-            second_rows,
-            unmatched_predictions,
+        const Eigen::MatrixXd second_similarity = boxmot::trackers::base::AssociationMatrix(
+            GeometryRows(second_rows, is_obb_mode_),
+            GeometryRows(unmatched_predictions, is_obb_mode_),
             is_obb_mode_,
             association_mode_,
             association_frame_width_,
-            association_frame_height_
-        );
+            association_frame_height_);
         if (second_similarity.size() != 0 && second_similarity.maxCoeff() > association_threshold) {
-            const auto second_matches = LinearAssignment(-second_similarity, kAssignmentThreshold).matches;
+            const auto second_matches =
+                LinearAssignment(-second_similarity, kAssignmentThreshold).matches;
             std::vector<int> consumed_tracks;
             for (const auto& match_indices : second_matches) {
-                if (second_similarity(match_indices.first, match_indices.second) < association_threshold) {
+                if (second_similarity(match_indices.first, match_indices.second) <
+                    association_threshold) {
                     continue;
                 }
                 const int track_index = matched.unmatched_cols[match_indices.second];
@@ -592,7 +544,8 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             std::vector<int> filtered_unmatched;
             filtered_unmatched.reserve(matched.unmatched_cols.size());
             for (const int track_index : matched.unmatched_cols) {
-                if (std::find(consumed_tracks.begin(), consumed_tracks.end(), track_index) == consumed_tracks.end()) {
+                if (std::find(consumed_tracks.begin(), consumed_tracks.end(), track_index) ==
+                    consumed_tracks.end()) {
                     filtered_unmatched.push_back(track_index);
                 }
             }
@@ -612,20 +565,22 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             left_trks.push_back(last_boxes[trk_index]);
         }
 
-        const Eigen::MatrixXd rematch_similarity = SimilarityMatrix(
-            left_dets,
-            left_trks,
-            is_obb_mode_,
-            association_mode_,
-            association_frame_width_,
-            association_frame_height_
-        );
-        if (rematch_similarity.size() != 0 && rematch_similarity.maxCoeff() > association_threshold) {
-            const auto rematched = LinearAssignment(-rematch_similarity, kAssignmentThreshold).matches;
+        const Eigen::MatrixXd rematch_similarity =
+            boxmot::trackers::base::AssociationMatrix(GeometryRows(left_dets, is_obb_mode_),
+                                                      GeometryRows(left_trks, is_obb_mode_),
+                                                      is_obb_mode_,
+                                                      association_mode_,
+                                                      association_frame_width_,
+                                                      association_frame_height_);
+        if (rematch_similarity.size() != 0 &&
+            rematch_similarity.maxCoeff() > association_threshold) {
+            const auto rematched =
+                LinearAssignment(-rematch_similarity, kAssignmentThreshold).matches;
             std::vector<int> consumed_det_indices;
             std::vector<int> consumed_trk_indices;
             for (const auto& match_indices : rematched) {
-                if (rematch_similarity(match_indices.first, match_indices.second) < association_threshold) {
+                if (rematch_similarity(match_indices.first, match_indices.second) <
+                    association_threshold) {
                     continue;
                 }
                 const int det_index = matched.unmatched_rows[match_indices.first];
@@ -638,12 +593,16 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
             std::vector<int> next_unmatched_dets;
             std::vector<int> next_unmatched_trks;
             for (const int det_index : matched.unmatched_rows) {
-                if (std::find(consumed_det_indices.begin(), consumed_det_indices.end(), det_index) == consumed_det_indices.end()) {
+                if (std::find(consumed_det_indices.begin(),
+                              consumed_det_indices.end(),
+                              det_index) == consumed_det_indices.end()) {
                     next_unmatched_dets.push_back(det_index);
                 }
             }
             for (const int trk_index : matched.unmatched_cols) {
-                if (std::find(consumed_trk_indices.begin(), consumed_trk_indices.end(), trk_index) == consumed_trk_indices.end()) {
+                if (std::find(consumed_trk_indices.begin(),
+                              consumed_trk_indices.end(),
+                              trk_index) == consumed_trk_indices.end()) {
                     next_unmatched_trks.push_back(trk_index);
                 }
             }
@@ -657,14 +616,12 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
     }
 
     for (const int det_index : matched.unmatched_rows) {
-        active_tracks_.emplace_back(
-            detections_first[det_index],
-            config_.delta_t,
-            config_.max_obs,
-            config_.q_xy_scaling,
-            config_.q_s_scaling,
-            is_obb_mode_
-        );
+        active_tracks_.emplace_back(detections_first[det_index],
+                                    config_.delta_t,
+                                    config_.max_obs,
+                                    config_.q_xy_scaling,
+                                    config_.q_s_scaling,
+                                    is_obb_mode_);
     }
 
     std::vector<TrackOutput> outputs;

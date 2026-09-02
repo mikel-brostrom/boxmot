@@ -38,7 +38,7 @@ from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
     resolve_batch_embeddings,
 )
-from boxmot.trackers.common.association.boost import associate, iou_batch
+from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import align_obb_measurement, wrap_pi_periodic
 from boxmot.trackers.common.track_models.boosttrack import KalmanBoxTracker
@@ -277,7 +277,7 @@ class OccluBoost(BoostTrack):
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
             lambda_emb_multiplier=self.lambda_emb_multiplier,
-            iou_matrix=geometry_similarity,
+            geometry_matrix=geometry_similarity,
         )
 
         dets_alpha = confidence_aware_alpha(
@@ -885,10 +885,7 @@ class OccluBoost(BoostTrack):
             ious = AssociationFunction.iou_batch_obb(boxes, boxes)
         else:
             boxes = np.stack([e[1][:4] for e in emitted], axis=0)
-            ious = iou_batch(
-                np.hstack([boxes, np.ones((len(boxes), 3))]),
-                np.hstack([boxes, np.ones((len(boxes), 3))]),
-            )
+            ious = AssociationFunction.iou_batch(boxes, boxes)
         np.fill_diagonal(ious, 0.0)
         drop = set()
         n = len(emitted)

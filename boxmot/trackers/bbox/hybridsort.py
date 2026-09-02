@@ -16,12 +16,11 @@ from boxmot.trackers.common.appearance import (
     ema_update_embedding,
     resolve_batch_embeddings,
 )
+from boxmot.trackers.common.association import feature_distance, solve_assignment
 from boxmot.trackers.common.association.hybrid import (
-    associate_4_points_with_score,
-    associate_4_points_with_score_with_reid,
-    cal_score_dif_batch_two_score,
-    embedding_distance,
-    linear_assignment,
+    associate_hybrid,
+    associate_hybrid_with_reid,
+    confidence_difference,
 )
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.hybridsort import KalmanBoxTracker, k_previous_obs
@@ -59,7 +58,6 @@ class HybridSort(BaseTracker):
         TCM_first_step (bool): Whether to enable TCM in the first step.
         TCM_byte_step (bool): Whether to enable TCM in the Byte step.
         TCM_byte_step_weight (float): TCM weight in the Byte step.
-        high_score_matching_thresh (float): Threshold for high-score matching.
         with_longterm_reid (bool): Whether to enable long-term ReID features.
         longterm_reid_weight (float): Weight applied to long-term ReID scores.
         with_longterm_reid_correction (bool): Whether to enable long-term ReID
@@ -68,7 +66,6 @@ class HybridSort(BaseTracker):
             regular detections.
         longterm_reid_correction_thresh_low (float): Correction threshold for
             low-score detections.
-        dataset (str): Dataset hint used by the association logic.
         **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
@@ -101,15 +98,12 @@ class HybridSort(BaseTracker):
         TCM_first_step: bool = True,
         TCM_byte_step: bool = True,
         TCM_byte_step_weight: float = 1.0,
-        high_score_matching_thresh: float = 0.7,
         # Long-term reid
         with_longterm_reid: bool = True,
         longterm_reid_weight: float = 0.0,
         with_longterm_reid_correction: bool = True,
         longterm_reid_correction_thresh: float = 0.4,
         longterm_reid_correction_thresh_low: float = 0.4,
-        # misc
-        dataset: str = "",
         **kwargs: Any,  # BaseTracker parameters
     ):
         # Capture all init params for logging
@@ -132,15 +126,11 @@ class HybridSort(BaseTracker):
         self.TCM_first_step = bool(TCM_first_step)
         self.TCM_byte_step = bool(TCM_byte_step)
         self.TCM_byte_step_weight = float(TCM_byte_step_weight)
-        self.high_score_matching_thresh = float(high_score_matching_thresh)
-
         self.with_longterm_reid = bool(with_longterm_reid)
         self.longterm_reid_weight = float(longterm_reid_weight)
         self.with_longterm_reid_correction = bool(with_longterm_reid_correction)
         self.longterm_reid_correction_thresh = float(longterm_reid_correction_thresh)
         self.longterm_reid_correction_thresh_low = float(longterm_reid_correction_thresh_low)
-        self.dataset = str(dataset)
-
         # ReID module (BotSort-style)
         self.with_reid = bool(with_reid)
         self.model = reid_model if self.with_reid else None
@@ -272,10 +262,10 @@ class HybridSort(BaseTracker):
         # ===== First association (optionally embedding-guided)
         if self.with_reid and self.EG_weight_high_score > 0 and self.TCM_first_step and len(dets_first) and len(trks):
             track_features = np.asarray([t.smooth_feat for t in self.active_tracks], dtype=float)
-            emb_dists = embedding_distance(track_features, id_feature_keep).T
+            emb_dists = feature_distance(track_features, id_feature_keep).T
 
             long_emb_dists = None
-            if self.with_longterm_reid or self.with_longterm_reid_correction:
+            if self.with_longterm_reid:
                 long_track_features = np.asarray(
                     [
                         np.vstack(list(t.features)).mean(0) if len(t.features) else t.smooth_feat
@@ -283,38 +273,29 @@ class HybridSort(BaseTracker):
                     ],
                     dtype=float,
                 )
-                long_emb_dists = embedding_distance(long_track_features, id_feature_keep).T
+                long_emb_dists = feature_distance(long_track_features, id_feature_keep).T
 
-            matched, unmatched_dets, unmatched_trks = associate_4_points_with_score_with_reid(
+            matched, unmatched_dets, unmatched_trks = associate_hybrid_with_reid(
                 dets_first,
                 trks,
                 self.iou_threshold,
-                velocities_lt,
-                velocities_rt,
-                velocities_lb,
-                velocities_rb,
+                (velocities_lt, velocities_rt, velocities_lb, velocities_rb),
                 k_observations,
                 self.inertia,
                 association_function,
-                emb_cost=emb_dists,
-                weights=(1.0, self.EG_weight_high_score),
-                thresh=self.high_score_matching_thresh,
-                long_emb_dists=long_emb_dists,
-                with_longterm_reid=self.with_longterm_reid,
-                longterm_reid_weight=self.longterm_reid_weight,
-                with_longterm_reid_correction=self.with_longterm_reid_correction,
-                longterm_reid_correction_thresh=self.longterm_reid_correction_thresh,
-                dataset=self.per_class and "perclass" or self.dataset,
+                embedding_cost=emb_dists,
+                embedding_weight=self.EG_weight_high_score,
+                longterm_embedding_cost=long_emb_dists,
+                longterm_embedding_weight=self.longterm_reid_weight,
+                correct_with_appearance=self.with_longterm_reid_correction,
+                appearance_threshold=self.longterm_reid_correction_thresh,
             )
         elif self.TCM_first_step and len(dets_first) and len(trks):
-            matched, unmatched_dets, unmatched_trks = associate_4_points_with_score(
+            matched, unmatched_dets, unmatched_trks = associate_hybrid(
                 dets_first,
                 trks,
                 self.iou_threshold,
-                velocities_lt,
-                velocities_rt,
-                velocities_lb,
-                velocities_rb,
+                (velocities_lt, velocities_rt, velocities_lb, velocities_rb),
                 k_observations,
                 self.inertia,
                 association_function,
@@ -337,30 +318,30 @@ class HybridSort(BaseTracker):
         # ===== BYTE / low-score association (optional)
         if self.use_byte and len(dets_low) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = np.array(association_function(dets_low, u_trks))
-            iou_left_thre = iou_left.copy()
+            similarity = np.asarray(association_function(dets_low, u_trks))
+            threshold_similarity = similarity.copy()
             if self.TCM_byte_step:
-                iou_left -= np.array(cal_score_dif_batch_two_score(dets_low, u_trks) * self.TCM_byte_step_weight)
+                similarity -= confidence_difference(dets_low, u_trks) * self.TCM_byte_step_weight
 
-            if iou_left.max() > self.iou_threshold:
+            if similarity.max() > self.iou_threshold:
                 if self.EG_weight_low_score > 0 and self.with_reid:
                     u_tracklets = [self.active_tracks[idx] for idx in unmatched_trks]
                     u_track_features = np.asarray([t.smooth_feat for t in u_tracklets], dtype=float)
-                    emb_dists_low = embedding_distance(u_track_features, id_feature_second).T
-                    matched_indices = linear_assignment(-iou_left + self.EG_weight_low_score * emb_dists_low)
+                    emb_dists_low = feature_distance(u_track_features, id_feature_second).T
+                    matched_indices = solve_assignment(-similarity + self.EG_weight_low_score * emb_dists_low)
                 else:
-                    matched_indices = linear_assignment(-iou_left)
+                    matched_indices = solve_assignment(-similarity)
                 to_remove_trk_indices = []
                 for mm in matched_indices:
                     det_rel, trk_rel = mm[0], mm[1]
                     trk_ind = unmatched_trks[trk_rel]
                     if self.with_longterm_reid_correction and self.EG_weight_low_score > 0 and self.with_reid:
-                        bad_iou = iou_left_thre[det_rel, trk_rel] < self.iou_threshold
+                        poor_geometry = threshold_similarity[det_rel, trk_rel] < self.iou_threshold
                         bad_emb = emb_dists_low[det_rel, trk_rel] > self.longterm_reid_correction_thresh_low
-                        if bad_iou or bad_emb:
+                        if poor_geometry or bad_emb:
                             continue
                     else:
-                        if iou_left_thre[det_rel, trk_rel] < self.iou_threshold:
+                        if threshold_similarity[det_rel, trk_rel] < self.iou_threshold:
                             continue
                     # do not update features in BYTE pass
                     self.active_tracks[trk_ind].update(
@@ -377,14 +358,14 @@ class HybridSort(BaseTracker):
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets_first[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
-            iou_left = np.array(association_function(left_dets, left_trks))
-            if iou_left.max() > self.iou_threshold:
-                rematched = linear_assignment(-iou_left)
+            similarity = np.asarray(association_function(left_dets, left_trks))
+            if similarity.max() > self.iou_threshold:
+                rematched = solve_assignment(-similarity)
                 to_remove_det_indices = []
                 to_remove_trk_indices = []
                 for mm in rematched:
                     det_rel, trk_rel = mm[0], mm[1]
-                    if iou_left[det_rel, trk_rel] < self.iou_threshold:
+                    if similarity[det_rel, trk_rel] < self.iou_threshold:
                         continue
                     det_abs = unmatched_dets[det_rel]
                     trk_abs = unmatched_trks[trk_rel]
@@ -471,11 +452,11 @@ class HybridSort(BaseTracker):
             embedding_cost = None
             if self.with_reid:
                 track_embs = np.asarray([track.smooth_feat for track in self.active_tracks])
-                embedding_cost = embedding_distance(track_embs, high_embs).T
+                embedding_cost = feature_distance(track_embs, high_embs).T
             assignment_cost = -similarity
             if embedding_cost is not None:
                 assignment_cost += self.EG_weight_high_score * embedding_cost
-            pairs = linear_assignment(assignment_cost)
+            pairs = solve_assignment(assignment_cost)
             accepted = []
             for det_index, track_index in pairs:
                 poor_geometry = similarity[det_index, track_index] < self.iou_threshold
@@ -497,7 +478,7 @@ class HybridSort(BaseTracker):
 
         if self.use_byte and len(low_dets) and len(unmatched_tracks):
             similarity = self.asso_func(low.boxes, predicted[unmatched_tracks])
-            pairs = linear_assignment(-similarity)
+            pairs = solve_assignment(-similarity)
             accepted = [(d, t) for d, t in pairs if similarity[d, t] >= self.iou_threshold]
             for det_index, relative_track in accepted:
                 track_index = unmatched_tracks[relative_track]

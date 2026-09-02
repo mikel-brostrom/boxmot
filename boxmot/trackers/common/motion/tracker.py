@@ -24,10 +24,8 @@ class TrackerMotionMixin:
             dtype = dets.dtype if hasattr(dets, "dtype") else np.float32
             return np.empty((0, out_cols), dtype=dtype)
 
-        # Camera-motion estimators need the native OBB geometry, whereas the
-        # callers of this helper are explicitly AABB-only.  Keeping those two
-        # contracts separate is important: returning ``xywha`` here makes the
-        # angle look like confidence to legacy AABB association code.
+        # Camera-motion estimators need native OBB geometry, while callers of
+        # this helper explicitly require AABB rows with confidence metadata.
         boxes = xywha_to_xyxy(self.detection_layout.boxes(dets))
         confs = self.detection_layout.confidences(dets).reshape(-1, 1)
         clss = self.detection_layout.classes(dets).reshape(-1, 1)

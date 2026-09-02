@@ -20,14 +20,12 @@ public:
     struct KalmanBoxTracker {
         static int count;
 
-        explicit KalmanBoxTracker(
-            const Detection& detection,
-            int delta_t,
-            int max_obs,
-            double q_xy_scaling,
-            double q_s_scaling,
-            bool is_obb
-        );
+        explicit KalmanBoxTracker(const Detection& detection,
+                                  int delta_t,
+                                  int max_obs,
+                                  double q_xy_scaling,
+                                  double q_s_scaling,
+                                  bool is_obb);
 
         [[nodiscard]] Eigen::VectorXd Predict();
         void Update(const Detection* detection);
@@ -58,16 +56,20 @@ public:
 
     private:
         [[nodiscard]] static Eigen::Vector4d XyxyToXysr(const Eigen::Vector4d& bbox);
-        [[nodiscard]] static Eigen::Matrix<double, 5, 1> ConvertObbToZ(const Eigen::Matrix<double, 5, 1>& obb);
+        [[nodiscard]] static Eigen::Matrix<double, 5, 1> ConvertObbToZ(
+            const Eigen::Matrix<double, 5, 1>& obb);
         [[nodiscard]] static Eigen::VectorXd ConvertXToBbox(const KalmanFilterXYSR::Vector& state);
         [[nodiscard]] static Eigen::VectorXd ConvertXToObb(const KalmanFilterXYSR::Vector& state);
-        [[nodiscard]] static Eigen::Vector2d SpeedDirection(const Eigen::VectorXd& bbox1, const Eigen::VectorXd& bbox2, bool is_obb_mode);
+        [[nodiscard]] static Eigen::Vector2d SpeedDirection(const Eigen::VectorXd& bbox1,
+                                                            const Eigen::VectorXd& bbox2,
+                                                            bool is_obb_mode);
         [[nodiscard]] static Eigen::VectorXd ObservationVector(const Detection& detection);
     };
 
     explicit OCSORTTracker(Config config);
 
-    std::vector<TrackOutput> Update(const std::vector<Detection>& detections, const cv::Mat& image) override;
+    std::vector<TrackOutput> Update(const std::vector<Detection>& detections,
+                                    const cv::Mat& image) override;
     void Reset() override;
 
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
@@ -81,36 +83,25 @@ private:
         const std::unordered_map<int, Eigen::VectorXd>& observations,
         int current_age,
         int k,
-        bool is_obb_mode
-    );
-    [[nodiscard]] static Eigen::MatrixXd SimilarityMatrix(
-        const std::vector<Eigen::VectorXd>& detections,
-        const std::vector<Eigen::VectorXd>& tracks,
-        bool is_obb_mode,
-        boxmot::trackers::base::AssociationMode association_mode,
-        int frame_width,
-        int frame_height
-    );
+        bool is_obb_mode);
     [[nodiscard]] static Eigen::MatrixXd DirectionCost(
         const std::vector<Eigen::VectorXd>& detections,
         const std::vector<Eigen::VectorXd>& previous_obs,
         const std::vector<Eigen::Vector2d>& velocities,
         const std::vector<float>& scores,
         float inertia,
-        bool is_obb_mode
-    );
+        bool is_obb_mode);
     [[nodiscard]] static AssignmentResult Associate(
         const std::vector<Eigen::VectorXd>& detections,
         const std::vector<Eigen::VectorXd>& trackers,
         const std::vector<Eigen::Vector2d>& velocities,
         const std::vector<Eigen::VectorXd>& previous_obs,
-        float iou_threshold,
+        float similarity_threshold,
         float inertia,
         bool is_obb_mode,
         boxmot::trackers::base::AssociationMode association_mode,
         int frame_width,
-        int frame_height
-    );
+        int frame_height);
     [[nodiscard]] static TrackOutput FormatTrack(const KalmanBoxTracker& track);
 
     Config config_;

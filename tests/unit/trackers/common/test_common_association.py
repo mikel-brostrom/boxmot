@@ -6,15 +6,12 @@ import pytest
 from boxmot.trackers.common.association import (
     AssociationFunction,
     AssociationStage,
-    detection_track_iou_assignment,
-    detection_track_tuple_to_association_result,
+    detection_track_similarity_assignment,
     iou_distance,
     run_association_stage,
 )
 from boxmot.trackers.common.association.boost import associate as boost_associate
-from boxmot.trackers.common.association.boost import iou_batch as boost_iou_batch
 from boxmot.trackers.common.association.boost import shape_similarity_obb, soft_biou_batch_obb
-from boxmot.trackers.common.association.hybrid import iou_batch as hybrid_iou_batch
 from boxmot.trackers.common.association.velocity import associate as velocity_associate
 from boxmot.trackers.common.detections import OBB_DETECTIONS
 
@@ -30,7 +27,7 @@ def test_obb_velocity_association_uses_negative_angle_observation():
     tracks = np.array([[0, 0, 4, 2, -0.5, 0.0]], dtype=np.float32)
     previous = np.array([[0, 0, 4, 2, -0.5, 0.9]], dtype=np.float32)
 
-    matches, _, _ = velocity_associate(
+    result = velocity_associate(
         detections,
         tracks,
         lambda left, right: np.full((len(left), len(right)), 0.5, dtype=np.float32),
@@ -41,7 +38,7 @@ def test_obb_velocity_association_uses_negative_angle_observation():
         is_obb=True,
     )
 
-    np.testing.assert_array_equal(matches, np.array([[1, 0]]))
+    np.testing.assert_array_equal(result.matches, np.array([[0, 1]]))
 
 
 def test_association_stage_solves_matches_and_unmatched_indices():
@@ -126,8 +123,8 @@ def test_association_stage_accepts_custom_matcher():
     np.testing.assert_array_equal(result.unmatched_dets, np.array([1]))
 
 
-def test_detection_track_iou_assignment_returns_canonical_orientation():
-    ious = np.array(
+def test_detection_track_similarity_assignment_returns_canonical_orientation():
+    similarities = np.array(
         [
             [0.1, 0.9],
             [0.8, 0.2],
@@ -136,8 +133,8 @@ def test_detection_track_iou_assignment_returns_canonical_orientation():
         dtype=np.float32,
     )
 
-    result = detection_track_iou_assignment(
-        ious,
+    result = detection_track_similarity_assignment(
+        similarities,
         threshold=0.5,
         assignment_solver=lambda cost: np.array([[0, 1], [1, 0], [2, 1]]),
     )
@@ -145,29 +142,12 @@ def test_detection_track_iou_assignment_returns_canonical_orientation():
     np.testing.assert_array_equal(result.matches, np.array([[1, 0], [0, 1]]))
     np.testing.assert_array_equal(result.unmatched_tracks, np.empty((0,), dtype=int))
     np.testing.assert_array_equal(result.unmatched_dets, np.array([2]))
-    np.testing.assert_allclose(result.cost_matrix, 1.0 - ious.T)
+    np.testing.assert_allclose(result.cost_matrix, 1.0 - similarities.T)
 
 
-def test_detection_track_tuple_to_association_result_flips_match_columns():
-    result = detection_track_tuple_to_association_result(
-        (
-            np.array([[0, 2], [1, 3]], dtype=int),
-            np.array([4], dtype=int),
-            np.array([5], dtype=int),
-        )
-    )
-
-    np.testing.assert_array_equal(result.matches, np.array([[2, 0], [3, 1]]))
-    np.testing.assert_array_equal(result.unmatched_tracks, np.array([5]))
-    np.testing.assert_array_equal(result.unmatched_dets, np.array([4]))
-
-
-def test_algorithm_specific_association_modules_live_under_common():
+def test_boost_association_defaults_to_shared_iou():
     detections = np.array([[0, 0, 10, 10, 0.95]], dtype=np.float32)
     trackers = np.array([[0, 0, 10, 10, 0.90]], dtype=np.float32)
-
-    np.testing.assert_allclose(boost_iou_batch(detections, trackers), np.array([[1.0]]))
-    np.testing.assert_allclose(hybrid_iou_batch(detections, trackers), np.array([[1.0]]))
 
     matches, unmatched_dets, unmatched_trackers, cost_matrix = boost_associate(
         detections,
@@ -248,7 +228,7 @@ def test_boost_association_uses_oriented_overlap_for_ambiguous_enclosing_boxes()
         lambda_iou=1.0,
         lambda_mhd=0.0,
         lambda_shape=0.0,
-        iou_matrix=oriented_iou,
+        geometry_matrix=oriented_iou,
         shape_matrix=shape_similarity_obb(detections, trackers),
     )
 

@@ -16,39 +16,6 @@ def _obb_geometry(boxes: np.ndarray) -> np.ndarray:
     return values[:, :5]
 
 
-def iou_obb_pair(i, j, bboxes1, bboxes2):
-    """
-    Compute IoU for the rotated rectangles at index i and j in the batches `bboxes1`, `bboxes2` .
-    """
-    rect1 = np.asarray(bboxes1[int(i)], dtype=float).reshape(-1)
-    rect2 = np.asarray(bboxes2[int(j)], dtype=float).reshape(-1)
-
-    (cx1, cy1, w1, h1, angle1) = rect1[0:5]
-    (cx2, cy2, w2, h2, angle2) = rect2[0:5]
-
-    angle1 = np.degrees(angle1)
-    angle2 = np.degrees(angle2)
-
-    r1 = ((cx1, cy1), (w1, h1), angle1)
-    r2 = ((cx2, cy2), (w2, h2), angle2)
-
-    # Compute intersection
-    ret, intersect = cv.rotatedRectangleIntersection(r1, r2)
-    if ret == 0 or intersect is None:
-        return 0.0  # No intersection
-
-    # Calculate intersection area
-    intersection_area = cv.contourArea(intersect)
-
-    # Calculate union area
-    area1 = w1 * h1
-    area2 = w2 * h2
-    union_area = area1 + area2 - intersection_area
-
-    # Compute IoU
-    return intersection_area / union_area if union_area > 0 else 0.0
-
-
 def _iou_obb_matrix(bboxes1: np.ndarray, bboxes2: np.ndarray) -> np.ndarray:
     """Compute NxM rotated IoU matrix using vectorized AABB pre-filtering.
 
@@ -428,17 +395,6 @@ class AssociationFunction:
         diou = iou - inner_diag / outer_diag
 
         return (diou + 1) / 2.0
-
-    @staticmethod
-    def run_asso_func(self, bboxes1, bboxes2):
-        """
-        Runs the selected association function (based on the initialization string) on the input bounding boxes.
-
-        Parameters:
-        bboxes1: First set of bounding boxes.
-        bboxes2: Second set of bounding boxes.
-        """
-        return self.asso_func(bboxes1, bboxes2)
 
     def _get_asso_func(self, asso_mode):
         """

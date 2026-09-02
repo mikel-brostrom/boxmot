@@ -12,7 +12,6 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.association.boost import (
     MhDist_similarity,
     associate,
-    iou_batch,
     shape_similarity,
     shape_similarity_obb,
     soft_biou_batch,
@@ -116,9 +115,7 @@ class BoostTrack(BaseTracker):
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
         self.uses_embs = self.with_reid
         self.uses_img = bool(
-            self.cmc is not None
-            or self.with_reid
-            or self.asso_func_name in {"centroid", "centroid_obb"}
+            self.cmc is not None or self.with_reid or self.asso_func_name in {"centroid", "centroid_obb"}
         )
 
     def requires_image(
@@ -238,7 +235,7 @@ class BoostTrack(BaseTracker):
             lambda_mhd=self.lambda_mhd,
             lambda_shape=self.lambda_shape,
             s_sim_corr=self.s_sim_corr,
-            iou_matrix=geometry_similarity,
+            geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
         )
 
@@ -297,7 +294,11 @@ class BoostTrack(BaseTracker):
                 self.trackers[t].get_confidence(),
             ]
 
-        return iou_batch(detections, trackers) if not buffered else soft_biou_batch(detections, trackers)
+        return (
+            AssociationFunction.iou_batch(detections, trackers)
+            if not buffered
+            else soft_biou_batch(detections, trackers)
+        )
 
     def get_mh_dist_matrix(self, detections: np.ndarray, n_dims: int | None = None) -> np.ndarray:
         if len(self.trackers) == 0:
@@ -339,7 +340,7 @@ class BoostTrack(BaseTracker):
         if len(boost_inds) == 0:
             return detections
 
-        bdiou = iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
+        bdiou = AssociationFunction.iou_batch(detections[boost_inds], detections[boost_inds]) - np.eye(len(boost_inds))
         bdiou_max = bdiou.max(axis=1)
         remaining = boost_inds[bdiou_max <= iou_limit]
         args = np.where(bdiou_max > iou_limit)[0]
@@ -470,9 +471,7 @@ class BoostTrack(BaseTracker):
             return detections
 
         conf_idx = self.detection_layout.conf_idx
-        boost_indices = np.flatnonzero(
-            (mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold)
-        )
+        boost_indices = np.flatnonzero((mh_dist.min(axis=1) > 13.2767) & (detections[:, conf_idx] < threshold))
         if not len(boost_indices):
             return detections
 

@@ -1,7 +1,7 @@
 #include "occluboost/tracker.hpp"
 
-#include "occluboost/association.hpp"
 #include "boxmot/trackers/base/assignment.hpp"
+#include "occluboost/association.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -48,12 +48,17 @@ Eigen::MatrixXd DetectionsMatrix(const std::vector<Detection>& dets) {
 namespace {
 
 boxmot::trackers::base::ReIdDevice ParseReIdDevice(const std::string& s) {
-    if (s.empty() || s == "auto") return boxmot::trackers::base::ReIdDevice::kAuto;
-    if (s == "cpu") return boxmot::trackers::base::ReIdDevice::kCpu;
-    if (s == "cuda" || s == "gpu" || s.rfind("cuda:", 0) == 0) return boxmot::trackers::base::ReIdDevice::kCuda;
-    if (s == "coreml" || s == "mps" || s == "metal") return boxmot::trackers::base::ReIdDevice::kCoreMl;
+    if (s.empty() || s == "auto")
+        return boxmot::trackers::base::ReIdDevice::kAuto;
+    if (s == "cpu")
+        return boxmot::trackers::base::ReIdDevice::kCpu;
+    if (s == "cuda" || s == "gpu" || s.rfind("cuda:", 0) == 0)
+        return boxmot::trackers::base::ReIdDevice::kCuda;
+    if (s == "coreml" || s == "mps" || s == "metal")
+        return boxmot::trackers::base::ReIdDevice::kCoreMl;
     // Bare numeric strings like "0" or "1" refer to CUDA devices.
-    if (!s.empty() && std::all_of(s.begin(), s.end(), ::isdigit)) return boxmot::trackers::base::ReIdDevice::kCuda;
+    if (!s.empty() && std::all_of(s.begin(), s.end(), ::isdigit))
+        return boxmot::trackers::base::ReIdDevice::kCuda;
     return boxmot::trackers::base::ReIdDevice::kAuto;
 }
 
@@ -73,10 +78,10 @@ OccluBoostTracker::OccluBoostTracker(Config config)
     config_.obb_second_iou_thresh = std::clamp(config_.obb_second_iou_thresh, 0.0F, 1.0F);
     KalmanBoxTracker::ResetCount();
     if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(
-            config_.reid_model_path, config_.reid_preprocess,
-            boxmot::trackers::base::ReIdBackend::kAuto,
-            ParseReIdDevice(config_.reid_device));
+        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path,
+                                               config_.reid_preprocess,
+                                               boxmot::trackers::base::ReIdBackend::kAuto,
+                                               ParseReIdDevice(config_.reid_device));
     }
 }
 
@@ -87,10 +92,10 @@ void OccluBoostTracker::Reset() {
     KalmanBoxTracker::ResetCount();
     reid_model_.reset();
     if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(
-            config_.reid_model_path, config_.reid_preprocess,
-            boxmot::trackers::base::ReIdBackend::kAuto,
-            ParseReIdDevice(config_.reid_device));
+        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path,
+                                               config_.reid_preprocess,
+                                               boxmot::trackers::base::ReIdBackend::kAuto,
+                                               ParseReIdDevice(config_.reid_device));
     }
     last_reid_time_ms_ = 0.0;
     last_reid_preprocess_time_ms_ = 0.0;
@@ -102,10 +107,8 @@ void OccluBoostTracker::Reset() {
     association_frame_height_ = 0;
 }
 
-std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
-    std::vector<Detection> detections,
-    const cv::Mat& image
-) {
+std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(std::vector<Detection> detections,
+                                                           const cv::Mat& image) {
     last_reid_time_ms_ = 0.0;
     last_reid_preprocess_time_ms_ = 0.0;
     last_reid_process_time_ms_ = 0.0;
@@ -129,7 +132,8 @@ std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(
     last_reid_postprocess_time_ms_ = timed.postprocess_ms;
     last_reid_time_ms_ = timed.preprocess_ms + timed.process_ms + timed.postprocess_ms;
     if (timed.features.size() != detections.size()) {
-        throw std::runtime_error("Native OccluBoost ReID returned a different number of embeddings than detections.");
+        throw std::runtime_error(
+            "Native OccluBoost ReID returned a different number of embeddings than detections.");
     }
     for (std::size_t i = 0; i < detections.size(); ++i) {
         detections[i].embedding = timed.features[i];
@@ -146,7 +150,8 @@ void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) c
 
     // Python computes sbiou = soft_biou_batch(detections, trackers) but only
     // uses it when (use_sb || use_vt) AND use_rich_s — locked off for OccluBoost.
-    Eigen::MatrixXd S = IouBatch(dets_mat, trks_mat);
+    Eigen::MatrixXd S = boxmot::trackers::base::AabbAssociationMatrix(
+        dets_mat, trks_mat, boxmot::trackers::base::AssociationMode::kIou);
     if (S.rows() == 0 || S.cols() == 0) {
         return;
     }
@@ -166,7 +171,8 @@ void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) c
     if (config_.use_sb) {
         constexpr double alpha = 0.65;
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
-            const double boosted = alpha * detections[i].conf + (1.0 - alpha) * std::pow(max_s(i), 1.5);
+            const double boosted =
+                alpha * detections[i].conf + (1.0 - alpha) * std::pow(max_s(i), 1.5);
             if (boosted > detections[i].conf) {
                 detections[i].conf = static_cast<float>(boosted);
             }
@@ -178,7 +184,8 @@ void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) c
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             bool any = false;
             for (std::size_t j = 0; j < trackers_.size(); ++j) {
-                const double thr = std::max(threshold_s - (trackers_[j]->time_since_update - 1), threshold_e);
+                const double thr =
+                    std::max(threshold_s - (trackers_[j]->time_since_update - 1), threshold_e);
                 if (S(i, static_cast<int>(j)) > thr) {
                     any = true;
                     break;
@@ -222,7 +229,8 @@ void OccluBoostTracker::DuoConfidenceBoost(std::vector<Detection>& detections) c
         boost_dets(static_cast<int>(k), 3) = d.xyxy[3];
         boost_dets(static_cast<int>(k), 4) = d.conf;
     }
-    Eigen::MatrixXd bdiou = IouBatch(boost_dets, boost_dets);
+    Eigen::MatrixXd bdiou = boxmot::trackers::base::AabbAssociationMatrix(
+        boost_dets, boost_dets, boxmot::trackers::base::AssociationMode::kIou);
     for (int i = 0; i < bdiou.rows(); ++i) {
         bdiou(i, i) = 0.0;
     }
@@ -263,11 +271,12 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
     Eigen::VectorXd trk_conf(static_cast<int>(trackers_.size()));
     for (std::size_t j = 0; j < trackers_.size(); ++j) {
         trk_boxes.row(static_cast<int>(j)) = trackers_[j]->xywha().transpose();
-        trk_conf(static_cast<int>(j)) = std::clamp(
-            static_cast<double>(trackers_[j]->GetConfidence()), 0.0, 1.0);
+        trk_conf(static_cast<int>(j)) =
+            std::clamp(static_cast<double>(trackers_[j]->GetConfidence()), 0.0, 1.0);
     }
 
-    Eigen::MatrixXd similarity = IouBatchObb(det_boxes, trk_boxes);
+    Eigen::MatrixXd similarity = boxmot::trackers::base::ObbAssociationMatrix(
+        det_boxes, trk_boxes, boxmot::trackers::base::AssociationMode::kIou);
     if (config_.use_rich_s) {
         const Eigen::MatrixXd mhd_similarity = MhDistSimilarity(GetMhDistMatrixObb(detections));
 
@@ -277,10 +286,10 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
                 const auto relative_delta = [](const double lhs, const double rhs) {
                     return std::abs(lhs - rhs) / std::max({lhs, rhs, 1.0e-6});
                 };
-                const double direct = relative_delta(det_boxes(i, 2), trk_boxes(j, 2))
-                    + relative_delta(det_boxes(i, 3), trk_boxes(j, 3));
-                const double swapped = relative_delta(det_boxes(i, 2), trk_boxes(j, 3))
-                    + relative_delta(det_boxes(i, 3), trk_boxes(j, 2));
+                const double direct = relative_delta(det_boxes(i, 2), trk_boxes(j, 2)) +
+                                      relative_delta(det_boxes(i, 3), trk_boxes(j, 3));
+                const double swapped = relative_delta(det_boxes(i, 2), trk_boxes(j, 3)) +
+                                       relative_delta(det_boxes(i, 3), trk_boxes(j, 2));
                 shape_similarity(i, j) = std::exp(-std::min(direct, swapped));
             }
         }
@@ -295,16 +304,17 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
             buffered_trks(j, 2) *= scale;
             buffered_trks(j, 3) *= scale;
         }
-        const Eigen::MatrixXd soft_iou = IouBatchObb(buffered_dets, buffered_trks);
+        const Eigen::MatrixXd soft_iou = boxmot::trackers::base::ObbAssociationMatrix(
+            buffered_dets, buffered_trks, boxmot::trackers::base::AssociationMode::kIou);
         similarity = (mhd_similarity + shape_similarity + soft_iou) / 3.0;
     }
 
     const Eigen::VectorXd max_similarity = similarity.rowwise().maxCoeff();
     if (!config_.use_sb && !config_.use_vt) {
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
-            detections[static_cast<std::size_t>(i)].conf = std::max(
-                detections[static_cast<std::size_t>(i)].conf,
-                static_cast<float>(max_similarity(i) * config_.dlo_boost_coef));
+            detections[static_cast<std::size_t>(i)].conf =
+                std::max(detections[static_cast<std::size_t>(i)].conf,
+                         static_cast<float>(max_similarity(i) * config_.dlo_boost_coef));
         }
         return;
     }
@@ -313,8 +323,10 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
         constexpr double alpha = 0.65;
         for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
             const float original = detections[static_cast<std::size_t>(i)].conf;
-            const double boosted = alpha * original + (1.0 - alpha) * std::pow(max_similarity(i), 1.5);
-            detections[static_cast<std::size_t>(i)].conf = std::max(original, static_cast<float>(boosted));
+            const double boosted =
+                alpha * original + (1.0 - alpha) * std::pow(max_similarity(i), 1.5);
+            detections[static_cast<std::size_t>(i)].conf =
+                std::max(original, static_cast<float>(boosted));
         }
     }
     if (config_.use_vt) {
@@ -322,7 +334,8 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
             bool visible = false;
             for (int j = 0; j < static_cast<int>(trackers_.size()); ++j) {
                 const double threshold = std::max(
-                    0.95 - static_cast<double>(trackers_[static_cast<std::size_t>(j)]->time_since_update - 1),
+                    0.95 - static_cast<double>(
+                               trackers_[static_cast<std::size_t>(j)]->time_since_update - 1),
                     0.8);
                 if (similarity(i, j) > threshold) {
                     visible = true;
@@ -331,8 +344,7 @@ void OccluBoostTracker::DloConfidenceBoostObb(std::vector<Detection>& detections
             }
             if (visible) {
                 detections[static_cast<std::size_t>(i)].conf = std::max(
-                    detections[static_cast<std::size_t>(i)].conf,
-                    config_.obb_det_thresh + 1.0e-5F);
+                    detections[static_cast<std::size_t>(i)].conf, config_.obb_det_thresh + 1.0e-5F);
             }
         }
     }
@@ -351,7 +363,8 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
     const Eigen::VectorXd min_dists = mh.rowwise().minCoeff();
     std::vector<int> boost_indices;
     for (int i = 0; i < static_cast<int>(detections.size()); ++i) {
-        if (min_dists(i) > mhd_limit && detections[static_cast<std::size_t>(i)].conf < config_.obb_det_thresh) {
+        if (min_dists(i) > mhd_limit &&
+            detections[static_cast<std::size_t>(i)].conf < config_.obb_det_thresh) {
             boost_indices.push_back(i);
         }
     }
@@ -363,7 +376,8 @@ void OccluBoostTracker::DuoConfidenceBoostObb(std::vector<Detection>& detections
     for (std::size_t i = 0; i < boost_indices.size(); ++i) {
         candidate_boxes.row(static_cast<int>(i)) = detections[boost_indices[i]].xywha.transpose();
     }
-    Eigen::MatrixXd pairwise_iou = IouBatchObb(candidate_boxes, candidate_boxes);
+    Eigen::MatrixXd pairwise_iou = boxmot::trackers::base::ObbAssociationMatrix(
+        candidate_boxes, candidate_boxes, boxmot::trackers::base::AssociationMode::kIou);
     for (int i = 0; i < pairwise_iou.rows(); ++i) {
         pairwise_iou(i, i) = 0.0;
     }
@@ -428,7 +442,8 @@ Eigen::MatrixXd OccluBoostTracker::GetMhDistMatrix(const std::vector<Detection>&
     return out;
 }
 
-Eigen::MatrixXd OccluBoostTracker::GetMhDistMatrixObb(const std::vector<Detection>& detections) const {
+Eigen::MatrixXd OccluBoostTracker::GetMhDistMatrixObb(
+    const std::vector<Detection>& detections) const {
     const int n = static_cast<int>(detections.size());
     const int m = static_cast<int>(trackers_.size());
     if (n == 0 || m == 0) {
@@ -461,7 +476,8 @@ Eigen::MatrixXd OccluBoostTracker::GetMhDistMatrixObb(const std::vector<Detectio
     return out;
 }
 
-double OccluBoostTracker::ComputeAmsAlpha(KalmanBoxTracker& trk, const Eigen::Vector4d& det_xyxy) const {
+double OccluBoostTracker::ComputeAmsAlpha(KalmanBoxTracker& trk,
+                                          const Eigen::Vector4d& det_xyxy) const {
     if (!config_.ams_enabled || config_.ams_alpha0 >= 1.0F) {
         return 1.0;
     }
@@ -487,7 +503,8 @@ double OccluBoostTracker::ComputeAmsAlpha(KalmanBoxTracker& trk, const Eigen::Ve
         ++next;
         ++n_diffs;
     }
-    Eigen::Vector4d mean_v = n_diffs > 0 ? (sum_diff / static_cast<double>(n_diffs)).eval() : Eigen::Vector4d::Zero();
+    Eigen::Vector4d mean_v =
+        n_diffs > 0 ? (sum_diff / static_cast<double>(n_diffs)).eval() : Eigen::Vector4d::Zero();
 
     constexpr double eps = 1.0e-6;
     const double cur_c = std::hypot(cur_v[0], cur_v[1]);
@@ -570,8 +587,7 @@ bool OccluBoostTracker::PassesObbFilter(const Eigen::Matrix<double, 5, 1>& xywha
 }
 
 void OccluBoostTracker::SuppressDuplicateEmissions(
-    std::vector<std::pair<KalmanBoxTracker::Ptr, Eigen::Vector4d>>& emitted
-) {
+    std::vector<std::pair<KalmanBoxTracker::Ptr, Eigen::Vector4d>>& emitted) {
     const int n = static_cast<int>(emitted.size());
     if (n <= 1 || config_.duplicate_iou_thresh <= 0.0F || config_.duplicate_iou_thresh >= 1.0F) {
         return;
@@ -584,13 +600,15 @@ void OccluBoostTracker::SuppressDuplicateEmissions(
         for (int i = 0; i < n; ++i) {
             boxes.row(i) = emitted[i].first->xywha().transpose();
         }
-        ious = IouBatchObb(boxes, boxes);
+        ious = boxmot::trackers::base::ObbAssociationMatrix(
+            boxes, boxes, boxmot::trackers::base::AssociationMode::kIou);
     } else {
         Eigen::MatrixXd boxes(n, 4);
         for (int i = 0; i < n; ++i) {
             boxes.row(i) = emitted[i].second.transpose();
         }
-        ious = IouBatch(boxes, boxes);
+        ious = boxmot::trackers::base::AabbAssociationMatrix(
+            boxes, boxes, boxmot::trackers::base::AssociationMode::kIou);
     }
     for (int i = 0; i < n; ++i) {
         ious(i, i) = 0.0;
@@ -618,11 +636,12 @@ void OccluBoostTracker::SuppressDuplicateEmissions(
     for (const int k : drop) {
         drop_ids.insert(emitted[k].first->id);
     }
-    trackers_.erase(
-        std::remove_if(trackers_.begin(), trackers_.end(),
-            [&](const KalmanBoxTracker::Ptr& trk) { return drop_ids.count(trk->id) > 0; }),
-        trackers_.end()
-    );
+    trackers_.erase(std::remove_if(trackers_.begin(),
+                                   trackers_.end(),
+                                   [&](const KalmanBoxTracker::Ptr& trk) {
+                                       return drop_ids.count(trk->id) > 0;
+                                   }),
+                    trackers_.end());
     std::vector<std::pair<KalmanBoxTracker::Ptr, Eigen::Vector4d>> kept;
     kept.reserve(emitted.size() - drop.size());
     for (int k = 0; k < n; ++k) {
@@ -633,14 +652,13 @@ void OccluBoostTracker::SuppressDuplicateEmissions(
     emitted = std::move(kept);
 }
 
-std::vector<TrackOutput> OccluBoostTracker::Update(
-    const std::vector<Detection>& detections,
-    const cv::Mat& image
-) {
-    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_)
-        && (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
+std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>& detections,
+                                                   const cv::Mat& image) {
+    if (boxmot::trackers::base::AssociationModeRequiresFrameDimensions(association_mode_) &&
+        (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
-            throw std::runtime_error("Native OccluBoost requires an image to initialize centroid association.");
+            throw std::runtime_error(
+                "Native OccluBoost requires an image to initialize centroid association.");
         }
         association_frame_width_ = image.cols;
         association_frame_height_ = image.rows;
@@ -651,17 +669,17 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         if (!detection_mode_ready_) {
             detection_mode_ready_ = true;
             is_obb_mode_ = det_is_obb;
-            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_, det_is_obb);
+            boxmot::trackers::base::ValidateAssociationModeForDetections(association_mode_,
+                                                                         det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error(
-                "Native OccluBoost cannot switch between AABB and OBB detections after initialization."
-            );
+                "Native OccluBoost cannot switch between AABB and OBB detections after "
+                "initialization.");
         }
         for (const auto& d : detections) {
             if (d.is_obb != is_obb_mode_) {
                 throw std::runtime_error(
-                    "Native OccluBoost cannot mix AABB and OBB detections in the same frame."
-                );
+                    "Native OccluBoost cannot mix AABB and OBB detections in the same frame.");
             }
         }
     }
@@ -681,8 +699,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         const cv::Mat warp = cmc_->Apply(image, detections);
         if (!warp.empty() && warp.rows == 2 && warp.cols == 3) {
             Eigen::Matrix2d linear;
-            linear << warp.at<float>(0, 0), warp.at<float>(0, 1),
-                warp.at<float>(1, 0), warp.at<float>(1, 1);
+            linear << warp.at<float>(0, 0), warp.at<float>(0, 1), warp.at<float>(1, 0),
+                warp.at<float>(1, 1);
             const Eigen::Vector2d translation(warp.at<float>(0, 2), warp.at<float>(1, 2));
             for (auto& trk : trackers_) {
                 trk->CameraUpdate(linear, translation);
@@ -722,7 +740,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         DuoConfidenceBoost(working);
     }
 
-    // Split into first-pass (>= det_thresh) and second-pass low-conf (>= track_low_thresh, < det_thresh).
+    // Split into first-pass (>= det_thresh) and second-pass low-conf (>= track_low_thresh, <
+    // det_thresh).
     std::vector<Detection> dets_first;
     std::vector<Detection> dets_second;
     dets_first.reserve(working.size());
@@ -731,9 +750,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         const bool keep = working[i].conf >= config_.det_thresh;
         if (keep) {
             dets_first.push_back(working[i]);
-        } else if (config_.use_second_pass
-                   && orig_confs[i] >= config_.track_low_thresh
-                   && orig_confs[i] < config_.det_thresh) {
+        } else if (config_.use_second_pass && orig_confs[i] >= config_.track_low_thresh &&
+                   orig_confs[i] < config_.det_thresh) {
             dets_second.push_back(working[i]);
         }
     }
@@ -777,28 +795,27 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
 
     Eigen::MatrixXd mh_dist = GetMhDistMatrix(dets_first);
 
-    AssociationResult assoc = Associate(
-        dets_mat,
-        trks_np,
-        config_.iou_threshold,
-        mh_dist,
-        det_conf,
-        track_conf,
-        emb_cost,
-        config_.lambda_iou,
-        config_.lambda_mhd,
-        config_.lambda_shape,
-        config_.lambda_emb_multiplier,
-        association_mode_,
-        association_frame_width_,
-        association_frame_height_
-    );
+    AssociationResult assoc = Associate(dets_mat,
+                                        trks_np,
+                                        config_.iou_threshold,
+                                        mh_dist,
+                                        det_conf,
+                                        track_conf,
+                                        emb_cost,
+                                        config_.lambda_iou,
+                                        config_.lambda_mhd,
+                                        config_.lambda_shape,
+                                        config_.lambda_emb_multiplier,
+                                        association_mode_,
+                                        association_frame_width_,
+                                        association_frame_height_);
 
     // dets_alpha for ReID EMA on matched pairs.
     Eigen::VectorXd dets_alpha = Eigen::VectorXd::Zero(static_cast<int>(dets_first.size()));
     constexpr double af = 0.95;
     for (std::size_t i = 0; i < dets_first.size(); ++i) {
-        const double trust = (dets_first[i].conf - config_.det_thresh) / std::max(1.0 - config_.det_thresh, 1.0e-6);
+        const double trust =
+            (dets_first[i].conf - config_.det_thresh) / std::max(1.0 - config_.det_thresh, 1.0e-6);
         dets_alpha(static_cast<int>(i)) = af + (1.0 - af) * (1.0 - trust);
     }
 
@@ -818,7 +835,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
     if (config_.with_reid && !unmatched_trks.empty() && !unmatched_dets.empty()) {
         std::vector<int> elig;
         for (int t : unmatched_trks) {
-            if (trackers_[t]->time_since_update <= config_.recovery_max_age && trackers_[t]->HasEmbedding()) {
+            if (trackers_[t]->time_since_update <= config_.recovery_max_age &&
+                trackers_[t]->HasEmbedding()) {
                 elig.push_back(t);
             }
         }
@@ -862,20 +880,19 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                     trk_box_mat(static_cast<int>(j), 3) = xyxy[3];
                     trk_box_mat(static_cast<int>(j), 4) = trackers_[elig[j]]->GetConfidence();
                 }
-                Eigen::MatrixXd ious = boxmot::trackers::base::AabbAssociationMatrix(
-                    det_box_mat,
-                    trk_box_mat,
-                    association_mode_,
-                    association_frame_width_,
-                    association_frame_height_
-                );
+                Eigen::MatrixXd ious =
+                    boxmot::trackers::base::AabbAssociationMatrix(det_box_mat,
+                                                                  trk_box_mat,
+                                                                  association_mode_,
+                                                                  association_frame_width_,
+                                                                  association_frame_height_);
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
                 for (int i = 0; i < gated.rows(); ++i) {
                     for (int j = 0; j < gated.cols(); ++j) {
-                        if (ious(i, j) < config_.recovery_iou_thresh
-                            || sim(i, j) < config_.recovery_appearance_thresh) {
+                        if (ious(i, j) < config_.recovery_iou_thresh ||
+                            sim(i, j) < config_.recovery_appearance_thresh) {
                             gated(i, j) = -1.0;
                         } else if (gated(i, j) > 0.0) {
                             any_pos = true;
@@ -884,7 +901,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                 }
                 if (any_pos) {
                     Eigen::MatrixXd cost = -gated;  // maximise gated similarity.
-                    AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                    AssignmentResult hung =
+                        LinearAssignment(cost, std::numeric_limits<double>::infinity());
                     std::unordered_set<int> matched_dets_set;
                     std::unordered_set<int> matched_tracks_set;
                     for (const auto& [r, c] : hung.matches) {
@@ -897,7 +915,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                         matched_tracks_set.insert(trk_global);
                         AmsUpdate(*trackers_[trk_global], dets_first[det_global]);
                         if (dets_first[det_global].has_embedding()) {
-                            trackers_[trk_global]->UpdateEmbedding(dets_first[det_global].embedding, config_.feat_alpha);
+                            trackers_[trk_global]->UpdateEmbedding(dets_first[det_global].embedding,
+                                                                   config_.feat_alpha);
                         }
                         MaybeActivate(*trackers_[trk_global]);
                     }
@@ -929,9 +948,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
         std::vector<int> elig;
         for (int t : unmatched_trks) {
             const auto& trk = trackers_[t];
-            if (trk->time_since_update <= config_.second_pass_max_age
-                && trk->hit_streak >= config_.second_pass_min_hits
-                && trk->is_activated) {
+            if (trk->time_since_update <= config_.second_pass_max_age &&
+                trk->hit_streak >= config_.second_pass_min_hits && trk->is_activated) {
                 elig.push_back(t);
             }
         }
@@ -946,13 +964,12 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                 trk_box_mat(static_cast<int>(j), 3) = xyxy[3];
                 trk_box_mat(static_cast<int>(j), 4) = trackers_[elig[j]]->GetConfidence();
             }
-            Eigen::MatrixXd ious = boxmot::trackers::base::AabbAssociationMatrix(
-                det_box_mat,
-                trk_box_mat,
-                association_mode_,
-                association_frame_width_,
-                association_frame_height_
-            );
+            Eigen::MatrixXd ious =
+                boxmot::trackers::base::AabbAssociationMatrix(det_box_mat,
+                                                              trk_box_mat,
+                                                              association_mode_,
+                                                              association_frame_width_,
+                                                              association_frame_height_);
             Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {
@@ -974,12 +991,14 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                 if (any_det_emb) {
                     Eigen::MatrixXf trk_emb_mat(static_cast<int>(elig.size()), feat_dim);
                     for (std::size_t j = 0; j < elig.size(); ++j) {
-                        trk_emb_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->embedding().transpose();
+                        trk_emb_mat.row(static_cast<int>(j)) =
+                            trackers_[elig[j]]->embedding().transpose();
                     }
                     Eigen::MatrixXf det_emb_mat(static_cast<int>(dets_second.size()), feat_dim);
                     for (std::size_t i = 0; i < dets_second.size(); ++i) {
                         if (dets_second[i].embedding.size() == feat_dim) {
-                            det_emb_mat.row(static_cast<int>(i)) = dets_second[i].embedding.transpose();
+                            det_emb_mat.row(static_cast<int>(i)) =
+                                dets_second[i].embedding.transpose();
                         } else {
                             det_emb_mat.row(static_cast<int>(i)).setZero();
                         }
@@ -1005,7 +1024,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                 }
             }
             if (any_match) {
-                AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                AssignmentResult hung =
+                    LinearAssignment(cost, std::numeric_limits<double>::infinity());
                 std::unordered_set<int> used;
                 for (const auto& [r, c] : hung.matches) {
                     if (cost(r, c) >= 1.0) {
@@ -1016,9 +1036,11 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
                         continue;
                     }
                     AmsUpdate(*trackers_[trk_global], dets_second[r]);
-                    if (config_.with_reid && dets_second[r].has_embedding()
-                        && trackers_[trk_global]->embedding().size() == dets_second[r].embedding.size()) {
-                        trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding, config_.feat_alpha);
+                    if (config_.with_reid && dets_second[r].has_embedding() &&
+                        trackers_[trk_global]->embedding().size() ==
+                            dets_second[r].embedding.size()) {
+                        trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding,
+                                                               config_.feat_alpha);
                     }
                     MaybeActivate(*trackers_[trk_global]);
                 }
@@ -1032,7 +1054,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
             continue;
         }
         auto trk = std::make_shared<KalmanBoxTracker>(dets_first[i], config_.max_obs);
-        trk->is_activated = (dets_first[i].conf >= config_.instant_confirm_thresh) || (config_.confirm_hits <= 1);
+        trk->is_activated =
+            (dets_first[i].conf >= config_.instant_confirm_thresh) || (config_.confirm_hits <= 1);
         trackers_.push_back(trk);
     }
 
@@ -1042,9 +1065,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
     for (const auto& trk : trackers_) {
         const Eigen::Vector4d xyxy = trk->xyxy();
         const bool warmup = frame_count_ <= config_.min_hits;
-        if (trk->time_since_update < 1
-            && trk->is_activated
-            && (trk->hit_streak >= config_.min_hits || warmup)) {
+        if (trk->time_since_update < 1 && trk->is_activated &&
+            (trk->hit_streak >= config_.min_hits || warmup)) {
             emitted.emplace_back(trk, xyxy);
         }
     }
@@ -1090,10 +1112,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(
 // ---------------------------------------------------------------------------
 // OBB code path (mirrors Python OccluBoost._update_obb).
 // ---------------------------------------------------------------------------
-std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
-    const std::vector<Detection>& detections,
-    const cv::Mat& image
-) {
+std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detection>& detections,
+                                                      const cv::Mat& image) {
     ++frame_count_;
     last_reid_time_ms_ = 0.0;
     last_reid_preprocess_time_ms_ = 0.0;
@@ -1104,8 +1124,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         const cv::Mat warp = cmc_->Apply(image, detections);
         if (!warp.empty() && warp.rows == 2 && warp.cols == 3) {
             Eigen::Matrix2d linear;
-            linear << warp.at<float>(0, 0), warp.at<float>(0, 1),
-                warp.at<float>(1, 0), warp.at<float>(1, 1);
+            linear << warp.at<float>(0, 0), warp.at<float>(0, 1), warp.at<float>(1, 0),
+                warp.at<float>(1, 1);
             const Eigen::Vector2d translation(warp.at<float>(0, 2), warp.at<float>(1, 2));
             for (auto& tracker : trackers_) {
                 tracker->CameraUpdate(linear, translation);
@@ -1147,9 +1167,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         const bool keep = working[i].conf >= config_.obb_det_thresh;
         if (keep) {
             dets_first.push_back(working[i]);
-        } else if (config_.use_second_pass
-                   && orig_confs[i] >= config_.track_low_thresh
-                   && orig_confs[i] < config_.obb_det_thresh) {
+        } else if (config_.use_second_pass && orig_confs[i] >= config_.track_low_thresh &&
+                   orig_confs[i] < config_.obb_det_thresh) {
             dets_second.push_back(working[i]);
         }
     }
@@ -1166,10 +1185,16 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         const int feat_dim = static_cast<int>(dets_first.front().embedding.size());
         bool ok = feat_dim > 0;
         for (const auto& d : dets_first) {
-            if (d.embedding.size() != feat_dim) { ok = false; break; }
+            if (d.embedding.size() != feat_dim) {
+                ok = false;
+                break;
+            }
         }
         for (const auto& trk : trackers_) {
-            if (!trk->HasEmbedding() || trk->embedding().size() != feat_dim) { ok = false; break; }
+            if (!trk->HasEmbedding() || trk->embedding().size() != feat_dim) {
+                ok = false;
+                break;
+            }
         }
         if (ok) {
             Eigen::MatrixXf det_emb_mat(static_cast<int>(dets_first.size()), feat_dim);
@@ -1190,16 +1215,17 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
     const int n_dets = static_cast<int>(dets_first.size());
     const int n_trks = static_cast<int>(trackers_.size());
     if (n_dets == 0 || n_trks == 0) {
-        for (int i = 0; i < n_dets; ++i) unmatched_dets.push_back(i);
-        for (int j = 0; j < n_trks; ++j) unmatched_trks.push_back(j);
+        for (int i = 0; i < n_dets; ++i)
+            unmatched_dets.push_back(i);
+        for (int j = 0; j < n_trks; ++j)
+            unmatched_trks.push_back(j);
     } else {
-        const Eigen::MatrixXd iou = boxmot::trackers::base::ObbAssociationMatrix(
-            dets_xywha,
-            trks_xywha,
-            association_mode_,
-            association_frame_width_,
-            association_frame_height_
-        );
+        const Eigen::MatrixXd iou =
+            boxmot::trackers::base::ObbAssociationMatrix(dets_xywha,
+                                                         trks_xywha,
+                                                         association_mode_,
+                                                         association_frame_width_,
+                                                         association_frame_height_);
         Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(n_dets, n_trks, 1.0);
         for (int i = 0; i < n_dets; ++i) {
             for (int j = 0; j < n_trks; ++j) {
@@ -1223,13 +1249,18 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
         std::unordered_set<int> matched_d, matched_t;
         for (const auto& [r, c] : hung.matches) {
-            if (cost(r, c) >= 1.0e5) continue;
+            if (cost(r, c) >= 1.0e5)
+                continue;
             matches.emplace_back(r, c);
             matched_d.insert(r);
             matched_t.insert(c);
         }
-        for (int i = 0; i < n_dets; ++i) if (!matched_d.count(i)) unmatched_dets.push_back(i);
-        for (int j = 0; j < n_trks; ++j) if (!matched_t.count(j)) unmatched_trks.push_back(j);
+        for (int i = 0; i < n_dets; ++i)
+            if (!matched_d.count(i))
+                unmatched_dets.push_back(i);
+        for (int j = 0; j < n_trks; ++j)
+            if (!matched_t.count(j))
+                unmatched_trks.push_back(j);
     }
 
     // Apply matched updates.
@@ -1249,7 +1280,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
     if (config_.with_reid && !unmatched_trks.empty() && !unmatched_dets.empty()) {
         std::vector<int> elig;
         for (int t : unmatched_trks) {
-            if (trackers_[t]->time_since_update <= config_.obb_recovery_max_age && trackers_[t]->HasEmbedding()) {
+            if (trackers_[t]->time_since_update <= config_.obb_recovery_max_age &&
+                trackers_[t]->HasEmbedding()) {
                 elig.push_back(t);
             }
         }
@@ -1265,36 +1297,39 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
             if (!u_det_idx.empty()) {
                 Eigen::MatrixXf trk_emb_mat(static_cast<int>(elig.size()), feat_dim);
                 for (std::size_t j = 0; j < elig.size(); ++j) {
-                    trk_emb_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->embedding().transpose();
+                    trk_emb_mat.row(static_cast<int>(j)) =
+                        trackers_[elig[j]]->embedding().transpose();
                 }
                 Eigen::MatrixXf det_emb_mat(static_cast<int>(u_det_idx.size()), feat_dim);
                 for (std::size_t i = 0; i < u_det_idx.size(); ++i) {
-                    det_emb_mat.row(static_cast<int>(i)) = dets_first[u_det_idx[i]].embedding.transpose();
+                    det_emb_mat.row(static_cast<int>(i)) =
+                        dets_first[u_det_idx[i]].embedding.transpose();
                 }
                 Eigen::MatrixXd sim = (det_emb_mat * trk_emb_mat.transpose()).cast<double>();
 
                 Eigen::MatrixXd det_xywha_mat(static_cast<int>(u_det_idx.size()), 5);
                 for (std::size_t i = 0; i < u_det_idx.size(); ++i) {
-                    det_xywha_mat.row(static_cast<int>(i)) = dets_first[u_det_idx[i]].xywha.transpose();
+                    det_xywha_mat.row(static_cast<int>(i)) =
+                        dets_first[u_det_idx[i]].xywha.transpose();
                 }
                 Eigen::MatrixXd trk_xywha_mat(static_cast<int>(elig.size()), 5);
                 for (std::size_t j = 0; j < elig.size(); ++j) {
-                    trk_xywha_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->xywha().transpose();
+                    trk_xywha_mat.row(static_cast<int>(j)) =
+                        trackers_[elig[j]]->xywha().transpose();
                 }
-                const Eigen::MatrixXd ious = boxmot::trackers::base::ObbAssociationMatrix(
-                    det_xywha_mat,
-                    trk_xywha_mat,
-                    association_mode_,
-                    association_frame_width_,
-                    association_frame_height_
-                );
+                const Eigen::MatrixXd ious =
+                    boxmot::trackers::base::ObbAssociationMatrix(det_xywha_mat,
+                                                                 trk_xywha_mat,
+                                                                 association_mode_,
+                                                                 association_frame_width_,
+                                                                 association_frame_height_);
 
                 Eigen::MatrixXd gated = sim;
                 bool any_pos = false;
                 for (int i = 0; i < gated.rows(); ++i) {
                     for (int j = 0; j < gated.cols(); ++j) {
-                        if (ious(i, j) < config_.recovery_iou_thresh
-                            || sim(i, j) < config_.recovery_appearance_thresh) {
+                        if (ious(i, j) < config_.recovery_iou_thresh ||
+                            sim(i, j) < config_.recovery_appearance_thresh) {
                             gated(i, j) = -1.0;
                         } else if (gated(i, j) > 0.0) {
                             any_pos = true;
@@ -1303,25 +1338,29 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
                 }
                 if (any_pos) {
                     Eigen::MatrixXd cost = -gated;
-                    AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                    AssignmentResult hung =
+                        LinearAssignment(cost, std::numeric_limits<double>::infinity());
                     std::unordered_set<int> matched_dets_set;
                     std::unordered_set<int> matched_tracks_set;
                     for (const auto& [r, c] : hung.matches) {
-                        if (gated(r, c) <= 0.0) continue;
+                        if (gated(r, c) <= 0.0)
+                            continue;
                         const int det_global = u_det_idx[r];
                         const int trk_global = elig[c];
                         matched_dets_set.insert(det_global);
                         matched_tracks_set.insert(trk_global);
                         AmsUpdate(*trackers_[trk_global], dets_first[det_global]);
                         if (dets_first[det_global].has_embedding()) {
-                            trackers_[trk_global]->UpdateEmbedding(dets_first[det_global].embedding, config_.feat_alpha);
+                            trackers_[trk_global]->UpdateEmbedding(dets_first[det_global].embedding,
+                                                                   config_.feat_alpha);
                         }
                         MaybeActivate(*trackers_[trk_global]);
                     }
                     if (!matched_dets_set.empty()) {
                         std::vector<int> remaining;
                         for (int d : unmatched_dets) {
-                            if (!matched_dets_set.count(d)) remaining.push_back(d);
+                            if (!matched_dets_set.count(d))
+                                remaining.push_back(d);
                         }
                         unmatched_dets = std::move(remaining);
                         std::vector<int> remaining_tracks;
@@ -1343,9 +1382,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
         std::vector<int> elig;
         for (int t : unmatched_trks) {
             const auto& trk = trackers_[t];
-            if (trk->time_since_update <= config_.second_pass_max_age
-                && trk->hit_streak >= config_.second_pass_min_hits
-                && trk->is_activated) {
+            if (trk->time_since_update <= config_.second_pass_max_age &&
+                trk->hit_streak >= config_.second_pass_min_hits && trk->is_activated) {
                 elig.push_back(t);
             }
         }
@@ -1358,13 +1396,12 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
             for (std::size_t j = 0; j < elig.size(); ++j) {
                 trk_xywha_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->xywha().transpose();
             }
-            const Eigen::MatrixXd ious = boxmot::trackers::base::ObbAssociationMatrix(
-                det_xywha_mat,
-                trk_xywha_mat,
-                association_mode_,
-                association_frame_width_,
-                association_frame_height_
-            );
+            const Eigen::MatrixXd ious =
+                boxmot::trackers::base::ObbAssociationMatrix(det_xywha_mat,
+                                                             trk_xywha_mat,
+                                                             association_mode_,
+                                                             association_frame_width_,
+                                                             association_frame_height_);
             Eigen::MatrixXd cost = Eigen::MatrixXd::Constant(ious.rows(), ious.cols(), 1.0);
             for (int i = 0; i < ious.rows(); ++i) {
                 for (int j = 0; j < ious.cols(); ++j) {
@@ -1377,17 +1414,22 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
                 const int feat_dim = static_cast<int>(trackers_[elig.front()]->embedding().size());
                 bool any_det_emb = false;
                 for (const auto& d : dets_second) {
-                    if (d.embedding.size() == feat_dim) { any_det_emb = true; break; }
+                    if (d.embedding.size() == feat_dim) {
+                        any_det_emb = true;
+                        break;
+                    }
                 }
                 if (any_det_emb) {
                     Eigen::MatrixXf trk_emb_mat(static_cast<int>(elig.size()), feat_dim);
                     for (std::size_t j = 0; j < elig.size(); ++j) {
-                        trk_emb_mat.row(static_cast<int>(j)) = trackers_[elig[j]]->embedding().transpose();
+                        trk_emb_mat.row(static_cast<int>(j)) =
+                            trackers_[elig[j]]->embedding().transpose();
                     }
                     Eigen::MatrixXf det_emb_mat(static_cast<int>(dets_second.size()), feat_dim);
                     for (std::size_t i = 0; i < dets_second.size(); ++i) {
                         if (dets_second[i].embedding.size() == feat_dim) {
-                            det_emb_mat.row(static_cast<int>(i)) = dets_second[i].embedding.transpose();
+                            det_emb_mat.row(static_cast<int>(i)) =
+                                dets_second[i].embedding.transpose();
                         } else {
                             det_emb_mat.row(static_cast<int>(i)).setZero();
                         }
@@ -1405,20 +1447,28 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
             bool any_match = false;
             for (int i = 0; i < cost.rows() && !any_match; ++i) {
                 for (int j = 0; j < cost.cols(); ++j) {
-                    if (cost(i, j) < 1.0) { any_match = true; break; }
+                    if (cost(i, j) < 1.0) {
+                        any_match = true;
+                        break;
+                    }
                 }
             }
             if (any_match) {
-                AssignmentResult hung = LinearAssignment(cost, std::numeric_limits<double>::infinity());
+                AssignmentResult hung =
+                    LinearAssignment(cost, std::numeric_limits<double>::infinity());
                 std::unordered_set<int> used;
                 for (const auto& [r, c] : hung.matches) {
-                    if (cost(r, c) >= 1.0) continue;
+                    if (cost(r, c) >= 1.0)
+                        continue;
                     const int trk_global = elig[c];
-                    if (!used.insert(trk_global).second) continue;
+                    if (!used.insert(trk_global).second)
+                        continue;
                     AmsUpdate(*trackers_[trk_global], dets_second[r]);
-                    if (config_.with_reid && dets_second[r].has_embedding()
-                        && trackers_[trk_global]->embedding().size() == dets_second[r].embedding.size()) {
-                        trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding, config_.feat_alpha);
+                    if (config_.with_reid && dets_second[r].has_embedding() &&
+                        trackers_[trk_global]->embedding().size() ==
+                            dets_second[r].embedding.size()) {
+                        trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding,
+                                                               config_.feat_alpha);
                     }
                     MaybeActivate(*trackers_[trk_global]);
                 }
@@ -1428,10 +1478,11 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
 
     // ----- Spawn new tracks from unmatched first-pass detections -----
     for (int i : unmatched_dets) {
-        if (dets_first[i].conf < config_.obb_new_track_thresh) continue;
+        if (dets_first[i].conf < config_.obb_new_track_thresh)
+            continue;
         auto trk = std::make_shared<KalmanBoxTracker>(dets_first[i], config_.max_obs);
-        trk->is_activated =
-            (dets_first[i].conf >= config_.obb_instant_confirm_thresh) || (config_.confirm_hits <= 1);
+        trk->is_activated = (dets_first[i].conf >= config_.obb_instant_confirm_thresh) ||
+                            (config_.confirm_hits <= 1);
         trackers_.push_back(trk);
     }
 
@@ -1441,9 +1492,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
     for (const auto& trk : trackers_) {
         const Eigen::Vector4d aabb = trk->xyxy();
         const bool warmup = frame_count_ <= config_.min_hits;
-        if (trk->time_since_update < 1
-            && trk->is_activated
-            && (trk->hit_streak >= config_.min_hits || warmup)) {
+        if (trk->time_since_update < 1 && trk->is_activated &&
+            (trk->hit_streak >= config_.min_hits || warmup)) {
             emitted.emplace_back(trk, aabb);
         }
     }
@@ -1473,8 +1523,10 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(
     std::vector<KalmanBoxTracker::Ptr> kept;
     kept.reserve(trackers_.size());
     for (auto& trk : trackers_) {
-        if (trk->time_since_update > config_.obb_max_age) continue;
-        if (!trk->is_activated && trk->time_since_update > config_.tentative_max_age) continue;
+        if (trk->time_since_update > config_.obb_max_age)
+            continue;
+        if (!trk->is_activated && trk->time_since_update > config_.tentative_max_age)
+            continue;
         kept.push_back(trk);
     }
     trackers_ = std::move(kept);

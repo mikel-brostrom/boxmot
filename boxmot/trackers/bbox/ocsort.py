@@ -11,16 +11,11 @@ import numpy as np
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.common.association import (
     AssociationStage,
-    detection_track_iou_assignment,
-    detection_track_tuple_to_association_result,
+    detection_track_similarity_assignment,
     run_association_stage,
+    solve_assignment,
 )
-from boxmot.trackers.common.association.velocity import (
-    associate,
-)
-from boxmot.trackers.common.association.velocity import (
-    linear_assignment as legacy_linear_assignment,
-)
+from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.track_models.ocsort import KalmanBoxTracker, k_previous_obs
 
 
@@ -68,7 +63,6 @@ class OcSort(BaseTracker):
 
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf
-        self.asso_threshold: float = self.iou_threshold  # Use from BaseTracker
         self.delta_t: int = delta_t
         self.inertia: float = inertia
         self.use_byte: bool = use_byte
@@ -141,18 +135,16 @@ class OcSort(BaseTracker):
         """
         first_stage = AssociationStage(
             name="ocsort_high",
-            threshold=self.asso_threshold,
-            matcher=lambda _tracks, _detections: detection_track_tuple_to_association_result(
-                associate(
-                    dets,
-                    trks,
-                    self.asso_func,
-                    self.asso_threshold,
-                    velocities,
-                    k_observations,
-                    self.inertia,
-                    is_obb=self.is_obb,
-                )
+            threshold=self.iou_threshold,
+            matcher=lambda _tracks, _detections: associate(
+                dets,
+                trks,
+                self.asso_func,
+                self.iou_threshold,
+                velocities,
+                k_observations,
+                self.inertia,
+                is_obb=self.is_obb,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -172,15 +164,14 @@ class OcSort(BaseTracker):
         # BYTE association
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = self.asso_func(dets_second, u_trks)  # iou between low score detections and unmatched tracks
-            iou_left = np.array(iou_left)
+            similarity = np.asarray(self.asso_func(dets_second, u_trks))
             low_stage = AssociationStage(
                 name="ocsort_low",
-                threshold=self.asso_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
-                    self.asso_threshold,
-                    legacy_linear_assignment,
+                threshold=self.iou_threshold,
+                matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                    similarity,
+                    self.iou_threshold,
+                    solve_assignment,
                 ),
             )
             low_result = run_association_stage(low_stage, u_trks, dets_second)
@@ -198,15 +189,14 @@ class OcSort(BaseTracker):
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
-            iou_left = self.asso_func(left_dets, left_trks)
-            iou_left = np.array(iou_left)
+            similarity = np.asarray(self.asso_func(left_dets, left_trks))
             rematch_stage = AssociationStage(
                 name="ocsort_high_rematch",
-                threshold=self.asso_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
-                    self.asso_threshold,
-                    legacy_linear_assignment,
+                threshold=self.iou_threshold,
+                matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                    similarity,
+                    self.iou_threshold,
+                    solve_assignment,
                 ),
             )
             rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)

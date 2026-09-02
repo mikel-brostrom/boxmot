@@ -16,11 +16,6 @@ struct AssociationResult {
     Eigen::MatrixXd geometry_matrix;
 };
 
-// Pairwise IoU for [x1,y1,x2,y2] boxes.
-Eigen::MatrixXd IouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
-
-// Pairwise oriented IoU for [cx, cy, w, h, theta] boxes.
-Eigen::MatrixXd IouBatchObb(const Eigen::MatrixXd& dets_xywha, const Eigen::MatrixXd& trks_xywha);
 Eigen::MatrixXd SoftBiouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
 Eigen::MatrixXd ShapeSimilarityV1(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks);
 Eigen::MatrixXd MhDistSimilarity(const Eigen::MatrixXd& mh_dist);
@@ -30,21 +25,19 @@ Eigen::MatrixXd MhDistSimilarity(const Eigen::MatrixXd& mh_dist);
 //   trackers:   (Nt x 5)   with [x1,y1,x2,y2,track_conf]
 //   mh_dist:    (Nd x Nt) precomputed Mahalanobis squared distances; can be empty.
 //   emb_cost:   (Nd x Nt) precomputed cosine similarity matrix (Nd x Nt); can be empty.
-AssociationResult Associate(
-    const Eigen::MatrixXd& detections,
-    const Eigen::MatrixXd& trackers,
-    double iou_threshold,
-    const Eigen::MatrixXd& mh_dist,
-    const Eigen::VectorXd& detection_confidence,
-    const Eigen::VectorXd& track_confidence,
-    const Eigen::MatrixXd& emb_cost,
-    double lambda_iou,
-    double lambda_mhd,
-    double lambda_shape,
-    double lambda_emb_multiplier,
-    boxmot::trackers::base::AssociationMode association_mode,
-    int frame_width,
-    int frame_height
-);
+AssociationResult Associate(const Eigen::MatrixXd& detections,
+                            const Eigen::MatrixXd& trackers,
+                            double similarity_threshold,
+                            const Eigen::MatrixXd& mh_dist,
+                            const Eigen::VectorXd& detection_confidence,
+                            const Eigen::VectorXd& track_confidence,
+                            const Eigen::MatrixXd& emb_cost,
+                            double lambda_iou,
+                            double lambda_mhd,
+                            double lambda_shape,
+                            double lambda_emb_multiplier,
+                            boxmot::trackers::base::AssociationMode association_mode,
+                            int frame_width,
+                            int frame_height);
 
 }  // namespace occluboost

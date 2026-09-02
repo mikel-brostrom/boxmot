@@ -13,16 +13,11 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association import (
     AssociationStage,
-    detection_track_iou_assignment,
-    detection_track_tuple_to_association_result,
+    detection_track_similarity_assignment,
     run_association_stage,
+    solve_assignment,
 )
-from boxmot.trackers.common.association.velocity import (
-    associate,
-)
-from boxmot.trackers.common.association.velocity import (
-    linear_assignment as legacy_linear_assignment,
-)
+from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.motion.cmc import create_cmc
 from boxmot.trackers.common.track_models.deepocsort import DeepOBBKalmanBoxTracker, KalmanBoxTracker
 from boxmot.trackers.common.track_models.ocsort import k_previous_obs
@@ -98,9 +93,7 @@ class DeepOcSort(BaseTracker):
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
         self.uses_embs = not self.embedding_off
         self.uses_img = bool(
-            self.asso_func_name in {"centroid", "centroid_obb"}
-            or self.cmc is not None
-            or not self.embedding_off
+            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or not self.embedding_off
         )
 
     def requires_image(
@@ -210,21 +203,19 @@ class DeepOcSort(BaseTracker):
         first_stage = AssociationStage(
             name="deepocsort_high",
             threshold=self.iou_threshold,
-            matcher=lambda _tracks, _detections: detection_track_tuple_to_association_result(
-                associate(
-                    dets[:, : self.detection_layout.box_with_conf_cols],
-                    trks,
-                    self.asso_func,
-                    self.iou_threshold,
-                    velocities,
-                    k_observations,
-                    self.inertia,
-                    stage1_emb_cost,
-                    self.w_association_emb,
-                    self.aw_off,
-                    self.aw_param,
-                    is_obb=self.is_obb,
-                )
+            matcher=lambda _tracks, _detections: associate(
+                dets[:, : self.detection_layout.box_with_conf_cols],
+                trks,
+                self.asso_func,
+                self.iou_threshold,
+                velocities,
+                k_observations,
+                self.inertia,
+                stage1_emb_cost,
+                self.w_association_emb,
+                self.aw_off,
+                self.aw_param,
+                is_obb=self.is_obb,
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -242,15 +233,14 @@ class DeepOcSort(BaseTracker):
             left_dets = dets[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
 
-            iou_left = self.asso_func(left_dets, left_trks)
-            iou_left = np.array(iou_left)
+            similarity = np.asarray(self.asso_func(left_dets, left_trks))
             rematch_stage = AssociationStage(
                 name="deepocsort_ocr_rematch",
                 threshold=self.iou_threshold,
-                matcher=lambda _tracks, _detections: detection_track_iou_assignment(
-                    iou_left,
+                matcher=lambda _tracks, _detections: detection_track_similarity_assignment(
+                    similarity,
                     self.iou_threshold,
-                    legacy_linear_assignment,
+                    solve_assignment,
                 ),
             )
             rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)

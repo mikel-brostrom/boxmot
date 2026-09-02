@@ -2,10 +2,10 @@ import warnings
 from copy import deepcopy
 from typing import Optional
 
-import lap
 import numpy as np
 
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.association.matching import solve_assignment
 
 
 def shape_similarity(
@@ -90,27 +90,6 @@ def MhDist_similarity(
     return mahalanobis_distance
 
 
-def iou_batch(bboxes1, bboxes2):
-    """
-    From SORT: Computes IOU between two bboxes in the form [x1,y1,x2,y2]
-    """
-    bboxes2 = np.expand_dims(bboxes2, 0)
-    bboxes1 = np.expand_dims(bboxes1, 1)
-
-    xx1 = np.maximum(bboxes1[..., 0], bboxes2[..., 0])
-    yy1 = np.maximum(bboxes1[..., 1], bboxes2[..., 1])
-    xx2 = np.minimum(bboxes1[..., 2], bboxes2[..., 2])
-    yy2 = np.minimum(bboxes1[..., 3], bboxes2[..., 3])
-    w = np.maximum(0.0, xx2 - xx1)
-    h = np.maximum(0.0, yy2 - yy1)
-    wh = w * h
-    return wh / (
-        (bboxes1[..., 2] - bboxes1[..., 0]) * (bboxes1[..., 3] - bboxes1[..., 1])
-        + (bboxes2[..., 2] - bboxes2[..., 0]) * (bboxes2[..., 3] - bboxes2[..., 1])
-        - wh
-    )
-
-
 def soft_biou_batch(bboxes1, bboxes2):
     """
     Computes soft BIoU between two bboxes in the form [x1,y1,x2,y2]
@@ -155,24 +134,23 @@ def match(cost_matrix: np.ndarray, threshold: float) -> np.ndarray:
     a = (cost_matrix > threshold).astype(np.int32)
     if a.sum(1).max() == 1 and a.sum(0).max() == 1:
         return np.stack(np.where(a), axis=1)
-    _, x, y = lap.lapjv(-cost_matrix, extend_cost=True)
-    return np.array([[y[i], i] for i in x if i >= 0])
+    return solve_assignment(-cost_matrix)
 
 
 def linear_assignment(
     detections: np.ndarray,
     trackers: np.ndarray,
-    iou_matrix: np.ndarray,
+    similarity_matrix: np.ndarray,
     cost_matrix: np.ndarray,
     threshold: float,
     emb_cost: Optional[np.ndarray] = None,
 ):
-    if iou_matrix is None and cost_matrix is None:
-        raise Exception("Both iou_matrix and cost_matrix are None!")
-    if iou_matrix is None:
-        iou_matrix = deepcopy(cost_matrix)
+    if similarity_matrix is None and cost_matrix is None:
+        raise ValueError("Both similarity_matrix and cost_matrix are None")
+    if similarity_matrix is None:
+        similarity_matrix = deepcopy(cost_matrix)
     if cost_matrix is None:
-        cost_matrix = deepcopy(iou_matrix)
+        cost_matrix = deepcopy(similarity_matrix)
     matched_indices = match(cost_matrix, threshold)
     unmatched_detections = []
     for d, _det in enumerate(detections):
@@ -185,8 +163,10 @@ def linear_assignment(
 
     matches = []
     for m in matched_indices:
-        valid_match = iou_matrix[m[0], m[1]] >= threshold or (
-            False if emb_cost is None else (iou_matrix[m[0], m[1]] >= threshold / 2 and emb_cost[m[0], m[1]] >= 0.75)
+        valid_match = similarity_matrix[m[0], m[1]] >= threshold or (
+            False
+            if emb_cost is None
+            else (similarity_matrix[m[0], m[1]] >= threshold / 2 and emb_cost[m[0], m[1]] >= 0.75)
         )
         if valid_match:
             matches.append(m.reshape(1, 2))
@@ -201,7 +181,7 @@ def linear_assignment(
 def associate(
     detections,
     trackers,
-    iou_threshold,
+    similarity_threshold,
     mahalanobis_distance: Optional[np.ndarray] = None,
     track_confidence: Optional[np.ndarray] = None,
     detection_confidence: Optional[np.ndarray] = None,
@@ -211,7 +191,7 @@ def associate(
     lambda_shape: float = 0.25,
     s_sim_corr: bool = False,
     lambda_emb_multiplier: float = 1.5,
-    iou_matrix: Optional[np.ndarray] = None,
+    geometry_matrix: Optional[np.ndarray] = None,
     shape_matrix: Optional[np.ndarray] = None,
 ):
     if len(trackers) == 0:
@@ -221,18 +201,20 @@ def associate(
             np.empty((0, 5), dtype=int),
             np.empty((0, 0)),
         )
-    iou_matrix = iou_batch(detections, trackers) if iou_matrix is None else np.asarray(iou_matrix)
+    geometry_matrix = (
+        AssociationFunction.iou_batch(detections, trackers) if geometry_matrix is None else np.asarray(geometry_matrix)
+    )
 
-    cost_matrix = deepcopy(iou_matrix)
+    cost_matrix = deepcopy(geometry_matrix)
 
     if detection_confidence is not None and track_confidence is not None:
         conf = np.multiply(
             detection_confidence.reshape((-1, 1)),
             track_confidence.reshape((1, -1)),
         )
-        conf[iou_matrix < iou_threshold] = 0
+        conf[geometry_matrix < similarity_threshold] = 0
 
-        cost_matrix += lambda_iou * conf * iou_matrix
+        cost_matrix += lambda_iou * conf * geometry_matrix
     else:
         warnings.warn("Detections or tracklet confidence is None and detection-tracklet confidence cannot be computed!")
         conf = None
@@ -253,8 +235,8 @@ def associate(
     return linear_assignment(
         detections,
         trackers,
-        iou_matrix,
+        geometry_matrix,
         cost_matrix,
-        iou_threshold,
+        similarity_threshold,
         emb_cost,
     )

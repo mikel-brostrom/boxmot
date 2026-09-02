@@ -63,8 +63,7 @@ class BaseTracker(
         - max_age: Maximum age in frames before a track is considered lost.
         - max_obs: Maximum number of historical observations stored per track.
         - min_hits: Minimum hits before a track is considered confirmed.
-        - iou_threshold: Minimum selected-geometry similarity for matching
-          (the historical parameter name is retained by tracker configs).
+        - iou_threshold: Minimum selected-geometry similarity for matching.
         - per_class: Enable class-separated tracking.
         - class_ids: Optional detector class IDs allowed by this tracker.
         - class_names: Optional detector class names keyed by detector class ID.
@@ -99,10 +98,7 @@ class BaseTracker(
         self.is_obb = self.detection_layout.is_obb
         self.uses_img = bool(
             self.uses_img
-            or (
-                self.uses_frame_dimensions_for_association
-                and self.asso_func_name in {"centroid", "centroid_obb"}
-            )
+            or (self.uses_frame_dimensions_for_association and self.asso_func_name in {"centroid", "centroid_obb"})
         )
         self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
         self.id_allocator = TrackIdAllocator()
@@ -385,8 +381,7 @@ class BaseTracker(
                 and self.asso_func_name in {"centroid", "centroid_obb"}
             ):
                 raise ValueError(
-                    f"{self.__class__.__name__} requires img when using "
-                    f"'{self._asso_func_base_name}' association."
+                    f"{self.__class__.__name__} requires img when using '{self._asso_func_base_name}' association."
                 )
             raise ValueError(f"{self.__class__.__name__} requires img for the current tracker configuration.")
 

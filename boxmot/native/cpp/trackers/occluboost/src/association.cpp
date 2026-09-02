@@ -2,8 +2,6 @@
 
 #include "boxmot/trackers/base/assignment.hpp"
 
-#include <opencv2/imgproc.hpp>
-
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -13,86 +11,8 @@ namespace occluboost {
 namespace {
 
 constexpr double kMhdLimit = 13.2767;  // chi^2 99% interval, dof=4.
-constexpr double kPi = 3.14159265358979323846;
-
-cv::RotatedRect RotatedRectFromXywha(const Eigen::Matrix<double, 5, 1>& box) {
-    return cv::RotatedRect(
-        cv::Point2f(static_cast<float>(box[0]), static_cast<float>(box[1])),
-        cv::Size2f(
-            static_cast<float>(std::max(box[2], 1.0e-4)),
-            static_cast<float>(std::max(box[3], 1.0e-4))
-        ),
-        static_cast<float>(box[4] * 180.0 / kPi)
-    );
-}
-
-double ObbIoU(const Eigen::Matrix<double, 5, 1>& lhs, const Eigen::Matrix<double, 5, 1>& rhs) {
-    const cv::RotatedRect lhs_rect = RotatedRectFromXywha(lhs);
-    const cv::RotatedRect rhs_rect = RotatedRectFromXywha(rhs);
-
-    std::vector<cv::Point2f> intersection;
-    const int status = cv::rotatedRectangleIntersection(lhs_rect, rhs_rect, intersection);
-    if (status == cv::INTERSECT_NONE || intersection.empty()) {
-        return 0.0;
-    }
-
-    const double inter_area = std::abs(cv::contourArea(intersection));
-    const double lhs_area = std::max(lhs[2], 0.0) * std::max(lhs[3], 0.0);
-    const double rhs_area = std::max(rhs[2], 0.0) * std::max(rhs[3], 0.0);
-    const double denom = lhs_area + rhs_area - inter_area;
-    if (denom <= 1.0e-12) {
-        return 0.0;
-    }
-    return inter_area / denom;
-}
 
 }  // namespace
-
-Eigen::MatrixXd IouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks) {
-    const int n = static_cast<int>(dets.rows());
-    const int m = static_cast<int>(trks.rows());
-    Eigen::MatrixXd iou = Eigen::MatrixXd::Zero(n, m);
-    if (n == 0 || m == 0) {
-        return iou;
-    }
-    for (int i = 0; i < n; ++i) {
-        const double dx1 = dets(i, 0), dy1 = dets(i, 1), dx2 = dets(i, 2), dy2 = dets(i, 3);
-        const double da = std::max(0.0, dx2 - dx1) * std::max(0.0, dy2 - dy1);
-        for (int j = 0; j < m; ++j) {
-            const double tx1 = trks(j, 0), ty1 = trks(j, 1), tx2 = trks(j, 2), ty2 = trks(j, 3);
-            const double xx1 = std::max(dx1, tx1);
-            const double yy1 = std::max(dy1, ty1);
-            const double xx2 = std::min(dx2, tx2);
-            const double yy2 = std::min(dy2, ty2);
-            const double w = std::max(0.0, xx2 - xx1);
-            const double h = std::max(0.0, yy2 - yy1);
-            const double inter = w * h;
-            const double ta = std::max(0.0, tx2 - tx1) * std::max(0.0, ty2 - ty1);
-            const double denom = da + ta - inter;
-            iou(i, j) = denom > 0.0 ? inter / denom : 0.0;
-        }
-    }
-    return iou;
-}
-
-Eigen::MatrixXd IouBatchObb(const Eigen::MatrixXd& dets_xywha, const Eigen::MatrixXd& trks_xywha) {
-    const int n = static_cast<int>(dets_xywha.rows());
-    const int m = static_cast<int>(trks_xywha.rows());
-    Eigen::MatrixXd iou = Eigen::MatrixXd::Zero(n, m);
-    if (n == 0 || m == 0 || dets_xywha.cols() < 5 || trks_xywha.cols() < 5) {
-        return iou;
-    }
-    for (int i = 0; i < n; ++i) {
-        Eigen::Matrix<double, 5, 1> a;
-        a << dets_xywha(i, 0), dets_xywha(i, 1), dets_xywha(i, 2), dets_xywha(i, 3), dets_xywha(i, 4);
-        for (int j = 0; j < m; ++j) {
-            Eigen::Matrix<double, 5, 1> b;
-            b << trks_xywha(j, 0), trks_xywha(j, 1), trks_xywha(j, 2), trks_xywha(j, 3), trks_xywha(j, 4);
-            iou(i, j) = ObbIoU(a, b);
-        }
-    }
-    return iou;
-}
 
 Eigen::MatrixXd SoftBiouBatch(const Eigen::MatrixXd& dets, const Eigen::MatrixXd& trks) {
     // bboxes2 (trks) supplies the confidence in column 4.
@@ -153,8 +73,8 @@ Eigen::MatrixXd ShapeSimilarityV1(const Eigen::MatrixXd& dets, const Eigen::Matr
             const double th = trks(j, 3) - trks(j, 1);
             const double max_w = std::max(dw, tw);
             // Note: shape_similarity_v1 reuses max(dw, tw) for the height term.
-            const double term = std::abs(dw - tw) / std::max(max_w, 1.0e-12)
-                              + std::abs(dh - th) / std::max(max_w, 1.0e-12);
+            const double term = std::abs(dw - tw) / std::max(max_w, 1.0e-12) +
+                                std::abs(dh - th) / std::max(max_w, 1.0e-12);
             out(i, j) = std::exp(-term);
         }
     }
@@ -198,22 +118,20 @@ Eigen::MatrixXd MhDistSimilarity(const Eigen::MatrixXd& mh_dist) {
     return exped;
 }
 
-AssociationResult Associate(
-    const Eigen::MatrixXd& detections,
-    const Eigen::MatrixXd& trackers,
-    const double iou_threshold,
-    const Eigen::MatrixXd& mh_dist,
-    const Eigen::VectorXd& detection_confidence,
-    const Eigen::VectorXd& track_confidence,
-    const Eigen::MatrixXd& emb_cost,
-    const double lambda_iou,
-    const double lambda_mhd,
-    const double lambda_shape,
-    const double lambda_emb_multiplier,
-    const boxmot::trackers::base::AssociationMode association_mode,
-    const int frame_width,
-    const int frame_height
-) {
+AssociationResult Associate(const Eigen::MatrixXd& detections,
+                            const Eigen::MatrixXd& trackers,
+                            const double similarity_threshold,
+                            const Eigen::MatrixXd& mh_dist,
+                            const Eigen::VectorXd& detection_confidence,
+                            const Eigen::VectorXd& track_confidence,
+                            const Eigen::MatrixXd& emb_cost,
+                            const double lambda_iou,
+                            const double lambda_mhd,
+                            const double lambda_shape,
+                            const double lambda_emb_multiplier,
+                            const boxmot::trackers::base::AssociationMode association_mode,
+                            const int frame_width,
+                            const int frame_height) {
     AssociationResult result;
     const int nd = static_cast<int>(detections.rows());
     const int nt = static_cast<int>(trackers.rows());
@@ -235,18 +153,17 @@ AssociationResult Associate(
     }
 
     Eigen::MatrixXd geometry_matrix = boxmot::trackers::base::AabbAssociationMatrix(
-        detections, trackers, association_mode, frame_width, frame_height
-    );
+        detections, trackers, association_mode, frame_width, frame_height);
     Eigen::MatrixXd cost_matrix = geometry_matrix;
 
-    // Confidence-weighted IoU contribution.
+    // Confidence-weighted geometry contribution.
     Eigen::MatrixXd conf = Eigen::MatrixXd::Zero(nd, nt);
     const bool has_conf = detection_confidence.size() == nd && track_confidence.size() == nt;
     if (has_conf) {
         for (int i = 0; i < nd; ++i) {
             for (int j = 0; j < nt; ++j) {
                 conf(i, j) = detection_confidence(i) * track_confidence(j);
-                if (geometry_matrix(i, j) < iou_threshold) {
+                if (geometry_matrix(i, j) < similarity_threshold) {
                     conf(i, j) = 0.0;
                 }
             }
@@ -264,7 +181,8 @@ AssociationResult Associate(
     }
 
     if (emb_cost.size() > 0) {
-        const double lambda_emb = (1.0 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier;
+        const double lambda_emb =
+            (1.0 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier;
         cost_matrix += lambda_emb * emb_cost;
     }
 
@@ -273,22 +191,21 @@ AssociationResult Associate(
     // base solver clamps an infinite threshold internally so the rectangular
     // padding stays finite.
     Eigen::MatrixXd hungarian_cost = -cost_matrix;
-    boxmot::trackers::base::AssignmentResult hungarian =
-        boxmot::trackers::base::LinearAssignment(hungarian_cost, std::numeric_limits<double>::infinity());
+    boxmot::trackers::base::AssignmentResult hungarian = boxmot::trackers::base::LinearAssignment(
+        hungarian_cost, std::numeric_limits<double>::infinity());
 
     std::vector<bool> det_matched(nd, false);
     std::vector<bool> trk_matched(nt, false);
     for (const auto& match : hungarian.matches) {
         const int d = match.first;
         const int t = match.second;
-        const bool iou_ok = geometry_matrix(d, t) >= iou_threshold;
+        const bool geometry_ok = geometry_matrix(d, t) >= similarity_threshold;
         bool emb_ok = false;
-        if (emb_cost.size() > 0
-            && geometry_matrix(d, t) >= 0.5 * iou_threshold
-            && emb_cost(d, t) >= 0.75) {
+        if (emb_cost.size() > 0 && geometry_matrix(d, t) >= 0.5 * similarity_threshold &&
+            emb_cost(d, t) >= 0.75) {
             emb_ok = true;
         }
-        if (iou_ok || emb_ok) {
+        if (geometry_ok || emb_ok) {
             result.matches.emplace_back(d, t);
             det_matched[d] = true;
             trk_matched[t] = true;

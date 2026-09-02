@@ -150,7 +150,6 @@ def test_hybridsort_config_covers_constructor_params_and_conditionals():
         "adapfs",
         "EG_weight_high_score",
         "EG_weight_low_score",
-        "high_score_matching_thresh",
         "with_longterm_reid",
         "with_longterm_reid_correction",
     }
