@@ -10,10 +10,11 @@
 ### Python & `uv`
 
 - Use **Python 3.11** (or the version configured in `pyproject.toml`).
-- Install `uv` (safe to rerun even if present):
+- Install the `uv` version required by the root `pyproject.toml` (safe to rerun
+  even if present):
 
   ```bash
-  pip install uv
+  pip install "uv==0.12.4"
   ```
 
 - Install dependencies using the existing workflow:

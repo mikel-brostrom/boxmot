@@ -35,15 +35,10 @@ jobs:
           # is authenticated such that you and can bypass the protected ref
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Set up Python environment
-        uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.10'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel uv
-          uv sync
 
       - name: Bump project version
         id: get_version
@@ -52,7 +47,7 @@ jobs:
           git config --local user.name mikel-brostrom
           bump_type=${{ github.event.inputs.bump_type }}
           old_version=$(uv version --short)
-          uv version --bump "$bump_type"
+          uv version --bump "$bump_type" --no-sync
           new_version=$(uv version --short)
           commit_message="Bump version from $old_version to $new_version"
           git add pyproject.toml uv.lock

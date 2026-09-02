@@ -41,11 +41,12 @@ The default build is equivalent to `--target cli-gpu`:
 docker build -f docker/Dockerfile -t boxmot/boxmot:local .
 ```
 
-When dependencies change, regenerate the single root lock with the same uv
-version pinned in the Dockerfile and CI helper:
+When dependencies change, regenerate the single root lock. The root
+`pyproject.toml` declares and enforces the supported uv version; keep the
+Dockerfile's bootstrap uv version aligned with it:
 
 ```bash
-uvx --from uv==0.12.4 uv lock
+uv lock
 ```
 
 ## Publish

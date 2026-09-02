@@ -12,7 +12,8 @@ Proposed workflow
 # Then clone your fork locally
 git clone https://github.com/your-username/boxmot.git
 cd boxmot
-pip install uv
+# Keep this bootstrap version aligned with [tool.uv].required-version.
+pip install "uv==0.12.4"
 # Select exactly one PyTorch profile. Use cu130 instead of cpu on CUDA 13.0 hosts.
 uv sync --extra cpu --extra yolo --extra evolve --extra service \
   --group dev --group test --group docs
