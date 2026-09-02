@@ -245,8 +245,8 @@ import numpy as np
 from boxmot.trackers.bbox.bytetrack import ByteTrack
 
 tracker = ByteTrack(
-    track_high_thresh=0.6,
-    track_low_thresh=0.1,
+    track_thresh=0.6,
+    min_conf=0.1,
     track_buffer=30,
 )
 
@@ -260,9 +260,11 @@ interface, but the engine only supplies inputs the selected tracker consumes:
 
 | Tracker | Image | Embeddings | Masks |
 | --- | --- | --- | --- |
-| ByteTrack, OCSort | Not used | Not used | Not used |
+| ByteTrack | Never used | Not used | Not used |
+| OCSort | Required initially when centroid association must infer frame dimensions; otherwise not used | Not used | Not used |
 | SFSORT | Only needed to infer frame margins when unequal central/marginal timeouts are configured without frame dimensions | Not used | Not used |
-| BotSort, DeepOCSort, BoostTrack, OccluBoost, HybridSort | Needed when CMC is enabled, or when live ReID must compute missing embeddings | Used when ReID is enabled | Not used |
+| BotSort, BoostTrack, OccluBoost | Needed when CMC is enabled, or when live ReID must compute missing embeddings | Used when ReID is enabled | Not used |
+| DeepOCSort, HybridSort | Needed for CMC or live ReID; also required initially when centroid association must infer frame dimensions | Used when ReID is enabled | Not used |
 | StrongSort | Required by CMC | Used; precomputed values avoid live ReID extraction | Not used |
 | Sam2Mot | Required for image-to-mask coordinate scaling | Not used | Optional; bbox matching is the fallback |
 

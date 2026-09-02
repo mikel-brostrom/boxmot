@@ -36,6 +36,7 @@ from typing import Any, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from boxmot.engine.tracking.inputs import TrackerInputAdapter
 from boxmot.native.registry import supported_native_live_trackers
 from boxmot.trackers.registry import REID_TRACKERS, TRACKER_MAPPING, create_tracker
 from boxmot.utils import logger as LOGGER
@@ -273,14 +274,6 @@ def _measure(
 ) -> ResultRow:
     """Measure one tracker/backend/detection-count combination."""
 
-    uses_reid = tracker_name in REID_TRACKER_NAMES
-    image, frames = _build_workload(
-        detection_count=detection_count,
-        frame_count=warmup_count + measured_count,
-        image_hw=image_hw,
-        seed=seed,
-        with_embeddings=uses_reid and reid_mode == "precomputed",
-    )
     tracker = _build_tracker(
         tracker_name,
         backend,
@@ -289,15 +282,24 @@ def _measure(
         device=device,
         half=half,
     )
+    input_adapter = TrackerInputAdapter(tracker)
+    uses_reid = input_adapter.uses_embs
+    image, frames = _build_workload(
+        detection_count=detection_count,
+        frame_count=warmup_count + measured_count,
+        image_hw=image_hw,
+        seed=seed,
+        with_embeddings=uses_reid and reid_mode == "precomputed",
+    )
     warmup_frames = frames[:warmup_count]
     measured_frames = frames[warmup_count:]
 
     for frame in warmup_frames:
-        tracker.update(frame.detections, image, embs=frame.embeddings)
+        input_adapter.update(frame.detections, img=image, embs=frame.embeddings)
 
     started = time.perf_counter()
     for frame in measured_frames:
-        tracker.update(frame.detections, image, embs=frame.embeddings)
+        input_adapter.update(frame.detections, img=image, embs=frame.embeddings)
     elapsed = time.perf_counter() - started
 
     fps = measured_count / elapsed if elapsed > 0 else float("inf")

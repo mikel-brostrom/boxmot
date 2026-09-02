@@ -280,9 +280,14 @@ Python:
 
 ```python
 import numpy as np
-from boxmot.trackers import OccluBoost
+from boxmot.trackers.registry import create_tracker
 
-tracker = OccluBoost()
+tracker = create_tracker(
+    "occluboost",
+    reid_weights="osnet_x0_25_msmt17.pt",
+    device="cpu",
+    half=False,
+)
 
 # dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
 dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
@@ -291,7 +296,7 @@ dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
 img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
 
 # tracks: AABB (M, 8), or OBB (M, 9) with angle after h
-tracks = tracker.update(dets, img)
+tracks = tracker.update(dets, img=img)
 print(tracks)
 ```
 

@@ -83,8 +83,9 @@ From another terminal, verify that it is ready:
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. Send
-one request per frame. AABB detection rows use
+It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. The
+service forwards `img=None` for these motion-only/default configurations instead
+of allocating a dummy frame. Send one request per frame. AABB detection rows use
 `(x1, y1, x2, y2, confidence, class_id)`:
 
 ```bash

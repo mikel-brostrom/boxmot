@@ -49,6 +49,7 @@ class OcSort(BaseTracker):
     supports_obb = True
     uses_img = False
     uses_embs = False
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,

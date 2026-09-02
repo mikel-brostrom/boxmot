@@ -27,7 +27,7 @@ class ByteTrack(BaseTracker):
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+            and ``is_obb``.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -42,6 +42,7 @@ class ByteTrack(BaseTracker):
     supports_obb = True
     uses_img = False
     uses_embs = False
+    uses_frame_dimensions_for_association = False
 
     def __init__(
         self,

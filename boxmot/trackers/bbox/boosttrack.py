@@ -114,9 +114,7 @@ class BoostTrack(BaseTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
         self.uses_embs = self.with_reid
-        self.uses_img = bool(
-            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
-        )
+        self.uses_img = bool(self.cmc is not None or self.with_reid)
 
     def requires_image(
         self,

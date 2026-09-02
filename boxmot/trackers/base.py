@@ -30,13 +30,16 @@ class BaseTracker(
 
     ``update`` owns input normalization and output wrapping. Concrete trackers
     implement ``_track_detections`` with their algorithm-specific association and
-    lifecycle logic.
+    lifecycle logic. Trackers that call ``self.asso_func`` with centroid
+    association must opt into frame-dimension routing through
+    ``uses_frame_dimensions_for_association``.
     """
 
     supports_obb = False
     uses_img = False
     uses_embs = False
     supports_masks = False
+    uses_frame_dimensions_for_association = False
 
     def __init__(
         self,
@@ -87,7 +90,13 @@ class BaseTracker(
         self.detection_layout = get_detection_layout(is_obb)
         self.asso_func_name = self.detection_layout.association_mode_name(asso_func)
         self.is_obb = self.detection_layout.is_obb
-        self.uses_img = bool(self.uses_img or self.asso_func_name in {"centroid", "centroid_obb"})
+        self.uses_img = bool(
+            self.uses_img
+            or (
+                self.uses_frame_dimensions_for_association
+                and self.asso_func_name in {"centroid", "centroid_obb"}
+            )
+        )
         self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
         self.id_allocator = TrackIdAllocator()
 
@@ -218,7 +227,11 @@ class BaseTracker(
     ) -> bool:
         """Return whether this update needs an image for the active configuration."""
         del dets, embs, masks
-        return not self._first_frame_processed and self.asso_func_name in {"centroid", "centroid_obb"}
+        return bool(
+            self.uses_frame_dimensions_for_association
+            and not self._first_frame_processed
+            and self.asso_func_name in {"centroid", "centroid_obb"}
+        )
 
     @staticmethod
     def _requires_live_embeddings(
@@ -290,7 +303,11 @@ class BaseTracker(
                 raise ValueError("Embeddings must contain only finite values.")
 
         if img is None and self.requires_image(dets=dets, embs=embs, masks=masks):
-            if self.asso_func_name in {"centroid", "centroid_obb"}:
+            if (
+                self.uses_frame_dimensions_for_association
+                and not self._first_frame_processed
+                and self.asso_func_name in {"centroid", "centroid_obb"}
+            ):
                 raise ValueError(
                     f"{self.__class__.__name__} requires img when using "
                     f"'{self._asso_func_base_name}' association."
@@ -322,7 +339,7 @@ class BaseTracker(
         self.detection_layout = get_detection_layout(is_obb)
         self.is_obb = self.detection_layout.is_obb
         self.asso_func_name = self.detection_layout.association_mode_name(self._asso_func_base_name)
-        if self.asso_func_name in {"centroid", "centroid_obb"}:
+        if self.uses_frame_dimensions_for_association and self.asso_func_name in {"centroid", "centroid_obb"}:
             self.uses_img = True
 
         if self._first_frame_processed and hasattr(self, "w") and hasattr(self, "h"):

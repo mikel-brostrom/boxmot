@@ -574,6 +574,100 @@ def test_trackers_without_active_pixel_paths_accept_detections_only(name, factor
 @pytest.mark.parametrize(
     ("name", "factory"),
     (
+        ("bytetrack", lambda: ByteTrack(asso_func="centroid")),
+        (
+            "botsort",
+            lambda: BotSort(reid_model=None, with_reid=False, use_cmc=False, asso_func="centroid"),
+        ),
+        (
+            "boosttrack",
+            lambda: BoostTrack(
+                reid_model=None,
+                with_reid=False,
+                use_cmc=False,
+                use_dlo_boost=False,
+                use_duo_boost=False,
+                asso_func="centroid",
+            ),
+        ),
+        (
+            "occluboost",
+            lambda: OccluBoost(
+                reid_model=None,
+                with_reid=False,
+                use_cmc=False,
+                use_dlo_boost=False,
+                use_duo_boost=False,
+                asso_func="centroid",
+            ),
+        ),
+        ("sfsort", lambda: SFSORT(asso_func="centroid")),
+    ),
+)
+def test_unused_association_setting_does_not_require_image(name, factory) -> None:
+    tracker = factory()
+
+    assert tracker.uses_img is False, name
+    assert tracker.requires_image(_aabb_dets()) is False, name
+    assert tracker.update(_aabb_dets()).ndim == 2, name
+    assert tracker.uses_img is False, name
+
+
+@pytest.mark.parametrize(
+    ("name", "factory"),
+    (
+        ("ocsort", lambda: OcSort(asso_func="centroid")),
+        (
+            "deepocsort",
+            lambda: DeepOcSort(
+                reid_model=None,
+                embedding_off=True,
+                cmc_off=True,
+                asso_func="centroid",
+            ),
+        ),
+        (
+            "hybridsort",
+            lambda: HybridSort(
+                reid_model=None,
+                with_reid=False,
+                cmc_method=None,
+                asso_func="centroid",
+            ),
+        ),
+    ),
+)
+def test_centroid_association_only_requires_initial_image(name, factory) -> None:
+    tracker = factory()
+    dets = _aabb_dets()
+
+    assert tracker.uses_img is True, name
+    assert tracker.requires_image(dets) is True, name
+    with pytest.raises(ValueError, match="requires img when using 'centroid' association"):
+        tracker.update(dets)
+
+    assert tracker.update(dets, img=_img()).ndim == 2, name
+    assert tracker.requires_image(dets) is False, name
+    assert tracker.update(dets).ndim == 2, name
+
+
+@pytest.mark.parametrize(
+    ("name", "factory"),
+    (
+        ("strongsort", lambda: StrongSort(reid_model=None, asso_func="centroid")),
+        ("sam2mot", lambda: Sam2Mot(asso_func="centroid")),
+    ),
+)
+def test_independent_image_requirements_do_not_report_centroid(name, factory) -> None:
+    tracker = factory()
+
+    with pytest.raises(ValueError, match="requires img for the current tracker configuration"):
+        tracker.update(_aabb_dets())
+
+
+@pytest.mark.parametrize(
+    ("name", "factory"),
+    (
         (
             "botsort",
             lambda: BotSort(reid_model=DummyReID(), with_reid=True, use_cmc=False),

@@ -47,6 +47,7 @@ class HybridSort(BaseTracker):
     supports_obb = True
     uses_img = True
     uses_embs = True
+    uses_frame_dimensions_for_association = True
 
     """Initialize the HybridSort tracker.
 
@@ -195,6 +196,11 @@ class HybridSort(BaseTracker):
         """
         if self.is_obb:
             return self._update_obb(dets, img, embs, masks)
+        association_function = (
+            self.asso_func
+            if self.asso_func_name in {"centroid", "centroid_obb"}
+            else ASSO_FUNCS[self.asso_func_name]
+        )
         self.frame_count += 1
 
         batch = self.make_detection_batch(dets, embs=embs, masks=masks)
@@ -306,7 +312,7 @@ class HybridSort(BaseTracker):
                 velocities_rb,
                 k_observations,
                 self.inertia,
-                ASSO_FUNCS[self.asso_func_name],  # from BaseTracker
+                association_function,
                 emb_cost=emb_dists,
                 weights=(1.0, self.EG_weight_high_score),
                 thresh=self.high_score_matching_thresh,
@@ -328,7 +334,7 @@ class HybridSort(BaseTracker):
                 velocities_rb,
                 k_observations,
                 self.inertia,
-                ASSO_FUNCS[self.asso_func_name],
+                association_function,
             )
         else:
             matched = np.empty((0, 2), dtype=int)
@@ -348,7 +354,7 @@ class HybridSort(BaseTracker):
         # ===== BYTE / low-score association (optional)
         if self.use_byte and len(dets_low) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
-            iou_left = np.array(ASSO_FUNCS[self.asso_func_name](dets_low, u_trks))
+            iou_left = np.array(association_function(dets_low, u_trks))
             iou_left_thre = iou_left.copy()
             if self.TCM_byte_step:
                 iou_left -= np.array(cal_score_dif_batch_two_score(dets_low, u_trks) * self.TCM_byte_step_weight)
@@ -388,7 +394,7 @@ class HybridSort(BaseTracker):
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
             left_dets = dets_first[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
-            iou_left = np.array(ASSO_FUNCS[self.asso_func_name](left_dets, left_trks))
+            iou_left = np.array(association_function(left_dets, left_trks))
             if iou_left.max() > self.iou_threshold:
                 rematched = linear_assignment(-iou_left)
                 to_remove_det_indices = []

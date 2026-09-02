@@ -417,10 +417,7 @@ class SFSORT(BaseTracker):
 
     def _refresh_image_capability(self) -> None:
         """Expose whether this configuration still needs frame dimensions."""
-        self.uses_img = bool(
-            self.asso_func_name in {"centroid", "centroid_obb"}
-            or (not self._margins_ready and self.central_timeout != self.marginal_timeout)
-        )
+        self.uses_img = bool(not self._margins_ready and self.central_timeout != self.marginal_timeout)
 
     def _new_track(self, box: np.ndarray, frame_id: int, conf: float, cls: float, det_ind: int) -> Track:
         track_id = self.id_allocator.alloc()

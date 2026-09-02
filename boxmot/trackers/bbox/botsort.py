@@ -115,9 +115,7 @@ class BotSort(BaseTracker):
         self.cmc = create_cmc(cmc_method, enabled=use_cmc)
         self.fuse_first_associate = fuse_first_associate
         self.uses_embs = bool(self.with_reid)
-        self.uses_img = bool(
-            self.asso_func_name in {"centroid", "centroid_obb"} or self.cmc is not None or self.with_reid
-        )
+        self.uses_img = bool(self.cmc is not None or self.with_reid)
 
     def requires_image(
         self,

@@ -226,7 +226,6 @@ int main() {
     cfg.track_buffer = 30;
 
     bytetrack::ByteTrackTracker tracker(cfg);
-    cv::Mat frame(720, 1280, CV_8UC3, cv::Scalar::all(0));
 
     bytetrack::Detection det;
     det.xyxy << 100.0, 50.0, 200.0, 300.0;
@@ -234,13 +233,18 @@ int main() {
     det.cls = 0;
     det.det_ind = 0;
 
-    for (const auto& t : tracker.Update({det}, frame)) {
+    for (const auto& t : tracker.Update({det}, cv::Mat{})) {
         std::cout << "id=" << t.id << " xyxy=("
                   << t.xyxy[0] << ", " << t.xyxy[1] << ", "
                   << t.xyxy[2] << ", " << t.xyxy[3] << ")\n";
     }
 }
 ```
+
+ByteTrack does not consume image pixels. Its native C++ implementation shares
+the common `Update(detections, const cv::Mat&)` interface, so pass an empty
+`cv::Mat`. The Python `NativeByteTrackTracker` wrapper expresses the same call
+as `tracker.update(dets)` and forwards no image buffer.
 
 Build and run:
 

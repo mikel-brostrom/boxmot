@@ -32,6 +32,7 @@ class DeepOcSort(BaseTracker):
     supports_obb = True
     uses_img = True
     uses_embs = True
+    uses_frame_dimensions_for_association = True
 
     """Initialize the DeepOcSort tracker.
 
