@@ -152,7 +152,7 @@ test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
 docs = [
   "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
   "mkdocs-include-markdown-plugin>=7.1.6",
-  "mkdocs-material==9.6.15",
+  "mkdocs-material==9.7.7",
   "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
 ]
 # Minimal, Torch-free dependencies for the geometry-only HTTP service image.
