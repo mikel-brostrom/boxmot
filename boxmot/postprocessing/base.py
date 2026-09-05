@@ -9,9 +9,10 @@ from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
+from tqdm.auto import tqdm
+
+from boxmot.postprocessing.progress import safe_seq_progress_callback
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.callbacks import safe_seq_progress_callback
-from boxmot.utils.rich.workflow.progress import RichTqdm as tqdm
 
 ProgressCallback = Callable[[str, int, int], None]
 FileWorker = Callable[..., None]

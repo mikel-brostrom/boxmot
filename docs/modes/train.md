@@ -882,22 +882,9 @@ When training finishes, BoxMOT reports the best checkpoint path along with the b
 
 ## Scope
 
-The CLI command is `train-reid`; the same workflow is available through the
-high-level `BoxMOT.train(...)` Python facade.
-
-```python
-from boxmot import BoxMOT
-
-model = BoxMOT("mobilenetv4")
-model.train(cfg="mobilenetv4_custom.yaml")
-```
-
-When the first positional argument matches a registered ReID training recipe or backbone, it is used as the training profile; detector names still configure tracking detectors. A ReID weight filename can also seed the training profile while binding the object to that weight for later export or embedding:
-
-```python
-reid = BoxMOT(reid="mobilenetv4.pt")
-reid.train(cfg="custom_config.yaml")
-```
+The engine-owned command is `train-reid`. Reusable datasets, backbones,
+trainers, and losses remain under `boxmot.reid`; command dispatch and workflow
+state are not part of the public package root.
 
 ## Related pages
 
@@ -908,9 +895,8 @@ reid.train(cfg="custom_config.yaml")
 ## CLI Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.cli
-    :command: boxmot
-    :depth: 1
+    :module: boxmot.engine.commands.reid.train
     :command: train_reid
+    :depth: 0
     :style: table
     :prog_name: boxmot train-reid

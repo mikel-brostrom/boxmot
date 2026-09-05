@@ -33,18 +33,22 @@
 
 </div>
 
-BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, catalog-backed evaluation, tuning, research loops, ReID training and evaluation, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
+BoxMOT provides independent detector, segmentor, appearance-encoder, and tracker
+components built around validated Torch structures. Pipelines compose those
+components; the CLI owns sources, outputs, materialized datasets, evaluation,
+tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `generate`, `eval`, `tune`, `research`,
-  `train-reid`, `eval-reid`, `export`, and native `build`
+- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
+  `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
-- Swappable trackers with shared detector and ReID plumbing.
-- Dataset and experiment workflows with reusable detections and embeddings.
+- Swappable components with explicit capabilities and requirements.
+- Immutable, keyed Parquet builds with reusable detections, masks, and
+  embeddings.
 - Support for both AABB and OBB tracking paths.
 - Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md)).
-- Public Python API for embedding the same workflows in applications and notebooks.
+- A structured Python API for embedding components and pipelines in applications.
 
 ## Installation
 
@@ -93,8 +97,8 @@ GPU service appends `-gpu`. See the
 
 Both services accept ordered AABB or OBB detections and keep isolated state per
 stream/session; neither runs a detector. The CPU image supports ByteTrack,
-OCSort, and SFSORT without image pixels. The GPU image supports StrongSORT,
-BotSORT, DeepOCSORT, HybridSORT, BoostTrack, and OccluBoost, and requires a raw
+OcSort, and SFSORT without image pixels. The GPU image supports StrongSort,
+BotSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost, and requires a raw
 base64-encoded JPEG or PNG in `image_base64` for every frame, including empty
 detection frames. See the [deployment guide](docs/guides/deployment.md) for the
 request schema and horizontal-scaling requirements.
@@ -107,7 +111,7 @@ request schema and horizontal-scaling requirements.
 <table>
   <thead>
     <tr>
-      <th rowspan="2" align="left"><sub>Tracker</sub></th>
+      <th rowspan="2" align="left"><sub>Tracker key</sub></th>
       <th rowspan="2" align="center"><sub>Status</sub></th>
       <th colspan="3" align="center"><sub>MOT17 ablation</sub></th>
       <th colspan="3" align="center"><sub>SportsMOT val</sub></th>
@@ -279,29 +283,32 @@ boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
   --asso-func diou --source 0 --save --show
 ```
 
-Python:
+Python (trackers consume canonical structures, including precomputed
+embeddings or masks when required):
 
 ```python
-import numpy as np
-from boxmot.trackers.registry import create_tracker
+import torch
+
+from boxmot import create_tracker
+from boxmot.structures import Boxes, Detections
+from boxmot.trackers import TrackerSpec
 
 tracker = create_tracker(
-    "occluboost",
-    reid_weights="osnet_x0_25_msmt17.pt",
-    device="cpu",
-    half=False,
-    tracker_kwargs={"asso_func": "diou"},
+    TrackerSpec(
+        name="bytetrack",
+        geometry="aabb",
+        options=(("track_thresh", 0.45),),
+    )
 )
 
-# dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
-dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
-# OBB alternative: (N, 7) with [cx, cy, w, h, angle_radians, conf, cls]
-# dets = np.array([[200, 300, 200, 200, 0.25, 0.9, 0]], dtype=np.float32)
-img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
-
-# tracks: AABB (M, 8), or OBB (M, 9) with angle after h
-tracks = tracker.update(dets, img=img)
-print(tracks)
+detections = Detections(
+    geometry=Boxes(torch.tensor([[100, 200, 300, 400]], dtype=torch.float32)),
+    scores=torch.tensor([0.9], dtype=torch.float32),
+    class_ids=torch.tensor([0], dtype=torch.int64),
+    sample_id="camera-1:000001",
+)
+tracks = tracker.update(detections)
+print(tracks.track_ids)
 ```
 
 ## Contributing

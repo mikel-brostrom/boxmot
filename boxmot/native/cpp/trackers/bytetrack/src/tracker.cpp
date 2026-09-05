@@ -31,7 +31,7 @@ std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs,
                                     const std::vector<Track::Ptr>& rhs) {
     std::vector<Track::Ptr> result;
     result.reserve(lhs.size() + rhs.size());
-    std::unordered_set<int> seen;
+    std::unordered_set<std::int64_t> seen;
     for (const auto& track : lhs) {
         seen.insert(track->id);
         result.push_back(track);
@@ -46,7 +46,7 @@ std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs,
 
 std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs,
                                   const std::vector<Track::Ptr>& rhs) {
-    std::unordered_set<int> remove_ids;
+    std::unordered_set<std::int64_t> remove_ids;
     for (const auto& track : rhs) {
         remove_ids.insert(track->id);
     }
@@ -102,7 +102,6 @@ ByteTrackTracker::ByteTrackTracker(Config config)
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
       max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
                                       static_cast<double>(config_.track_buffer))) {
-    Track::ResetCount();
     if (max_time_lost_ <= 0) {
         max_time_lost_ = config_.track_buffer;
     }
@@ -119,7 +118,7 @@ void ByteTrackTracker::Reset() {
     is_obb_mode_ = false;
     association_frame_width_ = 0;
     association_frame_height_ = 0;
-    Track::ResetCount();
+    next_track_id_ = 1;
     active_tracks_.clear();
     lost_tracks_.clear();
     removed_tracks_.clear();
@@ -277,9 +276,9 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
             activated_tracks.push_back(track);
         } else {
             if (is_obb_mode_) {
-                track->ReActivate(*detection, kalman_filter_obb_, frame_count_, false);
+                track->ReActivate(*detection, kalman_filter_obb_, frame_count_);
             } else {
-                track->ReActivate(*detection, kalman_filter_, frame_count_, false);
+                track->ReActivate(*detection, kalman_filter_, frame_count_);
             }
             refind_tracks.push_back(track);
         }
@@ -311,9 +310,9 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
             activated_tracks.push_back(track);
         } else {
             if (is_obb_mode_) {
-                track->ReActivate(*detection, kalman_filter_obb_, frame_count_, false);
+                track->ReActivate(*detection, kalman_filter_obb_, frame_count_);
             } else {
-                track->ReActivate(*detection, kalman_filter_, frame_count_, false);
+                track->ReActivate(*detection, kalman_filter_, frame_count_);
             }
             refind_tracks.push_back(track);
         }
@@ -360,9 +359,9 @@ std::vector<TrackOutput> ByteTrackTracker::Update(const std::vector<Detection>& 
             continue;
         }
         if (is_obb_mode_) {
-            track->Activate(kalman_filter_obb_, frame_count_);
+            track->Activate(kalman_filter_obb_, frame_count_, next_track_id_++);
         } else {
-            track->Activate(kalman_filter_, frame_count_);
+            track->Activate(kalman_filter_, frame_count_, next_track_id_++);
         }
         activated_tracks.push_back(track);
     }

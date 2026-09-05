@@ -10,12 +10,12 @@ import torch
 import boxmot.reid.exporters.onnx_exporter as onnx_exporter_module
 import boxmot.reid.exporters.openvino_exporter as openvino_exporter_module
 import boxmot.reid.exporters.tensorrt_exporter as tensorrt_exporter_module
-from boxmot.reid import ReID
 from boxmot.reid.core.artifacts import (
     export_content_fingerprint,
     file_sha256,
     write_artifact_metadata,
 )
+from boxmot.reid.core.runtime import ReID
 from boxmot.reid.exporters.onnx_exporter import ONNXExporter, ensure_onnx_export
 from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
 from boxmot.reid.exporters.tensorrt_exporter import EngineExporter

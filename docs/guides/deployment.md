@@ -4,10 +4,16 @@ The tracker service has two deployment profiles. Both receive detections from
 an external detector and associate them into persistent tracks; neither image
 runs detector inference. Each stream/session URL owns one tracker instance.
 
-| Profile | Image | Trackers | Frame pixels |
+| Profile | BoxMOT v24 image | Rolling alias | Frame pixels |
 | --- | --- | --- | --- |
-| CPU geometry | `boxmot/boxmot-service:latest` | ByteTrack, OCSort, SFSORT | Not required |
-| CUDA/ReID | `boxmot/boxmot-service:latest-gpu` | StrongSORT, BotSORT (default), DeepOCSORT, HybridSORT, BoostTrack, OccluBoost | Required on every frame |
+| CPU geometry | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Not required |
+| CUDA/ReID | `boxmot/boxmot-service:24.0.0-gpu` | `boxmot/boxmot-service:latest-gpu` | Required on every frame |
+
+The CPU service uses CPU-only Torch for canonical structures and contains no
+CUDA runtime. The GPU service uses CUDA 13.0 Torch and a shared ReID encoder.
+Neither service runs detector inference. The CPU profile supports ByteTrack,
+OcSort, and SFSORT; the GPU profile supports StrongSort, BotSort (default),
+DeepOcSort, HybridSort, BoostTrack, and OccluBoost.
 
 ## Build and run
 
@@ -54,12 +60,10 @@ Check `http://localhost:8000/healthz` for liveness,
 ## Send detections
 
 Send exactly one request for each frame, including frames with no detections.
-In-process BoxMOT trackers infer AABB or OBB mode automatically from each
-non-empty detection row's column count. The HTTP contract still declares
-`box_type` because it fixes the session schema before tracker input, makes empty
-frames unambiguous, and determines the response column layout. Non-empty row
-widths are validated against it. AABB is the HTTP default; OBB sessions must set
-`"box_type": "obb"`.
+The HTTP `box_type` fixes the session schema, the canonical `TrackerSpec`
+geometry, and the response layout before the first update. It also makes empty
+frames unambiguous. Non-empty row widths are validated against it. AABB is the
+HTTP default; OBB sessions must set `"box_type": "obb"`.
 
 The default AABB row is `(x1, y1, x2, y2, confidence, class_id)`:
 
@@ -159,7 +163,7 @@ curl --request DELETE \
 
 ## Configure the process
 
-The CPU image defaults to ByteTrack; the GPU image defaults to BotSORT. Their
+The CPU image defaults to ByteTrack; the GPU image defaults to BotSort. Their
 process-level settings are:
 
 | Variable | CPU default | GPU default | Purpose |
@@ -221,8 +225,55 @@ the sequence from its first required frame if state must be reconstructed.
 Persistent shared storage alone cannot move a live tracker object between
 workers.
 
-The CPU service omits detector and evaluation extras and contains neither
-PyTorch nor CUDA. The GPU service adds CUDA/ReID but still does not run a
-detector. Use `boxmot/boxmot:latest` for full GPU CLI/detector workflows or
-`boxmot/boxmot:latest-cpu` for their CPU counterpart. Place authentication,
+Both service images include Torch because HTTP rows are decoded into canonical
+structures before tracking. The CPU image uses a CPU-only build and omits CUDA
+and perception model runtimes. The GPU image instead uses the locked CUDA 13.0
+build. Its process owns one shared appearance encoder and enriches
+requests before advancing per-stream trackers; injected segmentors follow the
+same engine-owned pattern. Neither profile runs a detector. Use
+`boxmot/boxmot:24.0.0` for full GPU CLI/detector workflows or
+`boxmot/boxmot:24.0.0-cpu` for their CPU counterpart. Those CLI images bundle
+native ReID and all five supported live C API tracker libraries; the service
+images use Python tracker backends. Place authentication,
 TLS, request-size limits, and rate limiting at the ingress or API gateway.
+
+## Run persistent CLI jobs
+
+Materialization and evaluation are batch CLI workloads, not service endpoints.
+Keep the raw dataset, immutable build, and model directories outside their
+containers:
+
+```bash
+mkdir -p "$PWD/runs/builds" "$PWD/models"
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds" \
+  -v "$PWD/models:/opt/boxmot/models" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot materialize \
+    --experiment mot17-ablation-yolox-lmbn \
+    --device 0
+
+BUILD_ID=replace-with-the-64-character-build-id
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds:ro" \
+  -v "$PWD/models:/opt/boxmot/models:ro" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot eval \
+    --experiment mot17-ablation-yolox-lmbn \
+    --build "$BUILD_ID" \
+    --tracker occluboost
+```
+
+Using the same mount points preserves source references and lets an ID passed to
+`--build` resolve under `BOXMOT_BUILDS_DIR`. Built-in artifact paths are relative
+to `/opt/boxmot`, which is why the model volume is mounted there. For CPU jobs,
+use `boxmot/boxmot:24.0.0-cpu`, remove `--gpus all`, and materialize with
+`--device cpu`.

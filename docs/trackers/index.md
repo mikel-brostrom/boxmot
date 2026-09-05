@@ -2,9 +2,30 @@
 
 BoxMOT ships multiple tracker backends behind one interface.
 
+## Implementation taxonomy
+
+Internal packages are grouped by the representation maintained as tracker
+state, not by every optional cue they consume:
+
+- `boxmot/trackers/box`: AABB or OBB state. Appearance embeddings, camera
+  motion, masks, or frames may still be optional association inputs.
+- `boxmot/trackers/mask`: reserved for trackers whose primary state is an
+  instance mask. The namespace currently has no implementation-specific base.
+- `boxmot/trackers/multimodal`: multiple primary representations or model
+  memory are fundamental to the method; Sam2Mot lives here.
+
+Each registered implementation also declares immutable geometry and input
+capabilities. The directory communicates ownership; capability metadata is the
+source used by factories and pipelines for validation.
+
+Representation family is independent of runtime backend. `box`, `mask`, and
+`multimodal` classify tracker state and organize its Python domain code;
+selecting `backend="cpp"` chooses a registered native implementation without
+creating a fourth tracker family.
+
 ## Current tracker set
 
-| Tracker | Uses ReID | Uses masks | OBB support | Native C++ live | Native C++ replay |
+| Tracker | Uses ReID | Uses masks | OBB support | Native C++ live | Cached eval/tune |
 | --- | --- | --- | --- | --- | --- |
 | ByteTrack | No | No | Yes | Yes | Yes |
 | BotSort | Yes | No | Yes | Yes | Yes |
@@ -15,7 +36,7 @@ BoxMOT ships multiple tracker backends behind one interface.
 | BoostTrack | Yes | No | Yes | No | No |
 | OccluBoost | Yes | No | Yes | Yes | Yes |
 | SFSORT | No | No | Yes | Yes | Yes |
-| [SAM2MOT](sam2mot.md) | No | Yes | Yes | No | No |
+| [Sam2Mot](sam2mot.md) | No | Yes | Yes | No | No |
 
 ## How to choose
 
@@ -31,8 +52,11 @@ BoxMOT ships multiple tracker backends behind one interface.
 ## Config and factory
 
 - Tracker runtime defaults and tuning search spaces share `boxmot/configs/trackers/<tracker>.yaml`; reusable scalar presets remain under `boxmot/configs/trackers/presets`.
-- The runtime factory lives in `boxmot/trackers/registry.py`.
-- Native C++ tracker sources live under `boxmot/native/cpp/trackers/<name>/` and are registered from `boxmot/native/registry.py`.
+- The runtime factory lives in `boxmot/trackers/factory.py`.
+- Native C++ sources and low-level ctypes bindings live under `boxmot/native/`.
+  Domain adapters live beside their algorithms at
+  `boxmot/trackers/<family>/<name>/native.py`; box trackers therefore use
+  `boxmot/trackers/box/<name>/native.py`.
 
 Use [Native C++ Integration](../native/index.md) when you want to compile and embed a tracker directly in a C++ program.
 

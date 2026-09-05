@@ -102,10 +102,19 @@ def _image_or_skip() -> np.ndarray:
 
 def _load_adapter():
     try:
-        from boxmot.native.reid import CppOnnxReID
+        from boxmot.reid.backends.native import CppOnnxReID
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Native ReID C ABI unavailable: {exc}")
     return CppOnnxReID
+
+
+def test_cpp_reid_requires_a_pre_resolved_onnx_artifact(tmp_path: Path):
+    from boxmot.reid.backends.native import CppOnnxReID
+
+    with pytest.raises(ValueError, match="resolved ONNX artifact"):
+        CppOnnxReID(tmp_path / "model.pt")
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        CppOnnxReID(tmp_path / "missing.onnx")
 
 
 @pytest.mark.parametrize("force_rebuild", [False, True])
@@ -126,7 +135,7 @@ def test_reid_capi_ensure_uses_shared_freshness_builder(monkeypatch, tmp_path, f
 
     assert capi.ensure_reid_capi_library(force_rebuild=force_rebuild) == fresh_library
     assert captured == {
-        "tracker_name": "base",
+        "tracker_name": "reid",
         "display_name": "ReID C ABI",
         "target": "reid_capi",
         "candidates": [stale_library],
@@ -139,14 +148,14 @@ def test_reid_capi_ensure_uses_shared_freshness_builder(monkeypatch, tmp_path, f
 def test_reid_capi_ensure_trusts_packaged_wheel_library(monkeypatch, tmp_path):
     from boxmot.native.reid import capi
 
-    source_dir = tmp_path / "site-packages" / "boxmot" / "native" / "cpp" / "trackers" / "base"
+    source_dir = tmp_path / "site-packages" / "boxmot" / "native" / "cpp" / "reid"
     source_dir.mkdir(parents=True)
     packaged_library = source_dir / capi._library_name()
     packaged_library.write_bytes(b"packaged native library")
-    build_dir = tmp_path / "build" / "native" / "base"
+    build_dir = tmp_path / "build" / "native" / "reid"
 
     monkeypatch.setattr(capi, "_candidate_libraries", lambda: [packaged_library])
-    monkeypatch.setattr(capi._common, "tracker_source_dir", lambda _name: source_dir)
+    monkeypatch.setattr(capi._common, "native_component_source_dir", lambda _name: source_dir)
     monkeypatch.setattr(capi._common, "tracker_build_dir", lambda _name: build_dir)
     monkeypatch.setattr(capi._common, "_native_build_fingerprint", lambda _name: "source-hash")
     monkeypatch.setattr(capi._common, "_is_native_source_checkout", lambda: False)
@@ -290,7 +299,13 @@ def test_cpp_reid_dynamic_batch_respects_backend_capability(
     image[:, 20:] = np.array([200, 80, 40], dtype=np.uint8)
     boxes = np.array([[0, 0, 20, 40], [20, 0, 40, 40]], dtype=np.float32)
 
-    reid = CppOnnxReID(weights=weights, preprocess_name="resize")
+    try:
+        reid = CppOnnxReID(weights=weights, preprocess_name="resize")
+    except RuntimeError as error:
+        if requested_backend != "onnxruntime":
+            raise
+        assert "explicitly requested for native ReID but is unavailable" in str(error)
+        return
     backend_log = capfd.readouterr().err
     try:
         batched = reid.get_features(boxes, image)
@@ -299,16 +314,52 @@ def test_cpp_reid_dynamic_batch_respects_backend_capability(
         reid.close()
 
     # A one-row invocation subtracts that row's own batch mean and is exactly
-    # zero. With ORT available, the two staged crops must share one Run call,
-    # producing opposite, L2-normalized descriptors. Builds without ORT fall
-    # back to OpenCV DNN, whose deliberate dynamic-N behavior stays per-crop.
+    # zero. With ORT available, the two staged crops share one Run call and
+    # produce opposite, L2-normalized descriptors. An explicit ORT request is
+    # rejected above when the native build does not contain ORT.
     np.testing.assert_allclose(individual, 0.0, atol=1e-7)
-    if requested_backend == "onnxruntime" and "inference backend=onnxruntime" in backend_log:
+    if requested_backend == "onnxruntime":
+        assert "inference backend=onnxruntime" in backend_log
         np.testing.assert_allclose(np.linalg.norm(batched, axis=1), 1.0, atol=1e-6)
         np.testing.assert_allclose(batched[0], -batched[1], atol=1e-6, rtol=1e-6)
     else:
         assert "inference backend=opencv_dnn" in backend_log
         np.testing.assert_allclose(batched, 0.0, atol=1e-7)
+
+
+@pytest.mark.parametrize(
+    ("variable", "value"),
+    [
+        ("BOXMOT_REID_BACKEND", "ort"),
+        ("BOXMOT_REID_BACKEND", "dnn"),
+        ("BOXMOT_REID_BACKEND", "ONNXRUNTIME"),
+        ("BOXMOT_REID_BACKEND", ""),
+        ("BOXMOT_REID_DEVICE", "gpu"),
+        ("BOXMOT_REID_DEVICE", "mps"),
+        ("BOXMOT_REID_DEVICE", "CUDA"),
+        ("BOXMOT_REID_DEVICE", ""),
+    ],
+)
+def test_cpp_reid_rejects_backend_and_device_aliases(tmp_path, monkeypatch, variable, value):
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", "opencv")
+    monkeypatch.setenv("BOXMOT_REID_DEVICE", "cpu")
+    monkeypatch.setenv(variable, value)
+    CppOnnxReID = _load_adapter()
+    weights = _write_tiny_reid_onnx(tmp_path / "strict_selection.onnx")
+
+    with pytest.raises(RuntimeError, match=variable):
+        CppOnnxReID(weights=weights, preprocess_name="resize")
+
+
+@pytest.mark.parametrize("device", ["cuda", "coreml"])
+def test_cpp_reid_explicit_opencv_rejects_accelerators(tmp_path, monkeypatch, device):
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", "opencv")
+    monkeypatch.setenv("BOXMOT_REID_DEVICE", device)
+    CppOnnxReID = _load_adapter()
+    weights = _write_tiny_reid_onnx(tmp_path / "strict_device.onnx")
+
+    with pytest.raises(RuntimeError, match="OpenCV DNN native ReID supports only device=cpu"):
+        CppOnnxReID(weights=weights, preprocess_name="resize")
 
 
 def test_cpp_reid_equivalent_obb_forms_have_identical_crops(tmp_path: Path, monkeypatch):
@@ -392,7 +443,7 @@ def test_cpp_reid_matches_python_embeddings():
     Both stacks share the same ONNX weights and ImageNet preprocessing
     (resize → BGR→RGB → /255 → mean/std → L2 norm). The only place the two
     can diverge is the box-to-crop conversion in
-    ``boxmot/native/cpp/trackers/base/src/reid_onnx.cpp::ClampBoxToImage`` (cpp)
+    ``boxmot/native/cpp/reid/src/reid_onnx.cpp::ClampBoxToImage`` (cpp)
     vs ``boxmot/reid/backends/base_backend.py::get_crops`` (Python). This
     test guards against silent regressions in either path.
     """
@@ -413,8 +464,8 @@ def test_cpp_reid_matches_python_embeddings():
         import cv2
         import numpy as np
 
-        from boxmot.native.reid import CppOnnxReID
-        from boxmot.reid import ReID
+        from boxmot.reid.backends.native import CppOnnxReID
+        from boxmot.reid.core.runtime import ReID
 
         weights, image_path = sys.argv[1:]
         image = cv2.imread(image_path)

@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from boxmot.trackers.registry import get_tracker_definition
 from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
 
@@ -23,28 +24,9 @@ def _normalize_editable_files(
     if editable_files:
         files = [Path(path) for path in editable_files]
     else:
-        tracker_name = tracker.lower()
-        tracker_file = ROOT / "boxmot" / "trackers" / "bbox" / f"{tracker_name}.py"
-        tracker_dir = ROOT / "boxmot" / "trackers" / "bbox" / tracker_name
-        if tracker_file.exists():
-            files = [tracker_file]
-        elif tracker_dir.exists():
-            main_impl = tracker_dir / f"{tracker_name}.py"
-            if main_impl.exists():
-                files = [main_impl]
-            else:
-                files = sorted(path for path in tracker_dir.rglob("*.py") if path.name != "__init__.py")
-        else:
-            # Fallback for non-bbox trackers (e.g. hybrid)
-            tracker_dir = ROOT / "boxmot" / "trackers" / tracker_name
-            if not tracker_dir.exists():
-                raise FileNotFoundError(f"Tracker source not found for: {tracker}")
-
-            main_impl = tracker_dir / f"{tracker_name}.py"
-            if main_impl.exists():
-                files = [main_impl]
-            else:
-                files = sorted(path for path in tracker_dir.rglob("*.py") if path.name != "__init__.py")
+        definition = get_tracker_definition(tracker)
+        module_name = definition.class_path.rsplit(".", 1)[0]
+        files = [ROOT.joinpath(*module_name.split(".")).with_suffix(".py")]
 
     normalized: list[str] = []
     for path in files:

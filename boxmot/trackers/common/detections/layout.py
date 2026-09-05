@@ -4,13 +4,56 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from boxmot.core.box_schema import (
-    AABB_SCHEMA,
-    OBB_SCHEMA,
-    BoxSchema,
-    get_box_schema_for_mode,
-    schema_from_detection_columns,
-)
+
+@dataclass(frozen=True, slots=True)
+class _KernelSchema:
+    """Private column indices used only by the NumPy tracker kernels."""
+
+    geometry_cols: int
+    detection_cols: int
+    track_cols: int
+
+    @property
+    def is_obb(self) -> bool:
+        return self.geometry_cols == 5
+
+    @property
+    def detection_conf_index(self) -> int:
+        return self.geometry_cols
+
+    @property
+    def detection_class_index(self) -> int:
+        return self.geometry_cols + 1
+
+    @property
+    def indexed_detection_cols(self) -> int:
+        return self.detection_cols + 1
+
+    @property
+    def track_id_index(self) -> int:
+        return self.geometry_cols
+
+    @property
+    def track_conf_index(self) -> int:
+        return self.geometry_cols + 1
+
+    @property
+    def track_class_index(self) -> int:
+        return self.geometry_cols + 2
+
+    @property
+    def track_detection_index(self) -> int:
+        return self.geometry_cols + 3
+
+    def empty_detections(self, dtype=np.float32) -> np.ndarray:
+        return np.empty((0, self.detection_cols), dtype=dtype)
+
+    def empty_tracks(self, dtype=np.float32) -> np.ndarray:
+        return np.empty((0, self.track_cols), dtype=dtype)
+
+
+_AABB_KERNEL_SCHEMA = _KernelSchema(geometry_cols=4, detection_cols=6, track_cols=8)
+_OBB_KERNEL_SCHEMA = _KernelSchema(geometry_cols=5, detection_cols=7, track_cols=9)
 
 
 @dataclass(frozen=True)
@@ -18,7 +61,7 @@ class DetectionLayout:
     """Shared indexing and shape rules for tracker detection tensors."""
 
     name: str
-    schema: BoxSchema
+    schema: _KernelSchema
 
     @property
     def is_obb(self) -> bool:
@@ -124,7 +167,7 @@ class AxisAlignedDetections(DetectionLayout):
     def __init__(self) -> None:
         super().__init__(
             name="(x1,y1,x2,y2,conf,cls)",
-            schema=AABB_SCHEMA,
+            schema=_AABB_KERNEL_SCHEMA,
         )
 
 
@@ -132,7 +175,7 @@ class OrientedDetections(DetectionLayout):
     def __init__(self) -> None:
         super().__init__(
             name="(cx,cy,w,h,angle,conf,cls)",
-            schema=OBB_SCHEMA,
+            schema=_OBB_KERNEL_SCHEMA,
         )
 
 
@@ -141,15 +184,14 @@ OBB_DETECTIONS = OrientedDetections()
 
 
 def get_detection_layout(is_obb: bool) -> DetectionLayout:
-    schema = get_box_schema_for_mode(is_obb)
-    return OBB_DETECTIONS if schema.is_obb else AABB_DETECTIONS
+    return OBB_DETECTIONS if is_obb else AABB_DETECTIONS
 
 
 def infer_detection_layout(dets: np.ndarray) -> DetectionLayout | None:
     if dets is None or not isinstance(dets, np.ndarray) or dets.ndim != 2:
         return None
-    try:
-        schema = schema_from_detection_columns(dets.shape[1])
-    except ValueError:
-        return None
-    return OBB_DETECTIONS if schema.is_obb else AABB_DETECTIONS
+    if dets.shape[1] == 6:
+        return AABB_DETECTIONS
+    if dets.shape[1] == 7:
+        return OBB_DETECTIONS
+    return None

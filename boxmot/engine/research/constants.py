@@ -64,17 +64,15 @@ import traceback
 from pathlib import Path
 
 from boxmot.engine.config import build_mode_namespace
-from boxmot.engine.eval.evaluator import eval_setup, run_generate_dets_embs, run_generate_mot_results, run_motmetrics
+from boxmot.engine.eval.evaluator import run_eval
 from boxmot.engine.eval.results import build_mot_feedback
 
 payload = json.loads(Path(sys.argv[1]).read_text())
 
 try:
     args = build_mode_namespace("eval", payload)
-    eval_setup(args)
-    run_generate_dets_embs(args)
-    run_generate_mot_results(args)
-    feedback = build_mot_feedback(run_motmetrics(args, verbose=False))
+    result = run_eval(args, setup=False, prepare_cache=False, verbose=False, show_progress=False)
+    feedback = build_mot_feedback(result.raw)
     print(json.dumps({"ok": True, **feedback}, sort_keys=True))
 except Exception as exc:
     print(

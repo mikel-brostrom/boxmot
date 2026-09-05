@@ -32,7 +32,7 @@ def test_build_native_target_rebuilds_when_sources_or_cmake_change(monkeypatch, 
     native_root, _, tracker_source, cmake_helper = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     build_dir.mkdir(parents=True)
-    artifact = build_dir / "demo_replay"
+    artifact = build_dir / "demo_capi"
     artifact.write_text("existing binary\n", encoding="utf-8")
 
     monkeypatch.setattr(_common, "package_native_root", lambda: native_root)
@@ -52,7 +52,7 @@ def test_build_native_target_rebuilds_when_sources_or_cmake_change(monkeypatch, 
     kwargs = {
         "tracker_name": "demo",
         "display_name": "Demo",
-        "target": "demo_replay",
+        "target": "demo_capi",
         "candidates": [artifact],
         "force_rebuild": False,
         "not_found_message": "missing demo artifact",
@@ -61,7 +61,7 @@ def test_build_native_target_rebuilds_when_sources_or_cmake_change(monkeypatch, 
 
     assert _common.build_native_target(**kwargs) == artifact
     assert len(build_calls) == 2
-    stamp_path = _common._native_build_stamp_path(build_dir, "demo_replay")
+    stamp_path = _common._native_build_stamp_path(build_dir, "demo_capi")
     stamp = json.loads(stamp_path.read_text(encoding="utf-8"))
     assert stamp["artifact_sha256"] == _common._sha256_file(artifact)
     assert stamp["configuration_sha256"]
@@ -87,7 +87,7 @@ def test_build_native_target_hashes_artifact_contents(monkeypatch, tmp_path):
     native_root, _, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     build_dir.mkdir(parents=True)
-    artifact = build_dir / "demo_replay"
+    artifact = build_dir / "demo_capi"
     artifact.write_bytes(b"unbuilt-native-artifact")
     build_calls = []
 
@@ -106,7 +106,7 @@ def test_build_native_target_hashes_artifact_contents(monkeypatch, tmp_path):
     kwargs = {
         "tracker_name": "demo",
         "display_name": "Demo",
-        "target": "demo_replay",
+        "target": "demo_capi",
         "candidates": [artifact],
         "force_rebuild": False,
         "not_found_message": "missing demo artifact",
@@ -129,7 +129,7 @@ def test_build_native_target_relinks_requested_artifact_without_cleaning_sibling
     native_root, _, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     build_dir.mkdir(parents=True)
-    artifact = build_dir / "demo_replay"
+    artifact = build_dir / "demo_capi"
     artifact.write_text("stale artifact\n", encoding="utf-8")
     sibling = build_dir / "demo_capi.so"
     sibling.write_text("sibling artifact\n", encoding="utf-8")
@@ -153,7 +153,7 @@ def test_build_native_target_relinks_requested_artifact_without_cleaning_sibling
     result = _common.build_native_target(
         tracker_name="demo",
         display_name="Demo",
-        target="demo_replay",
+        target="demo_capi",
         candidates=[artifact],
         force_rebuild=True,
         not_found_message="missing demo artifact",
@@ -165,7 +165,7 @@ def test_build_native_target_relinks_requested_artifact_without_cleaning_sibling
     assert "--clean-first" not in build_calls[1]
     assert artifact.read_text(encoding="utf-8") == "rebuilt artifact\n"
     assert sibling.read_text(encoding="utf-8") == "sibling artifact\n"
-    stamp = json.loads(_common._native_build_stamp_path(build_dir, "demo_replay").read_text(encoding="utf-8"))
+    stamp = json.loads(_common._native_build_stamp_path(build_dir, "demo_capi").read_text(encoding="utf-8"))
     assert stamp["artifact_sha256"] == _common._sha256_file(artifact)
 
 
@@ -173,7 +173,7 @@ def test_build_native_target_rejects_success_without_recreated_artifact(monkeypa
     native_root, _, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     build_dir.mkdir(parents=True)
-    artifact = build_dir / "demo_replay"
+    artifact = build_dir / "demo_capi"
     artifact.write_text("tampered artifact\n", encoding="utf-8")
 
     monkeypatch.setattr(_common, "package_native_root", lambda: native_root)
@@ -186,7 +186,7 @@ def test_build_native_target_rejects_success_without_recreated_artifact(monkeypa
         _common.build_native_target(
             tracker_name="demo",
             display_name="Demo",
-            target="demo_replay",
+            target="demo_capi",
             candidates=[artifact],
             force_rebuild=True,
             not_found_message="missing demo artifact",
@@ -200,7 +200,7 @@ def test_build_native_target_rebuilds_for_cmake_and_dependency_configuration(mon
     native_root, _, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
     build_dir.mkdir(parents=True)
-    artifact = build_dir / "demo_replay"
+    artifact = build_dir / "demo_capi"
     dependency_dir = tmp_path / "onnxruntime" / "lib" / "cmake" / "onnxruntime"
     dependency_dir.mkdir(parents=True)
     dependency_config = dependency_dir / "onnxruntimeConfigVersion.cmake"
@@ -227,7 +227,7 @@ def test_build_native_target_rebuilds_for_cmake_and_dependency_configuration(mon
     kwargs = {
         "tracker_name": "demo",
         "display_name": "Demo",
-        "target": "demo_replay",
+        "target": "demo_capi",
         "candidates": [artifact],
         "force_rebuild": False,
         "not_found_message": "missing demo artifact",
@@ -307,8 +307,8 @@ def test_build_native_target_selects_produced_multi_config_artifact(monkeypatch,
     build_dir = tmp_path / "build" / "demo"
     release_dir = build_dir / "Release"
     release_dir.mkdir(parents=True)
-    stale_root_artifact = build_dir / "demo_replay"
-    release_artifact = release_dir / "demo_replay"
+    stale_root_artifact = build_dir / "demo_capi"
+    release_artifact = release_dir / "demo_capi"
     stale_root_artifact.write_text("stale single-config artifact\n", encoding="utf-8")
     release_artifact.write_text("old release artifact\n", encoding="utf-8")
     (build_dir / "CMakeCache.txt").write_text(
@@ -330,7 +330,7 @@ def test_build_native_target_selects_produced_multi_config_artifact(monkeypatch,
     result = _common.build_native_target(
         tracker_name="demo",
         display_name="Demo",
-        target="demo_replay",
+        target="demo_capi",
         candidates=[stale_root_artifact, release_artifact],
         force_rebuild=False,
         not_found_message="missing demo artifact",
@@ -338,7 +338,7 @@ def test_build_native_target_selects_produced_multi_config_artifact(monkeypatch,
     )
 
     assert result == release_artifact
-    stamp = json.loads(_common._native_build_stamp_path(build_dir, "demo_replay").read_text(encoding="utf-8"))
+    stamp = json.loads(_common._native_build_stamp_path(build_dir, "demo_capi").read_text(encoding="utf-8"))
     assert stamp["artifact"] == str(release_artifact.resolve())
     assert stamp["artifact_sha256"] == _common._sha256_file(release_artifact)
 
@@ -346,7 +346,7 @@ def test_build_native_target_selects_produced_multi_config_artifact(monkeypatch,
 def test_build_native_target_trusts_packaged_artifact(monkeypatch, tmp_path):
     native_root, tracker_root, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
-    artifact = tracker_root / "demo_replay"
+    artifact = tracker_root / "demo_capi"
     artifact.write_text("packaged binary\n", encoding="utf-8")
 
     monkeypatch.setattr(_common, "package_native_root", lambda: native_root)
@@ -361,7 +361,7 @@ def test_build_native_target_trusts_packaged_artifact(monkeypatch, tmp_path):
     result = _common.build_native_target(
         tracker_name="demo",
         display_name="Demo",
-        target="demo_replay",
+        target="demo_capi",
         candidates=[artifact],
         force_rebuild=False,
         not_found_message="missing demo artifact",
@@ -375,9 +375,9 @@ def test_build_native_target_trusts_packaged_artifact(monkeypatch, tmp_path):
 def test_build_native_target_ignores_packaged_artifact_in_source_checkout(monkeypatch, tmp_path):
     native_root, tracker_root, _, _ = _make_native_sources(tmp_path)
     build_dir = tmp_path / "build" / "demo"
-    packaged_artifact = tracker_root / "demo_replay"
+    packaged_artifact = tracker_root / "demo_capi"
     packaged_artifact.write_text("stale packaged binary\n", encoding="utf-8")
-    built_artifact = build_dir / "demo_replay"
+    built_artifact = build_dir / "demo_capi"
     build_calls = []
 
     def fake_build_step(**kwargs):
@@ -395,7 +395,7 @@ def test_build_native_target_ignores_packaged_artifact_in_source_checkout(monkey
     result = _common.build_native_target(
         tracker_name="demo",
         display_name="Demo",
-        target="demo_replay",
+        target="demo_capi",
         candidates=[packaged_artifact, built_artifact],
         force_rebuild=False,
         not_found_message="missing demo artifact",

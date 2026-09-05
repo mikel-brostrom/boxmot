@@ -96,9 +96,6 @@ KalmanFilterXYSR::Vector KalmanFilterXYSR::AlignObbMeasurement(const Vector& mea
 void KalmanFilterXYSR::EnforceStateConstraints() {
     x[2] = std::max(x[2], 1.0e-6);
     x[3] = std::max(x[3], 1.0e-6);
-    if (is_obb_) {
-        x[4] = WrapAngle(x[4]);
-    }
     P = 0.5 * (P + P.transpose());
 }
 
@@ -198,7 +195,7 @@ void KalmanFilterXYSR::Unfreeze() {
         interpolated << interp_x, interp_y, interp_s, interp_r;
         if (is_obb_) {
             interpolated.conservativeResize(5);
-            interpolated[4] = WrapAngle(t1 + static_cast<double>(index + 1) * dtheta);
+            interpolated[4] = t1 + static_cast<double>(index + 1) * dtheta;
         }
 
         Update(interpolated);

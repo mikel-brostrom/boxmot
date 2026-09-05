@@ -125,11 +125,11 @@ class ServiceSettings:
 
         profile = os.getenv("BOXMOT_SERVICE_PROFILE", "cpu").strip().lower()
         default_tracker = "botsort" if profile == "gpu" else "bytetrack"
-        tracker_type = os.getenv("BOXMOT_SERVICE_TRACKER", default_tracker).strip().lower()
+        tracker_type = os.getenv("BOXMOT_SERVICE_TRACKER", default_tracker)
         return cls(
             profile=profile,
             tracker_type=tracker_type,
-            asso_func=os.getenv("BOXMOT_SERVICE_ASSO_FUNC", "iou").strip().lower(),
+            asso_func=os.getenv("BOXMOT_SERVICE_ASSO_FUNC", "iou"),
             device=os.getenv("BOXMOT_SERVICE_DEVICE", "0" if profile == "gpu" else "cpu").strip(),
             half=_environment_bool("BOXMOT_SERVICE_HALF", profile == "gpu"),
             reid_weights=os.getenv(

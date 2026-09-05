@@ -4,12 +4,12 @@ import pytest
 import torch
 from PIL import Image
 
-from boxmot.engine.config import build_mode_namespace
 from boxmot.reid.datasets.base import ReIDSample
 from boxmot.reid.datasets.torch_dataset import ReIDImageDataset
 from boxmot.reid.training.checkpoint import CheckpointManager, _is_train_only_model_key
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
 from boxmot.reid.training.losses import CenterLoss
+from boxmot.reid.training.presets import build_training_namespace
 from boxmot.reid.training.trainer import ReIDTrainer
 from boxmot.reid.training.trainer_components.global_ap import IdentityGlobalAP
 from boxmot.reid.training.trainer_components.hpgrd_integration import (
@@ -185,8 +185,7 @@ def test_full_batch_semantic_intervention_selects_only_declared_rows():
 
 
 def test_hpgrd_recipe_round_trips_to_typed_trainer_configuration():
-    namespace = build_mode_namespace(
-        "train",
+    namespace = build_training_namespace(
         {"recipe": "csl_tinyvit_7m_hpgrd"},
     )
     kwargs = trainer_kwargs_from_args(namespace)
@@ -220,7 +219,7 @@ def test_hpgrd_recipe_round_trips_to_typed_trainer_configuration():
 def test_hpgrd_recipe_preserves_v20_deployment_model_and_descriptor_contract():
     models = []
     for recipe_name in ("csl_tinyvit_7m_v20", "csl_tinyvit_7m_hpgrd"):
-        namespace = build_mode_namespace("train", {"recipe": recipe_name})
+        namespace = build_training_namespace({"recipe": recipe_name})
         config = ReIDTrainConfig.from_flat_kwargs(**trainer_kwargs_from_args(namespace))
         trainer = ReIDTrainer.from_config(config)
         trainer.pretrained = False

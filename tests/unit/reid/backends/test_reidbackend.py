@@ -8,7 +8,7 @@ from boxmot.reid.backends.onnx_backend import ONNXBackend
 from boxmot.reid.backends.openvino_backend import OpenVinoBackend
 from boxmot.reid.backends.pytorch_backend import PyTorchBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
-from boxmot.reid import ReID
+from boxmot.reid.core.runtime import ReID
 from boxmot.utils import ROOT, WEIGHTS
 
 # Exported artifacts are covered by the dedicated CI export job.

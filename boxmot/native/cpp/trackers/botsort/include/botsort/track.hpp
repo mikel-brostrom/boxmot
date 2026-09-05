@@ -14,11 +14,12 @@ public:
 
     explicit Track(const Detection& detection);
 
-    static void ResetCount();
-    static int NextId();
-
-    void Activate(const KalmanFilterXYWH& kalman_filter, int frame_id);
-    void ReActivate(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id, bool new_id = false);
+    void Activate(const KalmanFilterXYWH& kalman_filter,
+                  int frame_id,
+                  std::int64_t track_id);
+    void ReActivate(const Track& new_track,
+                    const KalmanFilterXYWH& kalman_filter,
+                    int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id);
     void Predict(const KalmanFilterXYWH& kalman_filter);
     void ApplyAffine(const Eigen::Matrix2d& linear, const Eigen::Vector2d& translation);
@@ -37,20 +38,20 @@ public:
 
     bool is_activated = false;
     TrackState state = TrackState::kNew;
-    int id = 0;
+    std::int64_t id = 0;
     int frame_id = 0;
     int start_frame = 0;
     int tracklet_len = 0;
     float conf = 0.0F;
-    int cls = 0;
-    int det_ind = -1;
+    std::int64_t cls = 0;
+    std::int64_t det_ind = -1;
 
     Eigen::VectorXd mean;
     Eigen::MatrixXd covariance;
 
 private:
     void UpdateFeatures(const Eigen::VectorXf& feat);
-    void UpdateClass(int cls_id, float confidence);
+    void UpdateClass(std::int64_t cls_id, float confidence);
     static Eigen::VectorXf Normalize(const Eigen::VectorXf& feat);
     Eigen::VectorXd Measurement() const;
 
@@ -59,10 +60,8 @@ private:
     Eigen::Matrix<double, 5, 1> xywha_ = Eigen::Matrix<double, 5, 1>::Zero();
     Eigen::VectorXf smooth_feat_;
     Eigen::VectorXf curr_feat_;
-    std::unordered_map<int, float> cls_hist_;
+    std::unordered_map<std::int64_t, float> cls_hist_;
     float alpha_ = 0.9F;
-
-    static int count_;
 };
 
 }  // namespace botsort

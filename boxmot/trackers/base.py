@@ -2,20 +2,22 @@ from abc import abstractmethod
 from collections.abc import Iterable, Mapping
 
 import numpy as np
+import torch
 
+from boxmot.structures import Boxes, Detections, Frame, Geometry, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.detections import DetectionBatch
-from boxmot.trackers.common.detections.layout import get_detection_layout, infer_detection_layout
+from boxmot.trackers.common.detections import _DetectionBatch
+from boxmot.trackers.common.detections.layout import get_detection_layout
+from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.classes import ClassCatalog
 from boxmot.trackers.common.tracking.display import TrackDisplayMixin
 from boxmot.trackers.common.tracking.formatting import TrackFormattingMixin
 from boxmot.trackers.common.tracking.per_class import PerClassUpdateMixin
-from boxmot.trackers.common.tracking.records import DetectionRecord
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
 from boxmot.trackers.common.tracking.visualization import VisualizationMixin
-from boxmot.trackers.results import TrackResults
+from boxmot.trackers.protocols import TrackerRequirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -28,7 +30,7 @@ class BaseTracker(
 ):
     """Shared public tracker contract.
 
-    ``update`` owns input normalization and output wrapping. Concrete trackers
+    ``update`` owns the strict canonical boundary and output wrapping. Concrete trackers
     implement ``_track_detections`` with their algorithm-specific association and
     lifecycle logic. Centroid association is normalized by frame dimensions, so
     its first update requires an image unless a tracker explicitly opts out of
@@ -36,10 +38,34 @@ class BaseTracker(
     """
 
     supports_obb = False
-    uses_img = False
-    uses_embs = False
-    supports_masks = False
+    use_embeddings = False
+    _requires_frame = False
+    _requires_masks = False
     uses_frame_dimensions_for_association = True
+
+    def _resolve_detection_layout(self, is_obb: bool):
+        """Return the private row layout for a resolved geometry mode."""
+
+        return get_detection_layout(is_obb)
+
+    def _resolve_association_mode_name(self, base_name: str) -> str:
+        """Resolve an association name for the configured geometry layout."""
+
+        return self.detection_layout.association_mode_name(base_name)
+
+    def _build_association_function(self, *, width: int | None, height: int | None):
+        """Build the selected association callable for optional frame dimensions."""
+
+        return AssociationFunction(w=width, h=height, asso_mode=self.asso_func_name).asso_func
+
+    def _validate_geometry(self, geometry: Geometry) -> None:
+        """Validate canonical geometry against this tracker's fixed mode."""
+
+        expected_obb = self.detection_layout.is_obb
+        if geometry.is_obb != expected_obb:
+            expected = "OBB" if expected_obb else "AABB"
+            received = "OBB" if geometry.is_obb else "AABB"
+            raise ValueError(f"{self.__class__.__name__} is configured for {expected} geometry, got {received}.")
 
     def __init__(
         self,
@@ -79,8 +105,11 @@ class BaseTracker(
         - OBB: ``(cx, cy, w, h, angle, conf, cls)``
         """
 
-        tracker_name = kwargs.pop("_tracker_name", None)
-        self.name = str(tracker_name or self.__class__.__name__)
+        if kwargs:
+            unexpected = next(iter(kwargs))
+            raise TypeError(f"{self.__class__.__name__}.__init__() got an unexpected keyword argument '{unexpected}'")
+
+        self.name = self.__class__.__name__
         self.det_thresh = det_thresh
         self.max_age = max_age
         self.max_obs = max_obs
@@ -90,26 +119,36 @@ class BaseTracker(
         self.class_catalog = ClassCatalog.from_metadata(class_ids=class_ids, class_names=class_names)
         self.class_ids = self.class_catalog.class_ids
         self.class_names = self.class_catalog.names
+        # Legacy kernels store geometry and metadata in one float32 row. Keep
+        # canonical int64 class IDs outside that row and expose only stable,
+        # exactly representable private codes to the kernels.
+        self._canonical_to_kernel_class_id: dict[int, int] = {}
+        self._kernel_to_canonical_class_id: dict[int, int] = {}
+        self._next_kernel_class_id = -1
+        self._obb_output_by_track_id: dict[int, np.ndarray] = {}
         if not isinstance(asso_func, str):
             raise TypeError(f"asso_func must be a string, got {type(asso_func).__name__}.")
-        self._asso_func_base_name = asso_func.strip().lower()
-        if not self._asso_func_base_name:
+        if not asso_func:
             raise ValueError("asso_func must not be empty.")
-        self.detection_layout = get_detection_layout(is_obb)
-        self.asso_func_name = self.detection_layout.association_mode_name(self._asso_func_base_name)
+        if asso_func != asso_func.strip().lower():
+            raise ValueError(f"asso_func must use its canonical lowercase identifier: {asso_func!r}")
+        self._asso_func_base_name = asso_func
+        self.detection_layout = self._resolve_detection_layout(is_obb)
+        if self.detection_layout.is_obb and not self.supports_obb:
+            raise ValueError(f"{self.__class__.__name__} does not support OBB geometry.")
+        self.asso_func_name = self._resolve_association_mode_name(self._asso_func_base_name)
         self.is_obb = self.detection_layout.is_obb
-        self.uses_img = bool(
-            self.uses_img
+        self._requires_frame = bool(
+            self._requires_frame
             or (self.uses_frame_dimensions_for_association and self.asso_func_name in {"centroid", "centroid_obb"})
         )
-        self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
+        self.asso_func = self._build_association_function(width=None, height=None)
         self.id_allocator = TrackIdAllocator()
 
         self.frame_count = 0
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
-        self._first_dets_processed = False
         self.last_emb_size = None
 
         if self.per_class:
@@ -124,43 +163,81 @@ class BaseTracker(
         self._removed_expired = set()
         self.removed_display_frames = getattr(self, "removed_display_frames", 10)
 
-        if tracker_name:
-            base_params = {
-                "det_thresh": det_thresh,
-                "max_age": max_age,
-                "max_obs": max_obs,
-                "min_hits": min_hits,
-                "iou_threshold": iou_threshold,
-                "per_class": per_class,
-                "class_ids": None if self.class_ids is None else tuple(sorted(self.class_ids)),
-                "asso_func": self._asso_func_base_name,
-            }
-            filtered_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if not k.startswith("_") and k not in ("__class__", "reid_weights", "device", "half")
-            }
-            all_params = {**base_params, **filtered_kwargs}
-            params_str = ", ".join(f"{k}={v}" for k, v in all_params.items())
-            LOGGER.info(f"{tracker_name}: {params_str}")
+        base_params = {
+            "det_thresh": det_thresh,
+            "max_age": max_age,
+            "max_obs": max_obs,
+            "min_hits": min_hits,
+            "iou_threshold": iou_threshold,
+            "per_class": per_class,
+            "class_ids": None if self.class_ids is None else tuple(sorted(self.class_ids)),
+            "asso_func": self._asso_func_base_name,
+        }
+        params_str = ", ".join(f"{k}={v}" for k, v in base_params.items())
+        LOGGER.info(f"{self.name}: {params_str}")
 
-    def update(
-        self,
-        dets: np.ndarray,
-        img: np.ndarray = None,
-        embs: np.ndarray = None,
-        masks: np.ndarray = None,
-    ) -> TrackResults:
-        """Update the tracker with one frame of detections."""
-        dets, img, embs, masks = self._prepare_update_inputs(
-            dets=dets,
-            img=img,
-            embs=embs,
-            masks=masks,
+    @property
+    def requirements(self) -> TrackerRequirements:
+        """Return the immutable inputs required by this resolved configuration."""
+        return TrackerRequirements(
+            embeddings=bool(self.use_embeddings),
+            masks=bool(self._requires_masks),
+            frame=bool(self._requires_frame),
         )
-        self._validate_update_inputs(dets=dets, img=img, embs=embs, masks=masks)
-        self._initialize_frame_context(img)
 
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+        """Advance one sequence using canonical, CPU-backed structures."""
+        if not isinstance(detections, Detections):
+            raise TypeError(f"detections must be Detections, got {type(detections).__name__}.")
+        if frame is not None and not isinstance(frame, Frame):
+            raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
+
+        detections.validate()
+        if frame is not None:
+            frame.validate()
+            if frame.sample_id != detections.sample_id:
+                raise ValueError(
+                    "Frame and detections must identify the same sample, "
+                    f"got {frame.sample_id!r} and {detections.sample_id!r}."
+                )
+
+        self._validate_geometry(detections.geometry)
+
+        requirements = self.requirements
+        if requirements.embeddings and detections.embeddings is None:
+            raise ValueError(f"{self.__class__.__name__} requires detection embeddings.")
+        if requirements.masks and detections.masks is None:
+            raise ValueError(f"{self.__class__.__name__} requires full-frame detection masks.")
+        if requirements.masks and len(detections) and not detections.masks.values.flatten(1).any(dim=1).all():
+            raise ValueError(f"{self.__class__.__name__} requires foreground in every non-empty detection mask.")
+        if requirements.frame and frame is None:
+            raise ValueError(f"{self.__class__.__name__} requires a frame.")
+        if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
+            raise ValueError(
+                "Detection masks must match the frame spatial size, "
+                f"got {detections.masks.image_size} and {frame.image_size}."
+            )
+
+        return self._update_numpy(detections, frame)
+
+    def _update_numpy(self, detections: Detections, frame: Frame | None) -> Tracks:
+        """Adapt canonical structures to one legacy NumPy kernel invocation."""
+        self.class_catalog.validate_ids(detections.class_ids.tolist())
+        kernel_class_ids = np.asarray(
+            [self._encode_kernel_class_id(int(value)) for value in detections.class_ids.tolist()],
+            dtype=np.float32,
+        )
+        geometry = detections.geometry.values.detach().numpy()
+        scores = detections.scores.detach().numpy()
+        dets = np.column_stack((geometry, scores, kernel_class_ids)).astype(np.float32, copy=False)
+        embs = None if detections.embeddings is None else detections.embeddings.detach().numpy()
+        masks = None if detections.masks is None else detections.masks.values.detach().numpy()
+        img = None
+        if frame is not None:
+            # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
+            img = frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
+
+        self._initialize_frame_context(img)
         if self.per_class:
             result = self._track_per_class(dets=dets, img=img, embs=embs, masks=masks)
         else:
@@ -170,83 +247,113 @@ class BaseTracker(
             raw, output_masks = result
         else:
             raw, output_masks = result, None
-        return TrackResults(raw, masks=output_masks, schema=self.detection_layout.schema)
 
-    def _prepare_update_inputs(
-        self,
-        dets: np.ndarray,
-        img: np.ndarray = None,
-        embs: np.ndarray = None,
-        masks: np.ndarray = None,
-    ) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-        """Unwrap detections and initialize frame context."""
-        if hasattr(dets, "dets"):
-            if img is None:
-                img = getattr(dets, "orig_img", None)
-            if masks is None:
-                masks = getattr(dets, "masks", None)
-            dets = dets.dets
-
-        if hasattr(dets, "data"):
-            dets = dets.data
-
-        if isinstance(dets, memoryview):
-            dets = np.array(dets, dtype=np.float32)
-
-        if isinstance(dets, np.ndarray) and dets.ndim == 1 and dets.size:
-            dets = dets.reshape(1, -1)
-
-        inferred_layout = infer_detection_layout(dets)
-        if isinstance(dets, np.ndarray) and dets.ndim == 2 and len(dets) == 0 and inferred_layout is None:
+        raw = np.asarray(raw, dtype=np.float32)
+        if raw.ndim != 2 or raw.shape[1] != self.detection_layout.output_cols:
             raise ValueError(
-                f"Empty detections must preserve a canonical 6-column AABB or 7-column OBB schema, got {dets.shape}."
+                f"{self.__class__.__name__} kernel returned shape {raw.shape}; "
+                f"expected [N, {self.detection_layout.output_cols}]."
+            )
+        if raw.size and not np.isfinite(raw).all():
+            raise ValueError(f"{self.__class__.__name__} kernel returned non-finite track rows.")
+
+        def integer_column(index: int, name: str) -> torch.Tensor:
+            values = raw[:, index]
+            if values.size and not np.equal(values, np.floor(values)).all():
+                raise ValueError(f"{self.__class__.__name__} kernel returned non-integer {name}.")
+            return torch.from_numpy(np.ascontiguousarray(values, dtype=np.int64))
+
+        track_ids = integer_column(self.detection_layout.schema.track_id_index, "track IDs")
+        geometry_columns = self.detection_layout.box_cols
+        geometry_array = np.ascontiguousarray(raw[:, :geometry_columns], dtype=np.float32)
+        if self.is_obb:
+            geometry_array = geometry_array.copy()
+            for index, track_id in enumerate(track_ids.tolist()):
+                previous = self._obb_output_by_track_id.get(track_id)
+                if previous is not None:
+                    geometry_array[index] = align_obb_measurement(geometry_array[index], previous)
+                self._obb_output_by_track_id[track_id] = geometry_array[index].copy()
+        geometry_values = torch.from_numpy(geometry_array)
+        geometry = OrientedBoxes(geometry_values) if self.is_obb else Boxes(geometry_values)
+
+        raw_class_ids = integer_column(self.detection_layout.schema.track_class_index, "class IDs")
+        decoded_class_ids = torch.tensor(
+            [self._decode_kernel_class_id(int(value)) for value in raw_class_ids.tolist()],
+            dtype=torch.int64,
+        )
+        detection_indices = integer_column(
+            self.detection_layout.schema.track_detection_index,
+            "detection indices",
+        )
+        if detection_indices.numel() and bool((detection_indices >= len(detections)).any()):
+            raise ValueError(
+                f"{self.__class__.__name__} kernel returned a detection index outside the current batch."
             )
 
-        if self._first_dets_processed and inferred_layout is not None:
-            if inferred_layout.is_obb != self.detection_layout.is_obb:
+        track_masks = None
+        if output_masks is not None:
+            output_masks = np.asarray(output_masks)
+            if output_masks.ndim != 3 or len(output_masks) != len(raw):
+                raise ValueError(f"{self.__class__.__name__} kernel masks must have shape [N, H, W] aligned to tracks.")
+            if frame is not None and tuple(output_masks.shape[1:]) != frame.image_size:
                 raise ValueError(
-                    "Detection modality cannot change after tracker initialization: "
-                    f"expected {self.detection_layout.name}, got {inferred_layout.name}."
+                    f"{self.__class__.__name__} kernel masks must match frame size {frame.image_size}, "
+                    f"got {tuple(output_masks.shape[1:])}."
                 )
-        elif not self._first_dets_processed and dets is not None:
-            if inferred_layout is not None:
-                if inferred_layout.is_obb and not self.supports_obb:
-                    raise AssertionError(
-                        f"{self.__class__.__name__} does not support OBB detections. "
-                        "Use an OBB-capable tracker such as ByteTrack, BotSort, OCSort, or SFSORT."
-                    )
-                self._set_detection_mode(inferred_layout.is_obb)
-                self._first_dets_processed = True
+            mask_values = torch.from_numpy(np.ascontiguousarray(output_masks, dtype=np.bool_))
+            track_masks = MaskBatch(mask_values)
+        elif self.requirements.masks and len(raw) == 0:
+            assert detections.masks is not None
+            height, width = detections.masks.image_size
+            track_masks = MaskBatch(torch.empty((0, height, width), dtype=torch.bool))
+        elif self.requirements.masks:
+            raise ValueError(f"{self.__class__.__name__} must return track-aligned masks.")
 
-        masks = self._prepare_update_masks(dets, masks)
-        if dets is None or len(dets) == 0:
-            dets = self.empty_detections()
-            masks = None
-        return dets, img, embs, masks
-
-    def requires_image(
-        self,
-        dets: np.ndarray,
-        embs: np.ndarray | None = None,
-        masks: np.ndarray | None = None,
-    ) -> bool:
-        """Return whether this update needs an image for the active configuration."""
-        del dets, embs, masks
-        return bool(
-            self.uses_frame_dimensions_for_association
-            and not self._first_frame_processed
-            and self.asso_func_name in {"centroid", "centroid_obb"}
+        return Tracks(
+            geometry=geometry,
+            track_ids=track_ids,
+            scores=torch.from_numpy(
+                np.ascontiguousarray(raw[:, self.detection_layout.schema.track_conf_index], dtype=np.float32)
+            ),
+            class_ids=decoded_class_ids,
+            detection_indices=detection_indices,
+            sample_id=detections.sample_id,
+            masks=track_masks,
         )
 
-    @staticmethod
-    def _requires_live_embeddings(
-        dets: np.ndarray,
-        embs: np.ndarray | None,
-        *,
-        enabled: bool,
-    ) -> bool:
-        """Return whether non-empty detections need image-based ReID extraction."""
-        return bool(enabled and embs is None and len(dets) > 0)
+    def _encode_kernel_class_id(self, class_id: int) -> int:
+        """Map a canonical ID to a stable float32/int32-safe kernel code."""
+        existing = self._canonical_to_kernel_class_id.get(class_id)
+        if existing is not None:
+            return existing
+
+        int32_max = np.iinfo(np.int32).max
+        if class_id <= int32_max and int(np.float32(class_id)) == class_id:
+            kernel_id = class_id
+        else:
+            kernel_id = self._next_kernel_class_id
+            self._next_kernel_class_id -= 1
+        self._canonical_to_kernel_class_id[class_id] = kernel_id
+        self._kernel_to_canonical_class_id[kernel_id] = class_id
+        return kernel_id
+
+    def _decode_kernel_class_id(self, kernel_id: int) -> int:
+        """Restore one exact canonical class ID emitted by a private kernel."""
+        try:
+            return self._kernel_to_canonical_class_id[kernel_id]
+        except KeyError as exc:
+            raise ValueError(
+                f"{self.__class__.__name__} kernel returned unknown class code {kernel_id}."
+            ) from exc
+
+    def _validate_kernel_class_ids(self, kernel_ids: Iterable[int]) -> None:
+        """Validate private class codes against the public class catalog."""
+        self.class_catalog.validate_ids(self._decode_kernel_class_id(int(value)) for value in kernel_ids)
+
+    def _kernel_class_id_for_lookup(self, class_id: int) -> int:
+        """Resolve a public class ID for class-local state inspection."""
+        self.class_catalog.validate_ids((class_id,))
+        return self._encode_kernel_class_id(int(class_id))
 
     def _initialize_frame_context(self, img: np.ndarray | None) -> None:
         """Record frame dimensions and bind dimension-aware association once."""
@@ -261,7 +368,7 @@ class BaseTracker(
         if width <= 0 or height <= 0:
             raise ValueError(f"Frame dimensions must be positive, got width={width}, height={height}.")
         self.w, self.h = int(width), int(height)
-        self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
+        self.asso_func = self._build_association_function(width=self.w, height=self.h)
         self._first_frame_processed = True
 
     def association_similarity(
@@ -325,77 +432,6 @@ class BaseTracker(
             rows.append(row[:geometry_cols])
         return np.asarray(rows)
 
-    def _prepare_update_masks(self, dets: np.ndarray, masks: np.ndarray = None) -> np.ndarray | None:
-        """Normalize optional masks and discard them for unsupported trackers."""
-        if masks is None:
-            return None
-
-        if not self.supports_masks:
-            if not getattr(self, "_masks_warning_issued", False):
-                LOGGER.warning(f"{self.__class__.__name__} does not support masks. Masks will be ignored.")
-                self._masks_warning_issued = True
-            return None
-
-        return np.asarray(masks)
-
-    def _validate_update_inputs(
-        self,
-        dets: np.ndarray,
-        img: np.ndarray | None = None,
-        embs: np.ndarray | None = None,
-        masks: np.ndarray | None = None,
-    ) -> None:
-        """Validate canonical detections and optional frame-aligned inputs."""
-        self.detection_layout.validate_dets(dets)
-        if dets.size and not np.isfinite(dets).all():
-            raise ValueError("Tracker detections must contain only finite values.")
-        if dets.size:
-            boxes = self.detection_layout.boxes(dets)
-            if self.is_obb:
-                if np.any(boxes[:, 2:4] <= 0):
-                    raise ValueError("OBB detections must have positive width and height.")
-            elif np.any(boxes[:, 2] <= boxes[:, 0]) or np.any(boxes[:, 3] <= boxes[:, 1]):
-                raise ValueError("AABB detections must satisfy x2 > x1 and y2 > y1.")
-        self.class_catalog.validate_detections(dets, self.detection_layout)
-
-        if img is not None:
-            if not isinstance(img, np.ndarray):
-                raise TypeError(f"Unsupported image type {type(img).__name__}; expected numpy.ndarray.")
-            if img.ndim not in (2, 3):
-                raise ValueError(f"Image must be a 2D or 3D array, got shape {img.shape}.")
-            if img.shape[0] == 0 or img.shape[1] == 0:
-                raise ValueError(f"Image must have non-zero height and width, got shape {img.shape}.")
-
-        if embs is not None:
-            if not isinstance(embs, np.ndarray):
-                raise TypeError(f"Unsupported embeddings type {type(embs).__name__}; expected numpy.ndarray.")
-            if embs.ndim != 2:
-                raise ValueError(f"Embeddings must be a 2D array, got shape {embs.shape}.")
-            if len(embs) != len(dets):
-                raise ValueError("Detections and embeddings must have the same number of rows.")
-            if embs.size and not np.isfinite(embs).all():
-                raise ValueError("Embeddings must contain only finite values.")
-
-        if img is None and self.requires_image(dets=dets, embs=embs, masks=masks):
-            if (
-                self.uses_frame_dimensions_for_association
-                and not self._first_frame_processed
-                and self.asso_func_name in {"centroid", "centroid_obb"}
-            ):
-                raise ValueError(
-                    f"{self.__class__.__name__} requires img when using '{self._asso_func_base_name}' association."
-                )
-            raise ValueError(f"{self.__class__.__name__} requires img for the current tracker configuration.")
-
-        if masks is None:
-            return
-        if masks.ndim != 3:
-            raise ValueError(f"Masks must be 3D (N, H, W), got shape {masks.shape}")
-
-        n_dets = len(dets)
-        if masks.shape[0] != n_dets:
-            raise ValueError(f"Masks count ({masks.shape[0]}) must match detections count ({n_dets})")
-
     @abstractmethod
     def _track_detections(
         self,
@@ -407,47 +443,23 @@ class BaseTracker(
         """Run algorithm-specific tracking for one frame."""
         raise NotImplementedError("The _track_detections method needs to be implemented by the subclass.")
 
-    def _set_detection_mode(self, is_obb: bool) -> None:
-        """Update detection layout and association function mode."""
-        self.detection_layout = get_detection_layout(is_obb)
-        self.is_obb = self.detection_layout.is_obb
-        self.asso_func_name = self.detection_layout.association_mode_name(self._asso_func_base_name)
-        if self.uses_frame_dimensions_for_association and self.asso_func_name in {"centroid", "centroid_obb"}:
-            self.uses_img = True
-
-        if self._first_frame_processed and hasattr(self, "w") and hasattr(self, "h"):
-            self.asso_func = AssociationFunction(w=self.w, h=self.h, asso_mode=self.asso_func_name).asso_func
-        else:
-            self.asso_func = AssociationFunction(w=None, h=None, asso_mode=self.asso_func_name).asso_func
-
-    def empty_detections(self, dtype=np.float32) -> np.ndarray:
-        return self.detection_layout.empty_dets(dtype=dtype)
-
-    def empty_output(self, dtype=float) -> np.ndarray:
+    def _empty_output(self, dtype=float) -> np.ndarray:
+        """Return the private NumPy kernel's empty output layout."""
         return output_utils.empty_output(self.detection_layout, dtype=dtype)
 
-    def make_detection_batch(
+    def _make_detection_batch(
         self,
         dets: np.ndarray,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
-    ) -> DetectionBatch:
+    ) -> _DetectionBatch:
         """Convert raw detections to a canonical detection batch."""
-        return DetectionBatch.from_layout(
+        return _DetectionBatch.from_layout(
             dets,
             self.detection_layout,
             embs=embs,
             masks=masks,
         )
-
-    def make_detections(
-        self,
-        dets: np.ndarray,
-        embs: np.ndarray | None = None,
-        masks: np.ndarray | None = None,
-    ) -> list[DetectionRecord]:
-        """Convert raw detections to canonical detection records."""
-        return self.make_detection_batch(dets, embs=embs, masks=masks).as_records()
 
     def configure_class_catalog(
         self,
@@ -466,11 +478,14 @@ class BaseTracker(
         self.active_tracks = []
         self.last_emb_size = None
         self._first_frame_processed = False
-        self._first_dets_processed = False
         self._plot_frame_idx = -1
         self._removed_first_seen.clear()
         self._removed_expired.clear()
         self.id_allocator.reset()
+        self._canonical_to_kernel_class_id.clear()
+        self._kernel_to_canonical_class_id.clear()
+        self._next_kernel_class_id = -1
+        self._obb_output_by_track_id.clear()
 
         for attr_name in self._class_state_attr_names():
             if hasattr(self, attr_name):

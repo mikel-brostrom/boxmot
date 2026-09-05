@@ -1,0 +1,49 @@
+"""Domain-facing C++ OccluBoost box-tracker adapter."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from boxmot.native.trackers.occluboost import get_occluboost_library
+from boxmot.trackers.common.native import (
+    NativeTrackerAdapter,
+    NativeTrackerLibrary,
+    association_requires_frame,
+    load_native_tracker_config,
+    resolve_association_function,
+)
+
+
+def _resolve_tracker_config(options: dict[str, Any] | None) -> dict[str, Any]:
+    cfg = load_native_tracker_config("occluboost", options, native_only_keys=("max_obs",))
+    resolve_association_function(cfg)
+    cfg.setdefault("use_embeddings", True)
+    cfg.setdefault("use_cmc", True)
+    cfg.setdefault("cmc_method", "sof")
+    cfg.setdefault("max_obs", 50)
+    return cfg
+
+
+class NativeOccluBoostTracker(NativeTrackerAdapter):
+    """Canonical tracker interface backed by the native OccluBoost ABI."""
+
+    _native_display_name = "OccluBoost"
+
+    def __init__(
+        self,
+        options: dict[str, Any] | None = None,
+        *,
+        geometry: str = "aabb",
+        library: NativeTrackerLibrary | None = None,
+    ) -> None:
+        cfg = _resolve_tracker_config(options)
+        self._init_native_handle(
+            library=get_occluboost_library() if library is None else library,
+            cfg=cfg,
+            geometry=geometry,
+            use_embeddings=bool(cfg["use_embeddings"]),
+            requires_frame=bool(cfg["use_cmc"]) or association_requires_frame(cfg),
+        )
+
+
+__all__ = ("NativeOccluBoostTracker",)

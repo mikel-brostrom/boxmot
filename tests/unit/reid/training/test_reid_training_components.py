@@ -5,7 +5,6 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from boxmot.engine.config import load_training_config
 from boxmot.reid.backbones.anatomical_registry import (
     ANATOMICAL_TARGET_TYPES,
     DEFAULT_ANATOMICAL_TARGET_TYPE,
@@ -43,6 +42,7 @@ from boxmot.reid.training.model_options import (
     REID_MODEL_OPTION_GROUPS,
     build_reid_model_kwargs,
 )
+from boxmot.reid.training.presets import load_training_config
 from boxmot.reid.training.resume import contract_differences
 
 

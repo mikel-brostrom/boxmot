@@ -122,7 +122,7 @@ class PerClassUpdateMixin:
                 return combined_tracks, np.vstack(aligned_masks)
             return combined_tracks
 
-        return self.empty_output()
+        return self._empty_output()
 
     def _class_detection_indices(self, dets: np.ndarray, cls_id: int) -> np.ndarray:
         """Return frame-global row indices for one detector class."""
@@ -145,7 +145,11 @@ class PerClassUpdateMixin:
     def _ensure_class_track_state(self, cls_id: int) -> ClassTrackState:
         self._ensure_class_track_states()
         cls_id = int(cls_id)
-        self.class_catalog.validate_ids([cls_id])
+        kernel_validator = getattr(self, "_validate_kernel_class_ids", None)
+        if kernel_validator is None:
+            self.class_catalog.validate_ids([cls_id])
+        else:
+            kernel_validator([cls_id])
         state = self.class_track_states.setdefault(cls_id, ClassTrackState())
         for attr_name in self._class_state_attr_names():
             state.attrs.setdefault(attr_name, self._empty_state_like(getattr(self, attr_name)))
@@ -159,7 +163,12 @@ class PerClassUpdateMixin:
         return empty_track_collection_like(value)
 
     def _class_update_ids(self, dets: np.ndarray) -> list[int]:
-        detected_classes = self.class_catalog.detected_ids(dets, self.detection_layout)
+        detected_classes = {int(value) for value in self.detection_layout.classes(dets)}
+        kernel_validator = getattr(self, "_validate_kernel_class_ids", None)
+        if kernel_validator is None:
+            self.class_catalog.validate_ids(detected_classes)
+        else:
+            kernel_validator(detected_classes)
 
         active_classes = {
             cls_id
@@ -196,7 +205,9 @@ class PerClassUpdateMixin:
         return values
 
     def get_class_track_state(self, cls_id: int) -> ClassTrackState:
-        return self._ensure_class_track_state(cls_id)
+        resolver = getattr(self, "_kernel_class_id_for_lookup", None)
+        kernel_id = int(cls_id) if resolver is None else resolver(int(cls_id))
+        return self._ensure_class_track_state(kernel_id)
 
     def get_class_tracks(self, cls_id: int, group: str = "active") -> list:
         """Return class-local tracks by lifecycle group."""
@@ -222,11 +233,11 @@ class PerClassUpdateMixin:
 
     def _get_class_masks(self, dets: np.ndarray, masks: np.ndarray, cls_id: int):
         """Slice masks by class, matching ``get_class_dets_n_embs``."""
-        if masks is None or dets.size == 0:
+        if masks is None:
             return None
+        if dets.size == 0:
+            return masks[:0]
         class_indices = np.where(dets[:, self.detection_layout.cls_idx] == cls_id)[0]
-        if len(class_indices) == 0:
-            return None
         return masks[class_indices]
 
     def get_class_dets_n_embs(self, dets, embs, cls_id):

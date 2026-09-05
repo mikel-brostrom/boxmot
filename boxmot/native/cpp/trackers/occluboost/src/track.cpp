@@ -13,8 +13,6 @@
 
 namespace occluboost {
 
-int KalmanBoxTracker::count_ = 0;
-
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
@@ -114,7 +112,7 @@ Eigen::Matrix<double, 5, 1> AlignObbBox(
     Eigen::Matrix<double, 5, 1> aligned = box;
     aligned[2] = best[0];
     aligned[3] = best[1];
-    aligned[4] = WrapAngle(best[2]);
+    aligned[4] = best[2];
     return aligned;
 }
 
@@ -132,7 +130,7 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
         warped_box.head<2>() = (linear * source_box.head<2>()) + translation;
         warped_box[2] *= similarity_scale;
         warped_box[3] *= similarity_scale;
-        warped_box[4] = WrapAngle(source_box[4] + similarity_rotation);
+        warped_box[4] = source_box[4] + similarity_rotation;
         if (alignment_reference != nullptr) {
             warped_box = AlignObbBox(warped_box, *alignment_reference);
         }
@@ -162,7 +160,7 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
     } else {
         reference.head<2>() = (linear * source_box.head<2>()) + translation;
         const double rot = ProperRotationAngle(linear);
-        reference[4] = WrapAngle(source_box[4] + rot);
+        reference[4] = source_box[4] + rot;
     }
     return XywhaToZObb(AlignObbBox(raw_box, reference));
 }
@@ -237,26 +235,19 @@ Eigen::Vector4d XywhaToEnclosingXyxy(const Eigen::Matrix<double, 5, 1>& xywha) {
     return out;
 }
 
-void KalmanBoxTracker::ResetCount() {
-    count_ = 0;
-}
-
-int KalmanBoxTracker::NextId() {
-    ++count_;
-    return count_;
-}
-
-KalmanBoxTracker::KalmanBoxTracker(const Detection& detection, const int max_obs)
-    : conf(detection.conf),
+KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
+                                   const int max_obs,
+                                   const std::int64_t track_id)
+    : id(track_id),
+      conf(detection.conf),
       cls(detection.cls),
       det_ind(detection.det_ind),
       max_obs_(std::max(max_obs, 1)),
       is_obb_(detection.is_obb) {
-    id = NextId();
     if (is_obb_) {
         const Eigen::Matrix<double, 5, 1> z = XywhaToZObb(detection.xywha);
         KalmanFilterXYHR::Vector measurement(5);
-        measurement << z[0], z[1], z[2], z[3], WrapAngle(z[4]);
+        measurement << z[0], z[1], z[2], z[3], z[4];
         kf.Initiate(measurement);
     } else {
         const Eigen::Vector4d z = XyxyToZ(detection.xyxy);
@@ -399,7 +390,6 @@ Eigen::Matrix<double, 5, 1> KalmanBoxTracker::xywha() const {
     if (is_obb_) {
         state << kf.mean()[0], kf.mean()[1], kf.mean()[2], kf.mean()[3], kf.mean()[4];
         Eigen::Matrix<double, 5, 1> out = ZObbToXywha(state);
-        out[4] = WrapAngle(out[4]);
         return out;
     }
     const Eigen::Vector4d aabb = xyxy();

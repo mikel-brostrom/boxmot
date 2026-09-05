@@ -1,8 +1,9 @@
-"""Native ReID Python bindings."""
+"""Low-level native ReID C-ABI bindings."""
 
-from boxmot.native.reid.capi import CppOnnxReID, ensure_reid_capi_library
+from boxmot.native.reid.capi import ReIDLibrary, ensure_reid_capi_library, get_reid_capi_library
 
 __all__ = (
-    "CppOnnxReID",
+    "ReIDLibrary",
     "ensure_reid_capi_library",
+    "get_reid_capi_library",
 )

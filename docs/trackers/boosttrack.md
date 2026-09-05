@@ -18,25 +18,27 @@ When enabled, the process noise covariance **Q** is estimated online from innova
 
 **When to use it:**
 
-- Deploying to a new domain where you have no ground truth to run `--tune-kf`.
+- Deploying to a new domain where you do not yet have tuned static motion parameters.
 - Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
 - Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
 
 **When NOT to use it:**
 
-- You already have a tuned static Q from `boxmot eval --tune-kf` on representative data — the static solution is cheaper and deterministic.
+- You already have validated static motion parameters — the static solution is cheaper and deterministic.
 - Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
 
-Enable it through the Python facade:
+Enable it through the structured factory:
 
 ```python
-from boxmot import BoxMOT
+from boxmot import create_tracker
+from boxmot.trackers import TrackerSpec
 
-model = BoxMOT(
-    tracker="boosttrack",
-    tracker_kwargs={"adaptive_kf": True},
+tracker = create_tracker(
+    TrackerSpec(
+        name="boosttrack",
+        options=(("adaptive_kf", True),),
+    )
 )
-model.track(source="video.mp4")
 ```
 
 Or set it in a custom tracker config YAML:
@@ -45,7 +47,7 @@ Or set it in a custom tracker config YAML:
 adaptive_kf: true
 ```
 
-Use `boxmot eval --tune-kf` when you want to calibrate a static Kalman model
-against representative ground truth instead.
+Use a custom tracker configuration when you have calibrated static Kalman
+parameters against representative ground truth.
 
-::: boxmot.trackers.bbox.boosttrack.BoostTrack
+::: boxmot.BoostTrack

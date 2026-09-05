@@ -46,6 +46,11 @@ class ECC(BaseCMC):
         self.prev_img: Optional[np.ndarray] = None
         self.prev_img_aligned: Optional[np.ndarray] = None
 
+    def reset(self) -> None:
+        """Clear the previous-frame state."""
+        self.prev_img = None
+        self.prev_img_aligned = None
+
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         if self.warp_mode == cv2.MOTION_HOMOGRAPHY:
             identity = np.eye(3, 3, dtype=np.float32)
@@ -58,7 +63,7 @@ class ECC(BaseCMC):
             return identity
 
         curr = self.preprocess(img)
-        mask = self.generate_mask(curr, dets, self.scale)
+        mask = self.generate_mask(curr, dets)
         scaled_warp = identity.copy()
 
         try:

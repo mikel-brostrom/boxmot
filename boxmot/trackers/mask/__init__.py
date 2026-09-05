@@ -1,9 +1,6 @@
-"""Mask-based trackers.
+"""Trackers whose primary tracked representation is an instance mask.
 
-Trackers in this subpackage use segmentation masks as their primary
-representation for tracking targets.
+This namespace intentionally exposes no implementation base or public tracker
+classes. Add shared machinery only when multiple mask trackers enforce the same
+meaningful invariants; import public trackers through :mod:`boxmot`.
 """
-
-from boxmot.trackers.mask.base import MaskBaseTracker
-
-__all__ = ["MaskBaseTracker"]

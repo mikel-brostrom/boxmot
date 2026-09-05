@@ -21,18 +21,12 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-from boxmot.core.box_schema import AABB_SCHEMA, OBB_SCHEMA, schema_from_mot_columns
-from boxmot.data.benchmark import (
-    COCO_CLASSES,
-    _ordered_benchmark_eval_class_names,
-    resolve_eval_box_type,
-    resolve_obb_eval_class_pairs,
-)
-from boxmot.engine.workflows.benchmark import find_dataset_cfg_for_source, load_evaluation_config_from_args
 from boxmot.utils import logger as LOGGER
 
 HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange(0.05, 0.99, 0.05))
 _FLOAT_EPS = np.finfo(float).eps
+AABB_MOT_COLUMNS = 9
+OBB_MOT_COLUMNS = 13
 
 DEFAULT_OBB_CLASS_NAME_TO_ID = {
     "car": 0,
@@ -68,6 +62,7 @@ _CLEAR_INTEGER_FIELDS = (
     "CLR_Frames",
 )
 _CLEAR_FLOAT_FIELDS = ("MOTA", "MOTP", "MODA", "CLR_Re", "CLR_Pr", "MTR", "PTR", "MLR", "sMOTA")
+_SIGNED_CLEAR_PERCENT_FIELDS = frozenset({"MOTA", "MODA", "sMOTA"})
 _CLEAR_EXTRA_FLOAT_FIELDS = ("CLR_F1", "FP_per_frame", "MOTAL", "MOTP_sum")
 _CLEAR_SUMMED_FIELDS = (*_CLEAR_INTEGER_FIELDS, "MOTP_sum")
 _IDENTITY_INTEGER_FIELDS = ("IDTP", "IDFN", "IDFP")
@@ -122,6 +117,7 @@ class OBBSequenceEvaluationTask:
     tracker_path: Path
     class_pairs: tuple[tuple[str, int], ...]
     num_timesteps: int | None
+    flat_annotations: bool
 
 
 SequenceEvaluationTask = AABBSequenceEvaluationTask | OBBSequenceEvaluationTask
@@ -325,18 +321,12 @@ def _load_obb_gt_matrix(source: Path) -> np.ndarray:
     """Load OBB GT in the 13-column MMOT corner format."""
     data = _read_csv_matrix(source)
     if data.size == 0:
-        return OBB_SCHEMA.empty_mot()
-    try:
-        schema = schema_from_mot_columns(data.shape[1])
-    except ValueError as exc:
+        return np.empty((0, OBB_MOT_COLUMNS), dtype=np.float32)
+    if data.shape[1] != OBB_MOT_COLUMNS:
         raise ValueError(
             f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
-        ) from exc
-    if schema.is_obb:
-        return data.astype(np.float32, copy=False)
-    raise ValueError(
-        f"Unsupported OBB GT format in {source}: expected 13 columns in corner format, got {data.shape[1]}"
-    )
+        )
+    return data.astype(np.float32, copy=False)
 
 
 def _resolve_obb_gt_path(
@@ -344,8 +334,16 @@ def _resolve_obb_gt_path(
     gt_folder: Path,
     seq_name: str,
     *,
+    flat_annotations: bool = False,
     load_gt: Callable[[Path], np.ndarray] = _load_obb_gt_matrix,
 ) -> Path:
+    if flat_annotations:
+        configured = gt_folder / f"{seq_name}.txt"
+        if not configured.is_file():
+            raise FileNotFoundError(f"Configured OBB GT file does not exist for sequence {seq_name}: {configured}")
+        load_gt(configured)
+        return configured
+
     seq_dir = source / seq_name
     candidates = [
         source.parent / "mot" / f"{seq_name}.txt",
@@ -426,10 +424,10 @@ def _build_aabb_sequence_data(
 ) -> SequenceData:
     if indexed_rows is None:
         tracker = _read_csv_matrix(tracker_path)
-        if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+        if tracker.size and tracker.shape[1] != AABB_MOT_COLUMNS:
             raise ValueError(
                 f"Unsupported AABB tracker format in {tracker_path}: expected "
-                f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+                f"{AABB_MOT_COLUMNS} columns, got {tracker.shape[1]}"
             )
         indexed_rows = _index_sequence_rows(
             seq_name=seq_name,
@@ -504,10 +502,10 @@ def _build_obb_sequence_data(
     if indexed_rows is None:
         gt = _load_obb_gt_matrix(gt_path)
         tracker = _read_csv_matrix(tracker_path)
-        if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
+        if tracker.size and tracker.shape[1] != OBB_MOT_COLUMNS:
             raise ValueError(
                 f"Unsupported OBB tracker format in {tracker_path}: expected "
-                f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+                f"{OBB_MOT_COLUMNS} columns, got {tracker.shape[1]}"
             )
         indexed_rows = _index_sequence_rows(
             seq_name=seq_name,
@@ -968,6 +966,10 @@ def _percent(value: Any) -> float:
     return max(0.0, float(value) * 100.0)
 
 
+def _signed_percent(value: Any) -> float:
+    return float(value) * 100.0
+
+
 def _count(value: Any) -> int:
     return max(0, int(value))
 
@@ -987,7 +989,8 @@ def _summary_from_bundle(bundle: MetricBundle) -> dict[str, Any]:
         summary[field] = _count(np.sum(hota[field]))
 
     for field in _CLEAR_FLOAT_FIELDS:
-        summary[field] = _percent(clear[field])
+        percent = _signed_percent if field in _SIGNED_CLEAR_PERCENT_FIELDS else _percent
+        summary[field] = percent(clear[field])
     for field in _CLEAR_INTEGER_FIELDS:
         if field in clear:
             summary[field] = _count(clear[field])
@@ -1013,6 +1016,95 @@ def _sequence_names_from_paths(
     return {name: None for name in names}
 
 
+def _load_eval_cfg(args: argparse.Namespace) -> dict[str, Any]:
+    """Return the engine-resolved evaluation configuration.
+
+    Evaluation deliberately does not infer configuration from source paths.
+    The caller must resolve the selected dataset or experiment and attach its
+    immutable mapping to ``args.evaluation_config``.
+    """
+
+    config = getattr(args, "evaluation_config", None)
+    if config is None:
+        return {}
+    if not isinstance(config, Mapping):
+        raise TypeError("args.evaluation_config must be a mapping")
+    return dict(config)
+
+
+def _benchmark_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    benchmark = config.get("benchmark")
+    if isinstance(benchmark, Mapping):
+        return dict(benchmark)
+
+    classes = config.get("classes")
+    eval_classes: dict[int, str] = {}
+    ignore_ids: list[int] = []
+    if isinstance(classes, Mapping):
+        for name, metadata in classes.items():
+            if not isinstance(metadata, Mapping) or "id" not in metadata:
+                continue
+            class_id = int(metadata["id"])
+            if metadata.get("evaluation") == "ignore":
+                ignore_ids.append(class_id)
+            else:
+                eval_classes[class_id] = str(name)
+    return {
+        "box_type": str(config.get("box_type") or config.get("geometry") or "aabb"),
+        "layout": str(config.get("layout") or "mot"),
+        "eval_classes": eval_classes,
+        "ignore_dataset_ids": sorted(ignore_ids),
+    }
+
+
+def _ordered_benchmark_eval_class_names(benchmark: Mapping[str, Any]) -> list[str]:
+    eval_classes = benchmark.get("eval_classes")
+    if isinstance(eval_classes, Mapping):
+        return [str(name) for _, name in sorted(eval_classes.items(), key=lambda item: int(item[0]))]
+    if isinstance(eval_classes, (list, tuple)):
+        return [str(name) for name in eval_classes]
+    return []
+
+
+def _resolve_eval_box_type(args: argparse.Namespace, config: Mapping[str, Any]) -> str:
+    value = (
+        getattr(args, "eval_box_type", None)
+        or getattr(args, "geometry", None)
+        or _benchmark_config(config).get("box_type")
+        or "aabb"
+    )
+    normalized = str(value).lower()
+    if normalized not in {"aabb", "obb"}:
+        raise ValueError(f"Unsupported evaluation geometry {value!r}; expected 'aabb' or 'obb'.")
+    return normalized
+
+
+def _resolve_obb_eval_class_pairs(
+    args: argparse.Namespace,
+    benchmark: Mapping[str, Any],
+) -> list[tuple[str, int]]:
+    names = getattr(args, "remapped_class_names", None)
+    ids = getattr(args, "remapped_class_ids", None)
+    if names is not None or ids is not None:
+        if not names or not ids or len(names) != len(ids):
+            raise ValueError("remapped_class_names and remapped_class_ids must be aligned")
+        return [(str(name).lower(), int(class_id)) for name, class_id in zip(names, ids)]
+
+    eval_classes = benchmark.get("eval_classes")
+    if isinstance(eval_classes, Mapping):
+        pairs = [
+            (str(name).lower(), int(class_id))
+            for class_id, name in sorted(eval_classes.items(), key=lambda item: int(item[0]))
+        ]
+    else:
+        pairs = []
+    selected = getattr(args, "classes", None)
+    if selected is None:
+        return pairs
+    wanted = {int(value) for value in selected}
+    return [(name, class_id) for name, class_id in pairs if class_id in wanted]
+
+
 def build_dataset_eval_settings(
     args: argparse.Namespace,
     gt_folder: Path,
@@ -1020,24 +1112,17 @@ def build_dataset_eval_settings(
 ) -> dict[str, Any]:
     """Derive benchmark-specific AABB evaluation settings."""
     del gt_folder
-    cfg: dict[str, Any] = {}
-    try:
-        cfg = load_evaluation_config_from_args(args)
-    except FileNotFoundError:
-        cfg = {}
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning(f"Error loading benchmark config: {exc}")
-        cfg = {}
-
-    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    cfg = _load_eval_cfg(args)
+    bench_cfg = _benchmark_config(cfg)
     eval_classes_cfg = bench_cfg.get("eval_classes") if isinstance(bench_cfg, dict) else None
     distractor_cfg = bench_cfg.get("distractor_classes") if isinstance(bench_cfg, dict) else None
     ignore_dataset_ids = bench_cfg.get("ignore_dataset_ids") if isinstance(bench_cfg, dict) else None
 
-    layout_name = str(cfg.get("layout") or bench_cfg.get("layout") or "").lower() if isinstance(cfg, dict) else ""
-    gt_loc_format = "{gt_folder}/{seq}/gt/gt_temp.txt"
+    layout_name = str(cfg.get("layout") or bench_cfg.get("layout") or "").lower()
+    gt_loc_format = "{gt_folder}/{seq}/gt/gt.txt"
     if (
-        layout_name == "visdrone"
+        str(cfg.get("annotation_layout") or "").lower() == "flat"
+        or layout_name == "visdrone"
         or "visdrone" in getattr(args, "benchmark", "").lower()
         or "visdrone" in str(getattr(args, "source", "")).lower()
     ):
@@ -1062,16 +1147,13 @@ def build_dataset_eval_settings(
     classes_to_eval: list[str] = []
     class_ids: list[int] = []
 
-    if hasattr(args, "classes") and args.classes is not None:
-        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
-        classes_to_eval = [COCO_CLASSES[int(index)] for index in class_indices]
-        class_ids = [int(index) + 1 for index in class_indices]
-
     if isinstance(eval_classes_cfg, dict) and eval_classes_cfg:
         ordered = sorted(((int(k), v) for k, v in eval_classes_cfg.items()), key=lambda kv: kv[0])
-        if class_ids:
-            class_ids = [class_id for class_id, _ in ordered if class_id in class_ids]
-            classes_to_eval = [name for class_id, name in ordered if class_id in class_ids]
+        requested = getattr(args, "classes", None)
+        if requested is not None:
+            wanted = {int(value) for value in requested}
+            class_ids = [class_id for class_id, _ in ordered if class_id in wanted]
+            classes_to_eval = [str(name) for class_id, name in ordered if class_id in wanted]
         else:
             class_ids = [class_id for class_id, _ in ordered]
             classes_to_eval = [str(name) for _, name in ordered]
@@ -1099,20 +1181,14 @@ def build_dataset_eval_settings(
     }
 
 
-def _load_eval_cfg(args: argparse.Namespace) -> dict[str, Any]:
-    cfg = load_evaluation_config_from_args(args)
-    if cfg:
-        return cfg
-
-    cfg = find_dataset_cfg_for_source(args.source) or {}
-    if cfg:
-        return cfg
-    LOGGER.warning(f"Could not infer a dataset config for {args.source}. Class filtering might be incorrect.")
-    return {}
-
-
 def _aabb_gt_path(gt_folder: Path, gt_loc_format: str, seq_name: str) -> Path:
-    return Path(gt_loc_format.format(gt_folder=gt_folder, seq=seq_name))
+    path = Path(gt_loc_format.format(gt_folder=gt_folder, seq=seq_name))
+    if path.is_file() or path.name != "gt.txt":
+        return path
+    # Some dataset adapters publish a filtered evaluation view beside the raw
+    # annotation. This remains ground-truth adapter data, not a perception cache.
+    filtered = path.with_name("gt_temp.txt")
+    return filtered if filtered.is_file() else path
 
 
 def _evaluate_aabb_sequence_task(task: AABBSequenceEvaluationTask) -> tuple[str, dict[str, MetricBundle]]:
@@ -1120,10 +1196,10 @@ def _evaluate_aabb_sequence_task(task: AABBSequenceEvaluationTask) -> tuple[str,
     seq_info = {task.seq_name: task.num_timesteps}
     distractor_ids = set(task.distractor_ids)
     tracker = _read_csv_matrix(task.tracker_path)
-    if tracker.size and tracker.shape[1] != AABB_SCHEMA.mot_cols:
+    if tracker.size and tracker.shape[1] != AABB_MOT_COLUMNS:
         raise ValueError(
             f"Unsupported AABB tracker format in {task.tracker_path}: expected "
-            f"{AABB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+            f"{AABB_MOT_COLUMNS} columns, got {tracker.shape[1]}"
         )
     indexed_rows = _index_sequence_rows(
         seq_name=task.seq_name,
@@ -1158,12 +1234,18 @@ def _evaluate_obb_sequence_task(task: OBBSequenceEvaluationTask) -> tuple[str, d
             gt_matrices[path] = _load_obb_gt_matrix(path)
         return gt_matrices[path]
 
-    gt_path = _resolve_obb_gt_path(task.source, task.gt_folder, task.seq_name, load_gt=_load_gt)
+    gt_path = _resolve_obb_gt_path(
+        task.source,
+        task.gt_folder,
+        task.seq_name,
+        flat_annotations=task.flat_annotations,
+        load_gt=_load_gt,
+    )
     tracker = _read_csv_matrix(task.tracker_path)
-    if tracker.size and tracker.shape[1] != OBB_SCHEMA.mot_cols:
+    if tracker.size and tracker.shape[1] != OBB_MOT_COLUMNS:
         raise ValueError(
             f"Unsupported OBB tracker format in {task.tracker_path}: expected "
-            f"{OBB_SCHEMA.mot_cols} columns, got {tracker.shape[1]}"
+            f"{OBB_MOT_COLUMNS} columns, got {tracker.shape[1]}"
         )
     indexed_rows = _index_sequence_rows(
         seq_name=task.seq_name,
@@ -1298,10 +1380,11 @@ def run_motmetrics(
     del save_dir
     seq_info = _sequence_names_from_paths(seq_paths, seq_info)
     cfg = _load_eval_cfg(args)
-    eval_box_type = resolve_eval_box_type(args, cfg)
+    eval_box_type = _resolve_eval_box_type(args, cfg)
     if eval_box_type == "obb":
-        bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
-        class_pairs = resolve_obb_eval_class_pairs(args, bench_cfg)
+        bench_cfg = _benchmark_config(cfg)
+        class_pairs = _resolve_obb_eval_class_pairs(args, bench_cfg)
+        flat_annotations = str(cfg.get("annotation_layout") or "").lower() == "flat"
         if not class_pairs:
             class_pairs = list(DEFAULT_OBB_CLASS_NAME_TO_ID.items())
         tasks: list[SequenceEvaluationTask] = [
@@ -1312,6 +1395,7 @@ def run_motmetrics(
                 tracker_path=Path(args.exp_dir) / f"{seq_name}.txt",
                 class_pairs=tuple(class_pairs),
                 num_timesteps=seq_info[seq_name],
+                flat_annotations=flat_annotations,
             )
             for seq_name in sorted(seq_info)
         ]
@@ -1405,7 +1489,7 @@ def _known_motmetrics_class_names(args: argparse.Namespace, cfg: dict) -> list[s
     known: list[str] = []
     if getattr(args, "remapped_class_names", None):
         known.extend([str(name) for name in args.remapped_class_names])
-    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    bench_cfg = _benchmark_config(cfg)
     known.extend(_ordered_benchmark_eval_class_names(bench_cfg))
     known.extend(["cls_comb_cls_av", "cls_comb_det_av", "HUMAN", "VEHICLE", "BIKE", "all"])
 

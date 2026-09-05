@@ -8,7 +8,7 @@ use_cmc: true
 cmc_method: ecc
 frame_rate: 30
 fuse_first_associate: true
-with_reid: true
+use_embeddings: true
 proximity_thresh: 0.6084297894561342
 appearance_thresh: 0.6188818853936099
 unconfirmed_emb_scale: 2.5445206391993294

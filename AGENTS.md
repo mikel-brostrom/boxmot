@@ -130,8 +130,8 @@ When editing `boxmot/engine/cli.py` or other CLIs:
 
 When adding a new command:
 
-- Reuse `make_args` to build argparse-like namespaces.
-- Align with existing subcommands’ style (`track`, `generate`, `eval`, `tune`, `export`).
+- Reuse `build_mode_namespace` to build argparse-like namespaces.
+- Align with existing subcommands’ style (`track`, `materialize`, `eval`, `tune`, `export`).
 
 ## 5. Commit & PR Expectations
 
@@ -176,9 +176,9 @@ PR / task descriptions should include:
 
   # Example invocations (adjust source/paths as available in your env)
   uv run --no-sync python -m boxmot.engine.cli track --source <path-or-url> ...
-  uv run --no-sync python -m boxmot.engine.cli generate --source <path-or-url> ...
-  uv run --no-sync python -m boxmot.engine.cli eval --source <path-or-url> ...
-  uv run --no-sync python -m boxmot.engine.cli tune --source <path-or-url> ...
+  uv run --no-sync python -m boxmot.engine.cli materialize --experiment <experiment-id-or-yaml> ...
+  uv run --no-sync python -m boxmot.engine.cli eval --experiment <experiment-id-or-yaml> --build <path-or-id> ...
+  uv run --no-sync python -m boxmot.engine.cli tune --experiment <experiment-id-or-yaml> --build <path-or-id> ...
   ```
 
 **If tests or commands cannot be run**
@@ -232,15 +232,24 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 ## 9. Integrating a New Tracker (Checklist)
 
 1) Implement the tracker
-  - Add a new module under the appropriate modality folder, such as
-    `boxmot/trackers/bbox/<name>.py`, `boxmot/trackers/mask/<name>/`, or
-    `boxmot/trackers/hybrid/<name>/`.
-  - Implement a tracker class that subclasses `BaseTracker` and defines `update()`.
+  - Choose the package by primary track representation: `box` for AABB/OBB
+    state, `mask` for mask state, or `multimodal` when multiple primary
+    representations or model memory are fundamental.
+  - Add the implementation under `boxmot/trackers/<family>/<name>/tracker.py`
+    with a non-re-exporting `__init__.py`. Box-state trackers subclass
+    `BoxTracker`; all trackers inherit the validated public `update()` wrapper
+    and implement their private tracking kernel.
+  - Declare supported geometry plus accepted/required masks, embeddings, and
+    frames as immutable capabilities. Do not infer those contracts from the
+    directory name alone.
 
 2) Register the tracker
-  - Add the tracker to `TRACKER_MAPPING` in `boxmot/trackers/registry.py`.
-  - Export it in `boxmot/trackers/__init__.py` and `boxmot/__init__.py`.
-  - Add the tracker name to the `TRACKERS` list in `boxmot/__init__.py`.
+  - Add one entry to `_TRACKER_MANIFEST` in `boxmot/_tracker_exports.py`.
+  - Use the canonical public class name and fully qualified implementation path.
+  - Add static capability metadata to the registry and a `native_class_path`
+    only when that backend exists.
+  - Do not re-export tracker classes from implementation packages; public imports are
+    generated lazily from the manifest and exposed only from `boxmot`.
 
 3) Add default configuration
   - Create `boxmot/configs/trackers/<name>.yaml` with default parameters and tuning ranges.
@@ -265,10 +274,15 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 
 ### Core requirements
 
-- Set `supports_obb = True` on the tracker class.
-- Keep `@BaseTracker.setup_decorator` enabled so detection shape can trigger OBB mode automatically.
+- Include `GeometryKind.OBB` in the box tracker's
+  `supported_geometry_kinds`; `BoxTracker` derives `supports_obb` and static
+  capabilities from that single declaration.
+- Inherit `BaseTracker.update()` so its validated input preparation can select
+  AABB or OBB mode from the detection shape automatically.
 - Reuse shared detection plumbing from:
   - `boxmot/trackers/base.py`
+  - `boxmot/trackers/box/base.py`
+  - `boxmot/trackers/box/geometry.py`
   - `boxmot/trackers/common/detections/layout.py`
 - Do not hardcode column indices if layout helpers already provide them:
   - `self.detection_layout.boxes(...)`

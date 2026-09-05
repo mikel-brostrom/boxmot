@@ -22,7 +22,6 @@ runtime:
   verbose: false
   show_timing: false
   agnostic_nms: false
-  postprocessing: none
   show: false
   show_labels: true
   show_conf: true
@@ -38,11 +37,7 @@ track:
   source: '0'
   benchmark: ''
   split: ''
-generate:
-  experiment: null
-  source: null
-  benchmark: ''
-  split: ''
+materialize: {}
 eval:
   experiment: null
   dataset: null

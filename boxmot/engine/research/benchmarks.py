@@ -1,55 +1,39 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
-from types import SimpleNamespace
+from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boxmot.data.dataset import _collect_seq_info
-from boxmot.engine.config import DEFAULT_DETECTOR, DEFAULT_REID
-from boxmot.engine.workflows.benchmark import (
-    apply_evaluation_config,
-    resolve_required_reid_model,
-    resolve_required_yolo_model,
-)
-from boxmot.utils.misc import resolve_model_path
+from boxmot.engine.experiment_config import resolve_experiment_config
+from boxmot.engine.materialization.catalog import resolve_dataset_root
 
 
 def _resolve_experiment_runtime(
     experiment: str | Path,
     *,
-    source: str | Path | None = None,
-    detector: str | Path | None = None,
-    reid: str | Path | None = None,
-) -> tuple[Path, str, str, str, Path, Path, dict[str, Any]]:
-    probe = SimpleNamespace(experiment=str(experiment), dataset=None)
-    cfg = apply_evaluation_config(probe)
-    if cfg is None:
-        raise FileNotFoundError(f"Unable to resolve experiment config: {experiment}")
-
-    experiment_id = str(getattr(probe, "experiment_id", experiment))
-    dataset_id = str(getattr(probe, "dataset_id", "") or getattr(probe, "benchmark", ""))
-    benchmark = str(getattr(probe, "benchmark", "") or dataset_id)
-    source_root = Path(source or probe.source).resolve()
-    detector_ref = detector or resolve_required_yolo_model(cfg) or DEFAULT_DETECTOR
-    reid_ref = reid or resolve_required_reid_model(cfg) or DEFAULT_REID
+    data_root: str | Path | None = None,
+) -> tuple[Path, str, str, str, dict[str, Any]]:
+    resolved = resolve_experiment_config(experiment, mode="research")
+    dataset = resolved["dataset"]
+    dataset_root = resolve_dataset_root(dataset, data_root)
+    relative = PurePosixPath(str(dataset["split_path"]))
+    source_root = dataset_root.joinpath(*relative.parts)
 
     return (
         source_root,
-        experiment_id,
-        dataset_id,
-        benchmark,
-        resolve_model_path(detector_ref).resolve(),
-        resolve_model_path(reid_ref).resolve(),
-        cfg,
+        str(resolved["id"]),
+        str(dataset["id"]),
+        str(dataset["id"]),
+        resolved,
     )
 
 
 def _discover_sequences(source_root: Path) -> list[dict[str, str]]:
-    seq_paths, _ = _collect_seq_info(source_root)
     examples: list[dict[str, str]] = []
-    for img_dir in seq_paths:
-        seq_dir = img_dir.parent if img_dir.name == "img1" else img_dir
+    for seq_dir in sorted(path for path in source_root.iterdir() if path.is_dir()):
+        image_dir = seq_dir / "img1" if (seq_dir / "img1").is_dir() else seq_dir
+        if not any(path.is_file() for path in image_dir.iterdir()):
+            continue
         examples.append(
             {
                 "sequence": seq_dir.name,

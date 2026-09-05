@@ -1,60 +1,79 @@
-import os
-from pathlib import Path
+"""Clean-install smoke tests for the coordinated v24 public cutover."""
+
+from __future__ import annotations
 
 import torch
+from click.testing import CliRunner
 
-from boxmot import BoxMOT, ReIDModel
+import boxmot
+from boxmot import ByteTrack, create_tracker
+from boxmot.engine.cli import boxmot as boxmot_cli
+from boxmot.structures import Boxes, Detections
+from boxmot.trackers import TrackerSpec
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg"
-EXPERIMENT = "mot17-mini-train-yolox-lmbn"
-METRICS = {"HOTA", "MOTA", "IDF1"}
+
+def _detections(sample_id: str) -> Detections:
+    return Detections(
+        geometry=Boxes(torch.tensor([[10.0, 12.0, 30.0, 52.0]], dtype=torch.float32)),
+        scores=torch.tensor([0.95], dtype=torch.float32),
+        class_ids=torch.tensor([0], dtype=torch.int64),
+        sample_id=sample_id,
+    )
 
 
-def test_python_api_smoke(tmp_path, monkeypatch):
-    """Exercise the primary public Python workflows with real CPU runtimes."""
+def test_python_api_smoke() -> None:
+    """Exercise the strict public tracker and structure boundary on CPU."""
+
     assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
     assert not torch.cuda.is_available()
-    assert SOURCE.is_file()
-    dataset_link = tmp_path / "assets/MOT17-mini"
-    dataset_link.parent.mkdir(parents=True)
-    dataset_link.symlink_to(ROOT / "assets/MOT17-mini", target_is_directory=True)
-    monkeypatch.chdir(tmp_path)
-
-    project = tmp_path / "runs"
-    reid_weights = tmp_path / "osnet_x0_25_msmt17.pt"
-    detector_weights = os.environ.get("BOXMOT_CI_DETECTOR", "yolo26n.pt")
-    api = BoxMOT(
-        detector=detector_weights,
-        reid=reid_weights,
-        tracker="ocsort",
-        classes=[0],
-        project=project,
+    assert boxmot.__version__ == "24.0.0"
+    assert boxmot.__all__ == (
+        "__version__",
+        "create_tracker",
+        "BoostTrack",
+        "BotSort",
+        "ByteTrack",
+        "DeepOcSort",
+        "HybridSort",
+        "OccluBoost",
+        "OcSort",
+        "Sam2Mot",
+        "SFSORT",
+        "StrongSort",
     )
+    assert not hasattr(boxmot, "BoxMOT")
+    assert not hasattr(boxmot, "Detector")
+    assert not hasattr(boxmot, "ReIDModel")
 
-    tracked = api.track(source=SOURCE, imgsz=320, device="cpu", verbose=False)
-    assert tracked.summary["frames"] == 1
-
-    evaluated = api.val(
-        experiment=EXPERIMENT,
-        imgsz=320,
-        device="cpu",
-        project=project,
-        verbose=False,
+    spec = TrackerSpec(
+        name="bytetrack",
+        options=(("min_hits", 1), ("track_thresh", 0.2)),
     )
-    assert METRICS <= evaluated.summary.keys()
+    tracker = create_tracker(spec)
+    assert isinstance(tracker, ByteTrack)
 
-    # Resolve the downloadable checkpoint into pytest's temporary directory so
-    # the export never overwrites a developer's existing model artifact.
-    reid = ReIDModel(reid_weights, device="cpu")
-    assert reid.path == reid_weights
-    del reid
+    first = tracker.update(_detections("frame-0"))
+    second = tracker.update(_detections("frame-1"))
+    assert first.to_aabb_rows().shape == (1, 8)
+    assert second.to_aabb_rows().shape == (1, 8)
+    assert second.track_ids.tolist() == first.track_ids.tolist()
 
-    exported = BoxMOT(reid=reid_weights, project=project).export(
-        format="torchscript",
-        device="cpu",
-        batch_size=1,
-        dynamic=False,
-    )
-    assert Path(exported.files["torchscript"]).is_file()
-    assert exported.parity_ok
+
+def test_cli_command_surface_smoke() -> None:
+    result = CliRunner().invoke(boxmot_cli, ["--help"])
+
+    assert result.exit_code == 0, result.output
+    for command in (
+        "track",
+        "materialize",
+        "eval",
+        "tune",
+        "research",
+        "train-reid",
+        "eval-reid",
+        "compare-reid",
+        "export",
+        "build",
+    ):
+        assert command in result.output
+    assert "generate" not in result.output

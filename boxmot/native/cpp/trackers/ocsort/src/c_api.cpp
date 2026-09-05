@@ -37,7 +37,8 @@ ocsort::Config ConvertConfig(const BoxMOTOCSORTConfig& config) {
 
 struct BoxMOTOCSORTHandle {
     explicit BoxMOTOCSORTHandle(ocsort::Config tracker_config)
-        : config(std::move(tracker_config)), tracker(std::make_unique<ocsort::OCSORTTracker>(config)) {}
+        : config(std::move(tracker_config)),
+          tracker(std::make_unique<ocsort::OCSORTTracker>(config)) {}
 
     ocsort::Config config;
     std::unique_ptr<ocsort::OCSORTTracker> tracker;
@@ -48,16 +49,17 @@ extern "C" {
 BoxMOTOCSORTHandle* boxmot_ocsort_create(const BoxMOTOCSORTConfig* config) {
     try {
         if (config == nullptr) {
-            throw std::runtime_error("Native OCSORT config is required.");
+            throw std::runtime_error("Native OcSort config is required.");
         }
         ocsort::Config native_config = ConvertConfig(*config);
         g_last_error.clear();
         return new BoxMOTOCSORTHandle(std::move(native_config));
     } catch (const std::exception& exc) {
-        boxmot::trackers::base::SetLastError(g_last_error, exc.what());
+        boxmot::native::SetLastError(g_last_error, exc.what());
         return nullptr;
     } catch (...) {
-        boxmot::trackers::base::SetLastError(g_last_error, "Unknown native OCSORT creation failure");
+        boxmot::native::SetLastError(g_last_error,
+                                             "Unknown native OcSort creation failure");
         return nullptr;
     }
 }
@@ -67,50 +69,46 @@ void boxmot_ocsort_destroy(BoxMOTOCSORTHandle* handle) {
 }
 
 int boxmot_ocsort_reset(BoxMOTOCSORTHandle* handle) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr) {
-            throw std::runtime_error("Native OCSORT handle is null.");
-        }
-        handle->tracker = std::make_unique<ocsort::OCSORTTracker>(handle->config);
-    }, g_last_error, "Unknown native OCSORT failure");
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native OcSort handle is null.");
+            }
+            handle->tracker = std::make_unique<ocsort::OCSORTTracker>(handle->config);
+        },
+        g_last_error,
+        "Unknown native OcSort failure");
 }
 
-int boxmot_ocsort_update(
-    BoxMOTOCSORTHandle* handle,
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const std::uint8_t* image_data,
-    const int image_rows,
-    const int image_cols,
-    const int image_channels,
-    float* out_tracks,
-    const int out_capacity_rows,
-    const int out_cols,
-    int* out_rows,
-    int* out_is_obb
-) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OCSORT handle is not initialized.");
-        }
-        if (out_rows == nullptr || out_is_obb == nullptr) {
-            throw std::runtime_error("Output pointers are null.");
-        }
-        const std::vector<ocsort::Detection> detections =
-            boxmot::trackers::base::ConvertLiveDetections<ocsort::Detection>(dets, det_rows, det_cols, "OCSORT");
-        const cv::Mat image = boxmot::trackers::base::WrapOptionalLiveImage(
-            image_data,
-            image_rows,
-            image_cols,
-            image_channels,
-            "OCSORT"
-        );
-        const std::vector<ocsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
-        boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "OCSORT");
-        *out_rows = static_cast<int>(tracks.size());
-        *out_is_obb = boxmot::trackers::base::LiveOutputUsesObb(tracks, det_cols) ? 1 : 0;
-    }, g_last_error, "Unknown native OCSORT failure");
+int boxmot_ocsort_update_v2(BoxMOTOCSORTHandle* handle,
+                            const BoxMOTDetectionBatchV2* detections,
+                            const BoxMOTImageV2* image,
+                            BoxMOTTrackBatchV2** output) {
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr || handle->tracker == nullptr) {
+                throw std::runtime_error("Native OcSort handle is not initialized.");
+            }
+            if (detections == nullptr || output == nullptr) {
+                throw std::runtime_error("Native OcSort input/output pointers are null.");
+            }
+            *output = nullptr;
+            const std::vector<ocsort::Detection> converted =
+                boxmot::trackers::base::ConvertLiveDetectionsV2<ocsort::Detection>(*detections,
+                                                                                   "OcSort");
+            const cv::Mat image_mat =
+                boxmot::trackers::base::WrapOptionalLiveImageV2(image, "OcSort");
+            const std::vector<ocsort::TrackOutput> tracks =
+                handle->tracker->Update(converted, image_mat);
+            *output =
+                boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
+        },
+        g_last_error,
+        "Unknown native OcSort failure");
+}
+
+void boxmot_ocsort_result_free_v2(BoxMOTTrackBatchV2* output) {
+    boxmot::trackers::base::FreeLiveOutputV2(output);
 }
 
 const char* boxmot_ocsort_last_error() {

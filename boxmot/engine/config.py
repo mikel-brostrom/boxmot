@@ -1,3 +1,5 @@
+"""Shared configuration policy for engine-owned tracking runtime modes."""
+
 from __future__ import annotations
 
 import os
@@ -10,62 +12,26 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from boxmot.configs import CONFIG_ROOT
-from boxmot.reid.exporters.config import EXPORT_DEFAULTS_PATH, ExportModeDefaults, load_export_defaults
-from boxmot.reid.training.presets import (
-    default_training_recipe_for_model,
-    load_training_defaults,
-)
-from boxmot.reid.training.presets import (
-    list_training_recipes as _list_training_recipes,
-)
-from boxmot.reid.training.presets import (
-    load_training_config as _load_training_config,
-)
-from boxmot.reid.training.presets import (
-    load_training_recipe as _load_training_recipe,
-)
 from boxmot.trackers.specs import parse_tracker_spec
-from boxmot.utils import WEIGHTS
-from boxmot.utils.misc import resolve_model_path
 
-RUNTIME_MODES = frozenset({"track", "generate", "eval", "tune", "research"})
+RUNTIME_MODES = frozenset({"track", "materialize", "eval", "tune", "research"})
 RUNTIME_DEFAULTS_PATH = CONFIG_ROOT / "runtime.yaml"
-TRAIN_DEFAULTS_PATH = Path(__file__).resolve().parents[1] / "reid" / "training" / "configs" / "defaults.yaml"
 
 
 def _load_mode_defaults() -> dict[str, Any]:
     with open(RUNTIME_DEFAULTS_PATH, "r", encoding="utf-8") as handle:
-        defaults = yaml.safe_load(handle) or {}
-    for mode, path in (("export", EXPORT_DEFAULTS_PATH), ("train", TRAIN_DEFAULTS_PATH)):
-        with open(path, "r", encoding="utf-8") as handle:
-            defaults[mode] = yaml.safe_load(handle) or {}
-    return defaults
-
-
-def load_training_recipe(name: str) -> dict[str, Any]:
-    """Load a training recipe YAML by name (e.g. ``'lmbn_n'``)."""
-    return _load_training_recipe(name)
-
-
-def load_training_config(path: str | Path) -> dict[str, Any]:
-    """Load a BoxMOT ReID training config YAML."""
-    return _load_training_config(path)
-
-
-def list_training_recipes() -> list[str]:
-    """Return sorted names of available training recipes."""
-    return _list_training_recipes()
+        return yaml.safe_load(handle) or {}
 
 
 def _merged_mode_defaults(mode: str) -> dict[str, Any]:
     normalized_mode = str(mode).lower()
+    if normalized_mode not in RUNTIME_MODES:
+        available = ", ".join(sorted(RUNTIME_MODES))
+        raise ValueError(f"Unknown runtime mode {mode!r}; expected one of: {available}")
     raw_defaults = _load_mode_defaults()
 
     defaults = deepcopy(raw_defaults.get("shared", {}))
-    if normalized_mode == "train":
-        defaults.update(load_training_defaults())
-    if normalized_mode in RUNTIME_MODES:
-        defaults.update(deepcopy(raw_defaults.get("runtime", {})))
+    defaults.update(deepcopy(raw_defaults.get("runtime", {})))
     defaults.update(deepcopy(raw_defaults.get(normalized_mode, {})))
     return defaults
 
@@ -73,9 +39,6 @@ def _merged_mode_defaults(mode: str) -> dict[str, Any]:
 def _resolve_default_value(key: str, value: Any) -> Any:
     if key == "n_threads" and str(value).lower() == "auto":
         return min(8, max(1, os.cpu_count() or 1))
-
-    if key in {"detector", "reid", "weights"} and value is not None:
-        return ensure_model_extension(value)
 
     if key == "project" and value is not None:
         return Path(value)
@@ -94,68 +57,9 @@ def _normalize_classes(classes: Any) -> list[int] | None:
     return [int(value) for value in classes]
 
 
-def _normalize_model_list(values: Any, *, multiple: bool) -> Any:
-    if multiple:
-        if values is None:
-            return []
-        if isinstance(values, (list, tuple)):
-            return [ensure_model_extension(value) for value in values]
-        return [ensure_model_extension(values)]
-
-    if values is None:
-        return None
-    return ensure_model_extension(values)
-
-
-def _normalize_int_tuple(values: Any) -> tuple[int, ...]:
-    if values is None:
-        return ()
-    if isinstance(values, str):
-        parts = [part for part in values.replace(";", ",").split(",") if part.strip()]
-        return tuple(int(part) for part in parts)
-    if isinstance(values, int):
-        return (int(values),)
-    return tuple(int(value) for value in values)
-
-
-def _normalize_int_pair(value: Any, default: tuple[int, int] = (5, 3)) -> tuple[int, int]:
-    if value is None:
-        return default
-    if isinstance(value, int):
-        return (int(value), int(value))
-    if isinstance(value, str):
-        parts = [part for part in value.replace(";", ",").split(",") if part.strip()]
-        if len(parts) == 1:
-            parts = parts * 2
-        if len(parts) != 2:
-            raise ValueError(f"Expected one or two comma-separated integers, got {value!r}")
-        return (int(parts[0]), int(parts[1]))
-    values = tuple(int(part) for part in value)
-    if len(values) == 1:
-        return (values[0], values[0])
-    if len(values) != 2:
-        raise ValueError(f"Expected one or two integers, got {value!r}")
-    return values
-
-
-def ensure_model_extension(model_path: str | Path, default_dir: Path = WEIGHTS) -> Path:
-    """Preserve explicit paths and resolve bare model names into the shared weights directory."""
-    path = Path(model_path)
-    if not path.suffix:
-        path = path.with_suffix(".pt")
-
-    if not path.is_absolute() and path.parent == Path("."):
-        return default_dir / path.name
-
-    return resolve_model_path(path, default_dir=default_dir)
-
-
 def get_mode_defaults(mode: str) -> dict[str, Any]:
     """Return normalized merged defaults for a CLI/Python API mode."""
-    return {
-        key: _resolve_default_value(key, value)
-        for key, value in _merged_mode_defaults(mode).items()
-    }
+    return {key: _resolve_default_value(key, value) for key, value in _merged_mode_defaults(mode).items()}
 
 
 def get_mode_default(mode: str, key: str, default: Any = None) -> Any:
@@ -179,89 +83,52 @@ def build_mode_namespace(
     values = get_mode_defaults(normalized_mode)
     values.update(dict(payload))
 
-    if normalized_mode in RUNTIME_MODES:
-        multiple_models = normalized_mode in {"generate", "eval", "tune", "research"}
-        values["detector"] = _normalize_model_list(
-            values.get("detector", [DEFAULT_DETECTOR] if multiple_models else DEFAULT_DETECTOR),
-            multiple=multiple_models,
+    if normalized_mode == "materialize":
+        allowed_keys = frozenset(
+            {
+                "build_root",
+                "data_root",
+                "device",
+                "experiment",
+                "plan_overrides",
+                "plan_path",
+                "publish_embeddings",
+                "publish_image_refs",
+                "publish_masks",
+                "resume",
+            }
         )
-        values["reid"] = _normalize_model_list(
-            values.get("reid", [DEFAULT_REID] if multiple_models else DEFAULT_REID),
-            multiple=multiple_models,
-        )
+        values = {key: value for key, value in values.items() if key in allowed_keys}
+        for path_key in ("data_root", "build_root", "plan_path"):
+            if values.get(path_key) is not None:
+                values[path_key] = Path(values[path_key])
+        values["materialize_explicit_keys"] = tuple(sorted(explicit & allowed_keys))
+    elif normalized_mode in RUNTIME_MODES:
+        if normalized_mode == "track":
+            values["detector"] = values.get("detector", DEFAULT_DETECTOR)
+            values["reid"] = values.get("reid", DEFAULT_REID)
+        else:
+            values.pop("detector", None)
+            values.pop("reid", None)
         tracker_spec = parse_tracker_spec(
             values.get("tracker") or get_mode_default(normalized_mode, "tracker"),
             default_backend=str(values.get("tracker_backend", "python")),
         )
         values["tracker"] = tracker_spec.name
         values["tracker_backend"] = tracker_spec.backend
-        values["classes"] = _normalize_classes(values.get("classes"))
+        if normalized_mode == "track":
+            values["classes"] = _normalize_classes(values.get("classes"))
+        else:
+            values.pop("classes", None)
         values["project"] = Path(values.get("project") or "runs")
-        values.setdefault("detector_explicit", "detector" in explicit)
-        values.setdefault("reid_explicit", "reid" in explicit)
+        if normalized_mode == "track":
+            values.setdefault("detector_explicit", "detector" in explicit)
+            values.setdefault("reid_explicit", "reid" in explicit)
         values.setdefault("tracker_explicit", "tracker" in explicit)
+        values.setdefault("tracker_backend_explicit", "tracker_backend" in explicit)
         values.setdefault("device_explicit", "device" in explicit)
         values.setdefault("half_explicit", "half" in explicit)
         values.setdefault("split_explicit", "split" in explicit)
-    elif normalized_mode == "export":
-        values["weights"] = ensure_model_extension(values.get("weights") or get_mode_default("export", "weights"))
-        calibration_data = values.get("tflite_calibration_data")
-        values["tflite_calibration_data"] = Path(calibration_data) if calibration_data else None
-        include = values.get("include") or ()
-        values["include"] = tuple(include)
-        project = values.get("project")
-        if project is not None:
-            values["project"] = Path(project)
-    elif normalized_mode == "train":
-        cfg_values: dict[str, Any] | None = None
-        cfg_path = values.pop("cfg", None)
-        if cfg_path is not None:
-            cfg_values = load_training_config(cfg_path)
-        # Apply training recipe if specified (between defaults/config and CLI overrides)
-        recipe_name = values.pop("recipe", None)
-        if cfg_values is not None and "recipe" not in explicit and cfg_values.get("recipe") is not None:
-            recipe_name = cfg_values["recipe"]
-        effective_model = values.get("model")
-        if cfg_values is not None and "model" not in explicit and cfg_values.get("model") is not None:
-            effective_model = cfg_values["model"]
-        if recipe_name is None:
-            # The default 11M model owns a model-specific training preset. Keep
-            # generic mode defaults for other backbones while making bare 11M
-            # training reproduce its promoted architecture and loss policy.
-            recipe_name = default_training_recipe_for_model(effective_model)
-        if recipe_name is not None:
-            recipe_values = load_training_recipe(recipe_name)
-            for key, val in recipe_values.items():
-                if key not in explicit:
-                    values[key] = val
-        if cfg_values is not None:
-            for key, val in cfg_values.items():
-                if key != "recipe" and key not in explicit:
-                    values[key] = val
-        project = values.get("project")
-        if project is not None:
-            values["project"] = Path(project)
-        imgsz = values.get("imgsz")
-        if isinstance(imgsz, (list, tuple)):
-            values["imgsz"] = tuple(imgsz)
-        elif isinstance(imgsz, int):
-            values["imgsz"] = (imgsz, imgsz // 2)
-        values["head_parts"] = _normalize_int_tuple(values.get("head_parts", (1, 2)))
-        values["reid_adapter_stages"] = _normalize_int_tuple(values.get("reid_adapter_stages", ()))
-        values["post_fusion_mixer_kernel"] = _normalize_int_pair(
-            values.get("post_fusion_mixer_kernel", (5, 3))
-        )
-        # Parse eval_datasets: accept comma-separated string or list
-        ed = values.get("eval_datasets", ())
-        if isinstance(ed, str):
-            ed = [s.strip() for s in ed.split(",") if s.strip()]
-        values["eval_datasets"] = list(ed)
-        if "backbone_freeze_epochs" not in explicit:
-            epochs = int(values.get("epochs", 0) or 0)
-            freeze_epochs = int(values.get("backbone_freeze_epochs", 0) or 0)
-            if epochs >= 0 and freeze_epochs > epochs:
-                values["backbone_freeze_epochs"] = epochs
-        values.setdefault("train_explicit_keys", tuple(sorted(explicit)))
 
     return SimpleNamespace(**values)
 
@@ -292,7 +159,6 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
         "verbose": bool(values.get("verbose", False)),
         "show_timing": bool(values.get("show_timing", False)),
         "agnostic_nms": bool(values.get("agnostic_nms", False)),
-        "postprocessing": str(values.get("postprocessing", "none")),
         "show": bool(values.get("show", False)),
         "show_labels": bool(values.get("show_labels", True)),
         "show_conf": bool(values.get("show_conf", True)),
@@ -309,8 +175,8 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class SharedModeDefaults:
-    detector: Path
-    reid: Path
+    detector: str | Path
+    reid: str | Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,7 +201,6 @@ class RuntimeModeDefaults:
     verbose: bool
     show_timing: bool
     agnostic_nms: bool
-    postprocessing: str
     show: bool
     show_labels: bool
     show_conf: bool
@@ -370,23 +235,10 @@ class TrackModeDefaults(RuntimeModeDefaults):
 
 
 @dataclass(frozen=True, slots=True)
-class GenerateModeDefaults(RuntimeModeDefaults):
-    experiment: str | None
-    source: str | None
-    benchmark: str
-    split: str
-
+class MaterializeModeDefaults(RuntimeModeDefaults):
     @classmethod
-    def from_mapping(cls, values: Mapping[str, Any]) -> "GenerateModeDefaults":
-        experiment = values.get("experiment")
-        source = values.get("source")
-        return cls(
-            **_runtime_mode_kwargs(values),
-            experiment=None if experiment is None else str(experiment),
-            source=None if source is None else str(source),
-            benchmark=str(values.get("benchmark", "")),
-            split=str(values.get("split", "")),
-        )
+    def from_mapping(cls, values: Mapping[str, Any]) -> "MaterializeModeDefaults":
+        return cls(**_runtime_mode_kwargs(values))
 
 
 @dataclass(frozen=True, slots=True)
@@ -493,23 +345,19 @@ class ResearchModeDefaults(RuntimeModeDefaults):
 class BoxMOTDefaults:
     shared: SharedModeDefaults
     track: TrackModeDefaults
-    generate: GenerateModeDefaults
+    materialize: MaterializeModeDefaults
     eval: EvalModeDefaults
     tune: TuneModeDefaults
     research: ResearchModeDefaults
-    export: ExportModeDefaults
-    train: Any
 
 
 BOXMOT_DEFAULTS = BoxMOTDefaults(
     shared=SharedModeDefaults(detector=DEFAULT_DETECTOR, reid=DEFAULT_REID),
     track=TrackModeDefaults.from_mapping(get_mode_defaults("track")),
-    generate=GenerateModeDefaults.from_mapping(get_mode_defaults("generate")),
+    materialize=MaterializeModeDefaults.from_mapping(get_mode_defaults("materialize")),
     eval=EvalModeDefaults.from_mapping(get_mode_defaults("eval")),
     tune=TuneModeDefaults.from_mapping(get_mode_defaults("tune")),
     research=ResearchModeDefaults.from_mapping(get_mode_defaults("research")),
-    export=load_export_defaults(),
-    train=build_mode_namespace("train", {}, explicit_keys=set()),
 )
 
 __all__ = (
@@ -518,8 +366,7 @@ __all__ = (
     "DEFAULT_DETECTOR",
     "DEFAULT_REID",
     "EvalModeDefaults",
-    "ExportModeDefaults",
-    "GenerateModeDefaults",
+    "MaterializeModeDefaults",
     "RUNTIME_DEFAULTS_PATH",
     "ResearchModeDefaults",
     "RuntimeModeDefaults",
@@ -527,10 +374,6 @@ __all__ = (
     "TrackModeDefaults",
     "TuneModeDefaults",
     "build_mode_namespace",
-    "ensure_model_extension",
     "get_mode_default",
     "get_mode_defaults",
-    "list_training_recipes",
-    "load_training_config",
-    "load_training_recipe",
 )

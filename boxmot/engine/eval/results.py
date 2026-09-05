@@ -2,18 +2,25 @@ from __future__ import annotations
 
 import argparse
 import re
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from boxmot.data.benchmark import (
-    COCO_CLASSES,
+from boxmot.engine.eval.motmetrics import (
+    _benchmark_config,
     _ordered_benchmark_eval_class_names,
-    resolve_eval_box_type,
-    resolve_obb_classes_to_eval,
+    _resolve_eval_box_type,
+    _resolve_obb_eval_class_pairs,
 )
-from boxmot.engine.workflows.benchmark import load_evaluation_config_from_args
-from boxmot.utils.rich.core.ui import print_text
+
+if TYPE_CHECKING:
+    from rich.console import RenderableType
+else:
+    RenderableType = Any
 
 SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW", "IDs")
+CORE_SUMMARY_COLUMNS = ("HOTA", "MOTA", "IDF1")
 SUMMARY_INT_COLUMNS = {"IDSW", "IDs"}
 MOT_REPORT_INTEGER_FIELDS = {
     "CLR_TP",
@@ -98,6 +105,140 @@ SUMMARY_AGGREGATE_LABELS = {
 }
 
 
+@dataclass(slots=True)
+class ValidationResult:
+    """Structured result returned by the tracking evaluation workflow."""
+
+    benchmark: str
+    raw: dict[str, Any]
+    summary_label: str
+    summary: dict[str, Any]
+    exp_dir: Path | None = None
+    timings: dict[str, Any] = field(default_factory=dict)
+    args: Any = None
+    workflow_rendered: bool = False
+    reference_raw: dict[str, Any] | None = None
+    reference_name: str | None = None
+
+    def __str__(self) -> str:
+        if self.workflow_rendered:
+            return ""
+        return self.render()
+
+    def __repr__(self) -> str:
+        return f"ValidationResult(benchmark={self.benchmark!r}, summary={self.summary!r}, exp_dir={self.exp_dir!r})"
+
+    def render(
+        self,
+        *,
+        title: str | None = None,
+        include_sequences: bool = True,
+        include_timings: bool = False,
+    ) -> str:
+        from boxmot.engine.ui.reporters import validation as reporting
+
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
+        return reporting.render_validation_cli_report(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=report_title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
+        )
+
+    def renderable(
+        self,
+        *,
+        title: str | None = None,
+        include_sequences: bool = True,
+        include_timings: bool = False,
+        compare_raw: dict[str, Any] | None = None,
+        compare_args: Any = None,
+    ) -> RenderableType:
+        from boxmot.engine.ui.reporters import validation as reporting
+
+        resolved_compare_raw = self.reference_raw if compare_raw is None else compare_raw
+        resolved_compare_args = self.args if compare_args is None else compare_args
+        resolved_title = title
+        if resolved_title is None and self.reference_raw is not None and self.reference_name:
+            resolved_title = f"📊 BOXMOT vs {self.reference_name.upper()}"
+        return reporting.build_validation_cli_renderable(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=resolved_title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
+            compare_raw=resolved_compare_raw,
+            compare_args=resolved_compare_args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
+        )
+
+    def format_report(self, *, title: str | None = None, include_sequences: bool = True) -> str:
+        from boxmot.engine.ui.reporters import validation as reporting
+
+        report_title = reporting.DEFAULT_VALIDATION_REPORT_TITLE if title is None else title
+        return reporting.format_validation_report(
+            self.raw,
+            args=self.args,
+            title=report_title,
+            include_sequences=include_sequences,
+        )
+
+    def print_report(
+        self,
+        *,
+        title: str | None = None,
+        include_sequences: bool = True,
+        include_timings: bool = False,
+    ) -> None:
+        from boxmot.engine.ui.reporters import validation as reporting
+
+        report_title = title
+        if report_title is None:
+            report_title = (
+                f"📊 BOXMOT vs {self.reference_name.upper()}"
+                if self.reference_raw is not None and self.reference_name
+                else reporting.CLI_RESULTS_SUMMARY_TITLE
+            )
+        reporting.print_validation_cli_report(
+            self.raw,
+            args=self.args,
+            timings=self.timings,
+            title=report_title,
+            include_sequences=include_sequences,
+            include_timings=include_timings,
+            compare_raw=self.reference_raw,
+            compare_args=self.args,
+            compare_label=f"Δ vs {self.reference_name}" if self.reference_name else None,
+        )
+
+    def to_dict(self, *, include_raw: bool = False) -> dict[str, Any]:
+        payload = {
+            "benchmark": self.benchmark,
+            "summary_label": self.summary_label,
+            "summary": dict(self.summary),
+            "timings": dict(self.timings),
+            "exp_dir": None if self.exp_dir is None else str(self.exp_dir),
+        }
+        if include_raw:
+            payload["raw"] = self.raw
+            if self.reference_raw is not None:
+                payload["reference_raw"] = self.reference_raw
+                payload["reference_name"] = self.reference_name
+        return payload
+
+
 def _match_header_class_name(raw_name: str, known_classes: list[str] | None = None) -> str:
     """Resolve a fixed-width metric header suffix to a class name."""
     if known_classes:
@@ -156,7 +297,7 @@ def parse_mot_results(results: str, seq_names=None, known_classes: list[str] | N
             if line.startswith(prefix):
                 is_header = True
                 current_metric_type = metric_name
-                content = line[len(prefix):].strip()
+                content = line[len(prefix) :].strip()
                 tracker_class = _extract_metric_header_tracker_class(content, header_token)
                 if tracker_class:
                     current_class = _match_header_class_name(tracker_class, known_classes)
@@ -175,19 +316,19 @@ def parse_mot_results(results: str, seq_names=None, known_classes: list[str] | N
         def _parse_values(rest: str, name_len: int) -> list[str]:
             pad = max(0, col_name - name_len)
             value_part = rest[pad:]
-            chunks = [value_part[i: i + col_val].strip() for i in range(0, len(value_part), col_val)]
+            chunks = [value_part[i : i + col_val].strip() for i in range(0, len(value_part), col_val)]
             return [chunk for chunk in chunks if chunk]
 
         if line.startswith("COMBINED"):
             row_name = "COMBINED"
-            values = _parse_values(line[len("COMBINED"):], len("COMBINED"))
+            values = _parse_values(line[len("COMBINED") :], len("COMBINED"))
         elif sorted_names is not None:
             row_name = None
             values = []
             for name in sorted_names:
                 if line.startswith(name):
                     row_name = name
-                    values = _parse_values(line[len(name):], len(name))
+                    values = _parse_values(line[len(name) :], len(name))
                     break
             if row_name is None:
                 continue
@@ -202,9 +343,11 @@ def parse_mot_results(results: str, seq_names=None, known_classes: list[str] | N
         if not values:
             continue
 
-        target = parsed_results[current_class] if row_name == "COMBINED" else parsed_results[current_class][
-            "per_sequence"
-        ].setdefault(row_name, {})
+        target = (
+            parsed_results[current_class]
+            if row_name == "COMBINED"
+            else parsed_results[current_class]["per_sequence"].setdefault(row_name, {})
+        )
         for idx, key in enumerate(fields):
             if idx >= len(values):
                 continue
@@ -267,12 +410,16 @@ def filter_obb_mot_results(
     if not parsed_results:
         return parsed_results, False
 
-    selected_classes = resolve_obb_classes_to_eval(args, bench_cfg)
+    selected_classes = [name for name, _ in _resolve_obb_eval_class_pairs(args, bench_cfg)]
     ordered: dict = {}
     for class_name in selected_classes:
-        actual_key = class_name if class_name in parsed_results else next(
-            (key for key in parsed_results if key.lower() == class_name.lower()),
-            None,
+        actual_key = (
+            class_name
+            if class_name in parsed_results
+            else next(
+                (key for key in parsed_results if key.lower() == class_name.lower()),
+                None,
+            )
         )
         if actual_key is not None:
             ordered[actual_key] = parsed_results[actual_key]
@@ -311,10 +458,8 @@ def _combined_summary_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
 def _load_report_cfg_from_args(args: Any) -> dict[str, Any]:
     if args is None:
         return {}
-    try:
-        return load_evaluation_config_from_args(args) or {}
-    except Exception:
-        return {}
+    config = getattr(args, "evaluation_config", None)
+    return dict(config) if isinstance(config, Mapping) else {}
 
 
 def _infer_single_class_report_name(args: Any, cfg: dict[str, Any] | None = None) -> str:
@@ -339,7 +484,7 @@ def _infer_single_class_report_name(args: Any, cfg: dict[str, Any] | None = None
         if class_indices is not None:
             indices = class_indices if isinstance(class_indices, list) else [class_indices]
             if len(indices) == 1:
-                return str(COCO_CLASSES[int(indices[0])])
+                return f"class_{int(indices[0])}"
     return "results"
 
 
@@ -433,17 +578,21 @@ def _format_summary_delta_only_cell(
 def _summary_sort_keys(parsed_results: dict, args: argparse.Namespace, cfg: dict) -> tuple[list[str], list[str]]:
     if not parsed_results:
         return [], []
-    eval_box_type = resolve_eval_box_type(args, cfg)
+    eval_box_type = _resolve_eval_box_type(args, cfg)
     if eval_box_type != "obb":
         return list(parsed_results.keys()), []
 
-    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    bench_cfg = _benchmark_config(cfg)
     primary_keys: list[str] = []
     seen: set[str] = set()
-    for class_name in resolve_obb_classes_to_eval(args, bench_cfg):
-        actual_key = class_name if class_name in parsed_results else next(
-            (key for key in parsed_results if key.lower() == class_name.lower()),
-            None,
+    for class_name, _ in _resolve_obb_eval_class_pairs(args, bench_cfg):
+        actual_key = (
+            class_name
+            if class_name in parsed_results
+            else next(
+                (key for key in parsed_results if key.lower() == class_name.lower()),
+                None,
+            )
         )
         if actual_key is not None and actual_key not in seen:
             primary_keys.append(actual_key)
@@ -460,7 +609,7 @@ def _known_mot_class_names(args: argparse.Namespace, cfg: dict) -> list[str]:
     if getattr(args, "remapped_class_names", None):
         known.extend([str(name) for name in args.remapped_class_names])
 
-    bench_cfg = cfg.get("benchmark", {}) if isinstance(cfg, dict) else {}
+    bench_cfg = _benchmark_config(cfg)
     known.extend(_ordered_benchmark_eval_class_names(bench_cfg))
     known.extend(["cls_comb_cls_av", "cls_comb_det_av", "HUMAN", "VEHICLE", "BIKE", "all"])
 
@@ -540,9 +689,7 @@ def render_mot_report(
         primary_keys = list(parsed_results.keys())
 
     single_sequence = all(
-        len(metrics.get("per_sequence", {})) <= 1
-        for metrics in parsed_results.values()
-        if isinstance(metrics, dict)
+        len(metrics.get("per_sequence", {})) <= 1 for metrics in parsed_results.values() if isinstance(metrics, dict)
     )
     all_names = [_display_summary_name(name) for name in [*primary_keys, *aggregate_keys]]
     for class_metrics in parsed_results.values():
@@ -562,8 +709,7 @@ def render_mot_report(
     ]
     if len(primary_keys) > 1:
         class_rows = [
-            (_display_summary_name(name), parsed_results[name], compare_results.get(name))
-            for name in primary_keys
+            (_display_summary_name(name), parsed_results[name], compare_results.get(name)) for name in primary_keys
         ]
         blocks.append(
             _render_summary_table(
@@ -665,44 +811,21 @@ def render_mot_report(
     return "\n".join(block for block in blocks if block)
 
 
-def log_mot_report(report: str) -> None:
-    if report:
-        print_text(report)
-
-
-def _print_summary_table(
-    title: str,
-    name_header: str,
-    rows: list[tuple[str, dict, bool]],
-    total_w: int,
-    name_w: int,
-) -> None:
-    report = _render_summary_table(
-        title,
-        name_header,
-        [(row_name, metrics, None) for row_name, metrics, _highlight in rows],
-        total_width=total_w,
-        name_width=name_w,
-        colorize=False,
-    )
-    log_mot_report(report)
-
-
 __all__ = [
+    "CORE_SUMMARY_COLUMNS",
     "MOT_REPORT_INTEGER_FIELDS",
     "MOT_REPORT_METRIC_SPECS",
     "SUMMARY_COLUMNS",
     "SUMMARY_INT_COLUMNS",
+    "ValidationResult",
     "_combined_summary_metrics",
     "_display_summary_name",
     "_known_mot_class_names",
     "_load_report_cfg_from_args",
-    "_print_summary_table",
     "_select_plot_metrics_data",
     "_summary_sort_keys",
     "build_mot_feedback",
     "filter_obb_mot_results",
-    "log_mot_report",
     "normalize_report_results",
     "parse_mot_results",
     "render_mot_report",

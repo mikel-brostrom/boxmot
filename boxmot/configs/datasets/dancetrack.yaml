@@ -5,7 +5,7 @@ format:
   box_type: aabb
 
 storage:
-  root: boxmot/datasets/mot/test1
+  root: DanceTrack
 
 default_split: val
 

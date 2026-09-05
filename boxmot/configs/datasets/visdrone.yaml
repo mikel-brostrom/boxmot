@@ -5,7 +5,7 @@ format:
   box_type: aabb
 
 storage:
-  root: boxmot/datasets/mot/VisDrone2019-MOT-test-dev
+  root: VisDrone2019-MOT-test-dev
 
 default_split: val
 

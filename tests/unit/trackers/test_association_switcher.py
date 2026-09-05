@@ -3,19 +3,21 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import torch
 
+from boxmot.structures import Boxes, Detections, Frame, MaskBatch
 from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.bbox.boosttrack import BoostTrack
-from boxmot.trackers.bbox.botsort import BotSort
-from boxmot.trackers.bbox.bytetrack import ByteTrack
-from boxmot.trackers.bbox.deepocsort import DeepOcSort
-from boxmot.trackers.bbox.hybridsort import HybridSort
-from boxmot.trackers.bbox.occluboost import OccluBoost
-from boxmot.trackers.bbox.ocsort import OcSort
-from boxmot.trackers.bbox.sfsort import SFSORT
-from boxmot.trackers.bbox.strongsort import StrongSort
+from boxmot.trackers.box.boosttrack.tracker import BoostTrack
+from boxmot.trackers.box.botsort.tracker import BotSort
+from boxmot.trackers.box.bytetrack.tracker import ByteTrack
+from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
+from boxmot.trackers.box.hybridsort.tracker import HybridSort
+from boxmot.trackers.box.occluboost.tracker import OccluBoost
+from boxmot.trackers.box.ocsort.tracker import OcSort
+from boxmot.trackers.box.sfsort.tracker import SFSORT
+from boxmot.trackers.box.strongsort.tracker import StrongSort
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.hybrid.sam2mot.sam2mot import Sam2Mot
+from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
 TrackerFactory = Callable[..., BaseTracker]
@@ -33,8 +35,7 @@ def _bytetrack(**kwargs) -> ByteTrack:
 
 def _botsort(**kwargs) -> BotSort:
     return BotSort(
-        reid_model=None,
-        with_reid=False,
+        use_embeddings=False,
         use_cmc=False,
         min_hits=1,
         track_high_thresh=0.2,
@@ -58,8 +59,7 @@ def _ocsort(**kwargs) -> OcSort:
 
 def _deepocsort(**kwargs) -> DeepOcSort:
     return DeepOcSort(
-        reid_model=None,
-        embedding_off=True,
+        use_embeddings=False,
         cmc_off=True,
         min_hits=1,
         det_thresh=0.2,
@@ -70,8 +70,7 @@ def _deepocsort(**kwargs) -> DeepOcSort:
 
 def _hybridsort(**kwargs) -> HybridSort:
     return HybridSort(
-        reid_model=None,
-        with_reid=False,
+        use_embeddings=False,
         cmc_method=None,
         min_hits=1,
         det_thresh=0.2,
@@ -83,8 +82,7 @@ def _hybridsort(**kwargs) -> HybridSort:
 
 def _boosttrack(**kwargs) -> BoostTrack:
     return BoostTrack(
-        reid_model=None,
-        with_reid=False,
+        use_embeddings=False,
         use_cmc=False,
         use_dlo_boost=False,
         use_duo_boost=False,
@@ -97,8 +95,7 @@ def _boosttrack(**kwargs) -> BoostTrack:
 
 def _occluboost(**kwargs) -> OccluBoost:
     return OccluBoost(
-        reid_model=None,
-        with_reid=False,
+        use_embeddings=False,
         use_cmc=False,
         use_dlo_boost=False,
         use_duo_boost=False,
@@ -124,7 +121,7 @@ def _sfsort(**kwargs) -> SFSORT:
 
 
 def _strongsort(**kwargs) -> StrongSort:
-    return StrongSort(reid_model=None, min_hits=1, **kwargs)
+    return StrongSort(min_hits=1, **kwargs)
 
 
 def _sam2mot(**kwargs) -> Sam2Mot:
@@ -169,6 +166,33 @@ def _img() -> np.ndarray:
     return np.zeros((80, 120, 3), dtype=np.uint8)
 
 
+def _canonical_update(tracker: BaseTracker, rows: np.ndarray, *, sample_id: str = "sample"):
+    """Exercise the public v24 boundary while keeping kernel assertions concise."""
+
+    image = _img()
+    frame = Frame(
+        torch.from_numpy(image).permute(2, 0, 1).contiguous(),
+        sample_id=sample_id,
+        sequence_id="association",
+        frame_index=0,
+    )
+    embeddings = torch.ones((len(rows), 4), dtype=torch.float32) if tracker.requirements.embeddings else None
+    masks = None
+    if tracker.requirements.masks:
+        values = torch.zeros((len(rows), *frame.image_size), dtype=torch.bool)
+        values[:, 10:30, 10:30] = True
+        masks = MaskBatch(values)
+    detections = Detections(
+        geometry=Boxes(torch.from_numpy(np.ascontiguousarray(rows[:, :4], dtype=np.float32))),
+        scores=torch.from_numpy(np.ascontiguousarray(rows[:, 4], dtype=np.float32)),
+        class_ids=torch.from_numpy(np.ascontiguousarray(rows[:, 5], dtype=np.int64)),
+        sample_id=sample_id,
+        embeddings=embeddings,
+        masks=masks,
+    )
+    return tracker.update(detections, frame if tracker.requirements.frame else None)
+
+
 def _exercise_core_association(name: str, tracker: BaseTracker, spy: _SimilaritySpy) -> None:
     tracks = [_box(np.array([10, 10, 30, 30], dtype=np.float32), time_since_update=1)]
     detections = [_box(np.array([11, 11, 31, 31], dtype=np.float32), conf=0.95)]
@@ -205,9 +229,9 @@ def _exercise_core_association(name: str, tracker: BaseTracker, spy: _Similarity
 
     # Prime the track lifecycle before replacing the configured metric with a
     # spy. The second frame must invoke the same callable slot in core matching.
-    tracker.update(_aabb_dets())
+    _canonical_update(tracker, _aabb_dets(), sample_id="first")
     tracker.asso_func = spy
-    tracker.update(_aabb_dets())
+    _canonical_update(tracker, _aabb_dets(), sample_id="second")
 
 
 @pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
@@ -245,8 +269,7 @@ def test_association_distance_uses_selected_similarity_for_arrays_and_objects() 
 
 def test_botsort_preserves_geometric_distance_before_reid_fusion() -> None:
     tracker = BotSort(
-        reid_model=None,
-        with_reid=False,
+        use_embeddings=False,
         use_cmc=False,
         asso_func="diou",
     )
@@ -258,7 +281,7 @@ def test_botsort_preserves_geometric_distance_before_reid_fusion() -> None:
 
 
 def test_strongsort_fallback_uses_selected_geometry_and_keeps_stale_gate() -> None:
-    tracker = StrongSort(reid_model=None, asso_func="hmiou")
+    tracker = StrongSort(asso_func="hmiou")
     tracks = [
         _box(np.array([0, 0, 10, 10], dtype=np.float32), time_since_update=1),
         _box(np.array([1, 1, 11, 11], dtype=np.float32), time_since_update=2),
@@ -309,17 +332,12 @@ def test_sam2mot_canonicalizes_inverted_extrapolated_boxes(mode: str) -> None:
         "sfsort",
     ),
 )
-def test_centroid_only_needs_the_initial_image_for_image_optional_trackers(name: str) -> None:
+def test_centroid_requirement_is_frozen_for_resolved_tracker(name: str) -> None:
     tracker = TRACKER_FACTORIES[name](asso_func="centroid")
-    dets = _aabb_dets()
 
-    assert tracker.requires_image(dets)
-    with pytest.raises(ValueError, match="requires img when using 'centroid' association"):
-        tracker.update(dets)
-
-    tracker.update(dets, img=_img())
-    assert not tracker.requires_image(dets)
-    tracker.update(dets)
+    assert tracker.requirements.frame is True
+    _canonical_update(tracker, _aabb_dets())
+    assert tracker.requirements.frame is True
 
 
 @pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))

@@ -3,19 +3,19 @@
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
 images:
 
-| Target | Suggested tag | Contents |
-| --- | --- | --- |
-| `cli-gpu` | `boxmot/boxmot:latest` | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
-| `cli-cpu` | `boxmot/boxmot:latest-cpu` | The same full stack with CPU-only PyTorch |
-| `service-cpu` | `boxmot/boxmot-service:latest` | Non-root CPU geometry-only detection-to-track HTTP service |
-| `service-gpu` | `boxmot/boxmot-service:latest-gpu` | Non-root CUDA/ReID detection-to-track HTTP service |
+| Target | BoxMOT v24 tag | Rolling tag | Contents |
+| --- | --- | --- | --- |
+| `cli-gpu` | `boxmot/boxmot:24.0.0` | `boxmot/boxmot:latest` | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
+| `cli-cpu` | `boxmot/boxmot:24.0.0-cpu` | `boxmot/boxmot:latest-cpu` | The same full stack with CPU-only PyTorch |
+| `service-cpu` | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Non-root CPU geometry-only detection-to-track HTTP service |
+| `service-gpu` | `boxmot/boxmot-service:24.0.0-gpu` | `boxmot/boxmot-service:latest-gpu` | Non-root CUDA/ReID detection-to-track HTTP service |
 
 The CPU and CUDA selections come from mutually exclusive, lockfile-backed `cpu`
 and `cu130` extras in the root project. Docker, local development, and CI all
-consume the same `pyproject.toml` and `uv.lock`. The CPU service installs only
-the minimal `service-runtime` group and runs BoxMOT directly from source, so it
-contains neither PyTorch nor CUDA and uses headless OpenCV. The GPU service
-selects the root CUDA/ReID and HTTP extras, without detector or evaluation
+consume the same `pyproject.toml` and `uv.lock`. The CPU service combines its
+minimal service runtime with the CPU Torch profile, so canonical structures are
+available without CUDA and uses headless OpenCV. The GPU service selects CUDA
+13.0 Torch plus ReID and HTTP dependencies, without detector or evaluation
 extras. A final `default` stage aliases `cli-gpu`, so no-target builds still
 produce the full CUDA image.
 
@@ -51,11 +51,15 @@ uv lock
 
 ## Publish
 
-GitHub Actions builds, smoke-tests, and pushes all four targets only when a
-GitHub release is published. Pull requests, branch pushes, and manual workflow
-runs do not build or publish these images. Each target is pushed only after its
-smoke test passes. The release tag may optionally start with `v`, but its
-remaining value must match `[project].version` in `pyproject.toml`.
+GitHub Actions builds, smoke-tests, and pushes all four targets when a GitHub
+release is published. The same workflow can be dispatched manually with an
+exact commit SHA and `v<version>` release tag; manual runs validate only unless
+`push_images` is explicitly enabled. Pull requests and branch pushes do not
+build or publish images. Each target is pushed only after its smoke test passes,
+and `<version>` must exactly match `[project].version` in `pyproject.toml`.
+
+Each image also receives an immutable `sha-<commit>` tag with the same CPU or
+GPU suffix shown above.
 
 ## Run
 
@@ -70,6 +74,55 @@ Run the CPU CLI image:
 ```bash
 docker run --rm -it --ipc=host boxmot/boxmot:local-cpu
 ```
+
+Both CLI images include the native ReID library and the live C API backends for
+BotSort, ByteTrack, OcSort, OccluBoost, and SFSORT. Selecting
+`--tracker-backend cpp` does not require a compiler or CMake inside the runtime
+container. The service images use the Python tracker backends.
+
+### Persist datasets, builds, and models
+
+Mount raw datasets, immutable builds, and downloaded model artifacts outside
+the container. Dataset configs resolve beneath `BOXMOT_DATASETS_DIR`, build IDs
+resolve beneath `BOXMOT_BUILDS_DIR`, and built-in model paths resolve beneath
+the CLI image's `/opt/boxmot` working directory:
+
+```bash
+mkdir -p "$PWD/runs/builds" "$PWD/models"
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds" \
+  -v "$PWD/models:/opt/boxmot/models" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot materialize \
+    --experiment mot17-ablation-yolox-lmbn \
+    --device 0
+```
+
+Use the build ID printed by `materialize` for evaluation. Reuse the same mounts
+so evaluation can verify the source catalog and component artifacts:
+
+```bash
+BUILD_ID=replace-with-the-64-character-build-id
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds:ro" \
+  -v "$PWD/models:/opt/boxmot/models:ro" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot eval \
+    --experiment mot17-ablation-yolox-lmbn \
+    --build "$BUILD_ID" \
+    --tracker occluboost
+```
+
+For CPU-only execution, use `boxmot/boxmot:24.0.0-cpu`, omit `--gpus all`,
+and pass `--device cpu` to `materialize`.
 
 Run the CPU geometry-only detection-to-track service:
 
@@ -107,7 +160,7 @@ From another terminal, verify that it is ready:
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-It supports ByteTrack, OCSort, and SFSORT and does not need image pixels. The
+It supports ByteTrack, OcSort, and SFSORT and does not need image pixels. The
 service forwards `img=None` for these motion-only/default configurations instead
 of allocating a dummy frame. Send one request per frame.
 
@@ -163,8 +216,8 @@ docker run --rm --gpus all -p 8000:8000 \
   boxmot/boxmot-service:local-gpu
 ```
 
-The GPU service defaults to BotSORT and also supports StrongSORT, DeepOCSORT,
-HybridSORT, BoostTrack, and OccluBoost. Its request must contain a raw
+The GPU service defaults to BotSort and also supports StrongSort, DeepOcSort,
+HybridSort, BoostTrack, and OccluBoost. Its request must contain a raw
 base64-encoded JPEG or PNG in `image_base64` for every frame, even when
 `detections` is empty. Base64 increases the compressed payload by roughly 33%,
 so prefer compressed JPEG for high-volume streams and enforce request-size

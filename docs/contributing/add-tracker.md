@@ -2,20 +2,32 @@
 
 To integrate a new tracker cleanly:
 
-1. Add a module under the appropriate modality folder, such as `boxmot/trackers/bbox/<name>.py`, `boxmot/trackers/mask/<name>/`, or `boxmot/trackers/hybrid/<name>/`.
-2. Implement a tracker class that subclasses `BaseTracker` and defines `update()`.
-3. Add a `TrackerDefinition` to `TRACKER_DEFINITIONS` in
-   `boxmot/trackers/registry.py`. `TRACKER_MAPPING`, `REID_TRACKERS`, and the
-   class-name map are derived from those definitions.
-4. Export the class from its modality package, such as
-   `boxmot/trackers/bbox/__init__.py` or `boxmot/trackers/hybrid/__init__.py`.
-   Add a higher-level re-export only when it is intentionally part of that
-   package's public API.
+1. Choose the family from the tracker's primary state: `box` for AABB/OBB,
+   `mask` for mask state, or `multimodal` when several representations or model
+   memory are fundamental. Add `boxmot/trackers/<family>/<name>/tracker.py` and
+   keep each `__init__.py` free of tracker-class re-exports.
+2. Box-state implementations subclass `BoxTracker`; other families subclass
+   `BaseTracker` until a meaningful family base exists. Declare immutable
+   capabilities and the configuration-dependent `use_embeddings`,
+   `_requires_frame`, and `_requires_masks` settings, then implement
+   `_track_detections()`. The inherited
+   `TrackerRequirements` property exposes those requirements to pipelines.
+   Keep the inherited canonical
+   `update(detections: Detections, frame: Frame | None = None) -> Tracks`
+   entry point. Models and fallback feature extraction do not belong in a
+   tracker.
+3. Add the tracker key and canonical implementation path to `_TRACKER_MANIFEST`
+   in `boxmot/_tracker_exports.py`, then add its static capability declaration
+   to the registry. Public exports and exact class identities derive from the
+   manifest; tests require registry and implementation capabilities to agree.
+4. Import the class in application examples with
+   `from boxmot import <TrackerClass>`; implementation packages do not provide
+   parallel class aliases.
 5. Add `boxmot/configs/trackers/<name>.yaml` with each parameter's runtime default and tuning metadata.
 6. Add a tracker doc page and wire it into `mkdocs.yml`.
-7. Extend registry/package tests under `tests/unit/trackers/`, tracker-contract
-   tests under `tests/unit/trackers/bbox/` or the relevant modality, and the
-   tracker lists in `tests/test_config.py` where applicable.
+7. Extend registry/package tests under `tests/unit/trackers/`, add focused
+   algorithm tests under `tests/unit/trackers/<family>/` when useful, and update
+   the tracker lists in `tests/test_config.py` where applicable.
 8. Update the tracker, ReID, mask/OBB, and benchmark lists in
    `.github/workflows/` when the new tracker should run in those jobs.
 
@@ -23,18 +35,36 @@ To integrate a new tracker cleanly:
 
 If the tracker also gets a native backend:
 
+The backend does not change the tracker's representation family. Keep C++
+implementation and ABI code under `boxmot/native/cpp`; only the canonical
+Python adapter lives beside the family-owned tracker implementation.
+
 1. Add native sources under `boxmot/native/cpp/trackers/<name>/`.
 2. Add the tracker subdirectory and wheel-install entries to
    `boxmot/native/cpp/CMakeLists.txt`.
-3. Add Python wrapper code under `boxmot/native/trackers/<name>.py`.
-4. Register live and replay backends in `boxmot/native/registry.py`.
-5. Document `--tracker-backend cpp` support on the tracker page.
-6. Add native wrapper tests under
+3. Add the low-level ctypes binding under
+   `boxmot/native/trackers/<name>.py`. It must accept and return typed,
+   contiguous NumPy buffers and must not import structures or tracker code.
+4. Add the canonical adapter under `boxmot/trackers/<family>/<name>/native.py`.
+   This layer converts `Detections`, `Frame`, and `Tracks`, resolves tracker
+   configuration, and declares requirements.
+5. Set `native_class_path` on the algorithm's `_TRACKER_MANIFEST` entry. Native
+   validation and construction are owned by `boxmot/trackers/factory.py`.
+6. Document `--tracker-backend cpp` support on the tracker page.
+7. Add low-level ABI and domain-adapter tests under
    `tests/unit/native/trackers/test_native_<name>.py`.
 
 Native tracker sources should follow the existing CMake layout: a
-`<name>_replay` executable for cached `eval` and `tune`, a `<name>_capi` shared
-library for live `track`, and a `<name>_core` target for reusable C++ code.
+`<name>_capi` shared library exposing typed ABI v2 buffers and a `<name>_core`
+target for reusable C++ code. A state-mutating update is called exactly once;
+the library allocates its result and the caller releases it with the matching
+free function. Do not add positional-cache or replay executables. Evaluation
+and tuning stream keyed records through the same live ABI.
+
+Do not place model inference code under `native/cpp/trackers` or link it into a
+tracker target. The optional native appearance runtime is independently owned
+by `native/cpp/reid`; trackers receive embeddings through their typed input
+buffers.
 
 ## Minimum checklist
 

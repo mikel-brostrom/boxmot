@@ -2,7 +2,9 @@ from types import SimpleNamespace
 
 import torch
 
-from boxmot.engine.reid import export as reid_export
+from boxmot.engine.commands.reid import export as reid_export
+from boxmot.engine.ui.reporters import export as export_reporter
+from boxmot.reid.exporters import workflow as export_workflow
 
 
 class _Pipeline:
@@ -39,9 +41,9 @@ def test_main_reports_checkpoint_size_before_export(monkeypatch, tmp_path):
     pipeline = _Pipeline()
     reporter = SimpleNamespace(pipeline=lambda: pipeline)
 
-    monkeypatch.setattr(reid_export, "ExportWorkflowReporter", lambda _args: reporter)
-    monkeypatch.setattr(reid_export, "_prepare_export", lambda _args: (torch.nn.Identity(), dummy_input))
-    monkeypatch.setattr(reid_export, "_execute_export", lambda *_args: {})
+    monkeypatch.setattr(export_reporter, "ExportWorkflowReporter", lambda _args: reporter)
+    monkeypatch.setattr(export_workflow, "prepare_export", lambda _args: (torch.nn.Identity(), dummy_input))
+    monkeypatch.setattr(export_workflow, "execute_export", lambda *_args: {})
 
     result = reid_export.main(args)
 

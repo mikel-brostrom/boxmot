@@ -81,12 +81,18 @@ The shared Dockerfile provides four production targets. Both CLI images
 include the `yolo` and `trackeval` extras for detector, evaluation, and
 interactive workflows:
 
-| Workload | Build target | Published image | Runtime |
+| Workload | Build target | BoxMOT v24 tag | Rolling tag |
 | --- | --- | --- | --- |
-| Full CLI | `cli-gpu` | `boxmot/boxmot:latest` | NVIDIA GPU |
-| Full CLI | `cli-cpu` | `boxmot/boxmot:latest-cpu` | CPU |
-| Geometry-only tracker service | `service-cpu` | `boxmot/boxmot-service:latest` | CPU only |
-| ReID tracker service | `service-gpu` | `boxmot/boxmot-service:latest-gpu` | NVIDIA GPU |
+| Full CUDA CLI | `cli-gpu` | `boxmot/boxmot:24.0.0` | `boxmot/boxmot:latest` |
+| Full CPU CLI | `cli-cpu` | `boxmot/boxmot:24.0.0-cpu` | `boxmot/boxmot:latest-cpu` |
+| CPU tracker service | `service-cpu` | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` |
+| CUDA/ReID tracker service | `service-gpu` | `boxmot/boxmot-service:24.0.0-gpu` | `boxmot/boxmot-service:latest-gpu` |
+
+The CPU targets install CPU-only Torch and contain no CUDA runtime. The GPU
+targets install the locked CUDA 13.0 Torch wheels; they require a compatible
+NVIDIA host driver and the NVIDIA Container Toolkit. Both service images use
+Torch for canonical structures, but only the GPU service performs ReID
+enrichment. Neither service runs a detector.
 
 Run the published GPU image with the NVIDIA Container Toolkit and a compatible
 host driver:
@@ -95,7 +101,7 @@ host driver:
 docker run --rm -it --gpus all \
   -v "$PWD:/workspace" \
   --workdir /workspace \
-  boxmot/boxmot:latest
+  boxmot/boxmot:24.0.0
 ```
 
 Use the CPU-suffixed image on hosts without NVIDIA GPUs:
@@ -104,7 +110,7 @@ Use the CPU-suffixed image on hosts without NVIDIA GPUs:
 docker run --rm -it \
   -v "$PWD:/workspace" \
   --workdir /workspace \
-  boxmot/boxmot:latest-cpu
+  boxmot/boxmot:24.0.0-cpu
 ```
 
 Inside either container, the project virtual environment is already on `PATH`;
@@ -121,11 +127,45 @@ docker build --target service-cpu -f docker/Dockerfile -t boxmot/boxmot-service:
 docker build --target service-gpu -f docker/Dockerfile -t boxmot/boxmot-service:local-gpu .
 ```
 
-Published GPU CLI tags are `latest`, `<version>`, and `sha-<commit>`. Published
-CPU CLI tags append `-cpu`, for example `<version>-cpu` and
-`sha-<commit>-cpu`. The CPU service publishes canonical tags in the separate
-`boxmot/boxmot-service` repository; its GPU counterpart appends `-gpu`, for
-example `<version>-gpu` and `sha-<commit>-gpu`.
+Every target also receives a `sha-<commit>` tag, with `-cpu` or `-gpu` appended
+for the suffixed variants.
+
+For materialization and evaluation, keep raw datasets, builds, and model
+artifacts on the host. This example uses the repository's MOT data layout and
+persists downloads and builds across containers:
+
+```bash
+mkdir -p "$PWD/runs/builds" "$PWD/models"
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds" \
+  -v "$PWD/models:/opt/boxmot/models" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot materialize \
+    --experiment mot17-ablation-yolox-lmbn \
+    --device 0
+
+BUILD_ID=replace-with-the-64-character-build-id
+
+docker run --rm --gpus all --ipc=host \
+  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
+  -v "$PWD/runs/builds:/builds:ro" \
+  -v "$PWD/models:/opt/boxmot/models:ro" \
+  -e BOXMOT_DATASETS_DIR=/datasets \
+  -e BOXMOT_BUILDS_DIR=/builds \
+  boxmot/boxmot:24.0.0 \
+  boxmot eval \
+    --experiment mot17-ablation-yolox-lmbn \
+    --build "$BUILD_ID" \
+    --tracker occluboost
+```
+
+Use the `24.0.0-cpu` image without `--gpus all` and materialize with
+`--device cpu` on CPU-only hosts. See the
+[deployment guide](../guides/deployment.md) for the mount and service details.
 
 Run the HTTP image when detections come from a separate detector:
 
@@ -133,7 +173,7 @@ Run the HTTP image when detections come from a separate detector:
 docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
 ```
 
-This CPU image supports ByteTrack, OCSort, and SFSORT without image pixels. Run
+This CPU image supports ByteTrack, OcSort, and SFSORT without image pixels. Run
 the CUDA/ReID image with a mounted checkpoint:
 
 ```bash
@@ -143,8 +183,8 @@ docker run --rm --gpus all -p 8000:8000 \
   boxmot/boxmot-service:latest-gpu
 ```
 
-The GPU image defaults to BotSORT and also supports StrongSORT, DeepOCSORT,
-HybridSORT, BoostTrack, and OccluBoost. It requires a raw base64-encoded JPEG or
+The GPU image defaults to BotSort and also supports StrongSort, DeepOcSort,
+HybridSort, BoostTrack, and OccluBoost. It requires a raw base64-encoded JPEG or
 PNG in `image_base64` on every frame, including frames without detections. Both
 service images run as a non-root user and expose health checks, OpenAPI at
 `/docs`, and a stateful frame endpoint. They consume external detections and do
@@ -154,7 +194,13 @@ payload guidance, and scaling model.
 
 ## Native C++ backends
 
-Native C++ tracker backends are built lazily the first time you select `--tracker-backend cpp`. They are currently available for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+The CPU and GPU CLI Docker images bundle native ReID and the C API tracker
+backends for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
+`--tracker-backend cpp` therefore works in those images without a compiler or
+CMake. The service images use Python tracker backends.
+
+For a normal host installation, native backends are built lazily the first time
+you select `--tracker-backend cpp`.
 
 Install the native build tools before using them:
 
@@ -167,14 +213,14 @@ Example:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack --tracker-backend cpp
 ```
 
 The generated build files are kept under `build/native/<tracker>/`.
 For editable installs or an up-front build, compile native ReID and all live
 tracker libraries with `boxmot build`, or select one with
-`boxmot build --tracker bytetrack`. Cached replay executables are still built
-on first `eval` or `tune` use.
+`boxmot build --tracker bytetrack`. Evaluation and tuning stream keyed Parquet
+rows through the same live native API; there are no cache replay executables.
 
 ## Verify the install
 
@@ -194,15 +240,16 @@ on first `eval` or `tune` use.
         Smoke-test the Python API:
 
         ```python
-        from boxmot import BoxMOT
+        import boxmot
+        from boxmot.trackers import TrackerSpec
 
-        boxmot = BoxMOT(detector="yolov8n", reid="osnet_x0_25_msmt17", tracker="bytetrack")
-        print(boxmot)
+        tracker = boxmot.create_tracker(TrackerSpec(name="bytetrack"))
+        print(boxmot.__version__, tracker.requirements)
         ```
 
 ## Next steps
 
 - Use [Quickstart](../index.md) for a minimal path.
-- Use [Modes Overview](../modes/index.md) to decide between `track`, `generate`, `eval`, `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, and `export`.
+- Use [Modes Overview](../modes/index.md) to decide between `track`, `materialize`, `eval`, `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, `export`, and `build`.
 - Use [Native C++ Integration](../native/index.md) for native build and embedding details.
 - Use the workflow table above to add the extras your workflow needs.

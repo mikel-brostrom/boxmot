@@ -1,94 +1,29 @@
+"""Low-level typed-v2 binding for the native OccluBoost library."""
+
 from __future__ import annotations
 
 import ctypes
 import os
-import subprocess
 import sys
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 
-from boxmot.native import _common
-from boxmot.native._common import (
-    dets_n_embs_root,
-)
-from boxmot.native._common import (
-    native_onnx_cache_path as _native_onnx_cache_path,
-)
-from boxmot.native._common import (
-    resolve_reid_model_ref as _resolve_reid_model_ref,
-)
-from boxmot.native.trackers import _common as _native_trackers
-from boxmot.utils import logger as LOGGER
-from boxmot.utils.misc import resolve_model_path  # noqa: F401  (used by tests via monkeypatch)
-
-
-def _default_preprocess() -> str:
-    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
-
-    return DEFAULT_PREPROCESS
-
+from boxmot.native.trackers import _common
 
 _BUILD_LOCK = threading.Lock()
-_LIVE_LIBRARY_LOCK = threading.Lock()
-_LIVE_LIBRARY = None
-_PROGRESS_PREFIX = _common.PROGRESS_PREFIX
-_NATIVE_DISPLAY_NAME = "OccluBoost"
-
-
+_LIBRARY_LOCK = threading.Lock()
+_LIBRARY = None
 _TRACKER_NAME = "occluboost"
-
-
-def _default_native_reid_device() -> str:
-    """Prefer the stable CPU ReID path on macOS GitHub runners."""
-    if sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
-        return "cpu"
-    return "auto"
-
-
-def _is_ci_macos_runner() -> bool:
-    return sys.platform == "darwin" and os.environ.get("GITHUB_ACTIONS", "").lower() == "true"
-
-
-def _resolve_tracker_cfg(cfg_dict: dict[str, Any] | None) -> dict[str, Any]:
-    resolved = _native_trackers.load_tracker_cfg("occluboost", cfg_dict, flatten=True)
-    _native_trackers.resolve_association_function(resolved)
-    resolved.setdefault("with_reid", True)
-    resolved.setdefault("use_cmc", True)
-    resolved.setdefault("cmc_method", "sof")
-    resolved.setdefault("max_obs", 50)
-    resolved.setdefault("reid_device", _default_native_reid_device())
-    return resolved
-
-
-def _export_reid_to_onnx(weights: Path) -> Path:
-    return _common.export_reid_to_onnx(weights, display_name=_NATIVE_DISPLAY_NAME)
-
-
-def _ensure_native_reid_model_path(reid_weights: str | Path | None) -> Path | None:
-    return _common.ensure_native_reid_model_path(
-        reid_weights,
-        display_name=_NATIVE_DISPLAY_NAME,
-        exporter=lambda weights: _export_reid_to_onnx(weights),
-        resolver=lambda value: _resolve_reid_model_ref(value),
-    )
-
-
-def ensure_occluboost_cpp_executable(force_rebuild: bool = False) -> Path:
-    return _native_trackers.ensure_tracker_executable(
-        tracker_name=_TRACKER_NAME,
-        display_name=_NATIVE_DISPLAY_NAME,
-        build_lock=_BUILD_LOCK,
-        force_rebuild=force_rebuild,
-    )
+_DISPLAY_NAME = "OccluBoost"
 
 
 def ensure_occluboost_cpp_library(force_rebuild: bool = False) -> Path:
-    return _native_trackers.ensure_tracker_library(
+    return _common.ensure_tracker_library(
         tracker_name=_TRACKER_NAME,
-        display_name=_NATIVE_DISPLAY_NAME,
+        display_name=_DISPLAY_NAME,
         build_lock=_BUILD_LOCK,
         force_rebuild=force_rebuild,
     )
@@ -112,7 +47,7 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("use_rich_s", ctypes.c_int),
         ("use_sb", ctypes.c_int),
         ("use_vt", ctypes.c_int),
-        ("with_reid", ctypes.c_int),
+        ("use_embeddings", ctypes.c_int),
         ("cmc_method", ctypes.c_char_p),
         ("max_obs", ctypes.c_int),
         ("recovery_appearance_thresh", ctypes.c_float),
@@ -143,15 +78,12 @@ class _OccluBoostCConfig(ctypes.Structure):
         ("obb_max_age", ctypes.c_int),
         ("obb_recovery_max_age", ctypes.c_int),
         ("obb_second_iou_thresh", ctypes.c_float),
-        ("reid_model_path", ctypes.c_char_p),
-        ("reid_preprocess", ctypes.c_char_p),
-        ("reid_device", ctypes.c_char_p),
         ("asso_func", ctypes.c_char_p),
     ]
 
 
-def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
-    cmc_method = str(cfg.get("cmc_method", "sof")) if bool(cfg.get("use_cmc", True)) else "none"
+def _build_c_config(cfg: Mapping[str, Any]) -> _OccluBoostCConfig:
+    cmc_method = str(cfg["cmc_method"]) if bool(cfg["use_cmc"]) else "none"
     return _OccluBoostCConfig(
         max_age=int(cfg["max_age"]),
         min_hits=int(cfg["min_hits"]),
@@ -169,9 +101,9 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         use_rich_s=int(bool(cfg["use_rich_s"])),
         use_sb=int(bool(cfg["use_sb"])),
         use_vt=int(bool(cfg["use_vt"])),
-        with_reid=int(bool(cfg.get("with_reid", True))),
-        cmc_method=cmc_method.encode("utf-8"),
-        max_obs=int(cfg.get("max_obs", 50)),
+        use_embeddings=int(bool(cfg["use_embeddings"])),
+        cmc_method=cmc_method.encode(),
+        max_obs=int(cfg["max_obs"]),
         recovery_appearance_thresh=float(cfg["recovery_appearance_thresh"]),
         recovery_iou_thresh=float(cfg["recovery_iou_thresh"]),
         recovery_max_age=int(cfg["recovery_max_age"]),
@@ -192,7 +124,7 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         ams_threshold=float(cfg["ams_threshold"]),
         ams_buffer_size=int(cfg["ams_buffer_size"]),
         ams_shrink_ratio=float(cfg["ams_shrink_ratio"]),
-        lambda_emb_multiplier=float(cfg.get("lambda_emb_multiplier", 1.5)),
+        lambda_emb_multiplier=float(cfg["lambda_emb_multiplier"]),
         obb_det_thresh=float(cfg["obb_det_thresh"]),
         obb_iou_threshold=float(cfg["obb_iou_threshold"]),
         obb_new_track_thresh=float(cfg["obb_new_track_thresh"]),
@@ -200,52 +132,31 @@ def _build_c_config(cfg: dict[str, Any]) -> _OccluBoostCConfig:
         obb_max_age=int(cfg["obb_max_age"]),
         obb_recovery_max_age=int(cfg["obb_recovery_max_age"]),
         obb_second_iou_thresh=float(cfg["obb_second_iou_thresh"]),
-        reid_model_path=str(cfg.get("reid_model_path", "")).encode("utf-8"),
-        reid_preprocess=str(cfg.get("reid_preprocess") or _default_preprocess()).encode("utf-8"),
-        reid_device=str(cfg.get("reid_device", "auto")).encode("utf-8"),
-        asso_func=str(cfg["asso_func"]).encode("utf-8"),
+        asso_func=str(cfg["asso_func"]).encode(),
     )
 
 
-class _OccluBoostLiveLibrary:
+class OccluBoostLibrary:
     def __init__(self, library_path: Path) -> None:
-        self.library_path = Path(library_path)
         if sys.platform == "darwin":
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
-            os.environ.setdefault("BOXMOT_REID_DEVICE", _default_native_reid_device())
+        self.library_path = Path(library_path)
         self._library = ctypes.CDLL(str(self.library_path))
-        self._configure_functions()
-
-    def _configure_functions(self) -> None:
         self._library.boxmot_occluboost_create.argtypes = [ctypes.POINTER(_OccluBoostCConfig)]
         self._library.boxmot_occluboost_create.restype = ctypes.c_void_p
         self._library.boxmot_occluboost_destroy.argtypes = [ctypes.c_void_p]
         self._library.boxmot_occluboost_destroy.restype = None
         self._library.boxmot_occluboost_reset.argtypes = [ctypes.c_void_p]
         self._library.boxmot_occluboost_reset.restype = ctypes.c_int
-        self._library.boxmot_occluboost_update.argtypes = _native_trackers.LIVE_UPDATE_WITH_EMBS_ARGTYPES
-        self._library.boxmot_occluboost_update.restype = ctypes.c_int
-        self._library.boxmot_occluboost_last_reid_time_ms.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]
-        self._library.boxmot_occluboost_last_reid_time_ms.restype = ctypes.c_int
-        for sym in (
-            "boxmot_occluboost_last_reid_preprocess_time_ms",
-            "boxmot_occluboost_last_reid_process_time_ms",
-            "boxmot_occluboost_last_reid_postprocess_time_ms",
-        ):
-            fn = getattr(self._library, sym, None)
-            if fn is not None:
-                fn.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_double)]
-                fn.restype = ctypes.c_int
+        self._update, self._result_free = _common.configure_update_v2(self._library, prefix=_TRACKER_NAME)
         self._library.boxmot_occluboost_last_error.argtypes = []
         self._library.boxmot_occluboost_last_error.restype = ctypes.c_char_p
 
     def _last_error(self) -> str:
         raw = self._library.boxmot_occluboost_last_error()
-        if raw is None:
-            return "Unknown native OccluBoost error."
-        return raw.decode("utf-8", errors="replace") or "Unknown native OccluBoost error."
+        return "Unknown native OccluBoost error." if raw is None else raw.decode("utf-8", errors="replace")
 
-    def create(self, cfg: dict[str, Any]):
+    def create(self, cfg: Mapping[str, Any]):
         c_cfg = _build_c_config(cfg)
         handle = self._library.boxmot_occluboost_create(ctypes.byref(c_cfg))
         if not handle:
@@ -253,8 +164,7 @@ class _OccluBoostLiveLibrary:
         return handle
 
     def destroy(self, handle) -> None:
-        if handle:
-            self._library.boxmot_occluboost_destroy(handle)
+        self._library.boxmot_occluboost_destroy(handle)
 
     def reset(self, handle) -> None:
         if self._library.boxmot_occluboost_reset(handle) == 0:
@@ -263,335 +173,39 @@ class _OccluBoostLiveLibrary:
     def update(
         self,
         handle,
-        dets: np.ndarray,
-        img: np.ndarray | None,
-        embs: np.ndarray | None = None,
-    ) -> np.ndarray:
-        return _native_trackers.call_update(
-            self._library.boxmot_occluboost_update,
-            handle=handle,
-            dets=dets,
-            img=img,
-            embs=embs,
-            accepts_embeddings=True,
-            display_name=_NATIVE_DISPLAY_NAME,
-            last_error=self._last_error,
-            requires_image=False,
-        )
-
-    def get_last_reid_time_ms(self, handle) -> float:
-        return _native_trackers.get_double_result(
-            self._library,
-            "boxmot_occluboost_last_reid_time_ms",
-            handle,
-            self._last_error,
-        )
-
-    def _get_phase_time_ms(self, handle, phase: str) -> float:
-        return _native_trackers.get_double_result(
-            self._library,
-            f"boxmot_occluboost_last_reid_{phase}_time_ms",
-            handle,
-            self._last_error,
-        )
-
-    def get_last_reid_preprocess_time_ms(self, handle) -> float:
-        return self._get_phase_time_ms(handle, "preprocess")
-
-    def get_last_reid_process_time_ms(self, handle) -> float:
-        return self._get_phase_time_ms(handle, "process")
-
-    def get_last_reid_postprocess_time_ms(self, handle) -> float:
-        return self._get_phase_time_ms(handle, "postprocess")
-
-
-def _get_live_occluboost_library() -> _OccluBoostLiveLibrary:
-    global _LIVE_LIBRARY
-    with _LIVE_LIBRARY_LOCK:
-        if _LIVE_LIBRARY is None:
-            _LIVE_LIBRARY = _OccluBoostLiveLibrary(ensure_occluboost_cpp_library())
-        return _LIVE_LIBRARY
-
-
-class NativeOccluBoostTracker(_native_trackers.NativeTrackerMixin):
-    supports_obb = True
-    supports_masks = False
-    uses_img = True
-    uses_embs = True
-    tracker_name = "occluboost"
-    tracker_backend = "cpp"
-    _native_display_name = _NATIVE_DISPLAY_NAME
-    _tracks_reid_timing = True
-
-    def __init__(
-        self,
-        cfg_dict: dict[str, Any] | None = None,
         *,
-        reid_weights: str | Path | None = None,
-        reid_preprocess: str | None = None,
-        reid_device: str | None = None,
-        library: _OccluBoostLiveLibrary | None = None,
-    ) -> None:
-        cfg = _resolve_tracker_cfg(cfg_dict)
-        native_reid_path = None
-        if _is_ci_macos_runner() and reid_weights is not None:
-            resolved_ref = _resolve_reid_model_ref(reid_weights)
-            if resolved_ref is not None and resolved_ref.suffix.lower() == ".pt":
-                onnx_candidate = _native_onnx_cache_path(resolved_ref)
-                if not onnx_candidate.exists():
-                    LOGGER.warning(
-                        "Native OccluBoost ReID is disabled on macOS CI when only '.pt' weights "
-                        "are available (ONNX export can crash on this runner)."
-                    )
-                    cfg["with_reid"] = False
-            if bool(cfg.get("with_reid", True)):
-                native_reid_path = _ensure_native_reid_model_path(reid_weights)
-        elif bool(cfg.get("with_reid", True)):
-            native_reid_path = _ensure_native_reid_model_path(reid_weights)
-        self.reid_model_path = str(native_reid_path) if native_reid_path is not None else ""
-        self.reid_preprocess = str(reid_preprocess or _default_preprocess())
-        cfg["reid_model_path"] = self.reid_model_path
-        cfg["reid_preprocess"] = self.reid_preprocess
-        cfg["reid_device"] = str(reid_device or cfg.get("reid_device") or _default_native_reid_device())
-        self.with_reid = bool(cfg.get("with_reid", True))
-        self.uses_embs = self.with_reid
-        self.provides_reid = bool(
-            self.with_reid
-            and self.reid_model_path
-            and Path(self.reid_model_path).suffix.lower() == ".onnx"
+        geometry: np.ndarray,
+        scores: np.ndarray,
+        class_ids: np.ndarray,
+        detection_indices: np.ndarray,
+        embeddings: np.ndarray | None,
+        image: np.ndarray | None,
+    ) -> _common.NativeTrackBatch:
+        return _common.call_update_v2(
+            self._update,
+            self._result_free,
+            handle=handle,
+            geometry=geometry,
+            scores=scores,
+            class_ids=class_ids,
+            detection_indices=detection_indices,
+            embeddings=embeddings,
+            image=image,
+            display_name=_DISPLAY_NAME,
+            last_error=self._last_error,
         )
-        self.use_cmc = bool(cfg.get("use_cmc", True))
-        self.asso_func_name = cfg["asso_func"]
-        self._needs_association_image = _native_trackers.association_requires_initial_image(cfg)
-        self.uses_img = self.use_cmc or self.provides_reid or self._needs_association_image
-        native_library = library if library is not None else _get_live_occluboost_library()
-        self._init_native_handle(library=native_library, cfg=cfg)
-
-    def requires_image(
-        self,
-        dets: np.ndarray,
-        embs: np.ndarray | None = None,
-        masks: np.ndarray | None = None,
-    ) -> bool:
-        """Require pixels for active CMC or native extraction of missing embeddings."""
-        del masks
-        return self._needs_association_image or self.use_cmc or bool(self.provides_reid and len(dets) and embs is None)
-
-    def update(
-        self,
-        dets: np.ndarray,
-        img: np.ndarray | None = None,
-        embs: np.ndarray | None = None,
-        masks: np.ndarray | None = None,
-    ) -> np.ndarray:
-        del masks
-        det_arr = self._coerce_detections_for_mode(dets)
-        if self.requires_image(det_arr, embs=embs) and img is None:
-            raise ValueError("Native OccluBoost requires img for live tracking.")
-        emb_arr = _native_trackers.normalize_embeddings(embs, rows=int(det_arr.shape[0])) if self.uses_embs else None
-        routed_img = img if self.requires_image(det_arr, embs=emb_arr) else None
-        tracks = self._library.update(self._handle, det_arr, routed_img, emb_arr)
-        self._needs_association_image = False
-        self.uses_img = self.use_cmc or self.provides_reid
-        self._refresh_reid_timings()
-        return self._normalize_tracks_for_mode(tracks)
-
-    def reset(self) -> None:
-        super().reset()
-        self._needs_association_image = self.asso_func_name == "centroid"
-        self.uses_img = self.use_cmc or self.provides_reid or self._needs_association_image
 
 
-def create_occluboost_live_tracker(
-    cfg_dict: dict[str, Any] | None = None,
-    *,
-    reid_weights: str | Path | None = None,
-    reid_preprocess: str | None = None,
-    reid_device: str | None = None,
-) -> NativeOccluBoostTracker:
-    return NativeOccluBoostTracker(
-        cfg_dict,
-        reid_weights=reid_weights,
-        reid_preprocess=reid_preprocess,
-        reid_device=reid_device,
-    )
+def get_occluboost_library() -> OccluBoostLibrary:
+    global _LIBRARY
+    with _LIBRARY_LOCK:
+        if _LIBRARY is None:
+            _LIBRARY = OccluBoostLibrary(ensure_occluboost_cpp_library())
+        return _LIBRARY
 
 
-def _parse_summary(stdout: str) -> dict[str, Any]:
-    return _common.parse_summary(stdout, display_name=_NATIVE_DISPLAY_NAME)
-
-
-def process_sequence_cpp(
-    seq_name: str,
-    mot_root: str,
-    project_root: str,
-    detector_name: str,
-    reid_name: str,
-    tracker_name: str,
-    exp_folder: str,
-    target_fps: int | None,
-    cfg_dict: dict | None = None,
-    dataset_name: str | None = None,
-    conf_threshold: float = 0.0,
-    preprocess_name: str | None = None,
-    split: str | None = None,
-    masks_dir: str | None = None,
-    kf_tuning: dict | None = None,
-    embedding_cache_dir: str | None = None,
-    progress_queue=None,
-    adaptive_kf: bool = False,
-):
-    if str(tracker_name).lower() != "occluboost":
-        raise ValueError("The native cpp replay backend currently supports tracker='occluboost' only.")
-
-    executable = ensure_occluboost_cpp_executable()
-    cfg = _resolve_tracker_cfg(cfg_dict)
-
-    det_emb_root = dets_n_embs_root(project_root, dataset_name, split=split)
-    reid_key, preprocess_key, cached_emb, cached_dets = _common.resolve_embedding_cache_location(
-        project_root,
-        detector_name,
-        reid_name,
-        seq_name,
-        dataset_name=dataset_name,
-        split=split,
-        preprocess_name=preprocess_name,
-        tracker_backend="cpp",
-        embedding_cache_dir=embedding_cache_dir,
-    )
-    reid_model_path = (
-        None
-        if _common.embedding_cache_is_complete(cached_emb, cached_dets)
-        else _ensure_native_reid_model_path(reid_name)
-    )
-
-    cmd = _native_trackers.build_replay_command(
-        executable=executable,
-        mot_root=mot_root,
-        det_emb_root=det_emb_root,
-        detector_name=detector_name,
-        seq_name=seq_name,
-        exp_folder=exp_folder,
-        conf_threshold=conf_threshold,
-        target_fps=target_fps,
-        extra_args=[
-            "--asso-func",
-            str(cfg["asso_func"]),
-            "--reid-name",
-            reid_key,
-            "--reid-model",
-            "" if reid_model_path is None else str(reid_model_path),
-            "--reid-preprocess",
-            preprocess_key,
-            "--max-age",
-            str(int(cfg["max_age"])),
-            "--min-hits",
-            str(int(cfg["min_hits"])),
-            "--det-thresh",
-            str(float(cfg["det_thresh"])),
-            "--iou-threshold",
-            str(float(cfg["iou_threshold"])),
-            "--min-box-area",
-            str(int(cfg["min_box_area"])),
-            "--aspect-ratio-thresh",
-            str(float(cfg["aspect_ratio_thresh"])),
-            "--lambda-iou",
-            str(float(cfg["lambda_iou"])),
-            "--lambda-mhd",
-            str(float(cfg["lambda_mhd"])),
-            "--lambda-shape",
-            str(float(cfg["lambda_shape"])),
-            "--use-dlo-boost",
-            _native_trackers.bool_arg(cfg["use_dlo_boost"]),
-            "--use-duo-boost",
-            _native_trackers.bool_arg(cfg["use_duo_boost"]),
-            "--dlo-boost-coef",
-            str(float(cfg["dlo_boost_coef"])),
-            "--s-sim-corr",
-            _native_trackers.bool_arg(cfg["s_sim_corr"]),
-            "--use-rich-s",
-            _native_trackers.bool_arg(cfg["use_rich_s"]),
-            "--use-sb",
-            _native_trackers.bool_arg(cfg["use_sb"]),
-            "--use-vt",
-            _native_trackers.bool_arg(cfg["use_vt"]),
-            "--with-reid",
-            _native_trackers.bool_arg(cfg.get("with_reid", True)),
-            "--cmc-method",
-            str(cfg.get("cmc_method", "sof")) if bool(cfg.get("use_cmc", True)) else "none",
-            "--max-obs",
-            str(int(cfg.get("max_obs", 50))),
-            "--recovery-appearance-thresh",
-            str(float(cfg["recovery_appearance_thresh"])),
-            "--recovery-iou-thresh",
-            str(float(cfg["recovery_iou_thresh"])),
-            "--recovery-max-age",
-            str(int(cfg["recovery_max_age"])),
-            "--feat-alpha",
-            str(float(cfg["feat_alpha"])),
-            "--track-low-thresh",
-            str(float(cfg["track_low_thresh"])),
-            "--second-iou-thresh",
-            str(float(cfg["second_iou_thresh"])),
-            "--second-appearance-thresh",
-            str(float(cfg["second_appearance_thresh"])),
-            "--second-pass-max-age",
-            str(int(cfg["second_pass_max_age"])),
-            "--second-pass-min-hits",
-            str(int(cfg["second_pass_min_hits"])),
-            "--use-second-pass",
-            _native_trackers.bool_arg(cfg["use_second_pass"]),
-            "--new-track-thresh",
-            str(float(cfg["new_track_thresh"])),
-            "--confirm-hits",
-            str(int(cfg["confirm_hits"])),
-            "--instant-confirm-thresh",
-            str(float(cfg["instant_confirm_thresh"])),
-            "--tentative-max-age",
-            str(int(cfg["tentative_max_age"])),
-            "--duplicate-iou-thresh",
-            str(float(cfg["duplicate_iou_thresh"])),
-            "--ams-enabled",
-            _native_trackers.bool_arg(cfg["ams_enabled"]),
-            "--ams-alpha0",
-            str(float(cfg["ams_alpha0"])),
-            "--ams-threshold",
-            str(float(cfg["ams_threshold"])),
-            "--ams-buffer-size",
-            str(int(cfg["ams_buffer_size"])),
-            "--ams-shrink-ratio",
-            str(float(cfg["ams_shrink_ratio"])),
-            "--lambda-emb-multiplier",
-            str(float(cfg.get("lambda_emb_multiplier", 1.5))),
-            "--obb-det-thresh",
-            str(float(cfg["obb_det_thresh"])),
-            "--obb-iou-threshold",
-            str(float(cfg["obb_iou_threshold"])),
-            "--obb-new-track-thresh",
-            str(float(cfg["obb_new_track_thresh"])),
-            "--obb-instant-confirm-thresh",
-            str(float(cfg["obb_instant_confirm_thresh"])),
-            "--obb-max-age",
-            str(int(cfg["obb_max_age"])),
-            "--obb-recovery-max-age",
-            str(int(cfg["obb_recovery_max_age"])),
-            "--obb-second-iou-thresh",
-            str(float(cfg["obb_second_iou_thresh"])),
-        ],
-    )
-
-    # When the eval pipeline runs N sequences in parallel via a process pool,
-    # each occluboost_replay subprocess can otherwise spin up its own OpenCV /
-    # OpenMP / Apple GCD thread pool, leading to N*cores threads contending for
-    # the same cores. The result on macOS is that progress crawls or visibly
-    # freezes. Cap the per-subprocess thread count via env vars BEFORE the
-    # process loads OpenCV (cv::setNumThreads cannot affect the Apple GCD
-    # backend that OpenCV uses for parallel_for_).
-    return _native_trackers.run_replay_process(
-        cmd=cmd,
-        seq_name=seq_name,
-        display_name=_NATIVE_DISPLAY_NAME,
-        progress_queue=progress_queue,
-        subprocess_module=subprocess,
-        env=_native_trackers.limited_replay_env(),
-    )
+__all__ = (
+    "OccluBoostLibrary",
+    "ensure_occluboost_cpp_library",
+    "get_occluboost_library",
+)

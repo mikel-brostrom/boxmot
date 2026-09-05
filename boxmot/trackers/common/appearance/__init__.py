@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from boxmot.trackers.common.detections import DetectionBatch
+from boxmot.trackers.common.detections import _DetectionBatch
 
 
 def _float_array(values: np.ndarray) -> np.ndarray:
@@ -55,21 +55,18 @@ def placeholder_embeddings(
 
 
 def resolve_batch_embeddings(
-    batch: DetectionBatch,
-    img: np.ndarray | None,
-    model=None,
+    batch: _DetectionBatch,
+    *,
     enabled: bool = True,
-    boxes: np.ndarray | None = None,
     placeholder_dim: int = 1,
     placeholder_value: float = 1.0,
     dtype=np.float32,
 ) -> np.ndarray:
     """Return embeddings aligned with a detection batch.
 
-    The order mirrors tracker update semantics: disabled appearance paths get
-    deterministic placeholders, precomputed embeddings are reused as-is, empty
-    batches avoid model calls, and only non-empty batches without precomputed
-    embeddings are passed through the ReID model.
+    Tracker kernels consume caller-supplied embeddings only. Disabled appearance
+    paths receive deterministic placeholders because several historical kernels
+    keep one shared motion/appearance data path.
     """
     if not enabled:
         return placeholder_embeddings(
@@ -81,22 +78,7 @@ def resolve_batch_embeddings(
 
     if batch.embs is not None:
         return batch.embs
-
-    if len(batch) == 0:
-        return placeholder_embeddings(
-            0,
-            dim=placeholder_dim,
-            value=placeholder_value,
-            dtype=dtype,
-        )
-
-    if model is None:
-        raise ValueError("A ReID model is required when embeddings are not provided")
-    if img is None:
-        raise ValueError("img is required for live ReID extraction when embeddings are not provided")
-
-    feature_boxes = batch.boxes if boxes is None else np.asarray(boxes)
-    return model.get_features(feature_boxes, img)
+    raise ValueError("Detection embeddings are required when use_embeddings=True")
 
 
 def confidence_aware_alpha(

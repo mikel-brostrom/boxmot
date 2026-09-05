@@ -1,567 +1,465 @@
-# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+"""Build-backed tracking evaluation.
+
+Evaluation is intentionally a consumer of an explicit immutable dataset build.
+It never creates detections, masks, or embeddings and never selects a "latest"
+cache. Ground truth remains in the raw dataset selected by the dataset adapter.
+"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import re
-from importlib import import_module
+import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import Any
 
-import boxmot.utils.rich.core.ui as ui
-from boxmot.data.benchmark import (
-    COCO_CLASSES,
-    _ordered_benchmark_eval_class_names,
-    build_gt_class_remap,
-    prepare_aabb_eval_gt,
-    resolve_eval_box_type,
+from boxmot.components.resolution import ArtifactResolver, freeze_json
+from boxmot.datasets import DatasetManifest
+from boxmot.datasets.config import load_dataset_config
+from boxmot.detectors.config import resolve_detector_spec
+from boxmot.engine.eval.catalog_cache import (
+    EvaluationArtifactResolver,
+    catalog_mot_dataset_for_evaluation,
 )
-from boxmot.detectors import get_runtime_detector_cfg
-from boxmot.engine.workflows.benchmark import (
-    configure_benchmark_runtime,
-    ensure_benchmark_detector_model,
-    ensure_benchmark_reid_model,
-    eval_init,
-    find_dataset_cfg_for_source,
-    load_evaluation_config_from_args,
-    should_use_benchmark_detector,
-    should_use_benchmark_reid,
+from boxmot.engine.eval.motmetrics import run_motmetrics as _run_motmetrics
+from boxmot.engine.eval.output import increment_path
+from boxmot.engine.eval.replay import replay_build
+from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
+from boxmot.engine.experiment_config import resolve_experiment_config
+from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.materialization import fingerprint
+from boxmot.engine.materialization.builds import resolve_build_path, validate_build_compatibility
+from boxmot.engine.materialization.catalog import (
+    resolve_dataset_annotation_root,
+    resolve_dataset_split_root,
 )
-from boxmot.engine.workflows.reporting import extract_summary, timing_summary_from_stats
-from boxmot.engine.workflows.results import ValidationResult
-from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.misc import resolve_model_path, suppress_boxmot_logs
-from boxmot.utils.rich.reporters.eval import (
-    EVAL_EVALUATE_STEP,
-    EVAL_GENERATE_STEP,
-    EVAL_SETUP_STEP,
-    EVAL_TRACK_STEP,
+from boxmot.engine.ui.reporters.eval import (
+    EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
-    _build_eval_workflow_fields,
+    _refresh_eval_pipeline_intro,
 )
-from boxmot.utils.rich.workflow.pipeline import PipelineTracker
-from boxmot.utils.timing import TimingStats
-
-if TYPE_CHECKING:
-    from boxmot.data.cache import (
-        AppendableNpyWriter,
-        _existing_cache_path,
-        _existing_embedding_cache_path,
-        _load_embedding_cache_array,
-        _load_numeric_cache_array,
-        _max_frame_id,
-        _saved_detection_column_count,
-    )
-    from boxmot.engine.eval.cache import generate_dets_embs_batched, run_generate_dets_embs
-    from boxmot.engine.eval.motmetrics import _load_obb_gt_matrix
-    from boxmot.engine.eval.replay import process_sequence, run_generate_mot_results
-    from boxmot.engine.eval.results import (
-        _select_plot_metrics_data,
-        parse_mot_results,
-    )
-
-_EVAL_DEPENDENCIES_READY = False
+from boxmot.reid.config import resolve_reid_spec
+from boxmot.segmentors.config import resolve_segmentor_spec
+from boxmot.trackers import TrackerSpec
+from boxmot.utils import logger as LOGGER
 
 
-def _has_eval_postprocessing(args: argparse.Namespace) -> bool:
-    """Return True when eval will run at least one MOT postprocessing step."""
-    pp_raw = getattr(args, "postprocessing", "none") or "none"
-    return any(step.strip().lower() not in ("", "none") for step in str(pp_raw).split(","))
+def _detector_reference(resolved: Mapping[str, Any]) -> str:
+    detections = resolved.get("detections") or {}
+    if detections.get("source") != "model":
+        raise ValueError('Experiment detections.source must be "model" for canonical build evaluation.')
+    model = detections.get("model") or {}
+    if not model.get("ref") or not model.get("checkpoint"):
+        raise ValueError("Experiment detector configuration is incomplete.")
+    return f"{model['ref']}/{model['checkpoint']}"
 
 
-__all__ = [
-    "AppendableNpyWriter",
-    "_configure_benchmark_runtime",
-    "_ensure_eval_dependencies",
-    "_existing_cache_path",
-    "_existing_embedding_cache_path",
-    "EVAL_EVALUATE_STEP",
-    "EVAL_GENERATE_STEP",
-    "EVAL_SETUP_STEP",
-    "EVAL_TRACK_STEP",
-    "_load_evaluation_cfg",
-    "_load_embedding_cache_array",
-    "_load_numeric_cache_array",
-    "_load_obb_gt_matrix",
-    "_max_frame_id",
-    "_ordered_benchmark_eval_class_names",
-    "_saved_detection_column_count",
-    "_select_plot_metrics_data",
-    "apply_class_remap",
-    "eval_setup",
-    "generate_dets_embs_batched",
-    "main",
-    "parse_mot_results",
-    "process_sequence",
-    "run_eval",
-    "run_generate_dets_embs",
-    "run_generate_mot_results",
-    "run_motmetrics",
-    "run_trackeval_reference",
-]
-
-_LAZY_EXPORTS = {
-    "AppendableNpyWriter": ("boxmot.data.cache", "AppendableNpyWriter"),
-    "_collect_seq_info": ("boxmot.data.cache", "_collect_seq_info"),
-    "_existing_cache_path": ("boxmot.data.cache", "_existing_cache_path"),
-    "_existing_embedding_cache_path": (
-        "boxmot.data.cache",
-        "_existing_embedding_cache_path",
-    ),
-    "filter_obb_mot_results": (
-        "boxmot.engine.eval.results",
-        "filter_obb_mot_results",
-    ),
-    "_load_embedding_cache_array": (
-        "boxmot.data.cache",
-        "_load_embedding_cache_array",
-    ),
-    "_load_numeric_cache_array": ("boxmot.data.cache", "_load_numeric_cache_array"),
-    "_load_obb_gt_matrix": (
-        "boxmot.engine.eval.motmetrics",
-        "_load_obb_gt_matrix",
-    ),
-    "_max_frame_id": ("boxmot.data.cache", "_max_frame_id"),
-    "_saved_detection_column_count": (
-        "boxmot.data.cache",
-        "_saved_detection_column_count",
-    ),
-    "_select_plot_metrics_data": ("boxmot.engine.eval.results", "_select_plot_metrics_data"),
-    "generate_dets_embs_batched": (
-        "boxmot.engine.eval.cache",
-        "generate_dets_embs_batched",
-    ),
-    "log_mot_report": ("boxmot.engine.eval.results", "log_mot_report"),
-    "MetricsPlotter": ("boxmot.engine.eval.plots", "MetricsPlotter"),
-    "parse_mot_results": ("boxmot.engine.eval.results", "parse_mot_results"),
-    "process_sequence": ("boxmot.engine.eval.replay", "process_sequence"),
-    "render_mot_report": ("boxmot.engine.eval.results", "render_mot_report"),
-    "run_generate_dets_embs": ("boxmot.engine.eval.cache", "run_generate_dets_embs"),
-    "run_generate_mot_results": (
-        "boxmot.engine.eval.replay",
-        "run_generate_mot_results",
-    ),
-    "motmetrics_runner": ("boxmot.engine.eval.motmetrics", "run_motmetrics"),
-    "trackeval_runner": (
-        "boxmot.engine.eval.trackeval_reference",
-        "evaluate_trackeval_motchallenge",
-    ),
-}
+def _reid_reference(resolved: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    config = resolved.get("reid")
+    if not config:
+        return None
+    return {
+        "artifact": {"path": config["model"], "uri": config.get("uri")},
+        "device": "cpu" if config.get("device") in {None, "", "auto"} else config["device"],
+        "precision": config.get("precision") or "fp32",
+        "preprocessing": config.get("preprocess") or "default",
+        "crop_strategy": config.get("crop_strategy") or "aabb",
+        "options": {"image_size": tuple(config.get("image_size") or (256, 128))},
+    }
 
 
-def _get_lazy_export(name: str):
-    if name in globals():
-        return globals()[name]
-    return __getattr__(name)
+def _provenance_at_build_device(
+    provenance: Mapping[str, Any],
+    manifest: DatasetManifest,
+    component_name: str,
+) -> dict[str, Any]:
+    """Recompute experiment provenance using the build's execution device only.
 
-
-def __getattr__(name: str):
-    if name not in _LAZY_EXPORTS:
-        msg = f"module {__name__!r} has no attribute {name!r}"
-        raise AttributeError(msg)
-
-    module_name, attr_name = _LAZY_EXPORTS[name]
-    value = getattr(import_module(module_name), attr_name)
-    globals()[name] = value
-    return value
-
-
-def __dir__() -> list[str]:
-    return sorted((*globals(), *__all__))
-
-
-def _ensure_eval_dependencies() -> None:
-    global _EVAL_DEPENDENCIES_READY
-    if _EVAL_DEPENDENCIES_READY:
-        return
-    checker = RequirementsChecker()
-    checker.check_packages(("ultralytics",))
-    _EVAL_DEPENDENCIES_READY = True
-
-
-def _load_evaluation_cfg(args: argparse.Namespace) -> dict:
-    return load_evaluation_config_from_args(args)
-
-
-def _resolve_eval_box_type(args: argparse.Namespace, bench_cfg: Optional[dict] = None) -> str:
-    return resolve_eval_box_type(args, bench_cfg)
-
-
-def _configure_benchmark_runtime(args: argparse.Namespace) -> tuple[dict, dict, dict]:
-    return configure_benchmark_runtime(
-        args,
-        load_evaluation_cfg_fn=_load_evaluation_cfg,
-        should_use_benchmark_detector_fn=should_use_benchmark_detector,
-        should_use_benchmark_reid_fn=should_use_benchmark_reid,
-        ensure_benchmark_detector_model_fn=ensure_benchmark_detector_model,
-        ensure_benchmark_reid_model_fn=ensure_benchmark_reid_model,
-    )
-
-
-def _collect_eval_sequences(args: argparse.Namespace) -> tuple[list[Path], dict[str, int], Path]:
-    collect_seq_info = _get_lazy_export("_collect_seq_info")
-    seq_paths, seq_info = collect_seq_info(args.source)
-    annotations_dir = args.source.parent / "annotations"
-    gt_folder = annotations_dir if annotations_dir.exists() else args.source
-
-    if not seq_paths:
-        raise ValueError(f"No sequences with images found under {args.source}")
-
-    if annotations_dir.exists():
-        for seq_name in list(seq_info.keys()):
-            ann_file = annotations_dir / f"{seq_name}.txt"
-            if not ann_file.exists():
-                continue
-            try:
-                with open(ann_file, "r") as handle:
-                    max_frame = 0
-                    for line in handle:
-                        if not line.strip():
-                            continue
-                        frame_id = int(float(line.split(",", 1)[0]))
-                        if frame_id > max_frame:
-                            max_frame = frame_id
-                    if max_frame:
-                        seq_info[seq_name] = max(seq_info.get(seq_name, 0) or 0, max_frame)
-            except (ValueError, OSError) as exc:
-                LOGGER.warning(f"Failed to read annotation file {ann_file} for sequence length inference: {exc}")
-    return seq_paths, seq_info, gt_folder
-
-
-def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict:
+    Device selection is part of a build fingerprint but is an execution choice,
+    not an authored experiment override. All other spec and artifact fields stay
+    resolved from the selected experiment, so manifest data cannot substitute a
+    different model or preprocessing policy.
     """
-    Evaluate tracking results with BoxMOT's in-repo motmetrics implementation.
-    """
-    filter_obb_mot_results = _get_lazy_export("filter_obb_mot_results")
-    log_mot_report_fn = _get_lazy_export("log_mot_report")
-    render_mot_report_fn = _get_lazy_export("render_mot_report")
-    motmetrics_runner = _get_lazy_export("motmetrics_runner")
 
-    seq_paths, seq_info, gt_folder = _collect_eval_sequences(args)
+    components = manifest.metadata.get("components")
+    component = components.get(component_name) if isinstance(components, Mapping) else None
+    recorded_spec = component.get("spec") if isinstance(component, Mapping) else None
+    device = recorded_spec.get("device") if isinstance(recorded_spec, Mapping) else None
+    if not isinstance(device, str) or not device:
+        raise ValueError(f"Build manifest is missing components.{component_name}.spec.device provenance.")
 
-    if getattr(args, "benchmark", None):
-        save_dir = Path(args.project) / args.benchmark / args.name
+    resolved_spec = provenance.get("spec")
+    if not isinstance(resolved_spec, Mapping):
+        raise ValueError(f"Resolved {component_name} provenance is missing its canonical spec.")
+    return {
+        **dict(provenance),
+        "spec": {**dict(resolved_spec), "device": device},
+    }
+
+
+def _experiment_component_fingerprints(
+    resolved: Mapping[str, Any],
+    manifest: DatasetManifest,
+    *,
+    artifact_resolver: ArtifactResolver | None = None,
+) -> dict[str, str]:
+    """Resolve only components represented by the selected experiment build."""
+
+    geometry = str(resolved["dataset"]["box_type"])
+    resolver_options = {} if artifact_resolver is None else {"artifact_resolver": artifact_resolver}
+    _, detector_provenance = resolve_detector_spec(
+        _detector_reference(resolved),
+        geometry=geometry,
+        allow_download=False,
+        **resolver_options,
+    )
+    detector_provenance = _provenance_at_build_device(detector_provenance, manifest, "detector")
+    expected = {"detector": fingerprint(detector_provenance)}
+    actual = manifest.metadata.get("component_fingerprints")
+    actual = actual if isinstance(actual, Mapping) else {}
+
+    if actual.get("segmentor") is not None:
+        reference = resolved.get("segmentor")
+        if reference is None:
+            raise ValueError("The build contains masks from a segmentor absent from the experiment configuration.")
+        if isinstance(reference, Mapping) and set(reference) == {"ref"}:
+            reference = reference["ref"]
+        _, provenance = resolve_segmentor_spec(
+            reference,
+            geometry=geometry,
+            allow_download=False,
+            **resolver_options,
+        )
+        provenance = _provenance_at_build_device(provenance, manifest, "segmentor")
+        expected["segmentor"] = fingerprint(provenance)
+
+    if actual.get("reid") is not None:
+        reference = _reid_reference(resolved)
+        if reference is None:
+            raise ValueError("The build contains embeddings from a ReID encoder absent from the experiment.")
+        _, provenance = resolve_reid_spec(
+            reference,
+            allow_download=False,
+            **resolver_options,
+        )
+        provenance = _provenance_at_build_device(provenance, manifest, "reid")
+        expected["reid"] = fingerprint(provenance)
+    return expected
+
+
+def _resolve_selection(args: argparse.Namespace) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    experiment_ref = getattr(args, "experiment", None)
+    dataset_ref = getattr(args, "dataset", None)
+    if bool(experiment_ref) == bool(dataset_ref):
+        raise ValueError("Evaluation requires exactly one of --experiment or --dataset.")
+    if experiment_ref:
+        resolved = resolve_experiment_config(
+            experiment_ref,
+            split=getattr(args, "split", None) or None,
+            mode="eval",
+        )
+        return dict(resolved["dataset"]), resolved
+
+    dataset = load_dataset_config(dataset_ref)
+    split = str(getattr(args, "split", None) or dataset["default_split"])
+    try:
+        split_config = dataset["splits"][split]
+    except KeyError as exc:
+        available = ", ".join(sorted(dataset["splits"]))
+        raise ValueError(f"Unknown split {split!r}; available splits: {available}.") from exc
+    if not split_config["has_ground_truth"]:
+        raise ValueError(f"Dataset {dataset['id']!r} split {split!r} has no evaluation ground truth.")
+    dataset["split"] = split
+    return dataset, None
+
+
+def _target_classes(
+    dataset: Mapping[str, Any],
+    experiment: Mapping[str, Any] | None,
+) -> tuple[tuple[int, ...], tuple[tuple[int, str], ...]]:
+    if experiment is not None:
+        entries = tuple((int(item["dataset_id"]), str(item["name"])) for item in experiment["evaluation"]["classes"])
     else:
-        save_dir = Path(args.project) / args.name
+        entries = tuple(
+            (int(metadata["id"]), str(name))
+            for name, metadata in dataset["classes"].items()
+            if metadata.get("evaluation") == "target"
+        )
+    entries = tuple(sorted(entries))
+    if not entries:
+        raise ValueError("Evaluation configuration contains no target classes.")
+    return tuple(class_id for class_id, _ in entries), entries
 
-    cfg = _load_evaluation_cfg(args)
-    if not cfg:
-        cfg = find_dataset_cfg_for_source(args.source) or {}
-        if not cfg:
-            LOGGER.warning(
-                f"Could not infer a dataset config for {args.source}. Class filtering might be incorrect."
+
+def _split_root(dataset: Mapping[str, Any], data_root: str | Path | None) -> Path:
+    return resolve_dataset_split_root(dataset, str(dataset["split"]), data_root)
+
+
+def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
+    """Resolve and validate raw ground truth plus one explicit immutable build."""
+
+    dataset, experiment = _resolve_selection(args)
+    split = str(dataset["split"])
+    status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
+    catalog = catalog_mot_dataset_for_evaluation(
+        dataset,
+        split=split,
+        data_root=getattr(args, "data_root", None),
+        status_callback=status_callback,
+    )
+    build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
+    manifest = DatasetManifest.load(build_path)
+    component_fingerprints = None
+    if experiment is not None:
+        if status_callback is not None:
+            status_callback("Validating experiment component artifacts…")
+        with EvaluationArtifactResolver() as artifact_resolver:
+            component_fingerprints = _experiment_component_fingerprints(
+                experiment,
+                manifest,
+                artifact_resolver=artifact_resolver,
             )
-
-    if _resolve_eval_box_type(args, cfg) == "obb":
-        parsed_results = motmetrics_runner(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
-    else:
-        gt_folder = prepare_aabb_eval_gt(args, gt_folder, seq_info)
-        parsed_results = motmetrics_runner(args, seq_paths, save_dir, gt_folder, seq_info=seq_info)
-    eval_box_type = _resolve_eval_box_type(args, cfg)
-
-    single_class_mode = False
-    if eval_box_type == "obb":
-        parsed_results, single_class_mode = filter_obb_mot_results(parsed_results, args, cfg.get("benchmark", {}))
-    elif getattr(args, "remapped_class_names", None):
-        remapped_lower = {name.lower() for name in args.remapped_class_names}
-        parsed_results = {key: value for key, value in parsed_results.items() if key.lower() in remapped_lower}
-        if len(args.remapped_class_names) == 1:
-            single_class_mode = True
-    elif "benchmark" in cfg:
-        bench_cfg = cfg["benchmark"]
-        bench_classes = _ordered_benchmark_eval_class_names(bench_cfg)
-        if bench_classes:
-            parsed_results = {key: value for key, value in parsed_results.items() if key in bench_classes}
-            if len(bench_classes) == 1:
-                single_class_mode = True
-    elif hasattr(args, "classes") and args.classes is not None:
-        class_indices = args.classes if isinstance(args.classes, list) else [args.classes]
-        user_classes = [COCO_CLASSES[int(index)] for index in class_indices]
-        parsed_results = {key: value for key, value in parsed_results.items() if key in user_classes}
-        if len(user_classes) == 1:
-            single_class_mode = True
-
-    final_results = list(parsed_results.values())[0] if single_class_mode and parsed_results else parsed_results
-
-    if verbose:
-        log_mot_report_fn(
-            render_mot_report_fn(
-                parsed_results,
-                args,
-                cfg,
-                title="📊 RESULTS SUMMARY",
-                include_sequences=single_class_mode,
-                colorize=False,
-            )
+    validate_build_compatibility(
+        manifest,
+        dataset_id=str(dataset["id"]),
+        split=split,
+        geometry=str(dataset["box_type"]),
+        source_catalog_digest=catalog.fingerprint,
+        class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
+        component_fingerprints=component_fingerprints,
+    )
+    if experiment is not None and manifest.metadata.get("experiment_id") != experiment["id"]:
+        raise ValueError(
+            f"Build {manifest.build_id!r} belongs to experiment "
+            f"{manifest.metadata.get('experiment_id')!r}, not {experiment['id']!r}."
         )
 
-    if getattr(args, "ci", False):
-        with open(args.tracker + "_output.json", "w") as outfile:
-            outfile.write(json.dumps(final_results))
+    class_ids, class_names = _target_classes(dataset, experiment)
+    sequence_lengths: dict[str, int] = {}
+    for sample in catalog.samples:
+        sequence = sample.sequence_id
+        sequence_lengths[sequence] = max(
+            sequence_lengths.get(sequence, 0),
+            sample.frame_index + 1,
+        )
+    requested_sequences = getattr(args, "sequence_names", None)
+    if requested_sequences:
+        requested = tuple(dict.fromkeys(str(name) for name in requested_sequences))
+        missing = sorted(set(requested).difference(sequence_lengths))
+        if missing:
+            raise ValueError(f"Unknown evaluation sequence(s): {', '.join(missing)}")
+        sequence_lengths = {name: sequence_lengths[name] for name in requested}
+        args.sequence_names = requested
+    else:
+        args.sequence_names = None
+    split_root = _split_root(dataset, getattr(args, "data_root", None))
+    sequence_paths = []
+    for name in sorted(sequence_lengths):
+        path = split_root / name
+        sequence_paths.append(path / "img1" if (path / "img1").is_dir() else path)
 
-    return final_results
+    args.build_path = build_path
+    args.dataset_id = str(dataset["id"])
+    args.experiment_id = None if experiment is None else str(experiment["id"])
+    args.split = split
+    args.geometry = str(dataset["box_type"])
+    args.eval_box_type = args.geometry
+    args.source = split_root
+    split_config = dataset["splits"][split]
+    args.gt_folder = resolve_dataset_annotation_root(
+        dataset,
+        split,
+        getattr(args, "data_root", None),
+    )
+    args.seq_paths = tuple(sequence_paths)
+    args.seq_info = sequence_lengths
+    args.evaluation_config = {
+        "id": dataset["id"],
+        "layout": dataset["layout"],
+        "box_type": dataset["box_type"],
+        "classes": dataset["classes"],
+        "annotation_layout": (
+            "flat" if split_config.get("annotations") is not None or dataset["layout"] == "visdrone" else "sequence"
+        ),
+    }
+    args.remapped_class_ids = list(class_ids)
+    args.remapped_class_names = [name.lower() for _, name in class_names]
+    args.tracker_class_ids = class_ids
+    args.tracker_class_names = class_names
+    args._build_validated = True
+    if pipeline is not None and callable(getattr(pipeline, "update", None)):
+        pipeline.update(f"Validated build {manifest.build_id[:12]} for {dataset['id']}:{split}")
 
 
-def _resolve_trackeval_benchmark(args: argparse.Namespace, cfg: dict) -> str:
-    candidates = [
-        cfg.get("id") if isinstance(cfg, dict) else None,
-        (cfg.get("dataset") or {}).get("id") if isinstance(cfg, dict) else None,
-        getattr(args, "experiment_id", None),
-        getattr(args, "dataset_id", None),
-        getattr(args, "benchmark", None),
-        getattr(args, "experiment", None),
-    ]
-    for candidate in candidates:
-        match = re.search(r"mot[-_ ]?(15|16|17|20)", str(candidate or ""), flags=re.IGNORECASE)
-        if match:
-            return f"MOT{match.group(1)}"
-    raise ValueError("--compare-trackeval supports MOT15, MOT16, MOT17, and MOT20 benchmark configurations only")
+def _ensure_setup(args: argparse.Namespace) -> None:
+    if not bool(getattr(args, "_build_validated", False)):
+        eval_setup(args)
 
 
-def run_trackeval_reference(args: argparse.Namespace) -> dict:
-    """Run an independent TrackEval comparison over the generated MOT files."""
-    cfg = _load_evaluation_cfg(args)
-    if _resolve_eval_box_type(args, cfg) != "aabb":
-        raise ValueError("--compare-trackeval supports AABB MOTChallenge evaluation only")
+def _tracker_options(
+    args: argparse.Namespace,
+    overrides: Mapping[str, Any] | None,
+) -> tuple[tuple[str, Any], ...]:
+    options: dict[str, Any] = dict(overrides or {})
+    if getattr(args, "asso_func", None):
+        options["asso_func"] = str(args.asso_func)
+    return tuple((str(key), freeze_json(value, location=f"tracker.{key}")) for key, value in sorted(options.items()))
 
-    _, seq_info, gt_folder = _collect_eval_sequences(args)
-    prepared_gt = prepare_aabb_eval_gt(args, gt_folder, seq_info)
-    expected_gt = [prepared_gt / seq_name / "gt" / "gt_temp.txt" for seq_name in seq_info]
-    if any(not path.exists() for path in expected_gt):
-        raise ValueError("--compare-trackeval requires the standard MOTChallenge sequence/gt layout")
 
-    return _get_lazy_export("trackeval_runner")(
-        gt_folder=prepared_gt,
-        tracker_folder=Path(args.exp_dir),
-        seq_info=seq_info,
-        benchmark=_resolve_trackeval_benchmark(args, cfg),
+def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None = None) -> TrackerSpec:
+    return TrackerSpec(
+        name=str(args.tracker),
+        backend=str(getattr(args, "tracker_backend", "python")),
+        geometry=str(args.geometry),
+        per_class=bool(getattr(args, "per_class", False)),
+        class_ids=tuple(args.tracker_class_ids),
+        class_names=tuple(args.tracker_class_names),
+        options=_tracker_options(args, overrides),
     )
 
 
-def eval_setup(args, pipeline: PipelineTracker | None = None) -> None:
-    """
-    Common setup for eval and tune pipelines.
-    """
-    _ensure_eval_dependencies()
-    status_fn = pipeline.callback() if pipeline is not None else None
-    eval_init(args, status_fn=status_fn)
-    _, _, dataset_detector_cfg = _configure_benchmark_runtime(args)
-    det_cfg = get_runtime_detector_cfg(args.detector[0], dataset_detector_cfg)
-    apply_class_remap(args, det_cfg)
+def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | None) -> Path:
+    base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
+    if overrides:
+        base = base / "trials" / fingerprint(dict(overrides))[:16]
+        base.mkdir(parents=True, exist_ok=True)
+        return base
+    return increment_path(base, exist_ok=bool(getattr(args, "exist_ok", False)), mkdir=True)
 
 
-def apply_class_remap(args, det_cfg: dict) -> None:
-    """
-    Remap GT class IDs to match detector output.
-    """
-    if str(getattr(args, "eval_box_type", "")).lower() == "obb":
-        return
+def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict[str, Any]:
+    """Evaluate already-replayed MOT files against adapter-owned ground truth."""
 
-    try:
-        bench_cfg = (_load_evaluation_cfg(args) or {}).get("benchmark", {})
-    except (FileNotFoundError, KeyError, ValueError) as exc:
-        LOGGER.debug(f"Could not load evaluation config for class remap: {exc}")
-        bench_cfg = {}
-
-    if str(bench_cfg.get("box_type", "")).lower() == "obb":
-        return
-
-    remap_result = build_gt_class_remap(
-        bench_cfg,
-        det_cfg,
-        benchmark_name=getattr(args, "benchmark", ""),
-        model_stem=args.detector[0].stem,
+    _ensure_setup(args)
+    results = _run_motmetrics(
+        args,
+        tuple(Path(value) for value in args.seq_paths),
+        Path(args.exp_dir),
+        Path(args.gt_folder),
+        seq_info=args.seq_info,
     )
-    if remap_result is not None:
-        remap_dict, new_class_ids, new_class_names = remap_result
-        if "ignore_dataset_ids" in bench_cfg:
-            distractor_ids = [int(class_id) for class_id in bench_cfg.get("ignore_dataset_ids") or []]
-        else:
-            distractor_ids = [int(key) for key in bench_cfg.get("distractor_classes", {}).keys()]
-        args.gt_class_remap = remap_dict
-        args.gt_class_distractor_ids = distractor_ids
-        args.remapped_class_ids = new_class_ids
-        args.remapped_class_names = [name.lower() for name in new_class_names]
+    if verbose:
+        LOGGER.info("Evaluation metrics: %s", json.dumps(results, sort_keys=True))
+    return results
 
 
-def _normalize_eval_models(args: argparse.Namespace) -> None:
-    args.detector = [resolve_model_path(model) for model in args.detector]
-    args.reid = [resolve_model_path(model) for model in args.reid]
-
-
-def log_eval_pipeline_intro(args: argparse.Namespace) -> ui.WorkflowProgress:
-    _normalize_eval_models(args)
-    return EvalWorkflowReporter(args).create()
+def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
+    if not results:
+        return "", {}
+    if any(column in results for column in SUMMARY_COLUMNS):
+        metrics = results
+        label = "single_class"
+    else:
+        label = next(
+            (name for name in ("cls_comb_det_av", "cls_comb_cls_av", "all") if name in results),
+            next(iter(results)) if len(results) == 1 else "",
+        )
+        metrics = results.get(label, {}) if label else {}
+    return label, {
+        column: metrics[column] for column in SUMMARY_COLUMNS if isinstance(metrics, Mapping) and column in metrics
+    }
 
 
 def run_eval(
     args: argparse.Namespace,
     *,
-    evolve_config: dict | None = None,
+    evolve_config: Mapping[str, Any] | None = None,
     setup: bool = True,
-    prepare_cache: bool = True,
+    prepare_cache: bool = False,
     verbose: bool | None = None,
     show_progress: bool | None = None,
-    pipeline: PipelineTracker | None = None,
+    pipeline: Any | None = None,
+    per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
 ) -> ValidationResult:
-    _ensure_eval_dependencies()
-    _normalize_eval_models(args)
-    if verbose is None:
-        verbose = bool(getattr(args, "verbose", False))
-    if show_progress is None:
-        show_progress = bool(getattr(args, "show_progress", True))
-    args.show_progress = bool(show_progress)
+    """Replay one explicit build and evaluate it; perception is never run here."""
 
-    timing_stats = TimingStats()
-    has_pipeline = pipeline is not None
-    suppress = (not verbose) or has_pipeline
-    has_postprocessing = _has_eval_postprocessing(args)
-    tune_kf_step = bool(getattr(args, "tune_kf", False))
-
-    # -- Setup --
+    if prepare_cache:
+        raise ValueError("Evaluation never materializes implicitly. Run `boxmot materialize ...` and pass --build.")
+    if per_class_configs:
+        raise ValueError("Per-class tracker configurations are not supported by the canonical TrackerSpec yet.")
     if setup:
         eval_setup(args, pipeline=pipeline)
-        if pipeline is not None:
-            pipeline.refresh_fields(_build_eval_workflow_fields(args))
-
-    # -- Generate detections & embeddings --
-    if prepare_cache:
-        from boxmot.engine.workflows.support import REID_TRACKERS
-
-        tracker_name = str(getattr(args, "tracker", "")).lower()
-        if tracker_name not in REID_TRACKERS:
-            args.reid = []
-        if pipeline is not None:
-            pipeline.advance("Generating detections & embeddings...")
-        with suppress_boxmot_logs(suppress, level="WARNING"):
-            _get_lazy_export("run_generate_dets_embs")(
-                args,
-                timing_stats=timing_stats,
-                progress_callback=pipeline.callback() if pipeline and show_progress else None,
-            )
+    else:
+        _ensure_setup(args)
     if pipeline is not None:
-        pipeline.advance("Calibrating Kalman filter..." if tune_kf_step else "Starting tracker...")
+        _refresh_eval_pipeline_intro(getattr(pipeline, "workflow", None), args)
+        pipeline.advance("Replaying materialized detections through the tracker…")
+    spec = _tracker_spec(args, evolve_config)
 
-    # -- KF calibration --
-    if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
-        from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
-
-        kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
-        if kf_type:
-            kf_result, _ = run_kf_tuning(args, kf_type, capture=True)
-            if kf_result is not None:
-                kf_result["kf_type"] = kf_type
-                args.kf_tuning = kf_result
-                LOGGER.info(
-                    f"KF calibration ({kf_type}): "
-                    f"std_weight_position={kf_result['std_weight_position']:.6f}, "
-                    f"std_weight_velocity={kf_result['std_weight_velocity']:.6f}"
-                )
-            else:
-                LOGGER.warning("KF calibration produced no result; using default noise weights.")
-        else:
-            LOGGER.debug(f"Tracker '{args.tracker}' has no KF parameterization; skipping --tune-kf.")
-
-    if pipeline is not None and tune_kf_step:
-        pipeline.advance("Starting tracker...")
-
-    # -- Track --
-    postprocess_started = False
-
-    def _postprocess_progress(detail: str) -> None:
-        nonlocal postprocess_started
-        if pipeline is None:
-            return
-        if not postprocess_started:
-            pipeline.advance(detail)
-            postprocess_started = True
-            return
-        pipeline.callback()(detail)
-
-    with suppress_boxmot_logs(suppress, level="WARNING"):
-        _get_lazy_export("run_generate_mot_results")(
-            args,
-            evolve_config=evolve_config,
-            timing_stats=timing_stats,
-            quiet=not bool(show_progress),
-            progress_callback=pipeline.callback() if pipeline and show_progress else None,
-            postprocess_callback=_postprocess_progress if pipeline and has_postprocessing else None,
+    output_dir = _output_directory(args, evolve_config)
+    presenter = None
+    if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
+        presenter = EvalSequenceProgressPresenter(
+            pipeline.callback(),
+            args.seq_info,
         )
+    started = time.perf_counter()
+    if presenter is None:
+        replay = replay_build(
+            args.build_path,
+            spec,
+            split=args.split,
+            output_dir=output_dir,
+            sequence_ids=args.sequence_names,
+            sequence_frame_counts=args.seq_info,
+            workers=int(getattr(args, "n_threads", 1)),
+        )
+    else:
+        with presenter:
+            replay = replay_build(
+                args.build_path,
+                spec,
+                split=args.split,
+                output_dir=output_dir,
+                sequence_ids=args.sequence_names,
+                sequence_frame_counts=args.seq_info,
+                workers=int(getattr(args, "n_threads", 1)),
+                progress_callback=presenter,
+            )
+        pipeline.store_step_info(presenter.renderable, step=EvalWorkflowReporter.TRACK)
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
     if pipeline is not None:
-        if has_postprocessing and not postprocess_started:
-            pipeline.advance("Postprocessing tracks...")
-        pipeline.advance("Computing metrics...")
-
-    # -- Evaluate --
-    compare_trackeval = bool(getattr(args, "compare_trackeval", False))
-    raw_results = run_motmetrics(
-        args,
-        verbose=verbose and not has_pipeline and not compare_trackeval,
-    )
-    reference_results = run_trackeval_reference(args) if compare_trackeval else None
-    summary_label, summary = extract_summary(raw_results)
-    result = ValidationResult(
-        benchmark=str(
-            getattr(args, "benchmark", None)
-            or getattr(args, "experiment_id", None)
-            or getattr(args, "experiment", "")
-        ),
-        raw=raw_results,
+        pipeline.advance("Computing evaluation metrics…")
+    args.exp_dir = replay.output_dir
+    raw = run_motmetrics(args, verbose=bool(verbose))
+    summary_label, summary = _summary(raw)
+    timings = {
+        "frames": replay.frames,
+        "totals_ms": {"track": elapsed_ms, "total": elapsed_ms},
+        "avg_ms": {
+            "track": elapsed_ms / replay.frames if replay.frames else 0.0,
+            "total": elapsed_ms / replay.frames if replay.frames else 0.0,
+        },
+        "fps": (1000.0 * replay.frames / elapsed_ms) if elapsed_ms else 0.0,
+    }
+    return ValidationResult(
+        benchmark=str(args.experiment_id or args.dataset_id),
+        raw=raw,
         summary_label=summary_label,
         summary=summary,
-        exp_dir=getattr(args, "exp_dir", None),
-        timings=timing_summary_from_stats(timing_stats),
+        exp_dir=replay.output_dir,
+        timings=timings,
         args=args,
-        workflow_rendered=has_pipeline,
-        reference_raw=reference_results,
-        reference_name="TrackEval" if reference_results is not None else None,
+        workflow_rendered=pipeline is not None,
     )
-    if verbose and not has_pipeline and reference_results is not None:
-        result.print_report(include_sequences=summary_label == "single_class")
-    if pipeline is not None:
-        include_timings = bool(getattr(args, "show_timing", False))
-        pipeline.complete_step()
-        pipeline.set_detail_renderable(
-            pipeline.current_step,
-            result.renderable(
-                include_sequences=summary_label == "single_class",
-                include_timings=include_timings,
-            ),
-        )
-
-    return result
 
 
-def main(args):
-    _normalize_eval_models(args)
-    tracker_overrides = None
-    if getattr(args, "asso_func", None):
-        tracker_overrides = {"asso_func": args.asso_func}
+def main(args: argparse.Namespace) -> ValidationResult:
+    """CLI entry point for explicit-build evaluation."""
+
     pipeline = EvalWorkflowReporter(args).pipeline()
     with pipeline:
-        run_kwargs = {"verbose": False, "pipeline": pipeline}
-        if tracker_overrides is not None:
-            run_kwargs["evolve_config"] = tracker_overrides
-        result = run_eval(args, **run_kwargs)
-
-    plot_class, metrics_data = _get_lazy_export("_select_plot_metrics_data")(result.raw)
-    if metrics_data:
-        plotter = _get_lazy_export("MetricsPlotter")(result.exp_dir)
-        plot_metrics = ["HOTA", "MOTA", "IDF1"]
-        plot_values = [metrics_data.get(metric, 0) for metric in plot_metrics]
-
-        plotter.plot_radar_chart(
-            {args.tracker: plot_values},
-            plot_metrics,
-            title=f"MOT metrics radar Chart ({plot_class})",
-            ylim=(0, 100),
-            yticks=[20, 40, 60, 80, 100],
-            ytick_labels=["20", "40", "60", "80", "100"],
+        with suppress_boxmot_logs(True, level="WARNING"):
+            result = run_eval(args, prepare_cache=False, verbose=False, pipeline=pipeline)
+        pipeline.finish(
+            result.renderable(
+                include_sequences=result.summary_label == "single_class",
+                include_timings=bool(getattr(args, "show_timing", False)),
+            ),
+            exp_dir=result.exp_dir,
         )
-    return result
+        return result
 
 
-if __name__ == "__main__":
-    main()
+__all__ = ("eval_setup", "main", "run_eval", "run_motmetrics")

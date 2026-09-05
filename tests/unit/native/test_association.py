@@ -7,7 +7,6 @@ import numpy as np
 import pytest
 
 from boxmot.native import _common
-from boxmot.native.reid.capi import ensure_reid_capi_library
 from boxmot.trackers.common.association.iou import AssociationFunction
 
 OBB_MODES = ("iou", "giou", "diou", "ciou", "hmiou", "centroid")
@@ -51,8 +50,22 @@ def _rotate_obb(box: np.ndarray, angle: float) -> np.ndarray:
 
 @pytest.fixture(scope="module")
 def association_probe():
-    ensure_reid_capi_library()
+    source_dir = _common.tracker_source_dir("base")
     build_dir = _common.tracker_build_dir("base")
+    configured = subprocess.run(
+        [
+            "cmake",
+            "-S",
+            str(source_dir),
+            "-B",
+            str(build_dir),
+            "-DCMAKE_BUILD_TYPE=Release",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert configured.returncode == 0, configured.stderr
     completed = subprocess.run(
         [
             "cmake",

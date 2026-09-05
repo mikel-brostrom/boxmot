@@ -41,8 +41,18 @@ For documentation changes, reproduce the docs workflow's warning-as-error
 build:
 
 ```bash
-uv run --no-sync mkdocs build --strict
+.venv/bin/ruff check scripts/gen_ref_pages.py tests/unit/docs
+.venv/bin/ruff format --check scripts/gen_ref_pages.py tests/unit/docs
+.venv/bin/pytest -q tests/unit/docs
+.venv/bin/mkdocs build --strict
 ```
+
+The build runs `scripts/gen_ref_pages.py` automatically. The script parses the
+`boxmot` source tree without importing it, creates virtual API pages, and feeds
+them to mkdocstrings. Generated reference Markdown is therefore not committed;
+adding or removing a Python module is reflected by the next docs build.
+See [Build the Documentation](documentation.md) for fresh environment setup,
+live preview, and code-reference details.
 
 ## Document constraints
 

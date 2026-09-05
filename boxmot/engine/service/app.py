@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Path, Response, status
 
 from boxmot.engine.service.config import ServiceSettings
 from boxmot.engine.service.manager import (
+    EncoderFactory,
     FrameConflictError,
     ServiceRequestError,
     StreamCapacityError,
@@ -16,6 +17,8 @@ from boxmot.engine.service.manager import (
     TrackerManager,
 )
 from boxmot.engine.service.models import FrameRequest, FrameResponse, ReadinessResponse
+from boxmot.reid import AppearanceEncoder
+from boxmot.segmentors import Segmentor
 
 SessionIdentifier = Annotated[
     str,
@@ -31,11 +34,20 @@ def create_app(
     settings: ServiceSettings | None = None,
     *,
     tracker_factory: TrackerFactory | None = None,
+    encoder_factory: EncoderFactory | None = None,
+    encoder: AppearanceEncoder | None = None,
+    segmentor: Segmentor | None = None,
 ) -> FastAPI:
     """Create a tracker service with isolated, in-memory stream state."""
 
     resolved_settings = settings or ServiceSettings.from_env()
-    manager = TrackerManager(resolved_settings, tracker_factory=tracker_factory)
+    manager = TrackerManager(
+        resolved_settings,
+        tracker_factory=tracker_factory,
+        encoder_factory=encoder_factory,
+        encoder=encoder,
+        segmentor=segmentor,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:

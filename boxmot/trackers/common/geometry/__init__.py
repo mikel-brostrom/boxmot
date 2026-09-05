@@ -110,7 +110,7 @@ def xyxy2xysr(x):
     Converts bounding box coordinates from (x1, y1, x2, y2) format to (x, y, s, r) format.
 
     Args:
-        bbox (np.ndarray) or (torch.Tensor): The input bounding box coordinates in (x1, y1, x2, y2) format.
+        x (np.ndarray) or (torch.Tensor): The input bounding box coordinates in (x1, y1, x2, y2) format.
     Returns:
         z (np.ndarray) or (torch.Tensor): The bounding box coordinates in (x, y, s, r) format, where
                                           x, y is the center of the box,

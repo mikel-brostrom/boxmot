@@ -19,11 +19,6 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kAssignmentThreshold = 1.0e9;
 
-double WrapAngle(const double angle) {
-    const double period = 2.0 * kPi;
-    return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
-}
-
 Eigen::VectorXd DetectionRow(const Detection& detection) {
     if (detection.is_obb) {
         Eigen::VectorXd row(6);
@@ -77,8 +72,6 @@ bool ObservationIsValid(const Eigen::VectorXd& box) {
 
 }  // namespace
 
-int OCSORTTracker::KalmanBoxTracker::count = 0;
-
 Eigen::Vector4d OCSORTTracker::KalmanBoxTracker::XyxyToXysr(const Eigen::Vector4d& bbox) {
     const double width = std::max(bbox[2] - bbox[0], 1.0e-6);
     const double height = std::max(bbox[3] - bbox[1], 1.0e-6);
@@ -91,7 +84,7 @@ Eigen::Matrix<double, 5, 1> OCSORTTracker::KalmanBoxTracker::ConvertObbToZ(
     Eigen::Matrix<double, 5, 1> z;
     const double width = std::max(obb[2], 1.0e-6);
     const double height = std::max(obb[3], 1.0e-6);
-    z << obb[0], obb[1], width * height, width / height, WrapAngle(obb[4]);
+    z << obb[0], obb[1], width * height, width / height, obb[4];
     return z;
 }
 
@@ -129,14 +122,15 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
                                                   const int max_obs_value,
                                                   const double q_xy_scaling_value,
                                                   const double q_s_scaling_value,
-                                                  const bool is_obb_mode)
+                                                  const bool is_obb_mode,
+                                                  const std::int64_t track_id)
     : det_ind(detection.det_ind),
       q_xy_scaling(q_xy_scaling_value),
       q_s_scaling(q_s_scaling_value),
       q_a_scaling(q_s_scaling_value),
       is_obb(is_obb_mode),
       kf(is_obb_mode ? 9 : 7, is_obb_mode ? 5 : 4, max_obs_value),
-      id(count++),
+      id(track_id),
       max_obs(max_obs_value),
       conf(detection.conf),
       cls(detection.cls),
@@ -166,10 +160,6 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
         kf.Q(6, 6) *= q_s_scaling;
         kf.x.head(4) = XyxyToXysr(detection.xyxy);
     }
-}
-
-void OCSORTTracker::KalmanBoxTracker::ResetCount() {
-    count = 0;
 }
 
 Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::Predict() {
@@ -244,21 +234,12 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::CurrentOutputBox() const {
         return GetState();
     }
     Eigen::VectorXd output = last_observation.head(is_obb ? 5 : 4);
-    if (is_obb) {
-        // Match Python OcSort's public-output contract: association and KF
-        // updates use the aligned state, but a matched track is emitted with
-        // its latest detector geometry. Python's formatter normalizes only
-        // the public angle, so do the same before crossing the native ABI.
-        output[4] = WrapAngle(output[4]);
-    }
     return output;
 }
 
 OCSORTTracker::OCSORTTracker(Config config)
     : config_(std::move(config)),
-      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {
-    KalmanBoxTracker::ResetCount();
-}
+      association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)) {}
 
 void OCSORTTracker::Reset() {
     frame_count_ = 0;
@@ -266,7 +247,7 @@ void OCSORTTracker::Reset() {
     is_obb_mode_ = false;
     association_frame_width_ = 0;
     association_frame_height_ = 0;
-    KalmanBoxTracker::ResetCount();
+    next_track_id_ = 1;
     active_tracks_.clear();
 }
 
@@ -415,7 +396,7 @@ OCSORTTracker::AssignmentResult OCSORTTracker::Associate(
 TrackOutput OCSORTTracker::FormatTrack(const KalmanBoxTracker& track) {
     TrackOutput output;
     output.is_obb = track.is_obb;
-    output.id = track.id + 1;
+    output.id = track.id;
     output.conf = track.conf;
     output.cls = track.cls;
     output.det_ind = track.det_ind;
@@ -435,7 +416,7 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
         (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
             throw std::runtime_error(
-                "Native OCSORT requires an image to initialize centroid association.");
+                "Native OcSort requires an image to initialize centroid association.");
         }
         association_frame_width_ = image.cols;
         association_frame_height_ = image.rows;
@@ -449,7 +430,7 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
                                                                          det_is_obb);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error(
-                "Native OCSORT cannot switch between AABB and OBB detections after "
+                "Native OcSort cannot switch between AABB and OBB detections after "
                 "initialization.");
         }
     }
@@ -628,7 +609,8 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
                                     config_.max_obs,
                                     config_.q_xy_scaling,
                                     config_.q_s_scaling,
-                                    is_obb_mode_);
+                                    is_obb_mode_,
+                                    next_track_id_++);
     }
 
     std::vector<TrackOutput> outputs;

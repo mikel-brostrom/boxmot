@@ -4,6 +4,7 @@ __all__ = (
     "analysis",
     "backends",
     "postprocessing",
+    "results",
     "search_space",
     "tuner",
 )

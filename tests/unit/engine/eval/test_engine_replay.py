@@ -1,732 +1,590 @@
 from __future__ import annotations
 
-import queue
+import concurrent.futures
+import math
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
+import torch
 
-import boxmot.engine.eval.evaluator as evaluator_module
-import boxmot.engine.eval.replay as replay_module
-from boxmot.trackers.common.geometry.obb import xywha_to_corners
-
-
-def test_resolve_embedding_cache_dir_reuses_row_aligned_trusted_legacy_cache(tmp_path):
-    sequence_name = "MOT17-02-FRCNN"
-    detector = Path("models/yolox_x_MOT17_ablation.pt")
-    reid = tmp_path / "models" / "lmbn_n_duke.pt"
-    reid.parent.mkdir()
-    reid.write_bytes(b"weights")
-
-    detector_root = (
-        tmp_path
-        / "dets_n_embs"
-        / "mot17"
-        / "ablation"
-        / detector.stem
-    )
-    det_path = detector_root / "dets" / f"{sequence_name}.npy"
-    legacy_path = detector_root / "embs" / "lmbn_n_duke" / "resize" / f"{sequence_name}.npy"
-    det_path.parent.mkdir(parents=True)
-    legacy_path.parent.mkdir(parents=True)
-    np.save(det_path, np.ones((2, 7), dtype=np.float32))
-    np.save(legacy_path, np.ones((2, 4), dtype=np.float32))
-
-    args = SimpleNamespace(
-        detector=[detector],
-        reid=[reid],
-        benchmark="mot17",
-        split="ablation",
-        tracker_backend="python",
-        reid_preprocess="resize",
-        eval_box_type="aabb",
-        allow_legacy_reid_cache=True,
-    )
-
-    resolved = replay_module._resolve_embedding_cache_dir(args, tmp_path, sequence_name)
-
-    assert Path(resolved) == legacy_path.parent
-
-
-@pytest.mark.parametrize(
-    ("gap_entries", "expected_cols"),
-    [
-        (
-            np.array([[2, 10, 5, 25, 30, 7, 0.8, 2, -1]], dtype=np.float32),
-            9,
-        ),
-        (
-            np.array([[2, 50, 40, 20, 10, 0.3, 11, 0.8, 2, -1]], dtype=np.float32),
-            13,
-        ),
-    ],
+from boxmot.datasets import DatasetSample
+from boxmot.engine.eval import evaluator as evaluator_module
+from boxmot.engine.eval import replay as replay_module
+from boxmot.engine.eval.replay import (
+    ReplayProgressEvent,
+    ReplayResult,
+    iter_cached_tracks,
+    tracks_to_mot_rows,
 )
-def test_process_sequence_formats_gta_rows_through_canonical_mot_path(
-    tmp_path,
-    monkeypatch,
-    gap_entries,
-    expected_cols,
-):
-    captured = {}
+from boxmot.structures import Boxes, Detections, OrientedBoxes, Tracks
+from boxmot.trackers import TrackerRequirements, TrackerSpec
 
-    class FakeTracker:
-        cmc = None
-        with_reid = False
-        embedding_off = False
 
-        def flush_gta(self):
-            return gap_entries.copy()
-
-    class FakeTrackerRuntime:
-        tracker = FakeTracker()
-
-    monkeypatch.setattr(replay_module.TrackerRuntime, "create", lambda **kwargs: FakeTrackerRuntime())
-    monkeypatch.setattr(
-        replay_module,
-        "MOTDataset",
-        lambda **kwargs: SimpleNamespace(get_sequence=lambda *args, **kw: []),
+def _sample(sample_id: str, sequence_id: str, frame_index: int) -> DatasetSample:
+    detections = Detections(
+        geometry=Boxes(torch.tensor([[1.0, 2.0, 5.0, 8.0]], dtype=torch.float32)),
+        scores=torch.tensor([0.9], dtype=torch.float32),
+        class_ids=torch.tensor([3], dtype=torch.int64),
+        sample_id=sample_id,
     )
-    monkeypatch.setattr(
-        replay_module,
-        "write_mot_results",
-        lambda path, arr: captured.setdefault("rows", arr.copy()),
+    return DatasetSample(
+        sample_id=sample_id,
+        split="validation",
+        sequence_id=sequence_id,
+        frame_index=frame_index,
+        timestamp_s=None,
+        image_size=(10, 12),
+        image_ref=None,
+        frame=None,
+        detections=detections,
     )
 
-    replay_module.process_sequence(
-        seq_name="sequence",
-        mot_root=str(tmp_path / "source"),
-        project_root=str(tmp_path),
-        detector_name="det.pt",
-        reid_name="",
-        tracker_name="occluboost",
-        exp_folder=str(tmp_path / "results"),
-        target_fps=None,
-    )
 
-    rows = captured["rows"]
-    assert rows.shape == (1, expected_cols)
-    assert int(rows[0, 0]) == 2
-    assert int(rows[0, 1]) == int(gap_entries[0, -4])
-    if expected_cols == 9:
-        # AABB export is [frame,id,left,top,width,height,conf,cls+1,det_ind].
-        np.testing.assert_allclose(rows[0, 2:6], [10, 5, 15, 25])
-        assert int(rows[0, 7]) == 3
-    else:
-        # OBB export is [frame,id,8 corners,conf,cls,det_ind].
-        np.testing.assert_allclose(
-            rows[0, 2:10],
-            xywha_to_corners(gap_entries[0, 1:6]),
-            atol=1e-4,
+class _Tracker:
+    name = "fake"
+    supports_obb = True
+    requirements = TrackerRequirements()
+
+    def __init__(self) -> None:
+        self.resets = 0
+
+    def reset(self) -> None:
+        self.resets += 1
+
+    def update(self, detections: Detections, frame=None) -> Tracks:
+        assert frame is None
+        count = len(detections)
+        return Tracks(
+            geometry=detections.geometry,
+            track_ids=torch.arange(10, 10 + count, dtype=torch.int64),
+            scores=detections.scores,
+            class_ids=detections.class_ids,
+            detection_indices=torch.arange(count, dtype=torch.int64),
+            sample_id=detections.sample_id,
         )
-        assert int(rows[0, 11]) == 2
 
 
-def test_worker_init_suppresses_worker_logs(monkeypatch):
-    calls = []
+def test_iter_cached_tracks_uses_one_sequence_state_and_filters_by_key() -> None:
+    tracker = _Tracker()
+    samples = [
+        _sample("a-0", "a", 0),
+        _sample("a-1", "a", 1),
+        _sample("b-0", "b", 0),
+    ]
 
+    replayed = list(iter_cached_tracks(samples, tracker, sequence_ids=frozenset({"a"})))
+
+    assert [item.sample.sample_id for item in replayed] == ["a-0", "a-1"]
+    assert [item.result.tracks.track_ids.tolist() for item in replayed] == [[10], [10]]
+    assert tracker.resets == 1
+
+
+def test_tracks_to_mot_rows_serializes_aabb_and_obb_without_positional_cache_state() -> None:
+    aabb = Tracks(
+        geometry=Boxes(torch.tensor([[1.0, 2.0, 5.0, 8.0]], dtype=torch.float32)),
+        track_ids=torch.tensor([2], dtype=torch.int64),
+        scores=torch.tensor([0.75], dtype=torch.float32),
+        class_ids=torch.tensor([3], dtype=torch.int64),
+        detection_indices=torch.tensor([0], dtype=torch.int64),
+        sample_id="a",
+    )
+    assert tracks_to_mot_rows(aabb, 4) == [(5, 2, 1.0, 2.0, 4.0, 6.0, 0.75, 3, 0)]
+
+    obb = Tracks(
+        geometry=OrientedBoxes(torch.tensor([[10.0, 20.0, 4.0, 2.0, math.pi / 2]], dtype=torch.float32)),
+        track_ids=torch.tensor([7], dtype=torch.int64),
+        scores=torch.tensor([0.8], dtype=torch.float32),
+        class_ids=torch.tensor([1], dtype=torch.int64),
+        detection_indices=torch.tensor([-1], dtype=torch.int64),
+        sample_id="b",
+    )
+    row = tracks_to_mot_rows(obb, 0)[0]
+    assert len(row) == 13
+    assert row[:2] == (1, 7)
+    assert row[-2:] == (1, -1)
+
+
+def test_sequence_replay_task_constructs_isolated_tracker_per_sequence(tmp_path, monkeypatch) -> None:
+    created_trackers: list[_Tracker] = []
+    tracked_by_sequence: dict[str, list[_Tracker]] = {"a": [], "b": []}
+    emitted: list[ReplayProgressEvent] = []
+
+    class _ProgressQueue:
+        def put(self, event: ReplayProgressEvent) -> None:
+            emitted.append(event)
+
+    class _SequenceDataset(list[DatasetSample]):
+        manifest = SimpleNamespace()
+
+    @contextmanager
+    def _owned_tracker(_spec):
+        tracker = _Tracker()
+        original_update = tracker.update
+
+        def update(detections, frame=None):
+            sequence_id = detections.sample_id.split("-", maxsplit=1)[0]
+            tracked_by_sequence[sequence_id].append(tracker)
+            return original_update(detections, frame)
+
+        tracker.update = update
+        created_trackers.append(tracker)
+        yield tracker
+
+    def _stream_sequence(
+        _cls,
+        _build,
+        *,
+        sequence_id,
+        split,
+        load_images,
+        load_masks,
+        load_embeddings,
+    ):
+        assert split == "validation"
+        assert not load_images
+        assert not load_masks
+        assert not load_embeddings
+        return _SequenceDataset([_sample(f"{sequence_id}-0", sequence_id, 0)])
+
+    monkeypatch.setattr(replay_module, "_owned_tracker", _owned_tracker)
     monkeypatch.setattr(
-        replay_module,
-        "_configure_logging",
-        lambda **kwargs: calls.append(kwargs),
+        replay_module.CachedVisionDataset,
+        "_stream_sequence",
+        classmethod(_stream_sequence),
     )
-
-    replay_module._worker_init()
-
-    assert calls == [{"main_thread_only": True}]
-
-
-def test_replay_process_backend_uses_spawn_context(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
-        img_dir = source / seq_name / "img1"
-        img_dir.mkdir(parents=True)
-        (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        cache_project=tmp_path / "shared-runs",
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="boosttrack",
-        fps=None,
-        device="cpu",
-        n_threads=2,
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    queue_types = []
-    executor_kwargs = {}
-    manager_calls = []
-
-    class FakeManager:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def Queue(self):
-            progress_queue = queue.Queue()
-            queue_types.append(type(progress_queue).__name__)
-            return progress_queue
-
-    class FakeSpawnContext:
-        def Manager(self):
-            manager_calls.append(True)
-            return FakeManager()
-
-    spawn_context = FakeSpawnContext()
-
-    class FakeFuture:
-        def __init__(self, value):
-            self._value = value
-
-        def result(self):
-            return self._value
-
-    class FakeProcessPoolExecutor:
-        def __init__(self, *args, **kwargs):
-            executor_kwargs.update(kwargs)
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def submit(self, _func, *task_arg):
-            seq_name = task_arg[0]
-            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
-            assert task_arg[2] == str(args.cache_project)
-            if progress_queue is not None:
-                progress_queue.put_nowait((seq_name, 1, 1))
-            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
-
-    monkeypatch.setattr(replay_module.mp, "get_context", lambda method: spawn_context)
-    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
-    monkeypatch.setattr(
-        replay_module.concurrent.futures,
-        "wait",
-        lambda pending, timeout, return_when: (set(pending), set()),
-    )
-
-    replay_module.run_generate_mot_results(args, quiet=True)
-
-    assert args.seq_frame_nums == {
-        "MOT17-02-FRCNN": [1],
-        "MOT17-04-FRCNN": [1],
-    }
-    assert manager_calls == []
-    assert queue_types == []
-    assert executor_kwargs["mp_context"] is spawn_context
-    assert executor_kwargs["max_workers"] == 2
-
-
-def test_replay_nonquiet_uses_manager_queue_for_progress(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
-        img_dir = source / seq_name / "img1"
-        img_dir.mkdir(parents=True)
-        (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="boosttrack",
-        fps=None,
-        device="cpu",
-        n_threads=2,
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    queue_types = []
-    manager_calls = []
-
-    class FakeManager:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def Queue(self):
-            progress_queue = queue.Queue()
-            queue_types.append(type(progress_queue).__name__)
-            return progress_queue
-
-    class FakeSpawnContext:
-        def Manager(self):
-            manager_calls.append(True)
-            return FakeManager()
-
-    spawn_context = FakeSpawnContext()
-
-    class FakeFuture:
-        def __init__(self, value):
-            self._value = value
-
-        def result(self):
-            return self._value
-
-    class FakeProcessPoolExecutor:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def submit(self, _func, *task_arg):
-            seq_name = task_arg[0]
-            progress_queue = task_arg[-2]  # second-to-last; last is adaptive_kf
-            progress_queue.put_nowait((seq_name, 1, 1))
-            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "num_frames": 1}))
-
-    monkeypatch.setattr(replay_module.mp, "get_context", lambda method: spawn_context)
-    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
-    monkeypatch.setattr(
-        replay_module.concurrent.futures,
-        "wait",
-        lambda pending, timeout, return_when: (set(pending), set()),
-    )
-
-    replay_module.run_generate_mot_results(args, quiet=False)
-
-    assert manager_calls == [True]
-    assert queue_types == ["Queue"]
-
-
-def test_process_sequence_reports_separate_reid_and_tracker_rest_time(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    exp_dir = tmp_path / "runs"
-    exp_dir.mkdir()
-
-    created = {}
-
-    class FakeTrackerRuntime:
-        tracker = None
-
-        def update(self, dets, img, embs, masks=None):
-            created["timing_stats"].add_reid_time(3.0)
-            return np.array([[1, 2, 10, 12, 1, 0.9, 0, 0]], dtype=np.float32), 10.0
-
-    def fake_create(**kwargs):
-        created["timing_stats"] = kwargs["timing_stats"]
-        return FakeTrackerRuntime()
-
-    monkeypatch.setattr(replay_module.TrackerRuntime, "create", fake_create)
-    monkeypatch.setattr(
-        replay_module,
-        "MOTDataset",
-        lambda **kwargs: SimpleNamespace(
-            get_sequence=lambda *args, **kw: [
-                {
-                    "frame_id": 1,
-                    "dets": np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32),
-                    "embs": np.array([[0.1, 0.2, 0.3]], dtype=np.float32),
-                    "img": np.zeros((4, 4, 3), dtype=np.uint8),
-                }
-            ]
-        ),
-    )
-    monkeypatch.setattr(replay_module, "write_mot_results", lambda path, arr: None)
-
-    seq_name, kept_ids, timing = replay_module.process_sequence(
-        seq_name="MOT17-02-FRCNN",
-        mot_root=str(source),
-        project_root=str(tmp_path),
-        detector_name="det.pt",
-        reid_name="reid.pt",
-        tracker_name="deepocsort",
-        exp_folder=str(exp_dir),
-        target_fps=None,
-    )
-
-    assert seq_name == "MOT17-02-FRCNN"
-    assert kept_ids == [1]
-    assert timing == {"track_time_ms": 7.0, "reid_time_ms": 3.0, "num_frames": 1}
-
-
-def test_process_sequence_updates_tracker_on_empty_detection_frames(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    exp_dir = tmp_path / "runs"
-    exp_dir.mkdir()
-    update_rows = []
-
-    class FakeTrackerRuntime:
-        tracker = SimpleNamespace()
-
-        def update(self, dets, img, embs, masks=None):
-            update_rows.append((len(dets), embs, img.copy()))
-            return np.empty((0, 8), dtype=np.float32), 1.0
-
-    monkeypatch.setattr(replay_module.TrackerRuntime, "create", lambda **kwargs: FakeTrackerRuntime())
-    monkeypatch.setattr(
-        replay_module,
-        "MOTDataset",
-        lambda **kwargs: SimpleNamespace(
-            get_sequence=lambda *args, **kw: [
-                {
-                    "frame_id": 1,
-                    "dets": np.array([[1, 2, 10, 12, 0.9, 0]], dtype=np.float32),
-                    "embs": np.empty((1, 0), dtype=np.float32),
-                    "img": np.zeros((16, 16, 3), dtype=np.uint8),
-                },
-                {
-                    "frame_id": 2,
-                    "dets": np.empty((0, 6), dtype=np.float32),
-                    "embs": np.empty((0, 0), dtype=np.float32),
-                    "img": np.ones((16, 16, 3), dtype=np.uint8),
-                },
-                {
-                    "frame_id": 3,
-                    "dets": np.array([[2, 2, 11, 12, 0.9, 0]], dtype=np.float32),
-                    "embs": np.empty((1, 0), dtype=np.float32),
-                    "img": np.full((16, 16, 3), 2, dtype=np.uint8),
-                },
-            ]
-        ),
-    )
-    monkeypatch.setattr(replay_module, "write_mot_results", lambda path, arr: None)
-
-    seq_name, kept_ids, timing = replay_module.process_sequence(
-        seq_name="S",
-        mot_root=str(source),
-        project_root=str(tmp_path),
-        detector_name="det.pt",
-        reid_name="",
-        tracker_name="ocsort",
-        exp_folder=str(exp_dir),
-        target_fps=2,
-    )
-
-    assert seq_name == "S"
-    assert kept_ids == [1, 2, 3]
-    assert [rows for rows, _, _ in update_rows] == [1, 0, 1]
-    assert update_rows[1][1] is None
-    np.testing.assert_array_equal(update_rows[1][2], np.ones((16, 16, 3), dtype=np.uint8))
-    assert timing == {"track_time_ms": 3.0, "reid_time_ms": 0.0, "num_frames": 3}
-
-
-def test_run_generate_mot_results_accumulates_worker_reid_timings(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
-        img_dir = source / seq_name / "img1"
-        img_dir.mkdir(parents=True)
-        (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        cache_project=tmp_path / "shared-runs",
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="deepocsort",
-        fps=None,
-        device="cpu",
-        n_threads=2,
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    class FakeFuture:
-        def __init__(self, value):
-            self._value = value
-
-        def result(self):
-            return self._value
-
-    class FakeProcessPoolExecutor:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def submit(self, _func, *task_arg):
-            seq_name = task_arg[0]
-            return FakeFuture((seq_name, [1], {"track_time_ms": 5.0, "reid_time_ms": 2.5, "num_frames": 1}))
-
-    class FakeSpawnContext:
-        def Manager(self):
-            raise AssertionError("quiet replay should not create a manager")
-
-    monkeypatch.setattr(replay_module.mp, "get_context", lambda method: FakeSpawnContext())
-    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", FakeProcessPoolExecutor)
-    monkeypatch.setattr(
-        replay_module.concurrent.futures,
-        "wait",
-        lambda pending, timeout, return_when: (set(pending), set()),
-    )
-
-    timing_stats = replay_module.TimingStats()
-    replay_module.run_generate_mot_results(args, timing_stats=timing_stats, quiet=True)
-
-    assert timing_stats.totals["track"] == 10.0
-    assert timing_stats.totals["reid"] == 5.0
-    assert timing_stats.frames == 2
-
-
-def test_replay_cpp_backend_uses_native_runner(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    for seq_name in ("MOT17-02-FRCNN", "MOT17-04-FRCNN"):
-        img_dir = source / seq_name / "img1"
-        img_dir.mkdir(parents=True)
-        (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        cache_project=tmp_path / "shared-runs",
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="botsort",
-        fps=None,
-        device="cpu",
-        n_threads=2,
-        tracker_backend="cpp",
-        tracking_backend="thread",
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    class FakeFuture:
-        def __init__(self, value):
-            self._value = value
-
-        def result(self):
-            return self._value
-
-    def fake_process_sequence_cpp(*args, **kwargs):
-        raise AssertionError("The fake executor should not call the submitted function directly")
-
-    class FakeThreadPoolExecutor:
-        def __init__(self, *args, **kwargs):
-            assert kwargs["max_workers"] == 2
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def submit(self, fn, *task_arg):
-            assert fn is fake_process_sequence_cpp
-            seq_name = task_arg[0]
-            return FakeFuture((seq_name, [1], {"track_time_ms": 7.5, "num_frames": 1}))
-
-    monkeypatch.setattr(
-        replay_module,
-        "get_native_replay_backend",
-        lambda tracker_name: SimpleNamespace(process_sequence=fake_process_sequence_cpp),
-    )
-    monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
-    monkeypatch.setattr(
-        replay_module.concurrent.futures,
-        "wait",
-        lambda pending, timeout, return_when: (set(pending), set()),
-    )
-
-    replay_module.run_generate_mot_results(args, quiet=True)
-
-    assert args.seq_frame_nums == {
-        "MOT17-02-FRCNN": [1],
-        "MOT17-04-FRCNN": [1],
-    }
-
-
-def test_replay_cpp_backend_rejects_unsupported_tracker(tmp_path):
-    source = tmp_path / "train"
-    img_dir = source / "MOT17-02-FRCNN" / "img1"
-    img_dir.mkdir(parents=True)
-    (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="deepocsort",
-        fps=None,
-        device="cpu",
-        n_threads=1,
-        tracker_backend="cpp",
-        tracking_backend="thread",
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    try:
-        replay_module.run_generate_mot_results(args, quiet=True)
-    except ValueError as exc:
-        assert "tracker_backend='cpp' is not available" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for unsupported native replay tracker")
-
-
-def test_replay_cpp_tracking_backend_alias_uses_native_runner(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    img_dir = source / "MOT17-02-FRCNN" / "img1"
-    img_dir.mkdir(parents=True)
-    (img_dir / "000001.jpg").write_bytes(b"")
-
-    args = SimpleNamespace(
-        project=tmp_path,
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="botsort",
-        fps=None,
-        device="cpu",
-        n_threads=1,
-        tracking_backend="cpp",
-        postprocessing="none",
-        conf=0.25,
-    )
-
-    monkeypatch.setattr(
-        replay_module,
-        "get_native_replay_backend",
-        lambda tracker_name: SimpleNamespace(
-            process_sequence=lambda *task_arg: (
-                task_arg[0],
-                [1],
-                {"track_time_ms": 1.0, "num_frames": 1},
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(replay_module, "_WORKER_PROGRESS_QUEUE", _ProgressQueue())
+
+    results = [
+        replay_module._replay_sequence_task(
+            replay_module._SequenceReplayTask(
+                build=str(tmp_path / "build"),
+                tracker_spec=TrackerSpec(name="bytetrack"),
+                split="validation",
+                sequence_id=sequence_id,
+                frame_total=1,
+                output_path=str(tmp_path / f"{sequence_id}.txt"),
+                ordinal=ordinal,
             )
-        ),
+        )
+        for ordinal, sequence_id in enumerate(("a", "b"))
+    ]
+
+    assert [result.sequence_id for result in results] == ["a", "b"]
+    assert len(created_trackers) == 2
+    assert tracked_by_sequence == {"a": [created_trackers[0]], "b": [created_trackers[1]]}
+    assert [(event.sequence_id, event.status, event.completed, event.total) for event in emitted] == [
+        ("a", "running", 0, 1),
+        ("a", "running", 0, 1),
+        ("a", "running", 1, 1),
+        ("a", "completed", 1, 1),
+        ("b", "running", 0, 1),
+        ("b", "running", 0, 1),
+        ("b", "running", 1, 1),
+        ("b", "completed", 1, 1),
+    ]
+    assert emitted[0].detail == "loading cached inputs"
+    assert emitted[4].detail == "loading cached inputs"
+
+
+def test_replay_worker_does_not_join_observational_progress_feeder(monkeypatch) -> None:
+    class _ProgressQueue:
+        cancelled = False
+
+        def cancel_join_thread(self) -> None:
+            self.cancelled = True
+
+    progress_queue = _ProgressQueue()
+    logger = replay_module.logging.getLogger("boxmot")
+    monkeypatch.setattr(logger, "handlers", [])
+    monkeypatch.setattr(logger, "propagate", True)
+    monkeypatch.setattr(logger, "disabled", False)
+
+    replay_module._initialize_replay_worker(progress_queue)
+
+    assert progress_queue.cancelled is True
+    assert replay_module._WORKER_PROGRESS_QUEUE is progress_queue
+    assert logger.propagate is False
+    assert logger.disabled is True
+
+
+def test_spawned_sequence_tasks_use_spawn_context_and_return_ordinal_order(monkeypatch, tmp_path) -> None:
+    observed: dict[str, object] = {}
+    progress: list[ReplayProgressEvent] = []
+
+    class _ProgressQueue:
+        def get_nowait(self):
+            raise replay_module.queue.Empty
+
+        def close(self):
+            return None
+
+        def join_thread(self):
+            return None
+
+    class _Context:
+        def Queue(self):
+            return _ProgressQueue()
+
+    context = _Context()
+
+    class _Executor:
+        def __init__(self, *, max_workers, mp_context, initializer, initargs):
+            observed.update(
+                max_workers=max_workers,
+                mp_context=mp_context,
+                initializer=initializer,
+                initargs=initargs,
+            )
+
+        def submit(self, _function, task):
+            future = concurrent.futures.Future()
+            future.set_result(
+                replay_module._SequenceReplayResult(
+                    sequence_id=task.sequence_id,
+                    output_path=task.output_path,
+                    frames=task.ordinal + 1,
+                    track_rows=task.ordinal + 2,
+                    ordinal=task.ordinal,
+                )
+            )
+            return future
+
+        def shutdown(self, *, wait, cancel_futures):
+            observed["shutdown"] = (wait, cancel_futures)
+
+    def _get_context(method):
+        observed["start_method"] = method
+        return context
+
+    monkeypatch.setattr(replay_module, "get_context", _get_context)
+    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", _Executor)
+
+    spec = TrackerSpec(name="bytetrack")
+    tasks = (
+        replay_module._SequenceReplayTask("build", spec, None, "b", 2, str(tmp_path / "b.tmp"), 1),
+        replay_module._SequenceReplayTask("build", spec, None, "a", 1, str(tmp_path / "a.tmp"), 0),
+    )
+    results = replay_module._run_spawned_sequence_tasks(tasks, workers=2, progress_callback=progress.append)
+
+    assert observed["start_method"] == "spawn"
+    assert observed["max_workers"] == 2
+    assert observed["mp_context"] is context
+    assert observed["initializer"] is replay_module._initialize_replay_worker
+    assert observed["shutdown"] == (True, False)
+    assert [result.sequence_id for result in results] == ["a", "b"]
+    assert [(event.sequence_id, event.status) for event in progress[:2]] == [
+        ("b", "queued"),
+        ("a", "queued"),
+    ]
+    assert [event.total for event in progress[:2]] == [2, 1]
+    assert {(event.sequence_id, event.status) for event in progress[2:]} == {
+        ("a", "completed"),
+        ("b", "completed"),
+    }
+
+
+def test_spawned_sequence_failure_is_attributed_after_pool_completion(monkeypatch, tmp_path) -> None:
+    progress: list[ReplayProgressEvent] = []
+    observed: dict[str, object] = {}
+
+    class _Executor:
+        def __init__(self, **_kwargs):
+            pass
+
+        def submit(self, _function, _task):
+            future = concurrent.futures.Future()
+            future.set_exception(ValueError("broken sequence"))
+            return future
+
+        def shutdown(self, *, wait, cancel_futures):
+            observed["shutdown"] = (wait, cancel_futures)
+
+    class _ProgressQueue:
+        def get_nowait(self):
+            raise replay_module.queue.Empty
+
+        def close(self):
+            return None
+
+        def join_thread(self):
+            return None
+
+    monkeypatch.setattr(
+        replay_module,
+        "get_context",
+        lambda _method: SimpleNamespace(Queue=lambda: _ProgressQueue()),
+    )
+    monkeypatch.setattr(replay_module.concurrent.futures, "ProcessPoolExecutor", _Executor)
+    task = replay_module._SequenceReplayTask(
+        "build",
+        TrackerSpec(name="bytetrack"),
+        None,
+        "failed-sequence",
+        1,
+        str(tmp_path / "failed.tmp"),
+        0,
     )
 
-    replay_module.run_generate_mot_results(args, quiet=True)
+    with pytest.raises(RuntimeError, match="failed-sequence"):
+        replay_module._run_spawned_sequence_tasks((task,), workers=1, progress_callback=progress.append)
 
-    assert args.seq_frame_nums == {"MOT17-02-FRCNN": [1]}
+    assert observed["shutdown"] == (True, False)
+    assert [(event.sequence_id, event.status) for event in progress] == [
+        ("failed-sequence", "queued"),
+        ("failed-sequence", "failed"),
+    ]
+    assert "broken sequence" in (progress[-1].detail or "")
 
 
-def test_replay_cpp_backend_reports_incremental_progress(tmp_path, monkeypatch):
-    source = tmp_path / "train"
-    img_dir = source / "MOT17-02-FRCNN" / "img1"
-    img_dir.mkdir(parents=True)
-    (img_dir / "000001.jpg").write_bytes(b"")
+def test_replay_build_schedules_sorted_sequence_tasks_with_only_specs_crossing_workers(monkeypatch, tmp_path) -> None:
+    build = tmp_path / "build"
+    build.mkdir()
+    destination = tmp_path / "tracks"
+    manifest = SimpleNamespace()
+    callback = lambda _event: None
+    observed: dict[str, object] = {}
 
-    args = SimpleNamespace(
-        project=tmp_path,
-        benchmark="mot17-mini",
-        source=source,
-        detector=[Path("det.pt")],
-        reid=[Path("/tmp/reid.pt")],
-        tracker="botsort",
-        fps=None,
-        device="cpu",
-        n_threads=1,
-        tracker_backend="cpp",
-        tracking_backend="thread",
-        postprocessing="none",
-        conf=0.25,
+    monkeypatch.setattr(replay_module, "resolve_build_path", lambda *_args, **_kwargs: build)
+    monkeypatch.setattr(replay_module.DatasetManifest, "load", lambda _path: manifest)
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        replay_module,
+        "_sequence_frame_counts",
+        lambda *_args, **_kwargs: (("a", 1), ("z", 3)),
+    )
+    probe_trackers: list[_Tracker] = []
+
+    @contextmanager
+    def _requirements_probe(_spec):
+        tracker = _Tracker()
+        probe_trackers.append(tracker)
+        yield tracker
+
+    monkeypatch.setattr(replay_module, "_owned_tracker", _requirements_probe)
+
+    def _run_tasks(tasks, *, workers, progress_callback):
+        observed.update(tasks=tasks, workers=workers, progress_callback=progress_callback)
+        results = []
+        for task in tasks:
+            Path(task.output_path).write_text(task.sequence_id, encoding="utf-8")
+            results.append(
+                replay_module._SequenceReplayResult(
+                    sequence_id=task.sequence_id,
+                    output_path=task.output_path,
+                    frames=task.frame_total,
+                    track_rows=task.ordinal + 1,
+                    ordinal=task.ordinal,
+                )
+            )
+        return tuple(results)
+
+    monkeypatch.setattr(replay_module, "_run_spawned_sequence_tasks", _run_tasks)
+    result = replay_module.replay_build(
+        build,
+        TrackerSpec(name="bytetrack"),
+        split="validation",
+        output_dir=destination,
+        sequence_ids=("z", "a"),
+        workers=8,
+        progress_callback=callback,
     )
 
-    class FakeFuture:
-        def __init__(self, value):
-            self._value = value
+    tasks = observed["tasks"]
+    assert [task.sequence_id for task in tasks] == ["a", "z"]
+    assert [task.frame_total for task in tasks] == [1, 3]
+    assert all(task.tracker_spec == TrackerSpec(name="bytetrack") for task in tasks)
+    assert len(probe_trackers) == 1
+    assert observed["workers"] == 2
+    assert observed["progress_callback"] is callback
+    assert result.sequence_files == (destination / "a.txt", destination / "z.txt")
+    assert [path.read_text(encoding="utf-8") for path in result.sequence_files] == ["a", "z"]
+    assert result.frames == 4
+    assert result.track_rows == 3
 
-        def result(self):
-            return self._value
 
-    state = {"progress_queue": None, "calls": 0}
+def test_replay_build_reuses_prevalidated_catalog_frame_counts(monkeypatch, tmp_path) -> None:
+    build = tmp_path / "build"
+    build.mkdir()
+    destination = tmp_path / "tracks"
+    manifest = SimpleNamespace()
+    observed: dict[str, object] = {}
 
-    def fake_process_sequence_cpp(*args, **kwargs):
-        raise AssertionError("The fake executor should not call the submitted function directly")
+    monkeypatch.setattr(replay_module, "resolve_build_path", lambda *_args, **_kwargs: build)
+    monkeypatch.setattr(replay_module.DatasetManifest, "load", lambda _path: manifest)
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        replay_module,
+        "_sequence_frame_counts",
+        lambda *_args, **_kwargs: pytest.fail("coordinator must reuse the validated catalog counts"),
+    )
 
-    class FakeThreadPoolExecutor:
-        def __init__(self, *args, **kwargs):
-            assert kwargs["max_workers"] == 1
+    @contextmanager
+    def _requirements_probe(_spec):
+        yield _Tracker()
+
+    monkeypatch.setattr(replay_module, "_owned_tracker", _requirements_probe)
+
+    def _run_tasks(tasks, *, workers, progress_callback):
+        observed["tasks"] = tasks
+        results = []
+        for task in tasks:
+            Path(task.output_path).write_text(task.sequence_id, encoding="utf-8")
+            results.append(
+                replay_module._SequenceReplayResult(
+                    sequence_id=task.sequence_id,
+                    output_path=task.output_path,
+                    frames=task.frame_total,
+                    track_rows=0,
+                    ordinal=task.ordinal,
+                )
+            )
+        return tuple(results)
+
+    monkeypatch.setattr(replay_module, "_run_spawned_sequence_tasks", _run_tasks)
+
+    result = replay_module.replay_build(
+        build,
+        TrackerSpec(name="bytetrack"),
+        split="validation",
+        output_dir=destination,
+        sequence_ids=("z", "a"),
+        sequence_frame_counts={"z": 3, "a": 1},
+        workers=8,
+    )
+
+    tasks = observed["tasks"]
+    assert [(task.sequence_id, task.frame_total) for task in tasks] == [("a", 1), ("z", 3)]
+    assert result.frames == 4
+
+
+def test_replay_build_rejects_missing_images_for_frame_required_tracker_before_spawning(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    build = tmp_path / "build"
+    build.mkdir()
+    manifest = SimpleNamespace(
+        build_id="0" * 64,
+        publish=SimpleNamespace(image_references=False),
+    )
+
+    class _FrameTracker(_Tracker):
+        requirements = TrackerRequirements(frame=True)
+
+    @contextmanager
+    def _requirements_probe(_spec):
+        yield _FrameTracker()
+
+    monkeypatch.setattr(replay_module, "resolve_build_path", lambda *_args, **_kwargs: build)
+    monkeypatch.setattr(replay_module.DatasetManifest, "load", lambda _path: manifest)
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(replay_module, "_owned_tracker", _requirements_probe)
+    monkeypatch.setattr(
+        replay_module,
+        "_sequence_frame_counts",
+        lambda *_args, **_kwargs: pytest.fail("sequence workers must not be scheduled"),
+    )
+
+    with pytest.raises(replay_module.BuildCompatibilityError, match="--publish-image-refs"):
+        replay_module.replay_build(
+            build,
+            TrackerSpec(name="sfsort"),
+            output_dir=tmp_path / "tracks",
+            workers=2,
+        )
+
+
+def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, tmp_path) -> None:
+    captured: dict[str, object] = {}
+
+    class _Pipeline:
+        workflow = None
+
+        def __init__(self) -> None:
+            self.advances: list[str] = []
+            self.stored: list[tuple[object, int]] = []
+
+        def advance(self, detail: str) -> None:
+            self.advances.append(detail)
+
+        def callback(self):
+            return object()
+
+        def store_step_info(self, renderable, *, step: int) -> None:
+            self.stored.append((renderable, step))
+
+    class _Presenter:
+        renderable = object()
+
+        def __init__(self, callback, sequence_totals) -> None:
+            captured["presenter_callback"] = callback
+            captured["sequence_totals"] = sequence_totals
 
         def __enter__(self):
             return self
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
+        def __exit__(self, *_exc) -> None:
+            return None
 
-        def submit(self, fn, *task_arg):
-            assert fn is fake_process_sequence_cpp
-            state["progress_queue"] = task_arg[-2]
-            return FakeFuture(("MOT17-02-FRCNN", [1, 2, 3], {"track_time_ms": 7.5, "num_frames": 3}))
+        def __call__(self, _event) -> None:
+            return None
 
-    messages = []
-    monkeypatch.setattr(
-        replay_module,
-        "get_native_replay_backend",
-        lambda tracker_name: SimpleNamespace(process_sequence=fake_process_sequence_cpp),
+    def _replay_build(build, tracker_spec, **kwargs):
+        captured.update(build=build, tracker_spec=tracker_spec, replay_kwargs=kwargs)
+        return ReplayResult(
+            build=Path(build),
+            output_dir=Path(kwargs["output_dir"]),
+            sequence_files=(),
+            frames=2,
+            track_rows=0,
+        )
+
+    monkeypatch.setattr(evaluator_module, "EvalSequenceProgressPresenter", _Presenter)
+    monkeypatch.setattr(evaluator_module, "_refresh_eval_pipeline_intro", lambda *_args: None)
+    monkeypatch.setattr(evaluator_module, "replay_build", _replay_build)
+    monkeypatch.setattr(evaluator_module, "run_motmetrics", lambda *_args, **_kwargs: {})
+
+    args = SimpleNamespace(
+        _build_validated=True,
+        asso_func=None,
+        build_path=tmp_path / "build",
+        dataset_id="fixture",
+        exist_ok=True,
+        experiment_id=None,
+        geometry="aabb",
+        n_threads=3,
+        name="eval",
+        per_class=False,
+        project=tmp_path / "runs",
+        seq_info={"seq-a": 1, "seq-b": 1},
+        sequence_names=None,
+        split="validation",
+        tracker="bytetrack",
+        tracker_backend="python",
+        tracker_class_ids=(1,),
+        tracker_class_names=((1, "person"),),
     )
-    monkeypatch.setattr(replay_module.concurrent.futures, "ThreadPoolExecutor", FakeThreadPoolExecutor)
-    monkeypatch.setattr(
-        replay_module.concurrent.futures,
-        "wait",
-        lambda pending, timeout, return_when: (
-            (
-                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 1, 3)),
-                state.__setitem__("calls", state["calls"] + 1),
-                set(),
-                set(pending),
-            )[-2:]
-            if state["calls"] == 0
-            else (
-                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 2, 3)),
-                state.__setitem__("calls", state["calls"] + 1),
-                set(),
-                set(pending),
-            )[-2:]
-            if state["calls"] == 1
-            else (
-                state["progress_queue"].put_nowait(("MOT17-02-FRCNN", 3, 3)),
-                state.__setitem__("calls", state["calls"] + 1),
-                set(pending),
-                set(),
-            )[-2:]
-        ),
-    )
+    pipeline = _Pipeline()
 
-    replay_module.run_generate_mot_results(args, quiet=False, progress_callback=messages.append)
-
-    assert any("(2/3)" in message for message in messages)
-    assert messages[-1].startswith("Tracking: 1/1 sequences done")
-
-
-def test_evaluator_reexports_replay_helpers():
-    assert evaluator_module.process_sequence is replay_module.process_sequence
-    assert evaluator_module.run_generate_mot_results is replay_module.run_generate_mot_results
-
-
-def test_format_seq_progress_shows_all_sequences_in_order():
-    text = replay_module._format_seq_progress(
-        ["MOT17-02", "MOT17-04", "MOT17-05"],
-        {
-            "MOT17-02": (10, 20),
-            "MOT17-04": (20, 20),
-        },
+    result = evaluator_module.run_eval(
+        args,
+        setup=False,
+        verbose=False,
+        pipeline=pipeline,
     )
 
-    lines = text.splitlines()
-
-    assert len(lines) == 3
-    assert "MOT17-02" in lines[0]
-    assert "MOT17-04" in lines[1]
-    assert "MOT17-05" in lines[2]
-    assert "(10/20)" in lines[0]
-    assert "(done)" in lines[1]
-    assert "(pending)" in lines[2]
+    replay_kwargs = captured["replay_kwargs"]
+    assert replay_kwargs["workers"] == 3
+    assert replay_kwargs["sequence_frame_counts"] == args.seq_info
+    assert replay_kwargs["progress_callback"].__class__ is _Presenter
+    assert "tracker" not in replay_kwargs
+    assert captured["sequence_totals"] == args.seq_info
+    assert pipeline.advances == [
+        "Replaying materialized detections through the tracker…",
+        "Computing evaluation metrics…",
+    ]
+    assert pipeline.stored == [(_Presenter.renderable, evaluator_module.EvalWorkflowReporter.TRACK)]
+    assert result.timings["frames"] == 2

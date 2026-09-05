@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import torch
 from click.testing import CliRunner
 
-from boxmot.engine.config import build_mode_namespace, load_training_recipe
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit.deployment import (
     optimize_csl_tinyvit_for_inference,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
 from boxmot.reid.training.model_options import build_reid_model_kwargs
+from boxmot.reid.training.presets import build_training_namespace, load_training_recipe
 from boxmot.reid.training.trainer import ReIDTrainer
 
 RECIPE_NAME = "csl_tinyvit_11m_v20_pose_teacher"
@@ -74,11 +72,7 @@ def test_11m_v20_pose_teacher_cli_selects_dedicated_policy(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
 
     result = CliRunner().invoke(
         boxmot,
@@ -108,8 +102,7 @@ def test_11m_v20_pose_teacher_cli_selects_dedicated_policy(monkeypatch):
 def test_11m_v20_pose_teacher_model_is_exact_and_training_only(tmp_path):
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir()
-    args = build_mode_namespace(
-        "train",
+    args = build_training_namespace(
         {
             "recipe": RECIPE_NAME,
             "data_dir": str(tmp_path),

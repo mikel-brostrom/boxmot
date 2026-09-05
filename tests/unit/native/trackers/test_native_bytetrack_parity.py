@@ -3,8 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from boxmot.native.trackers import bytetrack as native_module
-from boxmot.trackers.bbox.bytetrack import ByteTrack
+from boxmot.native.trackers import bytetrack as native_binding
+from boxmot.trackers.box.bytetrack import native as native_module
+from boxmot.trackers.box.bytetrack.tracker import ByteTrack
+
+from ._helpers import update_rows
 
 
 @pytest.mark.parametrize("is_obb", [False, True], ids=["aabb", "obb"])
@@ -17,9 +20,13 @@ def test_native_bytetrack_kalman_prediction_matches_python(is_obb):
         "track_buffer": 30,
         "frame_rate": 30,
     }
-    python_tracker = ByteTrack(**cfg)
-    library = native_module._ByteTrackLiveLibrary(native_module.ensure_bytetrack_cpp_library())
-    native_tracker = native_module.NativeByteTrackTracker(cfg, library=library)
+    python_tracker = ByteTrack(**cfg, is_obb=is_obb)
+    library = native_binding.ByteTrackLibrary(native_binding.ensure_bytetrack_cpp_library())
+    native_tracker = native_module.NativeByteTrackTracker(
+        cfg,
+        geometry="obb" if is_obb else "aabb",
+        library=library,
+    )
     image = np.zeros((200, 200, 3), dtype=np.uint8)
     geometry_cols = 5 if is_obb else 4
 
@@ -55,8 +62,8 @@ def test_native_bytetrack_kalman_prediction_matches_python(is_obb):
                     dtype=np.float32,
                 )
 
-            python_output = np.asarray(python_tracker.update(detections, image))
-            native_output = np.asarray(native_tracker.update(detections))
+            python_output = update_rows(python_tracker, detections, image)
+            native_output = update_rows(native_tracker, detections, image)
 
             assert python_output.shape == native_output.shape == (1, geometry_cols + 4)
             np.testing.assert_allclose(

@@ -3,7 +3,6 @@
 #include "boxmot/trackers/base/assignment.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <limits>
 #include <unordered_set>
 
@@ -58,7 +57,7 @@ std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs,
                                     const std::vector<Track::Ptr>& rhs) {
     std::vector<Track::Ptr> result;
     result.reserve(lhs.size() + rhs.size());
-    std::unordered_set<int> seen;
+    std::unordered_set<std::int64_t> seen;
     for (const auto& track : lhs) {
         seen.insert(track->id);
         result.push_back(track);
@@ -73,7 +72,7 @@ std::vector<Track::Ptr> JointTracks(const std::vector<Track::Ptr>& lhs,
 
 std::vector<Track::Ptr> SubTracks(const std::vector<Track::Ptr>& lhs,
                                   const std::vector<Track::Ptr>& rhs) {
-    std::unordered_set<int> remove_ids;
+    std::unordered_set<std::int64_t> remove_ids;
     for (const auto& track : rhs) {
         remove_ids.insert(track->id);
     }
@@ -130,12 +129,8 @@ BotSortTracker::BotSortTracker(Config config)
       max_time_lost_(static_cast<int>((static_cast<double>(config_.frame_rate) / 30.0) *
                                       static_cast<double>(config_.track_buffer))),
       cmc_(CreateCameraMotionCompensator(config_.cmc_method)) {
-    Track::ResetCount();
     if (max_time_lost_ <= 0) {
         max_time_lost_ = config_.track_buffer;
-    }
-    if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path, config_.reid_preprocess);
     }
 }
 
@@ -150,16 +145,12 @@ void BotSortTracker::Reset() {
     is_obb_mode_ = false;
     association_frame_width_ = 0;
     association_frame_height_ = 0;
+    next_track_id_ = 1;
     kalman_filter_ = KalmanFilterXYWH(4);
-    Track::ResetCount();
     active_tracks_.clear();
     lost_tracks_.clear();
     removed_tracks_.clear();
     cmc_ = CreateCameraMotionCompensator(config_.cmc_method);
-    reid_model_.reset();
-    if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path, config_.reid_preprocess);
-    }
 }
 
 std::vector<Track::Ptr> BotSortTracker::CreateDetectionTracks(
@@ -266,7 +257,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         (association_frame_width_ <= 0 || association_frame_height_ <= 0)) {
         if (image.empty()) {
             throw std::runtime_error(
-                "Native BoTSORT requires an image to initialize centroid association.");
+                "Native BotSort requires an image to initialize centroid association.");
         }
         association_frame_width_ = image.cols;
         association_frame_height_ = image.rows;
@@ -281,42 +272,13 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
             kalman_filter_ = KalmanFilterXYWH(det_is_obb ? 5 : 4);
         } else if (det_is_obb != is_obb_mode_) {
             throw std::runtime_error(
-                "Native BoTSORT cannot switch between AABB and OBB detections after "
+                "Native BotSort cannot switch between AABB and OBB detections after "
                 "initialization.");
         }
     }
 
     ++frame_count_;
-    last_reid_time_ms_ = 0.0;
-    last_reid_preprocess_time_ms_ = 0.0;
-    last_reid_process_time_ms_ = 0.0;
-    last_reid_postprocess_time_ms_ = 0.0;
-
-    std::vector<Detection> working_detections = detections;
-    if (config_.with_reid && reid_model_.has_value()) {
-        bool needs_embeddings = false;
-        for (const auto& detection : working_detections) {
-            if (!detection.has_embedding()) {
-                needs_embeddings = true;
-                break;
-            }
-        }
-        if (needs_embeddings) {
-            const TimedReIdFeatures timed =
-                GetReIdFeaturesTimed(*reid_model_, working_detections, image);
-            last_reid_preprocess_time_ms_ = timed.preprocess_ms;
-            last_reid_process_time_ms_ = timed.process_ms;
-            last_reid_postprocess_time_ms_ = timed.postprocess_ms;
-            last_reid_time_ms_ = timed.preprocess_ms + timed.process_ms + timed.postprocess_ms;
-            if (timed.features.size() != working_detections.size()) {
-                throw std::runtime_error(
-                    "Native ReID returned a different number of embeddings than detections.");
-            }
-            for (std::size_t index = 0; index < working_detections.size(); ++index) {
-                working_detections[index].embedding = timed.features[index];
-            }
-        }
-    }
+    const std::vector<Detection>& working_detections = detections;
 
     std::vector<Detection> detections_first_raw;
     std::vector<Detection> detections_second_raw;
@@ -356,7 +318,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
     Eigen::MatrixXd dist_first =
         config_.fuse_first_associate ? FuseScore(geometry_first, detections_first) : geometry_first;
 
-    if (config_.with_reid && dist_first.size() > 0) {
+    if (config_.use_embeddings && dist_first.size() > 0) {
         Eigen::MatrixXd emb_first = EmbeddingDistance(strack_pool, detections_first);
         for (int row = 0; row < emb_first.rows(); ++row) {
             for (int col = 0; col < emb_first.cols(); ++col) {
@@ -377,7 +339,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
             track->Update(*detection, kalman_filter_, frame_count_);
             activated_tracks.push_back(track);
         } else {
-            track->ReActivate(*detection, kalman_filter_, frame_count_, false);
+            track->ReActivate(*detection, kalman_filter_, frame_count_);
             refind_tracks.push_back(track);
         }
     }
@@ -404,7 +366,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
             track->Update(*detection, kalman_filter_, frame_count_);
             activated_tracks.push_back(track);
         } else {
-            track->ReActivate(*detection, kalman_filter_, frame_count_, false);
+            track->ReActivate(*detection, kalman_filter_, frame_count_);
             refind_tracks.push_back(track);
         }
     }
@@ -429,7 +391,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
                                                          association_frame_width_,
                                                          association_frame_height_);
     Eigen::MatrixXd dist_unc = FuseScore(geometry_unc, remaining_high);
-    if (config_.with_reid && dist_unc.size() > 0) {
+    if (config_.use_embeddings && dist_unc.size() > 0) {
         Eigen::MatrixXd emb_unc = EmbeddingDistance(unconfirmed, remaining_high);
         emb_unc /= std::max(static_cast<double>(config_.unconfirmed_emb_scale), 1.0e-12);
         for (int row = 0; row < emb_unc.rows(); ++row) {
@@ -460,7 +422,7 @@ std::vector<TrackOutput> BotSortTracker::Update(const std::vector<Detection>& de
         if (track->conf < config_.new_track_thresh) {
             continue;
         }
-        track->Activate(kalman_filter_, frame_count_);
+        track->Activate(kalman_filter_, frame_count_, next_track_id_++);
         activated_tracks.push_back(track);
     }
 

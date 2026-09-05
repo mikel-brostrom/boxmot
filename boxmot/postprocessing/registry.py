@@ -4,7 +4,7 @@ from typing import Any
 
 from boxmot.postprocessing.base import Postprocessor
 
-_POSTPROCESSORS = ("gsi", "gbrc", "gta")
+_POSTPROCESSORS = ("gsi", "gbrc")
 
 
 def supported_postprocessors() -> tuple[str, ...]:
@@ -23,10 +23,6 @@ def create_postprocessor(name: str, **kwargs: Any) -> Postprocessor:
         from boxmot.postprocessing.gbrc import GBRCPostprocessor
 
         return GBRCPostprocessor(**kwargs)
-    if normalized == "gta":
-        from boxmot.postprocessing.gta import GTAPostprocessor
-
-        return GTAPostprocessor(**kwargs)
     raise ValueError(
         f"Unknown postprocessing step '{name}'. Valid options: {sorted(_POSTPROCESSORS)}"
     )

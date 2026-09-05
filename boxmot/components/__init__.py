@@ -1,0 +1,1 @@
+"""Domain-neutral component infrastructure."""

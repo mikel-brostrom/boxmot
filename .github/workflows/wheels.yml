@@ -1,106 +1,229 @@
-name: Build Platform Wheels (C++ bundled)
-
-# Optional, manual-only workflow that builds per-platform wheels with the
-# native (C++) trackers compiled and bundled inside, using cibuildwheel.
-#
-# The default release path (.github/workflows/publish.yml) ships a single
-# pure-Python wheel and lets users opt into C++ via ``boxmot build``. This
-# workflow exists so you can still produce fat platform wheels on demand
-# (for benchmarking, internal distribution, or future PyPI uploads).
-#
-# Requirements to actually use this workflow:
-#   * Switch the build backend in pyproject.toml from ``hatchling`` to
-#     ``scikit-build-core`` (>=0.10) and restore the [tool.scikit-build]
-#     section + the root CMakeLists.txt that drives the C++ build.
-#   * Without that, cibuildwheel will still build pure-Python wheels.
-#
-# Trigger: manual via "Run workflow" only.
+name: Build and Smoke-Test Release Wheel
 
 on:
+  workflow_call:
+    inputs:
+      upload_artifacts:
+        description: 'Upload the gated distributions for the calling workflow'
+        required: false
+        type: boolean
+        default: true
+    outputs:
+      version:
+        description: 'Validated in-tree package version'
+        value: ${{ jobs.release_artifacts.outputs.version }}
   workflow_dispatch:
     inputs:
       upload_artifacts:
-        description: 'Upload built wheels as artifacts'
+        description: 'Upload gated distributions as artifacts'
         required: false
         type: boolean
         default: true
 
 jobs:
-  build_wheels:
-    name: Wheel ${{ matrix.os }} (${{ matrix.arch }})
-    runs-on: ${{ matrix.os }}
+  source_gates:
+    name: Source tests, docs, and native parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
+        with:
+          python-version: '3.11'
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cmake g++ libopencv-dev libeigen3-dev
+
+      - name: Install release-gate dependencies
+        run: |
+          uv sync --locked \
+            --extra cpu \
+            --extra yolo \
+            --extra evolve \
+            --extra service \
+            --group dev \
+            --group test \
+            --group docs
+
+      - name: Run the complete test suite
+        run: uv run --no-sync pytest
+
+      - name: Build strict documentation
+        run: uv run --no-sync mkdocs build --strict
+
+  build:
+    name: Build v24 distributions once
+    needs: source_gates
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release-version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
+        with:
+          python-version: '3.11'
+
+      - name: Build the in-tree version
+        run: uv build --no-sources
+
+      - name: Validate wheel metadata and contents
+        id: release-version
+        run: |
+          python - <<'PY'
+          import ast
+          import email
+          import os
+          import pathlib
+          import tomllib
+          import zipfile
+
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          assert version == "24.0.0", f"release workflow is for v24.0.0, got {version}"
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          sdists = list(pathlib.Path("dist").glob("*.tar.gz"))
+          assert len(wheels) == 1, f"expected one wheel, found {wheels}"
+          assert len(sdists) == 1, f"expected one source distribution, found {sdists}"
+          with zipfile.ZipFile(wheels[0]) as archive:
+              names = archive.namelist()
+              metadata_name = next(name for name in names if name.endswith(".dist-info/METADATA"))
+              metadata = email.message_from_bytes(archive.read(metadata_name))
+              module = ast.parse(archive.read("boxmot/__init__.py"))
+          assert metadata["Version"] == version
+          module_version = next(
+              ast.literal_eval(node.value)
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+          )
+          assert module_version == version
+          forbidden = [
+              name
+              for name in names
+              if name.startswith(("boxmot/datasets/mot/", "boxmot/datasets/reid/"))
+              or "/.staging/" in name
+              or "/builds/" in name
+              or name.endswith((".npy", ".npz", ".parquet"))
+          ]
+          assert not forbidden, f"wheel contains dataset/build artifacts: {forbidden[:20]}"
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as stream:
+              stream.write(f"version={version}\n")
+          PY
+
+      - name: Upload immutable candidate distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: boxmot-release-candidate
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  clean_wheel_smoke:
+    name: Clean wheel smoke (Python ${{ matrix.python-version }})
+    needs: build
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x86_64
-            macos_target: ''
-          - os: ubuntu-24.04-arm
-            arch: aarch64
-            macos_target: ''
-          - os: macos-13
-            arch: x86_64
-            macos_target: '13.0'
-          - os: macos-14
-            arch: arm64
-            macos_target: '14.0'
-          - os: windows-2022
-            arch: AMD64
-            macos_target: ''
-    timeout-minutes: 90
+        python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: boxmot-release-candidate
+          path: candidate
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install cibuildwheel
-        run: python -m pip install --upgrade pip cibuildwheel==2.21.3
-
-      - name: Install Windows native deps (OpenCV + Eigen)
-        if: runner.os == 'Windows'
-        shell: pwsh
+      - name: Install the candidate wheel into a clean interpreter
         run: |
-          $ErrorActionPreference = 'Stop'
-          curl.exe -L --fail -o opencv.exe https://github.com/opencv/opencv/releases/download/4.10.0/opencv-4.10.0-windows.exe
-          & 'C:\Program Files\7-Zip\7z.exe' x opencv.exe -oC:\opencv-install -y | Out-Null
-          if (-not (Test-Path 'C:\opencv-install\opencv\build\OpenCVConfig.cmake')) {
-            throw 'OpenCV extraction failed: OpenCVConfig.cmake not found'
-          }
-          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install eigen3:x64-windows
+          python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu candidate/*.whl
+          python -m pip check
 
-      - name: Build wheels
-        env:
-          CIBW_ARCHS: ${{ matrix.arch }}
-          CIBW_BUILD: 'cp39-* cp310-* cp311-* cp312-*'
-          CIBW_SKIP: '*-musllinux_* *-manylinux_i686 pp*'
-          CIBW_MANYLINUX_X86_64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-x86_64
-          CIBW_MANYLINUX_AARCH64_IMAGE: ghcr.io/${{ github.repository_owner }}/boxmot-manylinux:latest-aarch64
-          CIBW_BEFORE_ALL_LINUX: |
-            set -euo pipefail
-            if command -v apt-get >/dev/null; then
-              apt-get update
-              apt-get install -y cmake g++ libopencv-dev libeigen3-dev
-            fi
-          CIBW_BEFORE_ALL_MACOS: |
-            brew install cmake opencv eigen
-          CIBW_ENVIRONMENT_LINUX: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON LD_LIBRARY_PATH=/usr/local/lib64:/usr/local/lib:$LD_LIBRARY_PATH'
-          CIBW_ENVIRONMENT_MACOS: 'CMAKE_ARGS=-DBOXMOT_REQUIRE_NATIVE=ON MACOSX_DEPLOYMENT_TARGET=${{ matrix.macos_target }}'
-          MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macos_target }}
-          CIBW_ENVIRONMENT_WINDOWS: >-
-            CMAKE_ARGS="-DOpenCV_DIR=C:/opencv-install/opencv/build
-            -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
-            -DVCPKG_TARGET_TRIPLET=x64-windows
-            -DBOXMOT_REQUIRE_NATIVE=ON"
-            PATH="C:\\opencv-install\\opencv\\build\\x64\\vc16\\bin;$PATH"
-          CIBW_TEST_COMMAND: 'python -c "import boxmot; print(boxmot.__version__)"'
-        run: python -m cibuildwheel --output-dir wheelhouse
+      - name: Smoke-test v24 imports and CLI
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import sys
 
-      - name: Upload wheels
+          import boxmot
+
+          expected = (
+              "__version__",
+              "create_tracker",
+              "BoostTrack",
+              "BotSort",
+              "ByteTrack",
+              "DeepOcSort",
+              "HybridSort",
+              "OccluBoost",
+              "OcSort",
+              "Sam2Mot",
+              "SFSORT",
+              "StrongSort",
+          )
+          assert boxmot.__version__ == "24.0.0"
+          assert boxmot.__all__ == expected
+          assert importlib.util.find_spec("boxmot.api") is None
+          assert importlib.util.find_spec("boxmot.data") is None
+          assert "ultralytics" not in sys.modules
+          assert not any(name.startswith("boxmot.native.trackers") for name in sys.modules)
+          PY
+          boxmot --help > boxmot-help.txt
+          grep -q materialize boxmot-help.txt
+          if grep -q generate boxmot-help.txt; then
+            echo "Removed generate command is still present" >&2
+            exit 1
+          fi
+          for command in track materialize eval tune research train-reid eval-reid compare-reid export build; do
+            boxmot "$command" --help > "boxmot-$command-help.txt"
+          done
+          for module in \
+            boxmot.engine.commands.reid.ablation \
+            boxmot.engine.commands.reid.human_pretrain \
+            boxmot.engine.commands.reid.privileged_cache \
+            boxmot.engine.commands.reid.teacher_extract; do
+            python -m "$module" --help > /dev/null
+          done
+          python - <<'PY'
+          from boxmot.engine.service.__main__ import main
+
+          assert callable(main)
+          PY
+
+  release_artifacts:
+    name: Expose distributions only after every gate passes
+    needs: [build, clean_wheel_smoke]
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: boxmot-release-candidate
+          path: dist
+
+      - name: Record gated artifact checksums
+        run: (cd dist && sha256sum *.whl *.tar.gz > SHA256SUMS)
+
+      - name: Upload gated release distributions
         if: ${{ inputs.upload_artifacts }}
         uses: actions/upload-artifact@v4
         with:
-          name: wheels-${{ matrix.os }}-${{ matrix.arch }}
-          path: wheelhouse/*.whl
+          name: boxmot-release-distributions
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 30

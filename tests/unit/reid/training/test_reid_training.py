@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import boxmot.reid.backbones.families.csl_tinyvit.pretrained as csl_tinyvit_pretrained
 import boxmot.reid.backbones.lmbn_ain_n as lmbn_ain_n_module
 import boxmot.reid.backbones.lmbn_n as lmbn_n_module
-from boxmot.engine.reid import trainer as workflow_trainer
+from boxmot.engine.commands.reid import train as workflow_trainer
 from boxmot.reid.backbones.families.csl_tinyvit import (
     Attention,
     BranchSetAttention,
@@ -43,6 +43,7 @@ from boxmot.reid.backbones.heads.bnneck import BNNeck3
 from boxmot.reid.backbones.mobilenetv4 import TimmMobileNetV4ReID, mobilenetv4_conv_small
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.datasets import build_combined_dataset, build_dataset
+from boxmot.reid.training import trainer as trainer_module
 from boxmot.reid.training.base import BaseTrainer
 from boxmot.reid.training.config import ReIDTrainConfig
 from boxmot.reid.training.losses import (
@@ -848,7 +849,7 @@ def test_resume_hparams_do_not_override_explicit_cli_values(monkeypatch, tmp_pat
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)
 
-    monkeypatch.setattr(workflow_trainer, "ReIDTrainer", FakeTrainer)
+    monkeypatch.setattr(trainer_module, "ReIDTrainer", FakeTrainer)
     args = SimpleNamespace(
         model="csl_tinyvit_7m",
         dataset="market1501",
@@ -966,7 +967,7 @@ def test_resume_hparams_nested_layout_applies_defaults(monkeypatch, tmp_path):
         def run(self):
             return SimpleNamespace(weights_path=run_dir / "best.pt", best_mAP=0.0, best_rank1=0.0)
 
-    monkeypatch.setattr(workflow_trainer, "ReIDTrainer", FakeTrainer)
+    monkeypatch.setattr(trainer_module, "ReIDTrainer", FakeTrainer)
     args = SimpleNamespace(
         model="csl_tinyvit_7m",
         dataset="market1501",

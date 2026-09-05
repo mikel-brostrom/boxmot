@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import pytest
 import torch
 import torch.nn.functional as F
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit import (
     MonotonicCanonicalPartTransport,
     csl_tinyvit_7m,
@@ -634,11 +632,7 @@ def test_mcpt_cli_recipe_resolves_rgb_only_treatment(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [
@@ -671,11 +665,7 @@ def test_mcpt_cli_11m_market_recipe_reaches_trainer(monkeypatch, tmp_path):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [

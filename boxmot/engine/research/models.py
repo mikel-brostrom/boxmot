@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from boxmot.utils.rich.core.ui import print_text
+from boxmot.engine.ui.core.ui import print_text
 
 from .constants import DEFAULT_PROPOSAL_MODEL, DEFAULT_PROPOSAL_MODEL_KWARGS, RESEARCH_METRICS
 
@@ -47,9 +47,10 @@ class RegressionPenalties:
 class ResearchConfig:
     tracker: str
     experiment: str
-    source: Path | None = None
-    detector: Path | None = None
-    reid: Path | None = None
+    build: str
+    build_root: Path | None = None
+    data_root: Path | None = None
+    tracker_backend: str = "python"
     editable_files: tuple[str, ...] | None = None
     extra_context_files: tuple[str, ...] = ()
     train_sequences: tuple[str, ...] | None = None
@@ -69,14 +70,6 @@ class ResearchConfig:
     @classmethod
     def from_namespace(cls, args: argparse.Namespace) -> ResearchConfig:
         experiment = getattr(args, "experiment", "")
-        detector = None
-        if getattr(args, "detector_explicit", False) and getattr(args, "detector", None):
-            detector = Path(args.detector[0])
-
-        reid = None
-        if getattr(args, "reid_explicit", False) and getattr(args, "reid", None):
-            reid = Path(args.reid[0])
-
         proposal_model_kwargs = dict(getattr(args, "proposal_model_kwargs", DEFAULT_PROPOSAL_MODEL_KWARGS) or {})
         if "reasoning_effort" not in proposal_model_kwargs:
             proposal_model_kwargs["reasoning_effort"] = DEFAULT_PROPOSAL_MODEL_KWARGS["reasoning_effort"]
@@ -92,9 +85,18 @@ class ResearchConfig:
         return cls(
             tracker=str(getattr(args, "tracker", "")),
             experiment=str(experiment),
-            source=Path(getattr(args, "source")) if getattr(args, "source", None) else None,
-            detector=detector,
-            reid=reid,
+            build=str(getattr(args, "build", "")),
+            build_root=(
+                Path(getattr(args, "build_root"))
+                if getattr(args, "build_root", None) is not None
+                else None
+            ),
+            data_root=(
+                Path(getattr(args, "data_root"))
+                if getattr(args, "data_root", None) is not None
+                else None
+            ),
+            tracker_backend=str(getattr(args, "tracker_backend", "python")),
             proposal_model=str(getattr(args, "proposal_model", DEFAULT_PROPOSAL_MODEL)),
             proposal_model_kwargs=proposal_model_kwargs,
             penalties=RegressionPenalties(

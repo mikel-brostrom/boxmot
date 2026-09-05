@@ -17,7 +17,7 @@ s_sim_corr: false
 use_rich_s: true
 use_sb: true
 use_vt: true
-with_reid: true
+use_embeddings: true
 recovery_appearance_thresh: 0.2603427872945116
 recovery_iou_thresh: 0.24295993725829346
 recovery_max_age: 117

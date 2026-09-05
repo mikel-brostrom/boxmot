@@ -10,9 +10,9 @@ from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.crops import build_crop_batch
 from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.resources.paths import resolve_model_path
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.misc import resolve_model_path
 
 
 class BaseModelBackend:
@@ -90,7 +90,7 @@ class BaseModelBackend:
             std=self.std_array,
         )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def get_features(self, xyxys, img):
         xyxys = np.asarray(xyxys)
         if xyxys.size != 0:
@@ -196,10 +196,9 @@ class BaseModelBackend:
                 LOGGER.info(f"[PID {os.getpid()}] Downloading ReID weights from {model_url} → {w}")
                 # Always route through download_file: it handles both the
                 # Google Drive confirm-token flow (via gdown) and direct
-                # HTTP(S) downloads, and integrates with an active Rich
-                # workflow's status callback so the progress is rendered
-                # inside the panel instead of leaking raw tqdm output.
-                from boxmot.utils.download import download_file
+                # HTTP(S) downloads and delegates progress to an active
+                # renderer when one is registered.
+                from boxmot.resources.download import download_file
 
                 download_file(model_url, w)
             else:

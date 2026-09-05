@@ -13,13 +13,18 @@ public:
 
     explicit Track(const Detection& detection);
 
-    static void ResetCount();
-    static int NextId();
-
-    void Activate(const KalmanFilterXYAH& kalman_filter, int frame_id);
-    void Activate(const KalmanFilterXYWH& kalman_filter, int frame_id);
-    void ReActivate(const Track& new_track, const KalmanFilterXYAH& kalman_filter, int frame_id, bool new_id = false);
-    void ReActivate(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id, bool new_id = false);
+    void Activate(const KalmanFilterXYAH& kalman_filter,
+                  int frame_id,
+                  std::int64_t track_id);
+    void Activate(const KalmanFilterXYWH& kalman_filter,
+                  int frame_id,
+                  std::int64_t track_id);
+    void ReActivate(const Track& new_track,
+                    const KalmanFilterXYAH& kalman_filter,
+                    int frame_id);
+    void ReActivate(const Track& new_track,
+                    const KalmanFilterXYWH& kalman_filter,
+                    int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYAH& kalman_filter, int frame_id);
     void Update(const Track& new_track, const KalmanFilterXYWH& kalman_filter, int frame_id);
     void Predict(const KalmanFilterXYAH& kalman_filter);
@@ -32,13 +37,13 @@ public:
 
     bool is_activated = false;
     TrackState state = TrackState::kNew;
-    int id = 0;
+    std::int64_t id = 0;
     int frame_id = 0;
     int start_frame = 0;
     int tracklet_len = 0;
     float conf = 0.0F;
-    int cls = 0;
-    int det_ind = -1;
+    std::int64_t cls = 0;
+    std::int64_t det_ind = -1;
 
     Eigen::VectorXd mean;
     Eigen::MatrixXd covariance;
@@ -48,8 +53,6 @@ private:
     Eigen::Vector4d xywh_ = Eigen::Vector4d::Zero();
     Eigen::Vector4d xyah_ = Eigen::Vector4d::Zero();
     Eigen::Matrix<double, 5, 1> xywha_ = Eigen::Matrix<double, 5, 1>::Zero();
-
-    static int count_;
 };
 
 }  // namespace bytetrack

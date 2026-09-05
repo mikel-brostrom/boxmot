@@ -15,7 +15,7 @@ from boxmot.trackers.common.association import (
 from boxmot.trackers.common.association.boost import associate as boost_associate
 from boxmot.trackers.common.association.boost import shape_similarity_obb, soft_biou_batch_obb
 from boxmot.trackers.common.association.velocity import associate as velocity_associate
-from boxmot.trackers.common.detections import OBB_DETECTIONS
+from boxmot.trackers.common.detections.layout import OBB_DETECTIONS
 
 
 def test_obb_velocity_association_uses_negative_angle_observation():

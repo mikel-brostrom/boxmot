@@ -129,7 +129,10 @@ def align_obb_measurement(measurement: np.ndarray, reference: np.ndarray) -> np.
 
     aligned[2] = float(best[0])
     aligned[3] = float(best[1])
-    aligned[4] = float(normalize_angle(best[2]))
+    # Keep the representation nearest to the reference without wrapping it
+    # back into a principal interval.  Canonical OBB angles are deliberately
+    # unwrapped so a track can cross +/-pi without a discontinuity.
+    aligned[4] = float(best[2])
     return aligned
 
 

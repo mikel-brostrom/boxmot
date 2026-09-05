@@ -43,6 +43,15 @@ class ORB(BaseCMC):
         self.prev_img_aligned: Optional[np.ndarray] = None
         self.matches_img: Optional[np.ndarray] = None
 
+    def reset(self) -> None:
+        """Clear the previous-frame and debug state."""
+        self.prev_img = None
+        self.prev_keypoints = None
+        self.prev_descriptors = None
+        self.prev_dets = None
+        self.prev_img_aligned = None
+        self.matches_img = None
+
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         H = np.eye(2, 3, dtype=np.float32)
 
@@ -50,7 +59,7 @@ class ORB(BaseCMC):
         h, w = img_p.shape[:2]
 
         # dynamic object mask
-        mask = self.generate_mask(img_p, dets, self.scale)
+        mask = self.generate_mask(img_p, dets)
 
         # detect/describe
         keypoints = self.detector.detect(img_p, mask)

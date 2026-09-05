@@ -6,9 +6,9 @@
 #include <opencv2/core.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <limits>
+#include <stdexcept>
 #include <unordered_set>
 
 namespace occluboost {
@@ -45,25 +45,6 @@ Eigen::MatrixXd DetectionsMatrix(const std::vector<Detection>& dets) {
 
 }  // namespace
 
-namespace {
-
-boxmot::trackers::base::ReIdDevice ParseReIdDevice(const std::string& s) {
-    if (s.empty() || s == "auto")
-        return boxmot::trackers::base::ReIdDevice::kAuto;
-    if (s == "cpu")
-        return boxmot::trackers::base::ReIdDevice::kCpu;
-    if (s == "cuda" || s == "gpu" || s.rfind("cuda:", 0) == 0)
-        return boxmot::trackers::base::ReIdDevice::kCuda;
-    if (s == "coreml" || s == "mps" || s == "metal")
-        return boxmot::trackers::base::ReIdDevice::kCoreMl;
-    // Bare numeric strings like "0" or "1" refer to CUDA devices.
-    if (!s.empty() && std::all_of(s.begin(), s.end(), ::isdigit))
-        return boxmot::trackers::base::ReIdDevice::kCuda;
-    return boxmot::trackers::base::ReIdDevice::kAuto;
-}
-
-}  // namespace
-
 OccluBoostTracker::OccluBoostTracker(Config config)
     : config_(std::move(config)),
       association_mode_(boxmot::trackers::base::ParseAssociationMode(config_.asso_func)),
@@ -76,69 +57,17 @@ OccluBoostTracker::OccluBoostTracker(Config config)
     config_.obb_max_age = std::max(config_.obb_max_age, 0);
     config_.obb_recovery_max_age = std::max(config_.obb_recovery_max_age, 0);
     config_.obb_second_iou_thresh = std::clamp(config_.obb_second_iou_thresh, 0.0F, 1.0F);
-    KalmanBoxTracker::ResetCount();
-    if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path,
-                                               config_.reid_preprocess,
-                                               boxmot::trackers::base::ReIdBackend::kAuto,
-                                               ParseReIdDevice(config_.reid_device));
-    }
 }
 
 void OccluBoostTracker::Reset() {
     frame_count_ = 0;
+    next_track_id_ = 1;
     trackers_.clear();
     cmc_ = CreateCameraMotionCompensator(config_.cmc_method);
-    KalmanBoxTracker::ResetCount();
-    reid_model_.reset();
-    if (config_.with_reid && !config_.reid_model_path.empty()) {
-        reid_model_ = MaybeCreateOnnxReIdModel(config_.reid_model_path,
-                                               config_.reid_preprocess,
-                                               boxmot::trackers::base::ReIdBackend::kAuto,
-                                               ParseReIdDevice(config_.reid_device));
-    }
-    last_reid_time_ms_ = 0.0;
-    last_reid_preprocess_time_ms_ = 0.0;
-    last_reid_process_time_ms_ = 0.0;
-    last_reid_postprocess_time_ms_ = 0.0;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
     association_frame_width_ = 0;
     association_frame_height_ = 0;
-}
-
-std::vector<Detection> OccluBoostTracker::EnsureEmbeddings(std::vector<Detection> detections,
-                                                           const cv::Mat& image) {
-    last_reid_time_ms_ = 0.0;
-    last_reid_preprocess_time_ms_ = 0.0;
-    last_reid_process_time_ms_ = 0.0;
-    last_reid_postprocess_time_ms_ = 0.0;
-    if (!config_.with_reid || !reid_model_.has_value()) {
-        return detections;
-    }
-    bool needs_embeddings = false;
-    for (const auto& det : detections) {
-        if (!det.has_embedding()) {
-            needs_embeddings = true;
-            break;
-        }
-    }
-    if (!needs_embeddings) {
-        return detections;
-    }
-    const TimedReIdFeatures timed = GetReIdFeaturesTimed(*reid_model_, detections, image);
-    last_reid_preprocess_time_ms_ = timed.preprocess_ms;
-    last_reid_process_time_ms_ = timed.process_ms;
-    last_reid_postprocess_time_ms_ = timed.postprocess_ms;
-    last_reid_time_ms_ = timed.preprocess_ms + timed.process_ms + timed.postprocess_ms;
-    if (timed.features.size() != detections.size()) {
-        throw std::runtime_error(
-            "Native OccluBoost ReID returned a different number of embeddings than detections.");
-    }
-    for (std::size_t i = 0; i < detections.size(); ++i) {
-        detections[i].embedding = timed.features[i];
-    }
-    return detections;
 }
 
 void OccluBoostTracker::DloConfidenceBoost(std::vector<Detection>& detections) const {
@@ -632,7 +561,7 @@ void OccluBoostTracker::SuppressDuplicateEmissions(
     if (drop.empty()) {
         return;
     }
-    std::unordered_set<int> drop_ids;
+    std::unordered_set<std::int64_t> drop_ids;
     for (const int k : drop) {
         drop_ids.insert(emitted[k].first->id);
     }
@@ -689,11 +618,6 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
     }
 
     ++frame_count_;
-    last_reid_time_ms_ = 0.0;
-    last_reid_preprocess_time_ms_ = 0.0;
-    last_reid_process_time_ms_ = 0.0;
-    last_reid_postprocess_time_ms_ = 0.0;
-
     // Camera-motion compensation applied before predict (Python: cmc.apply→camera_update→predict).
     if (cmc_) {
         const cv::Mat warp = cmc_->Apply(image, detections);
@@ -729,8 +653,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
         orig_confs.push_back(d.conf);
     }
 
-    // ReID embeddings (or noop if cached/disabled).
-    std::vector<Detection> working = EnsureEmbeddings(detections, image);
+    std::vector<Detection> working = detections;
 
     // DLO + DUO boosting (DUO is off by default).
     if (config_.use_dlo_boost) {
@@ -765,7 +688,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
 
     // emb_cost = dets_embs @ tracker_embs.T (cosine similarity for normalised embs).
     Eigen::MatrixXd emb_cost(0, 0);
-    if (config_.with_reid && !trackers_.empty() && !dets_first.empty()) {
+    if (config_.use_embeddings && !trackers_.empty() && !dets_first.empty()) {
         const int feat_dim = static_cast<int>(dets_first.front().embedding.size());
         bool ok = feat_dim > 0;
         for (const auto& d : dets_first) {
@@ -822,7 +745,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
     // Apply matches.
     for (const auto& [d, t] : assoc.matches) {
         AmsUpdate(*trackers_[t], dets_first[d]);
-        if (config_.with_reid && dets_first[d].has_embedding()) {
+        if (config_.use_embeddings && dets_first[d].has_embedding()) {
             trackers_[t]->UpdateEmbedding(dets_first[d].embedding, dets_alpha(d));
         }
         MaybeActivate(*trackers_[t]);
@@ -832,7 +755,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
     std::vector<int> unmatched_trks = assoc.unmatched_trks;
 
     // ----- ReID-only recovery pass -----
-    if (config_.with_reid && !unmatched_trks.empty() && !unmatched_dets.empty()) {
+    if (config_.use_embeddings && !unmatched_trks.empty() && !unmatched_dets.empty()) {
         std::vector<int> elig;
         for (int t : unmatched_trks) {
             if (trackers_[t]->time_since_update <= config_.recovery_max_age &&
@@ -979,7 +902,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                 }
             }
 
-            if (config_.with_reid && trackers_[elig.front()]->HasEmbedding()) {
+            if (config_.use_embeddings && trackers_[elig.front()]->HasEmbedding()) {
                 const int feat_dim = static_cast<int>(trackers_[elig.front()]->embedding().size());
                 bool any_det_emb = false;
                 for (const auto& d : dets_second) {
@@ -1036,7 +959,7 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
                         continue;
                     }
                     AmsUpdate(*trackers_[trk_global], dets_second[r]);
-                    if (config_.with_reid && dets_second[r].has_embedding() &&
+                    if (config_.use_embeddings && dets_second[r].has_embedding() &&
                         trackers_[trk_global]->embedding().size() ==
                             dets_second[r].embedding.size()) {
                         trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding,
@@ -1053,7 +976,8 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
         if (dets_first[i].conf < config_.new_track_thresh) {
             continue;
         }
-        auto trk = std::make_shared<KalmanBoxTracker>(dets_first[i], config_.max_obs);
+        auto trk = std::make_shared<KalmanBoxTracker>(
+            dets_first[i], config_.max_obs, next_track_id_++);
         trk->is_activated =
             (dets_first[i].conf >= config_.instant_confirm_thresh) || (config_.confirm_hits <= 1);
         trackers_.push_back(trk);
@@ -1115,11 +1039,6 @@ std::vector<TrackOutput> OccluBoostTracker::Update(const std::vector<Detection>&
 std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detection>& detections,
                                                       const cv::Mat& image) {
     ++frame_count_;
-    last_reid_time_ms_ = 0.0;
-    last_reid_preprocess_time_ms_ = 0.0;
-    last_reid_process_time_ms_ = 0.0;
-    last_reid_postprocess_time_ms_ = 0.0;
-
     if (cmc_) {
         const cv::Mat warp = cmc_->Apply(image, detections);
         if (!warp.empty() && warp.rows == 2 && warp.cols == 3) {
@@ -1147,8 +1066,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
         orig_confs.push_back(d.conf);
     }
 
-    // ReID embeddings (or noop if cached/disabled).
-    std::vector<Detection> working = EnsureEmbeddings(detections, image);
+    std::vector<Detection> working = detections;
 
     if (config_.use_dlo_boost) {
         DloConfidenceBoostObb(working);
@@ -1181,7 +1099,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
 
     // First-pass association: oriented IoU (+ optional ReID fusion).
     Eigen::MatrixXd emb_sim(0, 0);
-    if (config_.with_reid && !trackers_.empty() && !dets_first.empty()) {
+    if (config_.use_embeddings && !trackers_.empty() && !dets_first.empty()) {
         const int feat_dim = static_cast<int>(dets_first.front().embedding.size());
         bool ok = feat_dim > 0;
         for (const auto& d : dets_first) {
@@ -1266,7 +1184,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     // Apply matched updates.
     for (const auto& [d, t] : matches) {
         AmsUpdate(*trackers_[t], dets_first[d]);
-        if (config_.with_reid && dets_first[d].has_embedding()) {
+        if (config_.use_embeddings && dets_first[d].has_embedding()) {
             const double trust = (dets_first[d].conf - config_.obb_det_thresh) /
                                  std::max(1.0 - config_.obb_det_thresh, 1.0e-6);
             constexpr double af = 0.95;
@@ -1277,7 +1195,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     }
 
     // ----- ReID-only recovery pass -----
-    if (config_.with_reid && !unmatched_trks.empty() && !unmatched_dets.empty()) {
+    if (config_.use_embeddings && !unmatched_trks.empty() && !unmatched_dets.empty()) {
         std::vector<int> elig;
         for (int t : unmatched_trks) {
             if (trackers_[t]->time_since_update <= config_.obb_recovery_max_age &&
@@ -1410,7 +1328,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                     }
                 }
             }
-            if (config_.with_reid && trackers_[elig.front()]->HasEmbedding()) {
+            if (config_.use_embeddings && trackers_[elig.front()]->HasEmbedding()) {
                 const int feat_dim = static_cast<int>(trackers_[elig.front()]->embedding().size());
                 bool any_det_emb = false;
                 for (const auto& d : dets_second) {
@@ -1464,7 +1382,7 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
                     if (!used.insert(trk_global).second)
                         continue;
                     AmsUpdate(*trackers_[trk_global], dets_second[r]);
-                    if (config_.with_reid && dets_second[r].has_embedding() &&
+                    if (config_.use_embeddings && dets_second[r].has_embedding() &&
                         trackers_[trk_global]->embedding().size() ==
                             dets_second[r].embedding.size()) {
                         trackers_[trk_global]->UpdateEmbedding(dets_second[r].embedding,
@@ -1480,7 +1398,8 @@ std::vector<TrackOutput> OccluBoostTracker::UpdateObb(const std::vector<Detectio
     for (int i : unmatched_dets) {
         if (dets_first[i].conf < config_.obb_new_track_thresh)
             continue;
-        auto trk = std::make_shared<KalmanBoxTracker>(dets_first[i], config_.max_obs);
+        auto trk = std::make_shared<KalmanBoxTracker>(
+            dets_first[i], config_.max_obs, next_track_id_++);
         trk->is_activated = (dets_first[i].conf >= config_.obb_instant_confirm_thresh) ||
                             (config_.confirm_hits <= 1);
         trackers_.push_back(trk);

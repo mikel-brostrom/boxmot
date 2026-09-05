@@ -1,4 +1,5 @@
 """Tune search backends."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -20,33 +21,11 @@ _BACKEND_REGISTRY: dict[str, type[BaseTuneBackend]] = {
 
 
 def resolve_search_backend(args: Any) -> str:
-    """Resolve the requested search backend from args, with backwards-compatible aliases."""
-    raw_backend = (
-        getattr(args, "search_alg", None)
-        or getattr(args, "search_backend", None)
-        or getattr(args, "tune_search_alg", None)
-        or "optuna"
-    )
-    backend = str(raw_backend).strip().lower().replace("_", "-")
-    aliases = {
-        "optuna": "optuna",
-        "optunasearch": "optuna",
-        "optuna-search": "optuna",
-        "hyperopt": "hyperopt",
-        "hyperoptsearch": "hyperopt",
-        "hyperopt-search": "hyperopt",
-        "random": "random",
-        "basic": "random",
-        "basicvariant": "random",
-        "basic-variant": "random",
-    }
-    resolved = aliases.get(backend)
-    if resolved is None:
-        raise click.UsageError(
-            f"Unknown tune search backend '{raw_backend}'. "
-            f"Choose one of: {', '.join(SEARCH_BACKENDS)}."
-        )
-    return resolved
+    """Return the canonical search backend requested by ``args.search_alg``."""
+    backend = getattr(args, "search_alg", "optuna")
+    if backend not in SEARCH_BACKENDS:
+        raise click.UsageError(f"Unknown tune search backend '{backend}'. Choose one of: {', '.join(SEARCH_BACKENDS)}.")
+    return backend
 
 
 def build_search_backend(
@@ -63,10 +42,7 @@ def build_search_backend(
     """Factory: create the appropriate backend and return (search_alg, param_space)."""
     cls = _BACKEND_REGISTRY.get(backend)
     if cls is None:
-        raise click.UsageError(
-            f"Unknown tune search backend '{backend}'. "
-            f"Choose one of: {', '.join(SEARCH_BACKENDS)}."
-        )
+        raise click.UsageError(f"Unknown tune search backend '{backend}'. Choose one of: {', '.join(SEARCH_BACKENDS)}.")
     instance = cls(
         yaml_cfg=yaml_cfg,
         opt_metrics=opt_metrics,

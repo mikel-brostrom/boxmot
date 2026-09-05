@@ -9,16 +9,9 @@
 
 namespace bytetrack {
 
-int Track::count_ = 0;
-
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-
-double WrapAngle(const double angle) {
-    const double period = 2.0 * kPi;
-    return std::fmod(std::fmod(angle + kPi, period) + period, period) - kPi;
-}
 
 Eigen::Vector4d XyxyToXywh(const Eigen::Vector4d& xyxy) {
     const double width = std::max(xyxy[2] - xyxy[0], 1.0e-4);
@@ -93,24 +86,16 @@ Track::Track(const Detection& detection)
         xywha_ = detection.xywha;
         xywha_[2] = std::max(xywha_[2], 1.0e-4);
         xywha_[3] = std::max(xywha_[3], 1.0e-4);
-        xywha_[4] = WrapAngle(xywha_[4]);
     } else {
         xywh_ = XyxyToXywh(detection.xyxy);
         xyah_ = XywhToXyah(xywh_);
     }
 }
 
-void Track::ResetCount() {
-    count_ = 0;
-}
-
-int Track::NextId() {
-    ++count_;
-    return count_;
-}
-
-void Track::Activate(const KalmanFilterXYAH& kalman_filter, const int current_frame_id) {
-    id = NextId();
+void Track::Activate(const KalmanFilterXYAH& kalman_filter,
+                     const int current_frame_id,
+                     const std::int64_t track_id) {
+    id = track_id;
     const auto [new_mean, new_covariance] = kalman_filter.Initiate(xyah_);
     mean = new_mean;
     covariance = new_covariance;
@@ -121,8 +106,10 @@ void Track::Activate(const KalmanFilterXYAH& kalman_filter, const int current_fr
     start_frame = current_frame_id;
 }
 
-void Track::Activate(const KalmanFilterXYWH& kalman_filter, const int current_frame_id) {
-    id = NextId();
+void Track::Activate(const KalmanFilterXYWH& kalman_filter,
+                     const int current_frame_id,
+                     const std::int64_t track_id) {
+    id = track_id;
     const Eigen::VectorXd measurement = xywha_;
     const auto [new_mean, new_covariance] = kalman_filter.Initiate(measurement);
     mean = new_mean;
@@ -137,8 +124,7 @@ void Track::Activate(const KalmanFilterXYWH& kalman_filter, const int current_fr
 void Track::ReActivate(
     const Track& new_track,
     const KalmanFilterXYAH& kalman_filter,
-    const int current_frame_id,
-    const bool new_id
+    const int current_frame_id
 ) {
     const auto [new_mean, new_covariance] = kalman_filter.Update(mean, covariance, new_track.xyah());
     mean = new_mean;
@@ -147,9 +133,6 @@ void Track::ReActivate(
     state = TrackState::kTracked;
     is_activated = true;
     frame_id = current_frame_id;
-    if (new_id) {
-        id = NextId();
-    }
     conf = new_track.conf;
     cls = new_track.cls;
     det_ind = new_track.det_ind;
@@ -158,8 +141,7 @@ void Track::ReActivate(
 void Track::ReActivate(
     const Track& new_track,
     const KalmanFilterXYWH& kalman_filter,
-    const int current_frame_id,
-    const bool new_id
+    const int current_frame_id
 ) {
     const Eigen::VectorXd measurement = new_track.xywha();
     const auto [new_mean, new_covariance] = kalman_filter.Update(mean, covariance, measurement);
@@ -169,9 +151,6 @@ void Track::ReActivate(
     state = TrackState::kTracked;
     is_activated = true;
     frame_id = current_frame_id;
-    if (new_id) {
-        id = NextId();
-    }
     conf = new_track.conf;
     cls = new_track.cls;
     det_ind = new_track.det_ind;
@@ -260,7 +239,6 @@ Eigen::Matrix<double, 5, 1> Track::xywha() const {
         Eigen::Matrix<double, 5, 1> result = mean.head<5>();
         result[2] = std::max(result[2], 1.0e-4);
         result[3] = std::max(result[3], 1.0e-4);
-        result[4] = WrapAngle(result[4]);
         return result;
     }
     if (is_obb_) {

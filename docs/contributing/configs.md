@@ -3,7 +3,6 @@
 Config additions should follow the existing split:
 
 - `boxmot/configs/datasets/` for dataset facts
-- `boxmot/configs/artifacts/` for public and precomputed data
 - `boxmot/configs/experiments/` for dataset + detector + ReID composition
 - `boxmot/configs/detectors/` for detector profiles
 - `boxmot/configs/reid/` for runtime ReID profiles

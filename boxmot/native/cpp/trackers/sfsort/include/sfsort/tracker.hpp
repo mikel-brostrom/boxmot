@@ -1,11 +1,12 @@
 #pragma once
 
-#include "boxmot/trackers/base/base_tracker.hpp"
 #include "boxmot/trackers/base/association.hpp"
+#include "boxmot/trackers/base/base_tracker.hpp"
 #include "sfsort/types.hpp"
 
 #include <opencv2/core.hpp>
 
+#include <cstdint>
 #include <vector>
 
 namespace sfsort {
@@ -17,10 +18,10 @@ public:
         Eigen::Vector4d xyxy = Eigen::Vector4d::Zero();
         Eigen::Matrix<double, 5, 1> xywha = Eigen::Matrix<double, 5, 1>::Zero();
         int last_frame = 0;
-        int track_id = -1;
+        std::int64_t track_id = -1;
         float conf = 0.0F;
-        int cls = 0;
-        int det_ind = -1;
+        std::int64_t cls = 0;
+        std::int64_t det_ind = -1;
         TrackState state = TrackState::kActive;
         int time_since_update = 0;
         double theta_velocity = 0.0;
@@ -30,18 +31,20 @@ public:
 
     explicit SFSORTTracker(Config config);
 
-    std::vector<TrackOutput> Update(const std::vector<Detection>& detections, const cv::Mat& image) override;
+    std::vector<TrackOutput> Update(const std::vector<Detection>& detections,
+                                    const cv::Mat& image) override;
     void Reset() override;
 
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
-    [[nodiscard]] bool SupportsReId() const noexcept override { return false; }
+    [[nodiscard]] bool SupportsEmbeddings() const noexcept override { return false; }
 
 private:
-    [[nodiscard]] std::tuple<float, float, float> DynamicThresholds(const std::vector<Detection>& detections) const;
+    [[nodiscard]] std::tuple<float, float, float> DynamicThresholds(
+        const std::vector<Detection>& detections) const;
     void MaybeSetMargins(int frame_width, int frame_height);
     void PurgeStaleLostTracks();
     void UpdateLostTracks(const std::vector<TrackData>& next_lost_tracks);
-    [[nodiscard]] TrackData NewTrack(const Detection& detection) const;
+    [[nodiscard]] TrackData NewTrack(const Detection& detection);
     [[nodiscard]] static TrackOutput FormatTrack(const TrackData& track);
     [[nodiscard]] static Eigen::MatrixXd CalculateCost(
         const std::vector<TrackData*>& tracks,
@@ -49,15 +52,14 @@ private:
         bool geometry_only,
         boxmot::trackers::base::AssociationMode association_mode,
         int frame_width,
-        int frame_height
-    );
+        int frame_height);
 
     Config config_;
     boxmot::trackers::base::AssociationMode association_mode_;
     int association_frame_width_ = 0;
     int association_frame_height_ = 0;
     int frame_count_ = 0;
-    int id_counter_ = 0;
+    std::int64_t next_track_id_ = 0;
     bool margins_ready_ = false;
     bool is_obb_mode_ = false;
     bool detection_mode_ready_ = false;

@@ -20,7 +20,7 @@ public:
     virtual void Reset() = 0;
 
     [[nodiscard]] virtual bool SupportsObb() const noexcept = 0;
-    [[nodiscard]] virtual bool SupportsReId() const noexcept = 0;
+    [[nodiscard]] virtual bool SupportsEmbeddings() const noexcept = 0;
 };
 
 }  // namespace boxmot::trackers::base

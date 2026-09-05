@@ -1,5 +1,7 @@
 id: yolo11l-mmot-obb
 
+# This checkpoint was trained with npy2rgb=True. For raw 8-band MMOT arrays,
+# BoxMOT supplies BGR indices [1, 2, 4], yielding model RGB bands [4, 2, 1].
 box_type: obb
 
 classes:

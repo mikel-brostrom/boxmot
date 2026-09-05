@@ -40,7 +40,7 @@ function(boxmot_enable_native_warnings target)
 endfunction()
 
 # ---------------------------------------------------------------------------
-# Resolve OpenCV / Eigen / boxmot_tracker_base once per directory.
+# Resolve tracker-only OpenCV / Eigen / boxmot_tracker_base dependencies.
 # ---------------------------------------------------------------------------
 function(boxmot_require_native_deps)
     set(options "")
@@ -49,11 +49,13 @@ function(boxmot_require_native_deps)
     cmake_parse_arguments(BX "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
     if(NOT BX_OPENCV_COMPONENTS)
-        set(BX_OPENCV_COMPONENTS core imgcodecs imgproc)
+        set(BX_OPENCV_COMPONENTS core imgproc)
     endif()
 
     find_package(OpenCV 4 REQUIRED COMPONENTS ${BX_OPENCV_COMPONENTS})
     find_package(Eigen3 REQUIRED NO_MODULE)
+    set(BOXMOT_TRACKER_OPENCV_INCLUDE_DIRS "${OpenCV_INCLUDE_DIRS}" PARENT_SCOPE)
+    set(BOXMOT_TRACKER_OPENCV_LIBS "${OpenCV_LIBS}" PARENT_SCOPE)
 
     if(NOT TARGET boxmot_tracker_base)
         # Pull the shared base library in if the per-tracker project is
@@ -66,25 +68,22 @@ function(boxmot_require_native_deps)
 endfunction()
 
 # ---------------------------------------------------------------------------
-# Add a complete native tracker package: <name>_core (static), <name>_capi
-# (shared C ABI), <name>_replay (executable).
+# Add a native tracker package: <name>_core (static) and <name>_capi
+# (shared typed v2 C ABI). Dataset replay belongs to Python's keyed loader.
 #
 # Usage:
 #   boxmot_add_native_tracker(
 #       NAME       botsort
 #       CORE_SOURCES
 #           src/cmc.cpp
-#           src/data_io.cpp
 #           src/kalman_filter.cpp
-#           src/reid_onnx.cpp
 #           src/track.cpp
 #           src/tracker.cpp
-#       OPENCV_COMPONENTS calib3d core dnn imgcodecs imgproc video
+#       OPENCV_COMPONENTS calib3d core imgproc video
 #   )
 #
 # Optional:
 #   CAPI_SOURCES <files...>     (defaults to src/c_api.cpp)
-#   REPLAY_SOURCES <files...>   (defaults to src/main.cpp; pass NONE to skip)
 #   EXTRA_PUBLIC_LIBS <libs...> (extra interface libs for <name>_core)
 # ---------------------------------------------------------------------------
 function(boxmot_add_native_tracker)
@@ -93,7 +92,6 @@ function(boxmot_add_native_tracker)
     set(multi_value
         CORE_SOURCES
         CAPI_SOURCES
-        REPLAY_SOURCES
         OPENCV_COMPONENTS
         EXTRA_PUBLIC_LIBS
     )
@@ -108,15 +106,11 @@ function(boxmot_add_native_tracker)
     if(NOT BX_CAPI_SOURCES)
         set(BX_CAPI_SOURCES src/c_api.cpp)
     endif()
-    if(NOT BX_REPLAY_SOURCES)
-        set(BX_REPLAY_SOURCES src/main.cpp)
-    endif()
 
     boxmot_require_native_deps(OPENCV_COMPONENTS ${BX_OPENCV_COMPONENTS})
 
     set(_core "${BX_NAME}_core")
     set(_capi "${BX_NAME}_capi")
-    set(_replay "${BX_NAME}_replay")
 
     # ---- core static library ---------------------------------------------
     add_library(${_core} STATIC ${BX_CORE_SOURCES})
@@ -125,12 +119,13 @@ function(boxmot_add_native_tracker)
     target_include_directories(${_core}
         PUBLIC
             $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            ${BOXMOT_TRACKER_OPENCV_INCLUDE_DIRS}
     )
     target_link_libraries(${_core}
         PUBLIC
             Eigen3::Eigen
             boxmot_tracker_base
-            ${OpenCV_LIBS}
+            ${BOXMOT_TRACKER_OPENCV_LIBS}
             ${BX_EXTRA_PUBLIC_LIBS}
     )
     boxmot_enable_native_warnings(${_core})
@@ -152,11 +147,4 @@ function(boxmot_add_native_tracker)
     )
     boxmot_enable_native_warnings(${_capi})
 
-    # ---- replay executable -----------------------------------------------
-    if(NOT BX_REPLAY_SOURCES STREQUAL "NONE")
-        add_executable(${_replay} ${BX_REPLAY_SOURCES})
-        target_compile_features(${_replay} PRIVATE cxx_std_17)
-        target_link_libraries(${_replay} PRIVATE ${_core})
-        boxmot_enable_native_warnings(${_replay})
-    endif()
 endfunction()

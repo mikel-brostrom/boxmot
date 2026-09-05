@@ -8,6 +8,7 @@
 
 #include <opencv2/core.hpp>
 
+#include <cstdint>
 #include <deque>
 #include <optional>
 #include <unordered_map>
@@ -18,36 +19,33 @@ namespace ocsort {
 class OCSORTTracker final : public boxmot::trackers::base::TrackerBase<Detection, TrackOutput> {
 public:
     struct KalmanBoxTracker {
-        static int count;
-
         explicit KalmanBoxTracker(const Detection& detection,
                                   int delta_t,
                                   int max_obs,
                                   double q_xy_scaling,
                                   double q_s_scaling,
-                                  bool is_obb);
+                                  bool is_obb,
+                                  std::int64_t track_id);
 
         [[nodiscard]] Eigen::VectorXd Predict();
         void Update(const Detection* detection);
         [[nodiscard]] Eigen::VectorXd GetState() const;
         [[nodiscard]] Eigen::VectorXd CurrentOutputBox() const;
 
-        static void ResetCount();
-
-        int det_ind = -1;
+        std::int64_t det_ind = -1;
         double q_xy_scaling = 0.01;
         double q_s_scaling = 0.0001;
         double q_a_scaling = 0.0001;
         bool is_obb = false;
         KalmanFilterXYSR kf;
         int time_since_update = 0;
-        int id = 0;
+        std::int64_t id = 0;
         int max_obs = 50;
         int hits = 0;
         int hit_streak = 0;
         int age = 0;
         float conf = 0.0F;
-        int cls = 0;
+        std::int64_t cls = 0;
         Eigen::VectorXd last_observation;
         std::unordered_map<int, Eigen::VectorXd> observations;
         std::deque<Eigen::VectorXd> history_observations;
@@ -73,7 +71,7 @@ public:
     void Reset() override;
 
     [[nodiscard]] bool SupportsObb() const noexcept override { return true; }
-    [[nodiscard]] bool SupportsReId() const noexcept override { return false; }
+    [[nodiscard]] bool SupportsEmbeddings() const noexcept override { return false; }
 
 private:
     using AssignmentResult = boxmot::trackers::base::AssignmentResult;
@@ -109,6 +107,7 @@ private:
     int association_frame_width_ = 0;
     int association_frame_height_ = 0;
     int frame_count_ = 0;
+    std::int64_t next_track_id_ = 1;
     bool detection_mode_ready_ = false;
     bool is_obb_mode_ = false;
     std::vector<KalmanBoxTracker> active_tracks_;

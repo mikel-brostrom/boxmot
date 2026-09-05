@@ -7,8 +7,8 @@ Shared tracking-workflow defaults live in `boxmot/configs/runtime.yaml`.
 `runtime.yaml` centralizes defaults for:
 
 - shared detector and ReID selections
-- runtime options such as `imgsz`, `device`, `batch_size`, and `postprocessing`
-- command-specific defaults for `track`, `generate`, `eval`, `tune`, and `research`
+- runtime options such as `imgsz`, `device`, `batch_size`, and `n_threads`
+- command-specific defaults for `track`, `materialize`, `eval`, `tune`, and `research`
 
 ## Current shape
 
@@ -20,7 +20,6 @@ shared:
 runtime:
   tracker: bytetrack
   tracker_backend: python
-  postprocessing: none
   save: false
 
 research:
@@ -30,7 +29,7 @@ research:
 
 ```
 
-The CLI and high-level `BoxMOT` facade both resolve tracking defaults through
-this file. ReID training defaults remain in
+The engine CLI resolves tracking defaults through this file. Reusable Python
+components instead receive explicit immutable specs. ReID training defaults remain in
 `boxmot/reid/training/configs/defaults.yaml`, while export defaults remain in
 `boxmot/reid/exporters/defaults.yaml`.

@@ -9,8 +9,8 @@ import numpy as np
 import yaml
 from rich.markup import escape as _escape_markup
 
+from boxmot.engine.eval.results import SUMMARY_COLUMNS
 from boxmot.engine.tuning.search_space import flatten_yaml_config, normalize_trial_config
-from boxmot.engine.workflows.reporting import SUMMARY_COLUMNS
 from boxmot.utils import logger as LOGGER
 
 # Metrics that must be summed across classes (not averaged), because they are counts
@@ -263,8 +263,15 @@ def generate_summary(
     # Header
     lines.append(f"# Tuning Summary: {tracker_name}\n")
     lines.append(f"- **Tracker:** {tracker_name}")
-    lines.append(f"- **Detector:** {Path(args.detector[0]).stem}")
-    lines.append(f"- **Benchmark:** {getattr(args, 'benchmark', getattr(args, 'data', ''))}")
+    experiment_id = getattr(args, "experiment_id", None) or getattr(args, "experiment", None)
+    dataset_id = getattr(args, "dataset_id", None)
+    build_path = getattr(args, "build_path", None) or getattr(args, "build", None)
+    if experiment_id:
+        lines.append(f"- **Experiment:** {_format_markdown_value(experiment_id)}")
+    if dataset_id:
+        lines.append(f"- **Dataset:** {_format_markdown_value(dataset_id)}")
+    if build_path:
+        lines.append(f"- **Build:** {_format_markdown_value(Path(build_path))}")
     lines.append(f"- **Completed trials:** {len(trial_data)}")
     if is_pareto:
         lines.append(f"- **Optimize:** maximize {', '.join(maximize)} | minimize {', '.join(minimize)}")

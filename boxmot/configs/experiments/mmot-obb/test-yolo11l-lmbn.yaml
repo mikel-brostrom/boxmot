@@ -12,6 +12,7 @@ detections:
 
 reid:
   ref: lmbn-n-duke
+  crop_strategy: perspective
 
 evaluation:
   class_map: auto

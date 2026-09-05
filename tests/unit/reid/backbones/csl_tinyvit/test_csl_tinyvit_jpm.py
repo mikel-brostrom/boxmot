@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import copy
-import sys
-from types import SimpleNamespace
 
 import torch
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit import (
     JigsawPatchAuxiliary,
     csl_tinyvit_7m,
@@ -224,11 +223,7 @@ def test_cli_propagates_jpm_options(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [

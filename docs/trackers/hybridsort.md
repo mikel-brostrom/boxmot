@@ -10,4 +10,4 @@ Hybrid-SORT argues that MOT pipelines lean too heavily on strong cues such as ap
 - Supports both AABB and OBB detections in BoxMOT.
 - A good fit when you want richer association than OC-SORT or BoT-SORT-style matching, especially on crowded MOT benchmarks.
 
-::: boxmot.trackers.bbox.hybridsort.HybridSort
+::: boxmot.HybridSort

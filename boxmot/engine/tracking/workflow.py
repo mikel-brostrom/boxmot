@@ -1,324 +1,289 @@
+"""Canonical live-tracking workflow assembled from independent components."""
+
 from __future__ import annotations
 
-import time
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
-import cv2
-
-from boxmot.engine.config import get_mode_default
-from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
-from boxmot.engine.tracking.results import Results
-from boxmot.engine.tracking.setup_timing import normalize_setup_timings_ms
-from boxmot.engine.workflows.results import TrackRunResult
-from boxmot.engine.workflows.support import (
-    build_detector_from_spec,
-    build_tracker_from_spec,
-    build_tracker_with_reid_spec,
-    reid_path_from_spec,
-    resolve_output_fps,
-    resolve_track_output_dir,
-    resolve_tracker_class_metadata,
-    tracker_reid_model_from_spec,
+from boxmot import create_tracker
+from boxmot.detectors import Detector, DetectorSpec, create_detector
+from boxmot.detectors.config import resolve_detector_spec
+from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.tracking.profiling import RuntimeProfiler, profile_components, startup_stage
+from boxmot.engine.tracking.runner import RunSummary, TrackingRunner
+from boxmot.engine.tracking.sinks import (
+    DisplaySink,
+    JsonLinesSink,
+    MotSink,
+    NullSink,
+    SharedRenderingSink,
+    TrackSink,
+    VideoSink,
 )
-from boxmot.utils.misc import suppress_boxmot_logs
-from boxmot.utils.rich.reporters.track import TRACK_RUN_STEP, TRACK_SETUP_STEP, TrackWorkflowReporter
-from boxmot.utils.rich.workflow.fields import first_value
-from boxmot.utils.rich.workflow.pipeline import PipelineTracker
+from boxmot.engine.tracking.sources import FrameSource, create_frame_source
+from boxmot.engine.ui.reporters.track import TrackWorkflowReporter
+from boxmot.engine.ui.workflow.pipeline import PipelineTracker
+from boxmot.pipelines import PipelineOutputs, TrackingPipeline
+from boxmot.reid import AppearanceEncoder, ReIDEncoderSpec, create_reid_encoder
+from boxmot.reid.config import resolve_reid_spec
+from boxmot.segmentors import Segmentor, create_segmentor
+from boxmot.segmentors.config import resolve_segmentor_spec
+from boxmot.trackers import Tracker, TrackerSpec
 
 
-def _is_live_source(source: Any) -> bool:
-    if isinstance(source, int):
-        return True
-    if isinstance(source, str):
-        return source.isdigit() or "://" in source
-    return False
+@dataclass(frozen=True, slots=True)
+class TrackRun:
+    """Completed live run and any engine-owned output paths."""
+
+    summary: RunSummary
+    video_path: Path | None = None
+    mot_path: Path | None = None
+    json_path: Path | None = None
 
 
-def _should_consume_result(args) -> bool:
-    if getattr(args, "show", False):
-        return False
-    if getattr(args, "save", False) or getattr(args, "save_txt", False):
-        return False
-    return not _is_live_source(getattr(args, "source", None))
+def _classes(value: object) -> tuple[int, ...] | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        parsed = tuple(sorted({int(token.strip()) for token in value.split(",") if token.strip()}))
+    else:
+        parsed = tuple(sorted({int(item) for item in value}))  # type: ignore[arg-type]
+    if any(item < 0 for item in parsed):
+        raise ValueError("classes must contain non-negative integer IDs")
+    return parsed
 
 
-def _consume_run(result: TrackRunResult) -> None:
-    for _ in result.results:
-        pass
-    result.refresh()
-
-
-def _build_detector(
-    args,
-    detector_spec: Any,
-    classes: list[int] | None,
-    detector_kwargs: dict[str, Any] | None,
-):
-    spec = detector_spec if detector_spec is not None else first_value(getattr(args, "detector", None))
-    return build_detector_from_spec(
+def _detector_spec(args: Any, geometry: str) -> DetectorSpec:
+    spec, _ = resolve_detector_spec(args.detector, geometry=geometry)
+    options = spec.option_values()
+    if getattr(args, "conf", None) is not None:
+        options["confidence"] = float(args.conf)
+    if getattr(args, "iou", None) is not None:
+        options["iou"] = float(args.iou)
+    classes = _classes(getattr(args, "classes", None))
+    if classes is not None:
+        options["classes"] = classes
+    image_size = getattr(args, "imgsz", None)
+    if image_size is not None:
+        if isinstance(image_size, int):
+            options["image_size"] = (image_size, image_size)
+        else:
+            options["image_size"] = tuple(int(value) for value in image_size)
+    if getattr(args, "agnostic_nms", False):
+        options["agnostic_nms"] = True
+    return replace(
         spec,
-        classes=classes,
-        device=getattr(args, "device", get_mode_default("track", "device")),
-        imgsz=getattr(args, "imgsz", None),
-        conf=getattr(args, "conf", None),
-        iou=float(getattr(args, "iou", get_mode_default("track", "iou"))),
-        detector_kwargs=detector_kwargs,
+        device=str(getattr(args, "device", spec.device)),
+        options=tuple(sorted(options.items())),
     )
 
 
-def _build_tracker(
-    args,
-    tracker_spec: Any,
-    reid_spec: Any,
-    *,
-    class_ids: tuple[int, ...] | None = None,
-    class_names: dict[int, str] | None = None,
-    reid_kwargs: dict[str, Any] | None = None,
-    tracker_kwargs: dict[str, Any] | None = None,
-):
-    spec = tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker"))
-    resolved_reid_spec = reid_spec if reid_spec is not None else first_value(getattr(args, "reid", None))
-    reid_weights = reid_path_from_spec(resolved_reid_spec, required=False)
-    reid_model = tracker_reid_model_from_spec(resolved_reid_spec)
-    runtime_reid_kwargs = dict(reid_kwargs or {})
-    if "preprocess_name" in runtime_reid_kwargs:
-        raise ValueError("Unsupported reid_kwargs: preprocess_name. Use preprocess=... instead.")
-    unknown_reid_kwargs = set(runtime_reid_kwargs) - {"device", "half", "preprocess"}
-    if unknown_reid_kwargs:
-        unknown = ", ".join(sorted(unknown_reid_kwargs))
-        raise ValueError(f"Unknown reid_kwargs: {unknown}")
-    reid_device = runtime_reid_kwargs.get("device", getattr(args, "device", get_mode_default("track", "device")))
-    reid_half = runtime_reid_kwargs.get("half", bool(getattr(args, "half", get_mode_default("track", "half"))))
-    reid_preprocess = runtime_reid_kwargs.get("preprocess", getattr(args, "reid_preprocess", None))
-    return build_tracker_from_spec(
+def _reid_spec(args: Any) -> ReIDEncoderSpec:
+    """Resolve a ReID selector with the direct-track runtime controls.
+
+    ``track --device`` historically places detector and ReID inference on the
+    same device, while ``--half`` controls ReID precision.  Component profiles
+    provide artifact and preprocessing defaults, but must not silently put a
+    live run into FP16 when the command reports FP32.
+    """
+
+    spec, _ = resolve_reid_spec(args.reid)
+    return replace(
         spec,
-        device=reid_device,
-        half=bool(reid_half),
-        tracker_backend=getattr(args, "tracker_backend", None),
-        reid_weights=reid_weights,
-        reid_model=reid_model,
-        reid_preprocess=reid_preprocess,
+        device=str(getattr(args, "device", spec.device)),
+        precision="fp16" if bool(getattr(args, "half", False)) else "fp32",
+    )
+
+
+def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
+    options: dict[str, object] = {}
+    if getattr(args, "asso_func", None):
+        options["asso_func"] = str(args.asso_func)
+    return TrackerSpec(
+        name=str(args.tracker),
+        backend=str(getattr(args, "tracker_backend", "python")),
+        geometry=geometry,
         per_class=bool(getattr(args, "per_class", False)),
-        class_ids=class_ids,
-        class_names=class_names,
-        tracker_kwargs=tracker_kwargs,
+        class_ids=_classes(getattr(args, "classes", None)),
+        options=tuple(sorted(options.items())),
     )
 
 
-def _build_reid(
-    args,
-    tracker: Any,
-    reid_spec: Any,
-    tracker_spec: Any,
-    reid_kwargs: dict[str, Any] | None,
-):
-    return build_tracker_with_reid_spec(
-        tracker_spec if tracker_spec is not None else getattr(args, "tracker", get_mode_default("track", "tracker")),
-        tracker,
-        reid_spec if reid_spec is not None else first_value(getattr(args, "reid", None)),
-        device=getattr(args, "device", get_mode_default("track", "device")),
-        half=bool(getattr(args, "half", get_mode_default("track", "half"))),
-        reid_kwargs=reid_kwargs,
-    )
+def _output_directory(args: Any) -> Path:
+    project = Path(getattr(args, "project", "runs/track"))
+    name = str(getattr(args, "name", "track") or "track")
+    output = project / name
+    output.mkdir(parents=True, exist_ok=True)
+    return output
+
+
+def _default_sinks(args: Any) -> tuple[tuple[TrackSink, ...], Path | None, Path | None, Path | None]:
+    sinks: list[TrackSink] = []
+    video_path = mot_path = json_path = None
+    video_sink: VideoSink | None = None
+    display_sink: DisplaySink | None = None
+    needs_directory = any(bool(getattr(args, name, False)) for name in ("save", "save_txt", "save_json"))
+    output = _output_directory(args) if needs_directory else None
+    line_width = int(getattr(args, "line_width", 2) or 2)
+    if bool(getattr(args, "save", False)):
+        assert output is not None
+        video_path = output / "tracks.mp4"
+        video_sink = VideoSink(
+            video_path,
+            fps=float(getattr(args, "fps", None) or 30.0),
+            line_width=line_width,
+        )
+    if bool(getattr(args, "show", False)):
+        display_sink = DisplaySink(line_width=line_width)
+    if video_sink is not None and display_sink is not None:
+        sinks.append(
+            SharedRenderingSink(
+                (video_sink, display_sink),
+                line_width=line_width,
+            )
+        )
+    elif video_sink is not None:
+        sinks.append(video_sink)
+    if bool(getattr(args, "save_txt", False)):
+        assert output is not None
+        mot_path = output / "tracks.txt"
+        mot_path.unlink(missing_ok=True)
+        sinks.append(MotSink(mot_path))
+    if bool(getattr(args, "save_json", False)):
+        assert output is not None
+        json_path = output / "tracks.jsonl"
+        json_path.unlink(missing_ok=True)
+        sinks.append(JsonLinesSink(json_path))
+    if display_sink is not None and video_sink is None:
+        sinks.append(display_sink)
+    if not sinks:
+        sinks.append(NullSink())
+    return tuple(sinks), video_path, mot_path, json_path
 
 
 def run_track(
-    args,
+    args: Any,
     *,
-    detector=None,
-    reid=None,
-    tracker=None,
-    detector_spec: Any = None,
-    reid_spec: Any = None,
-    tracker_spec: Any = None,
-    classes: list[int] | None = None,
-    detector_kwargs: dict[str, Any] | None = None,
-    reid_kwargs: dict[str, Any] | None = None,
-    tracker_kwargs: dict[str, Any] | None = None,
-    drawer=None,
-    show_trajectories: bool = False,
-    show_kf_preds: bool = False,
-    pipeline: PipelineTracker | None = None,
-) -> TrackRunResult:
-    source = getattr(args, "source", get_mode_default("track", "source"))
-    verbose = bool(getattr(args, "verbose", get_mode_default("track", "verbose")))
-    setup_timings_ms = normalize_setup_timings_ms()
+    detector: Detector | None = None,
+    segmentor: Segmentor | None = None,
+    encoder: AppearanceEncoder | None = None,
+    tracker: Tracker | None = None,
+    source: FrameSource | None = None,
+    sinks: tuple[TrackSink, ...] | None = None,
+    ui_pipeline: PipelineTracker | None = None,
+) -> TrackRun:
+    """Run one source through the v24 component/pipeline/engine stack."""
 
-    with suppress_boxmot_logs((not verbose) or pipeline is not None, level="WARNING"):
-        if detector is None:
-            if pipeline is not None:
-                pipeline.update("Loading detector...")
-            started = time.perf_counter()
-            detector_runtime = _build_detector(args, detector_spec, classes, detector_kwargs)
-            setup_timings_ms["detector_load"] = (time.perf_counter() - started) * 1000.0
-        else:
-            detector_runtime = detector
+    profiler = RuntimeProfiler()
+    startup_timings_ms: dict[str, float] = {}
+    geometry = str(getattr(args, "geometry", "aabb") or "aabb")
+    if geometry not in {"aabb", "obb"}:
+        raise ValueError("geometry must be 'aabb' or 'obb'")
 
-        class_ids, class_names = resolve_tracker_class_metadata(args, detector_runtime)
+    if detector is None:
+        if ui_pipeline is not None:
+            ui_pipeline.update("Loading detector…")
+        with startup_stage(startup_timings_ms, "detector_load"):
+            detector = create_detector(_detector_spec(args, geometry))
+    if tracker is None:
+        if ui_pipeline is not None:
+            ui_pipeline.update("Loading tracker…")
+        with startup_stage(startup_timings_ms, "tracker_load"):
+            tracker = create_tracker(_tracker_spec(args, geometry))
 
-        if tracker is None:
-            if pipeline is not None:
-                pipeline.update("Loading tracker and ReID model...")
-            started = time.perf_counter()
-            tracker_runtime = _build_tracker(
-                args,
-                tracker_spec,
-                reid_spec,
-                class_ids=class_ids,
-                class_names=class_names,
-                reid_kwargs=reid_kwargs,
-                tracker_kwargs=tracker_kwargs,
+    requirements = tracker.requirements
+    if encoder is None and requirements.embeddings:
+        reference = getattr(args, "reid", None)
+        if reference is None:
+            raise ValueError(f"Tracker {tracker.name!r} requires embeddings; configure --reid ID_OR_YAML.")
+        reid_spec = _reid_spec(args)
+        if ui_pipeline is not None:
+            ui_pipeline.update("Loading appearance encoder…")
+        with startup_stage(startup_timings_ms, "reid_load"):
+            encoder = create_reid_encoder(reid_spec)
+
+    segmentor_reference = getattr(args, "segmentor", None)
+    needs_masks = requirements.masks or bool(encoder is not None and encoder.requirements.masks)
+    detector_masks = detector.capabilities.provides_masks
+    if segmentor is None and (needs_masks or segmentor_reference is not None) and not detector_masks:
+        if segmentor_reference is None:
+            raise ValueError(f"Tracker {tracker.name!r} requires masks; configure --segmentor ID_OR_YAML.")
+        segmentor_spec, _ = resolve_segmentor_spec(segmentor_reference, geometry=geometry)
+        if ui_pipeline is not None:
+            ui_pipeline.update("Loading segmentor…")
+        with startup_stage(startup_timings_ms, "segmentor_load"):
+            segmentor = create_segmentor(segmentor_spec)
+
+    if source is None:
+        if ui_pipeline is not None:
+            ui_pipeline.update("Opening frame source…")
+        with startup_stage(startup_timings_ms, "source_open"):
+            source = create_frame_source(
+                getattr(args, "source", "0"),
+                stride=int(getattr(args, "vid_stride", 1) or 1),
             )
-            setup_timings_ms["tracker_reid_load"] = (time.perf_counter() - started) * 1000.0
-        else:
-            tracker_runtime = tracker
-            if hasattr(tracker_runtime, "configure_class_catalog"):
-                tracker_runtime.configure_class_catalog(class_ids=class_ids, class_names=class_names)
+    if sinks is None:
+        with startup_stage(startup_timings_ms, "output_prepare"):
+            sinks, video_path, mot_path, json_path = _default_sinks(args)
+    else:
+        video_path = mot_path = json_path = None
 
-        if reid is None:
-            if pipeline is not None:
-                pipeline.update("Preparing ReID inference stage...")
-            started = time.perf_counter()
-            reid_runtime = _build_reid(args, tracker_runtime, reid_spec, tracker_spec, reid_kwargs)
-            setup_timings_ms["reid_adapter"] = (time.perf_counter() - started) * 1000.0
-        else:
-            reid_runtime = reid
-
-    show_trajectories = bool(show_trajectories or getattr(args, "show_trajectories", False))
-    show_kf_preds = bool(show_kf_preds or getattr(args, "show_kf_preds", False))
-    if (show_trajectories or show_kf_preds) and drawer is None:
-        drawer = lambda frame, tracks: tracker_runtime.plot_results(
-            frame,
-            show_trajectories=show_trajectories,
-            show_kf_preds=show_kf_preds,
+    with startup_stage(startup_timings_ms, "pipeline_prepare"):
+        detector, segmentor, encoder, tracker = profile_components(
+            profiler,
+            detector=detector,
+            segmentor=segmentor,
+            reid=encoder,
+            tracker=tracker,
         )
+        tracking_pipeline = TrackingPipeline(
+            detector=detector,
+            tracker=tracker,
+            segmentor=segmentor,
+            reid=encoder,
+            outputs=PipelineOutputs(masks=segmentor_reference is not None),
+        )
+    if ui_pipeline is not None:
+        ui_pipeline.advance("Processing frames…")
 
-    if pipeline is not None:
-        pipeline.update("Preparing tracking outputs...")
-    output_started = time.perf_counter()
-    output_dir = resolve_track_output_dir(Path(getattr(args, "project", "runs")), source)
-    text_path = output_dir / "tracks.txt" if bool(getattr(args, "save_txt", False)) else None
-    video_path = output_dir / "tracks.mp4" if bool(getattr(args, "save", False)) else None
+    def _progress(frame_count: int, frame: Any, _result: Any) -> None:
+        if ui_pipeline is not None:
+            ui_pipeline.update(f"Processed {frame_count} frame(s) • {frame.sample_id}")
 
-    show = bool(getattr(args, "show", False))
-    needs_iteration = text_path is not None or video_path is not None or show
-
-    if needs_iteration:
-        if text_path is not None:
-            text_path.parent.mkdir(parents=True, exist_ok=True)
-            if text_path.exists():
-                text_path.unlink()
-        video_writer = None
-        if video_path is not None:
-            requested_fps = getattr(args, "fps", None)
-            video_fps = (
-                float(requested_fps)
-                if requested_fps is not None
-                else resolve_output_fps(source)
-            )
-            video_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            video_fps = 30.0
-
-    setup_timings_ms["output_prepare"] = (time.perf_counter() - output_started) * 1000.0
-
-    if pipeline is not None:
-        pipeline.advance("Opening source and waiting for the first frame...")
-
-    run = Results(
+    runner = TrackingRunner(
         source,
-        detector_runtime,
-        reid_runtime,
-        tracker_runtime,
-        verbose=verbose and pipeline is None,
-        drawer=drawer,
-        progress_callback=pipeline.callback() if pipeline is not None else None,
+        tracking_pipeline,
+        sinks=sinks,
+        progress=_progress if ui_pipeline is not None else None,
+        profiler=profiler,
+        startup_timings_ms=startup_timings_ms,
     )
-    run.setup_timings_ms = normalize_setup_timings_ms(setup_timings_ms)
-
-    if needs_iteration:
-        try:
-            for frame_result in run:
-                rendered = None
-                if text_path is not None:
-                    write_mot_results(text_path, frame_result.to_mot())
-                if video_path is not None:
-                    rendered = frame_result.render()
-                    if video_writer is None:
-                        h, w = rendered.shape[:2]
-                        video_writer = cv2.VideoWriter(
-                            str(video_path),
-                            cv2.VideoWriter_fourcc(*"mp4v"),
-                            video_fps,
-                            (w, h),
-                        )
-                    video_writer.write(rendered)
-                if show:
-                    should_continue = (
-                        frame_result.show()
-                        if rendered is None
-                        else frame_result.show(rendered=rendered)
-                    )
-                    if not should_continue:
-                        break
-        finally:
-            # Flush Online GTA interpolated entries to MOT results file
-            if text_path is not None and hasattr(run, "tracker"):
-                _trk = getattr(run, "tracker", None)
-                if _trk is not None and hasattr(_trk, "flush_gta"):
-                    gta_entries = _trk.flush_gta()
-                    if gta_entries.size:
-                        write_mot_results(text_path, format_frame_tagged_tracks_for_mot(gta_entries))
-            if video_writer is not None:
-                video_writer.release()
-            if show:
-                cv2.destroyAllWindows()
-
-    result = TrackRunResult(
-        source=source,
-        results=run,
+    for _frame, _result in runner.run():
+        pass
+    assert runner.summary is not None
+    return TrackRun(
+        summary=runner.summary,
         video_path=video_path,
-        text_path=text_path,
+        mot_path=mot_path,
+        json_path=json_path,
     )
-    if not needs_iteration and _should_consume_result(args):
-        _consume_run(result)
-    if pipeline is not None:
-        result.refresh()
-        pipeline.complete_step()
-        if int(result.summary.get("frames", 0)) > 0:
-            pipeline.set_detail_renderable("Summary", result.renderable())
-        else:
-            pipeline.set_detail_renderable(
-                "No frames processed.",
-                result.renderable(),
-            )
-    return result
 
 
-def main(args):
-    tracker_kwargs = None
-    if getattr(args, "asso_func", None):
-        tracker_kwargs = {"asso_func": args.asso_func}
-    pipeline = TrackWorkflowReporter(args).pipeline()
+def main(args: Any) -> TrackRun:
+    """CLI entry point."""
+
+    reporter = TrackWorkflowReporter(args)
+    pipeline = reporter.pipeline()
     with pipeline:
-        run_kwargs = {
-            "detector_spec": first_value(getattr(args, "detector", None)),
-            "reid_spec": first_value(getattr(args, "reid", None)),
-            "tracker_spec": getattr(args, "tracker", None),
-            "classes": getattr(args, "classes", None),
-            "pipeline": pipeline,
-        }
-        if tracker_kwargs is not None:
-            run_kwargs["tracker_kwargs"] = tracker_kwargs
-        return run_track(args, **run_kwargs)
+        with suppress_boxmot_logs(True, level="WARNING"):
+            result = run_track(args, ui_pipeline=pipeline)
+        output_dir = next(
+            (path.parent for path in (result.video_path, result.mot_path, result.json_path) if path is not None),
+            None,
+        )
+        pipeline.finish(reporter.result(result), exp_dir=output_dir)
+        return result
 
 
-__all__ = (
-    "TRACK_RUN_STEP",
-    "TRACK_SETUP_STEP",
-    "_consume_run",
-    "_should_consume_result",
-    "main",
-    "run_track",
-)
+__all__ = ("TrackRun", "main", "run_track")

@@ -39,7 +39,6 @@ class TrackerMotionMixin:
         img: np.ndarray | None,
         dets: np.ndarray,
         tracks,
-        update_method: str = "camera_update",
     ) -> np.ndarray | None:
         """Apply CMC to tracks using OBB-safe detection boxes for estimation."""
         return cmc_utils.apply_cmc_to_tracks(
@@ -48,7 +47,6 @@ class TrackerMotionMixin:
             dets,
             self.detection_layout,
             tracks,
-            update_method=update_method,
         )
 
     def _reset_cmc_state(self) -> None:

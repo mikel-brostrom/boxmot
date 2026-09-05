@@ -178,9 +178,6 @@ void KalmanFilterXYHR::Update(const Vector& measurement, const double alpha) {
 void KalmanFilterXYHR::EnforceConstraints() {
     mean_[2] = std::max(mean_[2], kMinSize);
     mean_[3] = std::max(mean_[3], kMinSize);
-    if (is_obb_) {
-        mean_[4] = WrapAngle(mean_[4]);
-    }
     covariance_ = 0.5 * (covariance_ + covariance_.transpose());
 }
 

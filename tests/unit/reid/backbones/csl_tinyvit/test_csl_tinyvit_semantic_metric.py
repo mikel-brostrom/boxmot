@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import pytest
 import torch
 import torch.nn.functional as F
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
 from boxmot.reid.training.losses import AdaSPLoss
 from boxmot.reid.training.trainer import ReIDTrainer
@@ -215,11 +213,7 @@ def test_cli_propagates_semantic_metric_options(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [

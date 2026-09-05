@@ -48,9 +48,9 @@ aw_param:
   default: 0.5  # from the default parameters
   range: [0.3, 0.7]
 
-embedding_off:
+use_embeddings:
   type: choice
-  default: false  # from the default parameters
+  default: true  # from the default parameters
   options: [True, False]
 
 cmc_off:

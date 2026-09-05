@@ -72,7 +72,7 @@ track_thresh:
   default: 0.3190991353484191
   range: [0.3, 0.9]
 
-with_reid:
+use_embeddings:
   type: choice
   default: True
   options: [False, True]

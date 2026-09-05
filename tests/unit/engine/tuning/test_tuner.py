@@ -9,11 +9,12 @@ import pytest
 import yaml
 
 import boxmot.engine.tuning.tuner as tuner_module
-import boxmot.utils.rich.core.ui as ui_module
-import boxmot.utils.rich.reporters.tune as tune_reporting
-import boxmot.utils.rich.workflow.reporting as rich_reporting
+import boxmot.engine.ui.core.ui as ui_module
+import boxmot.engine.ui.reporters.tune as tune_reporting
+import boxmot.engine.ui.workflow.reporting as rich_reporting
+from boxmot.engine.tuning.backends import SEARCH_BACKENDS, resolve_search_backend
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
-from boxmot.engine.tuning.postprocessing import write_trial_yaml
+from boxmot.engine.tuning.postprocessing import generate_summary, write_trial_yaml
 from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_config, load_yaml_config
 from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
@@ -130,6 +131,30 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
     }
 
 
+@pytest.mark.parametrize("search_alg", SEARCH_BACKENDS)
+def test_resolve_search_backend_accepts_only_canonical_names(search_alg):
+    assert resolve_search_backend(SimpleNamespace(search_alg=search_alg)) == search_alg
+
+
+def test_resolve_search_backend_defaults_to_optuna():
+    assert resolve_search_backend(SimpleNamespace()) == "optuna"
+
+
+@pytest.mark.parametrize(
+    "search_alg",
+    [None, "", "Optuna", " optuna", "optuna-search", "optunasearch", "basic", "basic-variant"],
+)
+def test_resolve_search_backend_rejects_noncanonical_values(search_alg):
+    with pytest.raises(click.UsageError, match="Unknown tune search backend"):
+        resolve_search_backend(SimpleNamespace(search_alg=search_alg))
+
+
+def test_resolve_search_backend_ignores_removed_fields():
+    args = SimpleNamespace(search_backend="hyperopt", tune_search_alg="random")
+
+    assert resolve_search_backend(args) == "optuna"
+
+
 @pytest.mark.parametrize("tracker_name", sorted(TRACKER_DEFINITIONS))
 def test_all_builtin_tracker_entries_have_runtime_defaults(tracker_name):
     yaml_cfg = load_yaml_config(tracker_name)
@@ -151,20 +176,15 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
-    monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: captured.setdefault("generated", True))
+    monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
         lambda args, pipeline=None: (
             setattr(args, "project", (tmp_path / "runs").resolve()),
-            setattr(args, "detector", [tmp_path / "yolox_x_mot17_ablation.pt"]),
-            setattr(args, "reid", [tmp_path / "lmbn_n_duke.pt"]),
         ),
     )
     def _fake_tune_intro(args, **kwargs):
-        captured["intro_detector"] = args.detector[0]
-        captured["intro_reid"] = args.reid[0]
         return SimpleNamespace(
             _started=True,
             start=lambda: None,
@@ -208,11 +228,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
                 pass
 
             def refresh_fields(self, fields):
-                for label, value in fields:
-                    if label == "Detector":
-                        captured["intro_detector"] = value
-                    elif label == "ReID":
-                        captured["intro_reid"] = value
+                captured["workflow_fields"] = tuple(fields)
 
             def step(self, *a, **k):
                 return "fake"
@@ -304,7 +320,9 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(
+        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
+    )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
         RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
@@ -331,8 +349,6 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini").resolve()
     assert captured["run_name"] == "strongsort_2"
-    assert Path(captured["intro_detector"]).name == "yolox_x_mot17_ablation.pt"
-    assert Path(captured["intro_reid"]).name == "lmbn_n_duke.pt"
     assert captured["verbose"] == 0
     assert len(captured["callbacks"]) == 1
     assert captured["ray_init_kwargs"]["include_dashboard"] is False
@@ -352,8 +368,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
-    monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: captured.setdefault("generated", True))
+    monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -459,7 +474,9 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(
+        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
+    )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
         RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
@@ -533,8 +550,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
-    monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -629,7 +645,9 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(
+        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
+    )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
         RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
@@ -666,8 +684,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
-    monkeypatch.setattr(tuner_module, "_save_all_results", lambda *args, **kwargs: None)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -757,7 +774,9 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(
+        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
+    )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
         RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
@@ -803,19 +822,14 @@ def test_tuner_rejects_invalid_metric_names_before_ray_setup() -> None:
     assert "Available minimize metrics: IDSW, IDs, IDSW_rate" in message
 
 
-def test_tuner_normalizes_metric_aliases_before_validation() -> None:
+def test_tuner_rejects_noncanonical_metric_aliases() -> None:
     args = SimpleNamespace(
         maximize=("hota",),
         minimize=("id_switches",),
         objectives=("hota", "id_switches"),
     )
-    tuner = tuner_module.Tuner(args)
-
-    tuner._resolve_metrics()
-
-    assert args.objectives == ("HOTA", "IDSW")
-    assert args.maximize == ("HOTA",)
-    assert args.minimize == ("IDSW",)
+    with pytest.raises(click.UsageError, match="Invalid value for --objectives"):
+        tuner_module.Tuner(args)._resolve_metrics()
 
 
 def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch, tmp_path):
@@ -865,8 +879,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         )
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: yaml_cfg)
-    monkeypatch.setattr(tuner_module, "_resolve_tune_dir", lambda args, resume=False: tune_dir)
-    monkeypatch.setattr(tuner_module, "run_generate_dets_embs", lambda args: None)
+    monkeypatch.setattr(tuner_module.Tuner, "_resolve_tune_dir", lambda self: tune_dir)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
@@ -994,7 +1007,9 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker))
+    monkeypatch.setitem(
+        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
+    )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
         RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
@@ -1076,7 +1091,6 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
         minimize=["IDSW_rate"],
     )
     workflow.complete(tune_reporting.TUNE_SETUP_STEP, render=False)
-    workflow.complete(tune_reporting.TUNE_GENERATE_STEP, render=False)
     workflow.activate(tune_reporting.TUNE_OPTIMIZE_STEP, render=False)
     workflow.set_detail(
         tune_reporting.TUNE_OPTIMIZE_STEP,
@@ -1091,7 +1105,7 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
     assert "Pipeline" in rendered
     assert "OBJECTIVE" in rendered
     assert "Pareto: max HOTA, MOTA / min IDSW_rate" in rendered
-    assert "[✓] Setup / [✓] Generate / [>] Optimize" in rendered
+    assert "[✓] Setup / [>] Optimize" in rendered
     assert "Tune     20%  (2/10)  running trial 3/10  remaining 00:34" in rendered
 
 
@@ -1140,12 +1154,13 @@ def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
         "cmc_method": {"type": "choice", "default": "sof", "options": ["sof", "ecc"]},
     }
     args = SimpleNamespace(
-        detector=[Path("yolov8n.pt")],
-        benchmark="mot17-mini",
         experiment="mot17-mini",
+        experiment_id="mot17-mini",
+        dataset_id="mot17",
+        build_path=tmp_path / "builds" / "abc123",
     )
 
-    summary_path = tuner_module._generate_summary(
+    summary_path = generate_summary(
         tmp_path,
         trial_data,
         yaml_cfg,
@@ -1157,4 +1172,8 @@ def test_generate_summary_handles_categorical_choice_params(tmp_path) -> None:
     )
 
     rendered = summary_path.read_text()
+    assert "- **Experiment:** mot17-mini" in rendered
+    assert "- **Dataset:** mot17" in rendered
+    assert f"- **Build:** {tmp_path / 'builds' / 'abc123'}" in rendered
+    assert "**Detector:**" not in rendered
     assert "| cmc_method | ['sof', 'ecc'] | ecc: 2, sof: 1 | — | categorical |" in rendered

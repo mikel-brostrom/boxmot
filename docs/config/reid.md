@@ -24,6 +24,11 @@ existing runtime arguments. `preprocessing.mode` is required, and
 `preprocessing.image_size` must contain exactly two positive integers in
 height-width order.
 
+During materialization the engine resolves the artifact and SHA-256 before the
+build ID is established. Python callers use the resulting values in a frozen
+`ReIDEncoderSpec`; trackers receive only the produced embeddings and never the
+profile or model instance.
+
 ## Related pages
 
 - [ReID Models](reid-models.md)

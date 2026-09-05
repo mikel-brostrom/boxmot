@@ -18,22 +18,30 @@ detections:
 
 reid:
   ref: lmbn-n-duke
+  crop_strategy: aabb
 
 evaluation:
   class_map:
     pedestrian: person
 ```
 
-Tracker selection remains a CLI or API runtime choice and is not embedded in
+Tracker selection remains an engine runtime choice and is not embedded in
 the experiment.
 
 Class maps use semantic names. The resolver looks up numeric IDs in the dataset
 and detector registries and builds the numeric bridge consumed by evaluation.
 Use `class_map: auto` when target class names match detector class names.
 
+`reid.crop_strategy` is part of the experiment because the same appearance
+model can consume different detection geometry. Use `aabb` for axis-aligned
+boxes, `perspective` for a perspective-rectified OBB, `rotated` for the
+canonical affine OBB transform, or `mask_aware` when the experiment also
+provides masks. The built-in MMOT OBB experiments use `perspective`, matching
+the crop transform that produced the published benchmark features.
+
 ## Detection sources
 
-`detections.source` is required and selects one validated shape:
+`detections.source` is required and must select a model-backed detector:
 
 ```yaml
 # Run a model
@@ -43,42 +51,33 @@ detections:
     ref: yolox-x-mot17
     checkpoint: ablation
 
-# Use public detections from the dataset artifact profile
-detections:
-  source: public
-  name: frcnn
-
-# Use a precomputed artifact from the dataset artifact profile
-detections:
-  source: precomputed
-  artifact: ablation
 ```
 
-Public and precomputed names must exist in the selected dataset's matching
-artifact profile under `boxmot/configs/artifacts`.
-Every precomputed artifact must contain detections and declare
-`produced_by.detector`. Embeddings are required when the experiment declares a
-ReID profile or the artifact declares `produced_by.reid`; in the latter case,
-the resolver can infer the ReID profile from that lineage.
+Legacy public, positional NPY/NPZ, and text-only perception caches are not
+experiment sources and cannot be passed directly to materialization. Define a
+supported dataset plus model component configs, compose them in an experiment,
+then materialize that experiment into a keyed build.
 
 ## Built-in examples
 
+Materialize any built-in experiment by ID, then evaluate its exact build:
+
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack
-boxmot eval --experiment mot17-ablation-frcnn-lmbn --tracker boosttrack
-boxmot eval --experiment mot17-ablation-precomputed --tracker boosttrack
-boxmot eval --experiment sportsmot-val-yolox-lmbn --tracker boosttrack
-boxmot eval --experiment mmot-obb-test-yolo11l-lmbn --tracker botsort
-boxmot eval --experiment mmot-obb-mini-train-yolo11l-lmbn --tracker botsort
+boxmot materialize --experiment mot17-ablation-yolox-lmbn
+boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker boosttrack
 ```
+
+Other built-in IDs include `sportsmot-val-yolox-lmbn`,
+`mmot-obb-test-yolo11l-lmbn`, and
+`mmot-obb-mini-train-yolo11l-lmbn`. Each semantic configuration produces its
+own build ID.
 
 ## Validation and reproducibility
 
 Resolution fails before downloads or inference when a split, class, checkpoint,
-public source, or artifact is missing; box types are incompatible; inference
+or model reference is missing; box types are incompatible; inference
 values are invalid; or evaluation targets a split without ground truth.
 
-Each experiment-driven evaluation result directory contains:
-
-- `config.source.yaml`: the authored experiment
-- `config.resolved.yaml`: expanded dataset/model/class information plus the effective tracker, backend, tracker parameters, and runtime overrides
+The materialized manifest contains the authored and resolved semantic identity,
+artifact hashes, source/taxonomy digests, stage fingerprints, and publish
+flags. Evaluation outputs record the effective tracker configuration separately.

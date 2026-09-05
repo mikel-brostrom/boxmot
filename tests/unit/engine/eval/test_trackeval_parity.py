@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from boxmot.engine.eval.motmetrics import SequenceData, _combine_bundles, _eval_bundle
+from boxmot.engine.eval.results import ValidationResult
 from boxmot.engine.eval.trackeval_reference import evaluate_trackeval_motchallenge
-from boxmot.engine.workflows.results import ValidationResult
 
 trackeval = pytest.importorskip(
     "trackeval",

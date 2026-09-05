@@ -52,6 +52,12 @@ class SOF(BaseCMC):
         self.prev_keypoints: Optional[np.ndarray] = None
         self.initialized: bool = False
 
+    def reset(self) -> None:
+        """Clear the optical-flow sequence state."""
+        self.prev_frame = None
+        self.prev_keypoints = None
+        self.initialized = False
+
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         frame_gray = self.preprocess(img)
         H = np.eye(2, 3, dtype=np.float32)
@@ -135,7 +141,7 @@ class SOF(BaseCMC):
         return H_est
 
     def _detect_keypoints(self, frame_gray: np.ndarray, dets: Optional[np.ndarray]) -> Optional[np.ndarray]:
-        mask = self.generate_mask(frame_gray, dets, self.scale)
+        mask = self.generate_mask(frame_gray, dets)
         return cv2.goodFeaturesToTrack(frame_gray, mask=mask, **self.feature_params)
 
     def _has_enough_inliers(self, inliers: Optional[np.ndarray], match_count: int) -> bool:

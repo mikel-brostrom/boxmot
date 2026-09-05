@@ -58,12 +58,9 @@ KalmanFilterXYWH::Vector AlignObbMeasurement(
     return aligned;
 }
 
-KalmanFilterXYWH::Vector EnforceXywhConstraints(KalmanFilterXYWH::Vector mean, const bool is_obb) {
+KalmanFilterXYWH::Vector EnforceXywhConstraints(KalmanFilterXYWH::Vector mean) {
     mean[2] = std::max(mean[2], 1.0e-4);
     mean[3] = std::max(mean[3], 1.0e-4);
-    if (is_obb && mean.size() >= 5) {
-        mean[4] = WrapAngle(mean[4]);
-    }
     return mean;
 }
 
@@ -148,7 +145,7 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
     }
     Vector mean(dim_x_);
     mean << measurement, Vector::Zero(ndim_);
-    mean = EnforceXywhConstraints(mean, is_obb_);
+    mean = EnforceXywhConstraints(mean);
 
     const Vector std = InitialCovarianceStd(measurement);
     Matrix covariance = std.array().square().matrix().asDiagonal();
@@ -165,7 +162,7 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
     // shifts the next corrected box.
     const auto [std_pos, std_vel] = ProcessNoiseStd(mean);
     Vector predicted_mean = motion_mat_ * mean;
-    predicted_mean = EnforceXywhConstraints(predicted_mean, is_obb_);
+    predicted_mean = EnforceXywhConstraints(predicted_mean);
 
     Vector std(dim_x_);
     std << std_pos, std_vel;
@@ -215,7 +212,7 @@ std::pair<KalmanFilterXYWH::Vector, KalmanFilterXYWH::Matrix> KalmanFilterXYWH::
     if (is_obb_ && updated_mean.size() >= dim_x_) {
         updated_mean[dim_x_ - 1] *= 0.8;
     }
-    updated_mean = EnforceXywhConstraints(updated_mean, is_obb_);
+    updated_mean = EnforceXywhConstraints(updated_mean);
     return {updated_mean, updated_covariance};
 }
 

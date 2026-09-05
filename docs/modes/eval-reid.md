@@ -59,7 +59,8 @@ or as `eval_<dataset>.json` otherwise. With `--output`, the filename is
 
 ## Scope
 
-`eval-reid` is available from both the CLI and Python facade via `BoxMOT.eval_reid(...)`.
+`eval-reid` is an engine-owned CLI workflow. Reusable evaluation and dataset
+code remains available from its `boxmot.reid` domain subpackages.
 
 ## Related pages
 
@@ -71,9 +72,8 @@ or as `eval_<dataset>.json` otherwise. With `--output`, the filename is
 ## CLI Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.cli
-    :command: boxmot
-    :depth: 1
+    :module: boxmot.engine.commands.reid.evaluate
     :command: eval_reid
+    :depth: 0
     :style: table
     :prog_name: boxmot eval-reid

@@ -12,9 +12,9 @@ OC-SORT focuses on a specific failure mode in Kalman-filter trackers: error accu
 
 ## Native C++ Backend
 
-BoxMOT ships a native C++17 OCSORT implementation under `boxmot/native/cpp/trackers/ocsort/`. It supports:
+BoxMOT ships a native C++17 OcSort implementation under `boxmot/native/cpp/trackers/ocsort/`. It supports:
 
-- cached replay for `eval` and `tune`
+- cached `eval` and `tune` streamed through the live typed API
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detection layouts in the native tracker path
 
@@ -28,7 +28,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker ocsort --tracker-backend cpp
+boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker ocsort --tracker-backend cpp
 boxmot track --tracker ocsort --tracker-backend cpp --source 0
 ```
 
@@ -41,4 +41,4 @@ experimental global-y height cue intended only for scenes where image vertical
 is meaningful. See the [association function guide](../config/trackers.md#association-function)
 for the exact OBB semantics.
 
-::: boxmot.trackers.bbox.ocsort.OcSort
+::: boxmot.OcSort

@@ -9,14 +9,11 @@ The top-level `on:` block decides whether any job in a workflow is created:
 | Workflow | Current triggers |
 | --- | --- |
 | `.github/workflows/ci.yml` | Pushes to `master` and pull requests targeting `master` |
-| `.github/workflows/docs.yml` | Pushes to every branch and manual dispatch; deployment only on `master` |
-| `.github/workflows/benchmark.yml` | Pushes to `main`, pull requests targeting `main`, and manual dispatch |
-
-!!! warning "Benchmark branch mismatch"
-    This repository's integration branch is currently `master`, while
-    `benchmark.yml` filters automatic push and pull-request runs to `main`.
-    Unless the workflow trigger is aligned, that workflow only runs through
-    manual dispatch in this repository.
+| `.github/workflows/docs.yml` | Pushes to `master`, pull requests targeting `master`, and manual dispatch; deployment from `master` |
+| `.github/workflows/benchmark.yml` | Pushes to `master`, pull requests targeting `master`, and manual dispatch |
+| `.github/workflows/wheels.yml` | Reusable release gate and manual dispatch |
+| `.github/workflows/publish.yml` | Manual dispatch after the wheel and Docker gates pass |
+| `.github/workflows/docker.yml` | Reusable pre-publication gate and published releases |
 
 A valid job block does not run when its workflow was not triggered. In
 particular, a direct push to a feature branch does not start `ci.yml`; open or
@@ -54,7 +51,7 @@ uv sync --locked --no-default-groups --extra cpu --extra yolo --group test
 The docs job uses:
 
 ```bash
-uv sync --locked --no-default-groups --extra cpu --group docs
+uv sync --locked --no-default-groups --extra cpu --group docs --group test
 ```
 
 CUDA jobs should replace `--extra cpu` with `--extra cu130`; the two profiles
@@ -80,3 +77,19 @@ and workflow coverage reflect that support level. In particular, inspect the
 environment lists in `ci.yml`, plus the explicit tracker/backend matrix in
 `benchmark.yml`. Mask-aware trackers may need a dedicated mask source or model
 instead of the generic bounding-box smoke command.
+
+## Release gates
+
+The publish workflow never rebuilds or bumps the package. It publishes the
+exact `24.0.0` wheel and source distribution produced by the reusable wheel
+workflow after the full tests, strict documentation build, native checks, and
+clean-wheel imports on Python 3.10 through 3.13 pass. It also calls the Docker
+workflow in non-pushing mode before PyPI upload. A published `v24.0.0` release
+then invokes that same Docker workflow in pushing mode.
+
+The `service-gpu` smoke runs on the `gpu-latest` runner label and requires a
+Linux NVIDIA host with Docker and the NVIDIA Container Toolkit. It exposes the
+GPU to the container, performs CUDA-backed ReID enrichment through the HTTP
+service, and verifies that the service owns an active CUDA context. The CPU
+service smoke uses the CPU-only Torch image and exercises the same `/v1`
+request boundary without CUDA.

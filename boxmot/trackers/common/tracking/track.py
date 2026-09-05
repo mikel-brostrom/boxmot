@@ -9,7 +9,7 @@ import numpy as np
 
 
 class TrackState(Enum):
-    """Canonical lifecycle states shared by bbox tracker infrastructure."""
+    """Canonical lifecycle states shared by box-tracker infrastructure."""
 
     TENTATIVE = auto()
     TRACKED = auto()

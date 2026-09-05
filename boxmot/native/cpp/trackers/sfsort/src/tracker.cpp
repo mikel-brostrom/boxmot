@@ -63,13 +63,15 @@ Eigen::Vector4d ObbToXyxy(const Eigen::Matrix<double, 5, 1>& box) {
     return xyxy;
 }
 
-bool ContainsTrackId(const std::vector<SFSORTTracker::TrackData>& tracks, const int track_id) {
+bool ContainsTrackId(const std::vector<SFSORTTracker::TrackData>& tracks,
+                     const std::int64_t track_id) {
     return std::any_of(tracks.begin(), tracks.end(), [track_id](const SFSORTTracker::TrackData& track) {
         return track.track_id == track_id;
     });
 }
 
-void RemoveTracksById(std::vector<SFSORTTracker::TrackData>& tracks, const std::unordered_set<int>& track_ids) {
+void RemoveTracksById(std::vector<SFSORTTracker::TrackData>& tracks,
+                      const std::unordered_set<std::int64_t>& track_ids) {
     tracks.erase(
         std::remove_if(
             tracks.begin(),
@@ -80,7 +82,8 @@ void RemoveTracksById(std::vector<SFSORTTracker::TrackData>& tracks, const std::
     );
 }
 
-void RemoveTrackById(std::vector<SFSORTTracker::TrackData>& tracks, const int track_id) {
+void RemoveTrackById(std::vector<SFSORTTracker::TrackData>& tracks,
+                     const std::int64_t track_id) {
     tracks.erase(
         std::remove_if(
             tracks.begin(),
@@ -292,7 +295,7 @@ void SFSORTTracker::TrackData::Update(const Detection& detection, const int fram
         theta_velocity =
             (damping * theta_velocity) +
             ((1.0 - damping) * theta_delta);
-        aligned[4] = WrapAngle(prev_theta + theta_velocity);
+        aligned[4] = prev_theta + theta_velocity;
         xywha = aligned;
         xyxy = ObbToXyxy(xywha);
     } else {
@@ -314,7 +317,7 @@ SFSORTTracker::SFSORTTracker(Config config)
 
 void SFSORTTracker::Reset() {
     frame_count_ = 0;
-    id_counter_ = 0;
+    next_track_id_ = 0;
     margins_ready_ = false;
     detection_mode_ready_ = false;
     is_obb_mode_ = false;
@@ -400,17 +403,16 @@ void SFSORTTracker::UpdateLostTracks(const std::vector<TrackData>& next_lost_tra
     }
 }
 
-SFSORTTracker::TrackData SFSORTTracker::NewTrack(const Detection& detection) const {
+SFSORTTracker::TrackData SFSORTTracker::NewTrack(const Detection& detection) {
     TrackData track;
     track.is_obb = detection.is_obb;
     track.last_frame = frame_count_;
-    track.track_id = id_counter_;
+    track.track_id = next_track_id_++;
     track.conf = detection.conf;
     track.cls = detection.cls;
     track.det_ind = detection.det_ind;
     if (detection.is_obb) {
         track.xywha = detection.xywha;
-        track.xywha[4] = WrapAngle(track.xywha[4]);
         track.xyxy = ObbToXyxy(track.xywha);
     } else {
         track.xyxy = detection.xyxy;
@@ -513,7 +515,7 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
         track_pool.push_back(&track);
     }
 
-    std::unordered_set<int> matched_lost_ids;
+    std::unordered_set<std::int64_t> matched_lost_ids;
     std::vector<TrackData*> unmatched_track_pool;
 
     if (definite_detections.empty()) {
@@ -549,14 +551,12 @@ std::vector<TrackOutput> SFSORTTracker::Update(const std::vector<Detection>& det
                 const Detection& detection = definite_detections[static_cast<std::size_t>(unmatched_index)];
                 if (detection.conf > nth) {
                     next_active_tracks.push_back(NewTrack(detection));
-                    ++id_counter_;
                 }
             }
         } else {
             for (const auto& detection : definite_detections) {
                 if (detection.conf > nth) {
                     next_active_tracks.push_back(NewTrack(detection));
-                    ++id_counter_;
                 }
             }
         }

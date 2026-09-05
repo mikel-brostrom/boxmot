@@ -352,7 +352,7 @@ def _measure(
 def _benchmark_pytorch(args: argparse.Namespace, device_name: str) -> dict[str, Any]:
     import torch
 
-    from boxmot.reid import ReID
+    from boxmot.reid.core.runtime import ReID
     from boxmot.reid.exporters.base_exporter import as_inference_export_model
 
     if device_name == "mps" and not torch.backends.mps.is_available():
@@ -443,7 +443,7 @@ def _benchmark_onnx(args: argparse.Namespace, *, coreml: bool) -> dict[str, Any]
 def _benchmark_coreml(args: argparse.Namespace) -> dict[str, Any]:
     import torch
 
-    from boxmot.reid import ReID
+    from boxmot.reid.core.runtime import ReID
 
     rng = np.random.default_rng(args.seed)
     input_array = rng.standard_normal((args.batch_size, 3, *args.imgsz), dtype=np.float32)

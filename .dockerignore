@@ -6,6 +6,7 @@
 
 **/__pycache__/
 **/*.py[cod]
+**/repo-to-text_*.txt
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/

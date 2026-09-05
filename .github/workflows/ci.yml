@@ -124,17 +124,12 @@ jobs:
         shell: bash
         run: |
           source .venv/bin/activate
+          boxmot build
           python - <<'PY'
-          from boxmot.native.registry import (
-              supported_native_live_trackers,
-              get_native_live_backend,
-          )
-          names = supported_native_live_trackers()
+          from boxmot.trackers.registry import supported_native_trackers
+          names = supported_native_trackers()
           print("Registered cpp backends:", list(names))
-          for name in names:
-              backend = get_native_live_backend(name)
-              backend.ensure_built()
-              print(f"  {name}: built OK")
+          assert names == ("botsort", "bytetrack", "occluboost", "ocsort", "sfsort")
           PY
       - name: Run native unit tests
         if: runner.os == 'Linux'
@@ -183,7 +178,16 @@ jobs:
       - name: Evolve set of parameters for selected tracking method
         run: |
           source .venv/bin/activate
-          boxmot tune --detector "$BOXMOT_CI_DETECTOR" --reid osnet_x0_25_msmt17.pt --n-trials 3 --tracker strongsort --experiment mot17-mini-train-yolox-lmbn --ci --classes 0
+          BUILD_ROOT="$RUNNER_TEMP/boxmot-builds"
+          DATA_ROOT="$GITHUB_WORKSPACE/assets"
+          boxmot materialize --experiment mot17-mini-train-yolox-lmbn \
+            --data-root "$DATA_ROOT" \
+            --build-root "$BUILD_ROOT"
+          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
+          test -n "$BUILD_PATH"
+          boxmot tune --experiment mot17-mini-train-yolox-lmbn --build "$BUILD_PATH" \
+            --data-root "$DATA_ROOT" \
+            --n-trials 3 --tracker strongsort --ci
   metrics:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -218,21 +222,34 @@ jobs:
         run: |
           .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
 
-      - name: Generate detections and embeddings
+      - name: Materialize detections and embeddings
         run: |
           source .venv/bin/activate
-          boxmot generate --experiment mot17-mini-train-yolox-lmbn --detector "$BOXMOT_CI_DETECTOR" --reid osnet_x0_25_msmt17.pt --imgsz 320 --classes 0
+          BUILD_ROOT="$RUNNER_TEMP/boxmot-builds"
+          DATA_ROOT="$GITHUB_WORKSPACE/assets"
+          boxmot materialize --experiment mot17-mini-train-yolox-lmbn \
+            --data-root "$DATA_ROOT" \
+            --build-root "$BUILD_ROOT"
+          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
+          test -n "$BUILD_PATH"
+          echo "BOXMOT_CI_BUILD=$BUILD_PATH" >> "$GITHUB_ENV"
+          echo "BOXMOT_CI_DATA_ROOT=$DATA_ROOT" >> "$GITHUB_ENV"
 
       - name: Evaluate MOT17-mini metrics
         shell: bash
         run: |
           source .venv/bin/activate
           echo "Format,Status❔,HOTA,MOTA,IDF1" > metrics.csv
+          FAILED=0
           for tracker in $TRACKERS; do
-            if boxmot eval --detector "$BOXMOT_CI_DETECTOR" --imgsz 320 --reid osnet_x0_25_msmt17.pt --tracker $tracker --verbose --experiment mot17-mini-train-yolox-lmbn --ci --classes 0; then
+            if boxmot eval --experiment mot17-mini-train-yolox-lmbn \
+              --build "$BOXMOT_CI_BUILD" \
+              --data-root "$BOXMOT_CI_DATA_ROOT" \
+              --tracker "$tracker" --verbose --ci; then
               STATUS="✅"
             else
               STATUS="❌"
+              FAILED=1
             fi
             if [ -f ${tracker}_output.json ]; then
               cat ${tracker}_output.json
@@ -247,6 +264,7 @@ jobs:
             TRACKER_NAME=$(echo $tracker | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
             echo "$TRACKER_NAME,$STATUS,$HOTA,$MOTA,$IDF1" >> metrics.csv
           done
+          echo "BOXMOT_METRICS_FAILED=$FAILED" >> "$GITHUB_ENV"
 
       - name: Sort MOT metrics results
         shell: bash
@@ -267,6 +285,12 @@ jobs:
               echo "| $name | $status | $hota | $mota | $idf1 |"
             done
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce successful tracker evaluations
+        if: always()
+        shell: bash
+        run: |
+          test "${BOXMOT_METRICS_FAILED:-1}" -eq 0
 
   reid:
     runs-on: ubuntu-latest

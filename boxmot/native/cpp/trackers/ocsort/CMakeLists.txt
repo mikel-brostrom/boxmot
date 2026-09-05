@@ -7,7 +7,6 @@ include(BoxMOTNative)
 boxmot_add_native_tracker(
     NAME ocsort
     CORE_SOURCES
-        src/data_io.cpp
         src/kalman_filter.cpp
         src/tracker.cpp
 )

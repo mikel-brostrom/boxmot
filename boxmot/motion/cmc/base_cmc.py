@@ -8,9 +8,8 @@ from typing import Optional, Tuple, Union
 import cv2
 import numpy as np
 
-from boxmot.core.box_schema import OBB_SCHEMA
-
 Scale = Union[float, Tuple[int, int], None]
+_OBB_GEOMETRY_COLUMNS = 5
 
 
 class BaseCMC(ABC):
@@ -20,6 +19,7 @@ class BaseCMC(ABC):
     Contract:
       - `apply(img, dets)` returns an affine warp matrix (2x3) or homography (3x3),
         depending on the method and configuration.
+      - `reset()` clears all state that links one frame to the next.
       - `dets` contains geometry in original image scale: AABB ``xyxy`` rows
         (4 columns) or OBB ``xywha`` rows (5 columns).
     """
@@ -29,6 +29,11 @@ class BaseCMC(ABC):
 
     @abstractmethod
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
+        raise NotImplementedError
+
+    @abstractmethod
+    def reset(self) -> None:
+        """Clear all frame-to-frame estimator state."""
         raise NotImplementedError
 
     def preprocess(self, img: np.ndarray) -> np.ndarray:
@@ -131,12 +136,12 @@ class BaseCMC(ABC):
         inlier_count = int(np.count_nonzero(inliers))
         return inlier_count >= min_inliers and inlier_count / match_count >= min_inlier_ratio
 
-    def generate_mask(self, img_gray: np.ndarray, dets: Optional[np.ndarray], scale: Scale) -> np.ndarray:
+    def generate_mask(self, img_gray: np.ndarray, dets: Optional[np.ndarray]) -> np.ndarray:
         """
         Create a mask that:
           - keeps a central safe region
           - removes detected dynamic objects (dets)
-        `img_gray` must be a 2D grayscale image (after preprocess).
+        `img_gray` must be a 2D grayscale image returned by `preprocess`.
         """
         if img_gray.ndim != 2:
             raise ValueError("generate_mask expects a 2D grayscale image.")
@@ -156,16 +161,12 @@ class BaseCMC(ABC):
         if dets.size == 0:
             return mask
 
-        scale_x, scale_y = getattr(
-            self,
-            "_preprocess_scale",
-            (float(scale), float(scale)) if isinstance(scale, (int, float)) else (1.0, 1.0),
-        )
+        scale_x, scale_y = self._preprocess_scale
 
         # Boxes are either AABB ``xyxy`` rows or OBB ``xywha`` rows in the
         # original image scale. Mask the actual oriented polygon for OBBs so
         # static background inside an enclosing AABB remains available to CMC.
-        is_obb = dets.ndim == 2 and dets.shape[1] == OBB_SCHEMA.geometry_cols
+        is_obb = dets.ndim == 2 and dets.shape[1] == _OBB_GEOMETRY_COLUMNS
         for det in dets:
             if len(det) < 4:
                 continue

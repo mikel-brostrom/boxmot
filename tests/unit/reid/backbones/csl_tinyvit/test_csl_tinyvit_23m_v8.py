@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import torch
 from click.testing import CliRunner
 
-from boxmot.engine.config import load_training_recipe
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_23m
+from boxmot.reid.training.presets import load_training_recipe
 
 
 def _model(*, anatomical_auxiliary: bool):
@@ -156,11 +154,7 @@ def test_23m_v8_cli_recipe_resolves_training_contract(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [

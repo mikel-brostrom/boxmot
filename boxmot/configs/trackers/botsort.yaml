@@ -48,7 +48,7 @@ fuse_first_associate:
   default: True
   options: [False, True]
 
-with_reid:
+use_embeddings:
   type: choice
   default: True
   options: [False, True]

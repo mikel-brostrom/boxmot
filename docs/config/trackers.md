@@ -29,17 +29,15 @@ entry. AABB and OBB tracking both support `iou`, `giou`, `diou`, `ciou`,
 passing a runtime override:
 
 ```python
-from boxmot import BoxMOT
-from boxmot.trackers.registry import create_tracker
-
-model = BoxMOT(
-    tracker="bytetrack",
-    tracker_kwargs={"asso_func": "giou"},
-)
+from boxmot import create_tracker
+from boxmot.trackers import TrackerSpec
 
 tracker = create_tracker(
-    "ocsort",
-    tracker_kwargs={"asso_func": "centroid"},
+    TrackerSpec(
+        name="ocsort",
+        geometry="aabb",
+        options=(("asso_func", "centroid"),),
+    )
 )
 ```
 
@@ -47,7 +45,7 @@ For live tracking or evaluation from the CLI, use the same selector directly:
 
 ```bash
 boxmot track --tracker bytetrack --asso-func giou --source video.mp4
-boxmot eval --dataset mot17 --tracker ocsort --asso-func centroid
+boxmot eval --dataset mot17 --build BUILD_ID --tracker ocsort --asso-func centroid
 ```
 
 For OBB detections, BoxMOT uses these exact definitions:
@@ -96,7 +94,6 @@ track_buffer:
 ```
 
 There is no separate `--tracker-config` CLI flag. The tracker name selects its
-combined built-in file. The low-level `create_tracker(...)` factory accepts a
-scalar YAML path or built-in preset name through `tracker_config`; mapping
-overrides use `tracker_kwargs` or `evolve_param_dict`. Tuning writes fully
-resolved scalar YAML that can be passed back through `tracker_config`.
+combined built-in file. The Python factory accepts only a canonical
+`TrackerSpec`; place scalar overrides in its sorted `options` tuple. Tuning
+writes fully resolved scalar YAML for engine-owned workflows.

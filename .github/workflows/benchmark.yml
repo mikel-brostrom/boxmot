@@ -2,9 +2,9 @@ name: Benchmark
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
   workflow_dispatch:
 
 env:
@@ -43,12 +43,11 @@ jobs:
         with:
           path: ~/.cache/huggingface/hub
           key: >-
-            hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml',
-            'boxmot/configs/artifacts/mot17.yaml') }}
+            hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml') }}
           restore-keys: |
             hf-mot17-parquet-
 
-      - name: Download MOT17 dataset and evaluation caches
+      - name: Download MOT17 dataset
         if: steps.cache-restore.outputs.cache-hit != 'true'
         run: |
           python -m pip install 'huggingface_hub<1.17'
@@ -59,11 +58,6 @@ jobs:
               repo_id="Lekim89/mot17-parquet",
               repo_type="dataset",
               allow_patterns=["images/train/**", "data/**"],
-          )
-          snapshot_download(
-              repo_id="Lekim89/runs",
-              repo_type="dataset",
-              allow_patterns=["runs/dets_n_embs/mot17/ablation/**"],
           )
           PY
 
@@ -115,9 +109,112 @@ jobs:
         with:
           path: ~/.cache/huggingface/hub
           key: >-
-            hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml',
-            'boxmot/configs/artifacts/mot17.yaml') }}
+            hf-mot17-parquet-${{ hashFiles('boxmot/configs/datasets/mot17.yaml') }}
           fail-on-cache-miss: true
+
+      - name: Stage MOT17 ablation layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATA_ROOT="$RUNNER_TEMP/boxmot-data"
+          export DATA_ROOT
+          .venv/bin/python - <<'PY'
+          from __future__ import annotations
+
+          import csv
+          import os
+          from pathlib import Path
+
+          import pyarrow.parquet as pq
+          from huggingface_hub import snapshot_download
+
+          snapshot = Path(
+              snapshot_download(
+                  repo_id="Lekim89/mot17-parquet",
+                  repo_type="dataset",
+                  allow_patterns=["images/train/**", "data/**"],
+                  local_files_only=True,
+              )
+          )
+          dataset_root = Path(os.environ["DATA_ROOT"]) / "MOT17"
+          split_root = dataset_root / "ablation"
+          seqinfo_rows = pq.read_table(snapshot / "data/seqinfo/seqinfo.parquet").to_pylist()
+          gt_rows = pq.read_table(snapshot / "data/gt/train-00000-of-00001.parquet").to_pylist()
+
+          gt_by_sequence: dict[str, list[dict[str, object]]] = {}
+          for row in gt_rows:
+              gt_by_sequence.setdefault(str(row["sequence"]), []).append(row)
+
+          sequence_count = 0
+          image_count = 0
+          for sequence in seqinfo_rows:
+              if str(sequence["split"]) != "train":
+                  continue
+              sequence_name = str(sequence["sequence"])
+              sequence_length = int(sequence["seq_length"])
+              first_source_frame = sequence_length // 2 + 2
+              ablation_length = sequence_length - first_source_frame + 1
+              output_name = f"{sequence_name}-FRCNN"
+              output_root = split_root / output_name
+              image_root = output_root / "img1"
+              image_root.mkdir(parents=True, exist_ok=True)
+
+              source_images = snapshot / "images/train" / sequence_name / "img1"
+              for output_frame, source_frame in enumerate(
+                  range(first_source_frame, sequence_length + 1), start=1
+              ):
+                  source = source_images / f"{source_frame:06d}.jpg"
+                  if not source.is_file():
+                      raise FileNotFoundError(f"Missing cached MOT17 image: {source}")
+                  destination = image_root / f"{output_frame:06d}.jpg"
+                  if not destination.exists():
+                      destination.symlink_to(source.resolve())
+                  image_count += 1
+
+              (output_root / "seqinfo.ini").write_text(
+                  "\n".join(
+                      (
+                          "[Sequence]",
+                          f"name={output_name}",
+                          "imDir=img1",
+                          f"frameRate={int(sequence['fps'])}",
+                          f"seqLength={ablation_length}",
+                          f"imWidth={int(sequence['width'])}",
+                          f"imHeight={int(sequence['height'])}",
+                          "imExt=.jpg",
+                          "",
+                      )
+                  )
+              )
+
+              ground_truth_root = output_root / "gt"
+              ground_truth_root.mkdir(parents=True, exist_ok=True)
+              with (ground_truth_root / "gt.txt").open("w", newline="") as stream:
+                  writer = csv.writer(stream, lineterminator="\n")
+                  for row in gt_by_sequence.get(sequence_name, ()):
+                      source_frame = int(row["frame"])
+                      if not first_source_frame <= source_frame <= sequence_length:
+                          continue
+                      writer.writerow(
+                          (
+                              source_frame - first_source_frame + 1,
+                              int(row["track_id"]),
+                              row["bbox_left"],
+                              row["bbox_top"],
+                              row["bbox_width"],
+                              row["bbox_height"],
+                              row["conf"],
+                              int(row["class_id"]),
+                              row["visibility"],
+                          )
+                      )
+              sequence_count += 1
+
+          if sequence_count == 0 or image_count == 0:
+              raise RuntimeError("Cached MOT17 snapshot did not contain a usable train split")
+          print(f"Staged {image_count} ablation frames across {sequence_count} sequences at {split_root}")
+          PY
+          echo "BOXMOT_BENCHMARK_DATA_ROOT=$DATA_ROOT" >> "$GITHUB_ENV"
 
       - name: Evaluate tracker metrics
         env:
@@ -127,15 +224,22 @@ jobs:
           set -euo pipefail
           source .venv/bin/activate
 
+          BUILD_ROOT="$RUNNER_TEMP/boxmot-builds"
+          boxmot materialize \
+            --experiment mot17-ablation-yolox-lmbn \
+            --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
+            --build-root "$BUILD_ROOT"
+          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
+          test -n "$BUILD_PATH"
+
           boxmot eval \
-            --classes 0 \
-            --detector yolox_x_MOT17_ablation.pt \
-            --reid lmbn_n_duke.pt \
+            --experiment mot17-ablation-yolox-lmbn \
+            --build "$BUILD_PATH" \
+            --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
             --tracker "$TRACKER" \
             --tracker-backend "$TRACKER_BACKEND" \
             --ci \
-            --verbose \
-            --experiment mot17-ablation-yolox-lmbn
+            --verbose
 
           python .github/scripts/tracker_benchmark_results.py record \
             --benchmark mot17-aabb \
@@ -192,7 +296,7 @@ jobs:
           retention-days: 30
 
       - name: Check for README changes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         id: check-changes
         run: |
           if git diff --quiet README.md; then
@@ -203,7 +307,7 @@ jobs:
 
       - name: Create benchmark update pull request
         if: >-
-          github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+          github.event_name == 'push' && github.ref == 'refs/heads/master' &&
           steps.check-changes.outputs.changed == 'true'
         uses: peter-evans/create-pull-request@v7
         with:
