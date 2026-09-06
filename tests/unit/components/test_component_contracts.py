@@ -18,6 +18,7 @@ from boxmot.components.registry import LazyComponentRegistry
 from boxmot.detectors.factory import create_detector
 from boxmot.detectors.protocols import Detector, DetectorCapabilities
 from boxmot.detectors.specs import DetectorSpec
+from boxmot.reid.core.formats import REID_FORMATS
 from boxmot.reid.factory import create_reid_encoder
 from boxmot.reid.protocols import AppearanceEncoder, EncoderRequirements
 from boxmot.reid.specs import ReIDEncoderSpec
@@ -332,6 +333,15 @@ def test_factories_accept_only_specs_and_delegate_to_lazy_registry(
 def test_factories_reject_specs_without_resolved_artifact_identity(factory, spec) -> None:
     with pytest.raises(ValueError, match="resolved local artifact path and its SHA-256"):
         factory(spec)
+
+
+def test_reid_factory_registers_every_runtime_artifact_format() -> None:
+    """Keep exported formats constructible through the component factory."""
+
+    assert set(reid_factory_module._REID_ENCODER_FACTORIES.entries) == {
+        *(format_.id for format_ in REID_FORMATS),
+        "native",
+    }
 
 
 def test_runtime_protocols_are_structural() -> None:

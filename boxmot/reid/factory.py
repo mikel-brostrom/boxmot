@@ -16,8 +16,10 @@ _REID_ENCODER_FACTORIES: LazyComponentRegistry[ReIDEncoderFactory] = LazyCompone
     "ReID",
     {
         "pytorch": "boxmot.reid.adapters:create_python_reid_encoder",
+        "torchscript": "boxmot.reid.adapters:create_python_reid_encoder",
         "onnx": "boxmot.reid.adapters:create_python_reid_encoder",
         "openvino": "boxmot.reid.adapters:create_python_reid_encoder",
+        "tensorrt": "boxmot.reid.adapters:create_python_reid_encoder",
         "tflite": "boxmot.reid.adapters:create_python_reid_encoder",
         "coreml": "boxmot.reid.adapters:create_python_reid_encoder",
         "native": "boxmot.reid.adapters:create_native_reid_encoder",

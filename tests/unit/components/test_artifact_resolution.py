@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 
@@ -34,6 +35,70 @@ def test_resolve_artifact_rejects_missing_and_hash_mismatch(tmp_path) -> None:
         resolve_artifact(path, expected_sha256="0" * 64)
 
 
+def test_resolve_artifact_downloads_huggingface_model_snapshot(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "rtdetr_v2_r18vd"
+    calls: list[dict[str, str]] = []
+
+    def fake_snapshot_download(**kwargs):
+        calls.append(kwargs)
+        local_dir = Path(kwargs["local_dir"])
+        local_dir.mkdir()
+        (local_dir / "config.json").write_text("{}", encoding="utf-8")
+        (local_dir / "model.safetensors").write_bytes(b"weights")
+        metadata = local_dir / ".cache" / "huggingface" / "download"
+        metadata.mkdir(parents=True)
+        (metadata / "config.json.metadata").write_text("unstable timestamp", encoding="utf-8")
+        (local_dir / ".cache" / "required.bin").write_bytes(b"repository artifact")
+        return str(local_dir)
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
+
+    artifact = resolve_artifact(
+        destination,
+        source_uri="hf://PekingU/rtdetr_v2_r18vd",
+        allow_download=True,
+    )
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["repo_id"] == "PekingU/rtdetr_v2_r18vd"
+    assert call["repo_type"] == "model"
+    assert Path(call["local_dir"]).name.startswith(".rtdetr_v2_r18vd.")
+    assert artifact.path == destination.resolve()
+    assert artifact.source_uri == "hf://PekingU/rtdetr_v2_r18vd"
+    assert artifact.sha256 == sha256_artifact(destination)
+    assert not (destination / ".cache" / "huggingface").exists()
+    assert (destination / ".cache" / "required.bin").read_bytes() == b"repository artifact"
+
+
+def test_resolve_artifact_does_not_publish_an_empty_huggingface_snapshot(monkeypatch, tmp_path) -> None:
+    destination = tmp_path / "empty-snapshot"
+
+    def fake_snapshot_download(**kwargs):
+        metadata = Path(kwargs["local_dir"]) / ".cache" / "huggingface"
+        metadata.mkdir(parents=True)
+
+    monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot_download)
+
+    with pytest.raises(ValueError, match="contains no artifact files"):
+        resolve_artifact(
+            destination,
+            source_uri="hf://owner/empty-model",
+            allow_download=True,
+        )
+
+    assert not destination.exists()
+
+
+def test_resolve_artifact_rejects_malformed_huggingface_model_uri(tmp_path) -> None:
+    with pytest.raises(ValueError, match="hf://owner/repository"):
+        resolve_artifact(
+            tmp_path / "snapshot",
+            source_uri="hf://missing-repository-owner",
+            allow_download=True,
+        )
+
+
 def test_resolve_artifact_hashes_snapshot_directories_and_revalidates_before_use(tmp_path) -> None:
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()
@@ -45,15 +110,13 @@ def test_resolve_artifact_hashes_snapshot_directories_and_revalidates_before_use
 
     assert artifact.path == snapshot.resolve()
     assert len(artifact.sha256) == 64
-    assert require_resolved_artifact(
-        str(artifact.path), artifact.sha256, component="test component"
-    ) == snapshot.resolve()
+    assert (
+        require_resolved_artifact(str(artifact.path), artifact.sha256, component="test component") == snapshot.resolve()
+    )
 
     weights.write_bytes(b"changed")
     with pytest.raises(ValueError, match="SHA-256 mismatch"):
-        require_resolved_artifact(
-            str(artifact.path), artifact.sha256, component="test component"
-        )
+        require_resolved_artifact(str(artifact.path), artifact.sha256, component="test component")
 
 
 def test_freeze_json_recursively_canonicalizes_mappings() -> None:

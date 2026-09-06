@@ -92,16 +92,58 @@ def test_missing_bare_ultralytics_selector_resolves_before_spec_hashing(
     assert len(calls) == 1
     resolved_path, source_uri, expected_sha256, allow_download = calls[0]
     assert resolved_path == artifact
-    assert source_uri == (
-        "https://github.com/ultralytics/assets/releases/download/"
-        f"v8.4.0/{selector}.pt"
-    )
+    assert source_uri == (f"https://github.com/ultralytics/assets/releases/download/v8.4.0/{selector}.pt")
     assert expected_sha256 is None
     assert allow_download is True
     assert spec.backend == "ultralytics"
     assert spec.artifact == str(artifact.resolve())
     assert spec.artifact_sha256 == hashlib.sha256(artifact.read_bytes()).hexdigest()
     assert provenance["artifact"]["uri"] == source_uri
+
+
+@pytest.mark.parametrize("selector", ("rtdetr_v2_r18vd", "rtdetr_v2_r18vd.pt"))
+def test_bare_rtdetr_v2_selector_resolves_huggingface_snapshot(
+    selector,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    destination = tmp_path / "rtdetr_v2_r18vd"
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    calls = []
+
+    monkeypatch.setattr(detector_config, "resolve_model_path", lambda _path: destination)
+
+    def resolve_snapshot(path, *, source_uri, expected_sha256, allow_download):
+        calls.append((path, source_uri, expected_sha256, allow_download))
+        return ResolvedArtifact(
+            path=snapshot,
+            sha256=hashlib.sha256(b"snapshot identity").hexdigest(),
+            source_uri=source_uri,
+        )
+
+    spec, provenance = resolve_detector_spec(
+        selector,
+        geometry="aabb",
+        artifact_resolver=resolve_snapshot,
+    )
+
+    assert calls == [
+        (
+            destination,
+            "hf://PekingU/rtdetr_v2_r18vd",
+            None,
+            True,
+        )
+    ]
+    assert spec.backend == "rtdetr"
+    assert spec.artifact == str(snapshot.resolve())
+    assert provenance["artifact"] == {
+        "path": snapshot.resolve().as_posix(),
+        "uri": "hf://PekingU/rtdetr_v2_r18vd",
+        "sha256": spec.artifact_sha256,
+    }
 
 
 def test_detector_artifact_uses_matching_profile_defaults(tmp_path, monkeypatch) -> None:

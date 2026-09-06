@@ -115,7 +115,8 @@ jobs:
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          brew install cmake opencv eigen onnxruntime
+          brew install cmake opencv@4 eigen onnxruntime
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix opencv@4):$(brew --prefix eigen):$(brew --prefix onnxruntime)" >> "$GITHUB_ENV"
       - name: Install boxmot with native extension
         shell: bash
         run: |
@@ -183,8 +184,9 @@ jobs:
           boxmot materialize --experiment mot17-mini-train-yolox-lmbn \
             --data-root "$DATA_ROOT" \
             --build-root "$BUILD_ROOT"
-          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
-          test -n "$BUILD_PATH"
+          BUILD_MANIFEST=$(find "$BUILD_ROOT" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print -quit)
+          test -n "$BUILD_MANIFEST"
+          BUILD_PATH=$(dirname "$BUILD_MANIFEST")
           boxmot tune --experiment mot17-mini-train-yolox-lmbn --build "$BUILD_PATH" \
             --data-root "$DATA_ROOT" \
             --n-trials 3 --tracker strongsort --ci
@@ -230,8 +232,9 @@ jobs:
           boxmot materialize --experiment mot17-mini-train-yolox-lmbn \
             --data-root "$DATA_ROOT" \
             --build-root "$BUILD_ROOT"
-          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
-          test -n "$BUILD_PATH"
+          BUILD_MANIFEST=$(find "$BUILD_ROOT" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print -quit)
+          test -n "$BUILD_MANIFEST"
+          BUILD_PATH=$(dirname "$BUILD_MANIFEST")
           echo "BOXMOT_CI_BUILD=$BUILD_PATH" >> "$GITHUB_ENV"
           echo "BOXMOT_CI_DATA_ROOT=$DATA_ROOT" >> "$GITHUB_ENV"
 
@@ -455,7 +458,7 @@ jobs:
           python-version: '3.11'
       - uses: ./.github/actions/prepare-ci-assets
       - run: |
-          uv sync --locked --no-default-groups --extra cpu --extra yolo
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra rtdetr
           # Export so that setuptools picks up clang instead of gcc
           echo "CC=clang" >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV

@@ -160,6 +160,9 @@ jobs:
           import sys
 
           import boxmot
+          import boxmot.engine.materialization.workflow
+          import boxmot.engine.tracking.sinks
+          import boxmot.engine.tracking.sources
 
           expected = (
               "__version__",

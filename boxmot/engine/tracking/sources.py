@@ -12,11 +12,12 @@ import time
 from collections.abc import Iterator
 from glob import glob
 from pathlib import Path
-from typing import Protocol, Self, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 import cv2
 import numpy as np
 import torch
+from typing_extensions import Self
 
 from boxmot.structures import Frame
 

@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import IO, Callable, Protocol, Self, runtime_checkable
+from typing import IO, Callable, Protocol, runtime_checkable
 
 import cv2
 import numpy as np
+from typing_extensions import Self
 
 from boxmot.engine.tracking.profiling import timed_runtime_stage
 from boxmot.pipelines import PipelineResult

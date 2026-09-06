@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 _DIRECTORY_HASH_DOMAIN = b"boxmot-artifact-directory-v1\0"
 
@@ -82,6 +84,58 @@ def _download_url(uri: str) -> str:
     raise ValueError(f"Unsupported model artifact URI: {uri!r}")
 
 
+def _huggingface_repo_id(uri: str) -> str:
+    """Return the ``owner/repository`` portion of a model snapshot URI."""
+
+    repository = uri.removeprefix("hf://")
+    parts = repository.split("/")
+    if len(parts) != 2 or any(not part or part in {".", ".."} for part in parts):
+        raise ValueError(f"Invalid Hugging Face model artifact URI {uri!r}; expected 'hf://owner/repository'.")
+    return repository
+
+
+def _download_huggingface_snapshot(uri: str, destination: Path) -> Path:
+    """Download and atomically publish one Hugging Face model snapshot."""
+
+    from huggingface_hub import snapshot_download
+
+    repository = _huggingface_repo_id(uri)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.part")
+    try:
+        snapshot_download(
+            repo_id=repository,
+            repo_type="model",
+            local_dir=str(temporary),
+        )
+        # ``local_dir`` downloads include Hugging Face transport metadata whose
+        # timestamps are not part of the model. Exclude only that namespaced
+        # metadata so a repository-owned ``.cache`` entry remains intact.
+        cache_root = temporary / ".cache"
+        shutil.rmtree(cache_root / "huggingface", ignore_errors=True)
+        try:
+            cache_root.rmdir()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # The repository owns another entry under ``.cache``.
+            pass
+        if not any(entry.is_file() or entry.is_symlink() for entry in temporary.rglob("*")):
+            raise ValueError(f"Hugging Face model snapshot {repository!r} contains no artifact files.")
+        try:
+            temporary.replace(destination)
+        except OSError:
+            # A concurrent resolver may have published the same destination
+            # while this process was downloading. Reuse only a complete
+            # directory; all other publication failures remain actionable.
+            if not destination.is_dir():
+                raise
+        return destination
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary, ignore_errors=True)
+
+
 def resolve_artifact(
     path: str | Path,
     *,
@@ -96,14 +150,15 @@ def resolve_artifact(
         if not allow_download or source_uri is None:
             hint = " Supply a resolved local artifact before materialization."
             raise FileNotFoundError(f"Model artifact does not exist: {resolved}.{hint}")
-        from boxmot.resources.download import download_file
+        if source_uri.startswith("hf://"):
+            resolved = _download_huggingface_snapshot(source_uri, resolved).resolve()
+        else:
+            from boxmot.resources.download import download_file
 
-        download_file(_download_url(source_uri), resolved)
+            download_file(_download_url(source_uri), resolved)
     digest = sha256_artifact(resolved)
     if expected_sha256 is not None and digest != expected_sha256:
-        raise ValueError(
-            f"Artifact SHA-256 mismatch for {resolved}: expected {expected_sha256}, got {digest}."
-        )
+        raise ValueError(f"Artifact SHA-256 mismatch for {resolved}: expected {expected_sha256}, got {digest}.")
     return ResolvedArtifact(path=resolved, sha256=digest, source_uri=source_uri)
 
 

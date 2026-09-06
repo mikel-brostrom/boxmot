@@ -563,6 +563,20 @@ def test_source_tree_never_imports_removed_v24_modules() -> None:
     assert violations == []
 
 
+def test_source_tree_uses_backport_for_typing_self() -> None:
+    """Keep workflow imports valid on the declared Python 3.10 minimum."""
+
+    violations: list[str] = []
+    for path in PACKAGE_ROOT.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.module != "typing":
+                continue
+            if any(alias.name == "Self" for alias in node.names):
+                violations.append(f"{path.relative_to(PACKAGE_ROOT.parent)} imports typing.Self")
+    assert violations == []
+
+
 def test_engine_materialization_does_not_own_parquet_implementations() -> None:
     materialization = PACKAGE_ROOT / "engine" / "materialization"
     parquet_imports = []

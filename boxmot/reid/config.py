@@ -17,6 +17,8 @@ from boxmot.components.resolution import (
     resolve_component_artifact,
 )
 from boxmot.configs import CONFIG_ROOT
+from boxmot.reid.core.catalog import TRAINED_URLS
+from boxmot.reid.core.formats import resolve_reid_format
 from boxmot.reid.specs import ReIDEncoderSpec
 from boxmot.utils.config import ConfigurationError, load_yaml_mapping, resolve_config_path, validate_config_id
 
@@ -130,19 +132,12 @@ def load_runtime_reid_config(reference: str | Path | None) -> dict[str, Any]:
     return load_reid_profile(config_path) if config_path is not None else {}
 
 
-def _reid_backend(artifact: str) -> str:
-    suffix = Path(artifact).suffix.lower()
-    mapping = {
-        ".pt": "pytorch",
-        ".pth": "pytorch",
-        ".onnx": "onnx",
-        ".xml": "openvino",
-        ".tflite": "tflite",
-        ".mlpackage": "coreml",
-    }
+def _reid_backend(artifact: str | Path) -> str:
+    """Infer a backend through the canonical ReID format registry."""
+
     try:
-        return mapping[suffix]
-    except KeyError as exc:
+        return resolve_reid_format(artifact).id
+    except ValueError as exc:
         raise ConfigurationError(f"Cannot infer ReID backend from artifact {artifact!r}.") from exc
 
 
@@ -172,10 +167,15 @@ def _direct_reid_payload(artifact_path: Path) -> tuple[dict[str, Any], Path | No
     if profile_path is not None:
         profile = load_reid_config(profile_path)
         return _reid_profile_payload(profile, artifact_path=artifact_path), profile_path
+    artifact: dict[str, str] = {"path": str(artifact_path)}
+    if not artifact_path.exists():
+        source_uri = TRAINED_URLS.get(artifact_path.name)
+        if source_uri is not None:
+            artifact["uri"] = source_uri
     return (
         {
             "backend": _reid_backend(str(artifact_path)),
-            "artifact": {"path": str(artifact_path)},
+            "artifact": artifact,
             "device": "cpu",
             "precision": "fp32",
             "preprocessing": "default",

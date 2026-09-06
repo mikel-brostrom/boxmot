@@ -229,8 +229,9 @@ jobs:
             --experiment mot17-ablation-yolox-lmbn \
             --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
             --build-root "$BUILD_ROOT"
-          BUILD_PATH=$(find "$BUILD_ROOT" -mindepth 1 -maxdepth 1 -type d ! -name .staging -print -quit)
-          test -n "$BUILD_PATH"
+          BUILD_MANIFEST=$(find "$BUILD_ROOT" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print -quit)
+          test -n "$BUILD_MANIFEST"
+          BUILD_PATH=$(dirname "$BUILD_MANIFEST")
 
           boxmot eval \
             --experiment mot17-ablation-yolox-lmbn \

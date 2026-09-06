@@ -21,6 +21,7 @@ from boxmot.components.resolution import (
 )
 from boxmot.configs import CONFIG_ROOT
 from boxmot.detectors.specs import DetectorSpec
+from boxmot.resources.paths import resolve_model_path
 from boxmot.utils.config import (
     ConfigurationError,
     iter_config_paths,
@@ -305,6 +306,20 @@ def _ultralytics_asset_uri(reference: str | Path) -> str | None:
     return f"https://github.com/{GITHUB_ASSETS_REPO}/releases/download/{release}/{name}"
 
 
+def _rtdetr_snapshot_artifact(reference: str | Path) -> tuple[Path, str] | None:
+    """Map a bare RT-DETR v2 selector to its canonical Hub snapshot."""
+
+    selector = Path(reference)
+    if selector.parent != Path("."):
+        return None
+    model_name = selector.name
+    while model_name.lower().endswith(".pt"):
+        model_name = model_name[:-3]
+    if not model_name.lower().startswith("rtdetr_v2_"):
+        return None
+    return resolve_model_path(model_name), f"hf://PekingU/{model_name}"
+
+
 def resolve_detector_spec(
     reference: str | Path | Mapping[str, Any],
     *,
@@ -334,15 +349,20 @@ def resolve_detector_spec(
                 except FileNotFoundError:
                     if Path(reference).suffix.lower() in YAML_SUFFIXES:
                         raise
-                    artifact_path = fallback_artifact_path(reference)
-                    payload, config_path = _direct_detector_payload(
-                        artifact_path,
-                        geometry=geometry,
-                        artifact_uri=(
+                    rtdetr_snapshot = _rtdetr_snapshot_artifact(reference)
+                    if rtdetr_snapshot is None:
+                        artifact_path = fallback_artifact_path(reference)
+                        artifact_uri = (
                             _ultralytics_asset_uri(reference)
                             if _detector_backend(str(reference), artifact_path.name) == "ultralytics"
                             else None
-                        ),
+                        )
+                    else:
+                        artifact_path, artifact_uri = rtdetr_snapshot
+                    payload, config_path = _direct_detector_payload(
+                        artifact_path,
+                        geometry=geometry,
+                        artifact_uri=artifact_uri,
                     )
                 else:
                     config_path = Path(profile["config_path"])
