@@ -254,7 +254,7 @@ from boxmot import ByteTrack
 tracker = ByteTrack()
 dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
 tracks = tracker.update(dets)
-print(tracks.track_ids)
+print(tracks[:, 4].astype(int))  # track IDs
 ```
 
 ## Contributing

@@ -37,9 +37,10 @@ embeddings aligned during immutable selection.
 
 For a standalone box-only call, `tracker.update(rows)` also accepts an exact
 NumPy `N x 6` matrix in `(x1, y1, x2, y2, confidence, class_id)` order. The
-return value is still `Tracks`; use `to_aabb_rows()` only when an external file
-or wire format needs an AABB8 matrix. Use `Detections` for embeddings, masks,
-explicit sample identity without a `Frame`, and pipeline composition.
+return value is a C-contiguous `float64` `M x 8` matrix in
+`(x1, y1, x2, y2, track_id, confidence, class_id, detection_index)` order.
+Use `Detections` for `Tracks`, embeddings, masks, sample metadata, and pipeline
+composition.
 
 All registered Python trackers support AABB geometry. Start with ByteTrack for
 a lightweight baseline, then choose an appearance-assisted tracker when

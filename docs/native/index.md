@@ -36,8 +36,8 @@ tracks = tracker.update(detections, frame)
 Canonical inputs and outputs remain CPU-contiguous Torch structures at the
 Python boundary. For simple box-only calls, the high-level native tracker also
 accepts the same exact NumPy AABB6 or OBB7 matrix as the Python backend and
-still returns `Tracks`. Use `Detections` when providing enrichments or explicit
-sample identity without a `Frame`.
+returns packed `float64` AABB8 or OBB9 rows. Use `Detections` when returning
+`Tracks` or providing enrichments and sample metadata.
 
 The low-level ctypes modules under `boxmot/native/trackers/` accept only typed,
 contiguous NumPy buffers. Canonical conversion, requirements, configuration,

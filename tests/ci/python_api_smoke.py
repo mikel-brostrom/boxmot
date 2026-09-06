@@ -42,11 +42,11 @@ def test_python_api_smoke() -> None:
     dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
     tracks = tracker.update(dets)
     next_tracks = tracker.update(dets)
-    assert tracks.to_aabb_rows().shape == (1, 8)
-    assert next_tracks.to_aabb_rows().shape == (1, 8)
-    assert tracks.sample_id == "numpy:000000"
-    assert next_tracks.sample_id == "numpy:000001"
-    assert next_tracks.track_ids.tolist() == tracks.track_ids.tolist()
+    assert type(tracks) is np.ndarray
+    assert type(next_tracks) is np.ndarray
+    assert tracks.shape == (1, 8)
+    assert next_tracks.shape == (1, 8)
+    assert next_tracks[:, 4].tolist() == tracks[:, 4].tolist()
 
 
 def test_cli_command_surface_smoke() -> None:

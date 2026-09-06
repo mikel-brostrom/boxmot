@@ -138,6 +138,7 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.TrackerRequirements is TrackerRequirements
     assert public_trackers.TrackerSpec is TrackerSpec
     assert public_trackers.create_tracker is create_tracker
+    assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame")
     for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
         assert not hasattr(public_trackers, implementation_name)
 
@@ -190,38 +191,59 @@ def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
     tracker = _RecordingTracker(is_obb=is_obb)
     tracks = tracker.update(rows)
 
-    assert isinstance(tracks, Tracks)
-    assert tracks.sample_id == "numpy:000000"
-    assert tracks.is_obb is is_obb
-    assert tracks.class_ids.tolist() == [16_777_217]
+    assert type(tracks) is np.ndarray
+    assert tracks.dtype == np.float64
+    assert tracks.shape == (1, geometry_columns + 4)
+    assert tracks.flags.c_contiguous
+    np.testing.assert_allclose(tracks[0, :geometry_columns], rows[0, :geometry_columns].astype(np.float32))
+    assert tracks[0, geometry_columns] == 7
+    assert tracks[0, geometry_columns + 1] == pytest.approx(np.float32(0.95))
+    assert tracks[0, geometry_columns + 2] == 16_777_217
+    assert tracks[0, geometry_columns + 3] == 0
     assert tracker.seen["dets"].shape == (1, geometry_columns + 2)
     assert tracker.seen["dets"].dtype == np.float32
 
 
-def test_numpy_input_generates_sequence_ids_for_empty_updates_and_reset() -> None:
-    tracker = _RecordingTracker()
-    empty = np.empty((0, 6), dtype=np.float64)
+@pytest.mark.parametrize(("is_obb", "input_columns", "output_columns"), ((False, 6, 8), (True, 7, 9)))
+def test_numpy_input_preserves_empty_output_schema_across_reset(
+    is_obb: bool,
+    input_columns: int,
+    output_columns: int,
+) -> None:
+    tracker = _RecordingTracker(is_obb=is_obb)
+    empty = np.empty((0, input_columns), dtype=np.float64)
 
     first = tracker.update(empty)
-    second = tracker.update(empty)
     tracker.reset()
     after_reset = tracker.update(empty)
 
-    assert first.sample_id == "numpy:000000"
-    assert second.sample_id == "numpy:000001"
-    assert after_reset.sample_id == "numpy:000000"
-    assert first.geometry.values.shape == (0, 4)
+    for tracks in (first, after_reset):
+        assert type(tracks) is np.ndarray
+        assert tracks.dtype == np.float64
+        assert tracks.shape == (0, output_columns)
+        assert tracks.flags.c_contiguous
 
 
-def test_numpy_input_uses_frame_sample_id_without_consuming_generated_id() -> None:
+def test_numpy_input_returns_numpy_with_or_without_frame() -> None:
     tracker = _RecordingTracker()
     rows = np.array([[10, 12, 30, 44, 0.95, 2]], dtype=np.float32)
 
     framed = tracker.update(rows, _frame("camera-1:000042"))
     unframed = tracker.update(rows)
 
-    assert framed.sample_id == "camera-1:000042"
-    assert unframed.sample_id == "numpy:000000"
+    assert type(framed) is np.ndarray
+    assert type(unframed) is np.ndarray
+    np.testing.assert_array_equal(framed, unframed)
+
+
+def test_numpy_output_rejects_integer_columns_outside_exact_float64_range() -> None:
+    rows = np.array([[10, 12, 30, 44, 1.0, 2**53 + 2]], dtype=np.float64)
+    tracker = _RecordingTracker()
+
+    with pytest.raises(ValueError, match="exact float64 integer range"):
+        tracker.update(rows)
+
+    assert tracker.seen == {}
 
 
 @pytest.mark.parametrize(

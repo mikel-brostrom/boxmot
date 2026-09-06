@@ -71,8 +71,13 @@ print(tracks.geometry.values, tracks.track_ids)
 tracker.reset()
 ```
 
-The public method is
-`update(detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks`.
+The public method preserves the input representation:
+
+```text
+update(detections: Detections, frame: Frame | None = None) -> Tracks
+update(detections: np.ndarray, frame: Frame | None = None) -> np.ndarray
+```
+
 A tracker configured for AABB expects exactly `N x 6`
 `(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
 `(cx, cy, w, h, angle, confidence, class_id)` rows. Real numeric arrays are
@@ -82,12 +87,20 @@ inferred from the first matrix.
 Class IDs retain only the integer precision present in the packed array. Use
 `Detections.class_ids` with `int64` storage when large IDs must remain exact.
 
+Packed NumPy input returns a C-contiguous `float64` matrix. AABB output is
+`M x 8` in `(x1, y1, x2, y2, track_id, confidence, class_id,
+detection_index)` order. OBB output is `M x 9` with
+`(cx, cy, w, h, angle)` replacing the first four coordinates. Empty results
+retain the corresponding `(0, 8)` or `(0, 9)` shape. Integer columns must fit
+the exact `float64` integer range (`-2**53` through `2**53`); use structured
+`Detections` input and `Tracks` output when unrestricted `int64` values or
+track-aligned masks are required.
+
 The NumPy form is a convenience for simple box-only tracker calls. Use
-`Detections` when providing embeddings or masks and whenever composing a
-pipeline. A supplied `Frame` provides the sample ID; without one, standalone
-NumPy updates receive sequential internal sample IDs. A
-`detection_indices == -1` value identifies a propagated track without a current
-detection.
+`Detections` when providing embeddings, masks, sample metadata, or composing a
+pipeline. A supplied `Frame` does not change the NumPy return type or add sample
+metadata. A `detection_index == -1` value identifies a propagated track without
+a current detection.
 
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`.

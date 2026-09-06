@@ -12,6 +12,10 @@ are `int64`. Tensors are CPU-contiguous. Constructors reject invalid dtype,
 device, rank, contiguity, finiteness, extent, score range, or row alignment
 instead of correcting inputs silently.
 
+Those dtypes describe canonical structures. A plain NumPy input uses the
+packed row boundary and returns a C-contiguous `float64` AABB8 or OBB9 matrix;
+a `Detections` input returns canonical `Tracks`.
+
 A tracker instance has one fixed geometry mode. Its update validates that
 `Detections.geometry` matches. Evaluation also validates the dataset and build
 geometry before replay.

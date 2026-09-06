@@ -226,7 +226,7 @@ def test_frame_adapter_explicitly_converts_chw_rgb_to_hwc_bgr() -> None:
     assert library.image.reshape(-1).tolist() == [3, 2, 1]
 
 
-def test_native_tracker_accepts_float64_numpy_rows_and_resets_generated_sample_ids() -> None:
+def test_native_tracker_accepts_float64_numpy_rows_and_returns_packed_aabb8() -> None:
     library = _FakeBinding()
     tracker = NativeByteTrackTracker(geometry="aabb", library=library)
     rows = np.array([[1, 2, 11, 22, 0.9, 16_777_217]], dtype=np.float64)
@@ -241,12 +241,14 @@ def test_native_tracker_accepts_float64_numpy_rows_and_resets_generated_sample_i
     tracker.reset()
     after_reset = tracker.update(np.empty((0, 6), dtype=np.float32))
 
-    assert first.sample_id == "numpy:000000"
-    assert second.sample_id == "numpy:000001"
-    assert after_reset.sample_id == "numpy:000000"
+    for tracks in (first, second, after_reset):
+        assert type(tracks) is np.ndarray
+        assert tracks.dtype == np.float64
+        assert tracks.shape == (0, 8)
+        assert tracks.flags.c_contiguous
 
 
-def test_native_tracker_accepts_configured_obb7_rows_and_uses_frame_sample_id() -> None:
+def test_native_tracker_accepts_configured_obb7_rows_with_frame_and_returns_obb9() -> None:
     tracker = NativeByteTrackTracker(geometry="obb", library=_FakeObbBinding())
     frame = Frame(
         image=torch.zeros((3, 8, 8), dtype=torch.uint8),
@@ -256,10 +258,14 @@ def test_native_tracker_accepts_configured_obb7_rows_and_uses_frame_sample_id() 
 
     tracks = tracker.update(rows, frame)
 
-    assert tracks.sample_id == frame.sample_id
-    assert tracks.is_obb
-    assert tracks.class_ids.tolist() == [2]
-    assert tracks.detection_indices.tolist() == [0]
+    assert type(tracks) is np.ndarray
+    assert tracks.dtype == np.float64
+    assert tracks.shape == (1, 9)
+    assert tracks.flags.c_contiguous
+    np.testing.assert_allclose(tracks[0, :5], rows[0, :5].astype(np.float32))
+    assert tracks[0, 5] == 9
+    assert tracks[0, 6] == pytest.approx(np.float32(0.95))
+    assert tracks[0, 7:].tolist() == [2, 0]
 
 
 def test_native_tracker_preserves_unwrapped_obb_angle_continuity() -> None:

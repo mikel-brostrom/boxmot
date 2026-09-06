@@ -14,8 +14,8 @@ When adding oriented bounding box support to a tracker:
 - keep AABB and OBB parsing paths explicit
 - keep motion and association logic OBB-aware in OBB mode, using shared
   geometry helpers from `boxmot/trackers/common/geometry/obb.py` where possible
-- emit canonical `Tracks` with `OrientedBoxes`; use the exact OBB9 order only in
-  the explicit serializer:
+- emit canonical `Tracks` with `OrientedBoxes` for canonical input and packed
+  NumPy rows for packed input; use this exact OBB9 order:
   `(cx, cy, w, h, angle, id, conf, cls, detection_index)`
 - if the tracker returns masks, keep them row-aligned with the emitted
   `Tracks`
@@ -23,7 +23,7 @@ When adding oriented bounding box support to a tracker:
 ## Tests to add
 
 - tracker accepts canonical OBB detections
-- tracker returns OBB `Tracks` and its serializer returns nine columns
+- canonical input returns OBB `Tracks`; packed input returns nine NumPy columns
 - OBB association uses oriented geometry
 - plotting/history remains stable across frames
 - angle updates remain smooth without discontinuous jumps

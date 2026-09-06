@@ -14,7 +14,9 @@ how those observations are associated.
 
 Angles are expressed in radians. `N` is the number of detections and `M` is
 the number of emitted tracks; the values can differ when a tracker is coasting
-through a missed detection.
+through a missed detection. The table describes canonical `Detections` input.
+Standalone packed NumPy AABB6 or OBB7 input instead returns a C-contiguous
+`float64` AABB8 or OBB9 matrix.
 
 ## Shared workflow
 

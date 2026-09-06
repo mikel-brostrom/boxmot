@@ -297,7 +297,9 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
   - AABB: `(x1, y1, x2, y2, conf, cls)` (6 columns)
   - OBB: `(cx, cy, w, h, angle, conf, cls)` (7 columns)
 - Output tracks:
-  - AABB: 8 columns
+  - Canonical `Detections` input returns `Tracks`.
+  - Packed NumPy input returns C-contiguous `float64` rows.
+  - AABB: 8 columns `(x1, y1, x2, y2, id, conf, cls, det_ind)`
   - OBB: 9 columns `(cx, cy, w, h, angle, id, conf, cls, det_ind)`
 
 ### Implementation checklist
@@ -339,8 +341,10 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
   - Choose the candidate closest to the reference state, then apply damped angular update.
 
 7) Emit schema-correct outputs
-  - AABB outputs must remain 8 columns.
-  - OBB outputs must remain 9 columns in the exact order:
+  - Canonical input must return `Tracks`; packed NumPy input must return a
+    C-contiguous `float64` matrix.
+  - Packed AABB outputs must remain 8 columns.
+  - Packed OBB outputs must remain 9 columns in the exact order:
     `(cx, cy, w, h, angle, id, conf, cls, det_ind)`.
 
 ### Testing expectations
@@ -348,7 +352,7 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 At minimum, add or update tests to cover:
 
 - tracker accepts OBB detections
-- tracker returns 9-column OBB outputs
+- packed input returns 9-column OBB output and canonical input returns `Tracks`
 - OBB association path uses oriented geometry
 - OBB plotting/history path remains stable across frames
 - OBB angle update is smooth:

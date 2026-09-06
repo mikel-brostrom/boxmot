@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, overload
 
 import numpy as np
 import torch
@@ -11,7 +11,7 @@ import torch
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
-from boxmot.trackers.common.input import parse_numpy_detection_rows
+from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
 from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.protocols import TrackerRequirements
 
@@ -144,7 +144,6 @@ class NativeTrackerAdapter:
         self._handle = self._library.create(self.cfg)
         self._obb_output_by_track_id: dict[int, np.ndarray] = {}
         self._dimension_only_images: dict[tuple[int, int], np.ndarray] = {}
-        self._numpy_sample_index = 0
 
     @property
     def requirements(self) -> TrackerRequirements:
@@ -152,8 +151,14 @@ class NativeTrackerAdapter:
 
         return self._requirements
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
-        """Convert public structures or packed NumPy rows for one native update."""
+    @overload
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+
+    @overload
+    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
+        """Invoke one native update and preserve the input representation."""
 
         if frame is not None and not isinstance(frame, Frame):
             raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
@@ -161,7 +166,7 @@ class NativeTrackerAdapter:
             frame.validate()
 
         is_obb = self.geometry == "obb"
-        numpy_input = isinstance(detections, np.ndarray)
+        numpy_input = type(detections) is np.ndarray
         if isinstance(detections, Detections):
             # Canonical dataclasses are frozen, but their tensor storage remains
             # mutable. Revalidate before exposing that storage to ctypes.
@@ -186,7 +191,7 @@ class NativeTrackerAdapter:
             )
         else:
             rows = parse_numpy_detection_rows(detections, is_obb=is_obb)
-            sample_id = frame.sample_id if frame is not None else f"numpy:{self._numpy_sample_index:06d}"
+            sample_id = None
             geometry = rows.geometry
             scores = rows.scores
             class_ids = rows.class_ids
@@ -210,29 +215,40 @@ class NativeTrackerAdapter:
                 placeholders=self._dimension_only_images,
             ),
         )
-        tracks = _to_tracks(batch, sample_id=sample_id, is_obb=is_obb)
-        if is_obb and len(tracks):
-            geometry = tracks.geometry.values.numpy().copy()
-            for index, track_id in enumerate(tracks.track_ids.tolist()):
+        output_geometry = batch.geometry
+        if is_obb and len(batch.track_ids):
+            output_geometry = batch.geometry.copy()
+            for index, track_id in enumerate(batch.track_ids.tolist()):
                 previous = self._obb_output_by_track_id.get(track_id)
                 if previous is not None:
-                    geometry[index] = align_obb_measurement(geometry[index], previous)
-                self._obb_output_by_track_id[track_id] = geometry[index].copy()
-            tracks = Tracks(
-                geometry=OrientedBoxes(torch.from_numpy(geometry)),
-                track_ids=tracks.track_ids,
-                scores=tracks.scores,
-                class_ids=tracks.class_ids,
-                detection_indices=tracks.detection_indices,
-                sample_id=tracks.sample_id,
-            )
-        if tracks.detection_indices.numel() and bool((tracks.detection_indices >= len(scores)).any()):
+                    output_geometry[index] = align_obb_measurement(output_geometry[index], previous)
+                self._obb_output_by_track_id[track_id] = output_geometry[index].copy()
+        if batch.detection_indices.size and np.any(batch.detection_indices >= len(scores)):
             raise ValueError(
                 f"Native {self._native_display_name} returned a detection index outside the current batch."
             )
-        if numpy_input and frame is None:
-            self._numpy_sample_index += 1
-        return tracks
+
+        if numpy_input:
+            return pack_numpy_track_rows(
+                geometry=output_geometry,
+                track_ids=batch.track_ids,
+                scores=batch.scores,
+                class_ids=batch.class_ids,
+                detection_indices=batch.detection_indices,
+                is_obb=is_obb,
+                detection_count=len(scores),
+                owner=f"Native {self._native_display_name}",
+            )
+
+        assert sample_id is not None
+        output_batch = NativeTrackBatch(
+            geometry=output_geometry,
+            scores=batch.scores,
+            track_ids=batch.track_ids,
+            class_ids=batch.class_ids,
+            detection_indices=batch.detection_indices,
+        )
+        return _to_tracks(output_batch, sample_id=sample_id, is_obb=is_obb)
 
     def reset(self) -> None:
         """Reset native state and OBB continuity state."""
@@ -240,7 +256,6 @@ class NativeTrackerAdapter:
         self._library.reset(self._handle)
         self._obb_output_by_track_id.clear()
         self._dimension_only_images.clear()
-        self._numpy_sample_index = 0
 
     def close(self) -> None:
         """Release the native tracker handle."""

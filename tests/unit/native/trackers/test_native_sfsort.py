@@ -85,7 +85,8 @@ def test_native_sfsort_accepts_numpy_aabb6_when_frame_requirement_is_met() -> No
             tracker.update(rows)
 
         output = tracker.update(rows, frame)
-        assert output.sample_id == frame.sample_id
+        assert type(output) is np.ndarray
+        assert output.shape == (0, 8)
         assert library.calls[1] == ("update", "handle", 1, (8, 8, 3), 4, None)
     finally:
         tracker.close()
@@ -168,8 +169,8 @@ def test_native_sfsort_accepts_numpy_obb7_with_frame() -> None:
     finally:
         tracker.close()
 
-    assert output.is_obb
-    assert output.to_obb_rows().shape == (0, 9)
+    assert type(output) is np.ndarray
+    assert output.shape == (0, 9)
     assert library.calls[1] == ("update", "handle", 1, (12, 12, 3), 5, None)
 
 

@@ -83,7 +83,8 @@ inherited `BaseTracker.update()` rejects a `Detections` object with a different
 geometry mode. For standalone box-only calls, the same fixed mode selects the
 required NumPy input shape: exact AABB `N x 6` or OBB `N x 7` rows. Use
 `Detections` when passing embeddings or masks, controlling sample identity
-without a `Frame`, or composing a pipeline.
+or composing a pipeline. Plain NumPy input returns `float64` AABB `M x 8` or
+OBB `M x 9` rows; `Detections` input returns `Tracks`.
 
 ### Track angle "snaps" or flips between frames
 

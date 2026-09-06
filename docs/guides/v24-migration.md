@@ -50,8 +50,9 @@ tracks = tracker.update(detections)
 ```
 
 Standalone box-only trackers also accept exact NumPy AABB6 or OBB7 matrices.
-This convenience does not restore the removed `img`, `embs`, or `masks`
-arguments; use canonical structures for those inputs and for pipelines.
+They return packed `float64` AABB8 or OBB9 matrices. This convenience does not
+restore the removed `img`, `embs`, or `masks` arguments; use canonical
+structures for those inputs, `Tracks` output, and pipelines.
 
 ## Cache cutover
 

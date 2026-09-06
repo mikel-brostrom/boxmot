@@ -1,5 +1,6 @@
 from abc import abstractmethod
 from collections.abc import Iterable, Mapping
+from typing import overload
 
 import numpy as np
 import torch
@@ -9,7 +10,7 @@ from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
-from boxmot.trackers.common.input import parse_numpy_detection_rows
+from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.classes import ClassCatalog
@@ -148,7 +149,6 @@ class BaseTracker(
         self.id_allocator = TrackIdAllocator()
 
         self.frame_count = 0
-        self._numpy_sample_index = 0
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
@@ -189,14 +189,20 @@ class BaseTracker(
             frame_dimensions_only=bool(self._requires_frame_dimensions_only),
         )
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
-        """Advance one sequence using canonical structures or packed NumPy rows."""
+    @overload
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+
+    @overload
+    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
+        """Advance one sequence and preserve the input representation in the output."""
         if frame is not None and not isinstance(frame, Frame):
             raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
         if frame is not None:
             frame.validate()
 
-        numpy_input = isinstance(detections, np.ndarray)
+        numpy_input = type(detections) is np.ndarray
         mask_image_size = None
         if isinstance(detections, Detections):
             detections.validate()
@@ -216,7 +222,7 @@ class BaseTracker(
                 mask_image_size = detections.masks.image_size
         else:
             rows = parse_numpy_detection_rows(detections, is_obb=self.is_obb)
-            sample_id = frame.sample_id if frame is not None else f"numpy:{self._numpy_sample_index:06d}"
+            sample_id = None
             geometry = rows.geometry
             scores = rows.scores
             class_ids = rows.class_ids
@@ -248,9 +254,8 @@ class BaseTracker(
             embeddings=embeddings,
             masks=masks,
             mask_image_size=mask_image_size,
+            numpy_output=numpy_input,
         )
-        if numpy_input and frame is None:
-            self._numpy_sample_index += 1
         return tracks
 
     def _update_arrays(
@@ -259,13 +264,14 @@ class BaseTracker(
         geometry: np.ndarray,
         scores: np.ndarray,
         class_ids: np.ndarray,
-        sample_id: str,
+        sample_id: str | None,
         frame: Frame | None,
         embeddings: np.ndarray | None,
         masks: np.ndarray | None,
         mask_image_size: tuple[int, int] | None,
-    ) -> Tracks:
-        """Invoke one legacy NumPy kernel update and wrap its typed result."""
+        numpy_output: bool,
+    ) -> Tracks | np.ndarray:
+        """Invoke one NumPy kernel update and return its requested public representation."""
         self.class_catalog.validate_ids(class_ids.tolist())
         kernel_class_ids = np.asarray(
             [self._encode_kernel_class_id(int(value)) for value in class_ids.tolist()],
@@ -301,11 +307,13 @@ class BaseTracker(
         if raw.size and not np.isfinite(raw).all():
             raise ValueError(f"{self.__class__.__name__} kernel returned non-finite track rows.")
 
-        def integer_column(index: int, name: str) -> torch.Tensor:
+        def integer_column(index: int, name: str) -> np.ndarray:
             values = raw[:, index]
             if values.size and not np.equal(values, np.floor(values)).all():
                 raise ValueError(f"{self.__class__.__name__} kernel returned non-integer {name}.")
-            return torch.from_numpy(np.ascontiguousarray(values, dtype=np.int64))
+            if values.size and (np.any(values < -(2**63)) or np.any(values >= 2**63)):
+                raise ValueError(f"{self.__class__.__name__} kernel returned {name} outside the int64 range.")
+            return np.ascontiguousarray(values, dtype=np.int64)
 
         track_ids = integer_column(self.detection_layout.schema.track_id_index, "track IDs")
         geometry_columns = self.detection_layout.box_cols
@@ -317,20 +325,37 @@ class BaseTracker(
                 if previous is not None:
                     geometry_array[index] = align_obb_measurement(geometry_array[index], previous)
                 self._obb_output_by_track_id[track_id] = geometry_array[index].copy()
-        geometry_values = torch.from_numpy(geometry_array)
-        geometry = OrientedBoxes(geometry_values) if self.is_obb else Boxes(geometry_values)
-
         raw_class_ids = integer_column(self.detection_layout.schema.track_class_index, "class IDs")
-        decoded_class_ids = torch.tensor(
+        decoded_class_ids = np.asarray(
             [self._decode_kernel_class_id(int(value)) for value in raw_class_ids.tolist()],
-            dtype=torch.int64,
+            dtype=np.int64,
         )
         detection_indices = integer_column(
             self.detection_layout.schema.track_detection_index,
             "detection indices",
         )
-        if detection_indices.numel() and bool((detection_indices >= len(scores)).any()):
+        if detection_indices.size and np.any(detection_indices >= len(scores)):
             raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
+        track_scores = np.ascontiguousarray(
+            raw[:, self.detection_layout.schema.track_conf_index],
+            dtype=np.float32,
+        )
+
+        if numpy_output:
+            return pack_numpy_track_rows(
+                geometry=geometry_array,
+                track_ids=track_ids,
+                scores=track_scores,
+                class_ids=decoded_class_ids,
+                detection_indices=detection_indices,
+                is_obb=self.is_obb,
+                detection_count=len(scores),
+                owner=f"{self.__class__.__name__} kernel",
+            )
+
+        geometry_values = torch.from_numpy(geometry_array)
+        geometry = OrientedBoxes(geometry_values) if self.is_obb else Boxes(geometry_values)
+        assert sample_id is not None
 
         track_masks = None
         if output_masks is not None:
@@ -353,12 +378,10 @@ class BaseTracker(
 
         return Tracks(
             geometry=geometry,
-            track_ids=track_ids,
-            scores=torch.from_numpy(
-                np.ascontiguousarray(raw[:, self.detection_layout.schema.track_conf_index], dtype=np.float32)
-            ),
-            class_ids=decoded_class_ids,
-            detection_indices=detection_indices,
+            track_ids=torch.from_numpy(track_ids),
+            scores=torch.from_numpy(track_scores),
+            class_ids=torch.from_numpy(decoded_class_ids),
+            detection_indices=torch.from_numpy(detection_indices),
             sample_id=sample_id,
             masks=track_masks,
         )
@@ -515,7 +538,6 @@ class BaseTracker(
     def _reset_common_state(self) -> None:
         """Reset sequence-local state while keeping tracker configuration."""
         self.frame_count = 0
-        self._numpy_sample_index = 0
         self.active_tracks = []
         self.last_emb_size = None
         self._first_frame_processed = False

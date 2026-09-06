@@ -233,10 +233,11 @@ def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity
         def __init__(self) -> None:
             self.calls: list[tuple[np.ndarray, Frame | None]] = []
             self.reset_calls = 0
+            self.output = np.empty((0, 8), dtype=np.float64)
 
         def update(self, detections, frame=None):
             self.calls.append((detections, frame))
-            return object()
+            return self.output
 
         def reset(self) -> None:
             self.reset_calls += 1
@@ -248,12 +249,14 @@ def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity
     rows = np.array([[1, 1, 6, 9, 0.8, 0]], dtype=np.float32)
     frame = _frame("camera-1:000042")
 
-    tracker.update(rows)
-    tracker.update(rows, frame)
+    first = tracker.update(rows)
+    framed = tracker.update(rows, frame)
     tracker.update(rows)
     tracker.reset()
     tracker.update(rows)
 
+    assert first is component.output
+    assert framed is component.output
     assert component.calls[0][0] is rows
     assert component.calls[0][1] is None
     assert component.calls[1][0] is rows

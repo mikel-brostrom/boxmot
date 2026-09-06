@@ -40,5 +40,7 @@
 
 Trackers accept canonical `Detections` or, for standalone box-only calls, exact
 NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be
-passed separately. Appearance and mask inference belong upstream in a
-`PerceptionPipeline`; tracker code does not invoke either model.
+passed separately. NumPy input returns packed `float64` AABB `M x 8` / OBB
+`M x 9` rows; canonical input returns `Tracks`. Appearance and mask inference
+belong upstream in a `PerceptionPipeline`; tracker code does not invoke either
+model.

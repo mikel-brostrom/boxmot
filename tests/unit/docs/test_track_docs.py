@@ -71,6 +71,7 @@ def test_readme_minimal_usage_accepts_numpy_rows() -> None:
     assert "tracker = ByteTrack()" in content
     assert "dets = np.array" in content
     assert "tracks = tracker.update(dets)" in content
+    assert "tracks[:, 4].astype(int)" in content
 
 
 def test_materialize_guide_documents_build_workflow() -> None:

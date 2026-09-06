@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol, overload, runtime_checkable
 
 import numpy as np
 
@@ -50,8 +50,18 @@ class Tracker(Protocol):
         """Return the inputs required by this resolved configuration."""
         ...
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
-        """Advance one frame from canonical detections or packed NumPy rows."""
+    @overload
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+        """Advance one frame and return canonical tracks."""
+        ...
+
+    @overload
+    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray:
+        """Advance one frame and return packed NumPy track rows."""
+        ...
+
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
+        """Advance one frame and preserve the input representation."""
         ...
 
     def reset(self) -> None:

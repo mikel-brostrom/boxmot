@@ -80,8 +80,8 @@ For externally supplied detections, construct the pipeline with
 `detector=None` and call `step_detections(frame, detections)`.
 
 A standalone box-only tracker may instead receive an exact NumPy AABB6 or OBB7
-matrix directly. That shorthand still returns `Tracks`; use `Detections` for
-embeddings, masks, explicit sample identity without a `Frame`, and all pipeline
+matrix directly and returns packed `float64` AABB8 or OBB9 rows. Use
+`Detections` for `Tracks`, embeddings, masks, sample metadata, and all pipeline
 calls.
 
 ## Working with results

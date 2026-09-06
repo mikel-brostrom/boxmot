@@ -14,12 +14,12 @@ from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, overload
 
 import numpy as np
 
 from boxmot.components.timing import ComponentTimingEvent, timing_event_sink
-from boxmot.structures import Detections, Frame
+from boxmot.structures import Detections, Frame, Tracks
 
 RUNTIME_STAGE_KEYS = (
     "source_acquisition",
@@ -417,7 +417,13 @@ class ProfiledTracker:
     def supports_obb(self) -> bool:
         return self._component.supports_obb
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Any:
+    @overload
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+
+    @overload
+    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
         if isinstance(detections, Detections):
             sample_id = detections.sample_id
         elif isinstance(frame, Frame):
@@ -426,7 +432,7 @@ class ProfiledTracker:
             sample_id = f"numpy:{self._numpy_sample_index:06d}"
         with self._profiler.component_call("tracker", (sample_id,)):
             result = self._component.update(detections, frame)
-        if isinstance(detections, np.ndarray) and frame is None:
+        if type(detections) is np.ndarray and frame is None:
             self._numpy_sample_index += 1
         return result
 

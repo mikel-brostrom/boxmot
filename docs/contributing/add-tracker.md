@@ -13,10 +13,11 @@ To integrate a new tracker cleanly:
    `_track_detections()`. The inherited
    `TrackerRequirements` property exposes those requirements to pipelines.
    Keep the inherited public
-   `update(detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks`
-   entry point. `BaseTracker` owns validation and conversion of packed NumPy
-   rows; concrete trackers continue to implement only their private NumPy
-   kernel. Models and fallback feature extraction do not belong in a tracker.
+   overloaded `update()` entry point: `Detections` input returns `Tracks`, and
+   packed NumPy input returns packed NumPy track rows. `BaseTracker` owns
+   validation and conversion of both representations; concrete trackers
+   continue to implement only their private NumPy kernel. Models and fallback
+   feature extraction do not belong in a tracker.
 3. Add the tracker key and canonical implementation path to `_TRACKER_MANIFEST`
    in `boxmot/_tracker_exports.py`, then add its static capability declaration
    to the registry. Public exports and exact class identities derive from the
@@ -48,8 +49,8 @@ Python adapter lives beside the family-owned tracker implementation.
    contiguous NumPy buffers and must not import structures or tracker code.
 4. Add the public adapter under `boxmot/trackers/<family>/<name>/native.py`.
    The shared adapter converts `Detections` or packed detection rows plus an
-   optional `Frame`, wraps `Tracks`, resolves tracker configuration, and
-   declares requirements.
+   optional `Frame`, returns `Tracks` or packed rows to match the input,
+   resolves tracker configuration, and declares requirements.
 5. Set `native_class_path` on the algorithm's `_TRACKER_MANIFEST` entry. Native
    validation and construction are owned by `boxmot/trackers/factory.py`.
 6. Document `--tracker-backend cpp` support on the tracker page.

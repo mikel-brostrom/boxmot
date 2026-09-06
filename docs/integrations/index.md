@@ -7,8 +7,9 @@ while the CLI handles complete source-to-sink workflows.
 ## Bring your own detections
 
 For a standalone box-only tracker, pass exact NumPy AABB `N x 6` or OBB `N x 7`
-rows directly. Convert external results to canonical structures when composing
-a pipeline or attaching masks, embeddings, and explicit sample metadata:
+rows directly; `update()` returns packed `float64` AABB `M x 8` or OBB `M x 9`
+rows. Convert external results to canonical structures when composing a
+pipeline or attaching masks, embeddings, and explicit sample metadata:
 
 ```python
 import torch

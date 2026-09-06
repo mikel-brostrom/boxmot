@@ -90,7 +90,8 @@ def test_native_ocsort_accepts_numpy_aabb6_and_rejects_geometry_mismatch() -> No
     tracker = native_module.NativeOcSortTracker(geometry="aabb", library=library)
     try:
         output = tracker.update(np.array([[1, 1, 4, 5, 0.9, 3]], dtype=np.float64))
-        assert output.sample_id == "numpy:000000"
+        assert type(output) is np.ndarray
+        assert output.shape == (0, 8)
         assert library.calls[1] == ("update", "handle", 1, None, 4, None)
 
         with pytest.raises(ValueError, match=r"AABB detection rows must have shape \[N, 6\]"):
@@ -113,7 +114,7 @@ def test_native_ocsort_centroid_association_requires_frame() -> None:
 
 
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
-def test_native_ocsort_v2_emits_canonical_tracks(geometry: str) -> None:
+def test_native_ocsort_v2_emits_packed_numpy_tracks(geometry: str) -> None:
     library = native_binding.OcSortLibrary(native_binding.ensure_ocsort_cpp_library())
     tracker = native_module.NativeOcSortTracker(
         {"min_hits": 1, "det_thresh": 0.1, "iou_threshold": 0.3},
@@ -129,7 +130,9 @@ def test_native_ocsort_v2_emits_canonical_tracks(geometry: str) -> None:
         tracks = tracker.update(rows)
     finally:
         tracker.close()
-    assert tracks.is_obb is (geometry == "obb")
-    assert tracks.class_ids.tolist() == [2**31 + 9]
-    assert tracks.detection_indices.tolist() == [0]
-    assert tracks.sample_id == "numpy:000000"
+    geometry_columns = 5 if geometry == "obb" else 4
+    assert type(tracks) is np.ndarray
+    assert tracks.dtype == np.float64
+    assert tracks.shape == (1, geometry_columns + 4)
+    assert tracks[0, geometry_columns + 2] == 2**31 + 9
+    assert tracks[0, geometry_columns + 3] == 0
