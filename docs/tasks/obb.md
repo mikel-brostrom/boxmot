@@ -36,8 +36,13 @@ Before updates, OBB trackers resolve equivalent rectangle representations
 relative to the track state and retain damped angular motion. Association uses
 oriented geometry in OBB mode.
 
-The OBB7 detection and OBB9 track matrices are boundary serializers only. OBB9
-order is `(cx, cy, w, h, angle, id, confidence, class_id, detection_index)`.
+For a standalone box-only call, `tracker.update(rows)` also accepts an exact
+NumPy `N x 7` matrix in `(cx, cy, w, h, angle, confidence, class_id)` order.
+The return value is still `Tracks`; use `to_obb_rows()` only when an external
+file or wire format needs an OBB9 matrix. OBB9 order is
+`(cx, cy, w, h, angle, id, confidence, class_id, detection_index)`. Use
+`Detections` for enrichments, explicit sample identity without a `Frame`, and
+pipelines.
 
 Review [association configuration](../config/trackers.md#association-function)
 and [native support](../native/index.md) before comparing implementations.

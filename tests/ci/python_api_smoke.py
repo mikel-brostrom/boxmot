@@ -2,27 +2,18 @@
 
 from __future__ import annotations
 
+import numpy as np
 import torch
 from click.testing import CliRunner
 
 import boxmot
 from boxmot import ByteTrack, create_tracker
 from boxmot.engine.cli import boxmot as boxmot_cli
-from boxmot.structures import Boxes, Detections
 from boxmot.trackers import TrackerSpec
 
 
-def _detections(sample_id: str) -> Detections:
-    return Detections(
-        geometry=Boxes(torch.tensor([[10.0, 12.0, 30.0, 52.0]], dtype=torch.float32)),
-        scores=torch.tensor([0.95], dtype=torch.float32),
-        class_ids=torch.tensor([0], dtype=torch.int64),
-        sample_id=sample_id,
-    )
-
-
 def test_python_api_smoke() -> None:
-    """Exercise the strict public tracker and structure boundary on CPU."""
+    """Exercise direct NumPy tracking through the public API on CPU."""
 
     assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
     assert not torch.cuda.is_available()
@@ -45,18 +36,17 @@ def test_python_api_smoke() -> None:
     assert not hasattr(boxmot, "Detector")
     assert not hasattr(boxmot, "ReIDModel")
 
-    spec = TrackerSpec(
-        name="bytetrack",
-        options=(("min_hits", 1), ("track_thresh", 0.2)),
-    )
-    tracker = create_tracker(spec)
+    tracker = create_tracker(TrackerSpec("bytetrack"))
     assert isinstance(tracker, ByteTrack)
 
-    first = tracker.update(_detections("frame-0"))
-    second = tracker.update(_detections("frame-1"))
-    assert first.to_aabb_rows().shape == (1, 8)
-    assert second.to_aabb_rows().shape == (1, 8)
-    assert second.track_ids.tolist() == first.track_ids.tolist()
+    dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
+    tracks = tracker.update(dets)
+    next_tracks = tracker.update(dets)
+    assert tracks.to_aabb_rows().shape == (1, 8)
+    assert next_tracks.to_aabb_rows().shape == (1, 8)
+    assert tracks.sample_id == "numpy:000000"
+    assert next_tracks.sample_id == "numpy:000001"
+    assert next_tracks.track_ids.tolist() == tracks.track_ids.tolist()
 
 
 def test_cli_command_surface_smoke() -> None:

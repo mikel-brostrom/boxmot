@@ -90,15 +90,19 @@ def test_native_botsort_consumes_precomputed_embeddings_only():
 
 
 def test_native_botsort_rejects_missing_or_nonfinite_embeddings_before_native_call():
+    library = _FakeLibrary()
     tracker = native_module.NativeBotSortTracker(
         {"use_embeddings": True, "use_cmc": False},
-        library=_FakeLibrary(),
+        library=library,
     )
     rows = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
     with pytest.raises(ValueError, match="requires precomputed embeddings"):
         tracker.update(detections_from_rows(rows))
+    with pytest.raises(ValueError, match="requires precomputed embeddings"):
+        tracker.update(rows)
     with pytest.raises(ValueError, match="finite values"):
         detections_from_rows(rows, embeddings=np.array([[np.nan, 1.0]], dtype=np.float32))
+    assert [call[0] for call in library.calls] == ["create"]
     tracker.close()
 
 

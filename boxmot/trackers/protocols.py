@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+import numpy as np
+
 from boxmot.structures import Detections, Frame, Tracks
 from boxmot.trackers.specs import TrackerCapabilities
 
@@ -48,8 +50,8 @@ class Tracker(Protocol):
         """Return the inputs required by this resolved configuration."""
         ...
 
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
-        """Advance the tracker by exactly one frame."""
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
+        """Advance one frame from canonical detections or packed NumPy rows."""
         ...
 
     def reset(self) -> None:

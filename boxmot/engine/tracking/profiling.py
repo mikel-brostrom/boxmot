@@ -16,6 +16,8 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
 from boxmot.components.timing import ComponentTimingEvent, timing_event_sink
 from boxmot.structures import Detections, Frame
 
@@ -397,6 +399,7 @@ class ProfiledTracker:
     def __init__(self, component: Any, profiler: RuntimeProfiler) -> None:
         self._component = component
         self._profiler = profiler
+        self._numpy_sample_index = 0
 
     @property
     def name(self) -> str:
@@ -414,12 +417,22 @@ class ProfiledTracker:
     def supports_obb(self) -> bool:
         return self._component.supports_obb
 
-    def update(self, detections: Detections, frame: Frame | None = None) -> Any:
-        with self._profiler.component_call("tracker", (detections.sample_id,)):
-            return self._component.update(detections, frame)
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Any:
+        if isinstance(detections, Detections):
+            sample_id = detections.sample_id
+        elif isinstance(frame, Frame):
+            sample_id = frame.sample_id
+        else:
+            sample_id = f"numpy:{self._numpy_sample_index:06d}"
+        with self._profiler.component_call("tracker", (sample_id,)):
+            result = self._component.update(detections, frame)
+        if isinstance(detections, np.ndarray) and frame is None:
+            self._numpy_sample_index += 1
+        return result
 
     def reset(self) -> None:
         self._component.reset()
+        self._numpy_sample_index = 0
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._component, name)

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import time
 
+import numpy as np
 import pytest
 import torch
 
 from boxmot.components.timing import timed_component_phase
 from boxmot.detectors import DetectorCapabilities
-from boxmot.engine.tracking.profiling import RUNTIME_STAGE_KEYS
+from boxmot.engine.tracking.profiling import RUNTIME_STAGE_KEYS, ProfiledTracker, RuntimeProfiler
 from boxmot.engine.tracking.sinks import NullSink, RenderingSink
 from boxmot.engine.tracking.workflow import run_track
 from boxmot.reid import EncoderRequirements
@@ -221,3 +222,46 @@ def test_eager_source_iterator_setup_is_counted_as_source_acquisition() -> None:
 
 class _TrackerWithoutEmbeddings(_Tracker):
     requirements = TrackerRequirements()
+
+
+def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity() -> None:
+    class NumPyTracker:
+        name = "numpy-fixture"
+        supports_obb = False
+        requirements = TrackerRequirements()
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[np.ndarray, Frame | None]] = []
+            self.reset_calls = 0
+
+        def update(self, detections, frame=None):
+            self.calls.append((detections, frame))
+            return object()
+
+        def reset(self) -> None:
+            self.reset_calls += 1
+
+    clock_values = iter((0.0, 0.001, 0.002, 0.004, 0.005, 0.008, 0.009, 0.013))
+    profiler = RuntimeProfiler(clock=lambda: next(clock_values))
+    component = NumPyTracker()
+    tracker = ProfiledTracker(component, profiler)
+    rows = np.array([[1, 1, 6, 9, 0.8, 0]], dtype=np.float32)
+    frame = _frame("camera-1:000042")
+
+    tracker.update(rows)
+    tracker.update(rows, frame)
+    tracker.update(rows)
+    tracker.reset()
+    tracker.update(rows)
+
+    assert component.calls[0][0] is rows
+    assert component.calls[0][1] is None
+    assert component.calls[1][0] is rows
+    assert component.calls[1][1] is frame
+    assert component.reset_calls == 1
+    assert profiler.value("numpy:000000", "tracker_total") == pytest.approx(5.0)
+    assert profiler.value("numpy:000000", "tracker_update") == pytest.approx(5.0)
+    assert profiler.value("numpy:000001", "tracker_total") == pytest.approx(3.0)
+    assert profiler.value("numpy:000001", "tracker_update") == pytest.approx(3.0)
+    assert profiler.value(frame.sample_id, "tracker_total") == pytest.approx(2.0)
+    assert profiler.value(frame.sample_id, "tracker_update") == pytest.approx(2.0)

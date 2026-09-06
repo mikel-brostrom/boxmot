@@ -1,4 +1,4 @@
-"""Focused tests for the v24 structured Python tracker boundary."""
+"""Focused tests for the v24 Python tracker boundary."""
 
 from __future__ import annotations
 
@@ -172,15 +172,127 @@ assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
     assert completed.returncode == 0, completed.stderr
 
 
-def test_base_tracker_has_one_strict_structured_public_update() -> None:
+@pytest.mark.parametrize(
+    ("is_obb", "rows", "geometry_columns"),
+    (
+        (False, np.array([[10, 12, 30, 44, 0.95, 16_777_217]], dtype=np.float64), 4),
+        (True, np.array([[20, 28, 20, 32, 0.1, 0.95, 16_777_217]], dtype=np.float64), 5),
+    ),
+)
+def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
+    is_obb: bool,
+    rows: np.ndarray,
+    geometry_columns: int,
+) -> None:
     signature = inspect.signature(BaseTracker.update)
     assert tuple(signature.parameters) == ("self", "detections", "frame")
 
+    tracker = _RecordingTracker(is_obb=is_obb)
+    tracks = tracker.update(rows)
+
+    assert isinstance(tracks, Tracks)
+    assert tracks.sample_id == "numpy:000000"
+    assert tracks.is_obb is is_obb
+    assert tracks.class_ids.tolist() == [16_777_217]
+    assert tracker.seen["dets"].shape == (1, geometry_columns + 2)
+    assert tracker.seen["dets"].dtype == np.float32
+
+
+def test_numpy_input_generates_sequence_ids_for_empty_updates_and_reset() -> None:
     tracker = _RecordingTracker()
-    with pytest.raises(TypeError, match="detections must be Detections"):
-        tracker.update(np.empty((0, 6), dtype=np.float32))
+    empty = np.empty((0, 6), dtype=np.float64)
+
+    first = tracker.update(empty)
+    second = tracker.update(empty)
+    tracker.reset()
+    after_reset = tracker.update(empty)
+
+    assert first.sample_id == "numpy:000000"
+    assert second.sample_id == "numpy:000001"
+    assert after_reset.sample_id == "numpy:000000"
+    assert first.geometry.values.shape == (0, 4)
+
+
+def test_numpy_input_uses_frame_sample_id_without_consuming_generated_id() -> None:
+    tracker = _RecordingTracker()
+    rows = np.array([[10, 12, 30, 44, 0.95, 2]], dtype=np.float32)
+
+    framed = tracker.update(rows, _frame("camera-1:000042"))
+    unframed = tracker.update(rows)
+
+    assert framed.sample_id == "camera-1:000042"
+    assert unframed.sample_id == "numpy:000000"
+
+
+@pytest.mark.parametrize(
+    ("is_obb", "rows", "message"),
+    (
+        (False, [[10, 12, 30, 44, 0.9, 0]], "plain numpy.ndarray"),
+        (False, np.array([10, 12, 30, 44, 0.9, 0]), r"shape \[N, 6\]"),
+        (False, np.empty((0, 7), dtype=np.float32), r"shape \[N, 6\]"),
+        (True, np.empty((0, 6), dtype=np.float32), r"shape \[N, 7\]"),
+        (False, np.array([["10", "12", "30", "44", "0.9", "0"]]), "real numeric dtype"),
+        (False, np.array([[10, 12, 30, 44, 0.9, 0]], dtype=np.complex64), "real numeric dtype"),
+        (False, np.array([[np.nan, 12, 30, 44, 0.9, 0]]), "only finite values"),
+        (False, np.array([[10, 12, 30, 44, 1.1, 0]]), r"range \[0, 1\]"),
+        (False, np.array([[10, 12, 30, 44, 1.0 + 1e-12, 0]]), r"range \[0, 1\]"),
+        (False, np.array([[10, 12, 30, 44, -1e-50, 0]]), r"range \[0, 1\]"),
+        (False, np.array([[10, 12, 30, 44, 0.9, 1.5]]), "non-negative integers"),
+        (False, np.array([[10, 12, 30, 44, 0.9, -1]]), "non-negative integers"),
+        (False, np.array([[10, 12, 10, 44, 0.9, 0]]), "x2 > x1 and y2 > y1"),
+        (True, np.array([[20, 28, 0, 32, 0.1, 0.9, 0]]), "positive width and height"),
+        (
+            False,
+            np.array([[10, 12, np.finfo(np.float64).max, 44, 0.9, 0]]),
+            "representable as finite float32",
+        ),
+    ),
+)
+def test_numpy_input_validation_is_explicit(
+    is_obb: bool,
+    rows: object,
+    message: str,
+) -> None:
+    tracker = _RecordingTracker(is_obb=is_obb)
+    invalid_type = type(rows) is not np.ndarray or not np.issubdtype(rows.dtype, np.number)
+    invalid_type = invalid_type or (isinstance(rows, np.ndarray) and np.issubdtype(rows.dtype, np.complexfloating))
+    error = TypeError if invalid_type else ValueError
+    with pytest.raises(error, match=message):
+        tracker.update(rows)  # type: ignore[arg-type]
+
+
+def test_numpy_input_rejects_ndarray_subclasses() -> None:
+    class ArraySubclass(np.ndarray):
+        pass
+
+    rows = np.array([[10, 12, 30, 44, 0.9, 0]], dtype=np.float32).view(ArraySubclass)
+
+    with pytest.raises(TypeError, match="plain numpy.ndarray"):
+        _RecordingTracker().update(rows)
+
+
+@pytest.mark.parametrize(
+    ("tracker", "frame", "message"),
+    (
+        (_RecordingTracker(needs_embeddings=True), None, "requires detection embeddings"),
+        (_RecordingTracker(needs_masks=True), None, "requires full-frame detection masks"),
+        (_RecordingTracker(needs_frame=True), None, "requires a frame"),
+    ),
+)
+def test_numpy_input_cannot_bypass_declared_requirements(
+    tracker: _RecordingTracker,
+    frame: Frame | None,
+    message: str,
+) -> None:
+    rows = np.array([[10, 12, 30, 44, 0.9, 0]], dtype=np.float32)
+    with pytest.raises(ValueError, match=message):
+        tracker.update(rows, frame)
+
+
+def test_numpy_input_still_requires_a_canonical_frame() -> None:
+    tracker = _RecordingTracker()
     with pytest.raises(TypeError, match="frame must be Frame or None"):
-        tracker.update(_detections(), np.zeros((64, 64, 3), dtype=np.uint8))
+        tracker.update(np.empty((0, 6), dtype=np.float32), np.zeros((64, 64, 3), dtype=np.uint8))
 
 
 def test_private_adapter_converts_rgb_chw_and_wraps_tracks_and_masks() -> None:

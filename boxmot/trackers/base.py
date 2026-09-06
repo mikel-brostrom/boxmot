@@ -9,6 +9,7 @@ from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.input import parse_numpy_detection_rows
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.classes import ClassCatalog
@@ -30,11 +31,11 @@ class BaseTracker(
 ):
     """Shared public tracker contract.
 
-    ``update`` owns the strict canonical boundary and output wrapping. Concrete trackers
-    implement ``_track_detections`` with their algorithm-specific association and
-    lifecycle logic. Centroid association is normalized by frame dimensions, so
-    its first update requires an image unless a tracker explicitly opts out of
-    dimension-aware association.
+    ``update`` owns public input validation and canonical output wrapping. Concrete
+    trackers implement ``_track_detections`` with their algorithm-specific
+    association and lifecycle logic. Centroid association is normalized by frame
+    dimensions, so its first update requires an image unless a tracker explicitly
+    opts out of dimension-aware association.
     """
 
     supports_obb = False
@@ -147,6 +148,7 @@ class BaseTracker(
         self.id_allocator = TrackIdAllocator()
 
         self.frame_count = 0
+        self._numpy_sample_index = 0
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
@@ -187,53 +189,89 @@ class BaseTracker(
             frame_dimensions_only=bool(self._requires_frame_dimensions_only),
         )
 
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
-        """Advance one sequence using canonical, CPU-backed structures."""
-        if not isinstance(detections, Detections):
-            raise TypeError(f"detections must be Detections, got {type(detections).__name__}.")
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
+        """Advance one sequence using canonical structures or packed NumPy rows."""
         if frame is not None and not isinstance(frame, Frame):
             raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
-
-        detections.validate()
         if frame is not None:
             frame.validate()
-            if frame.sample_id != detections.sample_id:
+
+        numpy_input = isinstance(detections, np.ndarray)
+        mask_image_size = None
+        if isinstance(detections, Detections):
+            detections.validate()
+            self._validate_geometry(detections.geometry)
+            if frame is not None and frame.sample_id != detections.sample_id:
                 raise ValueError(
                     "Frame and detections must identify the same sample, "
                     f"got {frame.sample_id!r} and {detections.sample_id!r}."
                 )
-
-        self._validate_geometry(detections.geometry)
+            sample_id = detections.sample_id
+            geometry = detections.geometry.values.detach().numpy()
+            scores = detections.scores.detach().numpy()
+            class_ids = detections.class_ids.detach().numpy()
+            embeddings = None if detections.embeddings is None else detections.embeddings.detach().numpy()
+            masks = None if detections.masks is None else detections.masks.values.detach().numpy()
+            if detections.masks is not None:
+                mask_image_size = detections.masks.image_size
+        else:
+            rows = parse_numpy_detection_rows(detections, is_obb=self.is_obb)
+            sample_id = frame.sample_id if frame is not None else f"numpy:{self._numpy_sample_index:06d}"
+            geometry = rows.geometry
+            scores = rows.scores
+            class_ids = rows.class_ids
+            embeddings = None
+            masks = None
 
         requirements = self.requirements
-        if requirements.embeddings and detections.embeddings is None:
+        if requirements.embeddings and embeddings is None:
             raise ValueError(f"{self.__class__.__name__} requires detection embeddings.")
-        if requirements.masks and detections.masks is None:
+        if requirements.masks and masks is None:
             raise ValueError(f"{self.__class__.__name__} requires full-frame detection masks.")
-        if requirements.masks and len(detections) and not detections.masks.values.flatten(1).any(dim=1).all():
-            raise ValueError(f"{self.__class__.__name__} requires foreground in every non-empty detection mask.")
+        if requirements.masks and len(scores):
+            assert masks is not None
+            if not masks.reshape(len(scores), -1).any(axis=1).all():
+                raise ValueError(f"{self.__class__.__name__} requires foreground in every non-empty detection mask.")
         if requirements.frame and frame is None:
             raise ValueError(f"{self.__class__.__name__} requires a frame.")
-        if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
+        if mask_image_size is not None and frame is not None and mask_image_size != frame.image_size:
             raise ValueError(
-                "Detection masks must match the frame spatial size, "
-                f"got {detections.masks.image_size} and {frame.image_size}."
+                f"Detection masks must match the frame spatial size, got {mask_image_size} and {frame.image_size}."
             )
 
-        return self._update_numpy(detections, frame)
+        tracks = self._update_arrays(
+            geometry=geometry,
+            scores=scores,
+            class_ids=class_ids,
+            sample_id=sample_id,
+            frame=frame,
+            embeddings=embeddings,
+            masks=masks,
+            mask_image_size=mask_image_size,
+        )
+        if numpy_input and frame is None:
+            self._numpy_sample_index += 1
+        return tracks
 
-    def _update_numpy(self, detections: Detections, frame: Frame | None) -> Tracks:
-        """Adapt canonical structures to one legacy NumPy kernel invocation."""
-        self.class_catalog.validate_ids(detections.class_ids.tolist())
+    def _update_arrays(
+        self,
+        *,
+        geometry: np.ndarray,
+        scores: np.ndarray,
+        class_ids: np.ndarray,
+        sample_id: str,
+        frame: Frame | None,
+        embeddings: np.ndarray | None,
+        masks: np.ndarray | None,
+        mask_image_size: tuple[int, int] | None,
+    ) -> Tracks:
+        """Invoke one legacy NumPy kernel update and wrap its typed result."""
+        self.class_catalog.validate_ids(class_ids.tolist())
         kernel_class_ids = np.asarray(
-            [self._encode_kernel_class_id(int(value)) for value in detections.class_ids.tolist()],
+            [self._encode_kernel_class_id(int(value)) for value in class_ids.tolist()],
             dtype=np.float32,
         )
-        geometry = detections.geometry.values.detach().numpy()
-        scores = detections.scores.detach().numpy()
         dets = np.column_stack((geometry, scores, kernel_class_ids)).astype(np.float32, copy=False)
-        embs = None if detections.embeddings is None else detections.embeddings.detach().numpy()
-        masks = None if detections.masks is None else detections.masks.values.detach().numpy()
         requirements = self.requirements
         img = None
         if frame is not None:
@@ -245,9 +283,9 @@ class BaseTracker(
 
         self._initialize_frame_context(img)
         if self.per_class:
-            result = self._track_per_class(dets=dets, img=img, embs=embs, masks=masks)
+            result = self._track_per_class(dets=dets, img=img, embs=embeddings, masks=masks)
         else:
-            result = self._track_detections(dets=dets, img=img, embs=embs, masks=masks)
+            result = self._track_detections(dets=dets, img=img, embs=embeddings, masks=masks)
 
         if isinstance(result, tuple):
             raw, output_masks = result
@@ -291,7 +329,7 @@ class BaseTracker(
             self.detection_layout.schema.track_detection_index,
             "detection indices",
         )
-        if detection_indices.numel() and bool((detection_indices >= len(detections)).any()):
+        if detection_indices.numel() and bool((detection_indices >= len(scores)).any()):
             raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
 
         track_masks = None
@@ -307,8 +345,8 @@ class BaseTracker(
             mask_values = torch.from_numpy(np.ascontiguousarray(output_masks, dtype=np.bool_))
             track_masks = MaskBatch(mask_values)
         elif self.requirements.masks and len(raw) == 0:
-            assert detections.masks is not None
-            height, width = detections.masks.image_size
+            assert mask_image_size is not None
+            height, width = mask_image_size
             track_masks = MaskBatch(torch.empty((0, height, width), dtype=torch.bool))
         elif self.requirements.masks:
             raise ValueError(f"{self.__class__.__name__} must return track-aligned masks.")
@@ -321,7 +359,7 @@ class BaseTracker(
             ),
             class_ids=decoded_class_ids,
             detection_indices=detection_indices,
-            sample_id=detections.sample_id,
+            sample_id=sample_id,
             masks=track_masks,
         )
 
@@ -477,6 +515,7 @@ class BaseTracker(
     def _reset_common_state(self) -> None:
         """Reset sequence-local state while keeping tracker configuration."""
         self.frame_count = 0
+        self._numpy_sample_index = 0
         self.active_tracks = []
         self.last_emb_size = None
         self._first_frame_processed = False

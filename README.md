@@ -244,31 +244,16 @@ boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
   --asso-func diou --source 0 --save --show
 ```
 
-Python (trackers consume canonical structures, including precomputed
-embeddings or masks when required):
+Python:
 
 ```python
-import torch
+import numpy as np
 
-from boxmot import create_tracker
-from boxmot.structures import Boxes, Detections
-from boxmot.trackers import TrackerSpec
+from boxmot import ByteTrack
 
-tracker = create_tracker(
-    TrackerSpec(
-        name="bytetrack",
-        geometry="aabb",
-        options=(("track_thresh", 0.45),),
-    )
-)
-
-detections = Detections(
-    geometry=Boxes(torch.tensor([[100, 200, 300, 400]], dtype=torch.float32)),
-    scores=torch.tensor([0.9], dtype=torch.float32),
-    class_ids=torch.tensor([0], dtype=torch.int64),
-    sample_id="camera-1:000001",
-)
-tracks = tracker.update(detections)
+tracker = ByteTrack()
+dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
+tracks = tracker.update(dets)
 print(tracks.track_ids)
 ```
 

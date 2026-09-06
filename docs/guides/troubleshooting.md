@@ -79,9 +79,11 @@ The TensorRT ReID backend and `export --include engine` try to install `nvidia-t
 
 Construct canonical detections with `OrientedBoxes` for OBB geometry or `Boxes`
 for AABB geometry. The tracker's geometry mode is fixed by `TrackerSpec`; the
-inherited `BaseTracker.update()` accepts a `Detections` object and rejects a
-different geometry mode. Raw 6/7-column arrays are supported only by explicit
-boundary serializers, not by tracker calls.
+inherited `BaseTracker.update()` rejects a `Detections` object with a different
+geometry mode. For standalone box-only calls, the same fixed mode selects the
+required NumPy input shape: exact AABB `N x 6` or OBB `N x 7` rows. Use
+`Detections` when passing embeddings or masks, controlling sample identity
+without a `Frame`, or composing a pipeline.
 
 ### Track angle "snaps" or flips between frames
 

@@ -2,10 +2,10 @@
 
 Geometry mode is explicit in both the structure type and `TrackerSpec`.
 
-| Mode | Canonical detections | Canonical tracks | Boundary serializer |
+| Mode | Canonical detections | Canonical tracks | Packed rows |
 | --- | --- | --- | --- |
-| AABB | `Boxes(float32[N,4])` in `xyxy` | `Tracks` with `Boxes` | AABB6 / AABB8 |
-| OBB | `OrientedBoxes(float32[N,5])` in `cxcywha` | `Tracks` with `OrientedBoxes` | OBB7 / OBB9 |
+| AABB | `Boxes(float32[N,4])` in `xyxy` | `Tracks` with `Boxes` | AABB6 input / AABB8 output |
+| OBB | `OrientedBoxes(float32[N,5])` in `cxcywha` | `Tracks` with `OrientedBoxes` | OBB7 input / OBB9 output |
 
 Scores and geometry are `float32`; class IDs, track IDs, and detection indices
 are `int64`. Tensors are CPU-contiguous. Constructors reject invalid dtype,

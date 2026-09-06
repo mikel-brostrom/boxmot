@@ -11,6 +11,7 @@ import torch
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.input import parse_numpy_detection_rows
 from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.protocols import TrackerRequirements
 
@@ -143,6 +144,7 @@ class NativeTrackerAdapter:
         self._handle = self._library.create(self.cfg)
         self._obb_output_by_track_id: dict[int, np.ndarray] = {}
         self._dimension_only_images: dict[tuple[int, int], np.ndarray] = {}
+        self._numpy_sample_index = 0
 
     @property
     def requirements(self) -> TrackerRequirements:
@@ -150,42 +152,57 @@ class NativeTrackerAdapter:
 
         return self._requirements
 
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
-        """Convert canonical structures once and invoke the native update once."""
+    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks:
+        """Convert public structures or packed NumPy rows for one native update."""
 
-        if not isinstance(detections, Detections):
-            raise TypeError(f"detections must be Detections, got {type(detections).__name__}.")
         if frame is not None and not isinstance(frame, Frame):
             raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
-
-        # Canonical dataclasses are frozen, but their tensor storage remains
-        # mutable. Revalidate at every component boundary before exposing that
-        # storage to ctypes, matching the Python tracker wrapper contract.
-        detections.validate()
         if frame is not None:
             frame.validate()
+
         is_obb = self.geometry == "obb"
-        if detections.is_obb != is_obb:
-            raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
-        if frame is not None and frame.sample_id != detections.sample_id:
-            raise ValueError("Frame and detections must have the same sample_id.")
-        if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
-            raise ValueError(
-                "Detection masks must match the frame spatial size, "
-                f"got {detections.masks.image_size} and {frame.image_size}."
+        numpy_input = isinstance(detections, np.ndarray)
+        if isinstance(detections, Detections):
+            # Canonical dataclasses are frozen, but their tensor storage remains
+            # mutable. Revalidate before exposing that storage to ctypes.
+            detections.validate()
+            if detections.is_obb != is_obb:
+                raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
+            if frame is not None and frame.sample_id != detections.sample_id:
+                raise ValueError("Frame and detections must have the same sample_id.")
+            if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
+                raise ValueError(
+                    "Detection masks must match the frame spatial size, "
+                    f"got {detections.masks.image_size} and {frame.image_size}."
+                )
+            sample_id = detections.sample_id
+            geometry = detections.geometry.values.detach().numpy()
+            scores = detections.scores.detach().numpy()
+            class_ids = detections.class_ids.detach().numpy()
+            embeddings = (
+                detections.embeddings.detach().numpy()
+                if self.use_embeddings and detections.embeddings is not None
+                else None
             )
-        if self.requirements.embeddings and detections.embeddings is None:
+        else:
+            rows = parse_numpy_detection_rows(detections, is_obb=is_obb)
+            sample_id = frame.sample_id if frame is not None else f"numpy:{self._numpy_sample_index:06d}"
+            geometry = rows.geometry
+            scores = rows.scores
+            class_ids = rows.class_ids
+            embeddings = None
+
+        if self.requirements.embeddings and embeddings is None:
             raise ValueError(f"Native {self._native_display_name} requires precomputed embeddings.")
         if self.requirements.frame and frame is None:
             raise ValueError(f"Native {self._native_display_name} requires a frame.")
 
-        embeddings = detections.embeddings.detach().numpy() if self.use_embeddings else None
         batch = self._library.update(
             self._handle,
-            geometry=detections.geometry.values.detach().numpy(),
-            scores=detections.scores.detach().numpy(),
-            class_ids=detections.class_ids.detach().numpy(),
-            detection_indices=np.arange(len(detections), dtype=np.int64),
+            geometry=geometry,
+            scores=scores,
+            class_ids=class_ids,
+            detection_indices=np.arange(len(scores), dtype=np.int64),
             embeddings=embeddings,
             image=_frame_to_bgr(
                 frame,
@@ -193,7 +210,7 @@ class NativeTrackerAdapter:
                 placeholders=self._dimension_only_images,
             ),
         )
-        tracks = _to_tracks(batch, sample_id=detections.sample_id, is_obb=is_obb)
+        tracks = _to_tracks(batch, sample_id=sample_id, is_obb=is_obb)
         if is_obb and len(tracks):
             geometry = tracks.geometry.values.numpy().copy()
             for index, track_id in enumerate(tracks.track_ids.tolist()):
@@ -209,10 +226,12 @@ class NativeTrackerAdapter:
                 detection_indices=tracks.detection_indices,
                 sample_id=tracks.sample_id,
             )
-        if tracks.detection_indices.numel() and bool((tracks.detection_indices >= len(detections)).any()):
+        if tracks.detection_indices.numel() and bool((tracks.detection_indices >= len(scores)).any()):
             raise ValueError(
                 f"Native {self._native_display_name} returned a detection index outside the current batch."
             )
+        if numpy_input and frame is None:
+            self._numpy_sample_index += 1
         return tracks
 
     def reset(self) -> None:
@@ -221,6 +240,7 @@ class NativeTrackerAdapter:
         self._library.reset(self._handle)
         self._obb_output_by_track_id.clear()
         self._dimension_only_images.clear()
+        self._numpy_sample_index = 0
 
     def close(self) -> None:
         """Release the native tracker handle."""

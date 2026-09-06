@@ -85,13 +85,20 @@ def test_native_ocsort_uses_structured_live_library_wrapper() -> None:
     ]
 
 
-def test_native_ocsort_rejects_raw_arrays_and_geometry_mismatch() -> None:
-    tracker = native_module.NativeOcSortTracker(geometry="aabb", library=_FakeLibrary())
-    with pytest.raises(TypeError, match="must be Detections"):
-        tracker.update(np.empty((0, 6), dtype=np.float32))
-    with pytest.raises(ValueError, match="fixed to AABB"):
-        tracker.update(_detections(obb=True))
-    tracker.close()
+def test_native_ocsort_accepts_numpy_aabb6_and_rejects_geometry_mismatch() -> None:
+    library = _FakeLibrary()
+    tracker = native_module.NativeOcSortTracker(geometry="aabb", library=library)
+    try:
+        output = tracker.update(np.array([[1, 1, 4, 5, 0.9, 3]], dtype=np.float64))
+        assert output.sample_id == "numpy:000000"
+        assert library.calls[1] == ("update", "handle", 1, None, 4, None)
+
+        with pytest.raises(ValueError, match=r"AABB detection rows must have shape \[N, 6\]"):
+            tracker.update(np.empty((0, 7), dtype=np.float32))
+        with pytest.raises(ValueError, match="fixed to AABB"):
+            tracker.update(_detections(obb=True))
+    finally:
+        tracker.close()
 
 
 def test_native_ocsort_centroid_association_requires_frame() -> None:
@@ -113,10 +120,16 @@ def test_native_ocsort_v2_emits_canonical_tracks(geometry: str) -> None:
         geometry=geometry,
         library=library,
     )
+    rows = (
+        np.array([[1, 1, 4, 5, 0.9, 2**31 + 9]], dtype=np.float64)
+        if geometry == "aabb"
+        else np.array([[3, 4, 2, 3, 0.2, 0.9, 2**31 + 9]], dtype=np.float64)
+    )
     try:
-        tracks = tracker.update(_detections(obb=geometry == "obb"))
+        tracks = tracker.update(rows)
     finally:
         tracker.close()
     assert tracks.is_obb is (geometry == "obb")
     assert tracks.class_ids.tolist() == [2**31 + 9]
     assert tracks.detection_indices.tolist() == [0]
+    assert tracks.sample_id == "numpy:000000"

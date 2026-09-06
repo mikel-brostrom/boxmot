@@ -4,7 +4,7 @@ from __future__ import annotations
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via shared CMC factory and BaseTracker.apply_cmc(...)
 # - ReID consumes caller-supplied embeddings
-# - Uses the canonical Detections/Frame update boundary from BaseTracker
+# - Uses the validated Detections/NumPy/Frame update boundary from BaseTracker
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Preserves detector class IDs and frame-global det_ind values
 from typing import Any, List

@@ -9,6 +9,7 @@ from tests._paths import REPO_ROOT
 TRACK_DOC = REPO_ROOT / "docs" / "modes" / "track.md"
 MATERIALIZE_DOC = REPO_ROOT / "docs" / "modes" / "materialize.md"
 EVAL_DOC = REPO_ROOT / "docs" / "modes" / "eval.md"
+README = REPO_ROOT / "README.md"
 PUBLIC_DOC_ROOTS = (
     REPO_ROOT / "README.md",
     REPO_ROOT / "CONTRIBUTING.md",
@@ -60,7 +61,16 @@ def test_track_guide_uses_structured_tracker_contract() -> None:
     assert "TrackerSpec" in content
     assert "TrackingPipeline" in content
     assert "step_detections(frame, detections)" in content
-    assert "tracker.update(dets" not in content
+
+
+def test_readme_minimal_usage_accepts_numpy_rows() -> None:
+    content = README.read_text(encoding="utf-8")
+
+    assert "import numpy as np" in content
+    assert "from boxmot import ByteTrack" in content
+    assert "tracker = ByteTrack()" in content
+    assert "dets = np.array" in content
+    assert "tracks = tracker.update(dets)" in content
 
 
 def test_materialize_guide_documents_build_workflow() -> None:
@@ -90,7 +100,6 @@ def test_eval_guide_documents_automatic_and_explicit_build_selection() -> None:
         "ReIDModel(",
         "boxmot generate",
         "boxmot.engine.cli generate",
-        "tracker.update(dets",
         "boxmot.api.functional",
     ),
 )

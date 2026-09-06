@@ -74,15 +74,19 @@ def test_native_sfsort_routes_canonical_structures_through_live_library() -> Non
     ]
 
 
-def test_native_sfsort_rejects_raw_rows_and_requires_a_frame() -> None:
-    tracker = native_module.NativeSFSORTTracker(geometry="aabb", library=_FakeLibrary())
-    detections = detections_from_rows(np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32))
+def test_native_sfsort_accepts_numpy_aabb6_when_frame_requirement_is_met() -> None:
+    library = _FakeLibrary()
+    tracker = native_module.NativeSFSORTTracker(geometry="aabb", library=library)
+    rows = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float64)
+    frame = frame_from_bgr(np.zeros((8, 8, 3), dtype=np.uint8), sample_id="camera-1:000042")
 
     try:
-        with pytest.raises(TypeError, match="detections must be Detections"):
-            tracker.update(np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32))
         with pytest.raises(ValueError, match="requires a frame"):
-            tracker.update(detections)
+            tracker.update(rows)
+
+        output = tracker.update(rows, frame)
+        assert output.sample_id == frame.sample_id
+        assert library.calls[1] == ("update", "handle", 1, (8, 8, 3), 4, None)
     finally:
         tracker.close()
 
@@ -153,14 +157,14 @@ def test_native_sfsort_geometry_mode_is_fixed_at_construction() -> None:
         tracker.close()
 
 
-def test_native_sfsort_accepts_canonical_obb_detections() -> None:
+def test_native_sfsort_accepts_numpy_obb7_with_frame() -> None:
     library = _FakeLibrary()
     tracker = native_module.NativeSFSORTTracker(geometry="obb", library=library)
-    detections = detections_from_rows(np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32))
+    rows = np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float64)
     frame = frame_from_bgr(np.zeros((12, 12, 3), dtype=np.uint8))
 
     try:
-        output = tracker.update(detections, frame)
+        output = tracker.update(rows, frame)
     finally:
         tracker.close()
 

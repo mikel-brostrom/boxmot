@@ -156,6 +156,10 @@ def test_low_level_binding_accepts_only_typed_contiguous_numpy_buffers() -> None
 class _FakeBinding:
     def __init__(self) -> None:
         self.image: np.ndarray | None = None
+        self.geometry: np.ndarray | None = None
+        self.scores: np.ndarray | None = None
+        self.class_ids: np.ndarray | None = None
+        self.detection_indices: np.ndarray | None = None
 
     def create(self, _cfg):
         return 1
@@ -180,6 +184,10 @@ class _FakeBinding:
         assert geometry.shape[1] == 4
         assert embeddings is None
         self.image = image
+        self.geometry = geometry.copy()
+        self.scores = scores.copy()
+        self.class_ids = class_ids.copy()
+        self.detection_indices = detection_indices.copy()
         return _empty_batch()
 
 
@@ -218,10 +226,40 @@ def test_frame_adapter_explicitly_converts_chw_rgb_to_hwc_bgr() -> None:
     assert library.image.reshape(-1).tolist() == [3, 2, 1]
 
 
-def test_native_tracker_public_update_rejects_raw_arrays() -> None:
-    tracker = NativeByteTrackTracker(geometry="aabb", library=_FakeBinding())
-    with pytest.raises(TypeError, match="must be Detections"):
-        tracker.update(np.empty((0, 6), dtype=np.float32))
+def test_native_tracker_accepts_float64_numpy_rows_and_resets_generated_sample_ids() -> None:
+    library = _FakeBinding()
+    tracker = NativeByteTrackTracker(geometry="aabb", library=library)
+    rows = np.array([[1, 2, 11, 22, 0.9, 16_777_217]], dtype=np.float64)
+
+    first = tracker.update(rows)
+    assert library.geometry is not None and library.geometry.dtype == np.float32
+    assert library.scores is not None and library.scores.dtype == np.float32
+    assert library.class_ids is not None and library.class_ids.tolist() == [16_777_217]
+    assert library.detection_indices is not None and library.detection_indices.tolist() == [0]
+
+    second = tracker.update(np.empty((0, 6), dtype=np.float64))
+    tracker.reset()
+    after_reset = tracker.update(np.empty((0, 6), dtype=np.float32))
+
+    assert first.sample_id == "numpy:000000"
+    assert second.sample_id == "numpy:000001"
+    assert after_reset.sample_id == "numpy:000000"
+
+
+def test_native_tracker_accepts_configured_obb7_rows_and_uses_frame_sample_id() -> None:
+    tracker = NativeByteTrackTracker(geometry="obb", library=_FakeObbBinding())
+    frame = Frame(
+        image=torch.zeros((3, 8, 8), dtype=torch.uint8),
+        sample_id="camera-1:000042",
+    )
+    rows = np.array([[20, 28, 32, 20, 0.1, 0.95, 2]], dtype=np.float64)
+
+    tracks = tracker.update(rows, frame)
+
+    assert tracks.sample_id == frame.sample_id
+    assert tracks.is_obb
+    assert tracks.class_ids.tolist() == [2]
+    assert tracks.detection_indices.tolist() == [0]
 
 
 def test_native_tracker_preserves_unwrapped_obb_angle_continuity() -> None:

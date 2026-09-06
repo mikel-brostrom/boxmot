@@ -47,5 +47,5 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 | Embed a service or native tracker | [Integrations](integrations/index.md) |
 
 Canonical structures are CPU-contiguous and validated without implicit
-conversion. NumPy row layouts are available only through explicit serializers
-at file or wire boundaries.
+conversion. Standalone box-only tracker calls may use exact NumPy AABB6 or OBB7
+rows; pipelines and enriched detections use canonical structures.

@@ -11,7 +11,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | Root `Detector` | `boxmot.detectors.DetectorSpec` and `create_detector` |
 | Root `ReIDModel` | `boxmot.reid.ReIDEncoderSpec` and `create_reid_encoder` |
 | `create_tracker("name", reid_weights=..., device=...)` | `create_tracker(TrackerSpec(...))`; trackers contain no model or device configuration |
-| `tracker.update(numpy_rows, img=..., embs=..., masks=...)` | Attach enrichments to `Detections`, then call `tracker.update(detections, frame)` |
+| `tracker.update(numpy_rows, img=..., embs=..., masks=...)` | Use `tracker.update(numpy_rows)` for simple box-only calls; attach enrichments to `Detections` and call `tracker.update(detections, frame)` otherwise |
 | `DetectionBatch`, `TrackResults`, `FrameData`, `FramePayload`, engine result records | `Frame`, `Boxes`/`OrientedBoxes`, `MaskBatch`, `Detections`, `Tracks`, and `PipelineResult` |
 | `boxmot.api` | Removed; compose public domain packages directly |
 | `boxmot.data` | `boxmot.datasets` for immutable build loading and dataset configuration; engine materialization owns finite sources |
@@ -32,7 +32,8 @@ their named subpackages.
 
 Canonical tensors are CPU-contiguous. Constructors validate without silently
 converting, moving, clipping, or filtering. Convert external framework values
-once before construction:
+once before construction when sample identity, frames, masks, or embeddings are
+part of the call:
 
 ```python
 import torch
@@ -48,7 +49,9 @@ detections = Detections(
 tracks = tracker.update(detections)
 ```
 
-Use row serializers only where an external file or wire format requires them.
+Standalone box-only trackers also accept exact NumPy AABB6 or OBB7 matrices.
+This convenience does not restore the removed `img`, `embs`, or `masks`
+arguments; use canonical structures for those inputs and for pipelines.
 
 ## Cache cutover
 

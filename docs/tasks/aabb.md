@@ -35,8 +35,11 @@ print(tracks.detection_indices)     # int64[M], -1 for coasting rows
 `Detections` and `Tracks` keep geometry, scores, classes, IDs, masks, and
 embeddings aligned during immutable selection.
 
-The AABB6 detection and AABB8 track matrices exist only as explicit
-`to_aabb_rows()` serializers for file or wire boundaries.
+For a standalone box-only call, `tracker.update(rows)` also accepts an exact
+NumPy `N x 6` matrix in `(x1, y1, x2, y2, confidence, class_id)` order. The
+return value is still `Tracks`; use `to_aabb_rows()` only when an external file
+or wire format needs an AABB8 matrix. Use `Detections` for embeddings, masks,
+explicit sample identity without a `Frame`, and pipeline composition.
 
 All registered Python trackers support AABB geometry. Start with ByteTrack for
 a lightweight baseline, then choose an appearance-assisted tracker when

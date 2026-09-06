@@ -277,8 +277,9 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
 - Include `GeometryKind.OBB` in the box tracker's
   `supported_geometry_kinds`; `BoxTracker` derives `supports_obb` and static
   capabilities from that single declaration.
-- Inherit `BaseTracker.update()` so its validated input preparation can select
-  AABB or OBB mode from the detection shape automatically.
+- Inherit `BaseTracker.update()` so its validated input preparation checks
+  canonical structures or packed NumPy rows against the configured AABB/OBB
+  mode.
 - Reuse shared detection plumbing from:
   - `boxmot/trackers/base.py`
   - `boxmot/trackers/box/base.py`

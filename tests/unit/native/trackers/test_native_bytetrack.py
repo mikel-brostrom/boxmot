@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from boxmot.native.trackers import bytetrack as native_binding
-from boxmot.structures import Boxes, Detections, OrientedBoxes, Tracks
+from boxmot.structures import Detections, OrientedBoxes, Tracks
 from boxmot.trackers.box.bytetrack import native as native_module
 
 from ._helpers import detections_from_rows, empty_native_batch, update_rows, update_tracks
@@ -69,20 +69,27 @@ def test_native_bytetrack_uses_structured_live_library_wrapper():
     ]
 
 
-def test_native_bytetrack_rejects_raw_array_and_fixed_geometry_mismatch():
-    tracker = native_module.NativeByteTrackTracker(geometry="aabb", library=_FakeLibrary())
-    with pytest.raises(TypeError, match="must be Detections"):
-        tracker.update(np.empty((0, 6), dtype=np.float32))
-    with pytest.raises(ValueError, match="fixed to AABB"):
-        tracker.update(
-            Detections(
-                geometry=OrientedBoxes(torch.empty((0, 5), dtype=torch.float32)),
-                scores=torch.empty((0,), dtype=torch.float32),
-                class_ids=torch.empty((0,), dtype=torch.int64),
-                sample_id="sample",
+def test_native_bytetrack_accepts_numpy_aabb6_and_rejects_mode_mismatch():
+    library = _FakeLibrary()
+    tracker = native_module.NativeByteTrackTracker(geometry="aabb", library=library)
+    try:
+        output = tracker.update(np.array([[1, 1, 4, 5, 0.9, 3]], dtype=np.float64))
+        assert output.sample_id == "numpy:000000"
+        assert library.calls[1] == ("update", "handle", 1, None, 4, None)
+
+        with pytest.raises(ValueError, match=r"AABB detection rows must have shape \[N, 6\]"):
+            tracker.update(np.empty((0, 7), dtype=np.float32))
+        with pytest.raises(ValueError, match="fixed to AABB"):
+            tracker.update(
+                Detections(
+                    geometry=OrientedBoxes(torch.empty((0, 5), dtype=torch.float32)),
+                    scores=torch.empty((0,), dtype=torch.float32),
+                    class_ids=torch.empty((0,), dtype=torch.int64),
+                    sample_id="sample",
+                )
             )
-        )
-    tracker.close()
+    finally:
+        tracker.close()
 
 
 @pytest.mark.parametrize("geometry", ["aabb", "obb"])
@@ -94,25 +101,13 @@ def test_native_bytetrack_live_v2_returns_canonical_tracks(geometry: str):
         library=library,
     )
     rows = (
-        np.array([[10, 10, 30, 40, 0.95, 2**31 + 17]], dtype=np.float32)
+        np.array([[10, 10, 30, 40, 0.95, 2**31 + 17]], dtype=np.float64)
         if geometry == "aabb"
         else np.array([[20, 25, 20, 30, 0.3, 0.95, 2**31 + 17]], dtype=np.float64)
     )
-    # Build explicitly so the class ID does not pass through a float row.
-    geometry_value = (
-        Boxes(torch.tensor([[10, 10, 30, 40]], dtype=torch.float32))
-        if geometry == "aabb"
-        else OrientedBoxes(torch.tensor([[20, 25, 20, 30, 0.3]], dtype=torch.float32))
-    )
-    detections = Detections(
-        geometry=geometry_value,
-        scores=torch.tensor([0.95], dtype=torch.float32),
-        class_ids=torch.tensor([2**31 + 17], dtype=torch.int64),
-        sample_id="sample",
-    )
 
     try:
-        tracks = tracker.update(detections)
+        tracks = tracker.update(rows)
     finally:
         tracker.close()
 
@@ -120,6 +115,7 @@ def test_native_bytetrack_live_v2_returns_canonical_tracks(geometry: str):
     assert tracks.is_obb is (geometry == "obb")
     assert tracks.class_ids.tolist() == [2**31 + 17]
     assert tracks.detection_indices.tolist() == [0]
+    assert tracks.sample_id == "numpy:000000"
     assert len(rows) == len(tracks)
 
 

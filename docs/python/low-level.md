@@ -38,6 +38,7 @@
 
 ::: boxmot.trackers.factory.create_tracker
 
-Trackers accept canonical `Detections` and optional `Frame` values. Appearance
-and mask inference belong upstream in a `PerceptionPipeline`; tracker code does
-not invoke either model.
+Trackers accept canonical `Detections` or, for standalone box-only calls, exact
+NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be
+passed separately. Appearance and mask inference belong upstream in a
+`PerceptionPipeline`; tracker code does not invoke either model.

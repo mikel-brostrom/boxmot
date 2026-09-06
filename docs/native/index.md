@@ -33,9 +33,11 @@ detections = Detections(
 tracks = tracker.update(detections, frame)
 ```
 
-Inputs and outputs remain CPU-contiguous Torch structures at the Python
-boundary. The Python binding performs the one explicit conversion into the
-native ABI. Passing a NumPy row matrix directly to `update` is an error.
+Canonical inputs and outputs remain CPU-contiguous Torch structures at the
+Python boundary. For simple box-only calls, the high-level native tracker also
+accepts the same exact NumPy AABB6 or OBB7 matrix as the Python backend and
+still returns `Tracks`. Use `Detections` when providing enrichments or explicit
+sample identity without a `Frame`.
 
 The low-level ctypes modules under `boxmot/native/trackers/` accept only typed,
 contiguous NumPy buffers. Canonical conversion, requirements, configuration,

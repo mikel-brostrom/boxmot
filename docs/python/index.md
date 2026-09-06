@@ -71,10 +71,23 @@ print(tracks.geometry.values, tracks.track_ids)
 tracker.reset()
 ```
 
-The public method is always
-`update(detections: Detections, frame: Frame | None = None) -> Tracks`.
-`detection_indices == -1` identifies a propagated track without a current
-detection. Raw NumPy calls fail immediately.
+The public method is
+`update(detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks`.
+A tracker configured for AABB expects exactly `N x 6`
+`(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
+`(cx, cy, w, h, angle, confidence, class_id)` rows. Real numeric arrays are
+normalized to canonical dtypes. Geometry is still fixed by `TrackerSpec`, not
+inferred from the first matrix.
+
+Class IDs retain only the integer precision present in the packed array. Use
+`Detections.class_ids` with `int64` storage when large IDs must remain exact.
+
+The NumPy form is a convenience for simple box-only tracker calls. Use
+`Detections` when providing embeddings or masks and whenever composing a
+pipeline. A supplied `Frame` provides the sample ID; without one, standalone
+NumPy updates receive sequential internal sample IDs. A
+`detection_indices == -1` value identifies a propagated track without a current
+detection.
 
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`.

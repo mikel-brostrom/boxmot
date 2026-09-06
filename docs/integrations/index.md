@@ -6,8 +6,9 @@ while the CLI handles complete source-to-sink workflows.
 
 ## Bring your own detections
 
-Convert external results once at the boundary, then keep canonical structures
-inside the pipeline:
+For a standalone box-only tracker, pass exact NumPy AABB `N x 6` or OBB `N x 7`
+rows directly. Convert external results to canonical structures when composing
+a pipeline or attaching masks, embeddings, and explicit sample metadata:
 
 ```python
 import torch

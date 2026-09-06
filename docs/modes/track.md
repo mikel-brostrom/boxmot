@@ -34,7 +34,8 @@ boxmot track \
 ```
 
 Canonical OBB angles are radians and remain unwrapped for temporal continuity.
-Only serializers at output boundaries produce the 7- or 9-column row layouts.
+Pipeline values remain typed; `to_obb_rows()` produces the 9-column output
+layout when an external boundary needs it.
 
 ## Masks and appearance
 
@@ -60,7 +61,7 @@ callers invoke `pipeline.reset()` themselves.
 
 ## Python
 
-Use factories and structures instead of passing NumPy rows:
+Use factories and structures when composing a pipeline:
 
 ```python
 from boxmot import create_tracker
@@ -77,6 +78,11 @@ for frame in frames:  # Sequence[boxmot.structures.Frame]
 
 For externally supplied detections, construct the pipeline with
 `detector=None` and call `step_detections(frame, detections)`.
+
+A standalone box-only tracker may instead receive an exact NumPy AABB6 or OBB7
+matrix directly. That shorthand still returns `Tracks`; use `Detections` for
+embeddings, masks, explicit sample identity without a `Frame`, and all pipeline
+calls.
 
 ## Working with results
 
