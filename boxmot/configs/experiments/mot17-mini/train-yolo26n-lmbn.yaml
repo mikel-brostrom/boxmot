@@ -1,0 +1,18 @@
+id: mot17-mini-train-yolo26n-lmbn
+
+dataset:
+  ref: mot17-mini
+  split: train
+
+detections:
+  source: model
+  model:
+    ref: yolo26n
+    checkpoint: default
+
+reid:
+  ref: lmbn-n-duke
+
+evaluation:
+  class_map:
+    pedestrian: person

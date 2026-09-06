@@ -19,6 +19,30 @@ def test_every_built_in_experiment_has_a_materializable_model_source() -> None:
         assert resolved["detector"]["model"], path
 
 
+def test_mot17_mini_ci_experiment_uses_the_prepared_yolo26n_profile() -> None:
+    resolved = resolve_experiment_config("mot17-mini-train-yolo26n-lmbn", mode="materialize")
+
+    assert resolved["detections"] == {
+        "source": "model",
+        "model": {"ref": "yolo26n", "checkpoint": "default"},
+    }
+    assert resolved["detector"]["id"] == "yolo26n"
+    assert resolved["detector"]["model"] == "models/yolo26n.pt"
+    assert resolved["detector"]["uri"] == (
+        "https://github.com/mikel-brostrom/boxmot/releases/download/v22.0.0/yolo26n.pt"
+    )
+    assert resolved["detector"]["sha256"] == "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    assert resolved["detector"]["classes"][0] == "person"
+    assert resolved["evaluation"]["classes"] == [
+        {
+            "name": "pedestrian",
+            "dataset_id": 1,
+            "detector_name": "person",
+            "detector_id": 0,
+        }
+    ]
+
+
 @pytest.mark.parametrize(
     "experiment_id",
     (
@@ -37,8 +61,7 @@ def test_mmot_experiment_uses_one_native_identity_class_domain() -> None:
 
     assert resolved["reid"]["crop_strategy"] == "perspective"
     assert [
-        (entry["name"], entry["dataset_id"], entry["detector_id"])
-        for entry in resolved["evaluation"]["classes"]
+        (entry["name"], entry["dataset_id"], entry["detector_id"]) for entry in resolved["evaluation"]["classes"]
     ] == [
         ("car", 0, 0),
         ("bike", 1, 1),

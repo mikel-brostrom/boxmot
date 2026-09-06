@@ -51,6 +51,14 @@ def test_macos_native_ci_pins_and_exposes_opencv_four() -> None:
     assert '>> "$GITHUB_ENV"' in script
 
 
+@pytest.mark.parametrize("job_name", ("tune", "metrics"))
+def test_cached_ci_jobs_use_one_yolo26n_experiment_for_build_and_consumption(job_name: str) -> None:
+    script = _job_script(CI_WORKFLOW, job_name)
+
+    assert script.count("--experiment mot17-mini-train-yolo26n-lmbn") == 2
+    assert "mot17-mini-train-yolox-lmbn" not in script
+
+
 def test_rtdetr_smoke_installs_its_declared_feature_extra() -> None:
     script = _job_script(CI_WORKFLOW, "yolos")
 

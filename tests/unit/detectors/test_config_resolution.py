@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 import pytest
 import yaml
@@ -8,7 +9,7 @@ import yaml
 import boxmot.components.resolution as component_resolution
 import boxmot.detectors.config as detector_config
 from boxmot.components.artifacts import ResolvedArtifact
-from boxmot.detectors.config import resolve_detector_spec
+from boxmot.detectors.config import ConfigurationError, load_detector_config, resolve_detector_spec
 
 
 def _artifact(tmp_path, name="model.pt"):
@@ -49,6 +50,31 @@ def test_detector_binary_artifact_is_not_parsed_as_yaml(tmp_path) -> None:
     assert spec.backend == "ultralytics"
     assert spec.artifact == str(artifact.resolve())
     assert spec.options == ()
+
+
+def test_detector_profile_rejects_malformed_checkpoint_sha256(tmp_path) -> None:
+    config = tmp_path / "detector.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "id": "fixture",
+                "box_type": "aabb",
+                "classes": {0: "person"},
+                "inference": {"image_size": [640, 640], "confidence_threshold": 0.25},
+                "checkpoints": {
+                    "default": {
+                        "path": "model.pt",
+                        "uri": "https://example.test/model.pt",
+                        "sha256": "not-a-digest",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError, match="sha256 must be a lowercase 64-character digest"):
+        load_detector_config(config)
 
 
 @pytest.mark.parametrize("selector", ("yolo26n", "yolov8n"))
@@ -99,6 +125,28 @@ def test_missing_bare_ultralytics_selector_resolves_before_spec_hashing(
     assert spec.artifact == str(artifact.resolve())
     assert spec.artifact_sha256 == hashlib.sha256(artifact.read_bytes()).hexdigest()
     assert provenance["artifact"]["uri"] == source_uri
+
+
+def test_yolo26n_profile_forwards_pinned_boxmot_release_identity(tmp_path) -> None:
+    artifact = _artifact(tmp_path, "yolo26n.pt")
+    expected_sha256 = "9b09cc8bf347f0fc8a5f7657480587f25db09b34bf33b0652110fb03a8ad4fef"
+    expected_uri = "https://github.com/mikel-brostrom/boxmot/releases/download/v22.0.0/yolo26n.pt"
+    calls = []
+
+    def resolve_pinned(path, *, source_uri, expected_sha256, allow_download):
+        calls.append((path, source_uri, expected_sha256, allow_download))
+        return ResolvedArtifact(path=artifact, sha256=expected_sha256, source_uri=source_uri)
+
+    spec, provenance = resolve_detector_spec(
+        "yolo26n/default",
+        geometry="aabb",
+        artifact_resolver=resolve_pinned,
+    )
+
+    assert calls == [(Path("models/yolo26n.pt"), expected_uri, expected_sha256, True)]
+    assert spec.backend == "ultralytics"
+    assert spec.artifact_sha256 == expected_sha256
+    assert provenance["artifact"]["uri"] == expected_uri
 
 
 @pytest.mark.parametrize("selector", ("rtdetr_v2_r18vd", "rtdetr_v2_r18vd.pt"))

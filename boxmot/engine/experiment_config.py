@@ -57,6 +57,7 @@ def _resolve_detector_checkpoint(
         "checkpoint": checkpoint_name,
         "model": checkpoint["path"],
         "uri": checkpoint["uri"],
+        "sha256": checkpoint["sha256"],
         "box_type": detector["box_type"],
         "image_size": detector["image_size"],
         "confidence_threshold": detector["confidence_threshold"],
@@ -108,15 +109,11 @@ def _resolve_reid(
         or not crop_strategy_value
         or crop_strategy_value != crop_strategy_value.strip()
     ):
-        raise ConfigurationError(
-            f'Experiment "{experiment.get("id")}" reid.crop_strategy must be a non-empty string.'
-        )
+        raise ConfigurationError(f'Experiment "{experiment.get("id")}" reid.crop_strategy must be a non-empty string.')
     crop_strategy = crop_strategy_value.lower()
     if crop_strategy not in _REID_CROP_STRATEGIES:
         available = ", ".join(sorted(_REID_CROP_STRATEGIES))
-        raise ConfigurationError(
-            f'Experiment "{experiment.get("id")}" reid.crop_strategy must be one of: {available}.'
-        )
+        raise ConfigurationError(f'Experiment "{experiment.get("id")}" reid.crop_strategy must be one of: {available}.')
     if crop_strategy in {"perspective", "rotated"} and dataset["box_type"] != "obb":
         raise ConfigurationError(
             f'Experiment "{experiment.get("id")}" reid.crop_strategy={crop_strategy!r} requires an OBB dataset.'

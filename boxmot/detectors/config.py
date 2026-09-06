@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict
 from pathlib import Path
@@ -118,9 +119,13 @@ def load_detector_config(reference: str | Path) -> dict[str, Any]:
         if not isinstance(checkpoint_value, Mapping):
             raise ConfigurationError(f'{context} checkpoint "{checkpoint_name}" must be a mapping.')
         checkpoint_context = f'{context} checkpoint "{checkpoint_name}"'
+        sha256 = str(checkpoint_value.get("sha256") or "")
+        if sha256 and re.fullmatch(r"[0-9a-f]{64}", sha256) is None:
+            raise ConfigurationError(f"{checkpoint_context} sha256 must be a lowercase 64-character digest.")
         normalized_checkpoints[str(checkpoint_name)] = {
             "path": _required_text(checkpoint_value, "path", checkpoint_context),
             "uri": str(checkpoint_value.get("uri") or ""),
+            "sha256": sha256,
         }
 
     return {
@@ -183,6 +188,7 @@ def detector_config_to_runtime(config: Mapping[str, Any], checkpoint_name: str) 
         "model": checkpoint["path"],
         "default_model": checkpoint["path"],
         "uri": checkpoint["uri"],
+        "sha256": checkpoint["sha256"],
         "url": download_url,
         "model_url": download_url,
         "box_type": config["box_type"],
@@ -240,11 +246,13 @@ def _detector_profile_payload(
     """Adapt one validated detector profile to a component payload."""
 
     selected_artifact = str(profile["model"] if artifact_path is None else artifact_path)
+    expected_sha256 = profile.get("sha256") if artifact_path is None else None
     return {
         "backend": _detector_backend(str(profile["id"]), selected_artifact),
         "artifact": {
             "path": selected_artifact,
             "uri": profile.get("uri"),
+            "sha256": expected_sha256,
         },
         "geometry_mode": profile["box_type"],
         "options": {
