@@ -75,11 +75,13 @@ class _RecordingTracker(BaseTracker):
         needs_embeddings: bool = False,
         needs_masks: bool = False,
         needs_frame: bool = False,
+        frame_dimensions_only: bool = False,
         is_obb: bool = False,
     ) -> None:
         self.use_embeddings = needs_embeddings
         self._requires_masks = needs_masks
         self._requires_frame = needs_frame
+        self._requires_frame_dimensions_only = frame_dimensions_only
         self.seen: dict[str, np.ndarray | None] = {}
         super().__init__(is_obb=is_obb, min_hits=1)
 
@@ -140,6 +142,16 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
         assert not hasattr(public_trackers, implementation_name)
 
 
+def test_tracker_requirements_distinguish_frame_dimensions_from_pixels() -> None:
+    assert TrackerRequirements().frame_pixels is False
+    assert TrackerRequirements(frame=True).frame_pixels is True
+    dimensions_only = TrackerRequirements(frame=True, frame_dimensions_only=True)
+    assert dimensions_only.frame_pixels is False
+
+    with pytest.raises(ValueError, match="requires frame=True"):
+        TrackerRequirements(frame_dimensions_only=True)
+
+
 def test_package_root_import_does_not_load_tracker_or_heavy_runtimes() -> None:
     repo_root = Path(__file__).resolve().parents[3]
     script = """
@@ -189,6 +201,17 @@ def test_private_adapter_converts_rgb_chw_and_wraps_tracks_and_masks() -> None:
     assert tracker.seen["masks"].shape == (1, 64, 64)
     assert tracker.seen["img"].shape == (64, 64, 3)
     assert tracker.seen["img"][0, 0].tolist() == [30, 20, 10]
+
+
+def test_private_adapter_initializes_dimensions_without_copying_frame_pixels() -> None:
+    tracker = _RecordingTracker(needs_frame=True, frame_dimensions_only=True)
+    frame = _frame()
+
+    tracker.update(_detections(), frame)
+
+    assert tracker.requirements == TrackerRequirements(frame=True, frame_dimensions_only=True)
+    assert tracker.seen["img"] is None
+    assert (tracker.w, tracker.h) == (frame.width, frame.height)
 
 
 def test_private_adapter_preserves_unwrapped_obb_angle_continuity() -> None:

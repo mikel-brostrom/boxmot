@@ -83,22 +83,21 @@ container. The service images use the Python tracker backends.
 ### Persist datasets, builds, and models
 
 Mount raw datasets, immutable builds, and downloaded model artifacts outside
-the container. Dataset configs resolve beneath `BOXMOT_DATASETS_DIR`, build IDs
-resolve beneath `BOXMOT_BUILDS_DIR`, and built-in model paths resolve beneath
-the CLI image's `/opt/boxmot` working directory:
+the container. Dataset configs resolve beneath `/opt/boxmot/datasets/mot` by
+default, build IDs resolve beneath `BOXMOT_BUILDS_DIR`, and built-in model paths
+resolve beneath the CLI image's `/opt/boxmot` working directory:
 
 ```bash
-mkdir -p "$PWD/runs/builds" "$PWD/models"
+mkdir -p "$PWD/datasets/mot" "$PWD/runs/materializations" "$PWD/models"
 
 docker run --rm --gpus all --ipc=host \
-  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
-  -v "$PWD/runs/builds:/builds" \
+  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot" \
+  -v "$PWD/runs/materializations:/materializations" \
   -v "$PWD/models:/opt/boxmot/models" \
-  -e BOXMOT_DATASETS_DIR=/datasets \
-  -e BOXMOT_BUILDS_DIR=/builds \
+  -e BOXMOT_BUILDS_DIR=/materializations \
   boxmot/boxmot:24.0.0 \
   boxmot materialize \
-    --experiment mot17-ablation-yolox-lmbn \
+    --experiment mot17/ablation-yolox-lmbn.yaml \
     --device 0
 ```
 
@@ -109,14 +108,13 @@ so evaluation can verify the source catalog and component artifacts:
 BUILD_ID=replace-with-the-64-character-build-id
 
 docker run --rm --gpus all --ipc=host \
-  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
-  -v "$PWD/runs/builds:/builds:ro" \
+  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot:ro" \
+  -v "$PWD/runs/materializations:/materializations:ro" \
   -v "$PWD/models:/opt/boxmot/models:ro" \
-  -e BOXMOT_DATASETS_DIR=/datasets \
-  -e BOXMOT_BUILDS_DIR=/builds \
+  -e BOXMOT_BUILDS_DIR=/materializations \
   boxmot/boxmot:24.0.0 \
   boxmot eval \
-    --experiment mot17-ablation-yolox-lmbn \
+    --experiment mot17/ablation-yolox-lmbn.yaml \
     --build "$BUILD_ID" \
     --tracker occluboost
 ```

@@ -56,7 +56,7 @@ feature extras to the same environment.
 | --- | --- | --- | --- |
 | Tracking workflows with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra cpu --extra yolo` | Preinstalls Ultralytics and YOLOX. |
 | Detector inference with RT-DETR v2 | `pip install "boxmot[rtdetr]"` | `uv sync --extra cpu --extra rtdetr` | Installs the Transformers detector backend. |
-| `train-reid`, `eval-reid`, and `compare-reid` | No additional extra | `uv sync --extra cpu` | Uses the built-in ReID stack with the selected PyTorch profile. Place each selected ReID dataset under its configured `--data-dir` or `--target` path. |
+| `train-reid`, `eval-reid`, and `compare-reid` | No additional extra | `uv sync --extra cpu` | Uses the built-in ReID stack with the selected PyTorch profile. Built-in downloads use `./datasets/reid`; explicit `--data-dir` and `--target` paths remain supported. |
 | `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra cpu --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
 | `research` | `pip install "boxmot[research]"` | `uv sync --extra cpu --extra research` | Installs GEPA for the code-evolution loop. |
 | Detection-to-track HTTP service | `pip install "boxmot[service]"` | `uv sync --extra cpu --extra service` | Installs FastAPI and Uvicorn for `boxmot-service`. |
@@ -135,30 +135,28 @@ artifacts on the host. This example uses the repository's MOT data layout and
 persists downloads and builds across containers:
 
 ```bash
-mkdir -p "$PWD/runs/builds" "$PWD/models"
+mkdir -p "$PWD/datasets/mot" "$PWD/runs/materializations" "$PWD/models"
 
 docker run --rm --gpus all --ipc=host \
-  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
-  -v "$PWD/runs/builds:/builds" \
+  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot" \
+  -v "$PWD/runs/materializations:/materializations" \
   -v "$PWD/models:/opt/boxmot/models" \
-  -e BOXMOT_DATASETS_DIR=/datasets \
-  -e BOXMOT_BUILDS_DIR=/builds \
+  -e BOXMOT_BUILDS_DIR=/materializations \
   boxmot/boxmot:24.0.0 \
   boxmot materialize \
-    --experiment mot17-ablation-yolox-lmbn \
+    --experiment mot17/ablation-yolox-lmbn.yaml \
     --device 0
 
 BUILD_ID=replace-with-the-64-character-build-id
 
 docker run --rm --gpus all --ipc=host \
-  -v "$PWD/boxmot/datasets/mot:/datasets:ro" \
-  -v "$PWD/runs/builds:/builds:ro" \
+  -v "$PWD/datasets/mot:/opt/boxmot/datasets/mot:ro" \
+  -v "$PWD/runs/materializations:/materializations:ro" \
   -v "$PWD/models:/opt/boxmot/models:ro" \
-  -e BOXMOT_DATASETS_DIR=/datasets \
-  -e BOXMOT_BUILDS_DIR=/builds \
+  -e BOXMOT_BUILDS_DIR=/materializations \
   boxmot/boxmot:24.0.0 \
   boxmot eval \
-    --experiment mot17-ablation-yolox-lmbn \
+    --experiment mot17/ablation-yolox-lmbn.yaml \
     --build "$BUILD_ID" \
     --tracker occluboost
 ```
@@ -213,7 +211,7 @@ Example:
 
 ```bash
 boxmot track --detector yolov8n --tracker bytetrack --tracker-backend cpp --source video.mp4
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker bytetrack --tracker-backend cpp
 ```
 
 The generated build files are kept under `build/native/<tracker>/`.

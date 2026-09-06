@@ -16,29 +16,31 @@ Run `boxmot COMMAND --help` for the authoritative option set.
 boxmot track --source video.mp4 --detector yolov8n --tracker bytetrack --save
 
 # Publish perception once
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
 
-# Replay one explicit immutable build
+# Materialize/reuse the experiment build, then replay it
 boxmot eval \
-  --experiment mot17-ablation-yolox-lmbn \
-  --build BUILD_ID \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --device mps \
   --tracker boosttrack
 
 boxmot tune \
-  --experiment mot17-ablation-yolox-lmbn \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
   --build BUILD_ID \
   --tracker bytetrack
 
 boxmot research \
-  --experiment mot17-ablation-yolox-lmbn \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
   --build BUILD_ID \
   --tracker bytetrack \
   --proposal-model openai/gpt-5.4
 ```
 
 For `--build`, an existing path is used directly. An ID is resolved only under
-`--build-root`, whose default comes from `BOXMOT_BUILDS_DIR` or the platform
-cache. There is no implicit materialization or latest-build lookup.
+`--build-root`, whose default is `./runs/materializations` unless
+`BOXMOT_BUILDS_DIR` is set. When experiment-backed eval omits `--build`, that
+same root receives or reuses its deterministic materialization. There is no
+latest-build lookup.
 
 ## Input contracts
 
@@ -46,7 +48,7 @@ cache. There is no implicit materialization or latest-build lookup.
 | --- | --- |
 | `track` | source plus explicit components |
 | `materialize` | `--experiment` |
-| `eval` | exactly one of `--experiment` or `--dataset`, plus `--build` |
+| `eval` | `--experiment` (optional `--build`) or `--dataset` plus `--build` |
 | `tune` | `--experiment` and `--build` |
 | `research` | `--experiment` and `--build` |
 
@@ -55,9 +57,9 @@ from the experiment. To change any of those values, select or create another
 experiment; the command line exposes only execution, publication, and location
 controls.
 
-Raw dataset roots resolve from `--data-root`, then `BOXMOT_DATASETS_DIR`, then
-the platform cache. Build roots resolve independently from `--build-root`, then
-`BOXMOT_BUILDS_DIR`, then the platform cache.
+Raw tracking datasets default to `./datasets/mot`; pass `--data-root` explicitly
+to use another location. Materialized-dataset roots resolve independently from
+`--build-root`, then `BOXMOT_BUILDS_DIR`, then `./runs/materializations`.
 
 ## Command references
 

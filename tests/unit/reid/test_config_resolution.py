@@ -27,7 +27,6 @@ def test_reid_yaml_resolves_relative_artifact_and_hash(tmp_path) -> None:
                 "artifact": {"path": artifact.name},
                 "precision": "fp16",
                 "preprocessing": "resize",
-                "crop_strategy": "mask",
                 "options": {"image_size": [384, 128]},
             }
         ),
@@ -40,8 +39,22 @@ def test_reid_yaml_resolves_relative_artifact_and_hash(tmp_path) -> None:
     assert spec.backend == "pytorch"
     assert spec.precision == "fp16"
     assert spec.preprocessing == "resize"
-    assert spec.crop_strategy == "mask"
     assert spec.option_values() == {"image_size": (384, 128)}
+
+
+@pytest.mark.parametrize("crop_strategy", ("aabb", "rotated", "perspective", "mask_aware", None))
+def test_reid_resolution_rejects_legacy_crop_strategy(tmp_path, crop_strategy) -> None:
+    artifact = _artifact(tmp_path)
+
+    with pytest.raises(reid_config.ConfigurationError, match="crop_strategy.*no longer supported"):
+        resolve_reid_spec(
+            {
+                "backend": "pytorch",
+                "artifact": {"path": str(artifact)},
+                "crop_strategy": crop_strategy,
+            },
+            allow_download=False,
+        )
 
 
 def test_reid_binary_artifact_is_not_parsed_as_yaml(tmp_path) -> None:

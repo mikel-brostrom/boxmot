@@ -283,6 +283,40 @@ class MaterializationStateStore:
             self._replace(updated)
             return updated
 
+    def replace_shards(
+        self,
+        stage_name: str,
+        shards: Mapping[str, Mapping[str, str]],
+    ) -> StageState:
+        """Atomically replace one running stage's complete shard checkpoints."""
+
+        with self._lock:
+            current = self._stage(stage_name)
+            if current.status != "running":
+                raise StateError(f"Cannot replace shards while stage {stage_name!r} is {current.status}.")
+            completed: list[str] = []
+            hashes: list[tuple[str, str, str]] = []
+            for shard_id, artifact_hashes in sorted(shards.items()):
+                if not isinstance(shard_id, str) or re.fullmatch(r"[0-9]{5,}", shard_id) is None:
+                    raise StateError(f"Invalid replacement shard ID {shard_id!r}.")
+                completed.append(shard_id)
+                for artifact, digest in sorted(artifact_hashes.items()):
+                    if not isinstance(artifact, str) or not artifact:
+                        raise StateError("Replacement shard artifact names must be non-empty strings.")
+                    if not isinstance(digest, str) or re.fullmatch(r"[0-9a-f]{64}", digest) is None:
+                        raise StateError(f"Invalid replacement shard digest for {artifact!r}.")
+                    hashes.append((shard_id, artifact, digest))
+            updated = replace(
+                current,
+                completed_shards=tuple(completed),
+                shard_hashes=tuple(hashes),
+                artifacts=(),
+                completed_at=None,
+                error=None,
+            )
+            self._replace(updated)
+            return updated
+
     def discard_shard(self, stage_name: str, shard_id: str) -> StageState:
         """Forget an unreadable staging shard so the owning stage can rebuild it."""
 

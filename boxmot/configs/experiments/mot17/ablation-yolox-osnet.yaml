@@ -1,13 +1,13 @@
 dataset:
-  ref: mot17
+  ref: mot17.yaml
   split: ablation
 
 detector:
-  ref: yolox-x-mot17
+  ref: yolox-x-mot17.yaml
   checkpoint: ablation
 
 reid:
-  ref: lmbn-n-duke
+  ref: osnet-x0-25-msmt17.yaml
 
 evaluation:
   class_map:

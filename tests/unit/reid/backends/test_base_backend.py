@@ -19,7 +19,6 @@ from boxmot.reid.core.crops import (
     canonicalize_obb_for_crop,
     coerce_boxes,
     crop_obb,
-    crop_obb_perspective,
     prepare_crop_batch,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
@@ -339,73 +338,6 @@ def test_crop_obb_is_invariant_to_equivalent_rectangle_forms():
     assert {crop.shape for crop in crops} == {(50, 20, 3)}
     for crop in crops[1:]:
         np.testing.assert_array_equal(crop, crops[0])
-
-
-@pytest.mark.parametrize(
-    "box",
-    (
-        np.array([52.0, 41.0, 37.5, 16.25, np.deg2rad(31.0)], dtype=np.float32),
-        np.array([44.0, 48.0, 13.75, 42.5, np.deg2rad(76.0)], dtype=np.float32),
-    ),
-    ids=("oblique-landscape", "steep-portrait"),
-)
-def test_perspective_obb_crop_matches_published_cache_transform(box):
-    rows, columns = np.indices((96, 112), dtype=np.uint16)
-    image = np.stack(
-        (
-            (columns * 3 + rows) % 256,
-            (rows * 5 + columns) % 256,
-            (rows * 7 + columns * 11) % 256,
-        ),
-        axis=2,
-    ).astype(np.uint8)
-    cx, cy, width, height, angle = box
-    corners = cv2.boxPoints(
-        ((float(cx), float(cy)), (float(width), float(height)), float(np.degrees(angle)))
-    )
-    ordered = np.empty((4, 2), dtype=np.float32)
-    coordinate_sum = corners.sum(axis=1)
-    coordinate_difference = np.diff(corners, axis=1).reshape(-1)
-    ordered[0] = corners[np.argmin(coordinate_sum)]
-    ordered[1] = corners[np.argmin(coordinate_difference)]
-    ordered[2] = corners[np.argmax(coordinate_sum)]
-    ordered[3] = corners[np.argmax(coordinate_difference)]
-    destination = np.array(
-        ((0, 0), (width - 1, 0), (width - 1, height - 1), (0, height - 1)),
-        dtype=np.float32,
-    )
-    expected = cv2.warpPerspective(
-        image,
-        cv2.getPerspectiveTransform(ordered, destination),
-        (max(int(round(float(width))), 1), max(int(round(float(height))), 1)),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(0, 0, 0),
-    )
-
-    actual = crop_obb_perspective(box, image)
-
-    np.testing.assert_array_equal(actual, expected)
-
-
-@pytest.mark.parametrize("angle", (45.0, -45.0))
-def test_perspective_obb_crop_is_nonsingular_at_exact_diagonal_angles(angle):
-    rows, columns = np.indices((128, 128), dtype=np.uint16)
-    image = np.stack(
-        (
-            (columns * 3 + rows) % 256,
-            (rows * 5 + columns) % 256,
-            (rows * 7 + columns * 11) % 256,
-        ),
-        axis=2,
-    ).astype(np.uint8)
-    box = np.array([64.0, 64.0, 80.0, 30.0, np.deg2rad(angle)], dtype=np.float32)
-
-    crop = crop_obb_perspective(box, image)
-
-    assert crop.shape == (30, 80, 3)
-    assert np.count_nonzero(crop) > 0
-    assert float(crop.std()) > 1.0
 
 
 def test_obb_crop_canonical_angle_is_continuous_across_half_turn_boundary():

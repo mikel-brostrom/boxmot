@@ -26,9 +26,9 @@ git checkout -b feature/short-desc
 
 # Run functionality where changes were introduced
 uv run --no-sync boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
-uv run --no-sync boxmot materialize --experiment mot17-ablation-yolox-lmbn --build-root runs/builds
+uv run --no-sync boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml --build-root runs/materializations
 uv run --no-sync boxmot eval --dataset mot17 --split ablation --build BUILD_ID --tracker bytetrack
-uv run --no-sync boxmot tune --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack
+uv run --no-sync boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker bytetrack
 
 # Run tests
 uv run --no-sync pytest

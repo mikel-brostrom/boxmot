@@ -65,8 +65,8 @@ ignore = ["E731", "F405", "E402", "E741"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [
-  "boxmot/datasets/mot",
-  "boxmot/datasets/reid",
+  "datasets/mot",
+  "datasets/reid",
   "runs",
 ]
 
@@ -92,8 +92,7 @@ artifacts = [
 exclude = [
   "/artifacts/**",
   "/builds/**",
-  "/boxmot/datasets/mot/**",
-  "/boxmot/datasets/reid/**",
+  "/datasets/**",
   "/boxmot/**/.staging/**",
   "/boxmot/**/*.npy",
   "/boxmot/**/*.npz",
@@ -182,7 +181,7 @@ dependencies = [
   # Backport typing.Self for the supported Python 3.10 runtime.
   "typing-extensions>=4.12.2,<5.0.0",
   "huggingface-hub>=1.7.1",
-  # Canonical keyed dataset storage and platform-local data/build roots.
+  # Canonical keyed dataset storage and platform-local metadata caches.
   "pyarrow>=18.0.0,<24.0.0",
   "platformdirs>=4.3.0,<5.0.0",
 ]

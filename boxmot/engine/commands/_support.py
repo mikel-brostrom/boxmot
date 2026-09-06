@@ -85,7 +85,7 @@ def _require_experiment_input(experiment: str | None, command_name: str) -> str:
 
     if not experiment:
         raise click.UsageError(
-            f"{command_name} requires --experiment <experiment-id-or-yaml>. "
+            f"{command_name} requires --experiment <experiment-yaml>. "
             f"Materialize and consume builds with the same authored experiment."
         )
     return experiment

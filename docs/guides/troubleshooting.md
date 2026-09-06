@@ -104,11 +104,14 @@ Native backends are currently available for `botsort`, `bytetrack`, `ocsort`, `o
 
 ### `eval` says the build is incompatible
 
-`eval`, `tune`, and `research` never run perception or select a replacement
-build. Materialize the same experiment selected by the downstream workflow,
-then pass the resulting build ID explicitly with `--build`:
+An explicitly selected incompatible build is never modified or silently
+replaced. Either omit `--build` so experiment-backed eval materializes a
+compatible canonical build, or materialize the same experiment yourself and
+pass the result explicitly:
 
 ```bash
+boxmot eval --experiment EXPERIMENT
+
 boxmot materialize --experiment EXPERIMENT
 boxmot eval --experiment EXPERIMENT --build BUILD_ID
 ```

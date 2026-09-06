@@ -8,12 +8,14 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot.datasets.config import load_dataset_config
 from boxmot.datasets.manifest import sha256_file
 from boxmot.engine.materialization import BoundedFrameDecoder, SourceSample, decode_source_sample
 from boxmot.engine.materialization.catalog import (
     catalog_local_source,
     catalog_mot_dataset,
     default_data_root,
+    inspect_catalog_file,
     resolve_dataset_annotation_root,
     resolve_dataset_root,
     resolve_dataset_split_root,
@@ -29,14 +31,41 @@ def _save_mmot_frame(path: Path, *, height: int, width: int, value: int = 0) -> 
     return frame
 
 
-def test_data_root_precedence(monkeypatch, tmp_path) -> None:
+def test_explicit_data_root_overrides_repository_default(monkeypatch, tmp_path) -> None:
     explicit = tmp_path / "explicit"
-    configured = tmp_path / "configured"
-    monkeypatch.setenv("BOXMOT_DATASETS_DIR", str(configured))
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BOXMOT_DATASETS_DIR", str(tmp_path / "stale-environment-root"))
 
     assert default_data_root(explicit) == explicit.resolve()
-    assert default_data_root() == configured.resolve()
+    assert default_data_root() == (tmp_path / "datasets" / "mot").resolve()
     assert resolve_dataset_root({"root": "MOT17"}, explicit) == explicit.resolve() / "MOT17"
+
+
+def test_default_data_root_is_outside_the_python_package(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("BOXMOT_DATASETS_DIR", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert default_data_root() == (tmp_path / "datasets" / "mot").resolve()
+
+
+@pytest.mark.parametrize(
+    "dataset_id",
+    ("mot17", "mot17-mini", "mot20", "sportsmot", "visdrone", "dancetrack", "mmot", "mmot-mini"),
+)
+def test_built_in_tracking_datasets_share_repository_mot_root(
+    dataset_id,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BOXMOT_DATASETS_DIR", str(tmp_path / "stale-environment-root"))
+    config = load_dataset_config(dataset_id)
+    expected_base = (tmp_path / "datasets" / "mot").resolve()
+
+    resolved = resolve_dataset_root(config)
+
+    assert resolved == (expected_base / config["root"]).resolve()
+    assert resolved.is_relative_to(expected_base)
 
 
 def test_local_image_catalog_is_metadata_only_stable_and_uses_relative_references(tmp_path, monkeypatch) -> None:
@@ -64,6 +93,18 @@ def test_local_image_catalog_is_metadata_only_stable_and_uses_relative_reference
     assert cv2.imwrite(str(source / "a.png"), first)
     changed = catalog_local_source(source, split="train")
     assert changed.fingerprint != catalog.fingerprint
+
+
+def test_local_catalog_ignores_appledouble_sidecars(tmp_path) -> None:
+    source = tmp_path / "images"
+    source.mkdir()
+    assert cv2.imwrite(str(source / "001.jpg"), np.zeros((3, 5, 3), dtype=np.uint8))
+    assert cv2.imwrite(str(source / ".002.jpg"), np.ones((3, 5, 3), dtype=np.uint8))
+    (source / "._001.jpg").write_bytes(b"AppleDouble metadata, not a JPEG")
+
+    catalog = catalog_local_source(source, split="train")
+
+    assert [sample.image_ref for sample in catalog.samples] == [".002.jpg", "001.jpg"]
 
 
 def test_local_catalog_identity_is_stable_when_source_root_moves(tmp_path) -> None:
@@ -169,6 +210,47 @@ def test_mot_catalog_discovers_npy_frames_directly_beneath_sequence_roots(tmp_pa
     assert catalog.metadata["dataset_id"] == "mmot-fixture"
     assert catalog.metadata["split"] == "test"
     assert catalog.metadata["source_count"] == 3
+
+
+def test_mot_catalog_ignores_appledouble_sidecars(tmp_path) -> None:
+    config = {
+        "id": "mot-fixture",
+        "layout": "mot",
+        "root": "MOT17",
+        "default_split": "ablation",
+        "splits": {"ablation": {"path": "ablation", "has_ground_truth": True}},
+        "classes": {"target": {"pedestrian": 1}},
+    }
+    sequence_root = tmp_path / "MOT17" / "ablation" / "MOT17-02-FRCNN"
+    image_root = sequence_root / "img1"
+    image_root.mkdir(parents=True)
+    assert cv2.imwrite(str(image_root / "000001.jpg"), np.zeros((3, 5, 3), dtype=np.uint8))
+    assert cv2.imwrite(str(image_root / ".000002.jpg"), np.ones((3, 5, 3), dtype=np.uint8))
+    (image_root / "._000001.jpg").write_bytes(b"AppleDouble metadata, not a JPEG")
+    gt_root = sequence_root / "gt"
+    gt_root.mkdir()
+    (gt_root / "gt.txt").write_text("1,1,0,0,1,1,1,1,1\n", encoding="utf-8")
+    (gt_root / "._gt.txt").write_bytes(b"AppleDouble metadata")
+
+    resolved_paths = []
+
+    def resolve_metadata(path, include_image_size):
+        resolved_paths.append(path)
+        return inspect_catalog_file(path, include_image_size)
+
+    catalog = catalog_mot_dataset(
+        config,
+        split="ablation",
+        data_root=tmp_path,
+        metadata_resolver=resolve_metadata,
+    )
+
+    image_refs = {sample.image_ref for sample in catalog.samples}
+    assert image_refs == {
+        "ablation/MOT17-02-FRCNN/img1/.000002.jpg",
+        "ablation/MOT17-02-FRCNN/img1/000001.jpg",
+    }
+    assert all(not path.name.startswith("._") for path in resolved_paths)
 
 
 def test_mot_catalog_fingerprints_sibling_sequence_annotations(tmp_path) -> None:
@@ -319,13 +401,32 @@ def test_dataset_catalog_identity_uses_relative_annotation_refs_and_semantic_met
 
 
 def test_dataset_root_rejects_escape(tmp_path) -> None:
-    for value in ("", "../outside", str(tmp_path.resolve())):
+    for value in (
+        "",
+        "../outside",
+        str(tmp_path.resolve()),
+        r"C:\outside",
+        r"\outside",
+        r"\\server\share",
+        r"nested\outside",
+    ):
         try:
             resolve_dataset_root({"root": value}, tmp_path)
         except ValueError:
             pass
         else:
             raise AssertionError(f"unsafe root accepted: {json.dumps(value)}")
+
+
+def test_dataset_root_rejects_symlink_escape(tmp_path) -> None:
+    data_root = tmp_path / "data"
+    outside = tmp_path / "outside"
+    data_root.mkdir()
+    outside.mkdir()
+    (data_root / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="must remain beneath"):
+        resolve_dataset_root({"root": "linked"}, data_root)
 
 
 def test_decoder_rejects_source_changed_after_cataloging(tmp_path) -> None:

@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shutil
 import tempfile
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -428,6 +429,224 @@ def write_compacted_parquet_artifact(
     return tuple(paths)
 
 
+def _iter_rekeyed_instance_tables(
+    source: str | Path,
+    *,
+    box_type: BoxType,
+    source_build_id: str,
+    target_build_id: str,
+    batch_rows: int = 8192,
+) -> Iterator["pa.Table"]:
+    """Yield schema-checked instance batches with canonical target IDs."""
+
+    if batch_rows <= 0:
+        raise ValueError("batch_rows must be positive.")
+
+    pa = require_pyarrow()
+    import pyarrow.parquet as pq
+
+    expected_schema = instances_schema(box_type)
+    instance_column = expected_schema.get_field_index("instance_id")
+    sample_column = expected_schema.get_field_index("sample_id")
+    detection_column = expected_schema.get_field_index("detection_index")
+    for source_file in artifact_files(source):
+        parquet = pq.ParquetFile(source_file)
+        if not parquet.schema_arrow.equals(expected_schema, check_metadata=False):
+            raise ValueError(f"Instance artifact schema mismatch: {source_file}")
+        for batch in parquet.iter_batches(batch_size=batch_rows):
+            table = pa.Table.from_batches((batch,))
+            sample_ids = table.column(sample_column).to_pylist()
+            detection_indices = table.column(detection_column).to_pylist()
+            instance_ids = table.column(instance_column).to_pylist()
+            expected_ids = [
+                f"{source_build_id}:{sample_id}:{detection_index}"
+                for sample_id, detection_index in zip(sample_ids, detection_indices, strict=True)
+            ]
+            if instance_ids != expected_ids:
+                raise ValueError("Instance artifact contains non-canonical instance IDs.")
+            target_ids = [
+                f"{target_build_id}:{sample_id}:{detection_index}"
+                for sample_id, detection_index in zip(sample_ids, detection_indices, strict=True)
+            ]
+            yield table.set_column(
+                instance_column,
+                expected_schema.field(instance_column),
+                pa.array(target_ids, type=pa.string()),
+            )
+
+
+def _fsync_directory(path: Path) -> None:
+    """Best-effort fsync for a directory containing completed shards."""
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        # Directory fsync is unavailable on some supported filesystems.
+        pass
+
+
+def write_rekeyed_instance_artifact(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    box_type: BoxType,
+    source_build_id: str,
+    target_build_id: str,
+    target_rows: int = 50_000,
+) -> tuple[Path, ...]:
+    """Stream instance rows into bounded shards with target-build IDs.
+
+    ``destination`` must be a new artifact directory. The caller owns its
+    eventual atomic publication and cleanup if this operation fails.
+    """
+
+    if target_rows <= 0:
+        raise ValueError("target_rows must be positive.")
+
+    pa = require_pyarrow()
+    import pyarrow.parquet as pq
+
+    expected_schema = instances_schema(box_type)
+    output = Path(destination)
+    output.mkdir(parents=True)
+    writer = None
+    paths: list[Path] = []
+    rows_in_shard = 0
+
+    def open_writer():
+        path = output / f"part-{len(paths):05d}.parquet"
+        paths.append(path)
+        return pq.ParquetWriter(path, expected_schema, compression="zstd")
+
+    def close_writer() -> None:
+        nonlocal writer, rows_in_shard
+        if writer is None:
+            return
+        active_writer = writer
+        writer = None
+        active_writer.close()
+        with paths[-1].open("rb") as stream:
+            os.fsync(stream.fileno())
+        rows_in_shard = 0
+
+    try:
+        for table in _iter_rekeyed_instance_tables(
+            source,
+            box_type=box_type,
+            source_build_id=source_build_id,
+            target_build_id=target_build_id,
+        ):
+            offset = 0
+            while offset < table.num_rows:
+                if writer is None:
+                    writer = open_writer()
+                count = min(target_rows - rows_in_shard, table.num_rows - offset)
+                writer.write_table(table.slice(offset, count), row_group_size=PARQUET_ROW_GROUP_ROWS)
+                rows_in_shard += count
+                offset += count
+                if rows_in_shard == target_rows:
+                    close_writer()
+        if not paths:
+            writer = open_writer()
+            writer.write_table(pa.Table.from_pylist([], schema=expected_schema))
+        close_writer()
+        _fsync_directory(output)
+    except BaseException as exc:
+        try:
+            close_writer()
+        except BaseException as close_error:
+            add_note = getattr(exc, "add_note", None)
+            if callable(add_note):
+                add_note(f"Instance artifact writer cleanup also failed: {close_error}")
+        raise
+    return tuple(paths)
+
+
+def write_repartitioned_instance_artifact(
+    source: str | Path,
+    destination: str | Path,
+    *,
+    box_type: BoxType,
+    source_build_id: str,
+    target_build_id: str,
+    shard_by_sample: Mapping[str, int],
+    shard_count: int,
+) -> tuple[Path, ...]:
+    """Stream and rekey instances into caller-defined sample partitions.
+
+    This preserves checkpoint shard semantics when a compact published
+    artifact is restored into a resumable materialization stage.
+    ``destination`` must be a new artifact directory.
+    """
+
+    if shard_count <= 0:
+        raise ValueError("shard_count must be positive.")
+    if any(
+        not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < shard_count
+        for index in shard_by_sample.values()
+    ):
+        raise ValueError("Sample shard indices must be integers within shard_count.")
+
+    pa = require_pyarrow()
+    import pyarrow.parquet as pq
+
+    expected_schema = instances_schema(box_type)
+    sample_column = expected_schema.get_field_index("sample_id")
+    output = Path(destination)
+    output.mkdir(parents=True)
+    fragment_root = Path(tempfile.mkdtemp(prefix=".instance-fragments-", dir=output.parent))
+    paths: list[Path] = []
+    try:
+        for batch_index, table in enumerate(
+            _iter_rekeyed_instance_tables(
+                source,
+                box_type=box_type,
+                source_build_id=source_build_id,
+                target_build_id=target_build_id,
+            )
+        ):
+            rows_by_shard: dict[int, list[int]] = {}
+            for row_index, sample_id in enumerate(table.column(sample_column).to_pylist()):
+                try:
+                    shard_index = shard_by_sample[sample_id]
+                except KeyError as exc:
+                    raise ValueError(f"Instance artifact contains unknown sample {sample_id!r}.") from exc
+                rows_by_shard.setdefault(shard_index, []).append(row_index)
+            for shard_index, row_indices in rows_by_shard.items():
+                fragment_directory = fragment_root / f"{shard_index:05d}"
+                fragment_directory.mkdir(exist_ok=True)
+                pq.write_table(
+                    table.take(pa.array(row_indices, type=pa.int64())),
+                    fragment_directory / f"part-{batch_index:08d}.parquet",
+                    compression="zstd",
+                    row_group_size=PARQUET_ROW_GROUP_ROWS,
+                )
+
+        for shard_index in range(shard_count):
+            instance_path = output / f"part-{shard_index:05d}.parquet"
+            writer = pq.ParquetWriter(instance_path, expected_schema, compression="zstd")
+            try:
+                fragments = sorted((fragment_root / f"{shard_index:05d}").glob("*.parquet"))
+                if fragments:
+                    for fragment in fragments:
+                        writer.write_table(pq.read_table(fragment), row_group_size=PARQUET_ROW_GROUP_ROWS)
+                else:
+                    writer.write_table(pa.Table.from_pylist([], schema=expected_schema))
+            finally:
+                writer.close()
+            with instance_path.open("rb") as stream:
+                os.fsync(stream.fileno())
+            paths.append(instance_path)
+        _fsync_directory(output)
+    finally:
+        shutil.rmtree(fragment_root, ignore_errors=True)
+    return tuple(paths)
+
+
 def resolve_embedding_metadata(
     table: "pa.Table",
     *,
@@ -656,4 +875,6 @@ __all__ = (
     "sha256_artifact",
     "write_compacted_parquet_artifact",
     "write_parquet_records",
+    "write_rekeyed_instance_artifact",
+    "write_repartitioned_instance_artifact",
 )

@@ -18,6 +18,7 @@ from boxmot.components.resolution import ArtifactResolver, freeze_json
 from boxmot.datasets import DatasetManifest
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import resolve_detector_spec
+from boxmot.engine.dataset_resources import ensure_dataset_split_available
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
     catalog_mot_dataset_for_evaluation,
@@ -46,13 +47,10 @@ from boxmot.utils import logger as LOGGER
 
 
 def _detector_reference(resolved: Mapping[str, Any]) -> str:
-    detections = resolved.get("detections") or {}
-    if detections.get("source") != "model":
-        raise ValueError('Experiment detections.source must be "model" for canonical build evaluation.')
-    model = detections.get("model") or {}
-    if not model.get("ref") or not model.get("checkpoint"):
+    detector = resolved.get("detector") or {}
+    if not detector.get("ref") or not detector.get("checkpoint"):
         raise ValueError("Experiment detector configuration is incomplete.")
-    return f"{model['ref']}/{model['checkpoint']}"
+    return f"{detector['ref']}/{detector['checkpoint']}"
 
 
 def _reid_reference(resolved: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -64,7 +62,6 @@ def _reid_reference(resolved: Mapping[str, Any]) -> Mapping[str, Any] | None:
         "device": "cpu" if config.get("device") in {None, "", "auto"} else config["device"],
         "precision": config.get("precision") or "fp32",
         "preprocessing": config.get("preprocess") or "default",
-        "crop_strategy": config.get("crop_strategy") or "aabb",
         "options": {"image_size": tuple(config.get("image_size") or (256, 128))},
     }
 
@@ -202,14 +199,20 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     dataset, experiment = _resolve_selection(args)
     split = str(dataset["split"])
     status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
+    build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
+    manifest = DatasetManifest.load(build_path)
+    ensure_dataset_split_available(
+        dataset,
+        split=split,
+        data_root=getattr(args, "data_root", None),
+        status_callback=status_callback,
+    )
     catalog = catalog_mot_dataset_for_evaluation(
         dataset,
         split=split,
         data_root=getattr(args, "data_root", None),
         status_callback=status_callback,
     )
-    build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
-    manifest = DatasetManifest.load(build_path)
     component_fingerprints = None
     if experiment is not None:
         if status_callback is not None:

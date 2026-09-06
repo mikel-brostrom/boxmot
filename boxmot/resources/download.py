@@ -11,7 +11,7 @@ import logging
 import subprocess
 import sys
 import threading
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Optional
 from uuid import uuid4
 from zipfile import BadZipFile, ZipFile
@@ -466,6 +466,7 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, statu
 
 
 def _hf_subfolder_file_count(repo_id: str, subfolder: str) -> int:
+    subfolder = _normalize_hf_subfolder(subfolder)
     try:
         from huggingface_hub import HfApi
         from huggingface_hub.hf_api import RepoFile
@@ -486,6 +487,25 @@ def _hf_subfolder_file_count(repo_id: str, subfolder: str) -> int:
         return 0
 
 
+def _normalize_hf_subfolder(subfolder: str) -> str:
+    """Return a safe repository-relative Hugging Face subfolder path."""
+
+    normalized = str(subfolder).strip()
+    relative = PurePosixPath(normalized)
+    windows_path = PureWindowsPath(normalized)
+    if (
+        not normalized
+        or normalized == "."
+        or normalized.startswith(("/", "\\"))
+        or "\\" in normalized
+        or relative.is_absolute()
+        or windows_path.drive
+        or ".." in relative.parts
+    ):
+        raise ValueError(f"Invalid Hugging Face dataset subfolder {subfolder!r}.")
+    return relative.as_posix()
+
+
 def snapshot_download_hf_subfolder(
     repo_id: str,
     subfolder: str,
@@ -495,9 +515,7 @@ def snapshot_download_hf_subfolder(
     description: str | None = None,
 ) -> None:
     """Download a Hugging Face dataset subfolder with one aggregated progress task."""
-    subfolder = str(subfolder).strip("/")
-    if not subfolder:
-        return
+    subfolder = _normalize_hf_subfolder(subfolder)
 
     try:
         from huggingface_hub import snapshot_download
@@ -629,9 +647,7 @@ def download_hf_dataset_subfolder(
     status_fn: Any = None,
 ) -> None:
     """Download a specific subfolder from a Hugging Face dataset repo."""
-    subfolder = str(subfolder).strip("/")
-    if not subfolder:
-        return
+    subfolder = _normalize_hf_subfolder(subfolder)
 
     target = dest_root / subfolder
     marker = target / ".hf_download_complete"

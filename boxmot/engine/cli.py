@@ -144,14 +144,14 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot eval --dataset mot17 --build BUILD_ID --split ablation --tracker boosttrack"
+                    "boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --tracker boosttrack"
                 )
             formatter.write_paragraph()
 
             formatter.write_text("4. Tune tracker hyperparameters:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot tune --experiment mot17-ablation-yolox-lmbn --build BUILD_ID "
+                    "boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID "
                     "--tracker deepocsort --n-trials 10"
                 )
             formatter.write_paragraph()
@@ -159,7 +159,8 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("5. Research tracker code changes:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot research --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack "
+                    "boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID "
+                    "--tracker bytetrack "
                     "--proposal-model openai/gpt-5.4 --max-metric-calls 24"
                 )
             formatter.write_paragraph()

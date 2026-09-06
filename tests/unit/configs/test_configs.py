@@ -20,7 +20,13 @@ from boxmot.reid.training.presets import build_training_namespace, load_training
 from boxmot.utils import WEIGHTS
 
 
-def _write_dataset_config(path: Path, *, split_path: str, annotations: str | None = None) -> Path:
+def _write_dataset_config(
+    path: Path,
+    *,
+    split_path: str,
+    annotations: str | None = None,
+    storage_root: str = "data",
+) -> Path:
     annotation_line = "" if annotations is None else f"    annotations: {annotations}\n"
     path.write_text(
         """id: fixture
@@ -28,7 +34,9 @@ format:
   layout: mot
   box_type: obb
 storage:
-  root: data
+  root: """
+        + storage_root
+        + """
 default_split: test
 splits:
   test:
@@ -84,12 +92,45 @@ def test_mmot_dataset_config_matches_standard_directory_layout():
     assert config["splits"]["test"]["annotations"] == "test/mot"
 
 
+def test_mot17_dataset_config_uses_canonical_hugging_face_splits() -> None:
+    config = load_dataset_config("mot17")
+
+    assert config["root"] == "MOT17"
+    assert {name: split["path"] for name, split in config["splits"].items()} == {
+        "train": "train",
+        "val": "val",
+        "test": "test",
+        "ablation": "ablation",
+    }
+    assert config["resources"]["dataset"] == {
+        "type": "per_split",
+        "uris": {
+            "train": "hf://Lekim89/MOT17/train",
+            "val": "hf://Lekim89/MOT17/val",
+            "test": "hf://Lekim89/MOT17/test",
+            "ablation": "hf://Lekim89/MOT17/ablation",
+        },
+    }
+
+
 @pytest.mark.parametrize(("split_path", "annotations"), (("../frames", None), ("test/npy", "../mot")))
 def test_dataset_config_rejects_split_paths_outside_storage_root(tmp_path, split_path, annotations):
     path = _write_dataset_config(
         tmp_path / "fixture.yaml",
         split_path=split_path,
         annotations=annotations,
+    )
+
+    with pytest.raises(ConfigurationError, match="must remain beneath storage.root"):
+        load_dataset_config(path)
+
+
+@pytest.mark.parametrize("storage_root", ("../outside", "/outside", r"C:\outside", r"nested\outside"))
+def test_dataset_config_rejects_unsafe_storage_root(tmp_path, storage_root):
+    path = _write_dataset_config(
+        tmp_path / "fixture.yaml",
+        storage_root=storage_root,
+        split_path="test/npy",
     )
 
     with pytest.raises(ConfigurationError, match="must remain beneath storage.root"):

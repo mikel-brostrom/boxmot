@@ -28,7 +28,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack --tracker-backend cpp
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker bytetrack --tracker-backend cpp
 boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 ```
 

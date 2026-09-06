@@ -79,9 +79,21 @@ def load_native_tracker_config(
     return resolved
 
 
-def _frame_to_bgr(frame: Frame | None) -> np.ndarray | None:
+def _frame_to_bgr(
+    frame: Frame | None,
+    *,
+    dimensions_only: bool = False,
+    placeholders: dict[tuple[int, int], np.ndarray] | None = None,
+) -> np.ndarray | None:
     if frame is None:
         return None
+    if dimensions_only:
+        image = None if placeholders is None else placeholders.get(frame.image_size)
+        if image is None:
+            image = np.empty((*frame.image_size, 3), dtype=np.uint8)
+            if placeholders is not None:
+                placeholders[frame.image_size] = image
+        return image
     rgb = frame.image.permute(1, 2, 0).numpy()
     return np.ascontiguousarray(rgb[:, :, ::-1])
 
@@ -114,6 +126,7 @@ class NativeTrackerAdapter:
         geometry: str,
         use_embeddings: bool,
         requires_frame: bool,
+        frame_dimensions_only: bool = False,
     ) -> None:
         if geometry not in {"aabb", "obb"}:
             raise ValueError("Native tracker geometry must be 'aabb' or 'obb'.")
@@ -121,10 +134,15 @@ class NativeTrackerAdapter:
         self.cfg = cfg
         self.geometry = geometry
         self.use_embeddings = use_embeddings
-        self._requirements = TrackerRequirements(embeddings=use_embeddings, frame=requires_frame)
+        self._requirements = TrackerRequirements(
+            embeddings=use_embeddings,
+            frame=requires_frame,
+            frame_dimensions_only=frame_dimensions_only,
+        )
         self._library = library
         self._handle = self._library.create(self.cfg)
         self._obb_output_by_track_id: dict[int, np.ndarray] = {}
+        self._dimension_only_images: dict[tuple[int, int], np.ndarray] = {}
 
     @property
     def requirements(self) -> TrackerRequirements:
@@ -148,9 +166,7 @@ class NativeTrackerAdapter:
             frame.validate()
         is_obb = self.geometry == "obb"
         if detections.is_obb != is_obb:
-            raise ValueError(
-                f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry."
-            )
+            raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
         if frame is not None and frame.sample_id != detections.sample_id:
             raise ValueError("Frame and detections must have the same sample_id.")
         if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
@@ -171,7 +187,11 @@ class NativeTrackerAdapter:
             class_ids=detections.class_ids.detach().numpy(),
             detection_indices=np.arange(len(detections), dtype=np.int64),
             embeddings=embeddings,
-            image=_frame_to_bgr(frame),
+            image=_frame_to_bgr(
+                frame,
+                dimensions_only=self.requirements.frame_dimensions_only,
+                placeholders=self._dimension_only_images,
+            ),
         )
         tracks = _to_tracks(batch, sample_id=detections.sample_id, is_obb=is_obb)
         if is_obb and len(tracks):
@@ -189,9 +209,7 @@ class NativeTrackerAdapter:
                 detection_indices=tracks.detection_indices,
                 sample_id=tracks.sample_id,
             )
-        if tracks.detection_indices.numel() and bool(
-            (tracks.detection_indices >= len(detections)).any()
-        ):
+        if tracks.detection_indices.numel() and bool((tracks.detection_indices >= len(detections)).any()):
             raise ValueError(
                 f"Native {self._native_display_name} returned a detection index outside the current batch."
             )
@@ -202,6 +220,7 @@ class NativeTrackerAdapter:
 
         self._library.reset(self._handle)
         self._obb_output_by_track_id.clear()
+        self._dimension_only_images.clear()
 
     def close(self) -> None:
         """Release the native tracker handle."""

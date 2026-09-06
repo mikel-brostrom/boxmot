@@ -88,28 +88,62 @@ def test_native_sfsort_rejects_raw_rows_and_requires_a_frame() -> None:
 
 
 @pytest.mark.parametrize(
-    "options",
+    ("options", "requirements"),
     [
-        None,
-        {"frame_width": 640, "frame_height": 480},
-        {"central_timeout": 5, "marginal_timeout": 1},
+        (None, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"central_timeout": 5, "marginal_timeout": 1}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"asso_func": "centroid"}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"frame_width": 640, "frame_height": 480}, TrackerRequirements()),
+        (
+            {"central_timeout": 5, "marginal_timeout": 1, "frame_width": 640, "frame_height": 480},
+            TrackerRequirements(),
+        ),
+        ({"asso_func": "centroid", "frame_width": 640, "frame_height": 480}, TrackerRequirements()),
     ],
 )
-def test_native_sfsort_requirements_are_frozen_from_configuration(options: dict[str, Any] | None) -> None:
+def test_native_sfsort_requirements_are_frozen_from_configuration(
+    options: dict[str, Any] | None,
+    requirements: TrackerRequirements,
+) -> None:
     tracker = native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
     try:
-        assert tracker.requirements == TrackerRequirements(embeddings=False, masks=False, frame=True)
+        assert tracker.requirements == requirements
         assert tracker.supports_masks is False
         assert tracker.use_embeddings is False
     finally:
         tracker.close()
 
 
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"frame_width": 640},
+        {"frame_height": 480},
+        {"frame_width": 0, "frame_height": 0},
+        {"frame_width": -1, "frame_height": 480},
+        {"frame_width": 640, "frame_height": -1},
+    ),
+)
+def test_native_sfsort_rejects_partial_or_negative_frame_dimensions(options: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="frame_width and frame_height"):
+        native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"frame_width": True, "frame_height": 480},
+        {"frame_width": 640, "frame_height": "480"},
+    ),
+)
+def test_native_sfsort_rejects_noninteger_frame_dimensions(options: dict[str, Any]) -> None:
+    with pytest.raises(TypeError, match="must be an integer"):
+        native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
+
+
 def test_native_sfsort_geometry_mode_is_fixed_at_construction() -> None:
     tracker = native_module.NativeSFSORTTracker(geometry="aabb", library=_FakeLibrary())
-    detections = detections_from_rows(
-        np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32)
-    )
+    detections = detections_from_rows(np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32))
     frame = frame_from_bgr(np.zeros((12, 12, 3), dtype=np.uint8))
 
     try:
@@ -122,9 +156,7 @@ def test_native_sfsort_geometry_mode_is_fixed_at_construction() -> None:
 def test_native_sfsort_accepts_canonical_obb_detections() -> None:
     library = _FakeLibrary()
     tracker = native_module.NativeSFSORTTracker(geometry="obb", library=library)
-    detections = detections_from_rows(
-        np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32)
-    )
+    detections = detections_from_rows(np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32))
     frame = frame_from_bgr(np.zeros((12, 12, 3), dtype=np.uint8))
 
     try:

@@ -5,7 +5,7 @@ experiment and immutable build. It requires both inputs:
 
 ```bash
 boxmot research \
-  --experiment mot17-ablation-yolox-lmbn \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
   --build BUILD_ID \
   --tracker bytetrack \
   --proposal-model openai/gpt-5.4 \
@@ -19,7 +19,7 @@ candidate workspaces do not perform perception inference or mutate the build.
 Run materialization separately when required:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
 ```
 
 There is no implicit build creation or latest-build lookup. This makes metric

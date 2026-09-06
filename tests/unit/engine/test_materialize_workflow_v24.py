@@ -77,10 +77,7 @@ def _experiment_case(tmp_path: Path) -> tuple[Path, Path, dict]:
             },
             "classes": {"vehicle": {"id": 7, "evaluation": "target"}},
         },
-        "detections": {
-            "source": "model",
-            "model": {"ref": "fixture-detector", "checkpoint": "default"},
-        },
+        "detector": {"ref": "fixture-detector", "checkpoint": "default"},
         "segmentor": None,
         "reid": None,
         "evaluation": {
@@ -216,6 +213,33 @@ def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeyp
     assert any("1 cached, 0 refreshed" in message for message in messages)
 
 
+def test_eval_owned_materialization_split_is_forwarded_explicitly(monkeypatch, tmp_path) -> None:
+    data_root, _source_path, resolved = _experiment_case(tmp_path)
+    resolutions = []
+
+    def resolve_experiment(reference, **kwargs):
+        resolutions.append((reference, kwargs))
+        return resolved
+
+    monkeypatch.setattr(workflow, "resolve_experiment_config", resolve_experiment)
+
+    workflow._resolved_inputs(
+        SimpleNamespace(
+            experiment="fixture-test-detector",
+            materialize_split="ablation",
+            materialize_mode="eval",
+            data_root=data_root,
+        )
+    )
+
+    assert resolutions == [
+        (
+            "fixture-test-detector",
+            {"mode": "eval", "split": "ablation"},
+        )
+    ]
+
+
 def test_workflow_reuses_experiment_catalog_digest_and_publishes_canonical_ids(monkeypatch, tmp_path) -> None:
     data_root, source_path, resolved = _experiment_case(tmp_path)
     cache_path = tmp_path / "cache" / "metadata.json"
@@ -276,8 +300,64 @@ def test_workflow_reuses_experiment_catalog_digest_and_publishes_canonical_ids(m
     assert dataset[0].detections.class_ids.tolist() == [7]
 
 
+def test_workflow_reuses_detector_cache_across_derived_experiments(monkeypatch, tmp_path) -> None:
+    data_root, _source_path, resolved = _experiment_case(tmp_path)
+    experiments = {
+        "fixture-test-detector": resolved,
+        "fixture-test-detector-alt": {**resolved, "id": "fixture-test-detector-alt"},
+    }
+    detector_spec = DetectorSpec(backend="fixture", geometry_mode="aabb")
+    detector = _Detector()
+    predict_calls = 0
+    original_predict = detector.predict
+
+    def predict(frames):
+        nonlocal predict_calls
+        predict_calls += 1
+        return original_predict(frames)
+
+    detector.predict = predict
+    monkeypatch.setattr(workflow, "resolve_experiment_config", lambda reference, **_kwargs: experiments[reference])
+    monkeypatch.setattr(
+        workflow,
+        "resolve_detector_spec",
+        lambda _reference, *, geometry: (
+            detector_spec,
+            {"spec": {"backend": "fixture", "geometry_mode": geometry}, "artifact": None},
+        ),
+    )
+    monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: DetectorCapabilities())
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(detect_stage_module, "create_detector", lambda _spec: detector)
+
+    def materialize(experiment: str) -> Path:
+        return workflow.materialize(
+            SimpleNamespace(
+                experiment=experiment,
+                split=None,
+                data_root=data_root,
+                device="cpu",
+                materialize_explicit_keys=(),
+                build_root=tmp_path / "runs" / "materializations",
+                plan_path=None,
+                plan_overrides=(),
+                publish_image_refs=True,
+                publish_masks=False,
+                publish_embeddings=False,
+                resume=True,
+            )
+        )
+
+    first = materialize("fixture-test-detector")
+    second = materialize("fixture-test-detector-alt")
+
+    assert first != second
+    assert predict_calls == 1
+    assert DatasetManifest.load(first).stages[0].fingerprint == DatasetManifest.load(second).stages[0].fingerprint
+
+
 def test_mmot_materialization_preserves_native_zero_based_class_ids(monkeypatch, tmp_path) -> None:
-    resolved = resolve_experiment_config("mmot-obb-test-yolo11l-lmbn", mode="materialize")
+    resolved = resolve_experiment_config("mmot-obb/test-yolo11l-lmbn.yaml", mode="materialize")
     class_bridge = tuple(resolved["evaluation"]["classes"])
     sample = SourceSample(
         sample_id="test:data23-1:0",
@@ -367,13 +447,89 @@ def test_mmot_materialization_preserves_native_zero_based_class_ids(monkeypatch,
     assert mapped.class_ids.tolist() == [0, 7]
 
 
-def test_mmot_materialization_perspective_rectifies_obb_crops_for_reid() -> None:
-    resolved = resolve_experiment_config("mmot-obb-test-yolo11l-lmbn", mode="materialize")
+def test_materialization_reid_reference_has_no_crop_policy() -> None:
+    resolved = resolve_experiment_config("mmot-obb/test-yolo11l-lmbn.yaml", mode="materialize")
 
     reference = workflow._reid_reference(resolved)
 
     assert reference is not None
-    assert reference["crop_strategy"] == "perspective"
+    assert "crop_strategy" not in reference
+
+
+def test_workflow_does_not_plan_masks_for_builtin_reid(monkeypatch, tmp_path) -> None:
+    sample = SourceSample(
+        sample_id="default:sequence:0",
+        split="default",
+        sequence_id="sequence",
+        frame_index=0,
+        timestamp_s=None,
+        image_size=(8, 10),
+        source_uri=(tmp_path / "frame.jpg").as_uri(),
+        source_sha256=fingerprint("frame"),
+    )
+    catalog = SourceCatalog(
+        samples=(sample,),
+        fingerprint=fingerprint("catalog"),
+        source_root=tmp_path,
+        metadata={"source_catalog_digest": fingerprint("source")},
+    )
+    detector_spec = DetectorSpec("fixture", geometry_mode="aabb")
+    encoder_spec = ReIDEncoderSpec(
+        "fixture",
+        options=(("embedding_dim", 4),),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "_resolved_inputs",
+        lambda _args, **_kwargs: ("fixture", "aabb", catalog, "detector", None, "reid", {}),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "resolve_detector_spec",
+        lambda _reference, *, geometry: (detector_spec, {"spec": {"backend": "fixture"}}),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "resolve_reid_spec",
+        lambda _reference: (encoder_spec, {"spec": {"backend": "fixture"}}),
+    )
+    monkeypatch.setattr(
+        workflow,
+        "detector_capabilities",
+        lambda _spec: DetectorCapabilities(),
+    )
+    captured = {}
+
+    class Materializer:
+        def __init__(self, plan, stages, *, progress):
+            del progress
+            captured["plan"] = plan
+            captured["stages"] = stages
+
+        def run(self):
+            return captured["plan"].output_root
+
+    monkeypatch.setattr(workflow, "DatasetMaterializer", Materializer)
+
+    workflow.materialize(
+        SimpleNamespace(
+            device="cpu",
+            materialize_explicit_keys=(),
+            build_root=tmp_path / "runs" / "materializations",
+            plan_path=None,
+            plan_overrides=(),
+            publish_image_refs=True,
+            publish_masks=False,
+            publish_embeddings=True,
+            resume=True,
+        )
+    )
+
+    assert [stage.name for stage in captured["stages"]] == ["detect", "embed", "finalize"]
+    assert captured["stages"][0].requires_native_masks is False
+    assert captured["stages"][1].use_masks is False
+    embed_plan = next(stage for stage in captured["plan"].stages if stage.name == "embed")
+    assert embed_plan.depends_on == ("detect",)
 
 
 def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) -> None:
@@ -577,7 +733,6 @@ def test_published_build_reuse_does_not_construct_perception_models(monkeypatch,
     segmentor_spec = SegmentorSpec("fixture", geometry_mode="aabb")
     encoder_spec = ReIDEncoderSpec(
         "fixture",
-        crop_strategy="mask_aware",
         options=(("embedding_dim", 4),),
     )
     monkeypatch.setattr(

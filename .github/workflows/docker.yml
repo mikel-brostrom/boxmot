@@ -180,7 +180,7 @@ jobs:
           assert tuple(boxmot_cli.commands) == expected_cli_commands
           assert importlib.util.find_spec("boxmot.api") is None
           assert importlib.util.find_spec("boxmot.data") is None
-          experiment = resolve_experiment_config("mot17-ablation-yolox-lmbn")
+          experiment = resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml")
           assert experiment["detector"]["id"] == "yolox-x-mot17"
           assert experiment["reid"]["id"] == "lmbn-n-duke"
           PY

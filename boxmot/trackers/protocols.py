@@ -16,11 +16,20 @@ class TrackerRequirements:
     embeddings: bool = False
     masks: bool = False
     frame: bool = False
+    frame_dimensions_only: bool = False
 
     def __post_init__(self) -> None:
-        for name in ("embeddings", "masks", "frame"):
+        for name in ("embeddings", "masks", "frame", "frame_dimensions_only"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"TrackerRequirements.{name} must be bool.")
+        if self.frame_dimensions_only and not self.frame:
+            raise ValueError("TrackerRequirements.frame_dimensions_only requires frame=True.")
+
+    @property
+    def frame_pixels(self) -> bool:
+        """Return whether the tracker needs decoded source-image pixels."""
+
+        return self.frame and not self.frame_dimensions_only
 
 
 @runtime_checkable

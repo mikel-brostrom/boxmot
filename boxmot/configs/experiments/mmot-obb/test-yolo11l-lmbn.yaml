@@ -1,18 +1,13 @@
-id: mmot-obb-test-yolo11l-lmbn
-
 dataset:
   ref: mmot
   split: test
 
-detections:
-  source: model
-  model:
-    ref: yolo11l-mmot-obb
-    checkpoint: default
+detector:
+  ref: yolo11l-mmot-obb
+  checkpoint: default
 
 reid:
   ref: lmbn-n-duke
-  crop_strategy: perspective
 
 evaluation:
   class_map: auto

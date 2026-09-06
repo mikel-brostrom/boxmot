@@ -48,3 +48,13 @@ def test_directory_source_is_sorted_and_applies_stride(tmp_path) -> None:
     assert [frame.sample_id for frame in frames] == ["001.png", "003.png"]
     assert [frame.frame_index for frame in frames] == [0, 1]
     assert len({frame.sequence_id for frame in frames}) == 1
+
+
+def test_directory_source_ignores_appledouble_sidecars(tmp_path) -> None:
+    assert cv2.imwrite(str(tmp_path / "001.jpg"), np.zeros((2, 2, 3), dtype=np.uint8))
+    assert cv2.imwrite(str(tmp_path / ".002.jpg"), np.ones((2, 2, 3), dtype=np.uint8))
+    (tmp_path / "._001.jpg").write_bytes(b"AppleDouble metadata, not a JPEG")
+
+    frames = list(DirectorySource(tmp_path))
+
+    assert [frame.sample_id for frame in frames] == [".002.jpg", "001.jpg"]

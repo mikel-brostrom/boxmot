@@ -20,6 +20,9 @@ splits:
   train:
     path: train
     has_ground_truth: true
+  val:
+    path: val
+    has_ground_truth: true
   ablation:
     path: ablation
     has_ground_truth: true
@@ -37,9 +40,10 @@ resources:
   dataset:
     type: per_split
     uris:
-      train: hf://example/mot17/train
-      test: hf://example/mot17/test
-      ablation: hf://example/mot17/train
+      train: hf://Lekim89/MOT17/train
+      val: hf://Lekim89/MOT17/val
+      test: hf://Lekim89/MOT17/test
+      ablation: hf://Lekim89/MOT17/ablation
 ```
 
 The class groups make evaluation roles explicit without repeating an
@@ -51,10 +55,16 @@ evaluation can reject a split without ground truth before looking for annotation
 files. A dataset's `resources` mapping may contain only its own `dataset`
 download.
 
+When a selected split is not already populated locally, materialization and
+evaluation download its configured Hugging Face `per_split` resource before
+cataloging. Only the active split URI is fetched. A populated local split
+remains authoritative and is never replaced automatically. Archive resources
+remain explicit downloads and are not materialized implicitly.
+
 `storage.root` is a safe POSIX-style path relative to the selected raw-data
-root. That root is `--data-root`, then `BOXMOT_DATASETS_DIR`, then
-`platformdirs.user_cache_path("boxmot") / "datasets"`. Repository-local
-dataset folders are not auto-discovered, moved, or deleted.
+root. That root defaults to `./datasets/mot`; pass `--data-root` explicitly to
+use another location. This keeps downloaded tracking data outside the
+importable `boxmot.datasets` Python package.
 
 Dataset download URIs stay in the dataset config. Detector checkpoint URIs live
 in detector configs, and ReID weight URIs live in ReID configs. Perception

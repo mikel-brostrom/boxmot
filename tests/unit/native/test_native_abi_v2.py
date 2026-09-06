@@ -251,6 +251,8 @@ def test_native_tracker_preserves_unwrapped_obb_angle_continuity() -> None:
 def test_native_sfsort_requires_frame() -> None:
     tracker = NativeSFSORTTracker(geometry="aabb", library=_FakeBinding())
     assert tracker.requirements.frame is True
+    assert tracker.requirements.frame_dimensions_only is True
+    assert tracker.requirements.frame_pixels is False
     with pytest.raises(ValueError, match="requires a frame"):
         tracker.update(_detections())
 

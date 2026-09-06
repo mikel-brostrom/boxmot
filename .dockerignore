@@ -31,5 +31,4 @@ weights/
 *.zip
 Duke*/
 Market-1501*/
-boxmot/datasets/mot/
-boxmot/datasets/reid/
+datasets/

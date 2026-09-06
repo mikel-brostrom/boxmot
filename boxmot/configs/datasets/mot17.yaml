@@ -35,9 +35,8 @@ classes:
 resources:
   dataset:
     type: per_split
-    backend: mot17_parquet
-    repository: Lekim89/mot17-parquet
     uris:
-      train: hf://Lekim89/mot17-parquet/images/train
-      test: hf://Lekim89/mot17-parquet/images/test
-      ablation: hf://Lekim89/mot17-parquet/images/train
+      train: hf://Lekim89/MOT17/train
+      val: hf://Lekim89/MOT17/val
+      test: hf://Lekim89/MOT17/test
+      ablation: hf://Lekim89/MOT17/ablation

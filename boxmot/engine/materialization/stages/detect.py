@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 
@@ -32,6 +32,9 @@ from boxmot.structures import Boxes, Detections, OrientedBoxes
 from ..source import BoundedFrameDecoder, SourceDigestResolver, SourceSample
 from ._runtime import release_accelerator_memory
 from .base import MaterializationContext, StageOutcome
+
+if TYPE_CHECKING:
+    from ..detection_cache import DetectionCache
 
 _WORKER_DETECTORS: dict[DetectorSpec, Any] = {}
 
@@ -72,6 +75,8 @@ class DetectStage:
         native_embedding_dim: int | None = None,
         decode_workers: int = 1,
         source_digest_resolver: SourceDigestResolver | None = None,
+        cache: DetectionCache | None = None,
+        requires_native_masks: bool = False,
     ) -> None:
         samples = tuple(samples)
         if not samples:
@@ -110,6 +115,12 @@ class DetectStage:
         self.class_id_map = None if normalized_class_id_map is None else MappingProxyType(normalized_class_id_map)
         self.native_encoder_fingerprint = native_encoder_fingerprint
         self.native_embedding_dim = native_embedding_dim
+        if cache is not None and cache.samples != samples:
+            raise ValueError("DetectStage and DetectionCache must use the same source samples.")
+        if not isinstance(requires_native_masks, bool):
+            raise TypeError("requires_native_masks must be a boolean.")
+        self.cache = cache
+        self.requires_native_masks = requires_native_masks
 
     def _map_class_ids(self, detections: Detections) -> Detections:
         """Filter and remap detector classes while preserving row-aligned payloads."""
@@ -149,6 +160,45 @@ class DetectStage:
         return context.executor.map(self._predict, pending)
 
     def run(self, context: MaterializationContext) -> StageOutcome:
+        """Reuse content-addressed detections or run the detector on a miss."""
+
+        if context.stage_plan.name != self.name:
+            raise ValueError(f"DetectStage cannot execute plan stage {context.stage_plan.name!r}.")
+        planned_stages = context.build_plan.stage_by_name
+        requires_native_masks = self.requires_native_masks or (
+            context.build_plan.publish.masks and "segment" not in planned_stages
+        )
+        requires_native_embeddings = context.build_plan.publish.embeddings and "embed" not in planned_stages
+        cache_eligible = self.cache is not None and not requires_native_masks and not requires_native_embeddings
+        current = context.state.state.by_name[self.name]
+        if current.status == "completed":
+            context.validate_completed_shards(*current.artifacts)
+            current = context.state.state.by_name[self.name]
+            if current.status == "completed":
+                if cache_eligible:
+                    assert self.cache is not None
+                    with self.cache.lock():
+                        self.cache.publish(context)
+                return StageOutcome(
+                    artifacts=current.artifacts,
+                    metrics={"cache": "resume", "samples": len(self.samples)},
+                )
+
+        if not cache_eligible:
+            return self._run_uncached(context)
+
+        assert self.cache is not None
+        with self.cache.lock():
+            restored = self.cache.restore(context)
+            if restored is not None:
+                return restored
+            outcome = self._run_uncached(context)
+            self.cache.publish(context)
+            return outcome
+
+    def _run_uncached(self, context: MaterializationContext) -> StageOutcome:
+        """Run pending detector shards using the build-local resume state."""
+
         if context.stage_plan.name != self.name:
             raise ValueError(f"DetectStage cannot execute plan stage {context.stage_plan.name!r}.")
         planned_stages = context.build_plan.stage_by_name
@@ -165,13 +215,21 @@ class DetectStage:
         if (
             MASKS_ARTIFACT in resume_artifacts
             or publish_native_masks
-            or (recovering_incomplete_stage and (context.staging_root / ARTIFACT_PATHS[MASKS_ARTIFACT]).is_dir())
+            or (
+                recovering_incomplete_stage
+                and not segment_planned
+                and (context.staging_root / ARTIFACT_PATHS[MASKS_ARTIFACT]).is_dir()
+            )
         ):
             resumable.append(MASKS_ARTIFACT)
         if (
             EMBEDDINGS_ARTIFACT in resume_artifacts
             or publish_native_embeddings
-            or (recovering_incomplete_stage and (context.staging_root / ARTIFACT_PATHS[EMBEDDINGS_ARTIFACT]).is_dir())
+            or (
+                recovering_incomplete_stage
+                and not embed_planned
+                and (context.staging_root / ARTIFACT_PATHS[EMBEDDINGS_ARTIFACT]).is_dir()
+            )
         ):
             resumable.append(EMBEDDINGS_ARTIFACT)
         context.validate_completed_shards(*resumable)

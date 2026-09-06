@@ -2,21 +2,146 @@
 
 from __future__ import annotations
 
+import json
+import os
 import re
-from collections.abc import Mapping
+import shutil
+import tempfile
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from boxmot.datasets import CachedVisionDataset, DatasetManifest
-from boxmot.datasets.schema import EMBEDDINGS_ARTIFACT, MASKS_ARTIFACT
+from filelock import FileLock
+from platformdirs import user_cache_path
 
-from .plan import default_build_root
+from boxmot.datasets import CachedVisionDataset, DatasetManifest
+from boxmot.datasets.manifest import PublishedContent, StageProvenance
+from boxmot.datasets.schema import EMBEDDINGS_ARTIFACT, MANIFEST_FILENAME, MASKS_ARTIFACT, SCHEMA_ID, SUCCESS_FILENAME
+from boxmot.datasets.storage import resolve_artifact_path
+from boxmot.datasets.validation import validate_published_build
+
+from .plan import BuildPlan, default_build_root
 
 _BUILD_ID = re.compile(r"[0-9a-f]{64}")
 
 
 class BuildCompatibilityError(ValueError):
     """The selected build cannot satisfy a requested workflow."""
+
+
+def former_default_build_root() -> Path:
+    """Return the external build root used before repository-local materializations."""
+
+    return user_cache_path("boxmot") / "builds"
+
+
+def _uses_repository_default(plan: BuildPlan) -> bool:
+    return not os.environ.get("BOXMOT_BUILDS_DIR") and plan.build_root == (Path("runs") / "materializations").resolve()
+
+
+def _manifest_matches_plan(manifest: DatasetManifest, plan: BuildPlan) -> bool:
+    expected_stages = tuple(
+        StageProvenance(
+            name=stage.name,
+            fingerprint=stage.fingerprint,
+            batch_size=stage.batch_size,
+            inputs=stage.depends_on,
+            component=stage.component,
+            config=stage.config,
+        )
+        for stage in plan.ordered_stages()
+    )
+    return (
+        manifest.build_id == plan.build_id
+        and manifest.box_type == plan.box_type
+        and manifest.publish
+        == PublishedContent(
+            image_references=plan.publish.image_references,
+            masks=plan.publish.masks,
+            embeddings=plan.publish.embeddings,
+        )
+        and manifest.stages == expected_stages
+        and manifest.metadata.get("dataset_name") == plan.dataset_name
+        and manifest.metadata.get("source_fingerprint") == plan.source_fingerprint
+        and manifest.metadata.get("experiment_id") == plan.metadata.get("experiment_id")
+    )
+
+
+def _remove_import_path(path: Path) -> None:
+    if path.is_symlink() or not path.is_dir():
+        path.unlink(missing_ok=True)
+    else:
+        shutil.rmtree(path)
+
+
+def _fsync_directory(path: Path) -> None:
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        pass
+
+
+def import_former_default_build(
+    plan: BuildPlan,
+    *,
+    status_callback: Callable[[str], None] | None = None,
+) -> bool:
+    """Atomically import an identical v1 build from BoxMOT's former default root."""
+
+    if plan.output_root.exists() or not _uses_repository_default(plan):
+        return False
+    source = former_default_build_root().expanduser().resolve() / plan.build_id
+    if source == plan.output_root or source.is_symlink() or not source.is_dir():
+        return False
+    try:
+        manifest = DatasetManifest.load(source)
+        marker = json.loads((source / SUCCESS_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    if marker != {"schema": SCHEMA_ID, "build_id": plan.build_id} or not _manifest_matches_plan(manifest, plan):
+        return False
+
+    lock_path = plan.build_root / ".locks" / f"{plan.build_id}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(lock_path):
+        if plan.output_root.exists():
+            return False
+        if status_callback is not None:
+            status_callback("Importing identical materialization from the former build root…")
+        import_parent = plan.build_root / ".imports"
+        import_parent.mkdir(parents=True, exist_ok=True)
+        for stale in import_parent.glob(f"{plan.build_id}-*"):
+            _remove_import_path(stale)
+        temporary = Path(tempfile.mkdtemp(prefix=f"{plan.build_id}-", dir=import_parent))
+        try:
+            for artifact in manifest.artifacts:
+                for shard in artifact.shards:
+                    source_file = resolve_artifact_path(source, shard.path)
+                    destination = temporary / shard.path
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(source_file, destination)
+                    with destination.open("rb") as stream:
+                        os.fsync(stream.fileno())
+            for name in (MANIFEST_FILENAME, SUCCESS_FILENAME):
+                destination = temporary / name
+                shutil.copy2(source / name, destination)
+                with destination.open("rb") as stream:
+                    os.fsync(stream.fileno())
+            _fsync_directory(temporary)
+            copied_manifest = DatasetManifest.load(temporary)
+            validate_published_build(temporary, manifest=copied_manifest)
+            os.replace(temporary, plan.output_root)
+            _fsync_directory(plan.build_root)
+            return True
+        except (FileNotFoundError, PermissionError, ValueError):
+            return False
+        finally:
+            if temporary.exists():
+                _remove_import_path(temporary)
 
 
 def resolve_build_path(build: str | Path, *, build_root: str | Path | None = None) -> Path:
@@ -90,8 +215,7 @@ def validate_build_compatibility(
             actual = actual_fingerprints.get(name)
             if actual != expected:
                 raise BuildCompatibilityError(
-                    f"Build {manifest.build_id!r} component {name!r} mismatch: "
-                    f"expected {expected!r}, got {actual!r}."
+                    f"Build {manifest.build_id!r} component {name!r} mismatch: expected {expected!r}, got {actual!r}."
                 )
 
     artifacts = manifest.artifacts_by_name
@@ -132,6 +256,8 @@ def load_cached_build(
 __all__ = (
     "BuildCompatibilityError",
     "default_build_root",
+    "former_default_build_root",
+    "import_former_default_build",
     "load_cached_build",
     "resolve_build_path",
     "validate_build_compatibility",

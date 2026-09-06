@@ -8,7 +8,7 @@ logic.
 | --- | --- | --- |
 | `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
 | `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
-| `eval` | Replay a build and calculate MOT metrics | experiment or dataset, plus `--build` |
+| `eval` | Materialize/replay a build and calculate MOT metrics | experiment, or dataset plus `--build` |
 | `tune` | Optimize tracker parameters against a build | experiment plus `--build` |
 | `research` | Score proposed tracker changes against a build | experiment plus `--build` |
 | `train-reid` | Train a reusable appearance backbone | ReID dataset/config |
@@ -33,19 +33,17 @@ sends each `(frame, result)` pair to configured sinks.
 
 ## Reproducible benchmark workflow
 
-Perception runs once during materialization. Eval, tune, and research then
-stream stable keyed Parquet rows through a fresh live tracker:
+Perception runs once during materialization. Eval can perform that deterministic
+step automatically; tune and research consume the resulting explicit build:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
-boxmot tune --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
-boxmot research --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
-These workflows never select a latest build and never run a detector,
-segmentor, or encoder implicitly. They verify source, split, taxonomy,
-geometry, and component fingerprints before replay.
+These workflows never select a latest build. They verify source, split,
+taxonomy, geometry, and component fingerprints before replay.
 
 See [Materialize](materialize.md), [Evaluate](eval.md), [Tune](tune.md), and
 [Research](research.md).

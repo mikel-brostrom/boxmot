@@ -19,7 +19,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--data-dir",
         type=Path,
-        default=Path("Market-1501-v15.09.15"),
+        default=Path("datasets/reid/Market-1501-v15.09.15"),
         help="Original Market-1501 dataset root.",
     )
     parser.add_argument(

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from platformdirs import user_cache_path
 
 from boxmot.utils import logger as LOGGER
 
@@ -33,8 +32,8 @@ def _builtin_dataset_config(name: str) -> dict[str, str] | None:
 
 
 def default_reid_data_root() -> Path:
-    """Return the platform cache root for built-in ReID training datasets."""
-    return user_cache_path("boxmot") / "datasets" / "reid"
+    """Return the workspace root for built-in ReID training datasets."""
+    return (Path("datasets") / "reid").resolve()
 
 
 def download_hf_file(

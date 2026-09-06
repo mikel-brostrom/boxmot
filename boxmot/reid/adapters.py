@@ -23,28 +23,11 @@ def _frame_to_bgr(frame: Frame) -> np.ndarray:
     return frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
 
 
-def _enclosing_boxes(values: torch.Tensor) -> torch.Tensor:
-    cx, cy, width, height, angle = values.unbind(dim=1)
-    cosine = angle.cos().abs()
-    sine = angle.sin().abs()
-    half_width = 0.5 * (width * cosine + height * sine)
-    half_height = 0.5 * (width * sine + height * cosine)
-    return torch.stack((cx - half_width, cy - half_height, cx + half_width, cy + half_height), dim=1)
-
-
-def _crop_geometry(detections: Detections, crop_strategy: str) -> np.ndarray:
+def _crop_geometry(detections: Detections) -> np.ndarray:
     geometry = detections.geometry
-    if isinstance(geometry, Boxes):
-        values = geometry.values
-    elif isinstance(geometry, OrientedBoxes):
-        values = (
-            geometry.values
-            if crop_strategy in {"mask_aware", "perspective", "rotated"}
-            else _enclosing_boxes(geometry.values)
-        )
-    else:
+    if not isinstance(geometry, (Boxes, OrientedBoxes)):
         raise TypeError(f"Unsupported detection geometry: {type(geometry).__name__}.")
-    return values.contiguous().numpy()
+    return geometry.values.contiguous().numpy()
 
 
 def _runtime_input_shape(runtime: Any) -> tuple[int, int]:
@@ -71,33 +54,12 @@ def _extract_crops(
     frame: Frame,
     detections: Detections,
     *,
-    crop_strategy: str,
     input_shape: tuple[int, int],
 ) -> list[np.ndarray]:
-    from boxmot.reid.core.crops import crop_obb_perspective, extract_crops
+    from boxmot.reid.core.crops import extract_crops
 
     image = _frame_to_bgr(frame)
-    geometry = _crop_geometry(detections, crop_strategy)
-    if crop_strategy == "perspective":
-        return [
-            crop_obb_perspective(row, image, max_output_side=max(input_shape))
-            for row in geometry
-        ]
-    if crop_strategy != "mask_aware":
-        return extract_crops(geometry, image, input_shape)
-
-    if detections.masks is None:
-        raise ValueError("crop_strategy='mask_aware' requires detection masks.")
-    if detections.masks.image_size != frame.image_size:
-        raise ValueError(
-            f"Detection mask size {detections.masks.image_size} does not match frame size {frame.image_size}."
-        )
-    crops: list[np.ndarray] = []
-    for row, mask in zip(geometry, detections.masks.values):
-        masked_image = np.zeros_like(image)
-        np.copyto(masked_image, image, where=mask.numpy()[..., None])
-        crops.extend(extract_crops(row.reshape(1, -1), masked_image, input_shape))
-    return crops
+    return extract_crops(_crop_geometry(detections), image, input_shape)
 
 
 def _pack_crops(crops: Sequence[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
@@ -186,10 +148,6 @@ class RuntimeAppearanceEncoder:
             raise ValueError(f"Unsupported {spec.backend!r} ReID options: {names}.")
         if isinstance(batch_size, bool) or not isinstance(batch_size, int) or batch_size <= 0:
             raise ValueError("batch_size must be a positive integer.")
-        if spec.crop_strategy not in {"aabb", "mask_aware", "perspective", "rotated"}:
-            raise ValueError(
-                "Built-in ReID adapters support crop_strategy='aabb', 'mask_aware', 'perspective', or 'rotated'."
-            )
         self.spec = spec
         self._runtime = runtime
         self._device = getattr(runtime, "device", spec.device)
@@ -205,7 +163,7 @@ class RuntimeAppearanceEncoder:
             self._input_shape = explicit_shape
         self._embedding_dim = _declared_embedding_dim(runtime, explicit_dim)
         self._batch_size = batch_size
-        self.requirements = EncoderRequirements(masks=spec.crop_strategy == "mask_aware")
+        self.requirements = EncoderRequirements()
 
     @property
     def embedding_dim(self) -> int:
@@ -249,7 +207,6 @@ class RuntimeAppearanceEncoder:
                     frame_crops = _extract_crops(
                         frame,
                         frame_detections,
-                        crop_strategy=self.spec.crop_strategy,
                         input_shape=self._input_shape,
                     )
                     if len(frame_crops) != count:

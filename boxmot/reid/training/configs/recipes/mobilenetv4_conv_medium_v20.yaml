@@ -28,7 +28,7 @@ run:
 
 data:
   dataset: market1501
-  data_dir: boxmot/datasets/reid/Market-1501-v15.09.15
+  data_dir: datasets/reid/Market-1501-v15.09.15
   img_size: [384, 128]
   preprocess: resize
   batch_size: 64

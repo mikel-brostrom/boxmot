@@ -8,6 +8,7 @@ from tests._paths import REPO_ROOT
 
 TRACK_DOC = REPO_ROOT / "docs" / "modes" / "track.md"
 MATERIALIZE_DOC = REPO_ROOT / "docs" / "modes" / "materialize.md"
+EVAL_DOC = REPO_ROOT / "docs" / "modes" / "eval.md"
 PUBLIC_DOC_ROOTS = (
     REPO_ROOT / "README.md",
     REPO_ROOT / "CONTRIBUTING.md",
@@ -62,13 +63,23 @@ def test_track_guide_uses_structured_tracker_contract() -> None:
     assert "tracker.update(dets" not in content
 
 
-def test_materialize_guide_documents_explicit_build_workflow() -> None:
+def test_materialize_guide_documents_build_workflow() -> None:
     content = MATERIALIZE_DOC.read_text(encoding="utf-8")
 
     assert "boxmot materialize" in content
     assert "--build BUILD_ID" in content
-    assert "no “latest build” selection" in content
+    assert "never selects a “latest” build" in content
+    assert "run canonical materialization automatically" in content
     assert ":command: materialize" in content
+
+
+def test_eval_guide_documents_automatic_and_explicit_build_selection() -> None:
+    content = EVAL_DOC.read_text(encoding="utf-8")
+
+    assert "when omitted" in content
+    assert "Dataset-only evaluation requires `--build`" in content
+    assert "There is no latest-build selection" in content
+    assert ":command: eval" in content
 
 
 @pytest.mark.parametrize(

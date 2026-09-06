@@ -41,13 +41,11 @@ class ReIDEncoderSpec:
     precision: str = "fp32"
     options: tuple[tuple[str, JSONValue], ...] = ()
     preprocessing: str = "default"
-    crop_strategy: str = "aabb"
 
     def __post_init__(self) -> None:
         for name, value in (
             ("backend", self.backend),
             ("preprocessing", self.preprocessing),
-            ("crop_strategy", self.crop_strategy),
         ):
             if not isinstance(value, str) or _IDENTIFIER_PATTERN.fullmatch(value) is None:
                 raise ValueError(f"{name} must be a non-empty canonical lowercase identifier.")

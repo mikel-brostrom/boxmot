@@ -60,7 +60,7 @@ limits to prevent runaway Apple graph compilation.
           --weights runs/reid_train/exp/best.pt \
           --include tflite \
           --tflite-quantize static \
-          --tflite-calibration-data Market-1501-v15.09.15/bounding_box_train \
+          --tflite-calibration-data datasets/reid/Market-1501-v15.09.15/bounding_box_train \
           --tflite-calibration-samples 512 \
           --tflite-calibration-seed 0 \
           --tflite-calibration-update minmax \

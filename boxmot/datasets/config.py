@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Mapping
 
 from boxmot.configs import CONFIG_ROOT
@@ -37,7 +37,15 @@ def _safe_relative_path(payload: Mapping[str, Any], key: str, context: str) -> s
 
     value = _required_text(payload, key, context)
     path = PurePosixPath(value)
-    if path.is_absolute() or ".." in path.parts:
+    windows_path = PureWindowsPath(value)
+    if (
+        "\\" in value
+        or path.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or bool(windows_path.root)
+        or ".." in path.parts
+    ):
         raise ConfigurationError(f'{context} "{key}" must remain beneath storage.root.')
     return path.as_posix()
 
@@ -65,8 +73,7 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
     unsupported_resources = sorted(set(dataset_resources) - {"dataset"})
     if unsupported_resources:
         raise ConfigurationError(
-            f'{context} may only define its own "dataset" resource; unsupported: '
-            f'{", ".join(unsupported_resources)}.'
+            f'{context} may only define its own "dataset" resource; unsupported: {", ".join(unsupported_resources)}.'
         )
     dataset_resource = dataset_resources.get("dataset") or {}
     if not isinstance(dataset_resource, dict):
@@ -77,13 +84,13 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
     split_configs = _required_mapping(raw, "splits", context)
     class_groups = _required_mapping(raw, "classes", context)
     if not split_configs:
-        raise ConfigurationError(f'{context} must define at least one split.')
+        raise ConfigurationError(f"{context} must define at least one split.")
 
     layout = _required_text(format_config, "layout", context)
     box_type = _required_text(format_config, "box_type", context).lower()
     if box_type not in {"aabb", "obb"}:
         raise ConfigurationError(f'{context} box_type must be "aabb" or "obb", got "{box_type}".')
-    root = _required_text(storage_config, "root", context)
+    root = _safe_relative_path(storage_config, "root", f"{context} storage")
 
     splits: dict[str, dict[str, Any]] = {}
     for split_name, split_value in split_configs.items():
@@ -93,7 +100,7 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
         split_path = _safe_relative_path(split_value, "path", split_context)
         has_ground_truth = split_value.get("has_ground_truth")
         if not isinstance(has_ground_truth, bool):
-            raise ConfigurationError(f'{split_context} must define boolean has_ground_truth.')
+            raise ConfigurationError(f"{split_context} must define boolean has_ground_truth.")
         normalized_split = {
             **deepcopy(split_value),
             "path": split_path,

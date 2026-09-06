@@ -76,8 +76,7 @@ def test_concurrent_http_downloads_never_publish_partial_destination(monkeypatch
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         futures = [
-            executor.submit(download_module.download_file, "https://example.test/model.pt", dest)
-            for _ in range(2)
+            executor.submit(download_module.download_file, "https://example.test/model.pt", dest) for _ in range(2)
         ]
         reached_partial_write.wait(timeout=5)
         try:
@@ -275,3 +274,46 @@ def test_hf_subfolder_skips_populated_target_without_marker(tmp_path):
     download_module.download_hf_dataset_subfolder("user/repo", "images/val", tmp_path)
 
     assert (target / ".hf_download_complete").exists()
+
+
+def test_eval_dataset_download_routes_hf_subfolder_to_dataset_root(monkeypatch, tmp_path):
+    calls = []
+    messages = []
+
+    def status(message):
+        messages.append(message)
+
+    dataset_root = tmp_path / "MOT17"
+
+    def download_subfolder(repo_id, subfolder, dest_root, *, overwrite, status_fn):
+        calls.append((repo_id, subfolder, dest_root, overwrite, status_fn))
+
+    monkeypatch.setattr(download_module, "download_hf_dataset_subfolder", download_subfolder)
+
+    download_module.download_eval_data(
+        dataset_url="hf://Lekim89/MOT17/ablation",
+        dataset_dest=dataset_root,
+        status_fn=status,
+    )
+
+    assert calls == [("Lekim89/MOT17", "ablation", dataset_root, False, status)]
+    assert messages == ["Setting up evaluation data..."]
+
+
+@pytest.mark.parametrize(
+    "subfolder",
+    (
+        "../outside",
+        "images/../../outside",
+        ".",
+        "/absolute/path",
+        r"\absolute\path",
+        r"C:\absolute\path",
+        r"images\val",
+    ),
+)
+def test_hf_subfolder_rejects_unsafe_repository_paths(subfolder, tmp_path):
+    with pytest.raises(ValueError, match="Invalid Hugging Face dataset subfolder"):
+        download_module.download_hf_dataset_subfolder("user/repo", subfolder, tmp_path)
+
+    assert not (tmp_path.parent / "outside").exists()

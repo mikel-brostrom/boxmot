@@ -15,7 +15,6 @@
   [![downloads](https://static.pepy.tech/badge/boxmot)](https://pepy.tech/project/boxmot)
   [![license](https://img.shields.io/badge/license-AGPL%203.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
   [![python-version](https://img.shields.io/pypi/pyversions/boxmot)](https://badge.fury.io/py/boxmot)
-  [![docker pulls](https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker)](https://hub.docker.com/r/boxmot/boxmot)
   [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg)](https://doi.org/10.5281/zenodo.8132989)
   [![colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing)
   [![discord](https://img.shields.io/discord/1377565354326495283?logo=discord&label=discord&labelColor=fff&color=5865f2)](https://discord.gg/tUmFEcYU4q)
@@ -64,44 +63,6 @@ CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
 those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 `research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
-
-## Docker images
-
-Published images cover GPU and CPU CLI workflows plus separate CPU geometry
-and GPU ReID tracker services:
-
-```bash
-# GPU-enabled detector, CLI, evaluation, and interactive workflows
-docker run --rm -it --gpus all boxmot/boxmot:latest
-
-# The same CLI workflows on CPU
-docker run --rm -it boxmot/boxmot:latest-cpu
-
-# CPU-only stateful HTTP tracking from externally supplied detections
-docker run --rm -p 8000:8000 \
-  -e BOXMOT_SERVICE_ASSO_FUNC=giou \
-  boxmot/boxmot-service:latest
-
-# CUDA/ReID stateful tracking from detections plus an encoded image per frame
-docker run --rm --gpus all -p 8000:8000 \
-  -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
-  -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
-  boxmot/boxmot-service:latest-gpu
-```
-
-Versioned and commit-addressed tags are also published. GPU CLI tags are
-`<version>` and `sha-<commit>`; CPU CLI tags append `-cpu`. The CPU service uses
-canonical `<version>` and `sha-<commit>` tags in its own repository, while the
-GPU service appends `-gpu`. See the
-[installation guide](docs/getting-started/installation.md) for local builds.
-
-Both services accept ordered AABB or OBB detections and keep isolated state per
-stream/session; neither runs a detector. The CPU image supports ByteTrack,
-OcSort, and SFSORT without image pixels. The GPU image supports StrongSort,
-BotSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost, and requires a raw
-base64-encoded JPEG or PNG in `image_base64` for every frame, including empty
-detection frames. See the [deployment guide](docs/guides/deployment.md) for the
-request schema and horizontal-scaling requirements.
 
 ## Benchmark Results
 

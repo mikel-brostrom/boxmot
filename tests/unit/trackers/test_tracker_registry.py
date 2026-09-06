@@ -86,7 +86,6 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
     assert all(item.capabilities.accepts_frame for item in definitions.values())
     assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {
         "sam2mot",
-        "sfsort",
         "strongsort",
     }
 
@@ -244,7 +243,6 @@ def test_create_tracker_dispatches_native_spec_without_model_options(monkeypatch
         ("botsort", "botsort-mot17-ablation"),
         ("occluboost", "occluboost-mot17-ablation"),
         ("occluboost", "occluboost-mot17-test"),
-        ("occluboost", "occluboost-sportsmot-val"),
     ),
 )
 def test_builtin_preset_declares_and_strips_tracker_identity(tracker_name: str, preset_name: str) -> None:

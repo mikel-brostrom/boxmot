@@ -14,9 +14,11 @@ Use `train-reid` to fit a ReID backbone on a supported person or vehicle re-iden
         boxmot train-reid \
           --model osnet_x0_25 \
           --dataset market1501 \
-          --data-dir /data/reid \
           --device 0
         ```
+
+        With no `--data-dir`, the built-in Market1501 resolver downloads and
+        extracts the dataset under `./datasets/reid`.
 
         Joint training on multiple datasets:
 
@@ -205,7 +207,7 @@ Use `train-reid` to fit a ReID backbone on a supported person or vehicle re-iden
 
         ```yaml
         dataset: market1501
-        path: ../datasets/Market-1501-v15.09.15
+        path: datasets/reid/Market-1501-v15.09.15
         train: bounding_box_train
         query: query
         gallery: bounding_box_test
@@ -231,7 +233,7 @@ Generate dedicated high-confidence masks for the training split first:
 
 ```bash
 uv run --no-sync python -m tools.create_market1501_person_masks \
-  --source Market-1501-v15.09.15 \
+  --source datasets/reid/Market-1501-v15.09.15 \
   --output Market-1501-mosaic-highconf \
   --model weights/yolo26x-seg.pt \
   --device mps \
@@ -246,7 +248,7 @@ masks:
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --background-mosaic \
   --background-mosaic-mask-dir Market-1501-mosaic-highconf-masks \
   --background-mosaic-probability 0.30 \
@@ -273,7 +275,7 @@ the hard identity label is unchanged, and evaluation images are never modified.
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --same-id-part-mosaic \
   --same-id-part-mosaic-probability 0.35 \
   --same-id-part-mosaic-max-regions 2 \
@@ -307,7 +309,7 @@ foreground and separate bag masks used to constrain the pose-derived regions:
 
 ```bash
 uv run --no-sync python -m tools.create_market1501_pav_metadata \
-  --source Market-1501-v15.09.15 \
+  --source datasets/reid/Market-1501-v15.09.15 \
   --output Market-1501-pav-metadata \
   --pose-model https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-pose.pt \
   --seg-model https://github.com/ultralytics/assets/releases/download/v8.4.0/yolo26x-seg.pt \
@@ -322,7 +324,7 @@ Then train the PAV-only arm:
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --pav-mosaic \
   --pav-metadata-dir Market-1501-pav-metadata \
   --pav-mosaic-probability 0.25 \
@@ -420,7 +422,7 @@ from contaminating a batch.
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --anatomical-auxiliary \
   --anatomical-target-type deterministic_scale_aware_geometry \
   --anatomical-metadata-dir Market-1501-pav-metadata \
@@ -704,7 +706,7 @@ each experiment has one deployed representation treatment.
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --anatomical-auxiliary \
   --anatomical-target-type learned_pose_concat_ema \
   --anatomical-metadata-dir Market-1501-pav-metadata-clean \
@@ -731,7 +733,7 @@ parameters, or latency.
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --anatomical-auxiliary \
   --anatomical-target-type learned_pose_concat_ema \
   --anatomical-metadata-dir Market-1501-pav-metadata-clean \
@@ -801,7 +803,7 @@ The batch-96 P16K6 procedure matching the promoted P12K8 training budget is:
 ```bash
 boxmot train-reid \
   --cfg boxmot/reid/training/configs/recipes/csl_tinyvit_11m.yaml \
-  --data-dir Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --p-ids 16 \
   --k-instances 6 \
   --pk-steps-per-epoch 62 \

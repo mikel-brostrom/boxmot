@@ -17,7 +17,7 @@ assets used by BoxMOT's tracking-by-detection workflows.
 - `trackers/presets/` contains named runtime parameter profiles produced for a
   particular dataset or split.
 - `experiments/` contains the user-facing compositions that select a dataset
-  split, detection source, optional ReID profile, and evaluation class map.
+  split, detector profile, optional ReID profile, and evaluation class map.
 
 ## Ownership rules
 
@@ -32,20 +32,18 @@ For example, an experiment may compose:
 dataset:
   ref: mot17
   split: ablation
-detections:
-  source: model
-  model:
-    ref: yolox-x-mot17
-    checkpoint: ablation
+detector:
+  ref: yolox-x-mot17
+  checkpoint: ablation
 reid:
   ref: lmbn-n-duke
-  crop_strategy: aabb
 ```
 
-The crop strategy belongs to the experiment rather than the reusable ReID
-profile because it describes how that encoder consumes the selected detection
-geometry. OBB experiments can select `perspective` or `rotated`;
-mask-producing experiments can select `mask_aware`.
+ReID crop extraction follows the detection geometry automatically. AABB
+detections use clipped axis-aligned crops, while OBB detections use the
+canonical rectified OBB transform. Built-in ReID profiles do not consume
+detection masks; a custom mask-dependent encoder declares that requirement
+through its encoder contract.
 
 Configuration loading and validation live with the owning Python domain; this
 directory contains declarative assets only. ReID training recipes and export
@@ -54,16 +52,17 @@ tracking runtime profiles.
 
 ## References
 
-Catalog references resolve by unique ID, filename, or explicit YAML path.
-Built-in IDs use kebab-case, and built-in asset paths must be portable
+Dataset, detector, and ReID references resolve by unique ID, filename, or
+explicit YAML path. Experiment selectors resolve by YAML filename or path and
+never by a declared `id`. Built-in asset paths must be portable
 repository-relative paths rather than workstation-specific absolute paths.
 
 Materialization accepts only `--experiment`, which selects a complete catalog
-composition by ID or YAML. To change the dataset split or perception
-components, create a distinct experiment that references the corresponding
-reusable assets:
+composition by its catalog-relative YAML filename or an explicit YAML path. To
+change the dataset split or perception components, create a distinct experiment
+that references the corresponding reusable assets:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker boosttrack
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --tracker boosttrack
 ```

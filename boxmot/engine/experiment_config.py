@@ -10,15 +10,84 @@ from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import load_detector_config
 from boxmot.reid.config import load_reid_config
-from boxmot.utils.config import ConfigurationError, load_yaml_mapping, resolve_config_path, validate_config_id
+from boxmot.utils.config import CONFIG_ID_PATTERN, ConfigurationError, iter_config_paths, load_yaml_mapping
 
 EXPERIMENT_CONFIGS_DIR = CONFIG_ROOT / "experiments"
-_REID_CROP_STRATEGIES = frozenset({"aabb", "mask_aware", "perspective", "rotated"})
+_EXPERIMENT_KEYS = frozenset({"mode", "dataset", "detector", "segmentor", "reid", "evaluation"})
 
 
 def resolve_experiment_path(reference: str | Path) -> Path:
-    """Resolve an experiment reference by id, filename, or path."""
-    return resolve_config_path(EXPERIMENT_CONFIGS_DIR, reference, "experiment")
+    """Resolve an experiment by explicit path or catalog filename."""
+
+    reference_text = str(reference).strip()
+    if not reference_text:
+        raise FileNotFoundError("Experiment config reference must not be empty.")
+
+    path = Path(reference_text)
+    yaml_suffixes = {".yaml", ".yml"}
+    if path.suffix.lower() in yaml_suffixes and path.is_file():
+        return path.resolve()
+
+    if path.suffix.lower() in yaml_suffixes:
+        relative_candidates = (path,)
+    elif path.suffix:
+        relative_candidates = ()
+    else:
+        relative_candidates = (path.with_suffix(".yaml"), path.with_suffix(".yml"))
+    catalog_root = EXPERIMENT_CONFIGS_DIR.resolve()
+    exact_matches: list[Path] = []
+    if not path.is_absolute():
+        for relative in relative_candidates:
+            candidate = (catalog_root / relative).resolve()
+            try:
+                candidate.relative_to(catalog_root)
+            except ValueError:
+                continue
+            if candidate.is_file():
+                exact_matches.append(candidate)
+    exact_matches = list(dict.fromkeys(exact_matches))
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if len(exact_matches) > 1:
+        choices = "\n  - ".join(str(candidate.relative_to(catalog_root)) for candidate in exact_matches)
+        raise ConfigurationError(f'Ambiguous experiment reference "{reference}":\n  - {choices}')
+
+    if path.is_absolute() or path.parent != Path("."):
+        raise FileNotFoundError(f'Experiment config path does not exist: "{path}"')
+
+    if path.suffix.lower() in yaml_suffixes:
+        matches = [candidate.resolve() for candidate in iter_config_paths(catalog_root) if candidate.name == path.name]
+    elif path.suffix:
+        matches = []
+    else:
+        matches = [candidate.resolve() for candidate in iter_config_paths(catalog_root) if candidate.stem == path.name]
+    matches = list(dict.fromkeys(matches))
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        choices = "\n  - ".join(str(candidate.relative_to(catalog_root)) for candidate in matches)
+        raise ConfigurationError(
+            f'Ambiguous experiment filename "{reference}". Use a catalog-relative path:\n  - {choices}'
+        )
+    raise FileNotFoundError(f'Experiment config not found for filename "{reference}" in {catalog_root}')
+
+
+def _experiment_identity(source_path: Path) -> str:
+    """Derive stable experiment identity from its filename or catalog path."""
+
+    catalog_root = EXPERIMENT_CONFIGS_DIR.resolve()
+    try:
+        relative = source_path.resolve().relative_to(catalog_root).with_suffix("")
+        identity = "-".join(relative.parts)
+        requirement = "catalog directory and filename components"
+    except ValueError:
+        identity = source_path.stem
+        requirement = "filename stem"
+    if CONFIG_ID_PATTERN.fullmatch(identity) is None:
+        raise ConfigurationError(
+            f'Experiment config "{source_path}" has invalid {requirement}; use lowercase kebab-case names.'
+        )
+    return identity
 
 
 def _required_mapping(payload: Mapping[str, Any], key: str, context: str) -> dict[str, Any]:
@@ -53,6 +122,7 @@ def _resolve_detector_checkpoint(
             f'Detector "{detector["id"]}" has no checkpoint "{checkpoint_name}". Available checkpoints: {available}.'
         )
     return {
+        "ref": detector_ref,
         "id": detector["id"],
         "checkpoint": checkpoint_name,
         "model": checkpoint["path"],
@@ -66,32 +136,28 @@ def _resolve_detector_checkpoint(
     }
 
 
-def _resolve_detection_source(
+def _resolve_detector(
     experiment: Mapping[str, Any],
     dataset: Mapping[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any] | None]:
+) -> dict[str, Any]:
     context = f'Experiment "{experiment.get("id", "<unknown>")}"'
-    detections = _required_mapping(experiment, "detections", context)
-    source = str(detections.get("source") or "").lower()
-    if source != "model":
-        raise ConfigurationError(
-            f'{context} detections.source must be "model"; public and positional perception caches are unsupported.'
-        )
-    model = _required_mapping(detections, "model", context)
-    detector_ref = _required_text(model, "ref", context)
-    checkpoint = _required_text(model, "checkpoint", context)
-    detector = _resolve_detector_checkpoint(detector_ref, checkpoint, dataset)
-    return {"source": source, "model": {"ref": detector_ref, "checkpoint": checkpoint}}, detector
+    detector_cfg = _required_mapping(experiment, "detector", context)
+    unknown = set(detector_cfg).difference({"ref", "checkpoint"})
+    if unknown:
+        names = ", ".join(sorted(str(name) for name in unknown))
+        raise ConfigurationError(f'Experiment "{experiment.get("id")}" detector has unknown keys: {names}.')
+    detector_ref = _required_text(detector_cfg, "ref", context)
+    checkpoint = _required_text(detector_cfg, "checkpoint", context)
+    return _resolve_detector_checkpoint(detector_ref, checkpoint, dataset)
 
 
 def _resolve_reid(
     experiment: Mapping[str, Any],
-    dataset: Mapping[str, Any],
 ) -> dict[str, Any] | None:
     reid_cfg = experiment.get("reid")
     reid_ref: str | None = None
     if isinstance(reid_cfg, dict):
-        unknown = set(reid_cfg).difference({"ref", "crop_strategy"})
+        unknown = set(reid_cfg).difference({"ref"})
         if unknown:
             names = ", ".join(sorted(str(name) for name in unknown))
             raise ConfigurationError(f'Experiment "{experiment.get("id")}" reid has unknown keys: {names}.')
@@ -102,24 +168,7 @@ def _resolve_reid(
     if not reid_ref:
         return None
 
-    resolved = load_reid_config(reid_ref)
-    crop_strategy_value = reid_cfg.get("crop_strategy", "aabb")
-    if (
-        not isinstance(crop_strategy_value, str)
-        or not crop_strategy_value
-        or crop_strategy_value != crop_strategy_value.strip()
-    ):
-        raise ConfigurationError(f'Experiment "{experiment.get("id")}" reid.crop_strategy must be a non-empty string.')
-    crop_strategy = crop_strategy_value.lower()
-    if crop_strategy not in _REID_CROP_STRATEGIES:
-        available = ", ".join(sorted(_REID_CROP_STRATEGIES))
-        raise ConfigurationError(f'Experiment "{experiment.get("id")}" reid.crop_strategy must be one of: {available}.')
-    if crop_strategy in {"perspective", "rotated"} and dataset["box_type"] != "obb":
-        raise ConfigurationError(
-            f'Experiment "{experiment.get("id")}" reid.crop_strategy={crop_strategy!r} requires an OBB dataset.'
-        )
-    resolved["crop_strategy"] = crop_strategy
-    return resolved
+    return load_reid_config(reid_ref)
 
 
 def _resolve_class_bridge(
@@ -207,11 +256,16 @@ def resolve_experiment_config(
     source_path = resolve_experiment_path(reference)
     experiment = load_yaml_mapping(source_path)
     context = f'Experiment config "{source_path}"'
-    experiment_id = validate_config_id(
-        _required_text(experiment, "id", context),
-        path=source_path,
-        label="experiment",
-    )
+    if "id" in experiment:
+        raise ConfigurationError(
+            f'{context} must not define "id"; experiment identity is derived from its YAML filename.'
+        )
+    unknown = set(experiment).difference(_EXPERIMENT_KEYS)
+    if unknown:
+        names = ", ".join(sorted(str(name) for name in unknown))
+        raise ConfigurationError(f"{context} has unknown keys: {names}.")
+    experiment_id = _experiment_identity(source_path)
+    experiment["id"] = experiment_id
     dataset_selection = _required_mapping(experiment, "dataset", context)
     dataset_ref = _required_text(dataset_selection, "ref", context)
     dataset = load_dataset_config(dataset_ref)
@@ -224,8 +278,8 @@ def resolve_experiment_config(
     effective_mode = mode or experiment.get("mode")
     _validate_evaluation_split(dataset, split_name, effective_mode)
 
-    detections, detector = _resolve_detection_source(experiment, dataset)
-    reid = _resolve_reid(experiment, dataset)
+    detector = _resolve_detector(experiment, dataset)
+    reid = _resolve_reid(experiment)
     segmentor = experiment.get("segmentor")
     if segmentor is not None and not isinstance(segmentor, (str, dict)):
         raise ConfigurationError(f'Experiment "{experiment_id}" segmentor must be a config reference or mapping.')
@@ -248,7 +302,6 @@ def resolve_experiment_config(
             "classes": deepcopy(dataset["classes"]),
             "resources": deepcopy(dataset["resources"]),
         },
-        "detections": detections,
         "detector": detector,
         "segmentor": deepcopy(segmentor),
         "reid": None if reid is None else {key: deepcopy(value) for key, value in reid.items() if key != "config_path"},

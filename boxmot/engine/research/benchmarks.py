@@ -5,7 +5,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from boxmot.engine.experiment_config import resolve_experiment_config
-from boxmot.engine.materialization.catalog import resolve_dataset_root
+from boxmot.engine.materialization.catalog import STILL_FRAME_EXTENSIONS, resolve_dataset_root
+from boxmot.engine.tracking.sources import is_appledouble_file
 
 
 def _resolve_experiment_runtime(
@@ -32,7 +33,10 @@ def _discover_sequences(source_root: Path) -> list[dict[str, str]]:
     examples: list[dict[str, str]] = []
     for seq_dir in sorted(path for path in source_root.iterdir() if path.is_dir()):
         image_dir = seq_dir / "img1" if (seq_dir / "img1").is_dir() else seq_dir
-        if not any(path.is_file() for path in image_dir.iterdir()):
+        if not any(
+            path.is_file() and not is_appledouble_file(path) and path.suffix.lower() in STILL_FRAME_EXTENSIONS
+            for path in image_dir.iterdir()
+        ):
             continue
         examples.append(
             {

@@ -76,9 +76,9 @@ def test_native_adapter_revalidates_mutable_canonical_tensors() -> None:
 def test_native_adapter_validates_mask_and_frame_spatial_alignment() -> None:
     library = _FakeLibrary()
     tracker = bytetrack.NativeByteTrackTracker(geometry="aabb", library=library)
-    detections = detections_from_rows(
-        np.array([[10, 10, 20, 20, 0.95, 0]], dtype=np.float32)
-    ).with_masks(MaskBatch(torch.zeros((1, 40, 50), dtype=torch.bool)))
+    detections = detections_from_rows(np.array([[10, 10, 20, 20, 0.95, 0]], dtype=np.float32)).with_masks(
+        MaskBatch(torch.zeros((1, 40, 50), dtype=torch.bool))
+    )
     frame = frame_from_bgr(np.zeros((80, 100, 3), dtype=np.uint8))
 
     with pytest.raises(ValueError, match="masks must match the frame spatial size"):
@@ -86,6 +86,7 @@ def test_native_adapter_validates_mask_and_frame_spatial_alignment() -> None:
 
     assert library.calls == []
     tracker.close()
+
 
 RESOLVERS = (
     bytetrack._resolve_tracker_config,
@@ -110,7 +111,12 @@ def test_centroid_requirement_is_frozen_and_routes_canonical_frame(tracker_cls, 
 
     assert len(library.calls) == 1
     np.testing.assert_array_equal(library.calls[0][0], detections.geometry.values.numpy())
-    np.testing.assert_array_equal(library.calls[0][1], np.zeros((80, 100, 3), dtype=np.uint8))
+    routed_image = library.calls[0][1]
+    if tracker.requirements.frame_dimensions_only:
+        assert routed_image.shape == (80, 100, 3)
+        assert routed_image.dtype == np.uint8
+    else:
+        np.testing.assert_array_equal(routed_image, np.zeros((80, 100, 3), dtype=np.uint8))
     tracker.close()
 
 

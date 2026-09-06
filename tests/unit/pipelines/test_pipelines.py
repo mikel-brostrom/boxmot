@@ -32,9 +32,7 @@ def _frame(
 def _detections(frame: Frame, *, empty: bool = False, masks: bool = False, embeddings: bool = False) -> Detections:
     count = 0 if empty else 1
     geometry = Boxes(
-        torch.empty((0, 4), dtype=torch.float32)
-        if empty
-        else torch.tensor([[1.0, 1.0, 4.0, 6.0]], dtype=torch.float32)
+        torch.empty((0, 4), dtype=torch.float32) if empty else torch.tensor([[1.0, 1.0, 4.0, 6.0]], dtype=torch.float32)
     )
     result = Detections(
         geometry=geometry,
@@ -108,9 +106,14 @@ class _Tracker:
     name = "fake"
     supports_obb = False
 
-    def __init__(self, events, *, embeddings=False, masks=False, frame=False):
+    def __init__(self, events, *, embeddings=False, masks=False, frame=False, frame_dimensions_only=False):
         self.events = events
-        self.requirements = TrackerRequirements(embeddings=embeddings, masks=masks, frame=frame)
+        self.requirements = TrackerRequirements(
+            embeddings=embeddings,
+            masks=masks,
+            frame=frame,
+            frame_dimensions_only=frame_dimensions_only,
+        )
         self.received = None
         self.reset_calls = 0
 
@@ -302,6 +305,16 @@ def test_tracking_passes_no_frame_when_tracker_does_not_require_it() -> None:
     tracker = _Tracker(events)
     result = TrackingPipeline(detector=_Detector([_detections(frame)], events), tracker=tracker).step(frame)
     assert tracker.received == (result.detections, None)
+
+
+def test_tracking_passes_frame_context_to_dimensions_only_tracker() -> None:
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, frame=True, frame_dimensions_only=True)
+
+    result = TrackingPipeline(detector=_Detector([_detections(frame)], events), tracker=tracker).step(frame)
+
+    assert tracker.received == (result.detections, frame)
 
 
 def test_tracking_step_detections_skips_detector_and_enriches_for_tracker() -> None:

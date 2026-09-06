@@ -22,7 +22,7 @@ TOML = ROOT / "pyproject.toml"
 
 BOXMOT     = ROOT / "boxmot"
 ENGINE     = BOXMOT / "engine"
-DATASETS = BOXMOT / "datasets"
+DATASETS = ROOT / "datasets"
 MOT_DATASETS = DATASETS / "mot"
 REID_DATASETS = DATASETS / "reid"
 

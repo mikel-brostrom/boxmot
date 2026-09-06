@@ -7,7 +7,7 @@ training image, and writes the tensor-only input consumed by
 
     uv run --no-sync python -m boxmot.engine.commands.reid.teacher_extract \
       --teacher teacher.pt --dataset-index train-samples.json \
-      --image-root datasets/Market-1501-v15.09.15 \
+      --image-root datasets/reid/Market-1501-v15.09.15 \
       --anatomical-metadata runs/anatomical-metadata \
       --include-leave-part-out --output teacher-signals.pt
 

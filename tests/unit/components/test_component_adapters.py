@@ -7,7 +7,6 @@ import pytest
 import torch
 
 import boxmot.reid.adapters as reid_adapters
-import boxmot.reid.core.crops as crop_module
 import boxmot.segmentors.backends.maskrcnn as maskrcnn_adapters
 from boxmot.components.timing import timing_event_sink
 from boxmot.reid.adapters import RuntimeAppearanceEncoder
@@ -282,8 +281,8 @@ def test_runtime_appearance_encoder_rejects_zero_norm_backend_features() -> None
         encoder.encode([frame], [_aabb_detections(frame)])
 
 
-def test_runtime_appearance_encoder_supports_rotated_and_mask_aware_crops() -> None:
-    calls = []
+def test_runtime_appearance_encoder_automatically_selects_crop_from_geometry() -> None:
+    calls: list[tuple[np.ndarray, np.ndarray]] = []
 
     class Runtime:
         feature_dim = 2
@@ -294,63 +293,81 @@ def test_runtime_appearance_encoder_supports_rotated_and_mask_aware_crops() -> N
             return np.ones((len(boxes), 2), dtype=np.float32)
 
     frame = _frame()
+    encoder = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx"), Runtime())
+    assert encoder.requirements == EncoderRequirements(masks=False)
+
+    assert encoder.encode([frame], [_aabb_detections(frame)])[0].shape == (1, 2)
+    assert calls[-1][0].tolist() == [[0.0, 0.0, 4.0, 4.0]]
+
     oriented = Detections(
         geometry=OrientedBoxes(torch.tensor([[4.0, 3.0, 4.0, 2.0, 0.0]], dtype=torch.float32)),
         scores=torch.tensor([0.8], dtype=torch.float32),
         class_ids=torch.tensor([1], dtype=torch.int64),
         sample_id=frame.sample_id,
     )
-    rotated = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx", crop_strategy="rotated"), Runtime())
-    assert rotated.requirements == EncoderRequirements(masks=False)
-    assert rotated.encode([frame], [oriented])[0].shape == (1, 2)
 
+    assert encoder.encode([frame], [oriented])[0].shape == (1, 2)
+    assert calls[-1][0].tolist() == [[0.0, 0.0, 2.0, 4.0]]
+
+
+def test_runtime_appearance_encoder_ignores_detection_masks() -> None:
+    calls: list[tuple[np.ndarray, np.ndarray]] = []
+
+    class Runtime:
+        feature_dim = 2
+
+        def get_features(self, boxes, image):
+            calls.append((boxes.copy(), image.copy()))
+            return np.ones((len(boxes), 2), dtype=np.float32)
+
+    frame = _frame()
+    detections = _aabb_detections(frame)
     masks = torch.zeros((1, frame.height, frame.width), dtype=torch.bool)
-    masks[:, 2:4, 2:4] = True
-    masked = _aabb_detections(frame).with_masks(MaskBatch(masks))
-    mask_aware = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx", crop_strategy="mask_aware"), Runtime())
-    assert mask_aware.requirements == EncoderRequirements(masks=True)
-    assert mask_aware.encode([frame], [masked])[0].shape == (1, 2)
-    mask_mosaic = calls[-1][1]
-    assert np.any(mask_mosaic != 0)
-    assert np.any(np.all(mask_mosaic == 0, axis=2))
+    masked = detections.with_masks(MaskBatch(masks))
+    encoder = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx"), Runtime())
+
+    encoder.encode([frame, frame], [detections, masked])
+
+    assert encoder.requirements == EncoderRequirements(masks=False)
+    assert calls[0][0].tolist() == [[0.0, 0.0, 4.0, 4.0], [4.0, 0.0, 8.0, 4.0]]
+    np.testing.assert_array_equal(calls[0][1][:, :4], calls[0][1][:, 4:])
+    assert np.all(calls[0][1] != 0)
 
 
-def test_runtime_appearance_encoder_routes_perspective_obb_crops(monkeypatch) -> None:
-    captured = {}
-
-    def perspective_crop(box, image, *, max_output_side):
-        captured["box"] = box.copy()
-        captured["image"] = image.copy()
-        captured["max_output_side"] = max_output_side
-        return np.full((3, 2, 3), 47, dtype=np.uint8)
+def test_runtime_appearance_encoder_crop_is_invariant_to_equivalent_obb_forms() -> None:
+    extracted: list[np.ndarray] = []
 
     class Runtime:
         feature_dim = 2
         input_shape = (6, 4)
 
         def get_features(self, boxes, image):
-            captured["crop_boxes"] = boxes.copy()
-            captured["mosaic"] = image.copy()
+            for x1, y1, x2, y2 in boxes.astype(int):
+                extracted.append(image[y1:y2, x1:x2].copy())
             return np.ones((len(boxes), 2), dtype=np.float32)
 
-    monkeypatch.setattr(crop_module, "crop_obb_perspective", perspective_crop)
-    frame = _frame()
-    geometry = torch.tensor([[4.0, 3.0, 4.0, 2.0, 0.3]], dtype=torch.float32)
+    values = torch.arange(3 * 6 * 8, dtype=torch.uint8).reshape(3, 6, 8)
+    frame = Frame(values, "sample")
+    geometry = torch.tensor(
+        [
+            [4.0, 3.0, 2.0, 4.0, 0.0],
+            [4.0, 3.0, 4.0, 2.0, torch.pi / 2.0],
+        ],
+        dtype=torch.float32,
+    )
     detections = Detections(
         geometry=OrientedBoxes(geometry),
-        scores=torch.tensor([0.8], dtype=torch.float32),
-        class_ids=torch.tensor([1], dtype=torch.int64),
+        scores=torch.tensor([0.8, 0.8], dtype=torch.float32),
+        class_ids=torch.tensor([1, 1], dtype=torch.int64),
         sample_id=frame.sample_id,
     )
-    encoder = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx", crop_strategy="perspective"), Runtime())
+    encoder = RuntimeAppearanceEncoder(ReIDEncoderSpec("onnx"), Runtime())
 
     result = encoder.encode([frame], [detections])
 
-    np.testing.assert_array_equal(captured["box"], geometry[0].numpy())
-    assert captured["max_output_side"] == 6
-    assert captured["crop_boxes"].tolist() == [[0.0, 0.0, 2.0, 3.0]]
-    assert np.all(captured["mosaic"] == 47)
-    assert result[0].shape == (1, 2)
+    assert len(extracted) == 2
+    np.testing.assert_array_equal(extracted[0], extracted[1])
+    assert result[0].shape == (2, 2)
 
 
 def test_sam_segmentor_aligns_and_resizes_prompt_masks_without_calling_for_empty() -> None:

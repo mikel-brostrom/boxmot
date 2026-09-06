@@ -65,7 +65,6 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
     "sfsort": TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=_BOX_GEOMETRIES,
-        requires_frame=True,
         accepts_frame=True,
     ),
     "strongsort": TrackerCapabilities(

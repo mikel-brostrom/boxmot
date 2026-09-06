@@ -25,13 +25,16 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
     "--data-root",
     type=click.Path(path_type=Path),
     default=None,
-    help="Raw dataset root; overrides BOXMOT_DATASETS_DIR and the platform cache.",
+    help="Tracking-dataset root; defaults to ./datasets/mot.",
 )
 @click.option(
     "--build-root",
     type=click.Path(path_type=Path),
     default=None,
-    help="Build root; overrides BOXMOT_BUILDS_DIR and the platform cache.",
+    help=(
+        "Materialized-dataset and shared detector-cache root; overrides BOXMOT_BUILDS_DIR and "
+        "defaults to ./runs/materializations."
+    ),
 )
 @click.option(
     "--plan",
@@ -47,7 +50,12 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
     metavar="STAGE.FIELD=VALUE",
     help="Override one executor plan value; repeat as needed.",
 )
-@click.option("--resume/--no-resume", default=True, show_default=True)
+@click.option(
+    "--resume/--no-resume",
+    default=True,
+    show_default=True,
+    help="Resume this build's checkpoints; compatible shared detections are reused independently.",
+)
 @click.pass_context
 def materialize(
     ctx: click.Context,

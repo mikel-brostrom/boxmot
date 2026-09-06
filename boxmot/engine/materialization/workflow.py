@@ -14,11 +14,13 @@ from boxmot import __version__
 from boxmot.detectors import DetectorSpec
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.detectors.factory import detector_capabilities
+from boxmot.engine.dataset_resources import ensure_dataset_split_available
 from boxmot.engine.experiment_config import resolve_experiment_config
 from boxmot.engine.logging import suppress_boxmot_logs
 from boxmot.engine.materialization import (
     BuildPlan,
     DatasetMaterializer,
+    DetectionCache,
     DetectStage,
     EmbedStage,
     FileMetadataCache,
@@ -29,6 +31,7 @@ from boxmot.engine.materialization import (
     default_source_metadata_cache_path,
     fingerprint,
 )
+from boxmot.engine.materialization.builds import import_former_default_build
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
@@ -38,7 +41,7 @@ from boxmot.engine.materialization.progress import MaterializationProgress, Mate
 from boxmot.engine.materialization.settings import load_executor_settings
 from boxmot.engine.ui.core.ui import get_console
 from boxmot.engine.ui.reporters.materialize import MaterializeWorkflowReporter
-from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
+from boxmot.reid import ReIDEncoderSpec
 from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors import SegmentorSpec
 from boxmot.segmentors.config import resolve_segmentor_spec
@@ -117,14 +120,11 @@ def _with_device(
 
 
 def _detector_reference(resolved: Mapping[str, Any]) -> str:
-    detections = resolved.get("detections") or {}
-    if detections.get("source") != "model":
-        raise ValueError('Experiment detections.source must be "model" for canonical materialization.')
-    model = detections.get("model") or {}
-    reference = model.get("ref")
-    checkpoint = model.get("checkpoint")
+    detector = resolved.get("detector") or {}
+    reference = detector.get("ref")
+    checkpoint = detector.get("checkpoint")
     if not reference or not checkpoint:
-        raise ValueError("Experiment model detections must resolve a detector ref and checkpoint.")
+        raise ValueError("Experiment detector must resolve a ref and checkpoint.")
     return f"{reference}/{checkpoint}"
 
 
@@ -137,7 +137,6 @@ def _reid_reference(resolved: Mapping[str, Any]) -> Mapping[str, Any] | None:
         "device": "cpu" if config.get("device") in {None, "", "auto"} else config["device"],
         "precision": config.get("precision") or "fp32",
         "preprocessing": config.get("preprocess") or "default",
-        "crop_strategy": config.get("crop_strategy") or "aabb",
         "options": {"image_size": tuple(config.get("image_size") or (256, 128))},
     }
 
@@ -159,11 +158,21 @@ def _resolved_inputs(
 
     experiment = getattr(args, "experiment", None)
     if not isinstance(experiment, (str, Path)) or not str(experiment).strip():
-        raise ValueError("Materialization requires an authored experiment ID or YAML path.")
-    resolved = resolve_experiment_config(experiment, mode="materialize")
+        raise ValueError("Materialization requires an authored experiment YAML filename or path.")
+    resolve_options = {"mode": str(getattr(args, "materialize_mode", "materialize"))}
+    materialize_split = getattr(args, "materialize_split", None)
+    if materialize_split:
+        resolve_options["split"] = str(materialize_split)
+    resolved = resolve_experiment_config(experiment, **resolve_options)
     dataset = resolved["dataset"]
     data_root = getattr(args, "data_root", None)
     source_root = resolve_dataset_root(dataset, data_root)
+    ensure_dataset_split_available(
+        dataset,
+        split=str(dataset["split"]),
+        data_root=data_root,
+        status_callback=status_callback,
+    )
     with FileMetadataCache(
         default_source_metadata_cache_path(source_root),
         status_callback=status_callback,
@@ -274,7 +283,6 @@ def materialize(
     )
     encoder_spec: ReIDEncoderSpec | None = None
     encoder_provenance: Mapping[str, Any] | None = None
-    encoder_requirements: EncoderRequirements | None = None
     encoder_dimension: int | None = None
     if publish.embeddings and not capabilities.provides_embeddings:
         if reid_reference is None:
@@ -289,7 +297,6 @@ def materialize(
             device_override,
             auto_device=command_device,
         )
-        encoder_requirements = EncoderRequirements(masks=encoder_spec.crop_strategy == "mask_aware")
         candidate_dimension = encoder_spec.option_values().get("embedding_dim")
         if candidate_dimension is not None:
             if (
@@ -300,14 +307,13 @@ def materialize(
                 raise ValueError("ReID embedding_dim must be a positive integer.")
             encoder_dimension = candidate_dimension
 
-    needs_masks = publish.masks or bool(encoder_requirements is not None and encoder_requirements.masks)
+    needs_masks = publish.masks
     segmentor_spec: SegmentorSpec | None = None
     segmentor_provenance: Mapping[str, Any] | None = None
     if needs_masks and not capabilities.provides_masks:
         if segmentor_reference is None:
-            reason = "the appearance crop policy" if not publish.masks else "published masks"
             raise ValueError(
-                f"{reason.capitalize()} require the selected experiment to define a segmentor because its detector "
+                "Published masks require the selected experiment to define a segmentor because its detector "
                 "does not provide masks."
             )
         if isinstance(segmentor_reference, Mapping) and set(segmentor_reference) == {"ref"}:
@@ -335,8 +341,6 @@ def materialize(
     stage_plans.append(detect_plan)
 
     samples = catalog.samples
-    if not publish.image_references:
-        samples = tuple(replace(sample, image_ref=None) for sample in samples)
     native_encoder_fingerprint = None
     native_embedding_dim = None
     if publish.embeddings and capabilities.provides_embeddings:
@@ -364,8 +368,7 @@ def materialize(
     encoder_fingerprint: str | None = None
     if encoder_spec is not None:
         encoder_fingerprint = fingerprint(encoder_provenance)
-        assert encoder_requirements is not None
-        embed_dependencies = ("detect", "segment") if encoder_requirements.masks else ("detect",)
+        embed_dependencies = ("detect",)
         embed_upstream = tuple(stage.fingerprint for stage in stage_plans if stage.name in set(embed_dependencies))
         embed_plan = _stage_plan(
             "embed",
@@ -430,6 +433,7 @@ def materialize(
         if plan.staging_root.parent != plan.build_root / ".staging":
             raise RuntimeError("Refusing to discard staging outside the selected build root.")
         shutil.rmtree(plan.staging_root)
+    import_former_default_build(plan, status_callback=progress.setup_status)
 
     # Keep every runtime as its immutable specification until the first pending
     # shard reaches that stage. The stage worker then constructs and caches the
@@ -447,6 +451,7 @@ def materialize(
             native_embedding_dim=native_embedding_dim,
             decode_workers=int(settings["decode"]["workers"]),
             source_digest_resolver=source_metadata_cache.resolve_digest,
+            cache=DetectionCache.from_plan(plan, samples),
         )
     ]
     if segmentor_spec is not None:
@@ -459,14 +464,12 @@ def materialize(
             )
         )
     if encoder_spec is not None:
-        assert encoder_requirements is not None
         assert encoder_fingerprint is not None
         stage_objects.append(
             EmbedStage(
                 encoder_spec,
                 samples,
                 encoder_fingerprint=encoder_fingerprint,
-                use_masks=encoder_requirements.masks,
                 decode_workers=int(settings["decode"]["workers"]),
                 source_digest_resolver=source_metadata_cache.resolve_digest,
             )
@@ -486,7 +489,7 @@ def materialize(
     return result
 
 
-def main(args: Any) -> None:
+def main(args: Any) -> Path:
     """CLI entry point."""
 
     interactive = bool(get_console(stderr=True).is_terminal)
@@ -495,7 +498,7 @@ def main(args: Any) -> None:
     progress.start()
     try:
         with suppress_boxmot_logs(interactive, level="WARNING"):
-            materialize(args, progress=progress)
+            return materialize(args, progress=progress)
     except BaseException as exc:
         progress.unhandled_failure(exc)
         raise

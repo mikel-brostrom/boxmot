@@ -9,22 +9,32 @@ Evaluation has two independent inputs:
 boxmot eval \
   --dataset mot17 \
   --split ablation \
-  --build runs/builds/BUILD_ID \
-  --data-root boxmot/datasets/mot \
+  --build runs/materializations/BUILD_ID \
+  --data-root datasets/mot \
   --tracker boosttrack
 ```
 
 The evaluator validates that those inputs describe the same source, split,
 taxonomy, and geometry before replay. Experiment mode also validates semantic
-component fingerprints:
+component fingerprints. Omit `--build` to materialize or reuse a compatible
+canonical build before replay:
 
 ```bash
 boxmot eval \
-  --experiment mot17-ablation-yolox-lmbn \
-  --build runs/builds/BUILD_ID \
-  --data-root boxmot/datasets/mot \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --data-root datasets/mot \
   --tracker boosttrack
 ```
+
+Supplying `--build` skips automatic preparation and evaluates exactly that
+build.
+
+Automatic preparation stores detector results independently from ReID output
+under `<selected-build-root>/.cache/detect` (by default,
+`runs/materializations/.cache/detect`). Experiments that share the source
+dataset, detector, geometry, and class mapping therefore skip repeated detector
+inference and run only their remaining derived stages. Detector-native masks or
+embeddings bypass this geometry-only cache.
 
 Tracker requirements are checked against published artifacts. For example, a
 configuration with `use_embeddings: true` requires embeddings in the build;

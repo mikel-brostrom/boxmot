@@ -161,7 +161,7 @@ class SFSORT(BoxTracker):
             ``asso_func``, and ``is_obb``.
     """
 
-    requires_frame = True
+    requires_frame = False
     uses_frame_dimensions_for_association = True
 
     def __init__(
@@ -211,6 +211,11 @@ class SFSORT(BoxTracker):
         self.marginal_timeout = int(self._resolve_or_default(marginal_timeout, 0, 0, 500))
         self.central_timeout = int(self._resolve_or_default(central_timeout, 0, 0, 1000))
 
+        if (frame_width is None) != (frame_height is None):
+            raise ValueError("frame_width and frame_height must be configured together.")
+        for name, value in (("frame_width", frame_width), ("frame_height", frame_height)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+                raise ValueError(f"{name} must be a positive integer when configured.")
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.horizontal_margin = horizontal_margin
@@ -222,10 +227,10 @@ class SFSORT(BoxTracker):
         self.b_margin = 0.0
         self._margins_ready = False
         self._maybe_set_margins(frame_width, frame_height)
-        # SFSORT's region lifecycle is defined in image coordinates.  Its
-        # resolved v24 requirement is therefore always a frame, even when the
-        # configured central and marginal timeouts happen to be equal.
-        self._requires_frame = True
+        # Region metadata and optional centroid association use dimensions,
+        # but SFSORT never consumes source-image pixels.
+        self._requires_frame = not self._margins_ready
+        self._requires_frame_dimensions_only = self._requires_frame
 
         self.id_counter = self.id_allocator.next_id
         self.active_tracks: list[Track] = []

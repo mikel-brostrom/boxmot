@@ -11,7 +11,12 @@ import boxmot.engine.research.benchmarks as benchmarks_module
 import boxmot.engine.research.paths as paths_module
 import boxmot.engine.research.proposal as proposal_module
 import boxmot.engine.research.runner as runner_module
-from boxmot.engine.research.benchmarks import _resolve_experiment_runtime, _select_examples, _split_examples
+from boxmot.engine.research.benchmarks import (
+    _discover_sequences,
+    _resolve_experiment_runtime,
+    _select_examples,
+    _split_examples,
+)
 from boxmot.engine.research.candidates import (
     _build_reflection_prompt_templates,
     _make_checked_candidate_proposer,
@@ -103,6 +108,19 @@ def test_split_examples_creates_holdout_when_requested():
     train, val = _split_examples(examples, validation_split=0.25)
     assert [row["sequence"] for row in train] == ["a", "b", "c"]
     assert [row["sequence"] for row in val] == ["d"]
+
+
+def test_discover_sequences_ignores_appledouble_only_directories(tmp_path):
+    valid = tmp_path / "valid" / "img1"
+    valid.mkdir(parents=True)
+    (valid / "000001.jpg").write_bytes(b"candidate frame")
+    sidecar_only = tmp_path / "sidecar-only" / "img1"
+    sidecar_only.mkdir(parents=True)
+    (sidecar_only / "._000001.jpg").write_bytes(b"AppleDouble metadata")
+
+    examples = _discover_sequences(tmp_path)
+
+    assert [example["sequence"] for example in examples] == ["valid"]
 
 
 def test_select_examples_uses_union_of_requested_sequences():

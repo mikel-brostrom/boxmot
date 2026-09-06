@@ -5,10 +5,9 @@ resolved configuration contributes to the materialized build ID and is checked
 again by eval, tune, and research.
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
-boxmot tune --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
-boxmot research --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
 Materialization accepts only `--experiment`. The dataset, split, geometry,
@@ -17,8 +16,9 @@ semantic identity and have no command-line overrides. Create another
 experiment when one of them should change.
 
 Evaluation can use either an experiment or dataset selector. Tune and research
-require an experiment. Materialization is always experiment-backed, and every
-downstream workflow requires `--build`; none materializes data implicitly.
+require an experiment. Materialization is always experiment-backed. Evaluation
+materializes or reuses a compatible canonical build when `--build` is omitted;
+dataset-only evaluation, tune, and research still require an explicit build.
 
 The build manifest records resolved artifact hashes, source and taxonomy
 digests, stage fingerprints, publish flags, shard counts/hashes, and

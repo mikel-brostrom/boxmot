@@ -148,6 +148,6 @@ def test_all_images_smoke_packaged_component_configs() -> None:
     script = step["run"]
 
     assert "from boxmot.engine.experiment_config import resolve_experiment_config" in script
-    assert 'resolve_experiment_config("mot17-ablation-yolox-lmbn")' in script
+    assert 'resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml")' in script
     assert 'experiment["detector"]["id"] == "yolox-x-mot17"' in script
     assert 'experiment["reid"]["id"] == "lmbn-n-duke"' in script

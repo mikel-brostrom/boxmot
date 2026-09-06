@@ -6,6 +6,7 @@ resumability, and publication. Reusable dataset serialization remains owned by
 """
 
 from .builder import DatasetMaterializer, ExecutorFactory
+from .detection_cache import DETECTION_CACHE_SCHEMA, DetectionCache, make_detection_cache_id
 from .executor import ExecutorSpec, InlineExecutor, PoolStageExecutor, StageExecutor, create_executor
 from .finalize import FinalizeError, build_manifest, finalize_build
 from .ids import fingerprint, make_build_id, make_instance_id, make_stage_fingerprint
@@ -30,6 +31,8 @@ __all__ = (
     "BuildState",
     "BoundedFrameDecoder",
     "DatasetMaterializer",
+    "DETECTION_CACHE_SCHEMA",
+    "DetectionCache",
     "DetectStage",
     "EmbedStage",
     "ExecutorFactory",
@@ -60,6 +63,7 @@ __all__ = (
     "finalize_build",
     "fingerprint",
     "make_build_id",
+    "make_detection_cache_id",
     "make_instance_id",
     "make_stage_fingerprint",
 )

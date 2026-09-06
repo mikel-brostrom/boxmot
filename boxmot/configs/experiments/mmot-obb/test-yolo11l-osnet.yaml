@@ -1,13 +1,13 @@
 dataset:
-  ref: mmot-mini
-  split: train
+  ref: mmot
+  split: test
 
 detector:
   ref: yolo11l-mmot-obb
   checkpoint: default
 
 reid:
-  ref: lmbn-n-duke
+  ref: osnet-x0-25-msmt17
 
 evaluation:
   class_map: auto

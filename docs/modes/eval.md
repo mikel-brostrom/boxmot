@@ -1,22 +1,52 @@
 # Evaluate
 
-`eval` measures a tracker by streaming one explicit materialized build through
-the live tracker API. It never runs or downloads a detector, segmentor, or
-appearance encoder.
+`eval` measures a tracker by streaming an immutable materialized build through
+the live tracker API. With `--experiment`, `--build` is optional: when omitted,
+BoxMOT first materializes (or reuses) a canonical build compatible with the
+selected tracker and then evaluates it. Detector, segmentor, and
+appearance-encoder inference happens only during that preparation step, never
+during replay. Automatic preparation publishes image references, embeddings
+for appearance-capable trackers, and masks when the selected tracker requires
+them. Motion-only trackers such as SFSORT skip the embedding stage entirely.
 
-Pass exactly one dataset selector and one build:
+Preparation caches detector output separately from ReID embeddings. If a
+compatible dataset, detector, geometry, and class mapping have already been
+materialized, changing the ReID model skips detector inference and runs the
+remaining derived stages. The cache lives below
+`<selected-build-root>/.cache/detect`; with the default root, BoxMOT can also
+import an identical v1 build or seed detections from another compatible v1
+build in the former platform-cache location.
+Detector-native masks or embeddings are not represented by this geometry cache,
+so builds that require either output run their detector stage normally.
+
+Pass exactly one experiment or dataset selector. Experiment mode can prepare
+its own build:
 
 ```bash
 boxmot eval \
-  --experiment mot17-ablation-yolox-lmbn \
-  --build runs/builds/BUILD_ID \
-  --data-root boxmot/datasets/mot \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --data-root datasets/mot \
+  --device mps \
   --tracker boosttrack
+```
 
+`--device` selects the detector, segmentor, and ReID execution device for this
+automatic preparation. It is rejected with an explicit `--build`, where no
+perception model runs.
+
+After materialization completes, evaluation consumes the exact path returned
+by that build operation. It does not scan `--build-root`, select a latest
+directory, or risk replaying another experiment's build.
+
+Pass `--build` to reuse a specific build. Dataset-only mode always requires it
+because a dataset config does not select the detector and ReID components
+needed for materialization:
+
+```bash
 boxmot eval \
   --dataset mot17 \
   --split ablation \
-  --build /srv/boxmot/builds/BUILD_ID \
+  --build /srv/boxmot/materializations/BUILD_ID \
   --tracker bytetrack
 ```
 
@@ -25,8 +55,8 @@ uses the selected dataset adapter for ground truth. Before tracking, evaluation
 verifies the build's source catalog digest, split, class taxonomy, geometry,
 published requirements, and—when applicable—component fingerprints.
 
-If a requirement is missing, evaluation reports a concrete `boxmot materialize
-...` command. It does not modify the build or create a replacement.
+If an explicitly selected build is missing or incompatible, evaluation fails
+without modifying it or creating a replacement.
 
 An unbound build created before canonical experiment materialization can be
 evaluated only with the explicit `--allow-noncanonical-build` escape hatch.
@@ -37,9 +67,9 @@ example, to diagnose the known MMOT build on one sequence:
 
 ```bash
 boxmot eval \
-  --experiment mmot-obb-test-yolo11l-lmbn \
+  --experiment mmot-obb/test-yolo11l-lmbn.yaml \
   --build faf16842d9d15fc048a50247df8ae927e7299d5760c9f461af4581cabfa279e6 \
-  --data-root /Volumes/Data/MMOT \
+  --data-root datasets/mot \
   --tracker botsort \
   --sequence data23-1 \
   --allow-noncanonical-build
@@ -62,7 +92,7 @@ the option to select more than one sequence:
 
 ```bash
 boxmot eval \
-  --experiment mmot-obb-test-yolo11l-lmbn \
+  --experiment mmot-obb/test-yolo11l-lmbn.yaml \
   --build BUILD_ID \
   --sequence data23-1 \
   --tracker botsort
@@ -74,7 +104,9 @@ sequence IDs. Neither path eagerly loads masks or embeddings in the
 coordinator. It marks each sequence as queued before starting the process pool.
 A worker then opens only its assigned sequence and streams optional masks and
 embeddings in bounded Arrow batches as frame iteration advances. Images are
-decoded frame by frame when the tracker requires them.
+decoded only when the resolved tracker requires source pixels. A
+dimensions-only tracker such as SFSORT receives width and height from cached
+sample metadata without opening the source image.
 
 Current materializations also use bounded Parquet row groups so workers can
 prune unrelated `sample_id` ranges. Older `boxmot.dataset/v1` builds remain
@@ -83,20 +115,30 @@ the initial worker-loading phase.
 
 ## Build resolution
 
+- When `--build` is omitted with `--experiment`, BoxMOT materializes the
+  deterministic build below `--build-root`; an identical complete build is
+  validated and reused.
 - An existing `--build` path is used directly.
 - A build ID is looked up only below `--build-root`.
-- `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then the platform cache.
+- `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then
+  `./runs/materializations`.
+- Dataset-only evaluation requires `--build`.
 - There is no latest-build selection.
 
-The selected raw data root is used to verify ground-truth provenance. Its
-precedence is `--data-root`, `BOXMOT_DATASETS_DIR`, then the platform cache.
+The selected raw data root is used to verify ground-truth provenance. It
+defaults to `./datasets/mot`; pass `--data-root` explicitly to use another
+location. When the selected split is absent, its configured Hugging Face
+`per_split` resource is downloaded before materialization or ground-truth
+validation. Existing populated splits are reused without downloading;
+archive-backed datasets still require explicit setup.
 
 Repeated evaluations reuse hashes and image dimensions only when a source or
 model file's path, device, inode, mode, size, modification time, and change
-time are unchanged. This evaluation-only metadata lives in the platform cache;
+time are unchanged. This shared metadata lives in the platform cache;
 the source tree is still traversed on every run so added and removed files are
-detected. Materialization never uses this cache and always resolves fresh
-artifact digests before establishing a build ID.
+detected. This metadata cache is separate from the content-addressed detector
+output cache; materialization still establishes the source and model content
+digests before selecting either a complete build or reusable detections.
 
 ## Output
 

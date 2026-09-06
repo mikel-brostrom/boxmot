@@ -155,7 +155,6 @@ def _reid_profile_payload(
         "device": "cpu" if profile.get("device") == "auto" else profile.get("device"),
         "precision": profile["precision"],
         "preprocessing": profile["preprocess"],
-        "crop_strategy": "aabb",
         "options": {"image_size": tuple(int(value) for value in profile["image_size"])},
     }
 
@@ -179,7 +178,6 @@ def _direct_reid_payload(artifact_path: Path) -> tuple[dict[str, Any], Path | No
             "device": "cpu",
             "precision": "fp32",
             "preprocessing": "default",
-            "crop_strategy": "aabb",
             "options": {},
         },
         None,
@@ -215,6 +213,11 @@ def resolve_reid_spec(
                 else:
                     config_path = Path(profile["config_path"])
                     payload = _reid_profile_payload(profile)
+    if "crop_strategy" in payload:
+        raise ConfigurationError(
+            'ReID encoder field "crop_strategy" is no longer supported; '
+            "crop behavior is selected automatically from detection geometry."
+        )
     path, uri, expected_hash = required_artifact_values(payload, component="ReID encoder")
     artifact = resolve_component_artifact(
         path,
@@ -232,7 +235,6 @@ def resolve_reid_spec(
         precision=str(payload.get("precision") or "fp32"),
         options=component_options(payload.get("options")),
         preprocessing=str(payload.get("preprocessing") or "default"),
-        crop_strategy=str(payload.get("crop_strategy") or "aabb"),
     )
     return spec, {"spec": asdict(spec), "artifact": artifact_provenance(artifact)}
 

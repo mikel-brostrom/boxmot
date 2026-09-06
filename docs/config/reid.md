@@ -24,6 +24,11 @@ existing runtime arguments. `preprocessing.mode` is required, and
 `preprocessing.image_size` must contain exactly two positive integers in
 height-width order.
 
+Crop extraction follows detection geometry automatically: AABB detections use
+clipped axis-aligned crops and OBB detections use the canonical rectified OBB
+transform. Built-in ReID profiles do not consume detection masks; a custom
+mask-dependent encoder declares that requirement through its encoder contract.
+
 During materialization the engine resolves the artifact and SHA-256 before the
 build ID is established. Python callers use the resulting values in a frozen
 `ReIDEncoderSpec`; trackers receive only the produced embeddings and never the

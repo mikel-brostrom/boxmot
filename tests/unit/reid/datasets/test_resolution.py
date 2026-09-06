@@ -14,6 +14,12 @@ def _write_market_fixture(root: Path) -> None:
     (root / "readme.txt").write_text("market fixture\n", encoding="utf-8")
 
 
+def test_default_reid_data_root_is_outside_the_python_package(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    assert reid_data.default_reid_data_root() == (tmp_path / "datasets" / "reid").resolve()
+
+
 def test_ensure_builtin_reid_dataset_downloads_market1501_archive(monkeypatch, tmp_path):
     source_root = tmp_path / "source" / "Market-1501-v15.09.15"
     _write_market_fixture(source_root)
@@ -45,11 +51,11 @@ def test_ensure_builtin_reid_dataset_downloads_market1501_archive(monkeypatch, t
     assert (dataset_root / "query" / "0001_c1s1_000001_00.jpg").is_file()
 
 
-def test_resolve_market1501_train_data_defaults_to_reid_cache(monkeypatch, tmp_path):
+def test_resolve_market1501_train_data_defaults_to_workspace_reid_root(monkeypatch, tmp_path):
     calls = []
 
     def fake_default_reid_data_root():
-        return tmp_path / "boxmot" / "datasets" / "reid"
+        return tmp_path / "datasets" / "reid"
 
     def fake_ensure(name, cache_root=None):
         calls.append((name, Path(cache_root)))
@@ -69,6 +75,6 @@ def test_resolve_market1501_train_data_defaults_to_reid_cache(monkeypatch, tmp_p
 
     resolved = reid_data.resolve_reid_train_data(args)
 
-    expected_root = (tmp_path / "boxmot" / "datasets" / "reid").resolve()
+    expected_root = (tmp_path / "datasets" / "reid").resolve()
     assert resolved.data_dir == str(expected_root)
     assert calls == [("market1501", expected_root)]

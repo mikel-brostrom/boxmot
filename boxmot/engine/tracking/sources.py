@@ -25,6 +25,12 @@ IMAGE_EXTENSIONS = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", 
 VIDEO_EXTENSIONS = frozenset({".avi", ".m4v", ".mkv", ".mov", ".mp4", ".webm"})
 
 
+def is_appledouble_file(path: str | Path) -> bool:
+    """Return whether a discovered file is a macOS AppleDouble sidecar."""
+
+    return Path(path).name.startswith("._")
+
+
 @runtime_checkable
 class FrameSource(Protocol):
     """Iterable source of canonical frames."""
@@ -202,7 +208,7 @@ class DirectorySource(_BaseFrameSource):
         directory_uri = self.path.as_uri()
         image_sequence = _sequence_id(directory_uri)
         image_index = 0
-        for child in sorted(item for item in self.path.iterdir() if item.is_file()):
+        for child in sorted(item for item in self.path.iterdir() if item.is_file() and not is_appledouble_file(item)):
             if child.suffix.lower() in IMAGE_EXTENSIONS:
                 if image_index % self.stride == 0:
                     image = cv2.imread(str(child), cv2.IMREAD_COLOR)
@@ -301,4 +307,5 @@ __all__ = (
     "VideoSource",
     "create_frame_source",
     "frame_from_bgr",
+    "is_appledouble_file",
 )

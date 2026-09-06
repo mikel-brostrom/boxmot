@@ -277,7 +277,7 @@ def experiment_option(func: Callable | None = None, *, required: bool = False) -
         type=str,
         required=required,
         help=(
-            "experiment id or YAML file, e.g. mot17-ablation-yolox-lmbn or "
+            "experiment YAML filename or path, e.g. mot17/ablation-yolox-lmbn.yaml or "
             "boxmot/configs/experiments/mot17/ablation-yolox-lmbn.yaml"
         ),
     )
@@ -295,27 +295,42 @@ def dataset_option(*, default: str | None = None) -> Callable:
     )
 
 
-def build_selection_options(func: Callable) -> Callable:
-    """Require an explicit immutable materialized build."""
+def build_selection_options(func: Callable | None = None, *, required: bool = True) -> Callable:
+    """Attach immutable-build selection, optionally allowing workflow preparation."""
 
-    decorators = (
-        click.option(
-            "--build",
-            "build_ref",
-            type=str,
-            required=True,
-            help="Materialized build ID or explicit build directory.",
-        ),
-        click.option(
-            "--build-root",
-            type=click.Path(path_type=Path),
-            default=None,
-            help="Build root used when --build is an ID.",
-        ),
+    build_help = "Materialized build ID or explicit build directory."
+    build_root_help = (
+        "Materialized-dataset root for build IDs and shared detector cache; "
+        "overrides BOXMOT_BUILDS_DIR and defaults to ./runs/materializations."
     )
-    for decorator in reversed(decorators):
-        func = decorator(func)
-    return func
+    if not required:
+        build_help += " Omit with --experiment to materialize and reuse a compatible canonical build automatically."
+        build_root_help = (
+            "Root for build IDs, automatic materialization, and shared detector cache; "
+            "overrides BOXMOT_BUILDS_DIR and defaults to ./runs/materializations."
+        )
+
+    def decorator(command: Callable) -> Callable:
+        decorators = (
+            click.option(
+                "--build",
+                "build_ref",
+                type=str,
+                required=required,
+                help=build_help,
+            ),
+            click.option(
+                "--build-root",
+                type=click.Path(path_type=Path),
+                default=None,
+                help=build_root_help,
+            ),
+        )
+        for option in reversed(decorators):
+            command = option(command)
+        return command
+
+    return decorator if func is None else decorator(func)
 
 
 def data_root_option(func: Callable) -> Callable:
@@ -325,7 +340,7 @@ def data_root_option(func: Callable) -> Callable:
         "--data-root",
         type=click.Path(path_type=Path),
         default=None,
-        help="Raw dataset root; overrides BOXMOT_DATASETS_DIR and the platform cache.",
+        help="Tracking-dataset root; defaults to ./datasets/mot.",
     )(func)
 
 

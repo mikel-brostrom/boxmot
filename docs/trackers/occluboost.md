@@ -53,7 +53,7 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker occluboost --tracker-backend cpp
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker occluboost --tracker-backend cpp
 boxmot track --tracker occluboost --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 

@@ -113,11 +113,12 @@ def test_component_specs_require_sorted_unique_immutable_options(spec_type) -> N
     assert second == {"alpha": (1, "two", None), "enabled": True}
 
 
-def test_reid_spec_validates_preprocessing_and_crop_strategy() -> None:
+def test_reid_spec_validates_preprocessing_and_has_no_crop_strategy() -> None:
     with pytest.raises(ValueError, match="preprocessing"):
         ReIDEncoderSpec("onnx", preprocessing="Letter Box")
-    with pytest.raises(ValueError, match="crop_strategy"):
-        ReIDEncoderSpec("onnx", crop_strategy="Mask Aware")
+    assert "crop_strategy" not in {field.name for field in dataclasses.fields(ReIDEncoderSpec)}
+    with pytest.raises(TypeError, match="crop_strategy"):
+        ReIDEncoderSpec("onnx", crop_strategy="perspective")
 
 
 @pytest.mark.parametrize("spec_type", (DetectorSpec, SegmentorSpec))

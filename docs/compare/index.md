@@ -33,14 +33,14 @@ Materialize detections and embeddings once, then reuse the same immutable build
 for each tracker:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
 
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker bytetrack
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker botsort
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker boosttrack
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker bytetrack
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker botsort
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker boosttrack
 ```
 
-Keep the experiment, detection source, split, postprocessing, and metric
+Keep the experiment, detector profile, split, postprocessing, and metric
 configuration fixed. Record the tracker YAML and runtime overrides with every
 result.
 

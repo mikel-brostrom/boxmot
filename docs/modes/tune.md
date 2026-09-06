@@ -6,7 +6,7 @@ build:
 
 ```bash
 boxmot tune \
-  --experiment mot17-ablation-yolox-lmbn \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
   --build BUILD_ID \
   --tracker bytetrack \
   --n-trials 50
@@ -15,7 +15,7 @@ boxmot tune \
 Materialize first if the build does not exist:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
 ```
 
 Tuning validates source, split, taxonomy, geometry, component fingerprints,

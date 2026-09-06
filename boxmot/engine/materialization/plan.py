@@ -8,8 +8,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
-from platformdirs import user_cache_path
-
 from boxmot import __version__
 from boxmot.datasets.manifest import frozen_json_mapping
 from boxmot.datasets.schema import SCHEMA_ID, SCHEMA_VERSION, BoxType
@@ -33,12 +31,12 @@ _EXECUTION_CONFIG_KEYS = frozenset(
 
 
 def default_build_root() -> Path:
-    """Resolve the external immutable-build root without using repository paths."""
+    """Resolve the immutable materialized-dataset root."""
 
     configured = os.environ.get("BOXMOT_BUILDS_DIR")
     if configured:
         return Path(configured).expanduser()
-    return user_cache_path("boxmot") / "builds"
+    return Path("runs") / "materializations"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,10 +200,10 @@ class BuildPlan:
             ],
         }
         if experiment_id is not None:
-            # The authored experiment ID is stable semantic identity: eval,
-            # tune, and research require the selected build to carry this exact
-            # ID. Machine-local config paths and other manifest provenance stay
-            # outside the content fingerprint below.
+            # The filename-derived experiment identity is stable semantic
+            # identity: eval, tune, and research require the selected build to
+            # carry this exact value. Machine-local config paths and other
+            # manifest provenance stay outside the content fingerprint below.
             definition["experiment_id"] = experiment_id
         # ``metadata`` is publication provenance, not an implicit identity
         # extension point.  It deliberately retains useful machine-local

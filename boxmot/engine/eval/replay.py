@@ -107,12 +107,23 @@ class _SequenceReplayResult:
     ordinal: int
 
 
-def _frame_for_sample(sample: DatasetSample) -> Frame:
+def _frame_for_sample(
+    sample: DatasetSample,
+    placeholder_images: dict[tuple[int, int], torch.Tensor] | None = None,
+) -> Frame:
     if sample.frame is not None:
         return sample.frame
     height, width = sample.image_size
+    image = None if placeholder_images is None else placeholder_images.get(sample.image_size)
+    if image is None:
+        # Detector-free replay still needs frame identity and dimensions for
+        # pipeline ordering, but a tracker without a pixel requirement never
+        # observes these pixels. Reuse one backing tensor per resolution.
+        image = torch.empty((3, height, width), dtype=torch.uint8)
+        if placeholder_images is not None:
+            placeholder_images[sample.image_size] = image
     return Frame(
-        image=torch.zeros((3, height, width), dtype=torch.uint8),
+        image=image,
         sample_id=sample.sample_id,
         sequence_id=sample.sequence_id,
         frame_index=sample.frame_index,
@@ -138,13 +149,14 @@ def iter_cached_tracks(
         ),
     )
     active_sequence: str | None = None
+    placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
     for sample in dataset:
         if sequence_ids is not None and sample.sequence_id not in sequence_ids:
             continue
         if sample.sequence_id != active_sequence:
             pipeline.reset()
             active_sequence = sample.sequence_id
-        frame = _frame_for_sample(sample)
+        frame = _frame_for_sample(sample, placeholder_images)
         yield ReplayFrame(sample=sample, result=pipeline.step_detections(frame, sample.detections))
 
 
@@ -331,7 +343,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                 task.build,
                 sequence_id=task.sequence_id,
                 split=task.split,
-                load_images=requirements.frame,
+                load_images=requirements.frame_pixels,
                 load_masks=requirements.masks,
                 load_embeddings=requirements.embeddings,
             )
@@ -369,13 +381,14 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                     embeddings=requirements.embeddings,
                 ),
             )
+            placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
             with output_path.open("x", encoding="utf-8") as handle:
                 for sample in dataset:
                     if sample.sequence_id != task.sequence_id:
                         raise RuntimeError(
                             f"Sequence-scoped loader returned {sample.sequence_id!r} for task {task.sequence_id!r}."
                         )
-                    frame = _frame_for_sample(sample)
+                    frame = _frame_for_sample(sample, placeholder_images)
                     result = pipeline.step_detections(frame, sample.detections)
                     rows = tracks_to_mot_rows(result.tracks, sample.frame_index)
                     _write_rows(handle, rows)
@@ -619,7 +632,7 @@ def _replay_with_injected_tracker(
     dataset = load_cached_build(
         build_path,
         split=split,
-        load_images=requirements.frame,
+        load_images=requirements.frame_pixels,
         load_masks=requirements.masks,
         load_embeddings=requirements.embeddings,
     )
@@ -744,7 +757,7 @@ def replay_build(
             require_masks=requirements.masks,
             require_embeddings=requirements.embeddings,
         )
-        if requirements.frame and not manifest.publish.image_references:
+        if requirements.frame_pixels and not manifest.publish.image_references:
             raise BuildCompatibilityError(
                 f"Build {manifest.build_id!r} is missing required image references. "
                 "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."

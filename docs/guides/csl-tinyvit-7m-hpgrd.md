@@ -115,7 +115,7 @@ that fine-tuning will use:
 ```bash
 uv run --no-sync python -m boxmot.engine.commands.reid.privileged_cache index \
   --dataset market1501 \
-  --data-dir boxmot/datasets/reid/Market-1501-v15.09.15 \
+  --data-dir datasets/reid/Market-1501-v15.09.15 \
   --output artifacts/hpgrd/market1501_v20_teacher/train-samples.json
 ```
 
@@ -143,7 +143,7 @@ six-part anatomical metadata used by training:
 uv run --no-sync python -m boxmot.engine.commands.reid.teacher_extract \
   --teacher runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt \
   --dataset-index artifacts/hpgrd/market1501_v20_teacher/train-samples.json \
-  --image-root boxmot/datasets/reid/Market-1501-v15.09.15 \
+  --image-root datasets/reid/Market-1501-v15.09.15 \
   --anatomical-metadata Market-1501-pav-metadata-clean \
   --person-mask-dir Market-1501-mosaic-highconf-person-masks \
   --include-leave-part-out \
@@ -193,7 +193,7 @@ names differ from the student's canonical anatomical packet.
 The self-contained launcher starts with these existing inputs:
 
 - `runs/csl_tinyvit_7m_fix/a0_model_fixes_applied/best.pt`
-- `boxmot/datasets/reid/Market-1501-v15.09.15`
+- `datasets/reid/Market-1501-v15.09.15`
 - `Market-1501-pav-metadata-clean`
 - `Market-1501-mosaic-highconf-masks`
 - `Market-1501-mosaic-highconf-person-masks`

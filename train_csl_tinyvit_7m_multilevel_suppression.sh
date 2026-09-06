@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MARKET1501_DIR="${MARKET1501_DIR:-Market-1501-v15.09.15}"
+MARKET1501_DIR="${MARKET1501_DIR:-datasets/reid/Market-1501-v15.09.15}"
 PAV_METADATA_DIR="${PAV_METADATA_DIR:-Market-1501-pav-metadata-clean}"
 MULTILEVEL_SUPPRESSION_PROJECT="${MULTILEVEL_SUPPRESSION_PROJECT:-runs/csl_tinyvit_7m_multilevel_suppression}"
 MULTILEVEL_SUPPRESSION_NAME="${MULTILEVEL_SUPPRESSION_NAME:-class_cam_q15_v2_seed0}"

@@ -16,7 +16,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | `boxmot.api` | Removed; compose public domain packages directly |
 | `boxmot.data` | `boxmot.datasets` for immutable build loading and dataset configuration; engine materialization owns finite sources |
 | `boxmot generate` | `boxmot materialize` |
-| Eval/tune/research selecting or creating caches | Pass an explicit `--build PATH_OR_ID`; missing artifacts produce a materialization command |
+| Eval/tune/research selecting or creating caches | Eval can materialize an experiment when `--build` is omitted; dataset-only eval, tune, and research require `--build PATH_OR_ID` |
 | Positional `.npy`/`.npz` caches | Keyed `boxmot.dataset/v1` Parquet builds joined by `sample_id` and `instance_id` |
 | Native replay executable and caller-sized float row buffers | Live typed v2 C ABI with `int64` identifiers and library-owned output/free |
 
@@ -52,13 +52,14 @@ Use row serializers only where an external file or wire format requires them.
 
 ## Cache cutover
 
-Materialize again under the v1 schema. Existing legacy cache directories remain
-physically untouched but are unsupported: BoxMOT will not read, migrate, or
-delete them.
+Materialize again under the v1 schema. Existing pre-v1 positional `.npy` and
+`.npz` cache directories remain physically untouched and unsupported. A
+compatible v1 build in the former platform-cache build root may seed the shared
+detection cache—or be imported directly when its full build identity matches—
+when using the repository-local default.
 
 ```bash
-boxmot materialize --experiment EXPERIMENT
-boxmot eval --experiment EXPERIMENT --build BUILD_ID
+boxmot eval --experiment EXPERIMENT
 ```
 
 ## HTTP compatibility

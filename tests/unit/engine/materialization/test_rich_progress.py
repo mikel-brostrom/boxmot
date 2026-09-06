@@ -135,8 +135,9 @@ def test_rich_progress_preserves_resume_location_on_failure(monkeypatch, tmp_pat
     reporter.stop()
 
 
-def test_materialize_main_selects_rich_reporter_for_terminal(monkeypatch) -> None:
+def test_materialize_main_selects_rich_reporter_for_terminal(monkeypatch, tmp_path) -> None:
     events: list[object] = []
+    output = tmp_path / "build"
 
     class FakeProgress:
         def start(self) -> None:
@@ -151,14 +152,16 @@ def test_materialize_main_selects_rich_reporter_for_terminal(monkeypatch) -> Non
     progress = FakeProgress()
     monkeypatch.setattr(materialize_workflow, "get_console", lambda **_kwargs: SimpleNamespace(is_terminal=True))
     monkeypatch.setattr(materialize_workflow, "MaterializeWorkflowReporter", lambda _args: progress)
-    monkeypatch.setattr(
-        materialize_workflow,
-        "materialize",
-        lambda _args, *, progress: events.append(progress),
-    )
 
-    materialize_workflow.main(SimpleNamespace())
+    def materialize(_args, *, progress):
+        events.append(progress)
+        return output
 
+    monkeypatch.setattr(materialize_workflow, "materialize", materialize)
+
+    result = materialize_workflow.main(SimpleNamespace())
+
+    assert result == output
     assert events == ["start", progress, "stop"]
 
 

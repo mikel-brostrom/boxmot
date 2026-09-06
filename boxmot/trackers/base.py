@@ -40,6 +40,7 @@ class BaseTracker(
     supports_obb = False
     use_embeddings = False
     _requires_frame = False
+    _requires_frame_dimensions_only = False
     _requires_masks = False
     uses_frame_dimensions_for_association = True
 
@@ -183,6 +184,7 @@ class BaseTracker(
             embeddings=bool(self.use_embeddings),
             masks=bool(self._requires_masks),
             frame=bool(self._requires_frame),
+            frame_dimensions_only=bool(self._requires_frame_dimensions_only),
         )
 
     def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
@@ -232,10 +234,14 @@ class BaseTracker(
         dets = np.column_stack((geometry, scores, kernel_class_ids)).astype(np.float32, copy=False)
         embs = None if detections.embeddings is None else detections.embeddings.detach().numpy()
         masks = None if detections.masks is None else detections.masks.values.detach().numpy()
+        requirements = self.requirements
         img = None
         if frame is not None:
-            # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
-            img = frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
+            if requirements.frame_dimensions_only:
+                self._initialize_frame_dimensions(width=frame.width, height=frame.height)
+            else:
+                # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
+                img = frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
 
         self._initialize_frame_context(img)
         if self.per_class:
@@ -286,9 +292,7 @@ class BaseTracker(
             "detection indices",
         )
         if detection_indices.numel() and bool((detection_indices >= len(detections)).any()):
-            raise ValueError(
-                f"{self.__class__.__name__} kernel returned a detection index outside the current batch."
-            )
+            raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
 
         track_masks = None
         if output_masks is not None:
@@ -342,9 +346,7 @@ class BaseTracker(
         try:
             return self._kernel_to_canonical_class_id[kernel_id]
         except KeyError as exc:
-            raise ValueError(
-                f"{self.__class__.__name__} kernel returned unknown class code {kernel_id}."
-            ) from exc
+            raise ValueError(f"{self.__class__.__name__} kernel returned unknown class code {kernel_id}.") from exc
 
     def _validate_kernel_class_ids(self, kernel_ids: Iterable[int]) -> None:
         """Validate private class codes against the public class catalog."""

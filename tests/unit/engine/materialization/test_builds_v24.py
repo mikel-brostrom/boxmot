@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from boxmot.datasets import ArtifactRecord, DatasetManifest, PublishedContent, ShardRecord, StageProvenance
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
+    default_build_root,
     resolve_build_path,
     validate_build_compatibility,
 )
@@ -67,3 +70,16 @@ def test_build_id_resolves_only_below_explicit_root(tmp_path) -> None:
         resolve_build_path("a" * 64, build_root=tmp_path)
     with pytest.raises(FileNotFoundError, match="cannot contain path separators"):
         resolve_build_path("missing/build", build_root=tmp_path)
+
+
+def test_default_build_root_is_run_scoped_and_distinct_from_native_builds(monkeypatch) -> None:
+    monkeypatch.delenv("BOXMOT_BUILDS_DIR", raising=False)
+
+    assert default_build_root() == Path("runs/materializations")
+
+
+def test_build_root_environment_override_remains_authoritative(monkeypatch, tmp_path) -> None:
+    configured = tmp_path / "shared-materialized"
+    monkeypatch.setenv("BOXMOT_BUILDS_DIR", str(configured))
+
+    assert default_build_root() == configured

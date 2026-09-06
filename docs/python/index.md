@@ -121,7 +121,6 @@ encoder = create_reid_encoder(
         artifact_sha256=encoder_sha256,
         device="cuda:0",
         precision="fp16",
-        crop_strategy="aabb",
     )
 )
 ```
@@ -129,6 +128,11 @@ encoder = create_reid_encoder(
 Resolve real artifact paths and hashes before creating a materialization plan.
 Backend `options` are sorted tuples of key/value pairs so specs remain
 canonical-JSON serializable.
+
+The encoder derives each crop from the supplied detection geometry: AABBs use
+clipped axis-aligned crops and OBBs use the canonical rectified transform.
+Built-in ReID encoders ignore detection masks. A custom mask-dependent encoder
+can declare `EncoderRequirements(masks=True)` instead.
 
 ## Pipelines
 
@@ -162,7 +166,7 @@ and runtime-validation path. A `PipelineResult` has exactly two fields:
 from boxmot.datasets import CachedVisionDataset
 
 dataset = CachedVisionDataset(
-    "/cache/boxmot/builds/BUILD_ID",
+    "runs/materializations/BUILD_ID",
     split="ablation",
     load_images=False,
     load_masks=False,

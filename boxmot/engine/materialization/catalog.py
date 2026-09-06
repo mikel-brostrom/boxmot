@@ -8,16 +8,15 @@ import os
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, BinaryIO, Mapping
 
 import cv2
-from platformdirs import user_cache_path
 
 from boxmot.datasets.manifest import canonical_json_bytes, sha256_file
 from boxmot.datasets.readers.images import NUMPY_IMAGE_EXTENSIONS, probe_numpy_image_size
 from boxmot.engine.materialization.source import SourceSample
-from boxmot.engine.tracking.sources import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+from boxmot.engine.tracking.sources import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, is_appledouble_file
 
 STILL_FRAME_EXTENSIONS = IMAGE_EXTENSIONS | NUMPY_IMAGE_EXTENSIONS
 LOCAL_SOURCE_EXTENSIONS = STILL_FRAME_EXTENSIONS | VIDEO_EXTENSIONS
@@ -53,14 +52,11 @@ CatalogMetadataResolver = Callable[[Path, bool], CatalogFileMetadata]
 
 
 def default_data_root(explicit: str | Path | None = None) -> Path:
-    """Resolve raw data root using CLI, environment, then platform cache."""
+    """Resolve the tracking-dataset root using CLI or the local workspace."""
 
     if explicit is not None:
         return Path(explicit).expanduser().resolve()
-    configured = os.environ.get("BOXMOT_DATASETS_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (user_cache_path("boxmot") / "datasets").resolve()
+    return (Path("datasets") / "mot").resolve()
 
 
 def resolve_dataset_root(config: Mapping[str, Any], data_root: str | Path | None = None) -> Path:
@@ -68,9 +64,24 @@ def resolve_dataset_root(config: Mapping[str, Any], data_root: str | Path | None
 
     configured = str(config.get("root") or "")
     relative = PurePosixPath(configured)
-    if not configured or relative.is_absolute() or ".." in relative.parts:
+    windows_path = PureWindowsPath(configured)
+    if (
+        not configured
+        or "\\" in configured
+        or relative.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or bool(windows_path.root)
+        or ".." in relative.parts
+    ):
         raise ValueError("Dataset storage.root must be a safe path relative to the configured data root.")
-    return default_data_root(data_root).joinpath(*relative.parts).resolve()
+    base = default_data_root(data_root)
+    resolved = base.joinpath(*relative.parts).resolve()
+    try:
+        resolved.relative_to(base)
+    except ValueError as exc:
+        raise ValueError("Dataset storage.root must remain beneath the configured data root.") from exc
+    return resolved
 
 
 def _resolve_dataset_child(root: Path, value: Any, *, description: str) -> Path:
@@ -78,7 +89,16 @@ def _resolve_dataset_child(root: Path, value: Any, *, description: str) -> Path:
 
     configured = str(value or "")
     relative = PurePosixPath(configured)
-    if not configured or relative.is_absolute() or ".." in relative.parts:
+    windows_path = PureWindowsPath(configured)
+    if (
+        not configured
+        or "\\" in configured
+        or relative.is_absolute()
+        or windows_path.is_absolute()
+        or bool(windows_path.drive)
+        or bool(windows_path.root)
+        or ".." in relative.parts
+    ):
         raise ValueError(f"Dataset {description} paths must remain beneath storage.root.")
     resolved = root.joinpath(*relative.parts).resolve()
     try:
@@ -440,7 +460,11 @@ def catalog_local_source(
         raise ValueError(f"Unsupported finite local source type: {path.suffix or '<none>'}")
 
     source_root = path if path.is_dir() else path.parent
-    source_files = [path] if path.is_file() else sorted(item for item in path.rglob("*") if item.is_file())
+    source_files = (
+        [path]
+        if path.is_file()
+        else sorted(item for item in path.rglob("*") if item.is_file() and not is_appledouble_file(item))
+    )
     resolve_metadata = metadata_resolver or inspect_catalog_file
     source_records: dict[Path, dict[str, Any]] = {}
     file_metadata: dict[Path, CatalogFileMetadata] = {}
@@ -534,7 +558,7 @@ def catalog_mot_dataset(
     data_root: str | Path | None = None,
     metadata_resolver: CatalogMetadataResolver | None = None,
 ) -> SourceCatalog:
-    """Resolve a MOT-layout dataset split without consulting repository-local data.
+    """Resolve a MOT-layout dataset split beneath the selected tracking-data root.
 
     ``metadata_resolver`` is an explicit opt-in hook for consumers that can
     safely reuse file metadata. The default always reads and hashes every
@@ -551,7 +575,7 @@ def catalog_mot_dataset(
     split_root = resolve_dataset_split_root(config, split_name, data_root)
     if not split_root.is_dir():
         raise FileNotFoundError(
-            f"Dataset split does not exist: {split_root}. Set --data-root or BOXMOT_DATASETS_DIR explicitly."
+            f"Dataset split does not exist: {split_root}. Set --data-root explicitly to use another dataset root."
         )
     annotations_root = None
     if split_config.get("annotations") is not None:
@@ -563,13 +587,15 @@ def catalog_mot_dataset(
     sources: list[dict[str, Any]] = []
     ground_truth_sources: list[dict[str, Any]] = []
     resolve_metadata = metadata_resolver or inspect_catalog_file
-    sequence_roots = sorted(item for item in split_root.iterdir() if item.is_dir())
+    sequence_roots = sorted(item for item in split_root.iterdir() if item.is_dir() and not is_appledouble_file(item))
     for sequence_root in sequence_roots:
         image_root = sequence_root / "img1"
         if not image_root.is_dir():
             image_root = sequence_root
         image_paths = sorted(
-            item for item in image_root.iterdir() if item.is_file() and item.suffix.lower() in STILL_FRAME_EXTENSIONS
+            item
+            for item in image_root.iterdir()
+            if item.is_file() and not is_appledouble_file(item) and item.suffix.lower() in STILL_FRAME_EXTENSIONS
         )
         frame_rate = _sequence_rate(sequence_root)
         for frame_index, image_path in enumerate(image_paths):
@@ -599,7 +625,11 @@ def catalog_mot_dataset(
                 }
             )
         metadata_files = [sequence_root / "seqinfo.ini"]
-        metadata_files.extend(sorted((sequence_root / "gt").glob("*")) if (sequence_root / "gt").is_dir() else [])
+        metadata_files.extend(
+            sorted(path for path in (sequence_root / "gt").glob("*") if not is_appledouble_file(path))
+            if (sequence_root / "gt").is_dir()
+            else []
+        )
         if annotations_root is not None:
             annotation_path = annotations_root / f"{sequence_root.name}.txt"
             if not annotation_path.is_file():

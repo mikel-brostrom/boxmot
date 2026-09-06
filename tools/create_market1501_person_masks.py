@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--source",
         type=Path,
-        default=Path("Market-1501-v15.09.15"),
+        default=Path("datasets/reid/Market-1501-v15.09.15"),
         help="Market-1501 root or a parent containing the dataset directory.",
     )
     parser.add_argument(

@@ -81,6 +81,17 @@ def test_iter_cached_tracks_uses_one_sequence_state_and_filters_by_key() -> None
     assert tracker.resets == 1
 
 
+def test_replay_reuses_placeholder_image_storage_for_equal_frame_sizes() -> None:
+    placeholders: dict[tuple[int, int], torch.Tensor] = {}
+
+    first = replay_module._frame_for_sample(_sample("a-0", "a", 0), placeholders)
+    second = replay_module._frame_for_sample(_sample("a-1", "a", 1), placeholders)
+
+    assert first.image is second.image
+    assert tuple(first.image.shape) == (3, 10, 12)
+    assert list(placeholders) == [(10, 12)]
+
+
 def test_tracks_to_mot_rows_serializes_aabb_and_obb_without_positional_cache_state() -> None:
     aabb = Tracks(
         geometry=Boxes(torch.tensor([[1.0, 2.0, 5.0, 8.0]], dtype=torch.float32)),
@@ -187,6 +198,70 @@ def test_sequence_replay_task_constructs_isolated_tracker_per_sequence(tmp_path,
     ]
     assert emitted[0].detail == "loading cached inputs"
     assert emitted[4].detail == "loading cached inputs"
+
+
+def test_sequence_replay_uses_sample_dimensions_without_loading_image_pixels(tmp_path, monkeypatch) -> None:
+    received_frames = []
+
+    class _DimensionsTracker(_Tracker):
+        requirements = TrackerRequirements(frame=True, frame_dimensions_only=True)
+
+        def update(self, detections: Detections, frame=None) -> Tracks:
+            assert frame is not None
+            received_frames.append(frame)
+            count = len(detections)
+            return Tracks(
+                geometry=detections.geometry,
+                track_ids=torch.arange(10, 10 + count, dtype=torch.int64),
+                scores=detections.scores,
+                class_ids=detections.class_ids,
+                detection_indices=torch.arange(count, dtype=torch.int64),
+                sample_id=detections.sample_id,
+            )
+
+    class _SequenceDataset(list[DatasetSample]):
+        manifest = SimpleNamespace()
+
+    @contextmanager
+    def _owned_tracker(_spec):
+        yield _DimensionsTracker()
+
+    def _stream_sequence(
+        _cls,
+        _build,
+        *,
+        sequence_id,
+        split,
+        load_images,
+        load_masks,
+        load_embeddings,
+    ):
+        assert split == "validation"
+        assert load_images is False
+        assert load_masks is False
+        assert load_embeddings is False
+        return _SequenceDataset([_sample(f"{sequence_id}-{index}", sequence_id, index) for index in range(2)])
+
+    monkeypatch.setattr(replay_module, "_owned_tracker", _owned_tracker)
+    monkeypatch.setattr(replay_module.CachedVisionDataset, "_stream_sequence", classmethod(_stream_sequence))
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(replay_module, "_WORKER_PROGRESS_QUEUE", None)
+
+    result = replay_module._replay_sequence_task(
+        replay_module._SequenceReplayTask(
+            build=str(tmp_path / "build"),
+            tracker_spec=TrackerSpec(name="sfsort"),
+            split="validation",
+            sequence_id="a",
+            frame_total=2,
+            output_path=str(tmp_path / "a.txt"),
+            ordinal=0,
+        )
+    )
+
+    assert result.frames == 2
+    assert [frame.image_size for frame in received_frames] == [(10, 12), (10, 12)]
+    assert received_frames[0].image is received_frames[1].image
 
 
 def test_replay_worker_does_not_join_observational_progress_feeder(monkeypatch) -> None:
@@ -460,7 +535,7 @@ def test_replay_build_reuses_prevalidated_catalog_frame_counts(monkeypatch, tmp_
     assert result.frames == 4
 
 
-def test_replay_build_rejects_missing_images_for_frame_required_tracker_before_spawning(
+def test_replay_build_rejects_missing_images_for_pixel_required_tracker_before_spawning(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -495,6 +570,40 @@ def test_replay_build_rejects_missing_images_for_frame_required_tracker_before_s
             output_dir=tmp_path / "tracks",
             workers=2,
         )
+
+
+def test_replay_build_accepts_missing_image_references_for_dimensions_only_tracker(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    build = tmp_path / "build"
+    build.mkdir()
+    manifest = SimpleNamespace(
+        build_id="0" * 64,
+        publish=SimpleNamespace(image_references=False),
+    )
+
+    class _DimensionsTracker(_Tracker):
+        requirements = TrackerRequirements(frame=True, frame_dimensions_only=True)
+
+    @contextmanager
+    def _requirements_probe(_spec):
+        yield _DimensionsTracker()
+
+    monkeypatch.setattr(replay_module, "resolve_build_path", lambda *_args, **_kwargs: build)
+    monkeypatch.setattr(replay_module.DatasetManifest, "load", lambda _path: manifest)
+    monkeypatch.setattr(replay_module, "validate_build_compatibility", lambda *args, **kwargs: None)
+    monkeypatch.setattr(replay_module, "_owned_tracker", _requirements_probe)
+
+    result = replay_module.replay_build(
+        build,
+        TrackerSpec(name="sfsort"),
+        output_dir=tmp_path / "tracks",
+        sequence_frame_counts={},
+        workers=2,
+    )
+
+    assert result.frames == 0
 
 
 def test_run_eval_wires_sequence_processes_and_structured_progress(monkeypatch, tmp_path) -> None:

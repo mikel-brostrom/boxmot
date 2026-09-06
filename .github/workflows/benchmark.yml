@@ -226,7 +226,7 @@ jobs:
 
           BUILD_ROOT="$RUNNER_TEMP/boxmot-builds"
           boxmot materialize \
-            --experiment mot17-ablation-yolox-lmbn \
+            --experiment mot17/ablation-yolox-lmbn.yaml \
             --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
             --build-root "$BUILD_ROOT"
           BUILD_MANIFEST=$(find "$BUILD_ROOT" -mindepth 2 -maxdepth 2 -type f -name manifest.json -print -quit)
@@ -234,7 +234,7 @@ jobs:
           BUILD_PATH=$(dirname "$BUILD_MANIFEST")
 
           boxmot eval \
-            --experiment mot17-ablation-yolox-lmbn \
+            --experiment mot17/ablation-yolox-lmbn.yaml \
             --build "$BUILD_PATH" \
             --data-root "$BOXMOT_BENCHMARK_DATA_ROOT" \
             --tracker "$TRACKER" \

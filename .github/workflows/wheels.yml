@@ -109,7 +109,7 @@ jobs:
           forbidden = [
               name
               for name in names
-              if name.startswith(("boxmot/datasets/mot/", "boxmot/datasets/reid/"))
+              if name.startswith(("datasets/", "boxmot/datasets/mot/", "boxmot/datasets/reid/"))
               or "/.staging/" in name
               or "/builds/" in name
               or name.endswith((".npy", ".npz", ".parquet"))

@@ -122,7 +122,7 @@ def test_7m_v20_model_selection_resolves_promoted_training_contract(
     assert result.exit_code == 0, result.output
     args = captured["args"]
     assert args.model == "csl_tinyvit_7m_v20"
-    assert args.data_dir == "boxmot/datasets/reid/Market-1501-v15.09.15"
+    assert args.data_dir == "datasets/reid/Market-1501-v15.09.15"
     assert args.feat_dim == 384
     assert args.neck_dim == 384
     assert args.anatomical_token_dim == 96

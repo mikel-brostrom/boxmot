@@ -7,7 +7,7 @@ choice.
 
 ## Config families
 
-- `experiments/` selects a dataset split, detection source, optional ReID profile, and class map.
+- `experiments/` selects a dataset split, detector profile, optional ReID profile, and class map.
 - `datasets/` describes dataset facts and download locations.
 - `detectors/` describes detector models and named checkpoints.
 - `reid/` describes reusable runtime ReID models.
@@ -18,14 +18,14 @@ choice.
 Use an experiment for every materialization run:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID --tracker boosttrack
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker boosttrack
 ```
 
-The `--experiment` option accepts a unique experiment ID,
-a filename, or an explicit YAML path. Built-in IDs use kebab-case and catalog
-assets use repository-relative paths rather than workstation-specific absolute
-paths.
+The `--experiment` option accepts a catalog-relative YAML filename or an
+explicit YAML path. Use the catalog-relative form for built-in experiments;
+catalog assets use repository-relative paths rather than workstation-specific
+absolute paths.
 
 When perception choices should change, add a new experiment YAML that
 references the desired dataset, split, detector checkpoint, and optional ReID

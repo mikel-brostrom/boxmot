@@ -10,7 +10,7 @@ import torch
 
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
-from boxmot.trackers import Tracker, TrackerSpec, create_tracker
+from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
 from boxmot.trackers.box.deepocsort.track import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
 from boxmot.trackers.box.hybridsort.tracker import HybridSort
@@ -355,6 +355,43 @@ def test_sfsort_low_score_second_pass_keeps_identity(geometry: str) -> None:
     assert first.track_ids.item() == second.track_ids.item()
     assert len(tracker.active_tracks) == 1
     assert not tracker.lost_tracks
+
+
+@pytest.mark.parametrize(
+    ("options", "requirements"),
+    (
+        ({}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"central_timeout": 5, "marginal_timeout": 1}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"asso_func": "centroid"}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"frame_width": 128, "frame_height": 96}, TrackerRequirements()),
+        (
+            {"central_timeout": 5, "marginal_timeout": 1, "frame_width": 128, "frame_height": 96},
+            TrackerRequirements(),
+        ),
+        ({"asso_func": "centroid", "frame_width": 128, "frame_height": 96}, TrackerRequirements()),
+    ),
+)
+def test_sfsort_requires_only_frame_dimensions_unless_they_are_configured(
+    options: dict[str, object],
+    requirements: TrackerRequirements,
+) -> None:
+    tracker = SFSORT(**options)
+
+    assert tracker.requirements == requirements
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"frame_width": 128},
+        {"frame_height": 96},
+        {"frame_width": 0, "frame_height": 96},
+        {"frame_width": 128, "frame_height": -1},
+    ),
+)
+def test_sfsort_rejects_partial_or_nonpositive_frame_dimensions(options: dict[str, object]) -> None:
+    with pytest.raises(ValueError, match="frame_width|frame_height"):
+        SFSORT(**options)
 
 
 def test_sfsort_obb_angle_motion_is_damped() -> None:

@@ -147,83 +147,6 @@ def crop_obb(
     )
 
 
-def _order_obb_corners(corners: np.ndarray) -> np.ndarray:
-    """Order rectangle corners as top-left, top-right, bottom-right, bottom-left."""
-
-    values = np.asarray(corners, dtype=np.float32)
-    if values.shape != (4, 2) or not np.isfinite(values).all():
-        raise ValueError("OBB crop corners must be a finite [4,2] array.")
-    coordinate_sum = values.sum(axis=1)
-    coordinate_difference = np.diff(values, axis=1).reshape(-1)
-    indices = (
-        int(np.argmin(coordinate_sum)),
-        int(np.argmin(coordinate_difference)),
-        int(np.argmax(coordinate_sum)),
-        int(np.argmax(coordinate_difference)),
-    )
-    if len(set(indices)) == 4:
-        return values[np.asarray(indices)]
-
-    # Sum/difference ordering is the historical benchmark transform, but its
-    # extrema can select the same vertex at an exact diagonal angle. Fall back
-    # only for that degenerate case so ordinary crops remain bit-identical.
-    x_sorted = values[np.argsort(values[:, 0], kind="stable")]
-    left = x_sorted[:2][np.argsort(x_sorted[:2, 1], kind="stable")]
-    top_left, bottom_left = left
-    right = x_sorted[2:]
-    distances = np.linalg.norm(right - top_left, axis=1)
-    bottom_right, top_right = right[np.argsort(distances, kind="stable")[::-1]]
-    return np.asarray((top_left, top_right, bottom_right, bottom_left), dtype=np.float32)
-
-
-def crop_obb_perspective(
-    box: np.ndarray,
-    image: np.ndarray,
-    *,
-    max_output_side: int | None = None,
-) -> np.ndarray:
-    """Perspective-rectify an OBB using its authored width/height orientation."""
-
-    values = np.asarray(box, dtype=np.float32).reshape(-1)
-    if values.size < 5 or not np.isfinite(values[:5]).all():
-        raise ValueError("Expected an OBB with five finite values.")
-    cx, cy, width, height, angle = values[:5]
-    if width <= 0.0 or height <= 0.0:
-        raise ValueError("OBB crop width and height must be positive.")
-
-    width = max(float(width), 1.0)
-    height = max(float(height), 1.0)
-    scale = 1.0
-    if max_output_side is not None:
-        bounded_side = max(int(max_output_side), 1)
-        scale = min(1.0, bounded_side / max(width, height))
-    output_width = max(int(round(width * scale)), 1)
-    output_height = max(int(round(height * scale)), 1)
-
-    rectangle = ((float(cx), float(cy)), (width, height), float(np.degrees(angle)))
-    source = _order_obb_corners(cv2.boxPoints(rectangle))
-    destination_width = width * scale
-    destination_height = height * scale
-    destination = np.array(
-        (
-            (0.0, 0.0),
-            (destination_width - 1.0, 0.0),
-            (destination_width - 1.0, destination_height - 1.0),
-            (0.0, destination_height - 1.0),
-        ),
-        dtype=np.float32,
-    )
-    matrix = cv2.getPerspectiveTransform(source, destination)
-    return cv2.warpPerspective(
-        image,
-        matrix,
-        (output_width, output_height),
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-        borderValue=(0, 0, 0),
-    )
-
-
 def is_obb_box(box: np.ndarray) -> bool:
     """Return whether one row uses a supported OBB layout."""
     return np.asarray(box).reshape(-1).shape[0] in OBB_COLUMN_COUNTS
@@ -331,7 +254,6 @@ __all__ = (
     "coerce_boxes",
     "coerce_crops",
     "crop_obb",
-    "crop_obb_perspective",
     "extract_crops",
     "is_obb_box",
     "obb_to_xyxy",

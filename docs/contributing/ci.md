@@ -65,7 +65,7 @@ re-sync without the selected CPU/CUDA profile.
 
 - adding a new tracker
 - renaming tracker identifiers
-- changing experiment IDs used by benchmark jobs
+- changing experiment YAML filenames used by benchmark jobs
 - modifying default tracker sets used in benchmark tables or matrices
 - changing ReID, mask, OBB, or native-backend requirements
 

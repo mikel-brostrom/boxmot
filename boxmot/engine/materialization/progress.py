@@ -231,7 +231,10 @@ class MaterializationProgress:
 
         timing = self._timings.get(stage.name)
         elapsed = 0.0 if timing is None else max(self._clock() - timing.started_s, 0.0)
-        if timing is None or timing.total_shards is None:
+        cache_hit = stage.name == "detect" and outcome.metrics.get("cache") == "hit"
+        if cache_hit:
+            progress = f"{completed_shards} cached artifact shards"
+        elif timing is None or timing.total_shards is None:
             progress = f"{completed_shards} shards"
         else:
             completed = timing.total_shards if stage.name == "finalize" else completed_shards

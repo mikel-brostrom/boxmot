@@ -29,8 +29,8 @@ For repeatable evaluation, publish perception once and name the build on every
 downstream command:
 
 ```bash
-boxmot materialize --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --build BUILD_ID
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
 ## Where to go next
