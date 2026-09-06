@@ -56,3 +56,17 @@ def test_rtdetr_smoke_installs_its_declared_feature_extra() -> None:
 
     assert "--extra cpu --extra yolo --extra rtdetr" in script
     assert "boxmot track --detector rtdetr_v2_r18vd" in script
+
+
+def test_obb_smoke_selects_obb_geometry_explicitly() -> None:
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["obb"]
+    step = next(step for step in job["steps"] if step.get("name") == "Run obb tracking method")
+    track_args = next(
+        line.strip() for line in str(step["run"]).splitlines() if line.strip().startswith("track_args=(boxmot track ")
+    )
+
+    assert '--detector "$BOXMOT_CI_OBB_DETECTOR" --geometry obb' in track_args
+    assert "--name" not in track_args
+    assert "--exist-ok" not in track_args
+    assert job["env"]["EXPECTED_OBB_TRACKERS"].split() == job["env"]["TRACKERS"].split()
