@@ -12,7 +12,6 @@ on:
       - 'mkdocs.yml'
       - 'pyproject.toml'
       - 'README.md'
-      - 'scripts/gen_ref_pages.py'
       - 'tests/unit/docs/**'
       - 'uv.lock'
   pull_request:
@@ -26,7 +25,6 @@ on:
       - 'mkdocs.yml'
       - 'pyproject.toml'
       - 'README.md'
-      - 'scripts/gen_ref_pages.py'
       - 'tests/unit/docs/**'
       - 'uv.lock'
   workflow_dispatch:
@@ -63,8 +61,8 @@ jobs:
 
       - name: Validate documentation tooling
         run: |
-          .venv/bin/ruff check scripts/gen_ref_pages.py tests/unit/docs
-          .venv/bin/ruff format --check scripts/gen_ref_pages.py tests/unit/docs
+          .venv/bin/ruff check docs/gen_ref_pages.py tests/unit/docs
+          .venv/bin/ruff format --check docs/gen_ref_pages.py tests/unit/docs
           .venv/bin/pytest -q tests/unit/docs
 
       - name: Build docs

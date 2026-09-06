@@ -30,7 +30,7 @@ Start a strict live-reload server:
 
 Open <http://127.0.0.1:8000/> for the site or
 <http://127.0.0.1:8000/reference/> for the generated code reference. Changes
-under `docs`, `boxmot`, `README.md`, and `scripts/gen_ref_pages.py` trigger a
+under `docs`, `boxmot`, and `README.md` trigger a
 rebuild.
 
 ## Build the production site
@@ -38,8 +38,8 @@ rebuild.
 Create a clean, warning-as-error build before submitting documentation changes:
 
 ```bash
-.venv/bin/ruff check scripts/gen_ref_pages.py tests/unit/docs
-.venv/bin/ruff format --check scripts/gen_ref_pages.py tests/unit/docs
+.venv/bin/ruff check docs/gen_ref_pages.py tests/unit/docs
+.venv/bin/ruff format --check docs/gen_ref_pages.py tests/unit/docs
 .venv/bin/pytest -q tests/unit/docs
 .venv/bin/mkdocs build --strict
 ```
@@ -48,7 +48,7 @@ The static site is written to `site/`. Do not commit that directory.
 
 ## How the code reference is generated
 
-During every MkDocs build, `scripts/gen_ref_pages.py`:
+During every MkDocs build, `docs/gen_ref_pages.py`:
 
 1. Parses Python modules under `boxmot` with the standard-library AST without
    importing them.

@@ -62,7 +62,7 @@ plugins:
       resolve_closest: true
   - gen-files:
       scripts:
-        - scripts/gen_ref_pages.py
+        - docs/gen_ref_pages.py
   - literate-nav:
       nav_file: SUMMARY.md
   - section-index
@@ -95,10 +95,10 @@ plugins:
 watch:
   - README.md
   - boxmot
-  - scripts/gen_ref_pages.py
 
 exclude_docs: |
   AGENTS.md
+  gen_ref_pages.py
 
 validation:
   omitted_files: warn
