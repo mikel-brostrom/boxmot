@@ -8,8 +8,8 @@ import os
 import queue
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
@@ -177,20 +177,25 @@ def tracks_to_mot_rows(tracks: Tracks, frame_index: int) -> list[tuple[float | i
 
     frame_number = frame_index + 1
     rows: list[tuple[float | int, ...]] = []
+    track_ids = tracks.track_ids.tolist()
+    scores = tracks.scores.tolist()
+    class_ids = tracks.class_ids.tolist()
+    detection_indices = tracks.detection_indices.tolist()
     if isinstance(tracks.geometry, Boxes):
-        for index, box in enumerate(tracks.geometry.values):
-            x1, y1, x2, y2 = (float(value) for value in box)
+        for index, (x1, y1, x2, y2) in enumerate(tracks.geometry.values.tolist()):
+            # Subtract Python floats, as before, to retain double-precision
+            # widths/heights and byte-identical MOT formatting.
             rows.append(
                 (
                     frame_number,
-                    int(tracks.track_ids[index]),
+                    track_ids[index],
                     x1,
                     y1,
                     x2 - x1,
                     y2 - y1,
-                    float(tracks.scores[index]),
-                    int(tracks.class_ids[index]),
-                    int(tracks.detection_indices[index]),
+                    scores[index],
+                    class_ids[index],
+                    detection_indices[index],
                 )
             )
         return rows
@@ -198,15 +203,15 @@ def tracks_to_mot_rows(tracks: Tracks, frame_index: int) -> list[tuple[float | i
     if not isinstance(tracks.geometry, OrientedBoxes):
         raise TypeError(f"Unsupported track geometry {type(tracks.geometry).__name__}.")
     corners = _obb_corners(tracks.geometry.values).reshape(-1, 8)
-    for index, values in enumerate(corners):
+    for index, values in enumerate(corners.tolist()):
         rows.append(
             (
                 frame_number,
-                int(tracks.track_ids[index]),
-                *(float(value) for value in values),
-                float(tracks.scores[index]),
-                int(tracks.class_ids[index]),
-                int(tracks.detection_indices[index]),
+                track_ids[index],
+                *values,
+                scores[index],
+                class_ids[index],
+                detection_indices[index],
             )
         )
     return rows
@@ -319,6 +324,54 @@ def _owned_tracker(spec: TrackerSpec) -> Iterator[Tracker]:
                     add_note(f"Tracker cleanup also failed: {cleanup_error}")
 
 
+@contextmanager
+def _prefetch_samples(dataset: Iterable[DatasetSample]) -> Iterator[Iterator[DatasetSample]]:
+    """Overlap one cached sample read with tracking without sharing tracker state.
+
+    Only the producer thread advances the dataset iterator. At most one next
+    sample is outstanding, so decoded images and embeddings remain bounded to
+    the current frame and one prefetched frame. Wait for an active read before
+    closing its generator, including when tracking or serialization raises.
+    """
+
+    iterator = iter(dataset)
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="replay-input")
+    pending: concurrent.futures.Future[DatasetSample | None] | None = None
+    primary_error: BaseException | None = None
+
+    def samples() -> Iterator[DatasetSample]:
+        nonlocal pending
+        while pending is not None:
+            sample = pending.result()
+            if sample is None:
+                return
+            pending = executor.submit(next, iterator, None)
+            yield sample
+
+    prefetched = samples()
+    try:
+        pending = executor.submit(next, iterator, None)
+        yield prefetched
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        if pending is not None:
+            pending.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
+        prefetched.close()
+        close = getattr(iterator, "close", None)
+        if callable(close):
+            try:
+                close()
+            except BaseException as cleanup_error:
+                if primary_error is None:
+                    raise
+                add_note = getattr(primary_error, "add_note", None)
+                if callable(add_note):
+                    add_note(f"Cached input cleanup also failed: {cleanup_error}")
+
+
 def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
     """Replay exactly one sequence in a spawned process."""
 
@@ -382,8 +435,15 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                 ),
             )
             placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
-            with output_path.open("x", encoding="utf-8") as handle:
-                for sample in dataset:
+            # Prefetch overlaps pixel/payload decoding with tracking. Small
+            # detection-only samples are cheaper to consume on this thread.
+            sample_context = (
+                _prefetch_samples(dataset)
+                if requirements.frame_pixels or requirements.masks or requirements.embeddings
+                else nullcontext(iter(dataset))
+            )
+            with output_path.open("x", encoding="utf-8") as handle, sample_context as samples:
+                for sample in samples:
                     if sample.sequence_id != task.sequence_id:
                         raise RuntimeError(
                             f"Sequence-scoped loader returned {sample.sequence_id!r} for task {task.sequence_id!r}."

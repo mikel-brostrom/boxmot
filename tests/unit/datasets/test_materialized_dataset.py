@@ -11,7 +11,7 @@ import torch
 
 import boxmot.datasets as datasets
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
-from boxmot.datasets.cached import DatasetSample, _row_group_may_contain_sample
+from boxmot.datasets.cached import DatasetSample, _row_group_may_contain_key
 from boxmot.datasets.masks import MASK_CODEC, MaskCodecError, pack_mask, unpack_mask, unpack_mask_batch
 from boxmot.datasets.readers import attach_masks, read_detection_batches
 from boxmot.datasets.readers.images import ImageDecodeError, read_rgb_chw_uint8
@@ -483,22 +483,20 @@ def test_selected_artifact_row_group_pruning_is_conservative(tmp_path) -> None:
     )
     parquet = pq.ParquetFile(path)
 
-    assert not _row_group_may_contain_sample(parquet, 0, sample_ids=("m",))
-    assert _row_group_may_contain_sample(parquet, 1, sample_ids=("m",))
+    assert not _row_group_may_contain_key(parquet, 0, column_name="sample_id", keys=("m",))
+    assert _row_group_may_contain_key(parquet, 1, column_name="sample_id", keys=("m",))
 
 
 def test_sequence_worker_rejects_duplicate_instance_keys(materialized_build, monkeypatch) -> None:
-    import pyarrow as pa
+    original_read = CachedVisionDataset._read_sequence_rows
 
-    original_read = CachedVisionDataset._read
+    def duplicated_instances(self, name, **kwargs):
+        rows = original_read(self, name, **kwargs)
+        if name == INSTANCES_ARTIFACT and rows:
+            return [*rows, rows[0]]
+        return rows
 
-    def duplicated_instances(self, name, *, filters=None):
-        table = original_read(self, name, filters=filters)
-        if name == INSTANCES_ARTIFACT and table.num_rows:
-            return pa.concat_tables((table, table.slice(0, 1)))
-        return table
-
-    monkeypatch.setattr(CachedVisionDataset, "_read", duplicated_instances)
+    monkeypatch.setattr(CachedVisionDataset, "_read_sequence_rows", duplicated_instances)
 
     with pytest.raises(DatasetValidationError, match="duplicate sample/instance keys"):
         CachedVisionDataset._for_sequence(
