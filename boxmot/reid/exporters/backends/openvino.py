@@ -1,5 +1,5 @@
-from boxmot.reid.exporters.base_exporter import BaseExporter
-from boxmot.reid.exporters.onnx_exporter import ensure_onnx_export
+from boxmot.reid.exporters.backends.base import BaseExporter
+from boxmot.reid.exporters.backends.onnx import ensure_onnx_export
 from boxmot.utils import logger as LOGGER
 
 

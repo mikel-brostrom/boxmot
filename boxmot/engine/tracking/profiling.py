@@ -440,12 +440,14 @@ class ProfiledTracker:
         return getattr(self._component, "generates_embeddings", False)
 
     @overload
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks: ...
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray: ...
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
+    def update(
+        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+    ) -> Tracks | np.ndarray:
         if isinstance(detections, Detections):
             sample_id = detections.sample_id
         elif isinstance(frame, Frame):
@@ -454,7 +456,7 @@ class ProfiledTracker:
             sample_id = f"numpy:{self._numpy_sample_index:06d}"
         with self._profiler.component_call("tracker", (sample_id,)):
             result = self._component.update(detections, frame)
-        if type(detections) is np.ndarray and frame is None:
+        if type(detections) is np.ndarray and not isinstance(frame, Frame):
             self._numpy_sample_index += 1
         return result
 

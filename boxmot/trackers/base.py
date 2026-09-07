@@ -15,7 +15,12 @@ from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
-from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
+from boxmot.trackers.common.input import (
+    frame_image_size,
+    pack_numpy_track_rows,
+    parse_numpy_detection_rows,
+    prepare_frame,
+)
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.tracking import outputs as output_utils
 from boxmot.trackers.common.tracking.classes import ClassCatalog
@@ -212,17 +217,19 @@ class BaseTracker(
         )
 
     @overload
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks: ...
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray: ...
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
-        """Advance one sequence and preserve the input representation in the output."""
-        if frame is not None and not isinstance(frame, Frame):
-            raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
-        if frame is not None:
-            frame.validate()
+    def update(
+        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+    ) -> Tracks | np.ndarray:
+        """Advance one sequence with an optional Frame or uint8 HWC BGR image.
+
+        The detection representation determines the output representation.
+        """
+        frame = prepare_frame(frame)
 
         numpy_input = type(detections) is np.ndarray
         canonical_detections = detections if isinstance(detections, Detections) else None
@@ -230,7 +237,7 @@ class BaseTracker(
         if isinstance(detections, Detections):
             detections.validate()
             self._validate_geometry(detections.geometry)
-            if frame is not None and frame.sample_id != detections.sample_id:
+            if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
                 raise ValueError(
                     "Frame and detections must identify the same sample, "
                     f"got {frame.sample_id!r} and {detections.sample_id!r}."
@@ -283,9 +290,10 @@ class BaseTracker(
                 raise ValueError(f"{self.__class__.__name__} requires foreground in every non-empty detection mask.")
         if requirements.frame and frame is None:
             raise ValueError(f"{self.__class__.__name__} requires a frame.")
-        if mask_image_size is not None and frame is not None and mask_image_size != frame.image_size:
+        if mask_image_size is not None and frame is not None and mask_image_size != frame_image_size(frame):
             raise ValueError(
-                f"Detection masks must match the frame spatial size, got {mask_image_size} and {frame.image_size}."
+                "Detection masks must match the frame spatial size, "
+                f"got {mask_image_size} and {frame_image_size(frame)}."
             )
 
         self._mark_live_reid_updated()
@@ -310,7 +318,7 @@ class BaseTracker(
         scores: np.ndarray,
         class_ids: np.ndarray,
         sample_id: str | None,
-        frame: Frame | None,
+        frame: Frame | np.ndarray | None,
         embeddings: np.ndarray | None,
         masks: np.ndarray | None,
         mask_image_size: tuple[int, int] | None,
@@ -328,7 +336,8 @@ class BaseTracker(
         img = None
         if frame is not None:
             if requirements.frame_dimensions_only:
-                self._initialize_frame_dimensions(width=frame.width, height=frame.height)
+                height, width = frame_image_size(frame)
+                self._initialize_frame_dimensions(width=width, height=height)
             else:
                 # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
                 img = prepared_bgr if prepared_bgr is not None else self._frame_to_bgr(frame)
@@ -409,9 +418,9 @@ class BaseTracker(
             output_masks = np.asarray(output_masks)
             if output_masks.ndim != 3 or len(output_masks) != len(raw):
                 raise ValueError(f"{self.__class__.__name__} kernel masks must have shape [N, H, W] aligned to tracks.")
-            if frame is not None and tuple(output_masks.shape[1:]) != frame.image_size:
+            if frame is not None and tuple(output_masks.shape[1:]) != frame_image_size(frame):
                 raise ValueError(
-                    f"{self.__class__.__name__} kernel masks must match frame size {frame.image_size}, "
+                    f"{self.__class__.__name__} kernel masks must match frame size {frame_image_size(frame)}, "
                     f"got {tuple(output_masks.shape[1:])}."
                 )
             mask_values = torch.from_numpy(np.ascontiguousarray(output_masks, dtype=np.bool_))

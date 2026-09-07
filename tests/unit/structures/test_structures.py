@@ -126,6 +126,20 @@ def test_detections_enrichment_and_selection_preserve_all_row_alignment() -> Non
     assert selected.embeddings.is_contiguous()
 
 
+@pytest.mark.parametrize("nonfinite", [float("nan"), float("inf"), -float("inf")])
+@pytest.mark.parametrize("negative_view", [False, True])
+def test_embedding_validation_checks_autograd_storage_and_lazy_views(nonfinite: float, negative_view: bool) -> None:
+    """Validation must still inspect mutable tensor storage on every call."""
+    values = torch.ones((2, 4), dtype=torch.float32, requires_grad=True)
+    embeddings = torch._neg_view(values) if negative_view else values
+    detections = _aabb_detections(embeddings=embeddings)
+    assert detections.embeddings is embeddings
+    with torch.no_grad():
+        values[1, 3] = nonfinite
+    with pytest.raises(ValueError, match="finite"):
+        detections.validate()
+
+
 def test_detections_boolean_selection_and_empty_batches_retain_geometry_mode() -> None:
     detections = _aabb_detections()
 

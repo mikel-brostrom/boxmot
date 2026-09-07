@@ -38,9 +38,9 @@ boxmot research \
 
 For `--build`, an existing path is used directly. An ID is resolved only under
 `--build-root`, whose default is `./runs/materializations` unless
-`BOXMOT_BUILDS_DIR` is set. When experiment-backed eval omits `--build`, that
-same root receives or reuses its deterministic materialization. There is no
-latest-build lookup.
+`BOXMOT_BUILDS_DIR` is set. When eval omits `--build`, an experiment selected by
+filename or component shorthand receives or reuses the same deterministic
+materialization under that root. There is no latest-build lookup.
 
 ## Input contracts
 
@@ -48,7 +48,7 @@ latest-build lookup.
 | --- | --- |
 | `track` | source plus explicit components |
 | `materialize` | `--experiment` |
-| `eval` | `--experiment` (optional `--build`) or `--dataset` plus `--build` |
+| `eval` | `--experiment`, or `--dataset` plus `--detector` or `--build` |
 | `tune` | `--experiment` and `--build` |
 | `research` | `--experiment` and `--build` |
 
@@ -56,6 +56,11 @@ Materialization gets its dataset, split, geometry, components, and class map
 from the experiment. To change any of those values, select or create another
 experiment; the command line exposes only execution, publication, and location
 controls.
+
+Evaluation also accepts `--dataset`, `--detector`, and optional `--reid` as
+shorthand for a matching authored catalog experiment. Missing or ambiguous
+matches require an explicit `--experiment`. See [Evaluate](../modes/eval.md)
+for an example.
 
 Raw tracking datasets default to `./datasets/mot`; pass `--data-root` explicitly
 to use another location. Materialized-dataset roots resolve independently from

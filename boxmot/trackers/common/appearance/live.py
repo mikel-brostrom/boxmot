@@ -153,9 +153,11 @@ class LiveReIDMixin:
         self.last_emb_size = width
 
     @staticmethod
-    def _frame_to_bgr(frame: Frame) -> np.ndarray:
-        """Convert one canonical RGB frame to contiguous OpenCV BGR."""
+    def _frame_to_bgr(frame: Frame | np.ndarray) -> np.ndarray:
+        """Return OpenCV BGR pixels, converting canonical RGB frames as needed."""
 
+        if isinstance(frame, np.ndarray):
+            return frame
         return frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
 
     def _resolve_input_embeddings(
@@ -163,7 +165,7 @@ class LiveReIDMixin:
         *,
         geometry: np.ndarray,
         embeddings: np.ndarray | None,
-        frame: Frame | None,
+        frame: Frame | np.ndarray | None,
         detections: Detections | None = None,
         scores: np.ndarray | None = None,
         class_ids: np.ndarray | None = None,
@@ -185,6 +187,13 @@ class LiveReIDMixin:
         timing_device = self._reid_device
         if self._reid_encoder_spec is not None:
             timing_device = self._reid_encoder_spec.device
+            if isinstance(frame, np.ndarray):
+                # Component encoders require RGB CHW pixels and matching sample identity.
+                # Packed detections use an identity local to this single-frame call.
+                frame = Frame(
+                    image=torch.from_numpy(np.ascontiguousarray(frame.transpose(2, 0, 1)[::-1])),
+                    sample_id=detections.sample_id if detections is not None else "tracker:frame",
+                )
             encoder_detections = detections
             if encoder_detections is None:
                 geometry_values = torch.from_numpy(np.ascontiguousarray(geometry, dtype=np.float32))

@@ -189,7 +189,7 @@ def _onnx_is_current(
 ) -> bool:
     """Validate benchmark exports against source, code, dependencies, and settings."""
     from boxmot.reid.core.artifacts import export_content_fingerprint
-    from boxmot.reid.exporters.onnx_exporter import (
+    from boxmot.reid.exporters.backends.onnx import (
         _onnx_export_contract,
         _onnx_export_is_current,
     )
@@ -353,7 +353,7 @@ def _benchmark_pytorch(args: argparse.Namespace, device_name: str) -> dict[str, 
     import torch
 
     from boxmot.reid.core.runtime import ReID
-    from boxmot.reid.exporters.base_exporter import as_inference_export_model
+    from boxmot.reid.exporters.backends.base import as_inference_export_model
 
     if device_name == "mps" and not torch.backends.mps.is_available():
         raise RuntimeError("PyTorch MPS is not available")
@@ -785,7 +785,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.worker_timeout <= 0 or args.max_memory_gb <= 0:
         parser.error("worker-timeout and max-memory-gb must be positive")
 
-    from boxmot.reid.exporters.coreml_exporter import parse_coreml_buckets
+    from boxmot.reid.exporters.backends.coreml import parse_coreml_buckets
 
     try:
         buckets = parse_coreml_buckets(args.coreml_batch_buckets)

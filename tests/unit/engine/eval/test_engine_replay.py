@@ -117,6 +117,23 @@ def test_tracks_to_mot_rows_serializes_aabb_and_obb_without_positional_cache_sta
     assert row[-2:] == (1, -1)
 
 
+def test_mot_serialization_preserves_large_ids_and_python_float_subtraction() -> None:
+    """Bulk conversion must not round IDs or subtract geometry in float32."""
+    values = torch.tensor([[0.1, 0.3, 1.0, 2.0]], dtype=torch.float32)
+    tracks = Tracks(
+        geometry=Boxes(values),
+        track_ids=torch.tensor([2**60 + 7], dtype=torch.int64),
+        scores=torch.tensor([0.75], dtype=torch.float32),
+        class_ids=torch.tensor([2**60 + 1], dtype=torch.int64),
+        detection_indices=torch.tensor([-1], dtype=torch.int64),
+        sample_id="a",
+    )
+    x1, y1, x2, y2 = map(float, values[0])
+    assert tracks_to_mot_rows(tracks, 4) == [
+        (5, 2**60 + 7, x1, y1, x2 - x1, y2 - y1, 0.75, 2**60 + 1, -1)
+    ]
+
+
 def test_sequence_replay_task_constructs_isolated_tracker_per_sequence(tmp_path, monkeypatch) -> None:
     created_trackers: list[_Tracker] = []
     tracked_by_sequence: dict[str, list[_Tracker]] = {"a": [], "b": []}

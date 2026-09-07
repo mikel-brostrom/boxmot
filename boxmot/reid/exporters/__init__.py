@@ -1,1 +1,1 @@
-"""ReID model export implementations."""
+"""Shared ReID export infrastructure and format-specific backends."""

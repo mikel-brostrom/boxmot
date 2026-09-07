@@ -17,7 +17,7 @@ import torch
 from torch import nn
 
 from boxmot.reid.core.artifacts import source_artifact_metadata, write_artifact_metadata
-from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
+from boxmot.reid.exporters.backends.base import BaseExporter, as_inference_export_model
 from boxmot.reid.exporters.process import run_limited
 from boxmot.utils import logger as LOGGER
 
@@ -221,7 +221,7 @@ class CoreMLExporter(BaseExporter):
                         [
                             sys.executable,
                             "-m",
-                            "boxmot.reid.exporters.coreml_exporter",
+                            "boxmot.reid.exporters.backends.coreml",
                             "--worker",
                             "--program",
                             str(program_path),

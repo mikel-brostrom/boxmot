@@ -148,16 +148,19 @@ def _frame() -> Frame:
 
 @pytest.mark.parametrize("tracker_name", REID_TRACKER_NAMES)
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
 def test_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_frame(
     tracker_name: str,
     geometry: str,
+    frame_representation: str,
 ) -> None:
     expected_features = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
     model = _ReIDModelSpy(expected_features)
     tracker = _tracker(tracker_name, reid_model=model, is_obb=geometry == "obb")
     detections = _detections(geometry=geometry)
+    frame = _frame() if frame_representation == "canonical" else np.full((32, 48, 3), (33, 22, 11), dtype=np.uint8)
 
-    tracker.update(detections, _frame())
+    tracker.update(detections, frame)
 
     assert len(model.calls) == 1
     received_geometry, image = model.calls[0]
@@ -276,8 +279,10 @@ def test_reid_trackers_build_default_backend_lazily_with_shared_options(
 
 
 @pytest.mark.parametrize("tracker_name", REID_TRACKER_NAMES)
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
 def test_reid_trackers_lazily_build_their_configured_encoder_from_the_full_spec(
     tracker_name: str,
+    frame_representation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import boxmot.reid.factory as reid_factory
@@ -302,16 +307,31 @@ def test_reid_trackers_lazily_build_their_configured_encoder_from_the_full_spec(
     tracker = _tracker(tracker_name, reid_model=None)
     detections = _detections().with_masks(MaskBatch(torch.ones((2, 32, 48), dtype=torch.bool)))
     frame = _frame()
+    input_frame = frame if frame_representation == "canonical" else np.full((32, 48, 3), (33, 22, 11), dtype=np.uint8)
 
     tracker.configure_reid(spec)
     assert factory_calls == []
-    tracker.update(detections, frame)
+    tracker.update(detections, input_frame)
 
     assert factory_calls == [spec]
-    assert encoder.calls == [((frame,), (detections,))]
+    assert len(encoder.calls) == 1
+    encoded_frames, encoded_detections = encoder.calls[0]
+    assert encoded_detections == (detections,)
+    assert len(encoded_frames) == 1
+    encoded_frame = encoded_frames[0]
+    assert isinstance(encoded_frame, Frame)
+    encoded_frame.validate()
+    assert encoded_frame.sample_id == detections.sample_id
+    torch.testing.assert_close(encoded_frame.image, frame.image)
+    if frame_representation == "canonical":
+        assert encoded_frame is frame
+    else:
+        assert encoded_frame is not frame
 
 
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
 def test_configured_encoder_rebuilds_numpy_rows_as_canonical_detections(
+    frame_representation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import boxmot.reid.factory as reid_factory
@@ -325,13 +345,22 @@ def test_configured_encoder_rebuilds_numpy_rows_as_canonical_detections(
         dtype=np.float32,
     )
     frame = _frame()
+    input_frame = frame if frame_representation == "canonical" else np.full((32, 48, 3), (33, 22, 11), dtype=np.uint8)
 
-    tracker.update(rows, frame)
+    tracker.update(rows, input_frame)
 
     encoded_frames, encoded_detections = encoder.calls[0]
-    assert encoded_frames == (frame,)
+    assert len(encoded_frames) == 1
+    encoded_frame = encoded_frames[0]
+    assert isinstance(encoded_frame, Frame)
+    encoded_frame.validate()
+    torch.testing.assert_close(encoded_frame.image, frame.image)
+    if frame_representation == "canonical":
+        assert encoded_frame is frame
+    else:
+        assert encoded_frame is not frame
     canonical = encoded_detections[0]
-    assert canonical.sample_id == frame.sample_id
+    assert canonical.sample_id == encoded_frame.sample_id
     torch.testing.assert_close(canonical.geometry.values, torch.from_numpy(rows[:, :4]))
     torch.testing.assert_close(canonical.scores, torch.from_numpy(rows[:, 4]))
     torch.testing.assert_close(canonical.class_ids, torch.tensor([7, 9], dtype=torch.int64))

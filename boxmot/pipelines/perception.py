@@ -149,13 +149,6 @@ class PerceptionPipeline:
                 raise ValueError(f"Detector result {index} uses OBB geometry that its capabilities do not declare.")
             if check_capabilities and not detections.is_obb and not capabilities.supports_aabb:
                 raise ValueError(f"Detector result {index} uses AABB geometry that its capabilities do not declare.")
-            if detections.embeddings is not None:
-                _validate_embedding_tensor(
-                    detections.embeddings,
-                    rows=len(detections),
-                    width=None,
-                    source=f"Detector result {index}",
-                )
         return results
 
     def _attach_masks(

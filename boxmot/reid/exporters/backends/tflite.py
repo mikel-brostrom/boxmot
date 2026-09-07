@@ -5,7 +5,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from boxmot.reid.exporters.base_exporter import BaseExporter
+from boxmot.reid.exporters.backends.base import BaseExporter
 from boxmot.utils import logger as LOGGER
 
 

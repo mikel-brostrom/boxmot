@@ -24,6 +24,7 @@ from boxmot.engine.commands._support import (
     _run_engine_workflow,
 )
 from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
 from boxmot.trackers.registry import get_tracker_definition
 
 
@@ -31,7 +32,7 @@ def _require_eval_input(
     experiment: str | None,
     dataset: str | None,
 ) -> tuple[str | None, str | None]:
-    """Require exactly one experiment configuration or model-free dataset."""
+    """Require exactly one experiment or dataset selector."""
 
     if experiment and dataset:
         raise click.UsageError(
@@ -42,9 +43,51 @@ def _require_eval_input(
     return experiment, dataset
 
 
+def _validate_component_selection(
+    *,
+    experiment: str | None,
+    dataset: str | None,
+    detector: str | None,
+    reid: str | None,
+    build_ref: str | None,
+) -> None:
+    """Validate direct component selectors before materialization or replay."""
+
+    components = tuple(name for name, value in (("--detector", detector), ("--reid", reid)) if value)
+    if experiment and components:
+        names = " and ".join(components)
+        raise click.UsageError(
+            f"{names} cannot be combined with --experiment because experiment YAML fixes perception components."
+        )
+    if reid and not detector:
+        raise click.UsageError("--reid requires --detector when selecting evaluation components directly.")
+    if detector and not dataset:
+        raise click.UsageError("--detector requires --dataset when selecting evaluation components directly.")
+    if build_ref is None and dataset and not detector:
+        raise click.UsageError(
+            "eval with --dataset requires --detector for automatic materialization, or --build to replay an "
+            "existing materialized build."
+        )
+
+
 @click.command(name="eval", help="Evaluate tracking performance")
 @experiment_option
 @dataset_option(default=BOXMOT_DEFAULTS.eval.dataset)
+@click.option(
+    "--detector",
+    type=str,
+    default=None,
+    help=(
+        "Detector profile ID or YAML config used to resolve an authored experiment with --dataset; "
+        "append /CHECKPOINT to disambiguate."
+    ),
+)
+@click.option(
+    "--reid",
+    type=str,
+    default=None,
+    help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
+)
 @build_selection_options(required=False)
 @click.option(
     "--device",
@@ -83,6 +126,8 @@ def eval(
     ctx: click.Context,
     experiment: str | None,
     dataset: str | None,
+    detector: str | None,
+    reid: str | None,
     build_ref: str | None,
     build_root: Path | None,
     device: str,
@@ -93,17 +138,33 @@ def eval(
     compare_trackeval: bool,
     **kwargs: Any,
 ) -> None:
-    """Evaluate a tracker, materializing an experiment when no build is supplied."""
+    """Evaluate a tracker, materializing the selected configuration when needed."""
 
     experiment, dataset = _require_eval_input(experiment, dataset)
+    _validate_component_selection(
+        experiment=experiment,
+        dataset=dataset,
+        detector=detector,
+        reid=reid,
+        build_ref=build_ref,
+    )
+    if detector is not None:
+        try:
+            experiment = str(
+                resolve_matching_experiment_path(
+                    dataset=str(dataset),
+                    detector=detector,
+                    reid=reid,
+                    split=split,
+                    mode="eval",
+                )
+            )
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        dataset = None
     if build_ref is not None and _is_option_explicit(ctx, "device"):
         raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
     if build_ref is None:
-        if dataset is not None:
-            raise click.UsageError(
-                "eval with --dataset requires --build because a dataset does not select the detector and ReID "
-                "components needed for materialization. Use --experiment to materialize automatically."
-            )
         if allow_noncanonical_build:
             raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")
         tracker_capabilities = get_tracker_definition(str(kwargs["tracker"])).capabilities

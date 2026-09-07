@@ -25,7 +25,7 @@ from boxmot.reid.backbones.mobilenetv4 import (
     mobilenetv4_hybrid_medium_v20,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.exporters.base_exporter import as_inference_export_model
+from boxmot.reid.exporters.backends.base import as_inference_export_model
 from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.trainer import ReIDTrainer
 

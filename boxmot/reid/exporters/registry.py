@@ -25,12 +25,12 @@ class ExporterSpec:
 EXPORTER_SPECS = {
     spec.format_id: spec
     for spec in (
-        ExporterSpec("torchscript", "boxmot.reid.exporters.torchscript_exporter", "TorchScriptExporter"),
-        ExporterSpec("onnx", "boxmot.reid.exporters.onnx_exporter", "ONNXExporter"),
-        ExporterSpec("openvino", "boxmot.reid.exporters.openvino_exporter", "OpenVINOExporter"),
-        ExporterSpec("tensorrt", "boxmot.reid.exporters.tensorrt_exporter", "EngineExporter"),
-        ExporterSpec("coreml", "boxmot.reid.exporters.coreml_exporter", "CoreMLExporter"),
-        ExporterSpec("tflite", "boxmot.reid.exporters.tflite_exporter", "TFLiteExporter"),
+        ExporterSpec("torchscript", "boxmot.reid.exporters.backends.torchscript", "TorchScriptExporter"),
+        ExporterSpec("onnx", "boxmot.reid.exporters.backends.onnx", "ONNXExporter"),
+        ExporterSpec("openvino", "boxmot.reid.exporters.backends.openvino", "OpenVINOExporter"),
+        ExporterSpec("tensorrt", "boxmot.reid.exporters.backends.tensorrt", "EngineExporter"),
+        ExporterSpec("coreml", "boxmot.reid.exporters.backends.coreml", "CoreMLExporter"),
+        ExporterSpec("tflite", "boxmot.reid.exporters.backends.tflite", "TFLiteExporter"),
     )
 }
 

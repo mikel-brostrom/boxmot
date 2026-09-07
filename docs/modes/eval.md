@@ -1,13 +1,15 @@
 # Evaluate
 
 `eval` measures a tracker by streaming an immutable materialized build through
-the live tracker API. With `--experiment`, `--build` is optional: when omitted,
-BoxMOT first materializes (or reuses) a canonical build compatible with the
-selected tracker and then evaluates it. Detector, segmentor, and
-appearance-encoder inference happens only during that preparation step, never
-during replay. Automatic preparation publishes image references, embeddings
-for appearance-capable trackers, and masks when the selected tracker requires
-them. Motion-only trackers such as SFSORT skip the embedding stage entirely.
+the live tracker API. Select an authored experiment with `--experiment` or use
+dataset and component flags as shorthand for a matching catalog experiment.
+In either case, `--build` is optional: when omitted, BoxMOT first materializes
+(or reuses) a canonical build compatible with the selected tracker and then
+evaluates it. Detector, segmentor, and appearance-encoder inference happens only
+during that preparation step, never during replay. Automatic preparation
+publishes image references, embeddings for appearance-capable trackers, and
+masks when the selected tracker requires them. Motion-only trackers such as
+SFSORT skip the embedding stage entirely.
 
 Preparation caches detector output separately from ReID embeddings. If a
 compatible dataset, detector, geometry, and class mapping have already been
@@ -19,16 +21,39 @@ build in the former platform-cache location.
 Detector-native masks or embeddings are not represented by this geometry cache,
 so builds that require either output run their detector stage normally.
 
-Pass exactly one experiment or dataset selector. Experiment mode can prepare
-its own build:
+To select a catalog experiment through its components, provide `--dataset` and
+`--detector`, plus the split and ReID profile when applicable:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort
+```
+
+These flags resolve to the authored catalog experiment
+`mot17/ablation-yolox-lmbn.yaml`. Its detector checkpoint, class map, and other
+semantic settings remain authoritative. This is equivalent to:
 
 ```bash
 boxmot eval \
   --experiment mot17/ablation-yolox-lmbn.yaml \
-  --data-root datasets/mot \
-  --device mps \
-  --tracker boosttrack
+  --tracker botsort
 ```
+
+Both forms materialize or reuse the exact same build. If the selectors match
+no catalog experiment or more than one, evaluation reports an error. Matching
+uses the exact dataset, detector, and ReID profiles plus the selected split.
+The unique authored experiment supplies its detector checkpoint; append
+`/CHECKPOINT` to `--detector` when the profile otherwise matches more than one
+experiment. Omitting `--reid` selects only experiments without a ReID profile.
+Use `--experiment` to select the intended configuration explicitly, or author
+an experiment YAML for a combination absent from the catalog.
+
+Pass exactly one of `--experiment` or `--dataset`. Direct component selectors
+cannot be combined with `--experiment`.
 
 `--device` selects the detector, segmentor, and ReID execution device for this
 automatic preparation. It is rejected with an explicit `--build`, where no
@@ -36,11 +61,11 @@ perception model runs.
 
 After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest
-directory, or risk replaying another experiment's build.
+directory, or risk replaying another configuration's build.
 
-Pass `--build` to reuse a specific build. Dataset-only mode always requires it
-because a dataset config does not select the detector and ReID components
-needed for materialization:
+Pass `--build` to reuse a specific build. Dataset-only evaluation requires
+`--build` when no detector is selected, because the dataset config alone does
+not select the perception components needed for materialization:
 
 ```bash
 boxmot eval \
@@ -50,10 +75,11 @@ boxmot eval \
   --tracker bytetrack
 ```
 
-An experiment additionally fixes semantic component fingerprints. Dataset mode
-uses the selected dataset adapter for ground truth. Before tracking, evaluation
-verifies the build's source catalog digest, split, class taxonomy, geometry,
-published requirements, and—when applicable—component fingerprints.
+An experiment selected by filename or component shorthand additionally fixes
+semantic component fingerprints. Dataset mode uses the selected dataset
+adapter for ground truth. Before tracking, evaluation verifies the build's
+source catalog digest, split, class taxonomy, geometry, published requirements,
+and—when applicable—component fingerprints.
 
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
@@ -115,14 +141,15 @@ the initial worker-loading phase.
 
 ## Build resolution
 
-- When `--build` is omitted with `--experiment`, BoxMOT materializes the
+- When `--build` is omitted with `--experiment` or `--dataset` plus
+  `--detector`, BoxMOT resolves the authored experiment and materializes its
   deterministic build below `--build-root`; an identical complete build is
   validated and reused.
 - An existing `--build` path is used directly.
 - A build ID is looked up only below `--build-root`.
 - `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then
   `./runs/materializations`.
-- Dataset-only evaluation requires `--build`.
+- Dataset-only evaluation requires `--build` when no detector is selected.
 - There is no latest-build selection.
 
 The selected raw data root is used to verify ground-truth provenance. It

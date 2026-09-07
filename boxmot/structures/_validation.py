@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Final
 
+import numpy as np
 import torch
 
 _CPU: Final = "cpu"
@@ -30,8 +31,11 @@ def validate_tensor(
 
 
 def validate_finite(value: torch.Tensor, *, name: str) -> None:
-    """Reject NaN and infinite floating-point values."""
-    if value.numel() and not bool(torch.isfinite(value).all()):
+    """Reject non-finite values in an already validated canonical CPU tensor."""
+    # NumPy scans the shared CPU storage without launching Torch's parallel
+    # elementwise kernels for every small detection/embedding batch. force=True
+    # also accepts autograd tensors and resolves lazy negative/conjugate views.
+    if value.numel() and not np.isfinite(value.numpy(force=True)).all():
         raise ValueError(f"{name} must contain only finite values.")
 
 

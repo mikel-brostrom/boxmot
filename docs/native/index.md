@@ -37,7 +37,10 @@ Canonical inputs and outputs remain CPU-contiguous Torch structures at the
 Python boundary. For simple box-only calls, the high-level native tracker also
 accepts the same exact NumPy AABB6 or OBB7 matrix as the Python backend and
 returns packed `float64` AABB8 or OBB9 rows. Use `Detections` when returning
-`Tracks` or providing enrichments and sample metadata.
+`Tracks` or providing enrichments and sample metadata. The optional `frame`
+accepts either a canonical `Frame` with an RGB CHW tensor or a `uint8` NumPy
+image with shape `(height, width, 3)` in BGR order. Strided NumPy images are
+made contiguous when needed.
 
 The low-level ctypes modules under `boxmot/native/trackers/` accept only typed,
 contiguous NumPy buffers. Canonical conversion, requirements, configuration,
@@ -68,13 +71,13 @@ implementation. Configure tracker-owned ReID separately with
 
 The high-level BotSort and OccluBoost native adapters consume embeddings already
 present on `Detections.embeddings` or lazily derive missing embeddings from a
-supplied `Frame`. In either case, their C++ tracker libraries receive only typed
-feature buffers and never load, export, download, or run a ReID model. Reusable
-native ReID inference remains a separate appearance-encoder concern and is not
-linked into tracker libraries. Its component-facing adapter lives with the ReID
-backends; `boxmot.native` contains only the C++ sources, build/load support, and
-low-level typed bindings. Native ReID accepts a resolved ONNX artifact and never
-performs an implicit download or conversion.
+supplied `Frame` or NumPy image. In either case, their C++ tracker libraries
+receive only typed feature buffers and never load, export, download, or run a
+ReID model. Reusable native ReID inference remains a separate appearance-encoder
+concern and is not linked into tracker libraries. Its component-facing adapter
+lives with the ReID backends; `boxmot.native` contains only the C++ sources,
+build/load support, and low-level typed bindings. Native ReID accepts a resolved
+ONNX artifact and never performs an implicit download or conversion.
 
 All trackers support `iou`, `giou`, `diou`, `ciou`, `hmiou`, and `centroid`
 association for AABB and OBB geometry. OBB inputs use `(cx, cy, w, h, angle)`

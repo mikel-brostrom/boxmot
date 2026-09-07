@@ -25,7 +25,9 @@ from .schema import (
     SCHEMA_ID,
     SUCCESS_FILENAME,
     embeddings_schema,
+    instances_schema,
     masks_schema,
+    samples_schema,
 )
 from .storage import artifact_files, read_parquet_artifact, resolve_artifact_path
 from .validation import DatasetValidationError, validate_dataset
@@ -34,13 +36,14 @@ _SELECTED_ARTIFACT_BATCH_ROWS = 128
 _SELECTED_KEY_BATCH_ROWS = 65_536
 
 
-def _row_group_may_contain_sample(
+def _row_group_may_contain_key(
     parquet: Any,
     row_group: int,
     *,
-    sample_ids: tuple[str, ...],
+    column_name: str,
+    keys: tuple[str, ...],
 ) -> bool:
-    """Conservatively test a row group's sample-ID statistics.
+    """Conservatively test a row group's string-key statistics.
 
     Missing or undecodable statistics retain the row group. Canonical finalized
     artifacts are globally sorted, so useful min/max statistics let workers
@@ -48,7 +51,7 @@ def _row_group_may_contain_sample(
     """
 
     try:
-        column_index = parquet.schema.names.index("sample_id")
+        column_index = parquet.schema.names.index(column_name)
         statistics = parquet.metadata.row_group(row_group).column(column_index).statistics
         minimum = statistics.min
         maximum = statistics.max
@@ -60,8 +63,8 @@ def _row_group_may_contain_sample(
             return True
     except (AttributeError, UnicodeDecodeError, ValueError):
         return True
-    candidate = bisect_left(sample_ids, minimum)
-    return candidate < len(sample_ids) and sample_ids[candidate] <= maximum
+    candidate = bisect_left(keys, minimum)
+    return candidate < len(keys) and keys[candidate] <= maximum
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,16 +235,33 @@ class CachedVisionDataset(Sequence[DatasetSample]):
             sample_filters.append(("split", "=", split))
         if sequence_ids is not None:
             sample_filters.append(("sequence_id", "in", sorted(sequence_ids)))
-        samples = self._read(SAMPLES_ARTIFACT, filters=sample_filters or None).to_pylist()
+        samples = (
+            self._read(SAMPLES_ARTIFACT, filters=sample_filters or None).to_pylist()
+            if sequence_ids is None
+            else self._read_sequence_rows(
+                SAMPLES_ARTIFACT,
+                column_name="sequence_id",
+                keys=sequence_ids,
+                split=split,
+            )
+        )
         samples.sort(key=lambda row: (row["split"], row["sequence_id"], row["frame_index"], row["sample_id"]))
         self._samples = samples
 
         selected_ids = {row["sample_id"] for row in samples}
         instances_by_sample: dict[str, list[dict[str, Any]]] = defaultdict(list)
         instance_filters = [("sample_id", "in", sorted(selected_ids))] if selected_ids else None
-        instance_rows = (
-            self._read(INSTANCES_ARTIFACT, filters=instance_filters).to_pylist() if selected_ids else []
-        )
+        instance_rows = []
+        if selected_ids:
+            instance_rows = (
+                self._read(INSTANCES_ARTIFACT, filters=instance_filters).to_pylist()
+                if sequence_ids is None
+                else self._read_sequence_rows(
+                    INSTANCES_ARTIFACT,
+                    column_name="sample_id",
+                    keys=selected_ids,
+                )
+            )
         instance_keys: set[tuple[str, str]] = set()
         for row in instance_rows:
             key = (row["sample_id"], row["instance_id"])
@@ -320,6 +340,61 @@ class CachedVisionDataset(Sequence[DatasetSample]):
             filters=filters,
         )
 
+    def _read_sequence_rows(
+        self,
+        name: str,
+        *,
+        column_name: str,
+        keys: set[str] | frozenset[str],
+        split: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Read small sequence metadata without initializing Arrow's dataset scanner.
+
+        Direct Parquet reads avoid the dataset and pandas imports triggered by
+        generic filter expressions in each spawned replay worker. Statistics
+        only prune impossible row groups; exact Python key and split checks
+        preserve selection even for unsorted or unindexed publication shards.
+        """
+
+        import pyarrow.parquet as pq
+
+        expected_schema = samples_schema() if name == SAMPLES_ARTIFACT else instances_schema(self.manifest.box_type)
+        artifact = self.manifest.artifact(name)
+        path = resolve_artifact_path(self.build, artifact.path)
+        sorted_keys = tuple(sorted(keys))
+        rows: list[dict[str, Any]] = []
+        for shard in artifact_files(path):
+            with pq.ParquetFile(shard, pre_buffer=False) as parquet:
+                actual_schema = parquet.schema_arrow
+                if not actual_schema.equals(expected_schema, check_metadata=False):
+                    raise ValueError(
+                        f"Parquet schema mismatch for {name!r}: expected {expected_schema}, got {actual_schema}. "
+                        "Legacy or positional caches are not supported."
+                    )
+                row_groups = [
+                    index
+                    for index in range(parquet.num_row_groups)
+                    if _row_group_may_contain_key(
+                        parquet,
+                        index,
+                        column_name=column_name,
+                        keys=sorted_keys,
+                    )
+                ]
+                if not row_groups:
+                    continue
+                for batch in parquet.iter_batches(
+                    batch_size=_SELECTED_KEY_BATCH_ROWS,
+                    row_groups=row_groups,
+                    use_threads=False,
+                ):
+                    rows.extend(
+                        row
+                        for row in batch.to_pylist()
+                        if row[column_name] in keys and (split is None or row["split"] == split)
+                    )
+        return rows
+
     def _iter_selected_batches(
         self,
         name: str,
@@ -350,10 +425,11 @@ class CachedVisionDataset(Sequence[DatasetSample]):
             row_groups = [
                 index
                 for index in range(parquet.num_row_groups)
-                if _row_group_may_contain_sample(
+                if _row_group_may_contain_key(
                     parquet,
                     index,
-                    sample_ids=sorted_sample_ids,
+                    column_name="sample_id",
+                    keys=sorted_sample_ids,
                 )
             ]
             if not row_groups:
