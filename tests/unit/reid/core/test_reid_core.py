@@ -233,9 +233,9 @@ def test_reid_exporter_registry_import_keeps_implementations_lazy():
     assert _run_import_probe(
         "import sys; "
         "import boxmot.reid.exporters.registry; "
-        "print('boxmot.reid.exporters.onnx_exporter' in sys.modules); "
-        "print('boxmot.reid.exporters.coreml_exporter' in sys.modules); "
-        "print('boxmot.reid.exporters.tflite_exporter' in sys.modules)"
+        "print('boxmot.reid.exporters.backends.onnx' in sys.modules); "
+        "print('boxmot.reid.exporters.backends.coreml' in sys.modules); "
+        "print('boxmot.reid.exporters.backends.tflite' in sys.modules)"
     ) == ["False", "False", "False"]
 
 

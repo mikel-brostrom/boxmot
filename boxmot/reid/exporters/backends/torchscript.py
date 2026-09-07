@@ -1,6 +1,6 @@
 import torch
 
-from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
+from boxmot.reid.exporters.backends.base import BaseExporter, as_inference_export_model
 
 
 class TorchScriptExporter(BaseExporter):

@@ -4,9 +4,9 @@ from types import SimpleNamespace
 import pytest
 
 import boxmot.reid.backends.tensorrt_backend as tensorrt_backend_module
-import boxmot.reid.exporters.tensorrt_exporter as tensorrt_exporter_module
+import boxmot.reid.exporters.backends.tensorrt as tensorrt_exporter_module
 from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
-from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
+from boxmot.reid.exporters.backends.tensorrt import EngineExporter
 
 
 def _force_tensorrt_import_error(monkeypatch):

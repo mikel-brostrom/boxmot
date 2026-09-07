@@ -14,7 +14,7 @@ from boxmot.reid.core.artifacts import (
     source_artifact_metadata,
     write_artifact_metadata,
 )
-from boxmot.reid.exporters.base_exporter import BaseExporter, as_inference_export_model
+from boxmot.reid.exporters.backends.base import BaseExporter, as_inference_export_model
 from boxmot.utils import logger as LOGGER
 
 

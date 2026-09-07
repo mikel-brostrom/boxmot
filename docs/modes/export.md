@@ -73,7 +73,8 @@ limits to prevent runaway Apple graph compilation.
 
     === "Python"
 
-        Reusable exporter implementations live in `boxmot.reid.exporters`.
+        Reusable exporter implementations live in `boxmot.reid.exporters.backends`.
+        Shared configuration, registry, and model preparation live in `boxmot.reid.exporters`.
         CLI parsing, output naming, and workflow orchestration remain engine
         concerns and are intentionally absent from the package root.
 

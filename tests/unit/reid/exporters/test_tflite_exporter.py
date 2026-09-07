@@ -7,12 +7,12 @@ import pytest
 import torch
 
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.reid.exporters.backends.onnx import ONNXExporter
+from boxmot.reid.exporters.backends.openvino import OpenVINOExporter
+from boxmot.reid.exporters.backends.tensorrt import EngineExporter
+from boxmot.reid.exporters.backends.tflite import TFLiteExporter
 from boxmot.reid.exporters.config import resolve_export_weights
 from boxmot.reid.exporters.model_setup import prepare_export_model
-from boxmot.reid.exporters.onnx_exporter import ONNXExporter
-from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
-from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
-from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
 from boxmot.reid.exporters.workflow import (
     ExportTask,
     _run_tflite_for_parity,

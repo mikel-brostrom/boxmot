@@ -21,7 +21,7 @@ from boxmot.reid.exporters.registry import get_exporter_class
 from boxmot.utils import WEIGHTS
 
 if TYPE_CHECKING:
-    from boxmot.reid.exporters.base_exporter import BaseExporter
+    from boxmot.reid.exporters.backends.base import BaseExporter
 
 @dataclass(frozen=True)
 class ExportTask:

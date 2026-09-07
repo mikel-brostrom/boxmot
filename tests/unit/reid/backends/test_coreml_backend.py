@@ -6,7 +6,7 @@ import torch
 from torch import nn
 
 from boxmot.reid.backends.coreml_backend import CoreMLBackend
-from boxmot.reid.exporters.coreml_exporter import (
+from boxmot.reid.exporters.backends.coreml import (
     parse_coreml_buckets,
     prepare_coreml_export_model,
 )
