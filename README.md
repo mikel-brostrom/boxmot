@@ -252,28 +252,24 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
   --tracker occluboost
 ```
 
-Python:
-
-When detections do not include embeddings, `OccluBoost` generates them from
-the frame. The other ReID-enabled trackers, including native C++ tracker
-adapters, support the same high-level fallback. A NumPy detection array returns
-a NumPy track array; the input may use any real numeric dtype.
+Use NumPy detections and BGR images directly:
 
 ```python
 import numpy as np
-import torch
 
 from boxmot import OccluBoost
-from boxmot.structures import Frame
 
 tracker = OccluBoost()
 dets = np.array([[100, 200, 300, 400, 0.9, 0]])
-frame = Frame(
-    image=torch.zeros((3, 480, 640), dtype=torch.uint8),
-    sample_id="camera-1:000001",
-)
+frame = np.zeros((480, 640, 3), dtype=np.uint8)  # BGR image
 tracks = tracker.update(dets, frame)
 print(tracks[:, 4].astype(int))  # track IDs
+
+# OBB: (cx, cy, w, h, angle in radians, confidence, class_id)
+# tracker = OccluBoost(is_obb=True)
+# dets = np.array([[200, 300, 200, 100, np.pi / 6, 0.9, 0]])
+# tracks = tracker.update(dets, frame)
+# print(tracks[:, 5].astype(int))  # track IDs
 ```
 
 ## Contributing

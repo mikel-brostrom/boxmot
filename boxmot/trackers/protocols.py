@@ -57,17 +57,19 @@ class Tracker(Protocol):
         ...
 
     @overload
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks:
         """Advance one frame and return canonical tracks."""
         ...
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray:
+    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray:
         """Advance one frame and return packed NumPy track rows."""
         ...
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
-        """Advance one frame and preserve the input representation."""
+    def update(
+        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+    ) -> Tracks | np.ndarray:
+        """Advance with a Frame or uint8 HWC BGR image; preserve the detection representation."""
         ...
 
     def reset(self) -> None:

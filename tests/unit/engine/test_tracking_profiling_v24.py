@@ -225,14 +225,17 @@ class _TrackerWithoutEmbeddings(_Tracker):
     requirements = TrackerRequirements()
 
 
-def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity() -> None:
+@pytest.mark.parametrize("with_numpy_frame", (False, True), ids=("without-image", "numpy-image"))
+def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity(
+    with_numpy_frame: bool,
+) -> None:
     class NumPyTracker:
         name = "numpy-fixture"
         supports_obb = False
         requirements = TrackerRequirements()
 
         def __init__(self) -> None:
-            self.calls: list[tuple[np.ndarray, Frame | None]] = []
+            self.calls: list[tuple[np.ndarray, Frame | np.ndarray | None]] = []
             self.reset_calls = 0
             self.output = np.empty((0, 8), dtype=np.float64)
 
@@ -249,17 +252,19 @@ def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity
     tracker = ProfiledTracker(component, profiler)
     rows = np.array([[1, 1, 6, 9, 0.8, 0]], dtype=np.float32)
     frame = _frame("camera-1:000042")
+    image = np.zeros((12, 10, 3), dtype=np.uint8) if with_numpy_frame else None
 
-    first = tracker.update(rows)
+    first = tracker.update(rows, image)
     framed = tracker.update(rows, frame)
-    tracker.update(rows)
+    tracker.update(rows, image)
     tracker.reset()
-    tracker.update(rows)
+    tracker.update(rows, image)
 
     assert first is component.output
     assert framed is component.output
-    assert component.calls[0][0] is rows
-    assert component.calls[0][1] is None
+    for call_index in (0, 2, 3):
+        assert component.calls[call_index][0] is rows
+        assert component.calls[call_index][1] is image
     assert component.calls[1][0] is rows
     assert component.calls[1][1] is frame
     assert component.reset_calls == 1

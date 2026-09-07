@@ -353,16 +353,57 @@ def test_numpy_input_cannot_bypass_declared_requirements(
         tracker.update(rows, frame)
 
 
-def test_numpy_input_still_requires_a_canonical_frame() -> None:
+@pytest.mark.parametrize("strided", (False, True))
+def test_numpy_image_preserves_bgr_pixels_and_normalizes_strides(strided: bool) -> None:
+    tracker = _RecordingTracker(needs_frame=True)
+    image = np.full((64, 64, 3), (30, 20, 10), dtype=np.uint8)
+    image[0, 0] = (3, 2, 1)
+    if strided:
+        image = image[::-1, ::-1]
+        assert not image.flags.c_contiguous
+    original = image.copy()
+    rows = np.array([[10, 12, 30, 44, 0.9, 2]], dtype=np.float32)
+
+    result = tracker.update(rows, image)
+
+    assert type(result) is np.ndarray
+    assert result.shape == (1, 8)
+    assert tracker.seen["img"].flags.c_contiguous
+    assert tracker.seen["img"].dtype == np.uint8
+    np.testing.assert_array_equal(tracker.seen["img"], original)
+    np.testing.assert_array_equal(image, original)
+
+
+@pytest.mark.parametrize(
+    ("image", "error", "message"),
+    (
+        (np.zeros((64, 64, 3), dtype=np.float32), TypeError, "uint8"),
+        (np.zeros((64, 64), dtype=np.uint8), ValueError, "shape"),
+        (np.zeros((3, 64, 64), dtype=np.uint8), ValueError, "shape"),
+        (np.zeros((64, 64, 4), dtype=np.uint8), ValueError, "shape"),
+        (np.zeros((0, 64, 3), dtype=np.uint8), ValueError, "positive"),
+        (np.zeros((64, 0, 3), dtype=np.uint8), ValueError, "positive"),
+    ),
+)
+def test_numpy_image_validation_precedes_kernel_update(
+    image: np.ndarray,
+    error: type[Exception],
+    message: str,
+) -> None:
     tracker = _RecordingTracker()
-    with pytest.raises(TypeError, match="frame must be Frame or None"):
-        tracker.update(np.empty((0, 6), dtype=np.float32), np.zeros((64, 64, 3), dtype=np.uint8))
+
+    with pytest.raises(error, match=message):
+        tracker.update(np.empty((0, 6), dtype=np.float32), image)
+
+    assert tracker.seen == {}
 
 
-def test_private_adapter_converts_rgb_chw_and_wraps_tracks_and_masks() -> None:
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
+def test_private_adapter_preserves_frame_colors_and_wraps_tracks_and_masks(frame_representation: str) -> None:
     tracker = _RecordingTracker(needs_embeddings=True, needs_masks=True, needs_frame=True)
     detections = _detections()
-    result = tracker.update(detections, _frame())
+    frame = _frame() if frame_representation == "canonical" else np.full((64, 64, 3), (30, 20, 10), dtype=np.uint8)
+    result = tracker.update(detections, frame)
 
     assert isinstance(result, Tracks)
     assert result.sample_id == detections.sample_id
@@ -379,15 +420,18 @@ def test_private_adapter_converts_rgb_chw_and_wraps_tracks_and_masks() -> None:
     assert tracker.seen["img"][0, 0].tolist() == [30, 20, 10]
 
 
-def test_private_adapter_initializes_dimensions_without_copying_frame_pixels() -> None:
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
+def test_private_adapter_initializes_dimensions_without_copying_frame_pixels(frame_representation: str) -> None:
     tracker = _RecordingTracker(needs_frame=True, frame_dimensions_only=True)
-    frame = _frame()
+    frame = (
+        _frame(height=48, width=80) if frame_representation == "canonical" else np.zeros((48, 80, 3), dtype=np.uint8)
+    )
 
-    tracker.update(_detections(), frame)
+    tracker.update(_detections(height=48, width=80), frame)
 
     assert tracker.requirements == TrackerRequirements(frame=True, frame_dimensions_only=True)
     assert tracker.seen["img"] is None
-    assert (tracker.w, tracker.h) == (frame.width, frame.height)
+    assert (tracker.w, tracker.h) == (80, 48)
 
 
 def test_private_adapter_preserves_unwrapped_obb_angle_continuity() -> None:
@@ -439,6 +483,8 @@ def test_frame_identity_and_mask_spatial_shape_are_strict() -> None:
         tracker.update(_detections(), _frame("sequence/000002"))
     with pytest.raises(ValueError, match="must match the frame spatial size"):
         tracker.update(_detections(height=32, width=32), _frame())
+    with pytest.raises(ValueError, match="must match the frame spatial size"):
+        tracker.update(_detections(height=32, width=32), np.zeros((64, 64, 3), dtype=np.uint8))
 
 
 def test_geometry_is_fixed_by_construction_and_preserved_by_reset() -> None:

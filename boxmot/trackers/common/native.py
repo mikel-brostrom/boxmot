@@ -14,7 +14,12 @@ from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
-from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
+from boxmot.trackers.common.input import (
+    frame_image_size,
+    pack_numpy_track_rows,
+    parse_numpy_detection_rows,
+    prepare_frame,
+)
 from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.protocols import TrackerRequirements
 
@@ -84,13 +89,15 @@ def load_native_tracker_config(
 
 
 def _frame_to_bgr(
-    frame: Frame | None,
+    frame: Frame | np.ndarray | None,
     *,
     dimensions_only: bool = False,
     placeholders: dict[tuple[int, int], np.ndarray] | None = None,
 ) -> np.ndarray | None:
     if frame is None:
         return None
+    if isinstance(frame, np.ndarray):
+        return frame
     if dimensions_only:
         image = None if placeholders is None else placeholders.get(frame.image_size)
         if image is None:
@@ -169,18 +176,20 @@ class NativeTrackerAdapter(LiveReIDMixin):
         return self._requirements
 
     @overload
-    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...
+    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks: ...
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | None = None) -> np.ndarray: ...
+    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray: ...
 
-    def update(self, detections: Detections | np.ndarray, frame: Frame | None = None) -> Tracks | np.ndarray:
-        """Invoke one native update and preserve the input representation."""
+    def update(
+        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+    ) -> Tracks | np.ndarray:
+        """Invoke a native update with an optional Frame or uint8 HWC BGR image.
 
-        if frame is not None and not isinstance(frame, Frame):
-            raise TypeError(f"frame must be Frame or None, got {type(frame).__name__}.")
-        if frame is not None:
-            frame.validate()
+        The detection representation determines the output representation.
+        """
+
+        frame = prepare_frame(frame)
 
         is_obb = self.is_obb
         numpy_input = type(detections) is np.ndarray
@@ -191,12 +200,16 @@ class NativeTrackerAdapter(LiveReIDMixin):
             detections.validate()
             if detections.is_obb != is_obb:
                 raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
-            if frame is not None and frame.sample_id != detections.sample_id:
+            if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
                 raise ValueError("Frame and detections must have the same sample_id.")
-            if detections.masks is not None and frame is not None and detections.masks.image_size != frame.image_size:
+            if (
+                detections.masks is not None
+                and frame is not None
+                and detections.masks.image_size != frame_image_size(frame)
+            ):
                 raise ValueError(
                     "Detection masks must match the frame spatial size, "
-                    f"got {detections.masks.image_size} and {frame.image_size}."
+                    f"got {detections.masks.image_size} and {frame_image_size(frame)}."
                 )
             sample_id = detections.sample_id
             geometry = detections.geometry.values.detach().numpy()

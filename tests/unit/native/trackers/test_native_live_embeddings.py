@@ -130,9 +130,11 @@ def _tracker(tracker_class, library: _FakeLibrary, *, geometry: str = "aabb", **
 
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
 def test_native_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_frame(
     tracker_class,
     geometry: str,
+    frame_representation: str,
 ) -> None:
     library = _FakeLibrary()
     model = _ReIDModelSpy(np.array([[3, 4, 0], [0, 0, 2]], dtype=np.float32))
@@ -141,7 +143,7 @@ def test_native_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_
     frame, expected_bgr = _frame()
 
     try:
-        output = tracker.update(detections, frame)
+        output = tracker.update(detections, frame if frame_representation == "canonical" else expected_bgr)
     finally:
         tracker.close()
 
@@ -307,10 +309,12 @@ def test_native_reid_trackers_build_raw_model_lazily_with_shared_options(
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
 @pytest.mark.parametrize("representation", ("canonical", "numpy"))
+@pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
 def test_native_reid_trackers_lazily_encode_canonical_and_numpy_inputs_from_full_spec(
     tracker_class,
     geometry: str,
     representation: str,
+    frame_representation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import boxmot.reid.factory as reid_factory
@@ -337,7 +341,7 @@ def test_native_reid_trackers_lazily_encode_canonical_and_numpy_inputs_from_full
     rows = _rows(geometry)
     canonical = detections_from_rows(rows, sample_id="sequence/000001")
     input_detections = canonical if representation == "canonical" else rows
-    frame, _ = _frame()
+    frame, bgr = _frame()
     supplied = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
 
     tracker.configure_reid(spec)
@@ -346,19 +350,27 @@ def test_native_reid_trackers_lazily_encode_canonical_and_numpy_inputs_from_full
         tracker.update(detections_from_rows(_rows(geometry, empty=True)))
         tracker.update(detections_from_rows(rows, embeddings=supplied))
         assert factory_calls == []
-        tracker.update(input_detections, frame)
+        tracker.update(input_detections, frame if frame_representation == "canonical" else bgr)
     finally:
         tracker.close()
 
     assert factory_calls == [spec]
     assert len(encoder.calls) == 1
     encoded_frames, encoded_detections = encoder.calls[0]
-    assert encoded_frames == (frame,)
+    assert len(encoded_frames) == 1
+    encoded_frame = encoded_frames[0]
+    assert isinstance(encoded_frame, Frame)
+    encoded_frame.validate()
+    torch.testing.assert_close(encoded_frame.image, frame.image)
+    if frame_representation == "canonical":
+        assert encoded_frame is frame
+    else:
+        assert encoded_frame is not frame
     encoded = encoded_detections[0]
+    assert encoded.sample_id == encoded_frame.sample_id
     if representation == "canonical":
         assert encoded is canonical
     else:
-        assert encoded.sample_id == frame.sample_id
         torch.testing.assert_close(encoded.geometry.values, torch.from_numpy(rows[:, :-2]))
         torch.testing.assert_close(encoded.scores, torch.from_numpy(rows[:, -2]))
         torch.testing.assert_close(encoded.class_ids, torch.tensor([7, 9], dtype=torch.int64))
@@ -368,6 +380,7 @@ def test_native_reid_trackers_lazily_encode_canonical_and_numpy_inputs_from_full
     assert generated.dtype == np.float32
     assert generated.flags.c_contiguous
     np.testing.assert_allclose(generated, np.array([[0.6, 0.8, 0], [0, 0, 1]], dtype=np.float32))
+    np.testing.assert_array_equal(library.update_calls[-1]["image"], bgr)
 
 
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)

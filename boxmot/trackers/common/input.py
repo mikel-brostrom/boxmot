@@ -1,10 +1,37 @@
-"""Adapters for packed NumPy tracker inputs and outputs."""
+"""Validation and conversion at the public tracker boundary."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 import numpy as np
+
+from boxmot.structures import Frame
+
+
+def prepare_frame(frame: Frame | np.ndarray | None) -> Frame | np.ndarray | None:
+    """Validate a canonical frame or normalize a uint8 HWC BGR image's strides."""
+
+    if frame is None:
+        return None
+    if isinstance(frame, Frame):
+        frame.validate()
+        return frame
+    if type(frame) is not np.ndarray:
+        raise TypeError(f"frame must be Frame, a plain numpy.ndarray, or None, got {type(frame).__name__}.")
+    if frame.dtype != np.uint8:
+        raise TypeError(f"NumPy frame must use uint8 pixels, got {frame.dtype}.")
+    if frame.ndim != 3 or frame.shape[2] != 3:
+        raise ValueError(f"NumPy frame must have shape [H, W, 3] in BGR order, got {frame.shape}.")
+    if frame.shape[0] <= 0 or frame.shape[1] <= 0:
+        raise ValueError(f"NumPy frame height and width must be positive, got {frame.shape[:2]}.")
+    return np.ascontiguousarray(frame)
+
+
+def frame_image_size(frame: Frame | np.ndarray) -> tuple[int, int]:
+    """Return the height and width of a validated tracker image."""
+
+    return frame.image_size if isinstance(frame, Frame) else (int(frame.shape[0]), int(frame.shape[1]))
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,4 +195,10 @@ def pack_numpy_track_rows(
     return rows
 
 
-__all__ = ("NumPyDetectionRows", "pack_numpy_track_rows", "parse_numpy_detection_rows")
+__all__ = (
+    "NumPyDetectionRows",
+    "frame_image_size",
+    "pack_numpy_track_rows",
+    "parse_numpy_detection_rows",
+    "prepare_frame",
+)

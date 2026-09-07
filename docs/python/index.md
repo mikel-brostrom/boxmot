@@ -52,7 +52,8 @@ wire boundary requires the legacy 6/7- or 8/9-column representation.
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every
 high-level ReID-enabled tracker adapter supports live appearance extraction: it
-can lazily invoke ReID when embeddings are absent and a `Frame` is supplied.
+can lazily invoke ReID when embeddings are absent and a `Frame` or NumPy image
+is supplied.
 For a native backend, the adapter sends those features to the model-free C++
 tracker library.
 
@@ -78,9 +79,14 @@ tracker.reset()
 The public method preserves the input representation:
 
 ```text
-update(detections: Detections, frame: Frame | None = None) -> Tracks
-update(detections: np.ndarray, frame: Frame | None = None) -> np.ndarray
+update(detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks
+update(detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray
 ```
+
+The optional `frame` accepts a canonical `Frame` or a NumPy image. NumPy images
+must have dtype `uint8` and shape `(height, width, 3)` in BGR order; strided
+views are made contiguous when needed. A canonical `Frame` carries sample
+metadata and stores an RGB CHW tensor in `Frame.image`.
 
 A tracker configured for AABB expects exactly `N x 6`
 `(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
@@ -103,16 +109,16 @@ track-aligned masks are required.
 The NumPy form is a convenience for tracker calls without masks or precomputed
 embeddings. Use `Detections` when providing either enrichment, retaining sample
 metadata, or composing a pipeline. Any high-level ReID-enabled tracker adapter
-may pair NumPy rows with a supplied `Frame` to generate missing embeddings
-lazily; the return value remains a NumPy matrix without sample metadata. A
-`detection_index == -1` value identifies a propagated track without a current
-detection.
+may pair NumPy rows with a supplied `Frame` or NumPy image to generate missing
+embeddings lazily; the return value remains a NumPy matrix without sample
+metadata. A `detection_index == -1` value identifies a propagated track without
+a current detection.
 
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`. For a
 ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
 required by the algorithm; the direct update boundary can satisfy it from
-either attached embeddings or a `Frame`.
+either attached embeddings or a supplied `Frame` or NumPy image.
 
 ### Live embeddings in ReID-enabled trackers
 
@@ -126,12 +132,12 @@ BotSort and OccluBoost adapters expose the same live fallback:
 - `device`, `half`, and `reid_preprocess` configure that lazy backend.
 
 When embeddings are already attached, the tracker uses them without invoking
-its backend. A non-empty batch without embeddings requires a `Frame`, then
-extracts one embedding per detection. An empty batch bypasses ReID extraction
-and does not initialize the model; independent frame requirements such as CMC
-still apply. For trackers with a `use_embeddings` option, disabling it also
-disables extraction. The resolved `tracker.generates_embeddings` property
-reports whether this fallback is active for either backend.
+its backend. A non-empty batch without embeddings requires a `Frame` or NumPy
+image, then extracts one embedding per detection. An empty batch bypasses ReID
+extraction and does not initialize the model; independent frame requirements
+such as CMC still apply. For trackers with a `use_embeddings` option, disabling
+it also disables extraction. The resolved `tracker.generates_embeddings`
+property reports whether this fallback is active for either backend.
 
 These are direct class-construction options for real-time tracking loops. A
 resolved `ReIDEncoderSpec` can instead be installed before the first update of
