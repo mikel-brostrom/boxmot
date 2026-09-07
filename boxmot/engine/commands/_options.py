@@ -304,7 +304,10 @@ def build_selection_options(func: Callable | None = None, *, required: bool = Tr
         "overrides BOXMOT_BUILDS_DIR and defaults to ./runs/materializations."
     )
     if not required:
-        build_help += " Omit with --experiment to materialize and reuse a compatible canonical build automatically."
+        build_help += (
+            " Omit with --experiment, or with --dataset and --detector, to materialize and reuse "
+            "a compatible canonical build automatically."
+        )
         build_root_help = (
             "Root for build IDs, automatic materialization, and shared detector cache; "
             "overrides BOXMOT_BUILDS_DIR and defaults to ./runs/materializations."

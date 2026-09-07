@@ -244,12 +244,15 @@ boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
   --asso-func diou --source 0 --save --show
 ```
 
-Evaluate a tracker. The first run materializes reusable detections and
-embeddings automatically:
+Evaluate a tracker:
 
 ```bash
-boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
-  --tracker occluboost
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort
 ```
 
 Use NumPy detections and BGR images directly:

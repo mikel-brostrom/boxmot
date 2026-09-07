@@ -8,7 +8,7 @@ logic.
 | --- | --- | --- |
 | `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
 | `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
-| `eval` | Materialize/replay a build and calculate MOT metrics | experiment, or dataset plus `--build` |
+| `eval` | Materialize/replay a build and calculate MOT metrics | experiment (filename or component shorthand), or dataset plus `--build` |
 | `tune` | Optimize tracker parameters against a build | experiment plus `--build` |
 | `research` | Score proposed tracker changes against a build | experiment plus `--build` |
 | `train-reid` | Train a reusable appearance backbone | ReID dataset/config |

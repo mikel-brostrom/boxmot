@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 
+import boxmot.engine.experiment_config as experiment_config
 from boxmot.engine.experiment_config import (
     EXPERIMENT_CONFIGS_DIR,
     ConfigurationError,
     resolve_experiment_config,
     resolve_experiment_path,
+    resolve_matching_experiment_path,
 )
 from boxmot.utils.config import load_yaml_mapping
 
@@ -43,6 +46,165 @@ def test_experiment_resolves_catalog_relative_filename_or_stem(reference: str) -
     expected = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
 
     assert resolve_experiment_path(reference) == expected.resolve()
+
+
+@pytest.mark.parametrize("detector", ("yolox-x-mot17", "yolox-x-mot17/ablation"))
+def test_component_selectors_resolve_the_authored_experiment_and_its_identity(detector: str) -> None:
+    matched = resolve_matching_experiment_path(
+        dataset="mot17",
+        split="ablation",
+        detector=detector,
+        reid="lmbn-n-duke",
+        mode="eval",
+    )
+
+    expected = (EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml").resolve()
+    assert matched == expected
+    resolved = resolve_experiment_config(matched, mode="eval")
+    assert resolved == resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml", mode="eval")
+    assert resolved["id"] == "mot17-ablation-yolox-lmbn"
+    assert resolved["source_path"] == expected
+
+
+def test_bare_detector_selector_lets_the_unique_authored_experiment_choose_its_checkpoint() -> None:
+    matched = resolve_matching_experiment_path(
+        dataset="mot17-mini",
+        split="train",
+        detector="yolox-x-mot17",
+        reid="lmbn-n-duke",
+        mode="eval",
+    )
+
+    assert matched == (EXPERIMENT_CONFIGS_DIR / "mot17-mini" / "train-yolox-lmbn.yaml").resolve()
+    assert resolve_experiment_config(matched)["detector"]["checkpoint"] == "ablation"
+
+
+@pytest.mark.parametrize("component", ("dataset", "detector", "reid"))
+def test_component_selectors_do_not_alias_custom_same_id_profiles_to_builtins(
+    component: str,
+    tmp_path,
+) -> None:
+    references = {
+        "dataset": "mot17",
+        "detector": "yolox-x-mot17",
+        "reid": "lmbn-n-duke",
+    }
+    source_paths = {
+        "dataset": experiment_config.CONFIG_ROOT / "datasets" / "mot17.yaml",
+        "detector": experiment_config.CONFIG_ROOT / "detectors" / "yolox-x-mot17.yaml",
+        "reid": experiment_config.CONFIG_ROOT / "reid" / "lmbn-n-duke.yaml",
+    }
+    custom = load_yaml_mapping(source_paths[component])
+    if component == "dataset":
+        custom["storage"]["root"] = "CUSTOM-MOT17"
+    elif component == "detector":
+        custom["checkpoints"]["ablation"]["path"] = "models/custom-yolox.pt"
+    else:
+        custom["weights"]["path"] = "models/custom-lmbn.pt"
+    custom_path = tmp_path / f"custom-{component}.yaml"
+    custom_path.write_text(yaml.safe_dump(custom, sort_keys=False), encoding="utf-8")
+    references[component] = str(custom_path)
+
+    with pytest.raises(ConfigurationError, match="(?i)no .*experiment"):
+        resolve_matching_experiment_path(
+            dataset=references["dataset"],
+            split="ablation",
+            detector=references["detector"],
+            reid=references["reid"],
+            mode="eval",
+        )
+
+
+def test_component_selectors_reject_a_missing_authored_experiment(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    with pytest.raises(ConfigurationError, match="(?i)no .*experiment"):
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17",
+            reid="lmbn-n-duke",
+            mode="eval",
+        )
+
+
+def test_component_selectors_treat_omitted_reid_as_an_exact_no_reid_match() -> None:
+    with pytest.raises(ConfigurationError, match='ReID "none"'):
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17",
+            mode="eval",
+        )
+
+
+def test_component_selectors_select_only_the_matching_reid_presence(monkeypatch, tmp_path) -> None:
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
+    with_reid = load_yaml_mapping(source)
+    without_reid = load_yaml_mapping(source)
+    without_reid.pop("reid")
+    with_reid_path = tmp_path / "with-reid.yaml"
+    without_reid_path = tmp_path / "without-reid.yaml"
+    with_reid_path.write_text(yaml.safe_dump(with_reid, sort_keys=False), encoding="utf-8")
+    without_reid_path.write_text(yaml.safe_dump(without_reid, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    common = {
+        "dataset": "mot17",
+        "split": "ablation",
+        "detector": "yolox-x-mot17",
+        "mode": "eval",
+    }
+    assert resolve_matching_experiment_path(**common) == without_reid_path.resolve()
+    assert resolve_matching_experiment_path(**common, reid="lmbn-n-duke") == with_reid_path.resolve()
+
+
+def test_component_selectors_reject_ambiguous_authored_experiments(monkeypatch, tmp_path) -> None:
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
+    first = tmp_path / "first.yaml"
+    second = tmp_path / "second.yaml"
+    contents = source.read_text(encoding="utf-8")
+    first.write_text(contents, encoding="utf-8")
+    second.write_text(contents.replace("checkpoint: ablation", "checkpoint: test"), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    with pytest.raises(ConfigurationError, match="(?i)ambiguous") as error:
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17",
+            reid="lmbn-n-duke",
+            mode="eval",
+        )
+
+    assert "first.yaml" in str(error.value)
+    assert "second.yaml" in str(error.value)
+    assert "--experiment" in str(error.value)
+    assert (
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17/ablation",
+            reid="lmbn-n-duke",
+            mode="eval",
+        )
+        == first.resolve()
+    )
+
+
+def test_component_selectors_do_not_override_an_authored_split(monkeypatch, tmp_path) -> None:
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "test-yolox-lmbn.yaml"
+    (tmp_path / "test-yolox-lmbn.yaml").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    with pytest.raises(ConfigurationError, match="(?i)no .*experiment"):
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17/test",
+            reid="lmbn-n-duke",
+            mode="eval",
+        )
 
 
 def test_mot17_osnet_experiment_references_component_filenames() -> None:

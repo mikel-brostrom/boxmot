@@ -312,9 +312,116 @@ def resolve_experiment_config(
     }
 
 
+def _direct_detector_selection(reference: str | Path) -> tuple[dict[str, Any], str | None]:
+    """Resolve a direct detector profile and an optional explicit checkpoint."""
+
+    detector_ref = str(reference).strip()
+    if not detector_ref:
+        raise ConfigurationError("--detector must not be empty.")
+    explicit_checkpoint: str | None = None
+    try:
+        detector = load_detector_config(detector_ref)
+    except FileNotFoundError as original_error:
+        if "/" not in detector_ref:
+            raise
+        profile_ref, checkpoint = detector_ref.rsplit("/", 1)
+        if not profile_ref or not checkpoint:
+            raise original_error
+        try:
+            detector = load_detector_config(profile_ref)
+        except FileNotFoundError:
+            raise original_error from None
+        detector_ref = profile_ref
+        explicit_checkpoint = checkpoint
+
+    checkpoints = detector["checkpoints"]
+    if explicit_checkpoint is not None and explicit_checkpoint not in checkpoints:
+        available = ", ".join(sorted(checkpoints))
+        raise ConfigurationError(
+            f'Detector "{detector["id"]}" has no checkpoint "{explicit_checkpoint}". '
+            f"Available checkpoints: {available}."
+        )
+    return detector, explicit_checkpoint
+
+
+def _authored_component_configs(experiment_path: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
+    """Load the component profiles referenced by an authored experiment."""
+
+    authored = load_yaml_mapping(experiment_path)
+    context = f'Experiment config "{experiment_path}"'
+    dataset_selection = _required_mapping(authored, "dataset", context)
+    detector_selection = _required_mapping(authored, "detector", context)
+    dataset = load_dataset_config(_required_text(dataset_selection, "ref", context))
+    detector = load_detector_config(_required_text(detector_selection, "ref", context))
+    return dataset, detector, _resolve_reid(authored)
+
+
+def resolve_matching_experiment_path(
+    *,
+    dataset: str | Path,
+    detector: str | Path,
+    reid: str | Path | None = None,
+    split: str | None = None,
+    mode: str = "eval",
+) -> Path:
+    """Find the one authored experiment matching direct component selectors."""
+
+    dataset_config = load_dataset_config(dataset)
+    split_name = str(split or dataset_config["default_split"])
+    if split_name not in dataset_config["splits"]:
+        available = ", ".join(sorted(dataset_config["splits"]))
+        raise ConfigurationError(
+            f'Dataset "{dataset_config["id"]}" has no split "{split_name}". Available splits: {available}.'
+        )
+    _validate_evaluation_split(dataset_config, split_name, mode)
+    detector_config, explicit_checkpoint = _direct_detector_selection(detector)
+    reid_config = None if reid is None else load_reid_config(reid)
+    reid_id = None if reid_config is None else str(reid_config["id"])
+    dataset_path = Path(dataset_config["config_path"]).resolve()
+    detector_path = Path(detector_config["config_path"]).resolve()
+    reid_path = None if reid_config is None else Path(reid_config["config_path"]).resolve()
+
+    matches: list[Path] = []
+    for candidate in iter_config_paths(EXPERIMENT_CONFIGS_DIR):
+        resolved = resolve_experiment_config(candidate)
+        candidate_dataset, candidate_detector, candidate_reid = _authored_component_configs(candidate)
+        candidate_reid_path = None if candidate_reid is None else Path(candidate_reid["config_path"]).resolve()
+        if (
+            Path(candidate_dataset["config_path"]).resolve() == dataset_path
+            and resolved["dataset"]["split"] == split_name
+            and Path(candidate_detector["config_path"]).resolve() == detector_path
+            and (explicit_checkpoint is None or resolved["detector"]["checkpoint"] == explicit_checkpoint)
+            and candidate_reid_path == reid_path
+        ):
+            matches.append(candidate.resolve())
+
+    detector_selector = str(detector_config["id"])
+    if explicit_checkpoint is not None:
+        detector_selector += f"/{explicit_checkpoint}"
+    selector = (
+        f'dataset "{dataset_config["id"]}", split "{split_name}", '
+        f'detector "{detector_selector}", '
+        f'ReID "{reid_id or "none"}"'
+    )
+    if not matches:
+        raise ConfigurationError(
+            f"No authored experiment matches {selector}. "
+            "Create a matching experiment YAML or select one explicitly with --experiment."
+        )
+    if len(matches) > 1:
+        catalog_root = EXPERIMENT_CONFIGS_DIR.resolve()
+        choices = "\n  - ".join(str(path.relative_to(catalog_root)) for path in matches)
+        raise ConfigurationError(
+            f"Ambiguous direct evaluation selection; multiple authored experiments match {selector}:\n  - {choices}\n"
+            "Select one explicitly with --experiment."
+        )
+    return matches[0]
+
+
 __all__ = [
     "ConfigurationError",
     "EXPERIMENT_CONFIGS_DIR",
     "resolve_experiment_config",
     "resolve_experiment_path",
+    "resolve_matching_experiment_path",
 ]

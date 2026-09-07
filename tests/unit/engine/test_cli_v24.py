@@ -9,6 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
+from boxmot.engine.experiment_config import EXPERIMENT_CONFIGS_DIR, resolve_experiment_path
 
 EXPECTED_COMMAND_ORDER = (
     "track",
@@ -223,15 +224,19 @@ def test_materialization_default_device_is_not_an_override(monkeypatch) -> None:
     assert "device" not in captured["args"].materialize_explicit_keys
 
 
-def test_cached_workflows_expose_their_build_requirements_and_hide_inference_options() -> None:
+def test_cached_workflows_expose_build_requirements_and_eval_component_selectors() -> None:
     for command in ("eval", "tune", "research"):
         options = _command_options(command)
         help_result = CliRunner().invoke(boxmot, [command, "--help"])
         assert help_result.exit_code == 0
         assert "--build TEXT" in help_result.output
         assert options["build_ref"].required is (command != "eval")
-        assert "--detector" not in help_result.output
-        assert "--reid" not in help_result.output
+        if command == "eval":
+            assert "--detector" in help_result.output
+            assert "--reid" in help_result.output
+        else:
+            assert "--detector" not in help_result.output
+            assert "--reid" not in help_result.output
         assert "--imgsz" not in help_result.output
         assert "--conf" not in help_result.output
         assert "--postprocessing" not in help_result.output
@@ -242,7 +247,9 @@ def test_cached_workflows_expose_their_build_requirements_and_hide_inference_opt
             assert "--n-threads" not in help_result.output
     eval_build_help = _command_options("eval")["build_ref"].help
     assert eval_build_help is not None
-    assert "Omit with --experiment to materialize and reuse" in eval_build_help
+    assert "--experiment" in eval_build_help
+    assert "--detector" in eval_build_help
+    assert "materializ" in eval_build_help
 
 
 @pytest.mark.parametrize(
@@ -259,12 +266,113 @@ def test_cached_workflows_reject_missing_explicit_build(command: str, selector: 
     assert "Missing option '--build'" in result.output
 
 
-def test_eval_dataset_without_build_cannot_materialize() -> None:
+def test_eval_dataset_without_build_requires_a_detector() -> None:
     result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17"])
 
     assert result.exit_code == 2
-    assert "eval with --dataset requires --build" in result.output
-    assert "Use --experiment to materialize automatically" in result.output
+    assert "--detector" in result.output
+    assert "--build" in result.output
+
+
+@pytest.mark.parametrize("option", ("--detector", "--reid"))
+def test_eval_experiment_rejects_direct_component_overrides(option: str) -> None:
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--experiment", "fixture-experiment", option, "component-profile"],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option" not in result.output
+    assert "--experiment" in result.output
+    assert option in result.output
+
+
+def test_eval_reid_selection_requires_a_detector() -> None:
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--dataset", "mot17", "--reid", "lmbn-n-duke"],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option" not in result.output
+    assert "--detector" in result.output
+
+
+def test_eval_direct_components_require_a_dataset() -> None:
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"],
+    )
+
+    assert result.exit_code == 2
+    assert "No such option" not in result.output
+    assert "--dataset" in result.output
+
+
+def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_experiment(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    build_path = tmp_path / "builds" / ("b" * 64)
+    calls = []
+    captured = {}
+
+    def materialize_main(args):
+        calls.append("materialize")
+        captured["materialize"] = args
+        return build_path
+
+    def eval_main(args):
+        calls.append("eval")
+        captured["eval"] = args
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.materialization.workflow",
+        SimpleNamespace(main=materialize_main),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.eval.evaluator",
+        SimpleNamespace(main=eval_main),
+    )
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "eval",
+            "--dataset",
+            "mot17",
+            "--split",
+            "ablation",
+            "--detector",
+            "yolox-x-mot17",
+            "--reid",
+            "lmbn-n-duke",
+            "--tracker",
+            "botsort",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert calls == ["materialize", "eval"]
+    expected_experiment = (EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml").resolve()
+    for args in captured.values():
+        assert resolve_experiment_path(args.experiment) == expected_experiment
+        assert getattr(args, "dataset", None) is None
+        assert not hasattr(args, "detector")
+        assert not hasattr(args, "reid")
+    materialize_args = captured["materialize"]
+    assert materialize_args.materialize_split == "ablation"
+    assert materialize_args.materialize_mode == "eval"
+    assert materialize_args.publish_image_refs is True
+    assert materialize_args.publish_masks is False
+    assert materialize_args.publish_embeddings is True
+    assert materialize_args.resume is True
+    assert "device" not in materialize_args.materialize_explicit_keys
+    eval_args = captured["eval"]
+    assert eval_args.build == build_path
+    assert eval_args.split == "ablation"
+    assert eval_args.tracker == "botsort"
 
 
 def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, tmp_path) -> None:
@@ -331,7 +439,18 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
     assert eval_args.split == "ablation"
 
 
-def test_eval_forwards_explicit_automatic_materialization_device(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    "selection",
+    (
+        ("--experiment", "fixture-experiment"),
+        ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
+    ),
+)
+def test_eval_forwards_explicit_automatic_materialization_device(
+    monkeypatch,
+    tmp_path,
+    selection: tuple[str, ...],
+) -> None:
     captured = {}
     build_path = tmp_path / "build"
 
@@ -352,7 +471,7 @@ def test_eval_forwards_explicit_automatic_materialization_device(monkeypatch, tm
 
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture-experiment", "--device", "mps"],
+        ["eval", *selection, "--device", "mps"],
     )
 
     assert result.exit_code == 0, result.output
@@ -360,13 +479,19 @@ def test_eval_forwards_explicit_automatic_materialization_device(monkeypatch, tm
     assert "device" in captured["materialize"].materialize_explicit_keys
 
 
-def test_eval_rejects_materialization_device_with_explicit_build() -> None:
+@pytest.mark.parametrize(
+    "selection",
+    (
+        ("--experiment", "fixture-experiment"),
+        ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
+    ),
+)
+def test_eval_rejects_materialization_device_with_explicit_build(selection: tuple[str, ...]) -> None:
     result = CliRunner().invoke(
         boxmot,
         [
             "eval",
-            "--experiment",
-            "fixture-experiment",
+            *selection,
             "--build",
             "a" * 64,
             "--device",
@@ -434,7 +559,17 @@ def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:
     assert "--allow-noncanonical-build requires an explicit --build" in result.output
 
 
-def test_eval_does_not_start_after_automatic_materialization_fails(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    "selection",
+    (
+        ("--experiment", "fixture-experiment"),
+        ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
+    ),
+)
+def test_eval_does_not_start_after_automatic_materialization_fails(
+    monkeypatch,
+    selection: tuple[str, ...],
+) -> None:
     evaluated = []
 
     def fail_materialization(_args):
@@ -451,7 +586,7 @@ def test_eval_does_not_start_after_automatic_materialization_fails(monkeypatch) 
         SimpleNamespace(main=lambda args: evaluated.append(args)),
     )
 
-    result = CliRunner().invoke(boxmot, ["eval", "--experiment", "fixture-experiment"])
+    result = CliRunner().invoke(boxmot, ["eval", *selection])
 
     assert result.exit_code == 1
     assert isinstance(result.exception, RuntimeError)
@@ -486,7 +621,8 @@ def test_experiment_only_cached_workflows_reject_dataset_or_missing_experiment(c
     assert "No such option '--dataset'" in dataset_override.output
 
 
-def test_eval_dispatches_explicit_build(monkeypatch) -> None:
+@pytest.mark.parametrize("direct_components", (False, True))
+def test_eval_dispatches_explicit_build(monkeypatch, direct_components: bool) -> None:
     captured = {}
     monkeypatch.setitem(
         sys.modules,
@@ -499,14 +635,25 @@ def test_eval_dispatches_explicit_build(monkeypatch) -> None:
         SimpleNamespace(main=lambda _args: pytest.fail("explicit builds must bypass materialization")),
     )
 
-    result = CliRunner().invoke(
-        boxmot,
-        ["eval", "--dataset", "mot17", "--build", "build-0123456789abcdef01234567"],
-    )
+    selection = ["--dataset", "mot17", "--build", "build-0123456789abcdef01234567"]
+    if direct_components:
+        selection.extend(("--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"))
+
+    result = CliRunner().invoke(boxmot, ["eval", *selection])
 
     assert result.exit_code == 0, result.output
     assert captured["args"].build == "build-0123456789abcdef01234567"
     assert captured["args"].allow_noncanonical_build is False
+    if direct_components:
+        assert (
+            resolve_experiment_path(captured["args"].experiment)
+            == (EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml").resolve()
+        )
+        assert captured["args"].dataset is None
+        assert not hasattr(captured["args"], "detector")
+        assert not hasattr(captured["args"], "reid")
+    else:
+        assert captured["args"].dataset == "mot17"
 
 
 def test_eval_noncanonical_build_requires_explicit_opt_in_and_dispatches(monkeypatch) -> None:

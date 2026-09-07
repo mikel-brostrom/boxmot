@@ -12,13 +12,28 @@ boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 
 Materialization accepts only `--experiment`. The dataset, split, geometry,
 detector, segmentor, ReID encoder, and class map are part of that experiment's
-semantic identity and have no command-line overrides. Create another
-experiment when one of them should change.
+semantic identity. Direct component selectors cannot override an authored
+`--experiment`; create another experiment when its configuration should change.
 
-Evaluation can use either an experiment or dataset selector. Tune and research
-require an experiment. Materialization is always experiment-backed. Evaluation
-materializes or reuses a compatible canonical build when `--build` is omitted;
-dataset-only evaluation, tune, and research still require an explicit build.
+Evaluation also accepts `--dataset` and `--detector` with an optional `--reid`
+selector as shorthand for an authored catalog experiment:
+
+```bash
+boxmot eval --dataset mot17 --split ablation \
+  --detector yolox-x-mot17 --reid lmbn-n-duke --tracker botsort
+```
+
+This selects `mot17/ablation-yolox-lmbn.yaml` and reuses the exact same
+materialization and build as `--experiment mot17/ablation-yolox-lmbn.yaml`.
+The authored experiment supplies the detector checkpoint, class map, and other
+semantic settings. No match or multiple matches produce an error; use
+`--experiment` to disambiguate or author a configuration absent from the catalog.
+Append `/CHECKPOINT` to the detector profile when needed to narrow a match.
+Omitting `--reid` matches only experiments without a ReID profile.
+
+Dataset-only evaluation without a detector requires an explicit `--build`.
+Tune and research require an authored experiment and an explicit build.
+Materialization remains experiment-backed for both evaluation forms.
 
 The build manifest records resolved artifact hashes, source and taxonomy
 digests, stage fingerprints, publish flags, shard counts/hashes, and
