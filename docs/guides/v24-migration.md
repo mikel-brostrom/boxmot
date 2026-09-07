@@ -10,7 +10,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | `BoxMOT(...)` workflow facade | Explicit component factories plus `PerceptionPipeline` or `TrackingPipeline`; use the engine CLI for source-to-sink workflows |
 | Root `Detector` | `boxmot.detectors.DetectorSpec` and `create_detector` |
 | Root `ReIDModel` | `boxmot.reid.ReIDEncoderSpec` and `create_reid_encoder` |
-| `create_tracker("name", reid_weights=..., device=...)` | `create_tracker(TrackerSpec(...))`; trackers contain no model or device configuration |
+| `create_tracker("name", reid_weights=..., device=...)` | Use `create_tracker(TrackerSpec(...))`, then configure its ReID-enabled Python or native adapter with a `ReIDEncoderSpec`; direct ReID-enabled tracker construction also accepts the shared `reid_model`, `reid_weights`, `device`, `half`, and `reid_preprocess` options for lazy live extraction |
 | `tracker.update(numpy_rows, img=..., embs=..., masks=...)` | Use `tracker.update(numpy_rows)` for simple box-only calls; attach enrichments to `Detections` and call `tracker.update(detections, frame)` otherwise |
 | `DetectionBatch`, `TrackResults`, `FrameData`, `FramePayload`, engine result records | `Frame`, `Boxes`/`OrientedBoxes`, `MaskBatch`, `Detections`, `Tracks`, and `PipelineResult` |
 | `boxmot.api` | Removed; compose public domain packages directly |

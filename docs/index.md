@@ -8,9 +8,12 @@ structures -> domain components -> pipelines -> engine
 ```
 
 Detectors, segmentors, appearance encoders, and trackers are independently
-usable. Trackers consume precomputed enrichments and never run perception
-models. Pipelines compose the pieces; the engine owns media sources, sinks,
-services, CLI workflows, evaluation, tuning, and resumable materialization.
+usable. Pipelines normally provide reusable masks and appearance embeddings.
+For live use, every high-level ReID-enabled tracker adapter can also extract
+missing embeddings lazily from a supplied frame. Native adapters pass those
+features to their model-free C++ tracker libraries. The engine owns media
+sources, sinks, services, CLI workflows, evaluation, tuning, and resumable
+materialization.
 
 ## Get started
 

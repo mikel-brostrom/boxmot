@@ -231,7 +231,7 @@ class RuntimeProfiler:
 
     @contextmanager
     def component_call(self, component: str, sample_ids: Sequence[str]) -> Iterator[None]:
-        """Measure a public component call and use inference fallback timing."""
+        """Measure exclusive public component work and synthesize nested totals."""
 
         canonical = str(component).strip().lower()
         if canonical not in _COMPONENT_TOTAL_STAGES:
@@ -247,9 +247,27 @@ class RuntimeProfiler:
             ended = self._clock()
             self._active_events.reset(event_token)
             elapsed_ms = max((ended - started) * 1000.0, 0.0)
-            self.add(identifiers, _COMPONENT_TOTAL_STAGES[canonical], elapsed_ms)
+            # A component may own another timed component. In particular, a
+            # Python tracker can lazily run its ReID encoder inside update().
+            # Promote those child phase events to a child total and remove
+            # their duration from the enclosing total so runtime buckets stay
+            # exclusive instead of counting the same wall time twice.
+            nested_totals: dict[str, float] = {}
+            for event in events:
+                event_component = str(event.component).strip().lower()
+                if event_component == canonical or event_component not in _COMPONENT_TOTAL_STAGES:
+                    continue
+                nested_totals[event_component] = nested_totals.get(event_component, 0.0) + max(
+                    float(event.elapsed_ms),
+                    0.0,
+                )
+            for event_component, nested_elapsed_ms in nested_totals.items():
+                self.add(identifiers, _COMPONENT_TOTAL_STAGES[event_component], nested_elapsed_ms)
+
+            exclusive_elapsed_ms = max(elapsed_ms - sum(nested_totals.values()), 0.0)
+            self.add(identifiers, _COMPONENT_TOTAL_STAGES[canonical], exclusive_elapsed_ms)
             if not any(str(event.component).strip().lower() == canonical for event in events):
-                self.add(identifiers, _COMPONENT_FALLBACK_STAGES[canonical], elapsed_ms)
+                self.add(identifiers, _COMPONENT_FALLBACK_STAGES[canonical], exclusive_elapsed_ms)
             for sample_id in identifiers:
                 self._sample(sample_id).spans.append(_ComponentSpan(canonical, started, ended))
 
@@ -416,6 +434,10 @@ class ProfiledTracker:
     @property
     def supports_obb(self) -> bool:
         return self._component.supports_obb
+
+    @property
+    def generates_embeddings(self) -> bool:
+        return getattr(self._component, "generates_embeddings", False)
 
     @overload
     def update(self, detections: Detections, frame: Frame | None = None) -> Tracks: ...

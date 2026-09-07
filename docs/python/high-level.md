@@ -1,7 +1,8 @@
 # Public API Reference
 
 The supported Python surface is split by ownership. Heavy model and native
-runtimes remain lazy until their factories are invoked.
+runtimes remain lazy until their factories—or a ReID-enabled tracker adapter's
+live embedding path—are invoked.
 
 ## Structures
 

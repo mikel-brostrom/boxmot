@@ -56,20 +56,25 @@ the canonical factory in `boxmot/trackers/factory.py`.
 | `sfsort` | Yes | Yes | No | Always |
 
 Requirements are frozen when the tracker is created and are available from
-`tracker.requirements`. A pipeline supplies the requested frame and enriches
-detections with embeddings before calling the tracker.
+`tracker.requirements`. A pipeline supplies the requested frame. It may enrich
+detections with a shared appearance encoder, or a ReID-enabled native adapter
+may derive missing embeddings privately before invoking its C++ library.
 
 Native trackers do not support masks or per-class tracker state. Their factory
-rejects those modes, unknown tracker options, model/weight options, and geometry
-modes unsupported by the selected native implementation.
+rejects those modes, unknown tracker options, model/weight options placed in
+`TrackerSpec`, and geometry modes unsupported by the selected native
+implementation. Configure tracker-owned ReID separately with
+`tracker.configure_reid(spec)`.
 
-BotSort and OccluBoost only consume embeddings already present on
-`Detections.embeddings`. A native tracker never loads, exports, downloads, or
-runs a ReID model. Reusable native ReID inference remains a separate appearance
-encoder concern and is not linked into tracker libraries. Its component-facing
-adapter lives with the ReID backends; `boxmot.native` contains only the C++
-sources, build/load support, and low-level typed bindings. Native ReID accepts a
-resolved ONNX artifact and never performs an implicit download or conversion.
+The high-level BotSort and OccluBoost native adapters consume embeddings already
+present on `Detections.embeddings` or lazily derive missing embeddings from a
+supplied `Frame`. In either case, their C++ tracker libraries receive only typed
+feature buffers and never load, export, download, or run a ReID model. Reusable
+native ReID inference remains a separate appearance-encoder concern and is not
+linked into tracker libraries. Its component-facing adapter lives with the ReID
+backends; `boxmot.native` contains only the C++ sources, build/load support, and
+low-level typed bindings. Native ReID accepts a resolved ONNX artifact and never
+performs an implicit download or conversion.
 
 All trackers support `iou`, `giou`, `diou`, `ciou`, `hmiou`, and `centroid`
 association for AABB and OBB geometry. OBB inputs use `(cx, cy, w, h, angle)`

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from dataclasses import FrozenInstanceError
 from pathlib import Path
+from typing import get_type_hints
 
 import numpy as np
 import pytest
@@ -15,8 +16,10 @@ import torch
 import boxmot.trackers as public_trackers
 import boxmot.trackers.factory as tracker_factory
 import boxmot.trackers.registry as tracker_registry
+from boxmot.reid import ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import (
+    ReIDConfigurableTracker,
     Tracker,
     TrackerCapabilities,
     TrackerFamily,
@@ -124,6 +127,7 @@ class _RecordingTracker(BaseTracker):
 def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.__all__ == (
         "GeometryKind",
+        "ReIDConfigurableTracker",
         "Tracker",
         "TrackerCapabilities",
         "TrackerFamily",
@@ -132,6 +136,7 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
         "create_tracker",
     )
     assert public_trackers.GeometryKind is GeometryKind
+    assert public_trackers.ReIDConfigurableTracker is ReIDConfigurableTracker
     assert public_trackers.Tracker is Tracker
     assert public_trackers.TrackerCapabilities is TrackerCapabilities
     assert public_trackers.TrackerFamily is TrackerFamily
@@ -141,6 +146,43 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
     assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame")
     for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
         assert not hasattr(public_trackers, implementation_name)
+
+
+def test_reid_configurable_tracker_is_an_optional_runtime_protocol() -> None:
+    class _Tracker:
+        name = "fixture"
+        capabilities = TrackerCapabilities(
+            family=TrackerFamily.BOX,
+            geometry_kinds=frozenset({GeometryKind.AABB}),
+            accepts_embeddings=True,
+            accepts_frame=True,
+        )
+        requirements = TrackerRequirements(embeddings=True)
+        generates_embeddings = True
+
+        def update(self, detections, frame=None):
+            raise AssertionError("Runtime protocol checks must not call update().")
+
+        def reset(self) -> None:
+            return None
+
+    class _Configurable(_Tracker):
+        def configure_reid(self, spec: ReIDEncoderSpec) -> None:
+            self.spec = spec
+
+    configurable = _Configurable()
+    plain_tracker = _Tracker()
+    assert isinstance(plain_tracker, Tracker)
+    assert isinstance(configurable, ReIDConfigurableTracker)
+    assert not isinstance(plain_tracker, ReIDConfigurableTracker)
+    assert get_type_hints(ReIDConfigurableTracker.configure_reid) == {
+        "spec": ReIDEncoderSpec,
+        "return": type(None),
+    }
+    assert get_type_hints(BaseTracker.configure_reid) == {
+        "spec": ReIDEncoderSpec,
+        "return": type(None),
+    }
 
 
 def test_tracker_requirements_distinguish_frame_dimensions_from_pixels() -> None:
@@ -555,6 +597,8 @@ def test_sam2mot_emits_propagated_tracks_with_full_frame_masks(per_class: bool) 
 
 def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> None:
     configurable = {"boosttrack", "botsort", "deepocsort", "hybridsort", "occluboost"}
+    base_parameters = inspect.signature(BaseTracker.__init__).parameters
+    assert {"reid_model", "reid_weights", "device", "half", "reid_preprocess"} <= set(base_parameters)
     embedding_trackers = (
         name
         for name, definition in tracker_registry.TRACKER_DEFINITIONS.items()
@@ -562,7 +606,6 @@ def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> No
     )
     for tracker_name in embedding_trackers:
         parameters = inspect.signature(tracker_registry.get_tracker_class(tracker_name).__init__).parameters
-        assert "reid_model" not in parameters
         assert "with_reid" not in parameters
         assert "embedding_off" not in parameters
         if tracker_name in configurable:
@@ -572,3 +615,30 @@ def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> No
         config_text = config_path.read_text(encoding="utf-8")
         assert "with_reid:" not in config_text
         assert "embedding_off:" not in config_text
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    (
+        ("reid_model", None),
+        ("reid_weights", None),
+        ("device", "cpu"),
+        ("half", False),
+        ("reid_preprocess", None),
+        ("reid_weights", "model.pt"),
+    ),
+)
+def test_non_reid_trackers_reject_reid_model_configuration(option: str, value: object) -> None:
+    tracker_class = tracker_registry.get_tracker_class("bytetrack")
+    with pytest.raises(TypeError, match=rf"does not accept ReID model options: {option}"):
+        tracker_class(**{option: value})
+
+
+def test_tracker_factory_rejects_reid_options_for_non_reid_trackers() -> None:
+    with pytest.raises(ValueError, match="does not accept ReID model options"):
+        create_tracker(TrackerSpec("bytetrack", options=(("reid_weights", "model.pt"),)))
+
+
+def test_tracker_spec_rejects_reid_model_configuration_for_python_reid_trackers() -> None:
+    with pytest.raises(ValueError, match="tracker-algorithm options only"):
+        create_tracker(TrackerSpec("botsort", options=(("reid_weights", "model.pt"),)))

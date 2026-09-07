@@ -10,6 +10,35 @@ import pytest
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "boxmot"
 
+DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
+    {
+        # Appearance-enabled tracker adapters intentionally own lazy ReID
+        # inference when detections arrive without precomputed embeddings.
+        (
+            "boxmot/trackers/common/appearance/live.py",
+            "boxmot.reid.core",
+        ),
+        (
+            "boxmot/trackers/common/appearance/live.py",
+            "boxmot.reid.factory",
+        ),
+        (
+            "boxmot/trackers/common/appearance/live.py",
+            "boxmot.reid.protocols",
+        ),
+        (
+            "boxmot/trackers/common/appearance/live.py",
+            "boxmot.reid.specs",
+        ),
+        # The optional tracker-owned ReID protocol names the immutable encoder
+        # specification accepted by its public configuration boundary.
+        (
+            "boxmot/trackers/protocols.py",
+            "boxmot.reid.specs",
+        ),
+    }
+)
+
 REMOVED_V24_MODULES = (
     "boxmot.api",
     "boxmot.core.box_schema",
@@ -425,12 +454,20 @@ def _matches(module: str, forbidden: str) -> bool:
         ),
     ],
 )
-def test_dependency_direction_has_no_exceptions(package: str, forbidden: set[str]) -> None:
+def test_dependency_direction_allows_only_declared_exceptions(package: str, forbidden: set[str]) -> None:
     violations: list[str] = []
     for path, imports in _imports_for_tree(package).items():
         for imported in sorted(imports):
-            if any(_matches(imported, prefix) for prefix in forbidden):
-                violations.append(f"{path.relative_to(PACKAGE_ROOT.parent)} imports {imported}")
+            relative = path.relative_to(PACKAGE_ROOT.parent).as_posix()
+            if (
+                any(_matches(imported, prefix) for prefix in forbidden)
+                and (
+                    relative,
+                    imported,
+                )
+                not in DEPENDENCY_DIRECTION_EXCEPTIONS
+            ):
+                violations.append(f"{relative} imports {imported}")
     assert violations == []
 
 

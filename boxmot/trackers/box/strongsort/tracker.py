@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -86,6 +87,13 @@ class StrongSort(BoxTracker):
         mc_lambda (float): Motion-consistency weight used by StrongSORT.
         ema_alpha (float): Exponential moving average coefficient for
             appearance features.
+        reid_model (Any | None): Optional pre-built ReID backend used when
+            embeddings are absent.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            Weights for the lazily constructed ReID backend.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazy ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
@@ -102,9 +110,22 @@ class StrongSort(BoxTracker):
         nn_budget: int = 100,
         mc_lambda: float = 0.98,
         ema_alpha: float = 0.9,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
 
         self.min_conf = min_conf
         self._max_cos_dist = float(max_cos_dist)

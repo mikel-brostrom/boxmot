@@ -28,6 +28,7 @@ A hybrid tracker that combines:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -49,6 +50,16 @@ class OccluBoost(BoostTrack):
     """BoostTrack augmented with an appearance-only recovery pass.
 
     Args:
+        reid_model (Any | None): Optional pre-built ReID backend exposing
+            ``get_features(boxes, image)``. When omitted, the backend is built
+            lazily from ``reid_weights`` the first time live embeddings are
+            needed.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            ReID weights used for live embedding extraction. The BoxMOT default
+            ReID weights are used when omitted.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazily constructed ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         recovery_appearance_thresh (float): Minimum cosine similarity required
             between a detection embedding and a track embedding for the
             recovery pass to accept a match. Higher = stricter (fewer recoveries
@@ -109,9 +120,23 @@ class OccluBoost(BoostTrack):
         obb_max_age: int = 30,
         obb_recovery_max_age: int = 15,
         obb_second_iou_thresh: float = 0.3,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,
     ):
-        super().__init__(use_embeddings=use_embeddings, **kwargs)
+        super().__init__(
+            use_embeddings=use_embeddings,
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
         self.recovery_appearance_thresh = recovery_appearance_thresh
         self.recovery_iou_thresh = recovery_iou_thresh
         self.recovery_max_age = recovery_max_age

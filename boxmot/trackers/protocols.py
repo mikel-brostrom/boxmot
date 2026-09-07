@@ -7,6 +7,7 @@ from typing import Protocol, overload, runtime_checkable
 
 import numpy as np
 
+from boxmot.reid.specs import ReIDEncoderSpec
 from boxmot.structures import Detections, Frame, Tracks
 from boxmot.trackers.specs import TrackerCapabilities
 
@@ -50,6 +51,11 @@ class Tracker(Protocol):
         """Return the inputs required by this resolved configuration."""
         ...
 
+    @property
+    def generates_embeddings(self) -> bool:
+        """Return whether missing embeddings can be generated from a frame."""
+        ...
+
     @overload
     def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
         """Advance one frame and return canonical tracks."""
@@ -69,4 +75,13 @@ class Tracker(Protocol):
         ...
 
 
-__all__ = ("Tracker", "TrackerRequirements")
+@runtime_checkable
+class ReIDConfigurableTracker(Tracker, Protocol):
+    """Optional tracker interface for lazy, tracker-owned ReID inference."""
+
+    def configure_reid(self, spec: ReIDEncoderSpec) -> None:
+        """Configure tracker-owned ReID before the first update of a sequence."""
+        ...
+
+
+__all__ = ("ReIDConfigurableTracker", "Tracker", "TrackerRequirements")

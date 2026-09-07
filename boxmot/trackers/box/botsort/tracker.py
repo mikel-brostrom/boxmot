@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -36,7 +37,8 @@ class BotSort(BoxTracker):
         frame_rate (int): Frame rate used to scale the internal track buffer.
         fuse_first_associate (bool): Whether to fuse motion and appearance in
             the first association step.
-        use_embeddings (bool): Whether to use caller-supplied appearance embeddings.
+        use_embeddings (bool): Whether to use appearance embeddings, generating
+            them from the frame when absent.
         second_match_thresh (float): Matching threshold for the second
             association pass over low-confidence detections.
         unconfirmed_match_thresh (float): Matching threshold for tentative
@@ -45,6 +47,13 @@ class BotSort(BoxTracker):
             during unconfirmed-track matching.
         removed_stracks_buffer (int): Maximum number of removed tracks retained
             for duplicate bookkeeping.
+        reid_model (Any | None): Optional pre-built ReID backend used when
+            embeddings are absent.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            Weights for the lazily constructed ReID backend.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazy ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
@@ -80,9 +89,22 @@ class BotSort(BoxTracker):
         unconfirmed_match_thresh: float = 0.7,
         unconfirmed_emb_scale: float = 2.0,
         removed_stracks_buffer: int = 100,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
 
         self.lost_stracks = []  # type: list[STrack]
         self.removed_stracks = deque(maxlen=removed_stracks_buffer)  # type: deque[STrack]

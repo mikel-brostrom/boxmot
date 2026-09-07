@@ -23,13 +23,17 @@ Standalone packed NumPy AABB6 or OBB7 input instead returns a C-contiguous
 Every task follows the same pipeline:
 
 ```text
-Frame -> detector -> optional segmentor/ReID -> tracker -> PipelineResult
+Frame -> detector -> optional upstream segmentor/ReID
+      -> tracker (optional private ReID) -> PipelineResult
 ```
 
 The resolved tracker has a fixed AABB or OBB mode. Segmentation masks stay
 aligned through immutable selection and permutation. Use
 `sam2mot` when masks should influence association rather than only accompany
-and visualize box tracks.
+and visualize box tracks. A ReID-enabled tracker adapter can extract missing
+embeddings privately from the frame; attached upstream embeddings bypass that
+path. Native adapters pass generated or attached embeddings through the typed
+ABI to their model-free C++ tracker libraries.
 
 ## Pose detectors
 

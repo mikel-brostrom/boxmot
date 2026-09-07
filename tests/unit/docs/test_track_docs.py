@@ -67,10 +67,10 @@ def test_readme_minimal_usage_accepts_numpy_rows() -> None:
     content = README.read_text(encoding="utf-8")
 
     assert "import numpy as np" in content
-    assert "from boxmot import ByteTrack" in content
-    assert "tracker = ByteTrack()" in content
+    assert "from boxmot import OccluBoost" in content
+    assert "tracker = OccluBoost()" in content
     assert "dets = np.array" in content
-    assert "tracks = tracker.update(dets)" in content
+    assert "tracks = tracker.update(dets, frame)" in content
     assert "tracks[:, 4].astype(int)" in content
 
 

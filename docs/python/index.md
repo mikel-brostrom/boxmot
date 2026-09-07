@@ -49,8 +49,12 @@ wire boundary requires the legacy 6/7- or 8/9-column representation.
 
 ## Tracker factory
 
-Tracker specifications contain algorithm configuration only. A tracker never
-owns or invokes an appearance model or segmentor.
+Tracker specifications contain algorithm configuration; pipelines can keep
+appearance models and segmentors as separate reusable components. Every
+high-level ReID-enabled tracker adapter supports live appearance extraction: it
+can lazily invoke ReID when embeddings are absent and a `Frame` is supplied.
+For a native backend, the adapter sends those features to the model-free C++
+tracker library.
 
 ```python
 from boxmot import create_tracker
@@ -96,14 +100,65 @@ the exact `float64` integer range (`-2**53` through `2**53`); use structured
 `Detections` input and `Tracks` output when unrestricted `int64` values or
 track-aligned masks are required.
 
-The NumPy form is a convenience for simple box-only tracker calls. Use
-`Detections` when providing embeddings, masks, sample metadata, or composing a
-pipeline. A supplied `Frame` does not change the NumPy return type or add sample
-metadata. A `detection_index == -1` value identifies a propagated track without
-a current detection.
+The NumPy form is a convenience for tracker calls without masks or precomputed
+embeddings. Use `Detections` when providing either enrichment, retaining sample
+metadata, or composing a pipeline. Any high-level ReID-enabled tracker adapter
+may pair NumPy rows with a supplied `Frame` to generate missing embeddings
+lazily; the return value remains a NumPy matrix without sample metadata. A
+`detection_index == -1` value identifies a propagated track without a current
+detection.
 
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
-`frame` is true, attach/provide that value before calling `update`.
+`frame` is true, attach/provide that value before calling `update`. For a
+ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
+required by the algorithm; the direct update boundary can satisfy it from
+either attached embeddings or a `Frame`.
+
+### Live embeddings in ReID-enabled trackers
+
+`BotSort`, `StrongSort`, `DeepOcSort`, `HybridSort`, `BoostTrack`, and
+`OccluBoost` share the same Python direct-construction options. The native
+BotSort and OccluBoost adapters expose the same live fallback:
+
+- `reid_model` injects a pre-built backend exposing `get_features(boxes, image)`.
+- `reid_weights` selects the weights for a lazily built backend; omitting it
+  selects the default ReID model.
+- `device`, `half`, and `reid_preprocess` configure that lazy backend.
+
+When embeddings are already attached, the tracker uses them without invoking
+its backend. A non-empty batch without embeddings requires a `Frame`, then
+extracts one embedding per detection. An empty batch bypasses ReID extraction
+and does not initialize the model; independent frame requirements such as CMC
+still apply. For trackers with a `use_embeddings` option, disabling it also
+disables extraction. The resolved `tracker.generates_embeddings` property
+reports whether this fallback is active for either backend.
+
+These are direct class-construction options for real-time tracking loops. A
+resolved `ReIDEncoderSpec` can instead be installed before the first update of
+a sequence with `tracker.configure_reid(spec)`; the tracker keeps the full
+backend, artifact hash, preprocessing, and encoder options and still constructs
+the encoder lazily. A composed pipeline can also share one `AppearanceEncoder`
+and attach its output before the tracker runs. Model settings do not belong in
+`TrackerSpec` for either backend. A native adapter owns the optional encoder;
+the underlying C++ tracker library accepts only the resulting typed embedding
+buffer and never loads a model.
+
+Factory results use the general `Tracker` type because not every tracker can
+own ReID. Narrow their configuration surface with the runtime-checkable
+optional protocol, then confirm that embedding generation is enabled before
+installing a complete encoder specification:
+
+```python
+from boxmot.reid import ReIDEncoderSpec
+from boxmot.trackers import ReIDConfigurableTracker, TrackerSpec, create_tracker
+
+tracker = create_tracker(TrackerSpec(name="botsort", backend="cpp"))
+spec = ReIDEncoderSpec(backend="onnx", artifact="/models/reid.onnx")
+
+if not isinstance(tracker, ReIDConfigurableTracker) or not tracker.generates_embeddings:
+    raise TypeError("This tracker cannot own ReID inference.")
+tracker.configure_reid(spec)
+```
 
 ## Component factories
 
@@ -180,6 +235,13 @@ result = pipeline.step(frame)
 assert result.detections.sample_id == result.tracks.sample_id
 pipeline.reset()
 ```
+
+In this example, `outputs.embeddings=True` makes embeddings part of the public
+`PipelineResult`, so an external `reid` encoder is required unless the detector
+already supplies them. If embeddings are needed only inside a ReID-enabled
+tracker adapter, omit both `reid` and the embeddings output request; the
+pipeline forwards the `Frame` and the tracker extracts them privately. This is
+the same for Python implementations and ReID-enabled native adapters.
 
 For service or cached inputs, construct a pipeline with `detector=None` and call
 `step_detections(frame, detections)`. Both entry points use the same enrichment

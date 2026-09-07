@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 import torch
 
 from boxmot.engine.tuning.search_space import load_yaml_config
@@ -42,9 +41,7 @@ def _update(
         class_ids=torch.from_numpy(rows[:, geometry_width + 1].astype(np.int64, copy=True)),
         sample_id=sample_id,
         embeddings=(
-            None
-            if embeddings is None
-            else torch.from_numpy(np.ascontiguousarray(embeddings, dtype=np.float32))
+            None if embeddings is None else torch.from_numpy(np.ascontiguousarray(embeddings, dtype=np.float32))
         ),
     )
     frame = _frame(sample_id, frame_index) if tracker.requirements.frame else None
@@ -121,16 +118,6 @@ def test_hybridsort_obb_consumes_precomputed_embeddings_for_ambiguous_geometry()
     second_ids = _ids_by_detection_index(second)
     assert second_ids[0] == first_ids[1]
     assert second_ids[1] == first_ids[0]
-    assert not hasattr(tracker, "model")
-    assert not hasattr(tracker, "reid_model")
-
-
-def test_hybridsort_embedding_mode_rejects_missing_precomputed_embeddings() -> None:
-    tracker = _tracker(use_embeddings=True)
-    row = np.array([[64, 64, 40, 12, 0.2, 0.95, 0]], dtype=np.float32)
-
-    with pytest.raises(ValueError, match="requires detection embeddings"):
-        _update(tracker, row, frame_index=0)
 
 
 def test_hybridsort_obb_disabled_byte_pass_does_not_update_low_score_track() -> None:

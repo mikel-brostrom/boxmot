@@ -64,9 +64,10 @@ def resolve_batch_embeddings(
 ) -> np.ndarray:
     """Return embeddings aligned with a detection batch.
 
-    Tracker kernels consume caller-supplied embeddings only. Disabled appearance
-    paths receive deterministic placeholders because several historical kernels
-    keep one shared motion/appearance data path.
+    Tracker kernels consume embeddings resolved at the public update boundary;
+    they never invoke a model themselves. Disabled appearance paths receive
+    deterministic placeholders because several historical kernels keep one
+    shared motion/appearance data path.
     """
     if not enabled:
         return placeholder_embeddings(

@@ -23,9 +23,6 @@ from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
 TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
-EMBEDDING_TRACKER_NAMES = tuple(
-    name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.accepts_embeddings
-)
 
 
 def _frame(sample_id: str, frame_index: int, *, height: int = 96, width: int = 128) -> Frame:
@@ -178,7 +175,15 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     tuning_config = load_yaml_config("hybridsort")
     flat_tuning_config = flatten_yaml_config(tuning_config)
     constructor_params = set(inspect.signature(HybridSort.__init__).parameters)
-    expected = constructor_params - {"self", "kwargs"}
+    expected = constructor_params - {
+        "self",
+        "kwargs",
+        "reid_model",
+        "reid_weights",
+        "device",
+        "half",
+        "reid_preprocess",
+    }
     expected.update({"det_thresh", "max_age", "max_obs", "min_hits", "iou_threshold", "asso_func"})
 
     assert expected <= set(runtime_config)
@@ -243,19 +248,6 @@ def test_configured_class_catalog_rejects_unknown_detector_class() -> None:
 
     with pytest.raises(ValueError, match="not present in the tracker class catalog"):
         tracker.update(detections)
-
-
-@pytest.mark.parametrize("tracker_name", EMBEDDING_TRACKER_NAMES)
-def test_embedding_trackers_never_fall_back_to_model_inference(tracker_name: str) -> None:
-    tracker = create_tracker(TrackerSpec(tracker_name))
-    sample_id = "sequence/000000"
-    detections = _detections(_aabb_rows()[:1], sample_id=sample_id)
-    frame = _frame(sample_id, 0) if tracker.requirements.frame else None
-
-    with pytest.raises(ValueError, match="requires detection embeddings"):
-        tracker.update(detections, frame)
-    assert not hasattr(tracker, "model")
-    assert not hasattr(tracker, "reid_model")
 
 
 def test_sam2mot_preserves_obb_masks_and_detection_alignment() -> None:

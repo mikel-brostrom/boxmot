@@ -60,6 +60,22 @@ class RegistryLoadingBackend(BaseModelBackend):
         self.load_report = ReIDModelRegistry.load_deployment_weights(self.model, w)
 
 
+def test_backend_accepts_tuple_weight_selection(monkeypatch) -> None:
+    first = Path("first.pt")
+    captured: list[Path] = []
+
+    def capture_primary_weight(value: Path) -> Path:
+        captured.append(value)
+        raise RuntimeError("stop after weight selection")
+
+    monkeypatch.setattr(base_backend_module, "resolve_model_path", capture_primary_weight)
+
+    with pytest.raises(RuntimeError, match="stop after weight selection"):
+        InitOnlyBackend((first, Path("second.pt")), torch.device("cpu"), half=False)
+
+    assert captured == [first]
+
+
 def test_download_model_does_not_wait_for_stale_or_unavailable_lock_when_weights_exist(
     monkeypatch,
     tmp_path,

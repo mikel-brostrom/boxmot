@@ -106,7 +106,16 @@ class _Tracker:
     name = "fake"
     supports_obb = False
 
-    def __init__(self, events, *, embeddings=False, masks=False, frame=False, frame_dimensions_only=False):
+    def __init__(
+        self,
+        events,
+        *,
+        embeddings=False,
+        masks=False,
+        frame=False,
+        frame_dimensions_only=False,
+        generates_embeddings=False,
+    ):
         self.events = events
         self.requirements = TrackerRequirements(
             embeddings=embeddings,
@@ -114,6 +123,7 @@ class _Tracker:
             frame=frame,
             frame_dimensions_only=frame_dimensions_only,
         )
+        self.generates_embeddings = generates_embeddings
         self.received = None
         self.reset_calls = 0
 
@@ -315,6 +325,88 @@ def test_tracking_passes_frame_context_to_dimensions_only_tracker() -> None:
     result = TrackingPipeline(detector=_Detector([_detections(frame)], events), tracker=tracker).step(frame)
 
     assert tracker.received == (result.detections, frame)
+
+
+def test_tracking_allows_internal_live_embeddings_and_passes_the_frame() -> None:
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, embeddings=True, generates_embeddings=True)
+    pipeline = TrackingPipeline(
+        detector=_Detector([_detections(frame)], events),
+        tracker=tracker,
+    )
+
+    result = pipeline.step(frame)
+
+    assert events == [("detect", ("one",)), ("track", "one")]
+    assert result.detections.embeddings is None
+    assert tracker.received == (result.detections, frame)
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_tracking_step_detections_allows_internal_live_embeddings(empty: bool) -> None:
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, embeddings=True, generates_embeddings=True)
+    pipeline = TrackingPipeline(detector=None, tracker=tracker)
+
+    result = pipeline.step_detections(frame, _detections(frame, empty=empty))
+
+    assert events == [("track", "one")]
+    assert result.detections.embeddings is None
+    assert tracker.received == (result.detections, None if empty else frame)
+
+
+def test_tracking_precomputed_embeddings_bypass_internal_frame_need() -> None:
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, embeddings=True, generates_embeddings=True)
+    pipeline = TrackingPipeline(
+        detector=_Detector(
+            [_detections(frame, embeddings=True)],
+            events,
+            provides_embeddings=True,
+        ),
+        tracker=tracker,
+    )
+
+    result = pipeline.step(frame)
+
+    assert result.detections.embeddings is not None
+    assert tracker.received == (result.detections, None)
+
+
+def test_tracking_prefers_explicit_external_reid_to_internal_generation() -> None:
+    events = []
+    frame = _frame("one")
+    tracker = _Tracker(events, embeddings=True, generates_embeddings=True)
+    pipeline = TrackingPipeline(
+        detector=_Detector([_detections(frame)], events),
+        tracker=tracker,
+        reid=_Encoder(events),
+    )
+
+    result = pipeline.step(frame)
+
+    assert events == [
+        ("detect", ("one",)),
+        ("embed", ("one",), (False,)),
+        ("track", "one"),
+    ]
+    assert result.detections.embeddings is not None
+    assert tracker.received == (result.detections, None)
+
+
+def test_tracking_requested_embedding_outputs_still_require_an_upstream_provider() -> None:
+    frame = _frame("one")
+    tracker = _Tracker([], embeddings=True, generates_embeddings=True)
+
+    with pytest.raises(ValueError, match="requires appearance embeddings"):
+        TrackingPipeline(
+            detector=_Detector([_detections(frame)], []),
+            tracker=tracker,
+            outputs=PipelineOutputs(embeddings=True),
+        )
 
 
 def test_tracking_step_detections_skips_detector_and_enriches_for_tracker() -> None:

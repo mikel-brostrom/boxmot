@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from pathlib import Path
 from typing import Any, Protocol, overload
 
 import numpy as np
 import torch
 
+from boxmot.components.timing import timed_component_phase
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
+from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.input import pack_numpy_track_rows, parse_numpy_detection_rows
 from boxmot.trackers.config import load_tracker_defaults
@@ -112,12 +115,13 @@ def _to_tracks(batch: NativeTrackBatch, *, sample_id: str, is_obb: bool) -> Trac
     )
 
 
-class NativeTrackerAdapter:
+class NativeTrackerAdapter(LiveReIDMixin):
     """Canonical tracker wrapper shared by domain-facing C++ adapters."""
 
     _native_display_name: str
     supports_obb = True
     supports_masks = False
+    accepts_embeddings = False
 
     def _init_native_handle(
         self,
@@ -128,13 +132,26 @@ class NativeTrackerAdapter:
         use_embeddings: bool,
         requires_frame: bool,
         frame_dimensions_only: bool = False,
+        reid_model: Any | None = _REID_OPTION_UNSET,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
+        device: Any = _REID_OPTION_UNSET,
+        half: bool = _REID_OPTION_UNSET,
+        reid_preprocess: str | None = _REID_OPTION_UNSET,
     ) -> None:
         if geometry not in {"aabb", "obb"}:
             raise ValueError("Native tracker geometry must be 'aabb' or 'obb'.")
         self.name = self.__class__.__name__
         self.cfg = cfg
         self.geometry = geometry
+        self.is_obb = geometry == "obb"
         self.use_embeddings = use_embeddings
+        self._init_live_reid(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+        )
         self._requirements = TrackerRequirements(
             embeddings=use_embeddings,
             frame=requires_frame,
@@ -165,8 +182,9 @@ class NativeTrackerAdapter:
         if frame is not None:
             frame.validate()
 
-        is_obb = self.geometry == "obb"
+        is_obb = self.is_obb
         numpy_input = type(detections) is np.ndarray
+        canonical_detections = detections if isinstance(detections, Detections) else None
         if isinstance(detections, Detections):
             # Canonical dataclasses are frozen, but their tensor storage remains
             # mutable. Revalidate before exposing that storage to ctypes.
@@ -197,11 +215,39 @@ class NativeTrackerAdapter:
             class_ids = rows.class_ids
             embeddings = None
 
+        prepared_bgr = None
+        if (
+            embeddings is None
+            and self.generates_embeddings
+            and len(geometry)
+            and frame is not None
+            and self._reid_encoder_spec is None
+        ):
+            with timed_component_phase("reid", "preprocess", device=self._reid_device):
+                prepared_bgr = self._frame_to_bgr(frame)
+
+        embeddings = self._resolve_input_embeddings(
+            geometry=geometry,
+            embeddings=embeddings,
+            frame=frame,
+            detections=canonical_detections,
+            scores=scores,
+            class_ids=class_ids,
+            prepared_bgr=prepared_bgr,
+        )
         if self.requirements.embeddings and embeddings is None:
-            raise ValueError(f"Native {self._native_display_name} requires precomputed embeddings.")
+            raise ValueError(f"Native {self._native_display_name} requires detection embeddings.")
         if self.requirements.frame and frame is None:
             raise ValueError(f"Native {self._native_display_name} requires a frame.")
 
+        self._mark_live_reid_updated()
+        image = prepared_bgr
+        if frame is not None and (image is None or self.requirements.frame_dimensions_only):
+            image = _frame_to_bgr(
+                frame,
+                dimensions_only=self.requirements.frame_dimensions_only,
+                placeholders=self._dimension_only_images,
+            )
         batch = self._library.update(
             self._handle,
             geometry=geometry,
@@ -209,11 +255,7 @@ class NativeTrackerAdapter:
             class_ids=class_ids,
             detection_indices=np.arange(len(scores), dtype=np.int64),
             embeddings=embeddings,
-            image=_frame_to_bgr(
-                frame,
-                dimensions_only=self.requirements.frame_dimensions_only,
-                placeholders=self._dimension_only_images,
-            ),
+            image=image,
         )
         output_geometry = batch.geometry
         if is_obb and len(batch.track_ids):
@@ -256,6 +298,7 @@ class NativeTrackerAdapter:
         self._library.reset(self._handle)
         self._obb_output_by_track_id.clear()
         self._dimension_only_images.clear()
+        self._reset_live_reid_sequence()
 
     def close(self) -> None:
         """Release the native tracker handle."""

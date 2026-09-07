@@ -16,8 +16,12 @@ To integrate a new tracker cleanly:
    overloaded `update()` entry point: `Detections` input returns `Tracks`, and
    packed NumPy input returns packed NumPy track rows. `BaseTracker` owns
    validation and conversion of both representations; concrete trackers
-   continue to implement only their private NumPy kernel. Models and fallback
-   feature extraction do not belong in a tracker.
+   continue to implement only their private NumPy kernel. A ReID-enabled
+   high-level tracker adapter must expose and forward the shared `reid_model`,
+   `reid_weights`, `device`, `half`, and `reid_preprocess` constructor options
+   rather than implementing its own extraction path. The shared tracker-domain
+   appearance helper owns lazy extraction for missing embeddings, the
+   precomputed bypass, and empty-batch behavior for Python and native adapters.
 3. Add the tracker key and canonical implementation path to `_TRACKER_MANIFEST`
    in `boxmot/_tracker_exports.py`, then add its static capability declaration
    to the registry. Public exports and exact class identities derive from the
@@ -67,7 +71,9 @@ and tuning stream keyed records through the same live ABI.
 Do not place model inference code under `native/cpp/trackers` or link it into a
 tracker target. The optional native appearance runtime is independently owned
 by `native/cpp/reid`; trackers receive embeddings through their typed input
-buffers.
+buffers. A high-level native adapter may implement the shared tracker-owned
+live-extraction fallback, but model settings remain separate from
+`TrackerSpec` and the low-level tracker ABI.
 
 ## Minimum checklist
 

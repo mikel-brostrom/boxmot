@@ -3,10 +3,11 @@ from __future__ import annotations
 # Hybrid-SORT-ReID with ECC + ReID (explicit config, BaseTracker-style)
 # - Assumes detection input is M x [x1, y1, x2, y2, conf, cls]
 # - ECC via shared CMC factory and BaseTracker.apply_cmc(...)
-# - ReID consumes caller-supplied embeddings
+# - ReID consumes supplied embeddings or generates them from a Frame
 # - Uses the validated Detections/NumPy/Frame update boundary from BaseTracker
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Preserves detector class IDs and frame-global det_ind values
+from pathlib import Path
 from typing import Any, List
 
 import numpy as np
@@ -35,7 +36,8 @@ class HybridSort(BoxTracker):
 
     Args:
         cmc_method (str): Camera-motion compensation method.
-        use_embeddings (bool): Whether to use caller-supplied appearance embeddings.
+        use_embeddings (bool): Whether to use appearance embeddings, generating
+            them from the frame when absent.
         low_thresh (float): Low-confidence threshold for second-pass matching.
         delta_t (int): Time window used for motion estimation.
         inertia (float): Motion-consistency weight.
@@ -61,6 +63,13 @@ class HybridSort(BoxTracker):
             regular detections.
         longterm_reid_correction_thresh_low (float): Correction threshold for
             low-score detections.
+        reid_model (Any | None): Optional pre-built ReID backend used when
+            embeddings are absent.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            Weights for the lazily constructed ReID backend.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazy ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
@@ -97,9 +106,22 @@ class HybridSort(BoxTracker):
         with_longterm_reid_correction: bool = True,
         longterm_reid_correction_thresh: float = 0.4,
         longterm_reid_correction_thresh_low: float = 0.4,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
 
         # store core knobs
         self.low_thresh = float(low_thresh)
@@ -143,7 +165,7 @@ class HybridSort(BoxTracker):
         """
         dets: ndarray [N,6] -> [x1,y1,x2,y2,conf,cls]
         img: HxWxC image
-        embs: optional [N,D] caller-supplied appearance features.
+        embs: optional [N,D] appearance features resolved by the public boundary.
         Returns: ndarray [M,8]: [x1,y1,x2,y2,track_id,conf,cls,det_ind]
         """
         if self.is_obb:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from boxmot.native.trackers.occluboost import get_occluboost_library
@@ -28,6 +29,7 @@ class NativeOccluBoostTracker(NativeTrackerAdapter):
     """Canonical tracker interface backed by the native OccluBoost ABI."""
 
     _native_display_name = "OccluBoost"
+    accepts_embeddings = True
 
     def __init__(
         self,
@@ -35,6 +37,11 @@ class NativeOccluBoostTracker(NativeTrackerAdapter):
         *,
         geometry: str = "aabb",
         library: NativeTrackerLibrary | None = None,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
     ) -> None:
         cfg = _resolve_tracker_config(options)
         self._init_native_handle(
@@ -43,6 +50,11 @@ class NativeOccluBoostTracker(NativeTrackerAdapter):
             geometry=geometry,
             use_embeddings=bool(cfg["use_embeddings"]),
             requires_frame=bool(cfg["use_cmc"]) or association_requires_frame(cfg),
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
         )
 
 

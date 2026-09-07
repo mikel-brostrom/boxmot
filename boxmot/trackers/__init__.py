@@ -6,11 +6,12 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from boxmot.trackers.protocols import Tracker, TrackerRequirements
+    from boxmot.trackers.protocols import ReIDConfigurableTracker, Tracker, TrackerRequirements
     from boxmot.trackers.specs import GeometryKind, TrackerCapabilities, TrackerFamily, TrackerSpec
 
 __all__ = (
     "GeometryKind",
+    "ReIDConfigurableTracker",
     "Tracker",
     "TrackerCapabilities",
     "TrackerFamily",
@@ -21,6 +22,7 @@ __all__ = (
 
 _EXPORTS = {
     "GeometryKind": ("boxmot.trackers.specs", "GeometryKind"),
+    "ReIDConfigurableTracker": ("boxmot.trackers.protocols", "ReIDConfigurableTracker"),
     "Tracker": ("boxmot.trackers.protocols", "Tracker"),
     "TrackerCapabilities": ("boxmot.trackers.specs", "TrackerCapabilities"),
     "TrackerFamily": ("boxmot.trackers.specs", "TrackerFamily"),

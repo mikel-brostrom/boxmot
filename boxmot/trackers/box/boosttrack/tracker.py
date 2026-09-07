@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, List, Optional
 
 import numpy as np
@@ -42,7 +43,15 @@ class BoostTrack(BoxTracker):
         use_rich_s (bool): Whether to enable rich shape features.
         use_sb (bool): Whether to enable soft-BIoU.
         use_vt (bool): Whether to enable visual tracking cues.
-        use_embeddings (bool): Whether to use caller-supplied appearance embeddings.
+        use_embeddings (bool): Whether to use appearance embeddings, generating
+            them from the frame when absent.
+        reid_model (Any | None): Optional pre-built ReID backend used when
+            embeddings are absent.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            Weights for the lazily constructed ReID backend.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazy ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
 
     Attributes:
@@ -74,9 +83,22 @@ class BoostTrack(BoxTracker):
         use_vt: bool = False,
         use_embeddings: bool = False,
         adaptive_kf: bool = False,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
 
         self.active_tracks = []
         self.frame_count = 0

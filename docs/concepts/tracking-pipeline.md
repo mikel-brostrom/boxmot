@@ -34,12 +34,19 @@ Frame
   -> optional Segmentor.segment(...)
   -> optional AppearanceEncoder.encode(...)
   -> Tracker.update(detections, frame?)
+       -> optional private ReID extraction in a ReID-enabled tracker adapter
   -> PipelineResult(detections, tracks)
 ```
 
 `TrackingPipeline.step(frame)` uses this path. Enrichment is driven by the
 resolved tracker requirements, requested outputs, and transitive encoder
-requirements. Detector-native enrichments are preserved.
+requirements. Detector-native enrichments are preserved. When appearance is a
+tracker requirement and no external encoder supplies it, a ReID-enabled
+tracker adapter can derive its private embeddings from the frame. This private
+matrix does not become a `PipelineResult.detections` output; explicitly
+requesting embeddings still requires upstream enrichment. A native adapter
+computes the same fallback before passing a typed embedding buffer to its
+model-free C++ tracker library.
 
 ## Supplied-detection path
 

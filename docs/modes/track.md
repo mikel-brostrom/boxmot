@@ -46,11 +46,23 @@ pixels. The pipeline adds only missing requirements:
 - A configured segmentor runs only when masks are needed and absent.
 - A configured appearance encoder runs only when embeddings are needed and
   absent.
+- Without an external encoder, a ReID-enabled tracker adapter receives the
+  `Frame` and extracts its private embeddings internally.
 - Transitive requirements are honored: a mask-aware encoder triggers
   segmentation first.
 
 Sam2Mot requires full-frame detection-aligned foreground masks. Trackers with
-`use_embeddings` require precomputed embeddings; no tracker runs a ReID model.
+`use_embeddings` consume an upstream payload when available. For a non-empty
+batch without embeddings, every ReID-enabled tracker adapter can instead lazily
+generate them from the supplied `Frame`; attached embeddings bypass internal
+inference, and empty batches do not initialize the model. Native adapters pass
+the resulting features to the model-free C++ tracker library through its typed
+ABI.
+
+Tracker-private embeddings are used only for association. Requesting
+`PipelineOutputs(embeddings=True)` still requires a detector-provided payload
+or an external appearance encoder because the private matrix is not added to
+the returned `Detections`.
 
 ## Sequence state
 
@@ -78,6 +90,11 @@ for frame in frames:  # Sequence[boxmot.structures.Frame]
 
 For externally supplied detections, construct the pipeline with
 `detector=None` and call `step_detections(frame, detections)`.
+
+For an appearance-enabled tracker adapter, `TrackingPipeline` may omit `reid`;
+the tracker then extracts missing embeddings from each live frame. Pass a
+shared encoder as `reid` when the detections returned in `PipelineResult` must
+include embeddings or when several consumers reuse the same encoder.
 
 A standalone box-only tracker may instead receive an exact NumPy AABB6 or OBB7
 matrix directly and returns packed `float64` AABB8 or OBB9 rows. Use
@@ -109,7 +126,9 @@ share one rendered frame rather than rendering the same result twice.
 Select a registered native implementation with `--tracker-backend cpp`.
 Factory validation rejects unsupported masks, per-class mode, or geometry
 before tracking starts. Native and Python implementations share the structured
-public contract.
+public contract. ReID-enabled native adapters generate missing embeddings from
+the frame just like their Python counterparts; the underlying C++ tracker
+libraries consume the resulting typed buffers and do not load models.
 
 ## Arguments
 

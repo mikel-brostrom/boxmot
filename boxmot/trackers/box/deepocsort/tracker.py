@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -37,11 +38,19 @@ class DeepOcSort(BoxTracker):
         alpha_fixed_emb (float): Fixed update rate for track embeddings.
         aw_param (float): Adaptive-weighting parameter for motion versus
             appearance.
-        use_embeddings (bool): Whether to use caller-supplied appearance embeddings.
+        use_embeddings (bool): Whether to use appearance embeddings, generating
+            them from the frame when absent.
         cmc_off (bool): Whether to disable camera-motion compensation.
         aw_off (bool): Whether to disable adaptive appearance weighting.
         Q_xy_scaling (float): Process-noise scaling for position coordinates.
         Q_s_scaling (float): Process-noise scaling for scale coordinates.
+        reid_model (Any | None): Optional pre-built ReID backend used when
+            embeddings are absent.
+        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
+            Weights for the lazily constructed ReID backend.
+        device (Any): Device used by the lazily constructed ReID backend.
+        half (bool): Whether the lazy ReID backend uses FP16 inference.
+        reid_preprocess (str | None): Optional ReID preprocessing profile.
         **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
@@ -64,9 +73,22 @@ class DeepOcSort(BoxTracker):
         aw_off: bool = False,
         Q_xy_scaling: float = 0.01,
         Q_s_scaling: float = 0.0001,
+        *,
+        reid_model: Any | None = None,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
+        device: Any = "cpu",
+        half: bool = False,
+        reid_preprocess: str | None = None,
         **kwargs: Any,  # BaseTracker parameters
     ):
-        super().__init__(**kwargs)
+        super().__init__(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+            **kwargs,
+        )
 
         """
         Sets key parameters for SORT

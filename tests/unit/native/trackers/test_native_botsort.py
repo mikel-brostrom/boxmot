@@ -62,7 +62,7 @@ def test_native_botsort_requirements_follow_resolved_config(options, embeddings,
     tracker.close()
 
 
-def test_native_botsort_consumes_precomputed_embeddings_only():
+def test_native_botsort_forwards_supplied_embeddings():
     library = _FakeLibrary()
     tracker = native_module.NativeBotSortTracker(
         {"frame_rate": 15, "use_embeddings": True, "use_cmc": False},
@@ -89,24 +89,20 @@ def test_native_botsort_consumes_precomputed_embeddings_only():
     assert library.calls[2:] == [("reset", "handle"), ("destroy", "handle")]
 
 
-def test_native_botsort_rejects_missing_or_nonfinite_embeddings_before_native_call():
+def test_native_botsort_rejects_nonfinite_embeddings_before_native_call():
     library = _FakeLibrary()
     tracker = native_module.NativeBotSortTracker(
         {"use_embeddings": True, "use_cmc": False},
         library=library,
     )
     rows = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float32)
-    with pytest.raises(ValueError, match="requires precomputed embeddings"):
-        tracker.update(detections_from_rows(rows))
-    with pytest.raises(ValueError, match="requires precomputed embeddings"):
-        tracker.update(rows)
     with pytest.raises(ValueError, match="finite values"):
         detections_from_rows(rows, embeddings=np.array([[np.nan, 1.0]], dtype=np.float32))
     assert [call[0] for call in library.calls] == ["create"]
     tracker.close()
 
 
-def test_native_botsort_rejects_removed_model_owned_configuration():
+def test_native_botsort_rejects_model_settings_inside_algorithm_options():
     with pytest.raises(TypeError, match="unexpected option 'with_reid'"):
         native_module.NativeBotSortTracker(
             {"with_reid": False},

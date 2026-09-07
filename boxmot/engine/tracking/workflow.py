@@ -29,7 +29,7 @@ from boxmot.reid import AppearanceEncoder, ReIDEncoderSpec, create_reid_encoder
 from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors import Segmentor, create_segmentor
 from boxmot.segmentors.config import resolve_segmentor_spec
-from boxmot.trackers import Tracker, TrackerSpec
+from boxmot.trackers import ReIDConfigurableTracker, Tracker, TrackerSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,6 +180,7 @@ def run_track(
     geometry = str(getattr(args, "geometry", "aabb") or "aabb")
     if geometry not in {"aabb", "obb"}:
         raise ValueError("geometry must be 'aabb' or 'obb'")
+    tracker_was_injected = tracker is not None
 
     if detector is None:
         if ui_pipeline is not None:
@@ -191,17 +192,41 @@ def run_track(
             ui_pipeline.update("Loading tracker…")
         with startup_stage(startup_timings_ms, "tracker_load"):
             tracker = create_tracker(_tracker_spec(args, geometry))
+            requirements = tracker.requirements
+            generates_embeddings = getattr(tracker, "generates_embeddings", False)
+            if not isinstance(generates_embeddings, bool):
+                raise TypeError("tracker.generates_embeddings must be bool.")
+            if (
+                encoder is None
+                and requirements.embeddings
+                and generates_embeddings
+                and not detector.capabilities.provides_embeddings
+                and getattr(args, "reid", None) is not None
+            ):
+                if not isinstance(tracker, ReIDConfigurableTracker):
+                    raise TypeError(
+                        f"Tracker {tracker.name!r} declares internal embedding generation "
+                        "but does not implement configure_reid()."
+                    )
+                tracker.configure_reid(_reid_spec(args))
 
     requirements = tracker.requirements
-    if encoder is None and requirements.embeddings:
+    generates_embeddings = getattr(tracker, "generates_embeddings", False)
+    if not isinstance(generates_embeddings, bool):
+        raise TypeError("tracker.generates_embeddings must be bool.")
+    if (
+        encoder is None
+        and requirements.embeddings
+        and not detector.capabilities.provides_embeddings
+        and (not generates_embeddings or (tracker_was_injected and getattr(args, "reid", None) is not None))
+    ):
         reference = getattr(args, "reid", None)
         if reference is None:
             raise ValueError(f"Tracker {tracker.name!r} requires embeddings; configure --reid ID_OR_YAML.")
-        reid_spec = _reid_spec(args)
         if ui_pipeline is not None:
             ui_pipeline.update("Loading appearance encoder…")
         with startup_stage(startup_timings_ms, "reid_load"):
-            encoder = create_reid_encoder(reid_spec)
+            encoder = create_reid_encoder(_reid_spec(args))
 
     segmentor_reference = getattr(args, "segmentor", None)
     needs_masks = requirements.masks or bool(encoder is not None and encoder.requirements.masks)

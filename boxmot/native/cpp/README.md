@@ -88,8 +88,10 @@ Build requirements:
 The flat C ABI accepts separate float geometry, score, and embedding buffers
 and separate `int64` class and detection-index buffers. Updates return a
 library-allocated `BoxMOTTrackBatchV2`; callers must release it with the
-tracker's `boxmot_<name>_result_free_v2` function. Trackers never load a ReID
-model: BotSort and OccluBoost consume embeddings produced upstream.
+tracker's `boxmot_<name>_result_free_v2` function. C++ tracker libraries never
+load a ReID model: BotSort and OccluBoost consume embedding buffers supplied by
+the high-level adapter or another caller. The Python-facing native adapters can
+derive a missing buffer from a `Frame` before crossing this ABI.
 
 ## Embedding in a C++ Program
 

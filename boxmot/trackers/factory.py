@@ -16,7 +16,7 @@ from boxmot.trackers.registry import (
 )
 from boxmot.trackers.specs import TrackerCapabilities, TrackerSpec
 
-_FORBIDDEN_NATIVE_MODEL_OPTIONS = frozenset(
+_REID_MODEL_OPTIONS = frozenset(
     {
         "device",
         "half",
@@ -111,11 +111,6 @@ def _create_native_tracker(
         raise ValueError(f"Native {spec.name} does not support masks.")
 
     option_names = set(spec.option_dict)
-    model_options = sorted(option_names & _FORBIDDEN_NATIVE_MODEL_OPTIONS)
-    if model_options:
-        raise ValueError(
-            "Native trackers consume precomputed embeddings and reject model options: " + ", ".join(model_options)
-        )
     mask_options = sorted(option_names & _FORBIDDEN_NATIVE_MASK_OPTIONS)
     if mask_options:
         raise ValueError("Native trackers do not support masks: " + ", ".join(mask_options))
@@ -132,9 +127,10 @@ def _create_native_tracker(
 def create_tracker(spec: TrackerSpec) -> Tracker:
     """Create one tracker from an immutable canonical specification.
 
-    Model construction and runtime inference are deliberately absent. Trackers
-    consume any required masks, embeddings, or frame through their structured
-    update boundary.
+    The factory does not construct models eagerly. Trackers consume required
+    masks, embeddings, or frames through their structured update boundary;
+    every ReID-enabled high-level tracker can additionally build its own ReID
+    backend lazily when called without precomputed embeddings.
     """
 
     if not isinstance(spec, TrackerSpec):
@@ -142,6 +138,14 @@ def create_tracker(spec: TrackerSpec) -> Tracker:
 
     definition = get_tracker_definition(spec.name)
     geometry_kind = _validate_geometry(spec, definition)
+    model_options = sorted(set(spec.option_dict) & _REID_MODEL_OPTIONS)
+    if model_options:
+        if not definition.capabilities.accepts_embeddings:
+            raise ValueError(f"Tracker {spec.name!r} does not accept ReID model options: " + ", ".join(model_options))
+        raise ValueError(
+            "TrackerSpec accepts tracker-algorithm options only; configure ReID on the created "
+            "tracker instead: " + ", ".join(model_options)
+        )
     if spec.backend == "cpp":
         tracker = _create_native_tracker(spec, definition, geometry_kind)
         return _bind_and_validate_capabilities(tracker, definition.capabilities)

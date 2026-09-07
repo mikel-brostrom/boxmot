@@ -1,11 +1,16 @@
+from __future__ import annotations
+
 from abc import abstractmethod
 from collections.abc import Iterable, Mapping
-from typing import overload
+from pathlib import Path
+from typing import Any, overload
 
 import numpy as np
 import torch
 
+from boxmot.components.timing import timed_component_phase
 from boxmot.structures import Boxes, Detections, Frame, Geometry, MaskBatch, OrientedBoxes, Tracks
+from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import get_detection_layout
@@ -24,6 +29,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class BaseTracker(
+    LiveReIDMixin,
     PerClassUpdateMixin,
     TrackFormattingMixin,
     TrackerMotionMixin,
@@ -82,6 +88,11 @@ class BaseTracker(
         class_names: Mapping[int, str] | None = None,
         asso_func: str = "iou",
         is_obb: bool = False,
+        reid_model: Any | None = _REID_OPTION_UNSET,
+        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
+        device: Any = _REID_OPTION_UNSET,
+        half: bool = _REID_OPTION_UNSET,
+        reid_preprocess: str | None = _REID_OPTION_UNSET,
         **kwargs,
     ):
         """
@@ -102,6 +113,13 @@ class BaseTracker(
           OBB ``hmiou`` is an experimental global-y height cue intended only
           where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
+        - reid_model: Optional pre-built ReID backend exposing
+          ``get_features(boxes, image)``.
+        - reid_weights: Weights used to lazily construct a ReID backend when
+          an appearance-enabled tracker receives no embeddings.
+        - device: Device used by the lazily constructed ReID backend.
+        - half: Whether the lazily constructed ReID backend uses FP16.
+        - reid_preprocess: Optional ReID preprocessing profile.
 
         Detection layouts:
         - AABB: ``(x1, y1, x2, y2, conf, cls)``
@@ -111,7 +129,13 @@ class BaseTracker(
         if kwargs:
             unexpected = next(iter(kwargs))
             raise TypeError(f"{self.__class__.__name__}.__init__() got an unexpected keyword argument '{unexpected}'")
-
+        self._init_live_reid(
+            reid_model=reid_model,
+            reid_weights=reid_weights,
+            device=device,
+            half=half,
+            reid_preprocess=reid_preprocess,
+        )
         self.name = self.__class__.__name__
         self.det_thresh = det_thresh
         self.max_age = max_age
@@ -147,12 +171,10 @@ class BaseTracker(
         )
         self.asso_func = self._build_association_function(width=None, height=None)
         self.id_allocator = TrackIdAllocator()
-
         self.frame_count = 0
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
-        self.last_emb_size = None
 
         if self.per_class:
             self._initialize_class_track_states()
@@ -203,6 +225,7 @@ class BaseTracker(
             frame.validate()
 
         numpy_input = type(detections) is np.ndarray
+        canonical_detections = detections if isinstance(detections, Detections) else None
         mask_image_size = None
         if isinstance(detections, Detections):
             detections.validate()
@@ -229,6 +252,26 @@ class BaseTracker(
             embeddings = None
             masks = None
 
+        prepared_bgr = None
+        if (
+            embeddings is None
+            and self.generates_embeddings
+            and len(geometry)
+            and frame is not None
+            and self._reid_encoder_spec is None
+        ):
+            with timed_component_phase("reid", "preprocess", device=self._reid_device):
+                prepared_bgr = self._frame_to_bgr(frame)
+
+        embeddings = self._resolve_input_embeddings(
+            geometry=geometry,
+            embeddings=embeddings,
+            frame=frame,
+            detections=canonical_detections,
+            scores=scores,
+            class_ids=class_ids,
+            prepared_bgr=prepared_bgr,
+        )
         requirements = self.requirements
         if requirements.embeddings and embeddings is None:
             raise ValueError(f"{self.__class__.__name__} requires detection embeddings.")
@@ -245,6 +288,7 @@ class BaseTracker(
                 f"Detection masks must match the frame spatial size, got {mask_image_size} and {frame.image_size}."
             )
 
+        self._mark_live_reid_updated()
         tracks = self._update_arrays(
             geometry=geometry,
             scores=scores,
@@ -255,6 +299,7 @@ class BaseTracker(
             masks=masks,
             mask_image_size=mask_image_size,
             numpy_output=numpy_input,
+            prepared_bgr=prepared_bgr,
         )
         return tracks
 
@@ -270,6 +315,7 @@ class BaseTracker(
         masks: np.ndarray | None,
         mask_image_size: tuple[int, int] | None,
         numpy_output: bool,
+        prepared_bgr: np.ndarray | None,
     ) -> Tracks | np.ndarray:
         """Invoke one NumPy kernel update and return its requested public representation."""
         self.class_catalog.validate_ids(class_ids.tolist())
@@ -285,7 +331,7 @@ class BaseTracker(
                 self._initialize_frame_dimensions(width=frame.width, height=frame.height)
             else:
                 # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
-                img = frame.image.permute(1, 2, 0).flip(-1).contiguous().numpy()
+                img = prepared_bgr if prepared_bgr is not None else self._frame_to_bgr(frame)
 
         self._initialize_frame_context(img)
         if self.per_class:
@@ -325,6 +371,7 @@ class BaseTracker(
                 if previous is not None:
                     geometry_array[index] = align_obb_measurement(geometry_array[index], previous)
                 self._obb_output_by_track_id[track_id] = geometry_array[index].copy()
+
         raw_class_ids = integer_column(self.detection_layout.schema.track_class_index, "class IDs")
         decoded_class_ids = np.asarray(
             [self._decode_kernel_class_id(int(value)) for value in raw_class_ids.tolist()],
@@ -539,8 +586,8 @@ class BaseTracker(
         """Reset sequence-local state while keeping tracker configuration."""
         self.frame_count = 0
         self.active_tracks = []
-        self.last_emb_size = None
         self._first_frame_processed = False
+        self._reset_live_reid_sequence()
         self._plot_frame_idx = -1
         self._removed_first_seen.clear()
         self._removed_expired.clear()

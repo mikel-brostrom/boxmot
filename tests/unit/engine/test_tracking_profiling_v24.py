@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+import boxmot.components.timing as component_timing
 from boxmot.components.timing import timed_component_phase
 from boxmot.detectors import DetectorCapabilities
 from boxmot.engine.tracking.profiling import RUNTIME_STAGE_KEYS, ProfiledTracker, RuntimeProfiler
@@ -268,3 +269,35 @@ def test_profiled_tracker_forwards_numpy_rows_and_uses_available_sample_identity
     assert profiler.value("numpy:000001", "tracker_update") == pytest.approx(3.0)
     assert profiler.value(frame.sample_id, "tracker_total") == pytest.approx(2.0)
     assert profiler.value(frame.sample_id, "tracker_update") == pytest.approx(2.0)
+
+
+def test_profiled_tracker_accounts_owned_reid_as_exclusive_child_time(monkeypatch) -> None:
+    class TrackerWithOwnedReid(_Tracker):
+        def update(self, detections, frame=None):
+            with timed_component_phase("reid", "preprocess", device="cpu"):
+                pass
+            with timed_component_phase("reid", "process", device="cpu"):
+                pass
+            with timed_component_phase("reid", "postprocess", device="cpu"):
+                pass
+            return super().update(detections, frame)
+
+    phase_clock = iter((1.0, 1.002, 2.0, 2.003, 3.0, 3.005))
+    monkeypatch.setattr(component_timing, "synchronize_torch_device", lambda _device: None)
+    monkeypatch.setattr(component_timing.time, "perf_counter", lambda: next(phase_clock))
+    public_call_clock = iter((10.0, 10.02))
+    profiler = RuntimeProfiler(clock=lambda: next(public_call_clock))
+    frame = _frame()
+
+    ProfiledTracker(TrackerWithOwnedReid(), profiler).update(_detections(frame), frame)
+    profiler.finish_sample(frame.sample_id, 20.0)
+
+    timings = profiler.sample_timings_ms(frame.sample_id)
+    assert timings["reid_preprocess"] == pytest.approx(2.0)
+    assert timings["reid_inference"] == pytest.approx(3.0)
+    assert timings["reid_postprocess"] == pytest.approx(5.0)
+    assert timings["reid_total"] == pytest.approx(10.0)
+    assert timings["tracker_update"] == pytest.approx(10.0)
+    assert timings["tracker_total"] == pytest.approx(10.0)
+    assert timings["reid_total"] + timings["tracker_total"] == pytest.approx(timings["overall"])
+    assert timings["other_overhead"] == pytest.approx(0.0, abs=1e-9)

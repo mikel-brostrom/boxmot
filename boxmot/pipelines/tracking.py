@@ -49,15 +49,21 @@ class TrackingPipeline:
     outputs: PipelineOutputs = PipelineOutputs()
     _perception: PerceptionPipeline = field(init=False, repr=False)
     _requirements: TrackerRequirements = field(init=False, repr=False)
+    _perception_requirements: TrackerRequirements = field(init=False, repr=False)
+    _generates_embeddings: bool = field(init=False, repr=False)
     _sequence_id: str | None = field(init=False, default=None, repr=False)
     _sequence_is_set: bool = field(init=False, default=False, repr=False)
     _last_frame_index: int | None = field(init=False, default=None, repr=False)
 
     def __post_init__(self) -> None:
         requirements = _validated_requirements(self.tracker)
+        generates_embeddings = getattr(self.tracker, "generates_embeddings", False)
+        if not isinstance(generates_embeddings, bool):
+            raise TypeError("tracker.generates_embeddings must be bool.")
+        upstream_embeddings = requirements.embeddings and (not generates_embeddings or self.reid is not None)
         effective = PipelineOutputs(
             masks=self.outputs.masks or requirements.masks,
-            embeddings=self.outputs.embeddings or requirements.embeddings,
+            embeddings=self.outputs.embeddings or upstream_embeddings,
         )
         if (
             self.detector is not None
@@ -68,9 +74,7 @@ class TrackingPipeline:
             raise ValueError(
                 "This tracker configuration requires appearance embeddings, but no ReID encoder was provided."
             )
-        encoder_needs_masks = (
-            effective.embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
-        )
+        encoder_needs_masks = effective.embeddings and self.reid is not None and _encoder_requirements(self.reid).masks
         if (
             self.detector is not None
             and (effective.masks or encoder_needs_masks)
@@ -79,6 +83,13 @@ class TrackingPipeline:
         ):
             raise ValueError("This pipeline requires masks, but no segmentor was provided.")
         self._requirements = requirements
+        self._perception_requirements = TrackerRequirements(
+            embeddings=upstream_embeddings,
+            masks=requirements.masks,
+            frame=requirements.frame,
+            frame_dimensions_only=requirements.frame_dimensions_only,
+        )
+        self._generates_embeddings = generates_embeddings
         self._perception = PerceptionPipeline(
             detector=self.detector,
             segmentor=self.segmentor,
@@ -104,7 +115,9 @@ class TrackingPipeline:
 
     def _track(self, frame: Frame, detections: Detections) -> PipelineResult:
         self._validate_frame_order(frame)
-        if self._requirements.embeddings and detections.embeddings is None:
+        embeddings_missing = self._requirements.embeddings and detections.embeddings is None
+        needs_live_embedding_pixels = embeddings_missing and len(detections) > 0
+        if embeddings_missing and not self._generates_embeddings:
             raise ValueError("Tracker-required embeddings are missing after perception enrichment.")
         if self._requirements.masks and detections.masks is None:
             raise ValueError("Tracker-required masks are missing after perception enrichment.")
@@ -116,22 +129,18 @@ class TrackingPipeline:
             )
         tracks = self.tracker.update(
             detections=detections,
-            frame=frame if self._requirements.frame else None,
+            frame=frame if self._requirements.frame or needs_live_embedding_pixels else None,
         )
         if not isinstance(tracks, Tracks):
             raise TypeError("Tracker.update() must return a Tracks object.")
         tracks.validate()
         if tracks.sample_id != frame.sample_id:
-            raise ValueError(
-                f"Tracker result has sample_id {tracks.sample_id!r}; expected {frame.sample_id!r}."
-            )
+            raise ValueError(f"Tracker result has sample_id {tracks.sample_id!r}; expected {frame.sample_id!r}.")
         if tracks.is_obb != detections.is_obb:
             expected = "OBB" if detections.is_obb else "AABB"
             actual = "OBB" if tracks.is_obb else "AABB"
             raise ValueError(f"Tracker returned {actual} geometry for {expected} detections.")
-        if tracks.detection_indices.numel() and bool(
-            (tracks.detection_indices >= len(detections)).any()
-        ):
+        if tracks.detection_indices.numel() and bool((tracks.detection_indices >= len(detections)).any()):
             raise ValueError("Tracker returned a detection index outside the current detection batch.")
         self._sequence_id = frame.sequence_id
         self._sequence_is_set = True
@@ -146,7 +155,7 @@ class TrackingPipeline:
         if not isinstance(detections, Detections):
             raise TypeError(f"detections must be a Detections object, not {type(detections).__name__}.")
         self._validate_frame_order(frame)
-        enriched = self._perception.enrich((frame,), (detections,), self._requirements)[0]
+        enriched = self._perception.enrich((frame,), (detections,), self._perception_requirements)[0]
         return self._track(frame, enriched)
 
     def step(self, frame: Frame) -> PipelineResult:

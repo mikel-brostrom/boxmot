@@ -6,9 +6,16 @@ BoT-SORT extends the ByteTrack family by combining motion, appearance, and camer
 
 ## What BoxMOT Needs For BotSort
 
-- A detector and, for the full method, a ReID model.
+- A detector plus appearance embeddings when `use_embeddings=True`. Both the
+  Python implementation and native adapter can generate missing embeddings
+  from a supplied `Frame` or consume embeddings already attached to
+  `Detections`.
 - Supports both AABB and OBB detections in BoxMOT.
 - Best when you need stronger identity preservation than ByteTrack, especially with camera motion or repeated occlusions.
+
+Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
+`half`, and `reid_preprocess` options described in the
+[Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ## Native C++ Backend
 
@@ -17,8 +24,8 @@ BoxMOT also ships a native C++17 BotSort implementation under `boxmot/native/cpp
 - cached `eval` and `tune` streamed through the live typed API
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detections for live tracking and cached evaluation
-- typed precomputed embeddings supplied through the same v2 update ABI
-- no tracker-owned model loading, download, export, or ReID inference
+- typed generated or precomputed embeddings supplied through the same v2 update ABI
+- model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
 Requirements:
 
@@ -34,11 +41,14 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --track
 boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
-Native and Python BoT-SORT consume embeddings already attached to canonical
-`Detections`; neither implementation owns a ReID model. Materialized builds
-record the encoder fingerprint and publish embeddings as keyed Parquet rows.
-Evaluation streams those rows through the same live typed API used by track
-mode; there is no positional replay executable. See
+The native BoT-SORT adapter bypasses its encoder when canonical `Detections`
+already carry embeddings. Otherwise, a non-empty batch can generate them
+lazily from its `Frame`, then pass the typed feature buffer to the C++ tracker.
+The C++ library itself never loads or runs a ReID model. Python BoT-SORT follows
+the same generated-or-attached contract. Materialized builds record the encoder
+fingerprint and publish embeddings as keyed Parquet rows. Evaluation streams
+those rows through the same live typed API used by track mode; there is no
+positional replay executable. See
 [Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
 ::: boxmot.BotSort

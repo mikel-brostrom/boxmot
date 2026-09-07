@@ -20,8 +20,9 @@ If CMake cannot locate OpenCV or Eigen3 automatically, pass `-DOpenCV_DIR=...` a
 
 ## Role In BoxMOT
 
-Python supplies canonical detections and precomputed embeddings through the
-live C ABI. The tracker owns no model, download, or cache logic.
+Python supplies canonical detections and generated or precomputed embedding
+buffers through the live C ABI. The C++ tracker owns no model, download, or
+cache logic.
 
 Detection/layout support:
 

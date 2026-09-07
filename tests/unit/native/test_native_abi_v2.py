@@ -311,7 +311,7 @@ def test_native_sfsort_requires_frame() -> None:
         ),
         (
             TrackerSpec(name="botsort", backend="cpp", options=(("reid_weights", "model.pt"),)),
-            "precomputed embeddings",
+            "tracker-algorithm options only",
         ),
         (
             TrackerSpec(name="botsort", backend="cpp", options=(("removed_stracks_buffer", 20),)),

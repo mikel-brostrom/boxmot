@@ -21,7 +21,10 @@ trajectory association (GTA) for longer appearance-based recovery.
 
 ## What BoxMOT Needs For OccluBoost
 
-- A detector and a ReID model (the recovery pass and second-pass appearance gate both rely on embeddings).
+- A detector and appearance embeddings (the recovery pass and second-pass
+  appearance gate rely on them). Both the Python implementation and native
+  adapter can extract missing embeddings from a supplied `Frame` or consume
+  embeddings already attached to `Detections`.
 - AABB or OBB detections. OBB inputs use oriented IoU, OBB-aware confidence
   boosting, optional ReID recovery and second-pass matching, and the 9-column
   output schema `[cx, cy, w, h, angle, id, conf, cls, det_ind]`.
@@ -37,8 +40,8 @@ supports:
 - cached `eval` and `tune` streamed through the live typed API
 - live `track` through `--tracker-backend cpp`
 - both AABB and OBB detections for live tracking and cached evaluation
-- typed precomputed embeddings for association and recovery through the v2 update ABI
-- no tracker-owned model loading, download, export, or ReID inference
+- typed generated or precomputed embeddings for association and recovery through the v2 update ABI
+- model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
 Online GTA and adaptive-Kalman controls are currently Python-only; selecting
 the C++ backend does not enable those two extensions.
@@ -57,9 +60,19 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --track
 boxmot track --tracker occluboost --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
-Native and Python OccluBoost consume embeddings already attached to canonical
-`Detections`; neither implementation owns a ReID model. Materialized builds
-record the encoder fingerprint and publish embeddings as keyed Parquet rows.
+Native and Python OccluBoost both accept embeddings already attached to
+canonical `Detections`. When `use_embeddings=True` and a non-empty batch has no
+embeddings, the high-level tracker lazily initializes its configured encoder or
+backend and extracts embeddings from the supplied `Frame`. A native adapter
+then passes that typed feature buffer to its model-free C++ library.
+Configuration may come from a complete `ReIDEncoderSpec`, an injected
+`reid_model`, or `reid_weights`, `device`, `half`, and `reid_preprocess`. If no
+weights or spec are supplied, the default ReID model is used.
+Attached embeddings bypass inference, and empty batches do not initialize the
+model. See [Live embeddings in ReID-enabled
+trackers](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+Materialized builds record the encoder fingerprint and publish embeddings as
+keyed Parquet rows.
 See [Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
 ## Tuning notes

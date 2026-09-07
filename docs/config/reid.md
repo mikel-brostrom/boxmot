@@ -31,8 +31,15 @@ mask-dependent encoder declares that requirement through its encoder contract.
 
 During materialization the engine resolves the artifact and SHA-256 before the
 build ID is established. Python callers use the resulting values in a frozen
-`ReIDEncoderSpec`; trackers receive only the produced embeddings and never the
-profile or model instance.
+`ReIDEncoderSpec`. The live tracking workflow gives that complete spec to a
+ReID-enabled tracker adapter, which constructs its encoder only when a non-empty
+update arrives without embeddings. For a direct real-time loop, callers can use
+`tracker.configure_reid(spec)` or the shared `reid_model`, `reid_weights`,
+`device`, `half`, and `reid_preprocess` constructor options. A separately
+composed `AppearanceEncoder` remains available when embeddings should be shared
+or exposed as pipeline output. Native adapters support the same lazy path;
+their low-level C++ tracker libraries remain model-free consumers of embedding
+buffers.
 
 ## Related pages
 

@@ -246,14 +246,25 @@ boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
 
 Python:
 
+When detections do not include embeddings, `OccluBoost` generates them from
+the frame. The other ReID-enabled trackers, including native C++ tracker
+adapters, support the same high-level fallback. A NumPy detection array returns
+a NumPy track array; the input may use any real numeric dtype.
+
 ```python
 import numpy as np
+import torch
 
-from boxmot import ByteTrack
+from boxmot import OccluBoost
+from boxmot.structures import Frame
 
-tracker = ByteTrack()
-dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
-tracks = tracker.update(dets)
+tracker = OccluBoost()
+dets = np.array([[100, 200, 300, 400, 0.9, 0]])
+frame = Frame(
+    image=torch.zeros((3, 480, 640), dtype=torch.uint8),
+    sample_id="camera-1:000001",
+)
+tracks = tracker.update(dets, frame)
 print(tracks[:, 4].astype(int))  # track IDs
 ```
 

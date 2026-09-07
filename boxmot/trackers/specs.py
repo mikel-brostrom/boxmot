@@ -105,8 +105,8 @@ class TrackerSpec:
     """Normalized tracker selection.
 
     The spec contains only algorithm selection and immutable configuration.
-    Model construction belongs to detector, segmentor, or appearance encoder
-    factories and is deliberately absent here.
+    Model construction belongs to component-specific factories and is
+    deliberately absent.
     """
 
     name: str

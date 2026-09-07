@@ -49,17 +49,28 @@ immutable specs, then pass the instances to `PerceptionPipeline` or
 and executes only missing enrichment. Runtime payloads are still validated;
 capability declarations are only an early check.
 
+An external appearance encoder is optional when embeddings are needed only by
+a ReID-enabled tracker adapter: `TrackingPipeline` forwards the frame and the
+tracker extracts missing embeddings internally. Supplying an encoder preserves
+the reusable upstream path and is required when `PipelineOutputs` requests
+embeddings. ReID-enabled native adapters support the same fallback before
+passing features into their model-free C++ tracker libraries.
+
 ## HTTP service
 
 The `/v1` wire format remains compatible. The engine decodes images and
 detection rows into canonical structures, enriches them with shared engine-owned
 models when necessary, and advances one decoupled tracker per stream. Requests
-for one stream must remain ordered. See [Deployment](../guides/deployment.md).
+for one stream must remain ordered. The GPU service deliberately keeps one
+external encoder shared by all stream trackers; its attached embeddings bypass
+the private fallback and avoid loading one model per stream. See
+[Deployment](../guides/deployment.md).
 
 ## Native C++
 
-Native trackers use the typed v2 C ABI: geometry, scores, and embeddings use
-floating-point buffers; IDs, classes, and detection indices use `int64`. The
-library allocates each output object and callers release it with the matching
-free call. Cached evaluation streams keyed Parquet data through this live API;
-there is no positional NumPy replay format. See [Native C++](../native/index.md).
+Native tracker libraries use the typed v2 C ABI: geometry, scores, and
+embeddings use floating-point buffers; IDs, classes, and detection indices use
+`int64`. The library allocates each output object and callers release it with
+the matching free call. Cached evaluation streams keyed Parquet data through
+this live API; there is no positional NumPy replay format. See
+[Native C++](../native/index.md).

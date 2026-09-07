@@ -38,6 +38,17 @@ creating a fourth tracker family.
 | SFSORT | No | No | Yes | Yes | Yes |
 | [Sam2Mot](sam2mot.md) | No | Yes | Yes | No | No |
 
+For every tracker marked **Yes** under **Uses ReID**, its high-level adapter can
+consume attached embeddings or generate missing embeddings from a supplied
+`Frame`. Direct Python class construction exposes the same `reid_model`,
+`reid_weights`, `device`, `half`, and `reid_preprocess` options across all six
+trackers. Attached embeddings bypass inference, and empty batches do not load
+the model. Direct callers may also install a complete `ReIDEncoderSpec` with
+`tracker.configure_reid(spec)` before the first update of a sequence. Native
+BotSort and OccluBoost adapters support that same dual path, then pass features
+to their model-free C++ libraries. See
+[Live embeddings in ReID-enabled trackers](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
 ## How to choose
 
 - Start with `bytetrack` when you want a fast motion-only baseline.
