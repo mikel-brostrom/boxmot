@@ -13,7 +13,7 @@ class MockTracker(BaseTracker):
         self.removed_tracks = []
 
     def _track_detections(self, dets, img, embs=None, masks=None):
-        return self.empty_output()
+        return self._empty_output()
 
 
 class InferredMockTracker(BaseTracker):
@@ -21,7 +21,7 @@ class InferredMockTracker(BaseTracker):
         super().__init__()
 
     def _track_detections(self, dets, img, embs=None, masks=None):
-        return self.empty_output()
+        return self._empty_output()
 
 
 class MockTrack:
@@ -44,7 +44,7 @@ class ByteTrackStyleTrack(MockTrack):
     pass
 
 
-ByteTrackStyleTrack.__module__ = "boxmot.trackers.bbox.bytetrack"
+ByteTrackStyleTrack.__module__ = "boxmot.trackers.box.bytetrack.tracker"
 
 
 class TestVisualization(unittest.TestCase):

@@ -1,6 +1,5 @@
-import argparse
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
@@ -101,7 +100,7 @@ def gaussian_smooth(
     return np.array(smoothed_output)
 
 
-def process_file(file_path: Path, interval: int, tau: float, progress_queue=None):
+def process_file(file_path: Path, interval: int, tau: float, progress_queue: Any | None = None) -> None:
     """
     Process a single MOT results file by applying linear interpolation and Gaussian smoothing.
 
@@ -178,21 +177,9 @@ def gsi(
     )
 
 
-def main():
-    """
-    Parse command line arguments and run the Gaussian Smoothed Interpolation process.
-    """
-    parser = argparse.ArgumentParser(
-        description="Apply Gaussian Smoothed Interpolation (GSI) to tracking results."
-    )
-    parser.add_argument(
-        "--path", type=str, required=True, help="Path to MOT results folder"
-    )
-    args = parser.parse_args()
-
-    mot_results_folder = Path(args.path)
-    gsi(mot_results_folder)
-
-
-if __name__ == "__main__":
-    main()
+__all__ = (
+    "GSIPostprocessor",
+    "gaussian_smooth",
+    "gsi",
+    "linear_interpolation",
+)

@@ -11,8 +11,6 @@
 
 namespace botsort {
 
-int Track::count_ = 0;
-
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
@@ -149,7 +147,7 @@ Eigen::Matrix<double, 5, 1> AlignObbBox(
     Eigen::Matrix<double, 5, 1> aligned = box;
     aligned[2] = best[0];
     aligned[3] = best[1];
-    aligned[4] = WrapAngle(best[2]);
+    aligned[4] = best[2];
     return aligned;
 }
 
@@ -183,7 +181,7 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
         warped.head<2>() = (linear * measurement.head<2>()) + translation;
         warped[2] *= similarity_scale;
         warped[3] *= similarity_scale;
-        warped[4] = WrapAngle(measurement[4] + std::atan2(linear(1, 0), linear(0, 0)));
+        warped[4] = measurement[4] + std::atan2(linear(1, 0), linear(0, 0));
         if (alignment_reference != nullptr) {
             warped = AlignObbBox(warped, *alignment_reference);
         }
@@ -207,7 +205,7 @@ Eigen::Matrix<double, 5, 1> WarpObbMeasurement(
     } else {
         reference.head<2>() = (linear * measurement.head<2>()) + translation;
         const double rotation = ProperRotationAngle(linear);
-        reference[4] = WrapAngle(measurement[4] + rotation);
+        reference[4] = measurement[4] + rotation;
     }
     return CornersToXywha(warped_corners, reference);
 }
@@ -223,7 +221,6 @@ Track::Track(const Detection& detection)
         xywha_ = detection.xywha;
         xywha_[2] = std::max(xywha_[2], 1.0e-4);
         xywha_[3] = std::max(xywha_[3], 1.0e-4);
-        xywha_[4] = WrapAngle(xywha_[4]);
     } else {
         xywh_ = XyxyToXywh(detection.xyxy);
     }
@@ -231,15 +228,6 @@ Track::Track(const Detection& detection)
     if (detection.has_embedding()) {
         UpdateFeatures(detection.embedding);
     }
-}
-
-void Track::ResetCount() {
-    count_ = 0;
-}
-
-int Track::NextId() {
-    ++count_;
-    return count_;
 }
 
 Eigen::VectorXf Track::Normalize(const Eigen::VectorXf& feat) {
@@ -266,10 +254,10 @@ void Track::UpdateFeatures(const Eigen::VectorXf& feat) {
     smooth_feat_ = Normalize(smooth_feat_);
 }
 
-void Track::UpdateClass(const int cls_id, const float confidence) {
+void Track::UpdateClass(const std::int64_t cls_id, const float confidence) {
     cls_hist_[cls_id] += confidence;
     float best_score = -1.0F;
-    int best_cls = cls_id;
+    std::int64_t best_cls = cls_id;
     for (const auto& item : cls_hist_) {
         if (item.second > best_score) {
             best_score = item.second;
@@ -288,8 +276,10 @@ Eigen::VectorXd Track::Measurement() const {
     return measurement;
 }
 
-void Track::Activate(const KalmanFilterXYWH& kalman_filter, const int current_frame_id) {
-    id = NextId();
+void Track::Activate(const KalmanFilterXYWH& kalman_filter,
+                     const int current_frame_id,
+                     const std::int64_t track_id) {
+    id = track_id;
     const auto [new_mean, new_covariance] = kalman_filter.Initiate(Measurement());
     mean = new_mean;
     covariance = new_covariance;
@@ -303,8 +293,7 @@ void Track::Activate(const KalmanFilterXYWH& kalman_filter, const int current_fr
 void Track::ReActivate(
     const Track& new_track,
     const KalmanFilterXYWH& kalman_filter,
-    const int current_frame_id,
-    const bool new_id
+    const int current_frame_id
 ) {
     const auto [new_mean, new_covariance] = kalman_filter.Update(mean, covariance, new_track.Measurement());
     mean = new_mean;
@@ -316,9 +305,6 @@ void Track::ReActivate(
     state = TrackState::kTracked;
     is_activated = true;
     frame_id = current_frame_id;
-    if (new_id) {
-        id = NextId();
-    }
     conf = new_track.conf;
     cls = new_track.cls;
     det_ind = new_track.det_ind;
@@ -467,7 +453,6 @@ Eigen::Matrix<double, 5, 1> Track::xywha() const {
             Eigen::Matrix<double, 5, 1> result = mean.head<5>();
             result[2] = std::max(result[2], 1.0e-4);
             result[3] = std::max(result[3], 1.0e-4);
-            result[4] = WrapAngle(result[4]);
             return result;
         }
         return xywha_;

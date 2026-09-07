@@ -18,6 +18,11 @@ max_iou_dist:
   default: 0.7  # from the default parameters
   range: [0.5, 0.95]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 max_age:
   type: randint
   default: 30  # from the default parameters

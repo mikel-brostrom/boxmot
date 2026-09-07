@@ -6,19 +6,26 @@ BoT-SORT extends the ByteTrack family by combining motion, appearance, and camer
 
 ## What BoxMOT Needs For BotSort
 
-- A detector and, for the full method, a ReID model.
+- A detector plus appearance embeddings when `use_embeddings=True`. Both the
+  Python implementation and native adapter can generate missing embeddings
+  from a supplied `Frame` or consume embeddings already attached to
+  `Detections`.
 - Supports both AABB and OBB detections in BoxMOT.
 - Best when you need stronger identity preservation than ByteTrack, especially with camera motion or repeated occlusions.
 
+Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
+`half`, and `reid_preprocess` options described in the
+[Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
 ## Native C++ Backend
 
-BoxMOT also ships a native C++17 BoTSORT implementation under `boxmot/native/cpp/trackers/botsort/`. It supports:
+BoxMOT also ships a native C++17 BotSort implementation under `boxmot/native/cpp/trackers/botsort/`. It supports:
 
-- cached replay for `eval` and `tune`
+- cached `eval` and `tune` streamed through the live typed API
 - live `track` through `--tracker-backend cpp`
-- both AABB and OBB detections for live tracking and cached replay
-- ReID inference through the shared native `OnnxReIdModel` for both live tracking and cache generation (no Python ONNXRuntime in the loop)
-- automatic `.pt -> .onnx` export for native cpp inference when you pass PyTorch ReID weights
+- both AABB and OBB detections for live tracking and cached evaluation
+- typed generated or precomputed embeddings supplied through the same v2 update ABI
+- model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
 Requirements:
 
@@ -30,26 +37,18 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker botsort --tracker-backend cpp
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker botsort --tracker-backend cpp
 boxmot track --tracker botsort --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
-For cached `eval` and `tune` workflows, `--tracking-backend cpp`
-remains available as a compatibility alias. Live `track` uses
-`--tracker-backend cpp`.
+The native BoT-SORT adapter bypasses its encoder when canonical `Detections`
+already carry embeddings. Otherwise, a non-empty batch can generate them
+lazily from its `Frame`, then pass the typed feature buffer to the C++ tracker.
+The C++ library itself never loads or runs a ReID model. Python BoT-SORT follows
+the same generated-or-attached contract. Materialized builds record the encoder
+fingerprint and publish embeddings as keyed Parquet rows. Evaluation streams
+those rows through the same live typed API used by track mode; there is no
+positional replay executable. See
+[Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
-When `--tracker-backend cpp` is set, cached replay requests the native C++ ReID
-producer. Cache paths record the effective embedding producer, so native and
-Python results live under distinct `embs/cpp/` and `embs/python/` buckets.
-Native initialization or model-loading failures are surfaced instead of silently
-changing producer. If the native ReID module cannot be imported, backend
-resolution selects the Python producer first and therefore uses `embs/python/`.
-The producer is independent of the BoT-SORT algorithm, so
-trackers can share a bucket when their model, runtime, preprocessing, and crop
-semantics match. See [Native C++ Integration](../native/index.md#embedding-cache-layout)
-for the full layout and the runtime knobs (`BOXMOT_REID_BACKEND`,
-`BOXMOT_REID_DEVICE`).
-
-For OBB replay, the native runner consumes 8-column OBB caches and writes MMOT-style corner outputs so the native replay stage matches the existing OBB evaluation pipeline.
-
-::: boxmot.trackers.bbox.botsort.BotSort
+::: boxmot.BotSort

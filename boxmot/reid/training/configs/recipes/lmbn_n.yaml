@@ -8,7 +8,7 @@
 # Usage:
 #   uv run --no-sync python -m boxmot.engine.cli train-reid \
 #     --recipe lmbn_n \
-#     --data-dir ./Market-1501-v15.09.15 \
+#     --data-dir datasets/reid/Market-1501-v15.09.15 \
 #     --device mps
 
 model: lmbn_n

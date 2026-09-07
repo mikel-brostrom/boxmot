@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Callable, Dict, Iterable, Mapping, Optional, Type
+from typing import Callable, Mapping, Optional, Type
 
 from boxmot.motion.cmc.base_cmc import BaseCMC
 

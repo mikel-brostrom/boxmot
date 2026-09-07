@@ -7,14 +7,20 @@ import pytest
 import torch
 
 import boxmot.reid.backends.base_backend as base_backend_module
-import boxmot.utils.download as download_module
+import boxmot.resources.download as download_module
 from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.reid.backends.openvino_backend import OpenVinoBackend
 from boxmot.reid.backends.tensorrt_backend import TensorRTBackend
 from boxmot.reid.backends.tflite_backend import TFLiteBackend
 from boxmot.reid.backends.torchscript_backend import TorchscriptBackend
 from boxmot.reid.core.artifacts import write_artifact_metadata
-from boxmot.reid.core.crops import boxes_to_xyxy, canonicalize_obb_for_crop, coerce_boxes, crop_obb
+from boxmot.reid.core.crops import (
+    boxes_to_xyxy,
+    canonicalize_obb_for_crop,
+    coerce_boxes,
+    crop_obb,
+    prepare_crop_batch,
+)
 from boxmot.reid.core.registry import ReIDModelRegistry
 
 
@@ -52,6 +58,22 @@ class RegistryLoadingBackend(BaseModelBackend):
     def load_model(self, w):
         self.checkpoint_preprocess = ReIDModelRegistry.get_checkpoint_preprocess(w)
         self.load_report = ReIDModelRegistry.load_deployment_weights(self.model, w)
+
+
+def test_backend_accepts_tuple_weight_selection(monkeypatch) -> None:
+    first = Path("first.pt")
+    captured: list[Path] = []
+
+    def capture_primary_weight(value: Path) -> Path:
+        captured.append(value)
+        raise RuntimeError("stop after weight selection")
+
+    monkeypatch.setattr(base_backend_module, "resolve_model_path", capture_primary_weight)
+
+    with pytest.raises(RuntimeError, match="stop after weight selection"):
+        InitOnlyBackend((first, Path("second.pt")), torch.device("cpu"), half=False)
+
+    assert captured == [first]
 
 
 def test_download_model_does_not_wait_for_stale_or_unavailable_lock_when_weights_exist(
@@ -362,6 +384,42 @@ def test_get_features_keeps_invalid_descriptors_finite():
 
     np.testing.assert_array_equal(features, np.zeros((2, 4), dtype=np.float32))
     assert np.isfinite(features).all()
+
+
+def test_get_features_uses_inference_mode():
+    backend = DummyBackend()
+    inference_modes = []
+
+    def forward(crops):
+        inference_modes.append(torch.is_inference_mode_enabled())
+        return torch.ones((len(crops), 4), dtype=torch.float32)
+
+    backend.forward = forward
+    backend.get_features(
+        np.array([[0, 0, 16, 16]], dtype=np.float32),
+        np.zeros((32, 32, 3), dtype=np.uint8),
+    )
+
+    assert inference_modes == [True]
+
+
+def test_half_crop_normalization_does_not_promote_to_float32():
+    crop = np.full((8, 4, 3), 255, dtype=np.uint8)
+    mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32).view(1, 3, 1, 1)
+    std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1, 3, 1, 1)
+
+    batch = prepare_crop_batch(
+        [crop],
+        input_shape=(8, 4),
+        device=torch.device("cpu"),
+        half=True,
+        preprocess_fn=lambda image, _shape: image,
+        mean=mean,
+        std=std,
+    )
+
+    assert batch.dtype is torch.float16
+    assert batch.is_contiguous()
 
 
 def test_base_backend_preserves_explicit_export_paths(monkeypatch):

@@ -2,9 +2,9 @@
 
 __all__ = (
     "cli",
+    "commands",
     "eval",
     "research",
     "tracking",
     "tuning",
-    "workflows",
 )

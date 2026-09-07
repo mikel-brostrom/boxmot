@@ -3,7 +3,7 @@ import json
 import pickle
 from pathlib import Path
 
-from boxmot.engine.research import gepa_results as analysis_module
+import boxmot.engine.research.gepa_results as analysis_module
 
 
 def _write_cache(run_dir: Path, candidate: dict[str, str], score: float, hota: float, idf1: float, mota: float) -> None:

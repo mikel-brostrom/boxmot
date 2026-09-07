@@ -7,6 +7,5 @@ include(BoxMOTNative)
 boxmot_add_native_tracker(
     NAME sfsort
     CORE_SOURCES
-        src/data_io.cpp
         src/tracker.cpp
 )

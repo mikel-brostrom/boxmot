@@ -18,6 +18,7 @@ SERVICE_TRACKERS_BY_PROFILE = {
 }
 SUPPORTED_SERVICE_PROFILES = tuple(SERVICE_TRACKERS_BY_PROFILE)
 SUPPORTED_SERVICE_TRACKERS = CPU_SERVICE_TRACKERS + REID_SERVICE_TRACKERS
+ASSOCIATION_FUNCTIONS = ("iou", "giou", "diou", "ciou", "hmiou", "centroid")
 
 
 def _environment_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -60,6 +61,7 @@ class ServiceSettings:
 
     profile: str = "cpu"
     tracker_type: str = "bytetrack"
+    asso_func: str = "iou"
     device: str = "cpu"
     half: bool = False
     reid_weights: str = "osnet_x0_25_msmt17.pt"
@@ -82,6 +84,11 @@ class ServiceSettings:
             raise ValueError(
                 f"Tracker {self.tracker_type!r} is not available in the {self.profile!r} "
                 f"service profile; choose one of: {available}."
+            )
+        if self.asso_func not in ASSOCIATION_FUNCTIONS:
+            available = ", ".join(ASSOCIATION_FUNCTIONS)
+            raise ValueError(
+                f"Unsupported association function {self.asso_func!r}; choose one of: {available}."
             )
         if not self.device.strip():
             raise ValueError("Service device must not be empty.")
@@ -118,10 +125,11 @@ class ServiceSettings:
 
         profile = os.getenv("BOXMOT_SERVICE_PROFILE", "cpu").strip().lower()
         default_tracker = "botsort" if profile == "gpu" else "bytetrack"
-        tracker_type = os.getenv("BOXMOT_SERVICE_TRACKER", default_tracker).strip().lower()
+        tracker_type = os.getenv("BOXMOT_SERVICE_TRACKER", default_tracker)
         return cls(
             profile=profile,
             tracker_type=tracker_type,
+            asso_func=os.getenv("BOXMOT_SERVICE_ASSO_FUNC", "iou"),
             device=os.getenv("BOXMOT_SERVICE_DEVICE", "0" if profile == "gpu" else "cpu").strip(),
             half=_environment_bool("BOXMOT_SERVICE_HALF", profile == "gpu"),
             reid_weights=os.getenv(
@@ -175,6 +183,7 @@ class ServiceSettings:
 
 
 __all__ = (
+    "ASSOCIATION_FUNCTIONS",
     "CPU_SERVICE_TRACKERS",
     "REID_SERVICE_TRACKERS",
     "SERVICE_TRACKERS_BY_PROFILE",

@@ -5,7 +5,7 @@ format:
   box_type: obb
 
 storage:
-  root: assets/mmot-mini
+  root: MMOT-mini
 
 default_split: train
 
@@ -16,14 +16,14 @@ splits:
 
 classes:
   target:
-    car: 1
-    bike: 2
-    pedestrian: 3
-    van: 4
-    truck: 5
-    bus: 6
-    tricycle: 7
-    awning-bike: 8
+    car: 0
+    bike: 1
+    pedestrian: 2
+    van: 3
+    truck: 4
+    bus: 5
+    tricycle: 6
+    awning-bike: 7
 
 resources:
   dataset:

@@ -1,37 +1,19 @@
-"""Shared helpers for native (C++) tracker backends.
-
-Centralizes functionality that was previously duplicated across each
-``boxmot/native/trackers/<tracker>.py`` module:
-
-* ReID model resolution and ONNX auto-export (used by BoTSORT and OccluBoost).
-* ``dets_n_embs`` cache root construction (used by every native replay backend).
-* Progress / stderr / summary parsing helpers shared by every native runner.
-"""
+"""Build helpers for native trackers and the standalone native ReID encoder."""
 
 from __future__ import annotations
 
 import contextlib
 import hashlib
-import inspect
 import json
 import os
 import platform
-import queue
 import shutil
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
-from types import SimpleNamespace
-from typing import Any, Callable
-
-from boxmot.utils.misc import resolve_model_path
-
-PROGRESS_PREFIX = "BOXMOT_PROGRESS\t"
-
-# Module-wide lock used to serialize potentially expensive ONNX exports.
-EXPORT_LOCK = threading.Lock()
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Build status reporting
@@ -109,7 +91,7 @@ def _cross_process_build_lock(build_dir: Path):
     """Serialize CMake configure/build across threads *and* subprocesses.
 
     The native trackers can be invoked concurrently from a thread pool **and**
-    from multiple worker subprocesses (e.g. ``--replay-backend process``).
+    from multiple worker subprocesses.
     A simple ``threading.Lock`` only protects threads inside one process, so
     parallel workers race on the same ``build/native/<name>`` directory and
     corrupt CMake's cache. This context manager wraps the build with a POSIX
@@ -180,6 +162,14 @@ def tracker_source_dir(name: str) -> Path:
     return package_native_root() / "cpp" / "trackers" / str(name)
 
 
+def native_component_source_dir(name: str) -> Path:
+    """Return the CMake source directory for a low-level native component."""
+
+    if name == "reid":
+        return package_native_root() / "cpp" / "reid"
+    return tracker_source_dir(name)
+
+
 def tracker_build_dir(name: str) -> Path:
     """Out-of-tree CMake build directory used by editable / dev installs.
 
@@ -195,14 +185,8 @@ def installed_library_candidates(name: str, lib_filename: str) -> list[Path]:
     directory so it ships with the package and is loadable without re-running
     CMake at runtime.
     """
-    src = tracker_source_dir(name)
+    src = native_component_source_dir(name)
     return [src / lib_filename, src / "lib" / lib_filename]
-
-
-def installed_executable_candidates(name: str, exe_filename: str) -> list[Path]:
-    """Where the native replay executable is shipped inside the wheel."""
-    src = tracker_source_dir(name)
-    return [src / exe_filename, src / "bin" / exe_filename]
 
 
 def build_library_candidates(name: str, lib_filename: str) -> list[Path]:
@@ -211,23 +195,9 @@ def build_library_candidates(name: str, lib_filename: str) -> list[Path]:
     return [bd / lib_filename, bd / "Release" / lib_filename, bd / "Debug" / lib_filename]
 
 
-def build_executable_candidates(name: str, exe_filename: str) -> list[Path]:
-    """Editable-install fallback locations for the replay executable."""
-    bd = tracker_build_dir(name)
-    return [bd / exe_filename, bd / "Release" / exe_filename, bd / "Debug" / exe_filename]
-
-
 # ---------------------------------------------------------------------------
 # Platform-aware filename + candidate helpers (per-tracker convenience)
 # ---------------------------------------------------------------------------
-
-
-def executable_filename(tracker_name: str) -> str:
-    """Return the replay executable filename for a tracker on the current OS.
-
-    Convention: ``<tracker>_replay`` (with ``.exe`` on Windows).
-    """
-    return f"{tracker_name}_replay.exe" if os.name == "nt" else f"{tracker_name}_replay"
 
 
 def library_filename(tracker_name: str) -> str:
@@ -240,12 +210,6 @@ def library_filename(tracker_name: str) -> str:
     if sys.platform == "darwin":
         return f"{tracker_name}_capi.dylib"
     return f"{tracker_name}_capi.so"
-
-
-def candidate_executables(tracker_name: str) -> list[Path]:
-    """Installed-then-built search paths for the replay executable."""
-    name = executable_filename(tracker_name)
-    return installed_executable_candidates(tracker_name, name) + build_executable_candidates(tracker_name, name)
 
 
 def candidate_libraries(tracker_name: str) -> list[Path]:
@@ -283,11 +247,13 @@ _NATIVE_ORT_DISCOVERY_ROOTS = (
 def _native_build_input_files(tracker_name: str) -> list[Path]:
     """Return source and CMake inputs that can affect a tracker artifact."""
     native_cpp_root = package_native_root() / "cpp"
-    roots = (
-        tracker_source_dir(tracker_name),
-        tracker_source_dir("base"),
+    roots = [
+        native_component_source_dir(tracker_name),
+        native_cpp_root / "include",
         native_cpp_root / "cmake",
-    )
+    ]
+    if tracker_name != "reid":
+        roots.append(tracker_source_dir("base"))
     inputs: set[Path] = set()
     for root in roots:
         if not root.is_dir():
@@ -587,7 +553,7 @@ def _remove_stale_native_candidates(
     A source/configuration fingerprint mismatch or a content-hash mismatch
     means an existing artifact cannot be trusted. Removing the exact target
     outputs after configure avoids ``--clean-first`` (which also deletes
-    sibling replay/CAPI artifacts) and prevents CMake from accepting a
+    sibling C API artifacts) and prevents CMake from accepting a
     tampered artifact whose timestamp happens to look current.
     """
     resolved_build_dir = build_dir.resolve()
@@ -627,7 +593,7 @@ def build_native_target(
     configure/build failure or if the expected artifact is still missing.
     """
     with build_lock:
-        source_dir = tracker_source_dir(tracker_name)
+        source_dir = native_component_source_dir(tracker_name)
         build_dir = tracker_build_dir(tracker_name)
         source_fingerprint = _native_build_fingerprint(tracker_name)
         configuration_fingerprint = _native_build_configuration_fingerprint(build_dir)
@@ -649,7 +615,7 @@ def build_native_target(
         build_dir.mkdir(parents=True, exist_ok=True)
 
         # Cross-process lock: prevents racing CMake invocations from multiple
-        # worker subprocesses (e.g. ``--replay-backend process``) trampling
+        # worker subprocesses trampling
         # each other's CMake cache in the shared build directory.
         with _cross_process_build_lock(build_dir):
             # The cache or source tree may have changed while this process was
@@ -758,350 +724,3 @@ def build_native_target(
                         return candidate
 
             raise RuntimeError(not_found_message)
-
-
-# ---------------------------------------------------------------------------
-# dets_n_embs cache layout
-# ---------------------------------------------------------------------------
-
-
-def dets_n_embs_root(project_root: str | Path, dataset_name: str | None = None, split: str | None = None) -> Path:
-    """Return the canonical ``dets_n_embs`` cache root for a project.
-
-    Mirrors the layout used by :mod:`boxmot.engine.eval.cache` and the native
-    replay binaries: ``<project_root>/dets_n_embs[/<dataset>][/<split>]``.
-    """
-    root = Path(project_root) / "dets_n_embs"
-    if dataset_name:
-        root = root / dataset_name
-    if split:
-        root = root / split
-    return root
-
-
-def cached_embedding_path(
-    project_root: str | Path,
-    detector_name: str,
-    reid_name: str,
-    sequence_name: str,
-    *,
-    dataset_name: str | None = None,
-    split: str | None = None,
-    preprocess_name: str | None = None,
-    tracker_backend: str | None = None,
-) -> Path:
-    """Return the expected path of a cached embedding ``.npy`` for a sequence.
-
-    The canonical bucket and preprocessing names come from
-    :func:`boxmot.data.cache.reid_cache_key` and
-    :func:`boxmot.data.cache.reid_preprocess_cache_key`.
-    """
-    from boxmot.data.cache import reid_cache_key, reid_preprocess_cache_key
-
-    detector_key = _stem_key(detector_name)
-    preprocess_key = reid_preprocess_cache_key(preprocess_name)
-    embs_root = dets_n_embs_root(project_root, dataset_name, split=split) / detector_key / "embs"
-
-    canonical_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
-    return embs_root / canonical_key / preprocess_key / f"{sequence_name}.npy"
-
-
-def resolve_embedding_cache_location(
-    project_root: str | Path,
-    detector_name: str | Path,
-    reid_name: str | Path,
-    sequence_name: str,
-    *,
-    dataset_name: str | None = None,
-    split: str | None = None,
-    preprocess_name: str | None = None,
-    tracker_backend: str | None = None,
-    embedding_cache_dir: str | Path | None = None,
-) -> tuple[str, str, Path, Path]:
-    """Resolve native replay cache arguments and the selected sequence files.
-
-    Native replay accepts the model bucket and preprocessing bucket as separate
-    command-line values. ``embedding_cache_dir`` is the authoritative directory
-    selected by the evaluation cache planner and may point at either the current
-    layout or a trusted older layout.
-    """
-    from boxmot.data.cache import reid_cache_key, reid_preprocess_cache_key
-
-    detector_key = _stem_key(detector_name)
-    detector_root = dets_n_embs_root(project_root, dataset_name, split=split) / detector_key
-    embeddings_root = detector_root / "embs"
-
-    if embedding_cache_dir is None:
-        reid_key = reid_cache_key(reid_name, tracker_backend=tracker_backend)
-        preprocess_key = reid_preprocess_cache_key(preprocess_name)
-        selected_dir = embeddings_root / reid_key / preprocess_key
-    else:
-        selected_dir = Path(embedding_cache_dir)
-        try:
-            reid_relative = selected_dir.parent.resolve().relative_to(embeddings_root.resolve())
-        except ValueError as exc:
-            raise ValueError(f"Embedding cache directory must be under {embeddings_root}: {selected_dir}") from exc
-        if reid_relative == Path(".") or not selected_dir.name:
-            raise ValueError(f"Embedding cache directory is missing model/preprocess components: {selected_dir}")
-        reid_key = reid_relative.as_posix()
-        preprocess_key = selected_dir.name
-
-    filename = f"{Path(sequence_name).stem}.npy"
-    return (
-        str(reid_key),
-        str(preprocess_key),
-        selected_dir / filename,
-        detector_root / "dets" / filename,
-    )
-
-
-def embedding_cache_is_complete(embedding_path: str | Path, detection_path: str | Path) -> bool:
-    """Return whether a numeric embedding cache is row-aligned with detections."""
-    embedding_path = Path(embedding_path)
-    detection_path = Path(detection_path)
-    if not embedding_path.is_file() or not detection_path.is_file():
-        return False
-
-    try:
-        import numpy as np
-
-        embeddings = np.load(embedding_path, mmap_mode="r")
-        detections = np.load(detection_path, mmap_mode="r")
-    except Exception:  # noqa: BLE001 - corrupt cache files are treated as misses
-        return False
-    return (
-        embeddings.ndim == 2
-        and detections.ndim == 2
-        and embeddings.shape[0] == detections.shape[0]
-        and (embeddings.shape[0] == 0 or embeddings.shape[1] > 0)
-    )
-
-
-def _stem_key(name: str | Path) -> str:
-    path = Path(name)
-    return path.stem if path.suffix else str(name)
-
-
-def _name_key(name: str | Path) -> str:
-    path = Path(name)
-    return path.name if path.suffix else str(name)
-
-
-# ---------------------------------------------------------------------------
-# ReID model resolution + ONNX export
-# ---------------------------------------------------------------------------
-
-
-def native_onnx_cache_path(weights: Path) -> Path:
-    """Path of the ONNX cache produced from a ``.pt`` file.
-
-    The native cpp ReID path uses a plain ``<stem>.onnx`` sibling next to the
-    ``.pt`` weights so the cache is interoperable with any ONNX consumer.
-    """
-    return weights.with_suffix(".onnx")
-
-
-def resolve_reid_model_ref(reid_weights: str | Path | None) -> Path | None:
-    """Resolve a user-provided ReID weight reference to a concrete file path.
-
-    Lookup precedence used by the native trackers: prefer a sibling ``*.onnx``
-    cache when one is available, otherwise fall back to the original ONNX or
-    PyTorch weights.
-    """
-    if reid_weights is None:
-        return None
-
-    path = Path(reid_weights)
-    if path.suffix.lower() == ".onnx":
-        return resolve_model_path(path)
-
-    if path.suffix.lower() == ".pt":
-        resolved_pt = resolve_model_path(path)
-        onnx_candidate = native_onnx_cache_path(resolved_pt)
-        if onnx_candidate.exists():
-            return onnx_candidate
-        return resolved_pt
-
-    if not path.suffix:
-        pt_candidate = resolve_model_path(path.with_suffix(".pt"))
-        onnx_candidate = native_onnx_cache_path(pt_candidate)
-        if onnx_candidate.exists():
-            return onnx_candidate
-        explicit_onnx = resolve_model_path(path.with_suffix(".onnx"))
-        if explicit_onnx.exists():
-            return explicit_onnx
-        return pt_candidate
-    return resolve_model_path(path)
-
-
-def infer_onnx_output_names(model, dummy_input) -> list[str]:
-    import torch
-
-    model.eval()
-    with torch.no_grad():
-        output = model(dummy_input)
-    if isinstance(output, (tuple, list)):
-        return [f"output{index}" for index in range(len(output))]
-    return ["output0"]
-
-
-def export_reid_to_onnx(weights: Path, *, display_name: str = "ReID") -> Path:
-    """Export ``.pt`` ReID weights to an OpenCV-compatible ONNX file."""
-    import torch
-
-    from boxmot.engine.reid.export import setup_model
-
-    args = SimpleNamespace(
-        weights=weights,
-        device="cpu",
-        half=False,
-        optimize=False,
-        batch_size=1,
-        imgsz=None,
-    )
-    model, dummy_input = setup_model(args)
-
-    output_names = infer_onnx_output_names(model, dummy_input)
-    onnx_path = native_onnx_cache_path(weights)
-    export_kwargs = {
-        "opset_version": 17,
-        "input_names": ["images"],
-        "output_names": output_names,
-        "dynamic_axes": {
-            "images": {0: "batch"},
-            **{name: {0: "batch"} for name in output_names},
-        },
-    }
-    if "dynamo" in inspect.signature(torch.onnx.export).parameters:
-        export_kwargs["dynamo"] = False
-
-    torch.onnx.export(
-        model,
-        (dummy_input,),
-        str(onnx_path),
-        **export_kwargs,
-    )
-    if not onnx_path.exists():
-        raise RuntimeError(f"Failed to export native {display_name} ReID model to ONNX: {weights}")
-    return onnx_path
-
-
-def _download_reid_pt_weights(weights: Path, *, display_name: str = "ReID") -> None:
-    """Auto-download a known ReID ``.pt`` checkpoint into ``weights``.
-
-    Mirrors the lazy download performed by ``BaseModelBackend.download_model``
-    so the native cpp ReID path matches the Python path's UX (e.g. CI runners
-    that have never cached the weights locally).
-    """
-    try:
-        import gdown  # noqa: WPS433 (runtime import to avoid hard dep at import-time)
-        from filelock import SoftFileLock  # noqa: WPS433
-
-        from boxmot.reid.core.registry import ReIDModelRegistry  # noqa: WPS433
-        from boxmot.utils import logger as LOGGER  # noqa: WPS433
-    except Exception:  # pragma: no cover - if optional deps missing, fall through
-        return
-
-    weights.parent.mkdir(parents=True, exist_ok=True)
-    model_url = ReIDModelRegistry.get_model_url(weights)
-    if not model_url:
-        return
-
-    lock = SoftFileLock(str(weights) + ".lock", timeout=300)
-    with lock:
-        if weights.exists():
-            return
-        LOGGER.info(f"[PID {os.getpid()}] Downloading native {display_name} weights from {model_url} -> {weights}")
-        gdown.download(model_url, str(weights), quiet=False)
-
-
-def ensure_native_reid_model_path(
-    reid_weights: str | Path | None,
-    *,
-    display_name: str = "ReID",
-    exporter: Callable[[Path], Path] | None = None,
-    resolver: Callable[[str | Path | None], Path | None] | None = None,
-) -> Path | None:
-    """Resolve ReID weights to a native-ready file, exporting ONNX if needed.
-
-    ``exporter`` and ``resolver`` are injection points so per-tracker modules
-    keep monkeypatchable thin wrappers.
-    """
-    resolve = resolver or resolve_reid_model_ref
-    resolved = resolve(reid_weights)
-    if resolved is None:
-        return None
-
-    suffix = resolved.suffix.lower()
-    if suffix == ".onnx":
-        return resolved
-    if suffix != ".pt":
-        raise RuntimeError(
-            f"Native {display_name} ReID supports ONNX directly and can auto-export "
-            f"PyTorch '.pt' weights only: {resolved}"
-        )
-    if not resolved.exists():
-        _download_reid_pt_weights(resolved, display_name=display_name)
-    if not resolved.exists():
-        raise FileNotFoundError(f"Native {display_name} ReID weights not found: {resolved}")
-
-    onnx_path = native_onnx_cache_path(resolved)
-    if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
-        return onnx_path
-
-    export = exporter or (lambda weights: export_reid_to_onnx(weights, display_name=display_name))
-    with EXPORT_LOCK:
-        if onnx_path.exists() and onnx_path.stat().st_mtime >= resolved.stat().st_mtime:
-            return onnx_path
-        return export(resolved)
-
-
-# ---------------------------------------------------------------------------
-# Stdout / stderr parsing helpers shared by every native runner
-# ---------------------------------------------------------------------------
-
-
-def parse_progress_line(line: str) -> tuple[str, int, int] | None:
-    text = str(line).strip()
-    if not text.startswith(PROGRESS_PREFIX):
-        return None
-    parts = text.split("\t")
-    if len(parts) != 4:
-        return None
-    _, seq_name, current, total = parts
-    try:
-        return seq_name, int(current), int(total)
-    except ValueError:
-        return None
-
-
-def drain_native_stderr(stderr_stream, progress_queue, stderr_lines: list[str]) -> None:
-    if stderr_stream is None:
-        return
-    for raw_line in stderr_stream:
-        progress = parse_progress_line(raw_line)
-        if progress is not None:
-            if progress_queue is not None:
-                try:
-                    progress_queue.put_nowait(progress)
-                except (OSError, queue.Full):
-                    pass
-            continue
-        line = str(raw_line).strip()
-        if line:
-            stderr_lines.append(line)
-
-
-def parse_summary(stdout: str, *, display_name: str = "native tracker") -> dict[str, Any]:
-    text = stdout.strip()
-    if not text:
-        raise RuntimeError(f"Native {display_name} runner produced no stdout.")
-    for line in reversed(text.splitlines()):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            return json.loads(line)
-        except json.JSONDecodeError:
-            continue
-    raise RuntimeError(f"Failed to parse native {display_name} summary JSON from stdout:\n{text}")

@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import pytest
 import torch
 from click.testing import CliRunner
 
-from boxmot.engine.config import load_training_recipe
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_7m
 from boxmot.reid.training.ablation import resolve_csl_tinyvit_ablation
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
+from boxmot.reid.training.presets import load_training_recipe
 
 
 def _v20_model_kwargs() -> dict[str, object]:
@@ -142,11 +140,7 @@ def test_hi_afa_lite_recipe_resolves_through_train_cli(monkeypatch) -> None:
     def fake_main(args) -> None:
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [

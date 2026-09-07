@@ -1,6 +1,9 @@
 site_name: "BoxMOT"
+site_url: https://mikel-brostrom.github.io/boxmot/
+site_description: Pluggable multi-object tracking for detection, segmentation, and pose models.
 repo_url: https://github.com/mikel-brostrom/boxmot
 repo_name: mikel-brostrom/boxmot
+edit_uri: blob/master/docs/
 theme:
   name: material
   logo: logo/logo_white.png
@@ -27,7 +30,13 @@ theme:
     - navigation.tabs
     - navigation.tabs.sticky
     - navigation.sections
+    - navigation.path
+    - navigation.prune
+    - navigation.top
+    - content.action.view
+    - content.code.copy
     - content.tabs.link
+    - toc.follow
 
 extra_css:
   - stylesheets/extra.css
@@ -47,19 +56,41 @@ markdown_extensions:
       alternate_style: true
 
 plugins:
-  - search
+  - search:
+      separator: '[\s\-\._]+'
+  - autorefs:
+      resolve_closest: true
+  - gen-files:
+      scripts:
+        - docs/gen_ref_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
   - include-markdown
   - mkdocstrings:
+      default_handler: python
       handlers:
         python:
+          paths:
+            - .
           options:
+            allow_inspection: false
             docstring_style: google
+            docstring_options:
+              ignore_init_summary: true
+            docstring_section_style: list
+            merge_init_into_class: true
             members_order:
               - "__all__"
               - alphabetical
+            separate_signature: true
+            show_signature_annotations: true
+            show_source: false
+            signature_crossrefs: true
+            unwrap_annotated: true
             filters:
               - "!^_[^_]"
-              - "!^update$"
+              - "!^__all__$"
 
 watch:
   - README.md
@@ -67,62 +98,92 @@ watch:
 
 exclude_docs: |
   AGENTS.md
+  gen_ref_pages.py
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
 
 nav:
-  - Quickstart: index.md
-  - Getting Started:
+  - Home:
+      - Overview: index.md
       - Installation: getting-started/installation.md
   - Modes:
       - Overview: modes/index.md
-      - Track: modes/track.md
-      - Generate: modes/generate.md
-      - Evaluate: modes/eval.md
-      - Tune: modes/tune.md
-      - Research: modes/research.md
-      - Train ReID: modes/train.md
-      - Evaluate ReID: modes/eval-reid.md
-      - Compare ReID: modes/compare-reid.md
-      - Export: modes/export.md
-  - Configuration:
+      - Tracking:
+          - Track: modes/track.md
+      - Benchmarking:
+          - Materialize: modes/materialize.md
+          - Evaluate: modes/eval.md
+          - Tune: modes/tune.md
+          - Research: modes/research.md
+      - ReID lifecycle:
+          - Train: modes/train.md
+          - Evaluate: modes/eval-reid.md
+          - Compare: modes/compare-reid.md
+          - Export: modes/export.md
+  - Tasks:
+      - Overview: tasks/index.md
+      - Bounding Boxes: tasks/aabb.md
+      - Oriented Boxes: tasks/obb.md
+      - Masks: tasks/masks.md
+  - Trackers:
+      - Overview: trackers/index.md
+      - Motion-only:
+          - ByteTrack: trackers/bytetrack.md
+          - OcSort: trackers/ocsort.md
+          - SFSORT: trackers/sfsort.md
+      - Appearance-assisted:
+          - BotSort: trackers/botsort.md
+          - StrongSort: trackers/strongsort.md
+          - DeepOcSort: trackers/deepocsort.md
+          - HybridSort: trackers/hybridsort.md
+          - BoostTrack: trackers/boosttrack.md
+          - OccluBoost: trackers/occluboost.md
+      - Mask-aware:
+          - Sam2Mot: trackers/sam2mot.md
+  - Compare: compare/index.md
+  - Data:
       - Config System Overview: config/index.md
       - Mode Defaults: config/modes.md
       - Experiments: config/experiments.md
-      - Datasets: config/datasets.md
-      - Detectors: config/detectors.md
+      - Dataset Profiles: config/datasets.md
+      - Detector Profiles: config/detectors.md
       - ReID Models: config/reid-models.md
-      - ReID Profiles: config/reid.md
+      - ReID Runtime Profiles: config/reid.md
       - Tracker YAMLs: config/trackers.md
-  - Trackers:
-      - Tracker Overview: trackers/index.md
-      - ByteTrack: trackers/bytetrack.md
-      - BotSort: trackers/botsort.md
-      - SFSORT: trackers/sfsort.md
-      - StrongSort: trackers/strongsort.md
-      - OcSort: trackers/ocsort.md
-      - DeepOcSort: trackers/deepocsort.md
-      - HybridSort: trackers/hybridsort.md
-      - BoostTrack: trackers/boosttrack.md
-      - OccluBoost: trackers/occluboost.md
-      - Sam2MOT: trackers/sam2mot.md
-  - CLI: usage/index.md
-  - Concepts:
-      - Detection Layouts: concepts/index.md
-      - Tracking Pipeline: concepts/tracking-pipeline.md
   - Guides:
-      - Experiment Workflows: guides/experiments.md
-      - Evaluation and Postprocessing: guides/evaluation.md
-      - Tracker Service Deployment: guides/deployment.md
-      - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
+      - Overview: guides/index.md
+      - Concepts:
+          - Canonical Geometry: concepts/index.md
+          - Tracking Pipeline: concepts/tracking-pipeline.md
+      - Workflows:
+          - Migrating to v24: guides/v24-migration.md
+          - Experiment Workflows: guides/experiments.md
+          - Evaluation and Postprocessing: guides/evaluation.md
+      - ReID Research:
+          - CSL-TinyViT-7M HP-GRD: guides/csl-tinyvit-7m-hpgrd.md
+  - Integrations:
+      - Overview: integrations/index.md
+      - Tracker Service: guides/deployment.md
+      - Native C++: native/index.md
+  - Reference:
+      - Overview: api/index.md
+      - CLI: usage/index.md
+      - Python API Guide: python/index.md
+      - Public API: python/high-level.md
+      - Component API: python/low-level.md
+      - Full Source Reference: reference/
+  - Help:
+      - Help Center: help/index.md
       - Troubleshooting and FAQ: guides/troubleshooting.md
-  - Native C++: native/index.md
-  - Python API:
-      - Overview: python/index.md
-      - High-level API: python/high-level.md
-      - Low-level API: python/low-level.md
-  - Contributing:
+  - Developers:
       - Contributing Guide: contributing/index.md
       - Add a Tracker: contributing/add-tracker.md
       - Add OBB Support: contributing/obb-support.md
       - Add Catalog Entries: contributing/configs.md
+      - Documentation: contributing/documentation.md
       - Testing: contributing/testing.md
       - CI and Benchmarks: contributing/ci.md

@@ -11,15 +11,16 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from boxmot.engine.eval.evaluator import eval_setup
+from boxmot.engine.materialization.builds import resolve_build_path
+from boxmot.engine.ui.reporters.research import ResearchWorkflowReporter
+from boxmot.engine.ui.workflow.pipeline import PipelineTracker
 from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.rich.reporters.research import ResearchWorkflowReporter
-from boxmot.utils.rich.workflow.pipeline import PipelineTracker
 
 from .benchmarks import (
     _discover_sequences,
-    _resolve_experiment_runtime,
     _select_examples,
 )
 from .candidates import (
@@ -52,27 +53,47 @@ from .proposal import _build_reflection_lm, _import_installed_gepa, _run_instruc
 class TrackerResearcher:
     def __init__(self, config: ResearchConfig):
         self.config = config
-        self.cache_project_dir = config.project.resolve()
+        self.build_path = resolve_build_path(config.build, build_root=config.build_root)
         run_name = f"{_slugify(config.tracker)}_{_slugify(config.experiment)}"
         self.run_dir = (config.project / "research" / run_name).resolve()
         self.boxmot_project_dir = self.run_dir / "boxmot_runs"
         self.gepa_run_dir = self.run_dir / "gepa"
         self.workspace_dir: Path | None = None
 
-        (
-            self.source_root,
-            self.experiment_id,
-            self.dataset_id,
-            self.benchmark,
-            self.detector_path,
-            self.reid_path,
-            self.evaluation_cfg,
-        ) = _resolve_experiment_runtime(
-            config.experiment,
-            source=config.source,
-            detector=config.detector,
-            reid=config.reid,
+        evaluation = argparse.Namespace(
+            experiment=config.experiment,
+            dataset=None,
+            split="",
+            data_root=config.data_root,
+            build=str(self.build_path),
+            build_root=None,
         )
+        eval_setup(evaluation)
+        self.source_root = Path(evaluation.source)
+        self.experiment_id = str(evaluation.experiment_id)
+        self.dataset_id = str(evaluation.dataset_id)
+        self.benchmark = self.dataset_id
+        self.evaluation_cfg = dict(evaluation.evaluation_config)
+        self._evaluation_context = {
+            key: getattr(evaluation, key)
+            for key in (
+                "build_path",
+                "dataset_id",
+                "experiment_id",
+                "split",
+                "geometry",
+                "eval_box_type",
+                "source",
+                "gt_folder",
+                "seq_paths",
+                "seq_info",
+                "evaluation_config",
+                "remapped_class_ids",
+                "remapped_class_names",
+                "tracker_class_ids",
+                "tracker_class_names",
+            )
+        }
 
         self.editable_files = _normalize_editable_files(config.tracker, config.editable_files)
         self.seed_candidate = _read_candidate(self.editable_files)
@@ -107,9 +128,7 @@ class TrackerResearcher:
         self.boxmot_project_dir.mkdir(parents=True, exist_ok=True)
         self._reset_gepa_run_dir()
 
-        workspace = Path(
-            tempfile.mkdtemp(prefix="workspace_", dir=str(self.run_dir))
-        )
+        workspace = Path(tempfile.mkdtemp(prefix="workspace_", dir=str(self.run_dir)))
         shutil.copytree(ROOT, workspace, dirs_exist_ok=True, ignore=_workspace_copy_ignore)
         self.workspace_dir = workspace
         return workspace
@@ -135,7 +154,7 @@ class TrackerResearcher:
             return data_root
 
         data_root.mkdir(parents=True, exist_ok=True)
-        source_annotations = self.source_root.parent / "annotations"
+        source_annotations = Path(self._evaluation_context["gt_folder"])
 
         by_name = {example["sequence"]: Path(example["sequence_dir"]) for example in self.all_examples}
         for sequence_name in sequence_names:
@@ -199,22 +218,33 @@ class TrackerResearcher:
             "score": score,
         }
 
-    def _build_eval_payload(self, source_root: Path, tag: str) -> dict[str, Any]:
+    def _build_eval_payload(self, sequence_names: Sequence[str], tag: str) -> dict[str, Any]:
         show_progress = bool(getattr(self.config, "progress_bar", True))
+        selected = set(sequence_names)
+        sequence_paths = [
+            path
+            for path in self._evaluation_context["seq_paths"]
+            if (Path(path).parent.name if Path(path).name == "img1" else Path(path).name) in selected
+        ]
+        sequence_info = {
+            name: length for name, length in self._evaluation_context["seq_info"].items() if name in selected
+        }
         return {
-            "experiment": None,
+            **self._evaluation_context,
+            "_build_validated": True,
+            "experiment": self.config.experiment,
             "dataset": None,
-            "source": str(source_root),
-            "benchmark": self.benchmark,
-            "experiment_id": self.experiment_id,
-            "dataset_id": self.dataset_id,
-            "runtime_evaluation_config": self.evaluation_cfg,
+            "build": str(self.build_path),
+            "build_root": None,
+            "data_root": None if self.config.data_root is None else str(self.config.data_root.resolve()),
+            "sequence_names": list(sequence_names),
+            "seq_paths": sequence_paths,
+            "seq_info": sequence_info,
             "tracker": self.config.tracker,
-            "detector": [self.detector_path],
-            "reid": [self.reid_path],
+            "tracker_backend": self.config.tracker_backend,
             "project": self.boxmot_project_dir,
-            "cache_project": self.cache_project_dir,
             "name": tag,
+            "exist_ok": True,
             "verbose": False,
             "show": False,
             "show_progress": show_progress,
@@ -222,8 +252,7 @@ class TrackerResearcher:
             "save_txt": False,
             "save_crop": False,
             "ci": False,
-            "detector_explicit": True,
-            "reid_explicit": True,
+            "compare_trackeval": False,
         }
 
     def _run_eval_subprocess(self, manifest_path: Path) -> dict[str, Any]:
@@ -389,8 +418,7 @@ class TrackerResearcher:
             }
 
         self._write_candidate_to_workspace(validated)
-        subset_root = self._subset_source_root(sequence_names)
-        payload = self._build_eval_payload(subset_root, tag)
+        payload = self._build_eval_payload(sequence_names, tag)
 
         manifest_dir = self.workspace_dir / _RESEARCH_ROOT / "payloads"
         manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -498,25 +526,21 @@ class TrackerResearcher:
             if not abs_path.exists():
                 continue
             rel_path = abs_path.relative_to(ROOT).as_posix()
-            extra_sections.append(
-                f"\nContext file: {rel_path}\n```\n{abs_path.read_text(encoding='utf-8')}\n```"
-            )
+            extra_sections.append(f"\nContext file: {rel_path}\n```\n{abs_path.read_text(encoding='utf-8')}\n```")
 
         return (
             f"Benchmark source root: {self.source_root}\n"
-            f"Detector: {self.detector_path}\n"
-            f"ReID: {self.reid_path}\n"
+            f"Immutable perception build: {self.build_path}\n"
             "Editable files:\n"
             f"{editable}\n"
             f"Selected benchmark sequences: {selected_sequences}\n"
             "Default research scope is code-first: prioritize tracker implementation changes "
             "over standalone config tuning.\n"
-            "Use the existing BoxMOT evaluation pipeline: generate detections/embeddings, run the tracker, "
+            "Use the existing BoxMOT evaluation pipeline: replay the immutable build, run the tracker, "
             "then score with BoxMOT's MOT metrics over the full selected benchmark sequence set on every candidate "
             "evaluation. The scalar search score is combined HOTA minus penalties for any combined IDF1 or "
             "MOTA regression versus the baseline benchmark run. Keep imports minimal, preserve file paths, and "
-            "avoid introducing new dependencies."
-            + "".join(extra_sections)
+            "avoid introducing new dependencies." + "".join(extra_sections)
         )
 
     def _save_candidate_snapshot(self, candidate: Mapping[str, str], destination: Path) -> None:

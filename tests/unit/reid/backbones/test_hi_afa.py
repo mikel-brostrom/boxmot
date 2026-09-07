@@ -8,8 +8,6 @@ import pytest
 import torch
 from torch import nn
 
-from boxmot.engine.config import load_training_recipe
-from boxmot.engine.reid.export import _default_export_img_size
 from boxmot.reid.backbones import build_backbone, get_backbone_spec
 from boxmot.reid.backbones.hi_afa import (
     DropBlock2d,
@@ -19,7 +17,9 @@ from boxmot.reid.backbones.hi_afa import (
     LightweightDualAttention,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.reid.exporters.model_setup import default_export_img_size
 from boxmot.reid.training.losses import MultiSimilarityLoss
+from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.trainer import ModelBundle, ReIDTrainer
 
 
@@ -117,7 +117,7 @@ def test_market1501_profile_records_the_stabilized_reproduction_contract():
 
 
 def test_export_uses_registered_hi_afa_crop(tmp_path):
-    assert _default_export_img_size(tmp_path / "hi_afa_market1501.pt", "hi_afa") == (384, 128)
+    assert default_export_img_size(tmp_path / "hi_afa_market1501.pt", "hi_afa") == (384, 128)
 
 
 def test_hi_afa_torchscript_preserves_v2_descriptor_contract():

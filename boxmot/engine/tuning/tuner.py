@@ -27,96 +27,26 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
-from boxmot.engine.tuning.backends import (  # noqa: F401
-    SEARCH_BACKENDS,
-    build_search_backend,
-    resolve_search_backend,
-)
-from boxmot.engine.tuning.backends import (  # noqa: F401
-    resolve_search_backend as _resolve_search_backend,
-)
-from boxmot.engine.tuning.backends.hyperopt_backend import (  # noqa: F401
-    _hyperopt_param,
-    yaml_to_hyperopt_space,
-)
-from boxmot.engine.tuning.backends.optuna_backend import (  # noqa: F401
-    _OptunaDefineSpace,
-    _suggest_param,
-    yaml_to_optuna_define_space,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
+from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
+from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
+from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
     MAXIMIZE_TUNE_METRICS,
-    METRIC_SUM,
     MINIMIZE_TUNE_METRICS,
     aggregate_results,
     best_trial_data,
     collect_trial_data,
-    generate_summary,
     save_all_results,
     score_summary,
 )
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    aggregate_results as _aggregate_results,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    best_trial_data as _best_trial_data,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    collect_trial_data as _collect_trial_data,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    find_pareto_front as _find_pareto_front,
-)
-from boxmot.engine.tuning.postprocessing import (
-    save_all_results as _save_all_results,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    save_results_csv as _save_results_csv,
-)
-from boxmot.engine.tuning.postprocessing import (  # noqa: F401
-    write_trial_yaml as _write_trial_yaml,
-)
-
-# Re-exports for backward compatibility
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    conditional_yaml_tree as _conditional_yaml_tree,
-)
+from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from boxmot.engine.tuning.search_space import (
     default_tune_config,
     load_yaml_config,
     normalize_trial_config,
 )
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    default_tune_config as _default_tune_config,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    flatten_yaml_config as _flatten_yaml_config,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    is_valid_search_param as _is_valid_search_param,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    normalize_trial_config as _normalize_trial_config,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    to_builtin_value as _to_builtin_value,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    unpack_nested_dict as _unpack_nested_dict,
-)
-from boxmot.engine.tuning.search_space import (  # noqa: F401
-    yaml_to_tune_space as yaml_to_search_space,
-)
-from boxmot.engine.workflows.reporting import (
-    CLI_TUNE_BEST_SUMMARY_TITLE,
-    SUMMARY_COLUMNS,
-)
-from boxmot.engine.workflows.results import TuneResult, TuneTrialResult, ValidationResult
-from boxmot.trackers.config import load_tracker_config
-from boxmot.utils import logger as LOGGER
-from boxmot.utils.misc import suppress_boxmot_logs
-from boxmot.utils.rich.reporters.tune import (
+from boxmot.engine.ui.reporters.tune import (
     TuneSilentReporter,
     TuneWorkflowCallback,
     TuneWorkflowReporter,
@@ -127,26 +57,11 @@ from boxmot.utils.rich.reporters.tune import (
     format_tune_progress,
     set_tune_progress_workflow,
 )
+from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
+from boxmot.trackers.config import load_tracker_config
+from boxmot.utils import logger as LOGGER
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
-_TUNE_METRIC_ALIASES = {
-    "hota": "HOTA",
-    "mota": "MOTA",
-    "idf1": "IDF1",
-    "assa": "AssA",
-    "assre": "AssRe",
-    "idsw": "IDSW",
-    "id_switch": "IDSW",
-    "id_switches": "IDSW",
-    "idswitch": "IDSW",
-    "idswitches": "IDSW",
-    "ids": "IDs",
-    "idsw_rate": "IDSW_rate",
-    "id_switch_rate": "IDSW_rate",
-    "id_switches_rate": "IDSW_rate",
-    "idswitch_rate": "IDSW_rate",
-    "idswitches_rate": "IDSW_rate",
-}
 
 
 def eval_setup(*args: Any, **kwargs: Any) -> Any:
@@ -154,13 +69,6 @@ def eval_setup(*args: Any, **kwargs: Any) -> Any:
     from boxmot.engine.eval.evaluator import eval_setup as _eval_setup
 
     return _eval_setup(*args, **kwargs)
-
-
-def run_generate_dets_embs(*args: Any, **kwargs: Any) -> Any:
-    """Lazily import cache generation when tuning actually starts."""
-    from boxmot.engine.eval.evaluator import run_generate_dets_embs as _run_generate_dets_embs
-
-    return _run_generate_dets_embs(*args, **kwargs)
 
 
 def run_eval(*args: Any, **kwargs: Any) -> Any:
@@ -174,7 +82,7 @@ def run_eval(*args: Any, **kwargs: Any) -> Any:
 # Metric validation helpers
 # ---------------------------------------------------------------------------
 
-def _normalize_metric_names(values: Any) -> list[str]:
+def _parse_metric_names(values: Any) -> list[str]:
     if values is None:
         return []
     raw_values = [values] if isinstance(values, str) else list(values)
@@ -183,7 +91,7 @@ def _normalize_metric_names(values: Any) -> list[str]:
         for part in str(value).split(","):
             metric = part.strip()
             if metric:
-                metrics.append(_TUNE_METRIC_ALIASES.get(metric.lower(), metric))
+                metrics.append(metric)
     return metrics
 
 
@@ -243,11 +151,11 @@ class Tuner:
 
     def _resolve_metrics(self):
         args = self.args
-        objectives = _normalize_metric_names(getattr(args, "objectives", ()))
-        self._maximize = _normalize_metric_names(getattr(args, "maximize", ())) or [
+        objectives = _parse_metric_names(getattr(args, "objectives", ()))
+        self._maximize = _parse_metric_names(getattr(args, "maximize", ())) or [
             objectives[0] if objectives else "HOTA"
         ]
-        self._minimize = _normalize_metric_names(getattr(args, "minimize", ()))
+        self._minimize = _parse_metric_names(getattr(args, "minimize", ()))
 
         _validate_tune_metrics("--objectives", objectives, ALL_TUNE_METRICS)
         _validate_tune_metrics("--maximize", self._maximize, MAXIMIZE_TUNE_METRICS)
@@ -280,8 +188,6 @@ class Tuner:
         args = self.args
         maximize, minimize = self._maximize, self._minimize
 
-        args.detector = [Path(y).resolve() for y in args.detector]
-        args.reid = [Path(r).resolve() for r in args.reid]
         args.show_progress = False
 
         # Load tracker config and build search
@@ -350,51 +256,6 @@ class Tuner:
                     inferred_project = ray_dir.parent
                     if inferred_project != Path(args.project).resolve():
                         args.project = str(inferred_project)
-
-                pipeline.advance("Preparing benchmark cache...")
-
-                with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-                    try:
-                        run_generate_dets_embs(args)
-                    except Exception as exc:
-                        raise RuntimeError(
-                            f"Failed to prepare detection/embedding cache: {exc}"
-                        ) from exc
-
-                # KF calibration (once, before trials start)
-                if getattr(args, "tune_kf", False) and not getattr(args, "kf_tuning", None):
-                    from boxmot.motion.kalman_filters.calibration import run_kf_tuning, tracker_kf_type
-
-                    pipeline.advance("Calibrating Kalman filter noise...")
-                    kf_type = tracker_kf_type(str(getattr(args, "tracker", "")))
-                    if kf_type:
-                        kf_result, kf_log = run_kf_tuning(args, kf_type, capture=True)
-                        if kf_result is not None:
-                            kf_result["kf_type"] = kf_type
-                            args.kf_tuning = kf_result
-                            pipeline.update(
-                                "KF tuning applied "
-                                f"({kf_type}): "
-                                f"std_pos={kf_result['std_weight_position']:.6f}, "
-                                f"std_vel={kf_result['std_weight_velocity']:.6f}"
-                            )
-                        elif kf_log:
-                            pipeline.update(f"KF tuning skipped or failed ({kf_type}).")
-                        else:
-                            pipeline.update(f"KF tuning skipped ({kf_type}).")
-                    else:
-                        pipeline.update(f"KF tuning skipped: tracker '{args.tracker}' has no registered KF type.")
-
-                elif getattr(args, "tune_kf", False):
-                    pipeline.advance("Kalman filter tuning already available.")
-                    kf_result = getattr(args, "kf_tuning", None) or {}
-                    kf_type = kf_result.get("kf_type", "unknown")
-                    pipeline.update(
-                        "KF tuning already applied "
-                        f"({kf_type}): "
-                        f"std_pos={kf_result.get('std_weight_position', 'n/a')}, "
-                        f"std_vel={kf_result.get('std_weight_velocity', 'n/a')}"
-                    )
 
                 pipeline.advance(format_initial_tune_progress(int(args.n_trials)))
 
@@ -545,7 +406,7 @@ class Tuner:
         base_config=None,
     ):
         try:
-            return _save_all_results(
+            return save_all_results(
                 tune_dir, result_grid, yaml_cfg, self.args.tracker,
                 maximize, minimize, self.args, base_config=base_config, emit_logs=False,
             )
@@ -597,7 +458,27 @@ class Tuner:
     # ------------------------------------------------------------------
 
     def _resolve_tune_dir(self) -> Path:
-        return _resolve_tune_dir(self.args)
+        args = self.args
+        results_dir = Path(args.project).resolve() / "ray"
+        dataset_dir = results_dir / self._ray_dataset_name(args)
+        resume_value = getattr(args, "resume_tune", None)
+        if resume_value:
+            resume_path = Path(resume_value)
+            if resume_path.is_absolute():
+                return resume_path
+            cwd_candidate = resume_path.resolve()
+            if cwd_candidate.exists():
+                return cwd_candidate
+            if len(resume_path.parts) > 1:
+                return (results_dir / resume_path).resolve()
+            return (dataset_dir / resume_path.name).resolve()
+
+        tracker_name = self._path_slug(getattr(args, "tracker", "tracker"), fallback="tracker")
+        for index in range(1, 10000):
+            tune_dir = dataset_dir / f"{tracker_name}_{index}"
+            if not tune_dir.exists():
+                return tune_dir.resolve()
+        raise RuntimeError(f"Could not allocate tune directory under {dataset_dir}")
 
     @classmethod
     def _ray_dataset_name(cls, args) -> str:
@@ -747,58 +628,8 @@ def _ray_pickle_dumps(value: Any) -> bytes:
     return serializer.dumps(value)
 
 
-def _resolve_tune_dir(args, resume: bool = False) -> Path:
-    """Backward-compatible module helper to resolve the tune directory."""
-    explicit_resume = getattr(args, "resume_tune", None)
-    resume_value = explicit_resume if explicit_resume else (resume if isinstance(resume, (str, Path)) else None)
-
-    results_dir = Path(args.project).resolve() / "ray"
-    dataset_dir = results_dir / Tuner._ray_dataset_name(args)
-    if resume_value:
-        resume_path = Path(resume_value)
-        if resume_path.is_absolute():
-            return resume_path
-        cwd_candidate = Path(resume_value).resolve()
-        if cwd_candidate.exists():
-            return cwd_candidate
-        if len(resume_path.parts) > 1:
-            return (results_dir / resume_path).resolve()
-        return (dataset_dir / resume_path.name).resolve()
-
-    tracker_name = Tuner._path_slug(getattr(args, "tracker", "tracker"), fallback="tracker")
-    for index in range(1, 10000):
-        tune_dir = dataset_dir / f"{tracker_name}_{index}"
-        if not tune_dir.exists():
-            return tune_dir.resolve()
-    raise RuntimeError(f"Could not allocate tune directory under {dataset_dir}")
-
-
-def _generate_summary(
-    tune_dir: Path,
-    trial_data: list,
-    yaml_cfg: dict,
-    tracker_name: str,
-    maximize: list,
-    minimize: list,
-    args,
-    *,
-    emit_logs: bool = True,
-) -> Path:
-    """Backward-compatible alias for summary.md generation."""
-    return generate_summary(
-        tune_dir,
-        trial_data,
-        yaml_cfg,
-        tracker_name,
-        maximize,
-        minimize,
-        args,
-        emit_logs=emit_logs,
-    )
-
-
 # ---------------------------------------------------------------------------
-# Public API (backward-compatible)
+# Public API
 # ---------------------------------------------------------------------------
 
 def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:

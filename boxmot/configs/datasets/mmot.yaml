@@ -5,25 +5,27 @@ format:
   box_type: obb
 
 storage:
-  root: boxmot/datasets/mot/MMOT-OBB
+  root: data
 
 default_split: train
 
 splits:
   train:
     path: train/npy
+    annotations: train/mot
     has_ground_truth: true
   test:
     path: test/npy
+    annotations: test/mot
     has_ground_truth: true
 
 classes:
   target:
-    car: 1
-    bike: 2
-    pedestrian: 3
-    van: 4
-    truck: 5
-    bus: 6
-    tricycle: 7
-    awning-bike: 8
+    car: 0
+    bike: 1
+    pedestrian: 2
+    van: 3
+    truck: 4
+    bus: 5
+    tricycle: 6
+    awning-bike: 7

@@ -1,30 +1,32 @@
 """BoxMOT package metadata and lazy public API exports."""
 
 from importlib import import_module
-from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
-try:
-    __version__ = version("boxmot")
-except PackageNotFoundError:
-    # Source trees can be imported before the project is installed. Release
-    # versions live exclusively in pyproject.toml and are exposed through the
-    # installed distribution metadata.
-    __version__ = "0+unknown"
+from boxmot._tracker_exports import _TRACKER_EXPORTS
+
+__version__ = "24.0.0"
 
 _EXPORTS = {
-    "BoxMOT": ("boxmot.api.pipeline", "BoxMOT"),
-    "Detector": ("boxmot.api.runtime", "Detector"),
-    "ReIDModel": ("boxmot.api.runtime", "ReIDModel"),
+    "create_tracker": ("boxmot.trackers.factory", "create_tracker"),
+    **_TRACKER_EXPORTS,
 }
 
-__all__ = tuple(_EXPORTS)
+__all__ = ("__version__", *_EXPORTS)
 
 
 if TYPE_CHECKING:
-    from boxmot.api.pipeline import BoxMOT as BoxMOT
-    from boxmot.api.runtime import Detector as Detector
-    from boxmot.api.runtime import ReIDModel as ReIDModel
+    from boxmot.trackers.box.boosttrack.tracker import BoostTrack as BoostTrack
+    from boxmot.trackers.box.botsort.tracker import BotSort as BotSort
+    from boxmot.trackers.box.bytetrack.tracker import ByteTrack as ByteTrack
+    from boxmot.trackers.box.deepocsort.tracker import DeepOcSort as DeepOcSort
+    from boxmot.trackers.box.hybridsort.tracker import HybridSort as HybridSort
+    from boxmot.trackers.box.occluboost.tracker import OccluBoost as OccluBoost
+    from boxmot.trackers.box.ocsort.tracker import OcSort as OcSort
+    from boxmot.trackers.box.sfsort.tracker import SFSORT as SFSORT
+    from boxmot.trackers.box.strongsort.tracker import StrongSort as StrongSort
+    from boxmot.trackers.factory import create_tracker as create_tracker
+    from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot as Sam2Mot
 
 
 def __getattr__(name: str):

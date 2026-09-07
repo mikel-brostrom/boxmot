@@ -1,35 +1,34 @@
-# Detection Layouts
+# Canonical Geometry
 
-BoxMOT switches tracking behavior from the detection tensor shape rather than from a separate runtime flag.
+Geometry mode is explicit in both the structure type and `TrackerSpec`.
 
-## Input and output schemas
+| Mode | Canonical detections | Canonical tracks | Packed rows |
+| --- | --- | --- | --- |
+| AABB | `Boxes(float32[N,4])` in `xyxy` | `Tracks` with `Boxes` | AABB6 input / AABB8 output |
+| OBB | `OrientedBoxes(float32[N,5])` in `cxcywha` | `Tracks` with `OrientedBoxes` | OBB7 input / OBB9 output |
 
-| Geometry | Input detections | Output tracks |
-| --- | --- | --- |
-| AABB | `(N, 6)` = `(x1, y1, x2, y2, conf, cls)` | `(N, 8)` = `(x1, y1, x2, y2, id, conf, cls, det_ind)` |
-| OBB | `(N, 7)` = `(cx, cy, w, h, angle, conf, cls)` | `(N, 9)` = `(cx, cy, w, h, angle, id, conf, cls, det_ind)` |
+Scores and geometry are `float32`; class IDs, track IDs, and detection indices
+are `int64`. Tensors are CPU-contiguous. Constructors reject invalid dtype,
+device, rank, contiguity, finiteness, extent, score range, or row alignment
+instead of correcting inputs silently.
 
-## Shared behavior
+Those dtypes describe canonical structures. A plain NumPy input uses the
+packed row boundary and returns a C-contiguous `float64` AABB8 or OBB9 matrix;
+a `Detections` input returns canonical `Tracks`.
 
-- OBB mode is enabled automatically when OBB detections are provided.
-- The first valid detection tensor fixes the tracker's layout; later updates must
-  keep the same column count.
-- `track` and tracker internals use the tensor layout to choose AABB vs OBB behavior.
-- Evaluation also depends on dataset `box_type`, so runtime geometry and dataset
-  geometry stay aligned.
-- `det_ind` lets you map a track back to the detector output row.
+A tracker instance has one fixed geometry mode. Its update validates that
+`Detections.geometry` matches. Evaluation also validates the dataset and build
+geometry before replay.
 
-## Current OBB tracker support
+`Tracks.detection_indices` maps a track row to the current detection row. `-1`
+marks a propagated track without a current detection.
 
-All currently registered Python trackers support OBB detections:
+## OBB continuity
 
-- `boosttrack`
-- `botsort`
-- `bytetrack`
-- `deepocsort`
-- `hybridsort`
-- `occluboost`
-- `ocsort`
-- `sam2mot`
-- `sfsort`
-- `strongsort`
+OBB angles use radians and remain finite but unwrapped. Trackers resolve
+equivalent width/height/angle representations relative to the current state,
+then retain damped angular velocity to avoid flip artifacts.
+
+All registered Python trackers support OBB detections. Native factory
+validation rejects any unsupported tracker/geometry combination before state is
+created.

@@ -1,9 +1,6 @@
-# Native BoTSORT
+# Native BotSort
 
-This directory contains the native C++17 BoTSORT implementation used by BoxMOT for:
-
-- the standalone replay executable used by cached benchmark workflows
-- the shared library used by live `track --tracker-backend cpp`
+This directory contains the C++17 BotSort core and typed v2 shared library.
 
 ## Requirements
 
@@ -16,29 +13,21 @@ This directory contains the native C++17 BoTSORT implementation used by BoxMOT f
 
 ```bash
 cmake -S boxmot/native/cpp/trackers/botsort -B build/native/botsort -DCMAKE_BUILD_TYPE=Release
-cmake --build build/native/botsort --config Release --target botsort_replay
+cmake --build build/native/botsort --config Release --target botsort_capi
 ```
 
 If CMake cannot locate OpenCV or Eigen3 automatically, pass `-DOpenCV_DIR=...` and/or `-DEigen3_DIR=...` to the configure command.
 
 ## Role In BoxMOT
 
-The native runner is designed for the cached replay stage used by `boxmot eval`, `tune`, and similar workflows:
-
-1. Python generates detections into `runs/dets_n_embs/...`
-2. `botsort_replay` consumes cached detections and writes MOT result files
-3. Python runs the in-repo MOT metrics on the generated results
-
-ReID support:
-
-- Live native tracking can run ONNX ReID inference internally when the tracker is configured with an `.onnx` ReID model such as `models/lmbn_n_duke.onnx`.
-- Native replay can fall back to ONNX ReID inference when an embedding cache is unavailable and an `.onnx` ReID model path is provided.
-- AABB crops and rectified OBB crops share the Python preprocessing contract.
-- Dynamic-batch and fixed-batch ONNX inputs are both supported.
-- Existing embedding caches are still reused when present.
+Python supplies canonical detections and generated or precomputed embedding
+buffers through the live C ABI. The C++ tracker owns no model, download, or
+cache logic.
 
 Detection/layout support:
 
-- Live native tracking accepts AABB detections with 6 columns and OBB detections with 7 columns.
-- Cached replay accepts AABB caches with 7 columns and OBB caches with 8 columns.
-- Native OBB replay writes MMOT-style corner outputs for the downstream evaluation flow.
+- Inputs use separate typed buffers: AABB geometry has four float columns and
+  OBB geometry has five.
+- Scores and embeddings are float buffers; class and detection IDs are
+  `int64` buffers.
+- The library allocates typed results, which callers release explicitly.

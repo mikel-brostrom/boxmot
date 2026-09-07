@@ -1,14 +1,10 @@
-id: visdrone-val-yolox-lmbn
-
 dataset:
   ref: visdrone
   split: val
 
-detections:
-  source: model
-  model:
-    ref: yolox-x-visdrone
-    checkpoint: default
+detector:
+  ref: yolox-x-visdrone
+  checkpoint: default
 
 reid:
   ref: lmbn-n-duke

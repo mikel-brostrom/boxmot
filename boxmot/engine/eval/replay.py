@@ -1,904 +1,827 @@
-# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+"""Keyed Parquet replay through the canonical live tracker API."""
 
 from __future__ import annotations
 
-import argparse
 import concurrent.futures
-import multiprocessing as mp
+import logging
+import os
 import queue
-import sys
-from contextlib import nullcontext
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+from multiprocessing import get_context
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Iterator, Literal, TextIO
 
-import numpy as np
+import torch
 
-from boxmot.core.box_schema import BoxType, get_box_schema, normalize_box_type, schema_from_detection_columns
-from boxmot.data import MOTDataset
-from boxmot.detectors import default_conf
-from boxmot.engine.experiment import write_experiment_snapshots
-from boxmot.engine.tracking.detections import sanitize_detections
-from boxmot.engine.tracking.inference import resolve_reid_producer_backend
-from boxmot.engine.tracking.mot import format_frame_tagged_tracks_for_mot, write_mot_results
-from boxmot.engine.tracking.runtime import TrackerRuntime
-from boxmot.native import get_native_replay_backend
-from boxmot.trackers.specs import normalize_tracker_backend
-from boxmot.utils import configure_logging as _base_configure_logging
-from boxmot.utils import logger as LOGGER
-from boxmot.utils.callbacks import safe_progress_callback
-from boxmot.utils.misc import increment_path
-from boxmot.utils.rich.core.ui import print_text
-from boxmot.utils.timing import TimingStats
-from boxmot.utils.torch_utils import select_device
-
-__all__ = (
-    "process_sequence",
-    "run_generate_mot_results",
+from boxmot import create_tracker
+from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
+from boxmot.datasets.schema import SAMPLES_ARTIFACT
+from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
+from boxmot.engine.materialization.builds import (
+    BuildCompatibilityError,
+    load_cached_build,
+    resolve_build_path,
+    validate_build_compatibility,
 )
+from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
+from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
+from boxmot.trackers import Tracker, TrackerSpec
+
+ReplayProgressStatus = Literal["queued", "running", "completed", "failed"]
+ReplayProgressCallback = Callable[["ReplayProgressEvent"], None]
+
+_WORKER_PROGRESS_QUEUE: Any | None = None
 
 
-def _configure_logging(*, main_thread_only: bool = False):
-    return _base_configure_logging(main_only=True, main_thread_only=main_thread_only)
+@dataclass(frozen=True, slots=True)
+class ReplayFrame:
+    """One cached sample and its canonical tracking result."""
+
+    sample: DatasetSample
+    result: PipelineResult
 
 
-def _worker_init() -> None:
-    _configure_logging(main_thread_only=True)
+@dataclass(frozen=True, slots=True)
+class ReplayResult:
+    """Published tracker text files produced by a replay run."""
+
+    build: Path
+    output_dir: Path
+    sequence_files: tuple[Path, ...]
+    frames: int
+    track_rows: int
 
 
-def _format_seq_progress(sequence_names: list[str], seq_progress: dict) -> str:
-    """Format progress bars for all sequences in submission order.
+@dataclass(frozen=True, slots=True)
+class ReplayProgressEvent:
+    """Pickle-safe progress emitted by one sequence replay task."""
 
-    When there are more than 10 sequences, the output is arranged in two
-    columns so the panel doesn't grow excessively tall.
-    """
-    if not sequence_names:
-        return ""
+    sequence_id: str
+    status: ReplayProgressStatus
+    completed: int
+    total: int
+    track_rows: int
+    detail: str | None
+    ordinal: int
 
-    name_width = max(len(name) for name in sequence_names)
-    bar_width = 20
-
-    def _seq_line(name: str) -> str:
-        counts = seq_progress.get(name)
-        if counts is None:
-            bar = "\u2591" * bar_width
-            return f"  {name:<{name_width}s} {bar}    --  (pending)"
-        current, total = counts
-        # Sentinel (-1, 0) means "in progress" (no percentage known)
-        if current < 0:
-            filled = bar_width // 4
-            bar = "\u2593" * filled + "\u2591" * (bar_width - filled)
-            return f"  {name:<{name_width}s} {bar}    --  (processing)"
-        if total <= 0:
-            pct = 1.0 if current >= total else 0.0
-        else:
-            pct = min(max(current / total, 0.0), 1.0)
-        filled = int(bar_width * pct)
-        bar = "\u2588" * filled + "\u2591" * (bar_width - filled)
-        suffix = "(done)" if total > 0 and current >= total else f"({current}/{total})"
-        return f"  {name:<{name_width}s} {bar} {pct:>5.0%}  {suffix}"
-
-    lines = [_seq_line(name) for name in sequence_names]
-
-    # Use two columns when there are many sequences
-    if len(lines) > 10:
-        mid = (len(lines) + 1) // 2
-        col1 = lines[:mid]
-        col2 = lines[mid:]
-        col_width = max(len(line) for line in lines)
-        merged = []
-        for i in range(mid):
-            left = col1[i].ljust(col_width)
-            right = col2[i] if i < len(col2) else ""
-            merged.append(f"{left}  {right}")
-        return "\n".join(merged)
-
-    return "\n".join(lines)
+    def __post_init__(self) -> None:
+        if not isinstance(self.sequence_id, str) or not self.sequence_id:
+            raise ValueError("ReplayProgressEvent.sequence_id must be a non-empty string.")
+        if self.status not in {"queued", "running", "completed", "failed"}:
+            raise ValueError(f"Unknown replay progress status {self.status!r}.")
+        for name in ("completed", "total", "track_rows", "ordinal"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"ReplayProgressEvent.{name} must be a non-negative integer.")
+        if self.completed > self.total:
+            raise ValueError("Replay progress cannot exceed its total frame count.")
+        if self.detail is not None and not isinstance(self.detail, str):
+            raise TypeError("ReplayProgressEvent.detail must be a string or None.")
 
 
-def _drain_progress_queue(progress_queue, seq_progress: dict) -> None:
-    """Read all available messages from a progress queue."""
+@dataclass(frozen=True, slots=True)
+class _SequenceReplayTask:
+    """Only immutable, pickle-safe data sent to a spawned worker."""
+
+    build: str
+    tracker_spec: TrackerSpec
+    split: str | None
+    sequence_id: str
+    frame_total: int
+    output_path: str
+    ordinal: int
+
+
+@dataclass(frozen=True, slots=True)
+class _SequenceReplayResult:
+    """Small worker result; tracker and dataset objects never cross processes."""
+
+    sequence_id: str
+    output_path: str
+    frames: int
+    track_rows: int
+    ordinal: int
+
+
+def _frame_for_sample(
+    sample: DatasetSample,
+    placeholder_images: dict[tuple[int, int], torch.Tensor] | None = None,
+) -> Frame:
+    if sample.frame is not None:
+        return sample.frame
+    height, width = sample.image_size
+    image = None if placeholder_images is None else placeholder_images.get(sample.image_size)
+    if image is None:
+        # Detector-free replay still needs frame identity and dimensions for
+        # pipeline ordering, but a tracker without a pixel requirement never
+        # observes these pixels. Reuse one backing tensor per resolution.
+        image = torch.empty((3, height, width), dtype=torch.uint8)
+        if placeholder_images is not None:
+            placeholder_images[sample.image_size] = image
+    return Frame(
+        image=image,
+        sample_id=sample.sample_id,
+        sequence_id=sample.sequence_id,
+        frame_index=sample.frame_index,
+        timestamp_s=sample.timestamp_s,
+        source_uri=sample.image_ref,
+    )
+
+
+def iter_cached_tracks(
+    dataset: CachedVisionDataset,
+    tracker: Tracker,
+    *,
+    sequence_ids: frozenset[str] | None = None,
+) -> Iterator[ReplayFrame]:
+    """Replay an ordered cached dataset with one sequence-local tracker."""
+
+    pipeline = TrackingPipeline(
+        detector=None,
+        tracker=tracker,
+        outputs=PipelineOutputs(
+            masks=tracker.requirements.masks,
+            embeddings=tracker.requirements.embeddings,
+        ),
+    )
+    active_sequence: str | None = None
+    placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
+    for sample in dataset:
+        if sequence_ids is not None and sample.sequence_id not in sequence_ids:
+            continue
+        if sample.sequence_id != active_sequence:
+            pipeline.reset()
+            active_sequence = sample.sequence_id
+        frame = _frame_for_sample(sample, placeholder_images)
+        yield ReplayFrame(sample=sample, result=pipeline.step_detections(frame, sample.detections))
+
+
+def _obb_corners(geometry: torch.Tensor) -> torch.Tensor:
+    centers = geometry[:, :2]
+    half = geometry[:, 2:4] * 0.5
+    angles = geometry[:, 4]
+    template = geometry.new_tensor(((-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)))
+    local = template.unsqueeze(0) * half.unsqueeze(1)
+    cosine = angles.cos()
+    sine = angles.sin()
+    rotation = torch.stack((cosine, -sine, sine, cosine), dim=1).reshape(-1, 2, 2)
+    return torch.bmm(local, rotation.transpose(1, 2)) + centers.unsqueeze(1)
+
+
+def tracks_to_mot_rows(tracks: Tracks, frame_index: int) -> list[tuple[float | int, ...]]:
+    """Serialize tracks to MOT AABB9 or MMOT corner13 rows."""
+
+    frame_number = frame_index + 1
+    rows: list[tuple[float | int, ...]] = []
+    if isinstance(tracks.geometry, Boxes):
+        for index, box in enumerate(tracks.geometry.values):
+            x1, y1, x2, y2 = (float(value) for value in box)
+            rows.append(
+                (
+                    frame_number,
+                    int(tracks.track_ids[index]),
+                    x1,
+                    y1,
+                    x2 - x1,
+                    y2 - y1,
+                    float(tracks.scores[index]),
+                    int(tracks.class_ids[index]),
+                    int(tracks.detection_indices[index]),
+                )
+            )
+        return rows
+
+    if not isinstance(tracks.geometry, OrientedBoxes):
+        raise TypeError(f"Unsupported track geometry {type(tracks.geometry).__name__}.")
+    corners = _obb_corners(tracks.geometry.values).reshape(-1, 8)
+    for index, values in enumerate(corners):
+        rows.append(
+            (
+                frame_number,
+                int(tracks.track_ids[index]),
+                *(float(value) for value in values),
+                float(tracks.scores[index]),
+                int(tracks.class_ids[index]),
+                int(tracks.detection_indices[index]),
+            )
+        )
+    return rows
+
+
+def _write_rows(handle: TextIO, rows: list[tuple[float | int, ...]]) -> None:
+    for row in rows:
+        values = [str(value) if isinstance(value, int) else f"{value:.8g}" for value in row]
+        handle.write(",".join(values) + "\n")
+
+
+def _validate_sequence_id(sequence_id: str) -> str:
+    if not isinstance(sequence_id, str) or not sequence_id:
+        raise ValueError("Sequence identifiers must be non-empty strings.")
+    if any(token in sequence_id for token in ("/", "\\", "..")):
+        raise ValueError(f"Unsafe sequence identifier {sequence_id!r}.")
+    return sequence_id
+
+
+def _sequence_frame_counts(
+    build: Path,
+    manifest: DatasetManifest,
+    *,
+    split: str | None,
+) -> tuple[tuple[str, int], ...]:
+    """Read only sample keys needed to form deterministic replay tasks."""
+
+    samples = manifest.artifact(SAMPLES_ARTIFACT)
+    sample_path = resolve_artifact_path(build, samples.path)
+    filters = None if split is None else [("split", "=", split)]
+    table = read_parquet_artifact(
+        sample_path,
+        artifact_name=SAMPLES_ARTIFACT,
+        columns=["sequence_id"],
+        filters=filters,
+    )
+    counts: Counter[str] = Counter()
+    for value in table.column("sequence_id").to_pylist():
+        sequence_id = _validate_sequence_id(value)
+        counts[sequence_id] += 1
+    return tuple(sorted(counts.items()))
+
+
+def _select_sequence_ids(
+    available: tuple[str, ...],
+    requested: tuple[str, ...] | None,
+) -> tuple[str, ...]:
+    if requested is None:
+        return available
+    if not isinstance(requested, tuple):
+        raise TypeError("sequence_ids must be a tuple of sequence identifiers or None")
+    if not requested:
+        raise ValueError("sequence_ids must not be empty when supplied")
+    normalized = tuple(sorted({_validate_sequence_id(value) for value in requested}))
+    missing = sorted(set(normalized).difference(available))
+    if missing:
+        raise ValueError(f"Build does not contain requested sequence(s): {', '.join(missing)}")
+    return normalized
+
+
+def _initialize_replay_worker(progress_queue: Any | None) -> None:
+    """Bind worker-only state and silence logs that would corrupt parent Rich output."""
+
+    global _WORKER_PROGRESS_QUEUE
+    _WORKER_PROGRESS_QUEUE = progress_queue
+    if progress_queue is not None:
+        # Progress is lossy/observational and terminal states are also
+        # synthesized from Future results. Do not let a child wait for its
+        # Queue feeder thread while the parent is joining the process pool.
+        progress_queue.cancel_join_thread()
+    boxmot_logger = logging.getLogger("boxmot")
+    boxmot_logger.handlers.clear()
+    boxmot_logger.propagate = False
+    boxmot_logger.disabled = True
+
+
+def _emit_worker_progress(event: ReplayProgressEvent) -> None:
+    progress_queue = _WORKER_PROGRESS_QUEUE
+    if progress_queue is None:
+        return
+    try:
+        progress_queue.put(event)
+    except (BrokenPipeError, EOFError, OSError):
+        # Progress is observational. A closed parent queue must not invalidate
+        # an otherwise deterministic sequence result.
+        return
+
+
+@contextmanager
+def _owned_tracker(spec: TrackerSpec) -> Iterator[Tracker]:
+    """Create and deterministically release a worker-local tracker."""
+
+    tracker = create_tracker(spec)
+    primary_error: BaseException | None = None
+    try:
+        yield tracker
+    except BaseException as exc:
+        primary_error = exc
+        raise
+    finally:
+        close = getattr(tracker, "close", None)
+        if callable(close):
+            try:
+                close()
+            except BaseException as cleanup_error:
+                if primary_error is None:
+                    raise
+                add_note = getattr(primary_error, "add_note", None)
+                if callable(add_note):
+                    add_note(f"Tracker cleanup also failed: {cleanup_error}")
+
+
+def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
+    """Replay exactly one sequence in a spawned process."""
+
+    completed = 0
+    total = 0
+    track_rows = 0
+    _emit_worker_progress(
+        ReplayProgressEvent(
+            sequence_id=task.sequence_id,
+            status="running",
+            completed=0,
+            total=task.frame_total,
+            track_rows=0,
+            detail="loading cached inputs",
+            ordinal=task.ordinal,
+        )
+    )
+    try:
+        with _owned_tracker(task.tracker_spec) as tracker:
+            requirements = tracker.requirements
+            dataset = CachedVisionDataset._stream_sequence(
+                task.build,
+                sequence_id=task.sequence_id,
+                split=task.split,
+                load_images=requirements.frame_pixels,
+                load_masks=requirements.masks,
+                load_embeddings=requirements.embeddings,
+            )
+            validate_build_compatibility(
+                dataset.manifest,
+                split=task.split,
+                geometry=task.tracker_spec.geometry,
+                require_masks=requirements.masks,
+                require_embeddings=requirements.embeddings,
+            )
+            total = len(dataset)
+            if total != task.frame_total:
+                raise RuntimeError(
+                    f"Sequence {task.sequence_id!r} changed while replay was starting: "
+                    f"expected {task.frame_total} frames, loaded {total}."
+                )
+            _emit_worker_progress(
+                ReplayProgressEvent(
+                    sequence_id=task.sequence_id,
+                    status="running",
+                    completed=0,
+                    total=total,
+                    track_rows=0,
+                    detail="streaming cached inputs",
+                    ordinal=task.ordinal,
+                )
+            )
+
+            output_path = Path(task.output_path)
+            pipeline = TrackingPipeline(
+                detector=None,
+                tracker=tracker,
+                outputs=PipelineOutputs(
+                    masks=requirements.masks,
+                    embeddings=requirements.embeddings,
+                ),
+            )
+            placeholder_images: dict[tuple[int, int], torch.Tensor] = {}
+            with output_path.open("x", encoding="utf-8") as handle:
+                for sample in dataset:
+                    if sample.sequence_id != task.sequence_id:
+                        raise RuntimeError(
+                            f"Sequence-scoped loader returned {sample.sequence_id!r} for task {task.sequence_id!r}."
+                        )
+                    frame = _frame_for_sample(sample, placeholder_images)
+                    result = pipeline.step_detections(frame, sample.detections)
+                    rows = tracks_to_mot_rows(result.tracks, sample.frame_index)
+                    _write_rows(handle, rows)
+                    completed += 1
+                    track_rows += len(rows)
+                    _emit_worker_progress(
+                        ReplayProgressEvent(
+                            sequence_id=task.sequence_id,
+                            status="running",
+                            completed=completed,
+                            total=total,
+                            track_rows=track_rows,
+                            detail=sample.sample_id,
+                            ordinal=task.ordinal,
+                        )
+                    )
+                handle.flush()
+                os.fsync(handle.fileno())
+    except Exception as exc:
+        _emit_worker_progress(
+            ReplayProgressEvent(
+                sequence_id=task.sequence_id,
+                status="failed",
+                completed=completed,
+                total=max(task.frame_total, total, completed),
+                track_rows=track_rows,
+                detail=f"{type(exc).__name__}: {exc}",
+                ordinal=task.ordinal,
+            )
+        )
+        raise RuntimeError(f"Cached replay failed for sequence {task.sequence_id!r}.") from exc
+
+    _emit_worker_progress(
+        ReplayProgressEvent(
+            sequence_id=task.sequence_id,
+            status="completed",
+            completed=completed,
+            total=total,
+            track_rows=track_rows,
+            detail=None,
+            ordinal=task.ordinal,
+        )
+    )
+    return _SequenceReplayResult(
+        sequence_id=task.sequence_id,
+        output_path=task.output_path,
+        frames=completed,
+        track_rows=track_rows,
+        ordinal=task.ordinal,
+    )
+
+
+def _replay_worker_count(sequence_count: int, cpu_count: int | None = None) -> int:
+    """Bound automatic parallelism by both sequences and logical CPUs."""
+
+    if sequence_count <= 0:
+        return 0
+    available = os.cpu_count() if cpu_count is None else cpu_count
+    return min(sequence_count, 8, max(1, available or 1))
+
+
+def _publish_progress(
+    event: ReplayProgressEvent,
+    callback: ReplayProgressCallback | None,
+    latest: dict[int, ReplayProgressEvent],
+) -> None:
+    previous = latest.get(event.ordinal)
+    if previous == event:
+        return
+    if previous is not None and previous.status in {"completed", "failed"} and event.status == "running":
+        return
+    latest[event.ordinal] = event
+    if callback is not None:
+        try:
+            callback(event)
+        except Exception:
+            # Progress reporting is observational and cannot invalidate a
+            # successfully tracked sequence.
+            return
+
+
+def _drain_progress_queue(
+    progress_queue: Any | None,
+    callback: ReplayProgressCallback | None,
+    latest: dict[int, ReplayProgressEvent],
+) -> None:
+    if progress_queue is None:
+        return
     while True:
         try:
-            name, current, total = progress_queue.get_nowait()
-            seq_progress[name] = (current, total)
-        except (queue.Empty, OSError):
-            break
+            event = progress_queue.get_nowait()
+        except (queue.Empty, EOFError, OSError):
+            return
+        if not isinstance(event, ReplayProgressEvent):
+            raise TypeError(f"Replay worker emitted unsupported progress {type(event).__name__}.")
+        _publish_progress(event, callback, latest)
 
 
-def _build_task_args(
-    args: argparse.Namespace,
-    exp_dir: Path,
-    sequence_names: list[str],
-    evolve_config: dict | None,
-    conf_threshold: float,
-    cache_project_root: str,
-    progress_queue,
-) -> list[tuple]:
-    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
-
-    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-    masks_dir = getattr(args, "masks_dir", None)
-    kf_tuning = getattr(args, "kf_tuning", None)
-    adaptive_kf = getattr(args, "adaptive_kf", False)
-    return [
-        (
-            seq_name,
-            str(args.source),
-            cache_project_root,
-            args.detector[0].stem,
-            str(args.reid[0]) if args.reid else "",
-            args.tracker,
-            str(exp_dir),
-            getattr(args, "fps", None),
-            evolve_config,
-            getattr(args, "benchmark", None),
-            conf_threshold,
-            preprocess_name,
-            getattr(args, "split", None),
-            masks_dir,
-            kf_tuning,
-            _resolve_embedding_cache_dir(args, cache_project_root, seq_name),
-            progress_queue,
-            adaptive_kf,
-        )
-        for seq_name in sequence_names
-    ]
-
-
-def _resolve_embedding_cache_dir(
-    args: argparse.Namespace,
-    cache_project_root: str | Path,
-    sequence_name: str,
-) -> str | None:
-    """Resolve the exact row-aligned embedding directory used by one replay task."""
-    if not getattr(args, "reid", None):
-        return None
-
-    from boxmot.data.cache import find_existing_reid_cache_file, reid_cache_dir_candidates
-    from boxmot.engine.eval.cache import _allow_legacy_reid_cache
-    from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS
-
-    detector_model = Path(args.detector[0])
-    reid_model = Path(args.reid[0])
-    tracker_backend = resolve_reid_producer_backend(getattr(args, "tracker_backend", None))
-    preprocess_name = getattr(args, "reid_preprocess", None) or DEFAULT_PREPROCESS
-    expected_det_cols = get_box_schema(
-        normalize_box_type(getattr(args, "eval_box_type", None), default=BoxType.AABB)
-    ).cache_cols
-
-    det_emb_root = Path(cache_project_root) / "dets_n_embs"
-    if getattr(args, "benchmark", None):
-        det_emb_root = det_emb_root / args.benchmark
-    if getattr(args, "split", None):
-        det_emb_root = det_emb_root / args.split
-    detector_root = det_emb_root / detector_model.stem
-    det_path = detector_root / "dets" / f"{sequence_name}.npy"
-    embeddings_root = detector_root / "embs"
-
-    expected_rows = None
-    detection_cache_valid = False
-    if det_path.is_file():
-        try:
-            detections = np.load(det_path, mmap_mode="r")
-            if detections.ndim == 2 and detections.shape[1] == expected_det_cols:
-                expected_rows = int(detections.shape[0])
-                detection_cache_valid = True
-        except Exception:  # noqa: BLE001 - generation will report a corrupt det cache
-            pass
-
-    allow_legacy = _allow_legacy_reid_cache(
-        args,
-        detector_model,
-        reid_model,
-        expected_det_cols=expected_det_cols,
-        tracker_backend=tracker_backend,
-    )
-    existing = None
-    if detection_cache_valid:
-        existing = find_existing_reid_cache_file(
-            embeddings_root,
-            reid_model,
-            sequence_name,
-            reid_preprocess=preprocess_name,
-            tracker_backend=tracker_backend,
-            expected_rows=expected_rows,
-            allow_legacy=allow_legacy,
-        )
-    if existing is not None:
-        return str(existing.parent)
-
-    canonical = reid_cache_dir_candidates(
-        embeddings_root,
-        reid_model,
-        reid_preprocess=preprocess_name,
-        tracker_backend=tracker_backend,
-        allow_legacy=False,
-    )[0]
-    return str(canonical)
-
-
-def _apply_kf_tuning_to_runtime(kf_tuning: dict) -> None:
-    """Apply tuned KF noise weights to the appropriate Kalman filter class.
-
-    This patches class-level defaults so all new KF instances in this process
-    use the tuned values.
-    """
-    kf_type = kf_tuning.get("kf_type")
-    std_pos = kf_tuning.get("std_weight_position")
-    std_vel = kf_tuning.get("std_weight_velocity")
-
-    if kf_type in ("xywh", "xyah", "xysr"):
-        from boxmot.motion.kalman_filters.base import BaseKalmanFilter
-
-        if std_pos is not None:
-            BaseKalmanFilter._tuned_std_weight_position = std_pos
-        if std_vel is not None:
-            BaseKalmanFilter._tuned_std_weight_velocity = std_vel
-        LOGGER.info(
-            f"KF tuning applied to BaseKalmanFilter: _std_weight_position={std_pos}, _std_weight_velocity={std_vel}"
-        )
-    elif kf_type == "xyhr":
-        from boxmot.motion.kalman_filters.xyhr import ConstantNoiseXYHR
-
-        Q = kf_tuning.get("Q")
-        R = kf_tuning.get("R")
-        Q_vel_diag = kf_tuning.get("Q_vel_diag")
-
-        # Build the per-class noise registry.
-        # Key -1 = global (fallback for classes not explicitly tuned).
-        registry: dict[int, dict] = {}
-
-        # Global tuned noise → key -1
-        if Q is not None:
-            _raw_q = np.asarray(Q, dtype=float)
-            _tuned_q_pos_diag = np.abs(np.diag(_raw_q)[: _raw_q.shape[0] // 2])
-            if Q_vel_diag is not None:
-                _tuned_q_vel_diag = np.abs(np.asarray(Q_vel_diag, dtype=float))
-            else:
-                _tuned_q_vel_diag = _tuned_q_pos_diag * 0.01
-            global_entry: dict = {"q_pos_diag": _tuned_q_pos_diag, "q_vel_diag": _tuned_q_vel_diag}
-            if R is not None:
-                global_entry["r_diag"] = np.abs(np.diag(np.asarray(R, dtype=float)))
-            registry[-1] = global_entry
-
-        # Per-class noise → specific class keys
-        per_class_data = kf_tuning.get("per_class")
-        if per_class_data:
-            for cls_id_key, cls_noise in per_class_data.items():
-                cls_id = int(cls_id_key)
-                cls_Q = cls_noise.get("Q")
-                cls_R = cls_noise.get("R")
-                cls_Q_vel = cls_noise.get("Q_vel_diag")
-                entry: dict = {}
-                if cls_Q is not None:
-                    raw_q = np.asarray(cls_Q, dtype=float)
-                    dim_z_cls = raw_q.shape[0] // 2
-                    entry["q_pos_diag"] = np.abs(np.diag(raw_q)[:dim_z_cls])
-                    if cls_Q_vel is not None:
-                        entry["q_vel_diag"] = np.abs(np.asarray(cls_Q_vel, dtype=float))
-                    else:
-                        entry["q_vel_diag"] = entry["q_pos_diag"] * 0.01
-                if cls_R is not None:
-                    raw_r = np.asarray(cls_R, dtype=float)
-                    entry["r_diag"] = np.abs(np.diag(raw_r))
-                if entry:
-                    registry[cls_id] = entry
-
-        ConstantNoiseXYHR._per_class_noise = registry
-        n_classes = len([k for k in registry if k >= 0])
-        LOGGER.info(f"KF tuning applied to ConstantNoiseXYHR: global Q/R + {n_classes} per-class entries")
-
-
-def process_sequence(
-    seq_name: str,
-    mot_root: str,
-    project_root: str,
-    detector_name: str,
-    reid_name: str,
-    tracker_name: str,
-    exp_folder: str,
-    target_fps: Optional[int],
-    cfg_dict: dict | None = None,
-    dataset_name: Optional[str] = None,
-    conf_threshold: float = 0.0,
-    preprocess_name: Optional[str] = None,
-    split: Optional[str] = None,
-    masks_dir: Optional[str] = None,
-    kf_tuning: dict | None = None,
-    embedding_cache_dir: Optional[str] = None,
-    progress_queue=None,
-    adaptive_kf: bool = False,
-):
-    """Run a tracker over cached detections and embeddings for one sequence."""
-    detector_key = Path(detector_name).stem if Path(detector_name).suffix else str(detector_name)
-    if reid_name:
-        reid_weights = Path(reid_name)
-        if not reid_weights.suffix:
-            reid_weights = reid_weights.with_suffix(".pt")
-    else:
-        reid_weights = None
-    precomputed_reid = reid_weights is not None
-
-    timing_stats = TimingStats()
-
-    tracker_runtime = TrackerRuntime.create(
-        tracker_name=tracker_name,
-        reid_weights=reid_weights,
-        device=select_device("cpu"),
-        half=False,
-        per_class=False,
-        evolve_param_dict=cfg_dict,
-        timing_stats=timing_stats,
-        precomputed_reid=precomputed_reid,
-    )
-
-    # Apply CLI --adaptive-kf override
-    if adaptive_kf and hasattr(tracker_runtime.tracker, "adaptive_kf"):
-        tracker_runtime.tracker.adaptive_kf = True
-
-    # Apply KF tuning if provided
-    if kf_tuning:
-        _apply_kf_tuning_to_runtime(kf_tuning)
-
-    # Trackers with camera motion compensation need real image data
-    tracker_obj = tracker_runtime.tracker
-    needs_images = hasattr(tracker_obj, "cmc") and tracker_obj.cmc is not None
-    needs_precomputed_reid = (
-        precomputed_reid
-        and bool(getattr(tracker_obj, "with_reid", True))
-        and not bool(getattr(tracker_obj, "embedding_off", False))
-    )
-
-    # Detect whether real frame files are available for this sequence
-    _seq_img_dir = Path(mot_root) / seq_name / "img1"
-    _has_real_frames = _seq_img_dir.is_dir() and any(_seq_img_dir.iterdir())
-
-    det_emb_root = Path(project_root) / "dets_n_embs"
-    if dataset_name:
-        det_emb_root = det_emb_root / dataset_name
-    if split:
-        det_emb_root = det_emb_root / split
-    dataset = MOTDataset(
-        mot_root=mot_root,
-        det_emb_root=str(det_emb_root),
-        model_name=detector_key,
-        reid_name=None,
-        target_fps=target_fps,
-        reid_preprocess=preprocess_name,
-        masks_dir=masks_dir,
-        embedding_cache_dir=embedding_cache_dir,
-    )
-    sequence = dataset.get_sequence(
-        seq_name,
-        show_progress=False,
-        progress_queue=progress_queue,
-        skip_image_load=not needs_images,
-    )
-    if hasattr(sequence, "dets") and sequence.dets is None:
-        raise FileNotFoundError(
-            f"Detection cache is missing for {seq_name}; generate the canonical AABB or OBB cache before replay."
-        )
-    output_schema = getattr(sequence, "det_schema", get_box_schema(BoxType.AABB))
-
-    all_tracks = []
-    kept_frame_ids = []
-    total_track_time_ms = 0.0
-    total_reid_time_ms = 0.0
-    num_frames = 0
-
-    for frame in sequence:
-        frame_id = int(frame["frame_id"])
-        dets = frame["dets"]
-        output_schema = schema_from_detection_columns(np.asarray(dets).shape[1])
-        embs = frame["embs"]
-        img = frame["img"]
-        masks = frame.get("masks")
-
-        # Masks are passed at their stored resolution (e.g. 640x640).
-        # The tracker handles coordinate scaling internally.
-
-        kept_frame_ids.append(frame_id)
-        num_frames += 1
-
-        if embs.size and len(embs) != len(dets):
-            raise ValueError(
-                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: dets={len(dets)} embs={len(embs)}"
-            )
-        dets, masks, valid_geometry = sanitize_detections(
-            dets,
-            masks,
-            image_shape=img.shape,
-        )
-        if embs.size:
-            embs = embs[valid_geometry]
-
-        if dets.size and conf_threshold > 0:
-            conf_col = schema_from_detection_columns(dets.shape[1]).detection_conf_index
-            mask = dets[:, conf_col] >= conf_threshold
-            dets = dets[mask]
-            embs = embs[mask] if embs.size else embs
-            if masks is not None:
-                masks = masks[mask]
-
-        if embs.size and dets.shape[0] != embs.shape[0]:
-            message = (
-                f"Detection/embedding count mismatch for {seq_name} frame {frame_id}: "
-                f"dets={dets.shape[0]} embs={embs.shape[0]}"
-            )
-            LOGGER.error(message)
-            raise ValueError(message)
-
-        embs_arg = embs if embs.size else None
-        if dets.size and embs_arg is None and needs_precomputed_reid:
-            raise ValueError(
-                f"Cached ReID embeddings are missing for {seq_name} frame {frame_id}; "
-                "regenerate the detection/embedding cache before replay."
-            )
-        # When running on metadata-only sequences (no real frame files),
-        # never pass None embeddings for detections — that would trigger live
-        # ReID on blank stub images, which is slow and meaningless. Empty frames
-        # still need a tracker update for aging, prediction, and CMC state.
-        if dets.size and embs_arg is None and not _has_real_frames:
-            embs_arg = np.zeros((dets.shape[0], 0), dtype=np.float32)
-        masks_arg = masks if (masks is not None and masks.size) else None
-        try:
-            tracks, elapsed_ms = tracker_runtime.update(dets, img, embs_arg, masks=masks_arg)
-        except Exception as exc:
-            LOGGER.warning(f"Tracker update failed on {seq_name} frame {frame_id}: {exc}")
-            continue
-        frame_reid_time_ms = min(timing_stats.get_last_reid_time(), elapsed_ms)
-        total_reid_time_ms += frame_reid_time_ms
-        total_track_time_ms += max(elapsed_ms - frame_reid_time_ms, 0.0)
-
-        if tracks.size:
-            all_tracks.append(TrackerRuntime.format_for_mot(tracks, frame_id))
-
-    # Flush Online GTA: append gap-fill entries (if tracker supports it)
-    tracker_obj = tracker_runtime.tracker
-    if hasattr(tracker_obj, "flush_gta"):
-        gta_entries = tracker_obj.flush_gta()
-        if gta_entries.size:
-            all_tracks.append(format_frame_tagged_tracks_for_mot(gta_entries))
-
-    out_arr = np.vstack(all_tracks) if all_tracks else output_schema.empty_mot()
-    write_mot_results(Path(exp_folder) / f"{seq_name}.txt", out_arr)
-
-    timing_dict = {
-        "track_time_ms": total_track_time_ms,
-        "reid_time_ms": total_reid_time_ms,
-        "num_frames": num_frames,
-    }
-    return seq_name, kept_frame_ids, timing_dict
-
-
-def _resolve_backend_selection(args: argparse.Namespace) -> tuple[str, str]:
-    tracking_backend = str(getattr(args, "tracking_backend", "process")).strip().lower() or "process"
-    explicit_tracker_backend = getattr(args, "tracker_backend", None)
-
-    if tracking_backend == "cpp":
-        if explicit_tracker_backend not in {None, ""}:
-            normalized_tracker_backend = normalize_tracker_backend(explicit_tracker_backend)
-            if normalized_tracker_backend != "cpp":
-                raise ValueError(
-                    "tracking_backend='cpp' conflicts with tracker_backend='python'. "
-                    "Use tracking_backend='thread' or 'process' when tracker_backend='python'."
-                )
-        return "cpp", "thread"
-
-    if tracking_backend not in {"process", "thread"}:
-        raise ValueError(f"Unsupported tracking backend '{tracking_backend}'. Expected 'process', 'thread', or 'cpp'.")
-
-    return normalize_tracker_backend(explicit_tracker_backend, default="python"), tracking_backend
-
-
-def _run_tracking_tasks(
-    args: argparse.Namespace,
-    task_args: list[tuple],
+def _run_spawned_sequence_tasks(
+    tasks: tuple[_SequenceReplayTask, ...],
     *,
-    quiet: bool,
-    progress_callback: Callable[[str], None] | None = None,
-) -> tuple[dict[str, list[int]], float, float, int]:
-    n_seqs = len(task_args)
-    seq_frame_nums: dict[str, list[int]] = {}
-    total_track_time_ms = 0.0
-    total_reid_time_ms = 0.0
-    total_track_frames = 0
-    done_count = 0
-    seq_progress: dict = {}
-    prev_display_lines = 0
-    last_progress_message = None
-    sequence_names = [task[0] for task in task_args]
-    tracker_backend, tracking_backend = _resolve_backend_selection(args)
+    workers: int,
+    progress_callback: ReplayProgressCallback | None,
+) -> tuple[_SequenceReplayResult, ...]:
+    """Run sequence tasks in spawn workers and return stable ordinal order."""
 
-    if tracker_backend == "cpp":
-        native_backend = get_native_replay_backend(getattr(args, "tracker", ""))
-        return _run_cpp_tracking_tasks(
-            args,
-            task_args,
-            quiet=quiet,
-            sequence_names=sequence_names,
-            native_backend=native_backend,
+    context = get_context("spawn")
+    progress_queue = context.Queue() if progress_callback is not None else None
+    latest: dict[int, ReplayProgressEvent] = {}
+    for task in tasks:
+        _publish_progress(
+            ReplayProgressEvent(
+                sequence_id=task.sequence_id,
+                status="queued",
+                completed=0,
+                total=task.frame_total,
+                track_rows=0,
+                detail=None,
+                ordinal=task.ordinal,
+            ),
+            progress_callback,
+            latest,
+        )
+
+    executor = concurrent.futures.ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=context,
+        initializer=_initialize_replay_worker,
+        initargs=(progress_queue,),
+    )
+    futures: dict[concurrent.futures.Future[_SequenceReplayResult], _SequenceReplayTask] = {}
+    results: dict[int, _SequenceReplayResult] = {}
+    failures: list[tuple[_SequenceReplayTask, BaseException]] = []
+    try:
+        futures = {executor.submit(_replay_sequence_task, task): task for task in tasks}
+        pending = set(futures)
+        while pending:
+            done, pending = concurrent.futures.wait(
+                pending,
+                timeout=0.1,
+                return_when=concurrent.futures.FIRST_COMPLETED,
+            )
+            _drain_progress_queue(progress_queue, progress_callback, latest)
+            for future in done:
+                task = futures[future]
+                try:
+                    result = future.result()
+                except BaseException as exc:
+                    _drain_progress_queue(progress_queue, progress_callback, latest)
+                    previous = latest.get(task.ordinal)
+                    if previous is None or previous.status != "failed":
+                        _publish_progress(
+                            ReplayProgressEvent(
+                                sequence_id=task.sequence_id,
+                                status="failed",
+                                completed=0 if previous is None else previous.completed,
+                                total=0 if previous is None else previous.total,
+                                track_rows=0 if previous is None else previous.track_rows,
+                                detail=f"{type(exc).__name__}: {exc}",
+                                ordinal=task.ordinal,
+                            ),
+                            progress_callback,
+                            latest,
+                        )
+                    failures.append((task, exc))
+                    continue
+                if (
+                    result.sequence_id != task.sequence_id
+                    or result.output_path != task.output_path
+                    or result.ordinal != task.ordinal
+                ):
+                    failures.append(
+                        (
+                            task,
+                            RuntimeError(f"Replay worker returned mismatched metadata for {task.sequence_id!r}."),
+                        )
+                    )
+                    _publish_progress(
+                        ReplayProgressEvent(
+                            sequence_id=task.sequence_id,
+                            status="failed",
+                            completed=result.frames,
+                            total=result.frames,
+                            track_rows=result.track_rows,
+                            detail="Replay worker returned mismatched task metadata.",
+                            ordinal=task.ordinal,
+                        ),
+                        progress_callback,
+                        latest,
+                    )
+                    continue
+                results[result.ordinal] = result
+                previous = latest.get(task.ordinal)
+                if previous is None or previous.status != "completed":
+                    _publish_progress(
+                        ReplayProgressEvent(
+                            sequence_id=result.sequence_id,
+                            status="completed",
+                            completed=result.frames,
+                            total=result.frames,
+                            track_rows=result.track_rows,
+                            detail=None,
+                            ordinal=result.ordinal,
+                        ),
+                        progress_callback,
+                        latest,
+                    )
+    except BaseException:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
+        raise
+    else:
+        executor.shutdown(wait=True, cancel_futures=False)
+    finally:
+        _drain_progress_queue(progress_queue, progress_callback, latest)
+        if progress_queue is not None:
+            progress_queue.close()
+            progress_queue.join_thread()
+
+    if failures:
+        failures.sort(key=lambda item: item[0].ordinal)
+        failed_names = ", ".join(task.sequence_id for task, _ in failures)
+        raise RuntimeError(f"Tracking failed for {len(failures)} sequence(s): {failed_names}.") from failures[0][1]
+
+    return tuple(results[index] for index in range(len(tasks)))
+
+
+def _replay_with_injected_tracker(
+    build_path: Path,
+    tracker_spec: TrackerSpec,
+    *,
+    split: str | None,
+    destination: Path,
+    tracker: Tracker,
+    sequence_ids: tuple[str, ...] | None,
+) -> ReplayResult:
+    """Preserve the caller-owned, in-process tracker path used by tests and embedding clients."""
+
+    requirements = tracker.requirements
+    dataset = load_cached_build(
+        build_path,
+        split=split,
+        load_images=requirements.frame_pixels,
+        load_masks=requirements.masks,
+        load_embeddings=requirements.embeddings,
+    )
+    validate_build_compatibility(
+        dataset.manifest,
+        split=split,
+        geometry=tracker_spec.geometry,
+        require_masks=requirements.masks,
+        require_embeddings=requirements.embeddings,
+    )
+
+    handles: dict[str, TextIO] = {}
+    sequence_paths: dict[str, Path] = {}
+    frames = 0
+    track_rows = 0
+    selected_sequences = None
+    if sequence_ids is not None:
+        if not isinstance(sequence_ids, tuple):
+            raise TypeError("sequence_ids must be a tuple of sequence identifiers or None")
+        if not sequence_ids:
+            raise ValueError("sequence_ids must not be empty when supplied")
+        selected_sequences = frozenset(_validate_sequence_id(value) for value in sequence_ids)
+    try:
+        for replayed in iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences):
+            sequence = _validate_sequence_id(replayed.sample.sequence_id)
+            if sequence not in handles:
+                path = destination / f"{sequence}.txt"
+                path.unlink(missing_ok=True)
+                handles[sequence] = path.open("x", encoding="utf-8")
+                sequence_paths[sequence] = path
+            rows = tracks_to_mot_rows(replayed.result.tracks, replayed.sample.frame_index)
+            _write_rows(handles[sequence], rows)
+            frames += 1
+            track_rows += len(rows)
+    finally:
+        for handle in handles.values():
+            handle.close()
+
+    if selected_sequences is not None:
+        missing = sorted(selected_sequences.difference(sequence_paths))
+        if missing:
+            raise ValueError(f"Build does not contain requested sequence(s): {', '.join(missing)}")
+
+    return ReplayResult(
+        build=build_path,
+        output_dir=destination,
+        sequence_files=tuple(sequence_paths[name] for name in sorted(sequence_paths)),
+        frames=frames,
+        track_rows=track_rows,
+    )
+
+
+def _validated_worker_count(workers: int | None, sequence_count: int) -> int:
+    if workers is None:
+        return _replay_worker_count(sequence_count)
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+        raise ValueError("workers must be a positive integer or None")
+    return min(workers, sequence_count) if sequence_count else 0
+
+
+def _validated_sequence_frame_counts(
+    values: Mapping[str, int],
+) -> dict[str, int]:
+    """Normalize trusted catalog counts supplied by an engine workflow."""
+
+    if not isinstance(values, Mapping):
+        raise TypeError("sequence_frame_counts must be a mapping of sequence IDs to frame counts")
+    normalized: dict[str, int] = {}
+    for raw_sequence_id, frame_count in values.items():
+        sequence_id = _validate_sequence_id(raw_sequence_id)
+        if isinstance(frame_count, bool) or not isinstance(frame_count, int) or frame_count <= 0:
+            raise ValueError("sequence frame counts must be positive integers")
+        normalized[sequence_id] = frame_count
+    return dict(sorted(normalized.items()))
+
+
+def replay_build(
+    build: str | Path,
+    tracker_spec: TrackerSpec,
+    *,
+    build_root: str | Path | None = None,
+    split: str | None = None,
+    output_dir: str | Path,
+    tracker: Tracker | None = None,
+    sequence_ids: tuple[str, ...] | None = None,
+    sequence_frame_counts: Mapping[str, int] | None = None,
+    workers: int | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
+) -> ReplayResult:
+    """Replay keyed detections, isolating each sequence in a spawned process.
+
+    Supplying ``tracker`` deliberately selects the serial caller-owned path;
+    this keeps dependency-injected trackers usable without attempting to
+    pickle their state. The default path sends only immutable specs and paths
+    to workers, which construct and release their own trackers.
+    """
+
+    if not isinstance(tracker_spec, TrackerSpec):
+        raise TypeError("tracker_spec must be a TrackerSpec")
+    if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
+        raise ValueError("split must be a non-empty canonical string or None")
+    build_path = resolve_build_path(build, build_root=build_root)
+    destination = Path(output_dir)
+    destination.mkdir(parents=True, exist_ok=True)
+    if tracker is not None:
+        return _replay_with_injected_tracker(
+            build_path,
+            tracker_spec,
+            split=split,
+            destination=destination,
+            tracker=tracker,
+            sequence_ids=sequence_ids,
+        )
+
+    manifest = DatasetManifest.load(build_path)
+    with _owned_tracker(tracker_spec) as probe:
+        requirements = probe.requirements
+        validate_build_compatibility(
+            manifest,
+            split=split,
+            geometry=tracker_spec.geometry,
+            require_masks=requirements.masks,
+            require_embeddings=requirements.embeddings,
+        )
+        if requirements.frame_pixels and not manifest.publish.image_references:
+            raise BuildCompatibilityError(
+                f"Build {manifest.build_id!r} is missing required image references. "
+                "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."
+            )
+    # Evaluation already derived these counts while validating the raw source
+    # catalog. Reusing them avoids opening the samples Parquet a second time in
+    # the coordinator. Each worker still verifies its sequence count against
+    # the immutable build before processing its first frame.
+    frame_counts = (
+        dict(_sequence_frame_counts(build_path, manifest, split=split))
+        if sequence_frame_counts is None
+        else _validated_sequence_frame_counts(sequence_frame_counts)
+    )
+    selected = _select_sequence_ids(tuple(frame_counts), sequence_ids)
+    worker_count = _validated_worker_count(workers, len(selected))
+    if not selected:
+        return ReplayResult(
+            build=build_path,
+            output_dir=destination,
+            sequence_files=(),
+            frames=0,
+            track_rows=0,
+        )
+
+    with tempfile.TemporaryDirectory(prefix=".replay-", dir=destination) as staging_dir:
+        staging = Path(staging_dir)
+        tasks = tuple(
+            _SequenceReplayTask(
+                build=str(build_path),
+                tracker_spec=tracker_spec,
+                split=split,
+                sequence_id=sequence_id,
+                frame_total=frame_counts[sequence_id],
+                output_path=str(staging / f"part-{ordinal:05d}.txt"),
+                ordinal=ordinal,
+            )
+            for ordinal, sequence_id in enumerate(selected)
+        )
+        replayed = _run_spawned_sequence_tasks(
+            tasks,
+            workers=worker_count,
             progress_callback=progress_callback,
         )
 
-    def _log_progress(progress_queue) -> None:
-        nonlocal prev_display_lines, last_progress_message
-        _drain_progress_queue(progress_queue, seq_progress)
-        header = f"Tracking: {done_count}/{n_seqs} sequences done"
-        seq_display = _format_seq_progress(sequence_names, seq_progress)
-        message = "\n".join([header] + ([seq_display] if seq_display else []))
-        if message == last_progress_message:
-            return
-        if progress_callback is not None:
-            progress_callback(message)
-            last_progress_message = message
-            return
-        if prev_display_lines > 0:
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-        print_text(message, stderr=True)
-        prev_display_lines = message.count("\n") + 1
-        last_progress_message = message
+        sequence_paths: list[Path] = []
+        for result in replayed:
+            path = destination / f"{result.sequence_id}.txt"
+            os.replace(result.output_path, path)
+            sequence_paths.append(path)
 
-    _configure_logging(main_thread_only=True)
-
-    def _run_executor(executor, progress_queue) -> None:
-        nonlocal total_track_time_ms, total_reid_time_ms, total_track_frames, done_count
-
-        futures = {executor.submit(process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args}
-        pending = set(futures)
-        first_error: BaseException | None = None
-        failed_seqs: list[str] = []
-
-        while pending:
-            done, pending = concurrent.futures.wait(
-                pending,
-                timeout=0.3,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-
-            for future in done:
-                seq_name = futures[future]
-                try:
-                    sequence_name, kept_ids, timing_dict = future.result()
-                    seq_frame_nums[sequence_name] = kept_ids
-                    total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
-                    total_reid_time_ms += timing_dict.get("reid_time_ms", 0.0)
-                    total_track_frames += timing_dict.get("num_frames", 0)
-                    num_frames = int(timing_dict.get("num_frames", 0))
-                    seq_progress[sequence_name] = (num_frames, num_frames)
-                    done_count += 1
-                except Exception as exc:
-                    done_count += 1
-                    failed_seqs.append(seq_name)
-                    if progress_callback is None:
-                        LOGGER.exception(f"Error processing {seq_name}")
-                    if first_error is None:
-                        first_error = exc
-
-            if progress_queue is not None:
-                _log_progress(progress_queue)
-
-        if first_error is not None:
-            raise RuntimeError(
-                f"Tracking failed for {len(failed_seqs)} sequence(s): {', '.join(failed_seqs)}"
-            ) from first_error
-
-    if tracking_backend == "process":
-        spawn_context = mp.get_context("spawn")
-        manager_context = spawn_context.Manager() if not quiet else nullcontext()
-
-        with manager_context as manager:
-            progress_queue = None if quiet else manager.Queue()
-            bound_task_args = (
-                task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
-            )
-
-            with concurrent.futures.ProcessPoolExecutor(
-                max_workers=args.n_threads,
-                initializer=_worker_init,
-                mp_context=spawn_context,
-            ) as executor:
-                _run_executor(executor, progress_queue)
-    else:
-        progress_queue = None if quiet else queue.Queue()
-        bound_task_args = (
-            task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
-        )
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
-            _run_executor(executor, progress_queue)
-
-    if progress_queue is not None and prev_display_lines > 0:
-        _drain_progress_queue(progress_queue, seq_progress)
-        final_display = _format_seq_progress(sequence_names, seq_progress)
-        final_message = "\n".join(
-            [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
-        )
-        if progress_callback is not None:
-            progress_callback(final_message)
-        else:
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-            print_text(final_message, stderr=True)
-
-    return seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames
-
-
-def _run_cpp_tracking_tasks(
-    args: argparse.Namespace,
-    task_args: list[tuple],
-    *,
-    quiet: bool,
-    sequence_names: list[str],
-    native_backend,
-    progress_callback: Callable[[str], None] | None = None,
-) -> tuple[dict[str, list[int]], float, float, int]:
-    n_seqs = len(task_args)
-    seq_frame_nums: dict[str, list[int]] = {}
-    total_track_time_ms = 0.0
-    total_reid_time_ms = 0.0
-    total_track_frames = 0
-    done_count = 0
-    seq_progress: dict[str, tuple[int, int]] = {}
-    prev_display_lines = 0
-    last_progress_message = None
-
-    progress_queue = None if quiet else queue.Queue()
-    bound_task_args = (
-        task_args if progress_queue is None else [task[:-2] + (progress_queue, task[-1]) for task in task_args]
+    return ReplayResult(
+        build=build_path,
+        output_dir=destination,
+        sequence_files=tuple(sequence_paths),
+        frames=sum(result.frames for result in replayed),
+        track_rows=sum(result.track_rows for result in replayed),
     )
 
-    def _log_progress() -> None:
-        nonlocal prev_display_lines, last_progress_message
-        if progress_queue is not None:
-            _drain_progress_queue(progress_queue, seq_progress)
-        header = f"Tracking: {done_count}/{n_seqs} sequences done"
-        seq_display = _format_seq_progress(sequence_names, seq_progress)
-        message = "\n".join([header] + ([seq_display] if seq_display else []))
-        if message == last_progress_message:
-            return
-        if progress_callback is not None:
-            progress_callback(message)
-            last_progress_message = message
-            return
-        if prev_display_lines > 0:
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-        print_text(message, stderr=True)
-        prev_display_lines = message.count("\n") + 1
-        last_progress_message = message
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.n_threads) as executor:
-        futures = {
-            executor.submit(native_backend.process_sequence, *task_arg): task_arg[0] for task_arg in bound_task_args
-        }
-        pending = set(futures)
-        first_error: BaseException | None = None
-        failed_seqs: list[str] = []
-
-        while pending:
-            done, pending = concurrent.futures.wait(
-                pending,
-                timeout=0.3,
-                return_when=concurrent.futures.FIRST_COMPLETED,
-            )
-
-            for future in done:
-                seq_name = futures[future]
-                try:
-                    sequence_name, kept_ids, timing_dict = future.result()
-                    seq_frame_nums[sequence_name] = kept_ids
-                    total_track_time_ms += timing_dict.get("track_time_ms", 0.0)
-                    total_reid_time_ms += timing_dict.get("reid_time_ms", 0.0)
-                    total_track_frames += timing_dict.get("num_frames", 0)
-                    num_frames = int(timing_dict.get("num_frames", len(kept_ids)))
-                    seq_progress[sequence_name] = (num_frames, num_frames)
-                    done_count += 1
-                except Exception as exc:
-                    done_count += 1
-                    failed_seqs.append(seq_name)
-                    if progress_callback is None:
-                        LOGGER.exception(f"Error processing {seq_name}")
-                    if first_error is None:
-                        first_error = exc
-
-            if not quiet:
-                _log_progress()
-
-        if first_error is not None:
-            raise RuntimeError(
-                f"Tracking failed for {len(failed_seqs)} sequence(s): {', '.join(failed_seqs)}"
-            ) from first_error
-
-    if not quiet and prev_display_lines > 0:
-        if progress_queue is not None:
-            _drain_progress_queue(progress_queue, seq_progress)
-        final_display = _format_seq_progress(sequence_names, seq_progress)
-        final_message = "\n".join(
-            [f"Tracking: {n_seqs}/{n_seqs} sequences done"] + ([final_display] if final_display else [])
-        )
-        if progress_callback is not None:
-            progress_callback(final_message)
-        else:
-            sys.stderr.write(f"\033[{prev_display_lines}A\033[J")
-            sys.stderr.flush()
-            print_text(final_message, stderr=True)
-
-    return seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames
-
-
-def run_generate_mot_results(
-    args: argparse.Namespace,
-    evolve_config: dict | None = None,
-    timing_stats: Optional[TimingStats] = None,
-    quiet: bool = False,
-    progress_callback: Callable[[str], None] | None = None,
-    postprocess_callback: Callable[[str], None] | None = None,
-) -> None:
-    """Run trackers over cached detections/embeddings and write MOT result files."""
-    progress_callback = safe_progress_callback(progress_callback)
-    postprocess_callback = safe_progress_callback(postprocess_callback)
-    args.project = Path(args.project)
-    cache_project = Path(getattr(args, "cache_project", args.project))
-    verbose = bool(getattr(args, "verbose", False))
-    base = args.project / "mot"
-    experiment_id = getattr(args, "experiment_id", None)
-    benchmark_name = experiment_id or getattr(args, "benchmark", None)
-    if benchmark_name:
-        base = base / benchmark_name
-    base = base / f"{args.detector[0].stem}_{args.reid[0].stem if args.reid else 'noreid'}_{args.tracker}"
-    exp_dir = increment_path(base, sep="_", exist_ok=False)
-    exp_dir.mkdir(parents=True, exist_ok=True)
-    args.exp_dir = exp_dir
-    write_experiment_snapshots(args, exp_dir, tracker_config=evolve_config)
-
-    sequence_names = MOTDataset(
-        mot_root=str(args.source),
-        seq_pattern=getattr(args, "seq_pattern", None),
-    ).sequence_names()
-    conf_threshold = getattr(args, "conf", None)
-    if conf_threshold is None:
-        conf_threshold = default_conf(args.detector[0])
-
-    task_args = _build_task_args(
-        args,
-        exp_dir,
-        sequence_names,
-        evolve_config,
-        conf_threshold,
-        str(cache_project),
-        None,
-    )
-    seq_frame_nums, total_track_time_ms, total_reid_time_ms, total_track_frames = _run_tracking_tasks(
-        args,
-        task_args,
-        quiet=quiet,
-        progress_callback=progress_callback,
-    )
-    args.seq_frame_nums = seq_frame_nums
-
-    # The metrics evaluator expects a per-sequence tracker txt file. When a sequence has
-    # no emitted rows (e.g. no usable cached inputs), keep an empty placeholder
-    # so evaluation can proceed instead of failing hard on missing files.
-    for seq_name in sequence_names:
-        seq_result = exp_dir / f"{seq_name}.txt"
-        if not seq_result.exists():
-            seq_result.touch()
-
-    if timing_stats is not None:
-        timing_stats.metadata["detector_from_cache"] = True
-        timing_stats.metadata["reid_from_cache"] = True
-        timing_stats.totals["track"] += total_track_time_ms
-        timing_stats.totals["reid"] += total_reid_time_ms
-        if timing_stats.frames == 0 and total_track_frames > 0:
-            timing_stats.frames = total_track_frames
-        if verbose and total_track_frames > 0:
-            avg_track = total_track_time_ms / total_track_frames
-            LOGGER.info(
-                f"[bold]Tracking:[/bold] {total_track_frames} frames, "
-                f"total: [cyan]{total_track_time_ms:.1f}ms[/cyan], "
-                f"avg: [cyan]{avg_track:.2f}ms/frame[/cyan]"
-            )
-
-    # Parse postprocessing pipeline (comma-separated, applied in order)
-    pp_raw = getattr(args, "postprocessing", "none")
-    pp_steps = [s.strip().lower() for s in pp_raw.split(",") if s.strip().lower() not in ("none", "")]
-    from boxmot.postprocessing import create_postprocessor, supported_postprocessors
-
-    valid_steps = set(supported_postprocessors())
-    for s in pp_steps:
-        if s not in valid_steps:
-            raise ValueError(f"Unknown postprocessing step '{s}'. Valid options: {sorted(valid_steps)}")
-
-    # Collect sequence names from result files for postprocessing progress
-    pp_seq_names = sorted(f.stem for f in exp_dir.glob("*.txt"))
-
-    for step_idx, pp_step in enumerate(pp_steps, 1):
-        step_label = pp_step.upper()
-        if len(pp_steps) > 1:
-            step_label = f"{step_label} ({step_idx}/{len(pp_steps)})"
-
-        # Build a per-sequence progress callback that formats progress bars.
-        # The callback receives per-track progress: (seq_name, current_track, total_tracks).
-        def _make_seq_cb(label: str):
-            seq_progress: dict[str, tuple[int, int]] = {}
-            total_seqs = len(pp_seq_names)
-
-            def _emit() -> None:
-                done = sum(1 for c, t in seq_progress.values() if t > 0 and c >= t)
-                header = f"{label}: {done}/{total_seqs} sequences done"
-                seq_display = _format_seq_progress(pp_seq_names, seq_progress)
-                message = "\n".join([header] + ([seq_display] if seq_display else []))
-                if postprocess_callback is not None:
-                    postprocess_callback(message)
-
-            # Send initial state with all sequences as pending
-            _emit()
-
-            def _cb(seq_name: str, current: int, total: int) -> None:
-                seq_progress[seq_name] = (current, total)
-                _emit()
-
-            return _cb
-
-        if pp_step != "gta":
-            postprocessor = create_postprocessor(pp_step)
-            if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing...")
-
-            postprocessor.run(
-                mot_results_folder=exp_dir,
-                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
-            )
-            continue
-
-        if pp_step == "gta":
-            postprocessor = create_postprocessor(pp_step)
-            if verbose:
-                LOGGER.info(f"[cyan]\\[3b/4][/cyan] Applying {postprocessor.display_name} postprocessing...")
-            # Resolve cached embeddings/detections directory
-            det_emb_root = cache_project / "dets_n_embs"
-            if getattr(args, "benchmark", None):
-                det_emb_root = det_emb_root / args.benchmark
-            if getattr(args, "split", None):
-                det_emb_root = det_emb_root / args.split
-            detector_key = args.detector[0].stem
-            dets_dir = det_emb_root / detector_key / "dets"
-            embs_dir = None
-            if args.reid:
-                embs_root = det_emb_root / detector_key / "embs"
-                resolved_dirs = {
-                    Path(_resolve_embedding_cache_dir(args, cache_project, seq_name)) for seq_name in sequence_names
-                }
-                existing_dirs = {directory for directory in resolved_dirs if directory.is_dir()}
-                if len(existing_dirs) == 1:
-                    embs_dir = existing_dirs.pop()
-                elif len(existing_dirs) > 1:
-                    LOGGER.warning(
-                        "GTA: sequences use multiple compatible embedding cache directories; "
-                        "consolidate them into the canonical cache before postprocessing."
-                    )
-                else:
-                    LOGGER.warning(f"GTA: Could not find a complete embedding cache under {embs_root}.")
-            else:
-                tracker_name = getattr(args, "tracker", "this tracker")
-                skip_msg = (
-                    f"GTA skipped: '{tracker_name}' has no ReID embeddings.\n"
-                    f"Use a ReID tracker (botsort, deepocsort) or remove --postprocessing gta."
-                )
-                if postprocess_callback is not None:
-                    postprocess_callback(skip_msg)
-                else:
-                    LOGGER.warning(skip_msg)
-                continue
-
-            postprocessor = create_postprocessor(
-                "gta",
-                embs_dir=embs_dir,
-                dets_dir=dets_dir if dets_dir.exists() else None,
-            )
-            postprocessor.run(
-                mot_results_folder=exp_dir,
-                progress_callback=_make_seq_cb(step_label) if postprocess_callback else None,
-            )
+__all__ = (
+    "ReplayFrame",
+    "ReplayProgressEvent",
+    "ReplayResult",
+    "iter_cached_tracks",
+    "replay_build",
+    "tracks_to_mot_rows",
+)

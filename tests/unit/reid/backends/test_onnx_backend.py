@@ -16,9 +16,7 @@ def _make_backend(device_type: str = "cpu"):
     backend = object.__new__(ONNXBackend)
     backend.device = SimpleNamespace(type="cpu")
     backend._requested_device = SimpleNamespace(type=device_type)
-    backend.checker = SimpleNamespace(
-        check_packages=lambda requirements: install_calls.append(tuple(requirements))
-    )
+    backend.checker = SimpleNamespace(check_packages=lambda requirements: install_calls.append(tuple(requirements)))
     return backend, install_calls
 
 
@@ -60,12 +58,6 @@ def test_onnx_init_uses_metadata_without_building_source_model(monkeypatch, tmp_
             ["CPUExecutionProvider"],
         ),
         (
-            "Darwin",
-            "mps",
-            ["CoreMLExecutionProvider", "CPUExecutionProvider"],
-            ["CPUExecutionProvider"],
-        ),
-        (
             "Windows",
             "cpu",
             ["DmlExecutionProvider", "CPUExecutionProvider"],
@@ -75,7 +67,7 @@ def test_onnx_init_uses_metadata_without_building_source_model(monkeypatch, tmp_
             "Linux",
             "cuda",
             ["CUDAExecutionProvider", "CPUExecutionProvider"],
-            ["CUDAExecutionProvider", "CPUExecutionProvider"],
+            ["CUDAExecutionProvider"],
         ),
         (
             "Linux",
@@ -85,7 +77,7 @@ def test_onnx_init_uses_metadata_without_building_source_model(monkeypatch, tmp_
         ),
     ],
 )
-def test_select_execution_providers_prefers_system_accelerators(
+def test_select_execution_providers_honours_explicit_device(
     monkeypatch,
     system_name,
     device_type,
@@ -98,14 +90,130 @@ def test_select_execution_providers_prefers_system_accelerators(
     assert backend._select_execution_providers(available_providers) == expected
 
 
-def test_legacy_onnx_coreml_provider_requires_explicit_opt_in(monkeypatch):
+def test_mps_device_rejects_onnx_runtime_coreml_alias(monkeypatch):
     backend, _ = _make_backend("mps")
-    monkeypatch.setenv("BOXMOT_ENABLE_LEGACY_ONNX_COREML", "1")
     monkeypatch.setattr(onnx_backend_module.platform, "system", lambda: "Darwin")
 
-    assert backend._select_execution_providers(
-        ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-    ) == ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    with pytest.raises(ValueError, match="has no MPS execution provider"):
+        backend._select_execution_providers(["CoreMLExecutionProvider", "CPUExecutionProvider"])
+
+
+def test_explicit_coreml_device_selects_only_coreml_provider():
+    backend, _ = _make_backend("coreml")
+
+    assert backend._select_execution_providers(["CoreMLExecutionProvider", "CPUExecutionProvider"]) == [
+        "CoreMLExecutionProvider"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("device_type", "provider"),
+    [
+        ("cpu", "CPUExecutionProvider"),
+        ("cuda", "CUDAExecutionProvider"),
+        ("coreml", "CoreMLExecutionProvider"),
+    ],
+)
+def test_explicit_device_rejects_unavailable_provider(device_type, provider):
+    backend, _ = _make_backend(device_type)
+
+    with pytest.raises(RuntimeError, match=rf"{provider} was explicitly requested"):
+        backend._select_execution_providers(["SomeOtherExecutionProvider"])
+
+
+def test_auto_device_uses_available_provider_fallback_order(monkeypatch):
+    backend, _ = _make_backend("auto")
+    monkeypatch.setattr(onnx_backend_module.platform, "system", lambda: "Windows")
+
+    assert backend._select_execution_providers(["DmlExecutionProvider", "CPUExecutionProvider"]) == [
+        "DmlExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+
+
+@pytest.mark.parametrize(("explicit", "expected"), [(True, "1"), (False, None)])
+def test_session_disables_cpu_fallback_only_for_explicit_accelerator(monkeypatch, explicit, expected):
+    backend, _ = _make_backend("cuda")
+    backend._provider_selection_is_explicit = explicit
+    captured = {}
+
+    class FakeSessionOptions:
+        def __init__(self):
+            self.graph_optimization_level = None
+            self.config = {}
+
+        def add_session_config_entry(self, name, value):
+            self.config[name] = value
+
+    def fake_session(_weights, sess_options, providers):
+        captured["config"] = sess_options.config
+        captured["providers"] = providers
+        return object()
+
+    fake_onnxruntime = types.SimpleNamespace(
+        SessionOptions=FakeSessionOptions,
+        GraphOptimizationLevel=types.SimpleNamespace(ORT_ENABLE_ALL=1),
+        InferenceSession=fake_session,
+    )
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_onnxruntime)
+
+    backend._make_session("model.onnx", ["CUDAExecutionProvider"], None)
+
+    assert captured["config"].get("session.disable_cpu_ep_fallback") == expected
+    assert captured["providers"] == ["CUDAExecutionProvider"]
+
+
+@pytest.mark.parametrize("value", ["ort", "cv", "dnn", "opencv_dnn", "ONNXRUNTIME", ""])
+def test_runtime_backend_rejects_aliases_and_unknown_values(monkeypatch, value):
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", value)
+
+    with pytest.raises(ValueError, match="Invalid BOXMOT_REID_BACKEND"):
+        ONNXBackend._select_runtime_backend()
+
+
+@pytest.mark.parametrize("value", ["auto", "onnxruntime", "opencv"])
+def test_runtime_backend_accepts_only_canonical_values(monkeypatch, value):
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", value)
+
+    assert ONNXBackend._select_runtime_backend() == value
+
+
+def test_explicit_opencv_backend_rejects_accelerator(monkeypatch):
+    backend, _ = _make_backend("cuda")
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", "opencv")
+
+    with pytest.raises(ValueError, match="OpenCV DNN ReID supports only device=cpu"):
+        backend.load_model("model.onnx")
+
+
+def test_explicit_onnxruntime_backend_does_not_fall_back(monkeypatch):
+    backend, _ = _make_backend("cpu")
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", "onnxruntime")
+    monkeypatch.setattr(
+        backend,
+        "_ensure_onnxruntime_installed",
+        lambda: (_ for _ in ()).throw(ImportError("unavailable")),
+    )
+
+    with pytest.raises(RuntimeError, match="explicitly requested"):
+        backend.load_model("model.onnx")
+
+
+def test_auto_backend_may_fallback_to_opencv(monkeypatch):
+    backend, _ = _make_backend("cpu")
+    loaded = []
+    monkeypatch.setenv("BOXMOT_REID_BACKEND", "auto")
+    monkeypatch.setattr(
+        backend,
+        "_ensure_onnxruntime_installed",
+        lambda: (_ for _ in ()).throw(ImportError("unavailable")),
+    )
+    monkeypatch.setattr(backend, "_load_opencv_dnn", loaded.append)
+
+    backend.load_model("model.onnx")
+
+    assert backend._backend == "opencv"
+    assert loaded == ["model.onnx"]
 
 
 def test_ensure_onnxruntime_installed_accepts_silicon_package_on_macos(monkeypatch):

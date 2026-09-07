@@ -5,10 +5,82 @@ from __future__ import annotations
 import importlib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
-from boxmot.trackers.config import get_tracker_config_path, load_tracker_config
-from boxmot.trackers.specs import normalize_tracker_backend
+from boxmot._tracker_exports import _TRACKER_MANIFEST
+from boxmot.structures import GeometryKind
+from boxmot.trackers.config import get_tracker_config_path
+from boxmot.trackers.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
+
+_BOX_GEOMETRIES = frozenset({GeometryKind.AABB, GeometryKind.OBB})
+
+_TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
+    "boosttrack": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_embeddings=True,
+        accepts_frame=True,
+    ),
+    "botsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_embeddings=True,
+        accepts_frame=True,
+    ),
+    "bytetrack": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_frame=True,
+    ),
+    "deepocsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_embeddings=True,
+        accepts_frame=True,
+    ),
+    "hybridsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_embeddings=True,
+        accepts_frame=True,
+    ),
+    "occluboost": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_embeddings=True,
+        accepts_frame=True,
+    ),
+    "ocsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_frame=True,
+    ),
+    "sam2mot": TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=_BOX_GEOMETRIES,
+        requires_masks=True,
+        accepts_masks=True,
+        requires_frame=True,
+        accepts_frame=True,
+    ),
+    "sfsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        accepts_frame=True,
+    ),
+    "strongsort": TrackerCapabilities(
+        family=TrackerFamily.BOX,
+        geometry_kinds=_BOX_GEOMETRIES,
+        requires_embeddings=True,
+        accepts_embeddings=True,
+        requires_frame=True,
+        accepts_frame=True,
+    ),
+}
+
+if _TRACKER_CAPABILITIES.keys() != _TRACKER_MANIFEST.keys():
+    missing = sorted(_TRACKER_MANIFEST.keys() - _TRACKER_CAPABILITIES.keys())
+    extra = sorted(_TRACKER_CAPABILITIES.keys() - _TRACKER_MANIFEST.keys())
+    raise RuntimeError(f"Tracker capability registry mismatch: missing={missing}, extra={extra}.")
 
 
 @dataclass(frozen=True, slots=True)
@@ -17,119 +89,69 @@ class TrackerDefinition:
 
     name: str
     class_path: str
+    capabilities: TrackerCapabilities
     config_name: str | None = None
-    needs_reid: bool = False
     accepts_per_class: bool = True
-    warmup_model: bool = True
+    native_class_path: str | None = None
+    native_geometry_kinds: frozenset[GeometryKind] = frozenset()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.capabilities, TrackerCapabilities):
+            raise TypeError("TrackerDefinition.capabilities must be TrackerCapabilities.")
+        if not isinstance(self.accepts_per_class, bool):
+            raise TypeError("TrackerDefinition.accepts_per_class must be bool.")
+        if not isinstance(self.native_geometry_kinds, frozenset) or any(
+            not isinstance(kind, GeometryKind) for kind in self.native_geometry_kinds
+        ):
+            raise TypeError("TrackerDefinition.native_geometry_kinds must be a frozenset of GeometryKind values.")
+        if self.native_class_path is None and self.native_geometry_kinds:
+            raise ValueError("TrackerDefinition without a native class cannot declare native geometry kinds.")
+        unsupported = self.native_geometry_kinds - self.capabilities.geometry_kinds
+        if unsupported:
+            values = ", ".join(sorted(kind.value for kind in unsupported))
+            raise ValueError(f"Native geometry kinds must be supported by the tracker algorithm: {values}.")
 
     @property
     def config_path(self) -> Path:
         return get_tracker_config_path(self.config_name or self.name)
 
-    @property
-    def class_name(self) -> str:
-        return self.class_path.rsplit(".", 1)[-1]
-
 
 TRACKER_DEFINITIONS = {
-    "strongsort": TrackerDefinition(
-        name="strongsort",
-        class_path="boxmot.trackers.bbox.strongsort.StrongSort",
-        needs_reid=True,
-    ),
-    "ocsort": TrackerDefinition(
-        name="ocsort",
-        class_path="boxmot.trackers.bbox.ocsort.OcSort",
-    ),
-    "bytetrack": TrackerDefinition(
-        name="bytetrack",
-        class_path="boxmot.trackers.bbox.bytetrack.ByteTrack",
-    ),
-    "sfsort": TrackerDefinition(
-        name="sfsort",
-        class_path="boxmot.trackers.bbox.sfsort.SFSORT",
-    ),
-    "botsort": TrackerDefinition(
-        name="botsort",
-        class_path="boxmot.trackers.bbox.botsort.BotSort",
-        needs_reid=True,
-    ),
-    "deepocsort": TrackerDefinition(
-        name="deepocsort",
-        class_path="boxmot.trackers.bbox.deepocsort.DeepOcSort",
-        needs_reid=True,
-    ),
-    "hybridsort": TrackerDefinition(
-        name="hybridsort",
-        class_path="boxmot.trackers.bbox.hybridsort.HybridSort",
-        needs_reid=True,
-    ),
-    "boosttrack": TrackerDefinition(
-        name="boosttrack",
-        class_path="boxmot.trackers.bbox.boosttrack.BoostTrack",
-        needs_reid=True,
-    ),
-    "occluboost": TrackerDefinition(
-        name="occluboost",
-        class_path="boxmot.trackers.bbox.occluboost.OccluBoost",
-        needs_reid=True,
-    ),
-    "sam2mot": TrackerDefinition(
-        name="sam2mot",
-        class_path="boxmot.trackers.hybrid.sam2mot.sam2mot.Sam2Mot",
-    ),
+    name: TrackerDefinition(
+        name=name,
+        class_path=entry.class_path,
+        capabilities=_TRACKER_CAPABILITIES[name],
+        native_class_path=entry.native_class_path,
+        native_geometry_kinds=(
+            frozenset(GeometryKind(mode) for mode in entry.native_geometry_modes)
+            if entry.native_class_path is not None
+            else frozenset()
+        ),
+    )
+    for name, entry in _TRACKER_MANIFEST.items()
 }
 
 TRACKER_MAPPING = {name: definition.class_path for name, definition in TRACKER_DEFINITIONS.items()}
-REID_TRACKERS = [name for name, definition in TRACKER_DEFINITIONS.items() if definition.needs_reid]
-TRACKER_CLASS_TO_NAME = {definition.class_name.lower(): name for name, definition in TRACKER_DEFINITIONS.items()}
+TRACKER_CLASS_SPECS = {
+    class_path: TrackerSpec(name=name, backend=backend)
+    for name, entry in _TRACKER_MANIFEST.items()
+    for class_path, backend in ((entry.class_path, "python"), (entry.native_class_path, "cpp"))
+    if class_path is not None
+}
 
 
 def get_tracker_definition(tracker_type: str) -> TrackerDefinition:
     """Return registered metadata for a tracker type."""
-
     try:
         return TRACKER_DEFINITIONS[tracker_type]
     except KeyError as exc:
-        available = ", ".join(TRACKER_MAPPING.keys())
-        raise ValueError(f"Unknown tracker type: '{tracker_type}'. Available trackers are: {available}") from exc
+        available = ", ".join(TRACKER_MAPPING)
+        raise ValueError(f"Unknown tracker type: {tracker_type!r}. Available trackers are: {available}") from exc
 
 
-def get_tracker_config(tracker_type):
-    """Returns the path to the tracker configuration file."""
-
-    definition = TRACKER_DEFINITIONS.get(tracker_type)
-    if definition is not None:
-        return definition.config_path
-    return get_tracker_config_path(tracker_type)
-
-
-def _resolve_tracker_args(
-    definition: TrackerDefinition,
-    tracker_config: str | Path | None,
-    evolve_param_dict: dict[str, Any] | None,
-    tracker_kwargs: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return load_tracker_config(
-        definition.config_name or definition.name,
-        tracker_config,
-        evolve_param_dict,
-        tracker_kwargs,
-    )
-
-
-def _resolve_native_tracker_args(
-    tracker_type: str,
-    tracker_config: str | Path | None,
-    evolve_param_dict: dict[str, Any] | None,
-    tracker_kwargs: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    return load_tracker_config(
-        tracker_type,
-        tracker_config,
-        evolve_param_dict,
-        tracker_kwargs,
-    )
+def get_tracker_config(tracker_type: str) -> Path:
+    """Return the built-in configuration path for a registered tracker."""
+    return get_tracker_definition(tracker_type).config_path
 
 
 def _load_tracker_class(definition: TrackerDefinition):
@@ -138,182 +160,24 @@ def _load_tracker_class(definition: TrackerDefinition):
     return getattr(module, class_name)
 
 
-def get_tracker_class(tracker_type: str):
-    """Return the registered tracker class for a tracker type."""
+def supported_native_trackers() -> tuple[str, ...]:
+    """Return tracker names with registered C++ domain adapters."""
 
+    return tuple(sorted(name for name, definition in TRACKER_DEFINITIONS.items() if definition.native_class_path))
+
+
+def get_tracker_class(tracker_type: str):
+    """Return the lazily imported tracker class for a registered type."""
     return _load_tracker_class(get_tracker_definition(tracker_type))
 
 
-def _build_reid_model(
-    *,
-    reid_weights=None,
-    device=None,
-    half=None,
-    reid_preprocess=None,
-    reid_model=None,
-):
-    if reid_model is not None or reid_weights is None:
-        return reid_model
-
-    from boxmot.reid.core import ReID
-
-    return ReID(
-        weights=reid_weights,
-        device=device,
-        half=half,
-        preprocess_name=reid_preprocess,
-    ).model
-
-
-def _create_native_tracker(
-    tracker_type: str,
-    *,
-    definition: TrackerDefinition | None,
-    tracker_config=None,
-    reid_weights=None,
-    evolve_param_dict=None,
-    tracker_kwargs=None,
-    reid_preprocess=None,
-):
-    # Lazy import keeps ``boxmot.native`` optional for pure-Python users.
-    from boxmot.native.registry import get_native_live_backend
-
-    native = get_native_live_backend(tracker_type)
-    cfg_dict = _resolve_native_tracker_args(
-        (definition.config_name or definition.name) if definition is not None else tracker_type,
-        tracker_config,
-        evolve_param_dict,
-        tracker_kwargs,
-    )
-    kwargs = {}
-    if definition is not None and definition.needs_reid:
-        kwargs["reid_weights"] = reid_weights
-        if reid_preprocess is not None:
-            kwargs["reid_preprocess"] = reid_preprocess
-    return native.create_tracker(cfg_dict, **kwargs)
-
-
-def create_tracker(
-    tracker_type,
-    tracker_config=None,
-    reid_weights=None,
-    device=None,
-    half=None,
-    per_class=None,
-    class_ids=None,
-    class_names=None,
-    evolve_param_dict=None,
-    tracker_kwargs=None,
-    reid_preprocess=None,
-    reid_model=None,
-    tracker_backend="python",
-    precomputed_reid: bool = False,
-    warmup_model: bool = True,
-):
-    """
-    Creates and returns an instance of the specified tracker type.
-
-    Parameters:
-    - tracker_type: The type of the tracker (e.g., 'strongsort', 'ocsort').
-    - tracker_config: Path to the tracker configuration file.
-    - reid_weights: Weights for ReID (re-identification). Used to build a ReID backend
-        when ``reid_model`` is not supplied.
-    - device: Device to run the ReID backend on (only used when building from ``reid_weights``).
-    - half: Whether to use half-precision for the ReID backend (only used when building from ``reid_weights``).
-    - per_class: Boolean for class-specific tracking (optional).
-    - class_ids: Optional detector class IDs allowed by this tracker.
-    - class_names: Optional detector class names keyed by detector class ID.
-    - evolve_param_dict: A dictionary of parameters for evolving the tracker.
-    - tracker_kwargs: Constructor overrides applied after default YAML config resolution.
-    - reid_preprocess: Preprocessing method for the ReID backend (only used when building from ``reid_weights``).
-    - reid_model: Pre-built ReID backend (e.g., ``ReID(...).model``). Takes
-        precedence over ``reid_weights`` and lets callers share a single backend across trackers.
-    - tracker_backend: Backend to use for the tracker. ``"python"`` (default)
-        uses the pure-Python implementation under ``boxmot.trackers``. ``"cpp"``
-        delegates to the registered native (C++) live backend via
-        :func:`boxmot.native.registry.get_native_live_backend`. The native
-        backend is built on demand if it isn't already compiled.
-    - precomputed_reid: Whether appearance embeddings will be supplied by the
-        caller. When enabled, ReID-capable trackers keep appearance matching
-        active without constructing a live ReID backend from ``reid_weights``.
-    - warmup_model: Whether to warm a tracker-owned ReID backend after construction.
-        Disable this when the caller already warmed a backend shared by multiple trackers.
-
-    Returns:
-    - An instance of the selected tracker.
-
-    Raises:
-    - ValueError: If `tracker_type` is not recognized or the requested
-      ``tracker_backend`` is not available for that tracker.
-    """
-
-    backend = normalize_tracker_backend(tracker_backend, default="python")
-    definition = TRACKER_DEFINITIONS.get(tracker_type)
-
-    if backend == "cpp":
-        if per_class:
-            raise NotImplementedError(
-                "Native live trackers do not yet provide class-separated state. "
-                "Use tracker_backend='python' with per_class=True."
-            )
-        tracker = _create_native_tracker(
-            tracker_type,
-            definition=definition,
-            tracker_config=tracker_config,
-            reid_weights=reid_weights,
-            evolve_param_dict=evolve_param_dict,
-            tracker_kwargs=tracker_kwargs,
-            reid_preprocess=reid_preprocess,
-        )
-        if hasattr(tracker, "configure_class_catalog"):
-            tracker.configure_class_catalog(class_ids=class_ids, class_names=class_names)
-        return tracker
-
-    definition = get_tracker_definition(tracker_type)
-    tracker_args = _resolve_tracker_args(
-        definition,
-        tracker_config,
-        evolve_param_dict,
-        tracker_kwargs,
-    )
-    tracker_args["per_class"] = per_class
-    if class_ids is not None:
-        tracker_args["class_ids"] = class_ids
-    if class_names is not None:
-        tracker_args["class_names"] = class_names
-
-    if definition.needs_reid:
-        if precomputed_reid:
-            tracker_args["reid_model"] = reid_model
-        else:
-            tracker_args["reid_model"] = _build_reid_model(
-                reid_weights=reid_weights,
-                device=device,
-                half=half,
-                reid_preprocess=reid_preprocess,
-                reid_model=reid_model,
-            )
-            if tracker_args["reid_model"] is None and "with_reid" in tracker_args:
-                tracker_args["with_reid"] = False
-
-    if not definition.accepts_per_class:
-        tracker_args.pop("per_class", None)
-
-    tracker_class = _load_tracker_class(definition)
-    tracker = tracker_class(**tracker_args)
-    if warmup_model and definition.warmup_model and hasattr(tracker, "model") and tracker.model is not None:
-        tracker.model.warmup()
-    return tracker
-
-
 __all__ = (
-    "REID_TRACKERS",
-    "TRACKER_CLASS_TO_NAME",
+    "TRACKER_CLASS_SPECS",
     "TRACKER_DEFINITIONS",
     "TRACKER_MAPPING",
     "TrackerDefinition",
-    "create_tracker",
-    "get_tracker_config",
     "get_tracker_class",
+    "get_tracker_config",
     "get_tracker_definition",
+    "supported_native_trackers",
 )

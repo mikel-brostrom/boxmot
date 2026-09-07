@@ -107,7 +107,7 @@ def _strip_tracker_metadata(
             )
         return resolved
 
-    if str(declared_tracker).strip().lower() != str(expected_tracker).strip().lower():
+    if declared_tracker != expected_tracker:
         raise ValueError(
             f'Tracker config {path} is for "{declared_tracker}", not "{expected_tracker}".'
         )

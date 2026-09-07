@@ -1,6 +1,9 @@
 import numpy as np
 import pytest
 
+import boxmot.postprocessing.gbrc as gbrc_module
+import boxmot.postprocessing.gsi as gsi_module
+import boxmot.postprocessing.gta as gta_algorithms
 from boxmot.postprocessing import MotFilePostprocessor, Postprocessor, create_postprocessor, supported_postprocessors
 from boxmot.postprocessing.gbrc import gradient_boosting_smooth
 from boxmot.postprocessing.gbrc import linear_interpolation as gbrc_linear_interpolation
@@ -37,7 +40,7 @@ def test_gbrc():
 
 
 def test_postprocessor_factory_creates_file_postprocessors():
-    assert supported_postprocessors() == ("gsi", "gbrc", "gta")
+    assert supported_postprocessors() == ("gsi", "gbrc")
 
     gsi_postprocessor = create_postprocessor("gsi", interval=7, tau=3)
     gbrc_postprocessor = create_postprocessor("gbrc", interval=9)
@@ -55,3 +58,20 @@ def test_postprocessor_factory_creates_file_postprocessors():
 def test_postprocessor_factory_rejects_unknown_step():
     with pytest.raises(ValueError, match="Unknown postprocessing step"):
         create_postprocessor("missing")
+
+
+def test_legacy_gta_postprocessor_is_not_registered():
+    with pytest.raises(ValueError, match="Unknown postprocessing step"):
+        create_postprocessor("gta")
+
+
+def test_gta_module_contains_only_in_memory_algorithms():
+    assert "merge_tracklets" in gta_algorithms.__all__
+    assert not hasattr(gta_algorithms, "GTAPostprocessor")
+    assert not hasattr(gta_algorithms, "generate_tracklets")
+    assert not hasattr(gta_algorithms, "main")
+
+
+@pytest.mark.parametrize("module", (gsi_module, gbrc_module))
+def test_registered_postprocessor_modules_have_no_standalone_cli(module):
+    assert not hasattr(module, "main")

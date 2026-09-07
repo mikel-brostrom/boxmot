@@ -1,8 +1,6 @@
 name: Publish to PyPI
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
     inputs:
       pypi:
@@ -13,80 +11,90 @@ on:
         options:
           - pypi
           - testpypi
-      bump_type:
-        description: 'Version bump type'
-        required: true
-        type: choice
-        default: 'patch'
-        options:
-          - patch
-          - minor
-          - major
+
+permissions:
+  actions: read
+  contents: write
 
 jobs:
+  release-gates:
+    name: Build and validate the release distributions
+    uses: ./.github/workflows/wheels.yml
+    with:
+      upload_artifacts: true
+
+  docker-gates:
+    name: Smoke-test release Docker images before publication
+    needs: release-gates
+    uses: ./.github/workflows/docker.yml
+    with:
+      source_ref: ${{ github.sha }}
+      release_tag: v${{ needs.release-gates.outputs.version }}
+      push_images: false
+
   pypi-upload:
-    name: Publish
+    name: Publish gated v24 distributions
+    needs: [release-gates, docker-gates]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: Checkout the gated revision
         uses: actions/checkout@v4
         with:
-          # Personal Access Token (PAT) so that git push
-          # is authenticated such that you and can bypass the protected ref
-          token: ${{ secrets.RELEASE_PAT }}
+          ref: ${{ github.sha }}
 
-      - name: Set up Python environment
-        uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
-          python-version: '3.10'
+          python-version: '3.11'
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel uv
-          uv sync
+      - name: Download the distributions that passed the release gates
+        uses: actions/download-artifact@v4
+        with:
+          name: boxmot-release-distributions
+          path: dist
 
-      - name: Bump project version
-        id: get_version
+      - name: Verify gated artifact checksums and version
+        env:
+          RELEASE_VERSION: ${{ needs.release-gates.outputs.version }}
         run: |
-          git config --local user.email yolov5.deepsort.pytorch@gmail.com
-          git config --local user.name mikel-brostrom
-          bump_type=${{ github.event.inputs.bump_type }}
-          old_version=$(uv version --short)
-          uv version --bump "$bump_type"
-          new_version=$(uv version --short)
-          commit_message="Bump version from $old_version to $new_version"
-          git add pyproject.toml uv.lock
-          uv build --no-sources
-          echo "commit_message=$commit_message" >> $GITHUB_OUTPUT
-          echo "new_version=$new_version" >> $GITHUB_OUTPUT
-          du -sh dist/*
-        if: ${{ success() }}
+          (cd dist && sha256sum --check SHA256SUMS)
+          python - <<'PY'
+          import email
+          import os
+          import pathlib
+          import tomllib
+          import zipfile
 
-      - name: Commit and push updated version
-        run: |
-          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            git commit -m "${{ steps.get_version.outputs.commit_message }}"
-            git push
-          fi
-        if: ${{ success() }}
+          release_version = os.environ["RELEASE_VERSION"]
+          source_version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          assert release_version == source_version == "24.0.0"
+          wheels = list(pathlib.Path("dist").glob("*.whl"))
+          assert len(wheels) == 1, f"expected one gated wheel, found {wheels}"
+          with zipfile.ZipFile(wheels[0]) as archive:
+              metadata_name = next(name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
+              metadata = email.message_from_bytes(archive.read(metadata_name))
+          assert metadata["Version"] == release_version
+          PY
 
-      - name: Publish to PyPI
+      - name: Publish the gated distributions
         run: |
-          if [ "${{ github.event.inputs.pypi }}" == "pypi" ]; then
-            uv publish --token ${{ secrets.PYPI_TOKEN }}
+          if [ "${{ inputs.pypi }}" == "pypi" ]; then
+            uv publish dist/*.whl dist/*.tar.gz --token "${{ secrets.PYPI_TOKEN }}"
           else
-            uv publish --index testpypi --token ${{ secrets.TEST_PYPI_TOKEN }}
+            uv publish --index testpypi dist/*.whl dist/*.tar.gz --token "${{ secrets.TEST_PYPI_TOKEN }}"
           fi
-        if: ${{ success() }}
 
       - name: Create code release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A PAT is required so the release.published event can start the
+          # release-only Docker workflow; GITHUB_TOKEN suppresses chained runs.
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
         with:
-          tag_name: v${{ steps.get_version.outputs.new_version }}
-          release_name: Release v${{ steps.get_version.outputs.new_version }}
+          tag_name: v${{ needs.release-gates.outputs.version }}
+          release_name: Release v${{ needs.release-gates.outputs.version }}
+          commitish: ${{ github.sha }}
           draft: false
           prerelease: false
-        if: ${{ success() }}
+        if: ${{ success() && inputs.pypi == 'pypi' }}

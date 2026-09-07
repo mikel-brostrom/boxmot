@@ -104,7 +104,7 @@ def test_cmc_mask_uses_obb_polygon_instead_of_enclosing_aabb():
     gray = cmc.preprocess(image)
     obb = np.array([[50, 50, 60, 10, np.pi / 4]], dtype=np.float32)
 
-    mask = cmc.generate_mask(gray, obb, cmc.scale)
+    mask = cmc.generate_mask(gray, obb)
 
     assert mask[50, 50] == 0
     assert mask[30, 70] == 255  # inside the enclosing AABB, outside the OBB
@@ -121,7 +121,7 @@ def test_cmc_mask_scales_obb_corners_for_nonuniform_resize():
     gray = cmc.preprocess(image)
     obb = np.array([[50, 50, 60, 10, np.pi / 4]], dtype=np.float32)
 
-    mask = cmc.generate_mask(gray, obb, cmc.scale)
+    mask = cmc.generate_mask(gray, obb)
     expected = np.zeros_like(mask)
     expected[2:98, 4:196] = 255
     polygon = cv2.boxPoints(((50.0, 50.0), (60.0, 10.0), 45.0))
@@ -140,21 +140,18 @@ def test_cmc_mask_does_not_mutate_aabb_detections():
     detections = np.array([[10, 20, 60, 80]], dtype=np.float32)
     expected = detections.copy()
 
-    cmc.generate_mask(gray, detections, cmc.scale)
+    cmc.generate_mask(gray, detections)
 
     np.testing.assert_array_equal(detections, expected)
 
 
-def test_reset_cmc_calls_reset_and_clears_legacy_state():
+def test_reset_cmc_delegates_to_estimator_contract():
     cmc = DummyCMC()
 
     reset_cmc(cmc)
 
     assert cmc.reset_called is True
-    assert cmc.prev_img is None
-    assert cmc.prev_img_aligned is None
-    assert cmc.prev_keypoints is None
-    assert cmc.prev_descriptors is None
+    np.testing.assert_array_equal(cmc.prev_img, np.ones((2, 2), dtype=np.uint8))
 
 
 def test_reset_cmc_clears_sof_sequence_state():

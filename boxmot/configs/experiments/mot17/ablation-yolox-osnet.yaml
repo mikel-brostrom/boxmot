@@ -1,0 +1,14 @@
+dataset:
+  ref: mot17.yaml
+  split: ablation
+
+detector:
+  ref: yolox-x-mot17.yaml
+  checkpoint: ablation
+
+reid:
+  ref: osnet-x0-25-msmt17.yaml
+
+evaluation:
+  class_map:
+    pedestrian: person

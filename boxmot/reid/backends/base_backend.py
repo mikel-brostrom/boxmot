@@ -10,16 +10,16 @@ from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.crops import build_crop_batch
 from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.resources.paths import resolve_model_path
 from boxmot.utils import logger as LOGGER
 from boxmot.utils.checks import RequirementsChecker
-from boxmot.utils.misc import resolve_model_path
 
 
 class BaseModelBackend:
     build_source_model = True
 
     def __init__(self, weights, device, half, preprocess=None):
-        self.weights = weights[0] if isinstance(weights, list) else weights
+        self.weights = weights[0] if isinstance(weights, (list, tuple)) else weights
         if isinstance(self.weights, str):
             self.weights = Path(self.weights)
         self.weights = resolve_model_path(self.weights)
@@ -90,7 +90,7 @@ class BaseModelBackend:
             std=self.std_array,
         )
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def get_features(self, xyxys, img):
         xyxys = np.asarray(xyxys)
         if xyxys.size != 0:
@@ -112,9 +112,7 @@ class BaseModelBackend:
         # warmup model by running inference once
         if self.device.type != "cpu":
             im = np.random.randint(0, 255, *imgsz, dtype=np.uint8)
-            crops = self.get_crops(
-                xyxys=np.array([[0, 0, 64, 64], [0, 0, 128, 128]]), img=im
-            )
+            crops = self.get_crops(xyxys=np.array([[0, 0, 64, 64], [0, 0, 128, 128]]), img=im)
             crops = self.inference_preprocess(crops)
             self.forward(crops)  # warmup
 
@@ -139,9 +137,7 @@ class BaseModelBackend:
 
     def inference_postprocess(self, features):
         if isinstance(features, (list, tuple)):
-            return (
-                self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]
-            )
+            return self.to_numpy(features[0]) if len(features) == 1 else [self.to_numpy(x) for x in features]
         else:
             return self.to_numpy(features)
 
@@ -152,7 +148,6 @@ class BaseModelBackend:
     @abstractmethod
     def load_model(self, w):
         raise NotImplementedError("This method should be implemented by subclasses.")
-
 
     def download_model(self, w):
         if isinstance(w, str):
@@ -196,15 +191,11 @@ class BaseModelBackend:
                 LOGGER.info(f"[PID {os.getpid()}] Downloading ReID weights from {model_url} → {w}")
                 # Always route through download_file: it handles both the
                 # Google Drive confirm-token flow (via gdown) and direct
-                # HTTP(S) downloads, and integrates with an active Rich
-                # workflow's status callback so the progress is rendered
-                # inside the panel instead of leaking raw tqdm output.
-                from boxmot.utils.download import download_file
+                # HTTP(S) downloads and delegates progress to an active
+                # renderer when one is registered.
+                from boxmot.resources.download import download_file
 
                 download_file(model_url, w)
             else:
-                LOGGER.error(
-                    f"No URL associated with the chosen ReID weights ({w}).\n"
-                    f"Choose one of the following:"
-                )
+                LOGGER.error(f"No URL associated with the chosen ReID weights ({w}).\nChoose one of the following:")
                 ReIDModelRegistry.show_downloadable_models()

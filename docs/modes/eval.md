@@ -1,185 +1,156 @@
 # Evaluate
 
-Use `eval` to score tracking runs on MOT-style datasets with BoxMOT's in-repo MOT metrics.
+`eval` measures a tracker by streaming an immutable materialized build through
+the live tracker API. With `--experiment`, `--build` is optional: when omitted,
+BoxMOT first materializes (or reuses) a canonical build compatible with the
+selected tracker and then evaluates it. Detector, segmentor, and
+appearance-encoder inference happens only during that preparation step, never
+during replay. Automatic preparation publishes image references, embeddings
+for appearance-capable trackers, and masks when the selected tracker requires
+them. Motion-only trackers such as SFSORT skip the embedding stage entirely.
 
-## Examples
+Preparation caches detector output separately from ReID embeddings. If a
+compatible dataset, detector, geometry, and class mapping have already been
+materialized, changing the ReID model skips detector inference and runs the
+remaining derived stages. The cache lives below
+`<selected-build-root>/.cache/detect`; with the default root, BoxMOT can also
+import an identical v1 build or seed detections from another compatible v1
+build in the former platform-cache location.
+Detector-native masks or embeddings are not represented by this geometry cache,
+so builds that require either output run their detector stage normally.
 
-!!! example
-
-    === "CLI"
-
-        ```bash
-        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --verbose
-        ```
-
-    === "Python"
-
-        ```python
-        from boxmot import BoxMOT
-
-        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
-        print(metrics)
-        ```
-
-Use a model-free dataset profile when the detector and ReID models should come
-from the CLI options or runtime defaults instead of an experiment:
+Pass exactly one experiment or dataset selector. Experiment mode can prepare
+its own build:
 
 ```bash
-boxmot eval --dataset mot17 --split ablation --tracker boosttrack
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --data-root datasets/mot \
+  --device mps \
+  --tracker boosttrack
 ```
 
-`--dataset` and `--experiment` are mutually exclusive. An experiment selected
-with `--experiment` remains the reproducible option when detector, ReID, and
-detection-source choices must be fixed by configuration.
+`--device` selects the detector, segmentor, and ReID execution device for this
+automatic preparation. It is rejected with an explicit `--build`, where no
+perception model runs.
 
-## Typical workflow
+After materialization completes, evaluation consumes the exact path returned
+by that build operation. It does not scan `--build-root`, select a latest
+directory, or risk replaying another experiment's build.
 
-!!! example
-
-    === "CLI"
-
-        For repeated experiments:
-
-        ```bash
-        boxmot generate --experiment mot17-ablation-yolox-lmbn
-        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack
-        ```
-
-        This lets `eval` reuse precomputed detections and embeddings.
-
-    === "Python"
-
-        ```python
-        from boxmot import BoxMOT
-
-        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
-        print(metrics)
-        ```
-
-## Public detections
-
-Select an experiment whose `detections.source` is `public`:
+Pass `--build` to reuse a specific build. Dataset-only mode always requires it
+because a dataset config does not select the detector and ReID components
+needed for materialization:
 
 ```bash
-boxmot eval --experiment mot17-ablation-frcnn-lmbn --tracker boosttrack
-boxmot eval --experiment mot17-ablation-sdp-lmbn --tracker boosttrack
-boxmot eval --experiment mot17-ablation-dpm-lmbn --tracker boosttrack
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --build /srv/boxmot/materializations/BUILD_ID \
+  --tracker bytetrack
 ```
 
-The selected experiment identifies the public source in the central artifact
-profile. The compatibility option `--detection-source` accepts `public` or
-`private`, but a source-specific experiment ID is the reproducible way to
-choose FRCNN, SDP, or DPM.
+An experiment additionally fixes semantic component fingerprints. Dataset mode
+uses the selected dataset adapter for ground truth. Before tracking, evaluation
+verifies the build's source catalog digest, split, class taxonomy, geometry,
+published requirements, and—when applicable—component fingerprints.
 
-See [Experiment Workflows](../guides/experiments.md#detection-sources) for details on how public detections are resolved.
+If an explicitly selected build is missing or incompatible, evaluation fails
+without modifying it or creating a replacement.
 
-## Kalman filter noise tuning
-
-Use `--tune-kf` to estimate per-sequence Kalman filter process and measurement noise (Q/R matrices) from the cached detections and ground truth before tracking:
+An unbound build created before canonical experiment materialization can be
+evaluated only with the explicit `--allow-noncanonical-build` escape hatch.
+This relaxes the missing build-binding check; it does not turn incompatible
+artifacts into compatible ones. Use it only after independently verifying the
+build's source, split, detector, ReID model, geometry, and class taxonomy. For
+example, to diagnose the known MMOT build on one sequence:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --tune-kf
+boxmot eval \
+  --experiment mmot-obb/test-yolo11l-lmbn.yaml \
+  --build faf16842d9d15fc048a50247df8ae927e7299d5760c9f461af4581cabfa279e6 \
+  --data-root datasets/mot \
+  --tracker botsort \
+  --sequence data23-1 \
+  --allow-noncanonical-build
 ```
 
-This is most useful for trackers with Kalman-filter-based motion models. It requires cached detections and ground truth to be available.
+Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
+the default and do not need this flag.
 
-For runtime adaptation without ground truth, `boosttrack` and `occluboost`
-expose the `adaptive_kf` tracker setting, which estimates noise online via the
-Mehra (1970) method. It is a tracker configuration value, not a CLI flag. For
-example, the Python facade can override it directly:
+## Sequence parallelism
 
-```python
-from boxmot import BoxMOT
+Evaluation replays each sequence as one isolated spawned-process job. Every
+job constructs its own tracker from the immutable tracker spec, so tracker
+state and native handles never cross sequence or process boundaries.
+`--n-threads` sets the maximum number of sequence worker processes. The Rich
+panel reports frame progress separately for every sequence while those jobs
+run.
 
-boxmot = BoxMOT(
-    detector="yolov8n",
-    reid="lmbn_n_duke",
-    tracker="boosttrack",
-    tracker_kwargs={"adaptive_kf": True},
-)
-metrics = boxmot.val(experiment="mot17-ablation-yolox-lmbn")
-```
-
-## Compare with TrackEval
-
-Install the optional TrackEval reference implementation and request an independent comparison:
+Use `--sequence` to replay only one sequence while diagnosing a run. Repeat
+the option to select more than one sequence:
 
 ```bash
-uv sync --extra cpu --extra yolo --extra trackeval
-boxmot eval --experiment mot17-ablation-yolox-lmbn \
-  --tracker boosttrack \
-  --compare-trackeval
+boxmot eval \
+  --experiment mmot-obb/test-yolo11l-lmbn.yaml \
+  --build BUILD_ID \
+  --sequence data23-1 \
+  --tracker botsort
 ```
 
-The report shows BoxMOT's in-repo metrics followed by `Δ vs TrackEval` rows. TrackEval reads the generated MOT files and runs its own MOTChallenge preprocessing, including distractor removal. This comparison currently supports AABB MOT15, MOT16, MOT17, and MOT20 benchmarks.
+`boxmot eval` reuses the sequence frame counts already validated during dataset
+setup. A standalone replay call falls back to reading only the samples table's
+sequence IDs. Neither path eagerly loads masks or embeddings in the
+coordinator. It marks each sequence as queued before starting the process pool.
+A worker then opens only its assigned sequence and streams optional masks and
+embeddings in bounded Arrow batches as frame iteration advances. Images are
+decoded only when the resolved tracker requires source pixels. A
+dimensions-only tracker such as SFSORT receives width and height from cached
+sample metadata without opening the source image.
 
-## Postprocessing
+Current materializations also use bounded Parquet row groups so workers can
+prune unrelated `sample_id` ranges. Older `boxmot.dataset/v1` builds remain
+readable, but builds created with large row groups can require more I/O during
+the initial worker-loading phase.
 
-!!! example
+## Build resolution
 
-    === "CLI"
+- When `--build` is omitted with `--experiment`, BoxMOT materializes the
+  deterministic build below `--build-root`; an identical complete build is
+  validated and reused.
+- An existing `--build` path is used directly.
+- A build ID is looked up only below `--build-root`.
+- `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then
+  `./runs/materializations`.
+- Dataset-only evaluation requires `--build`.
+- There is no latest-build selection.
 
-        `eval` can apply optional postprocessing before scoring.
-        Multiple steps can be chained with commas and are applied sequentially to the same result files:
+The selected raw data root is used to verify ground-truth provenance. It
+defaults to `./datasets/mot`; pass `--data-root` explicitly to use another
+location. When the selected split is absent, its configured Hugging Face
+`per_split` resource is downloaded before materialization or ground-truth
+validation. Existing populated splits are reused without downloading;
+archive-backed datasets still require explicit setup.
 
-        ```bash
-        # Single step
-        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --postprocessing gsi
+Repeated evaluations reuse hashes and image dimensions only when a source or
+model file's path, device, inode, mode, size, modification time, and change
+time are unchanged. This shared metadata lives in the platform cache;
+the source tree is still traversed on every run so added and removed files are
+detected. This metadata cache is separate from the content-addressed detector
+output cache; materialization still establishes the source and model content
+digests before selecting either a complete build or reusable detections.
 
-        # Chained: GSI runs first, then GTA reads GSI's output
-        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --postprocessing gsi,gta
-        ```
+## Output
 
-        Available steps:
+Tracker output is serialized to MOT text only at the evaluation boundary.
+Reusable postprocessors can consume those files separately and never rewrite
+the immutable perception build. `--compare-trackeval` is available for
+supported AABB MOTChallenge datasets.
 
-        | Step | Description |
-        | --- | --- |
-        | `gsi` | Gaussian-smoothed interpolation — fills gaps and smooths trajectories |
-        | `gbrc` | Gradient-boosting reconnection — ML-based interpolation and smoothing |
-        | `gta` | Global tracklet association — offline split-and-connect across the full sequence |
-
-    === "Python"
-
-        `BoxMOT.val(...)` is the Python-facing validation entry point. Postprocessing details and metric interpretation are the same as in the CLI evaluation pipeline.
-
-!!! warning "Chained steps overwrite in place"
-    When chaining multiple postprocessing steps, each step reads the MOT result files, transforms them, and writes back to the same directory. The second step operates on the output of the first.
-
-See [Evaluation and Postprocessing](../guides/evaluation.md).
-
-See [Experiment Workflows](../guides/experiments.md) for cache reuse, MMOT experiment IDs, and replay image-loading behavior.
-
-## Native C++ replay
-
-Use `--tracker-backend cpp` to run the cached replay stage through a native tracker implementation:
-
-```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --tracker-backend cpp
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker ocsort --tracker-backend cpp
-```
-
-Native replay is currently available for `botsort`, `bytetrack`, `ocsort`,
-`occluboost`, and `sfsort`. Select the implementation with the separate
-`--tracker-backend` option; tracker names do not accept a `:cpp` suffix.
-
-## Main outputs
-
-- combined benchmark metrics such as `HOTA`, `MOTA`, and `IDF1`
-- per-sequence summaries
-- optional runtime timing summary with `--show-timing`
-- MOT-style tracker outputs
-- reused cache paths and evaluation artifacts in the run directory
-
-See [Evaluation and Postprocessing](../guides/evaluation.md).
-
-## CLI Arguments
+## Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.cli
-    :command: boxmot
-    :depth: 1
+    :module: boxmot.engine.commands.eval
     :command: eval
-    :style: table
     :prog_name: boxmot eval
+    :depth: 0

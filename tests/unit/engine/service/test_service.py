@@ -10,6 +10,7 @@ import threading
 import cv2
 import numpy as np
 import pytest
+import torch
 from fastapi.testclient import TestClient
 
 import boxmot.engine.service.manager as service_manager
@@ -22,26 +23,65 @@ from boxmot.engine.service.config import (
 )
 from boxmot.engine.service.manager import FrameConflictError, TrackerManager
 from boxmot.engine.service.models import FrameRequest
+from boxmot.reid import EncoderRequirements
+from boxmot.structures import Detections, Frame, MaskBatch, Tracks
+from boxmot.trackers import TrackerRequirements, TrackerSpec
 
 
 class _FakeTracker:
+    name = "FakeTracker"
+    supports_obb = True
+    requirements = TrackerRequirements(frame=True)
+
     def __init__(self, instance_id: int, frame_rate: int) -> None:
         self.instance_id = instance_id
         self.frame_rate = frame_rate
-        self.calls: list[tuple[np.ndarray, np.ndarray]] = []
+        self.calls: list[tuple[Detections, Frame | None]] = []
         self.reset_calls = 0
 
-    def update(self, detections: np.ndarray, image: np.ndarray) -> np.ndarray:
-        self.calls.append((detections.copy(), image))
-        geometry_cols = detections.shape[1] - 2
-        output = np.empty((len(detections), detections.shape[1] + 2), dtype=np.float32)
-        if len(detections):
-            output[:, :geometry_cols] = detections[:, :geometry_cols]
-            output[:, geometry_cols] = self.instance_id
-            output[:, geometry_cols + 1] = detections[:, geometry_cols]
-            output[:, geometry_cols + 2] = detections[:, geometry_cols + 1]
-            output[:, geometry_cols + 3] = np.arange(len(detections))
-        return output
+    def update(
+        self,
+        detections: Detections,
+        frame: Frame | None = None,
+    ) -> Tracks:
+        self.calls.append((detections, frame))
+        return Tracks(
+            geometry=detections.geometry,
+            track_ids=torch.arange(
+                self.instance_id,
+                self.instance_id + len(detections),
+                dtype=torch.int64,
+            ),
+            scores=detections.scores,
+            class_ids=detections.class_ids,
+            detection_indices=torch.arange(len(detections), dtype=torch.int64),
+            sample_id=detections.sample_id,
+        )
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+
+class _DetectionsOnlyTracker:
+    name = "DetectionsOnlyTracker"
+    supports_obb = True
+    requirements = TrackerRequirements()
+
+    def __init__(self) -> None:
+        self.calls: list[Detections] = []
+        self.reset_calls = 0
+
+    def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+        assert frame is None
+        self.calls.append(detections)
+        return Tracks(
+            geometry=detections.geometry.select(torch.empty(0, dtype=torch.int64)),
+            track_ids=torch.empty(0, dtype=torch.int64),
+            scores=torch.empty(0, dtype=torch.float32),
+            class_ids=torch.empty(0, dtype=torch.int64),
+            detection_indices=torch.empty(0, dtype=torch.int64),
+            sample_id=detections.sample_id,
+        )
 
     def reset(self) -> None:
         self.reset_calls += 1
@@ -51,8 +91,8 @@ class _FakeFactory:
     def __init__(self) -> None:
         self.instances: list[_FakeTracker] = []
 
-    def __call__(self, frame_rate: int) -> _FakeTracker:
-        tracker = _FakeTracker(len(self.instances) + 1, frame_rate)
+    def __call__(self, spec: TrackerSpec) -> _FakeTracker:
+        tracker = _FakeTracker(len(self.instances) + 1, int(spec.option_dict.get("frame_rate", 30)))
         self.instances.append(tracker)
         return tracker
 
@@ -149,6 +189,7 @@ def test_service_profiles_have_disjoint_expected_tracker_sets() -> None:
         ({"profile": "gpu", "tracker_type": "bytetrack"}, "not available in the 'gpu'"),
         ({"device": " "}, "device must not be empty"),
         ({"reid_weights": " "}, "weights must not be empty"),
+        ({"asso_func": "overlap"}, "Unsupported association function"),
     ],
 )
 def test_service_settings_reject_invalid_profile_configuration(overrides, detail) -> None:
@@ -160,6 +201,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     environment_names = (
         "BOXMOT_SERVICE_PROFILE",
         "BOXMOT_SERVICE_TRACKER",
+        "BOXMOT_SERVICE_ASSO_FUNC",
         "BOXMOT_SERVICE_DEVICE",
         "BOXMOT_SERVICE_HALF",
         "BOXMOT_SERVICE_REID_WEIGHTS",
@@ -173,12 +215,14 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     assert defaults.profile == "gpu"
     assert defaults.tracker_type == "botsort"
+    assert defaults.asso_func == "iou"
     assert defaults.device == "0"
     assert defaults.half is True
     assert defaults.max_concurrent_updates == 1
     assert defaults.requires_image is True
 
     monkeypatch.setenv("BOXMOT_SERVICE_TRACKER", "boosttrack")
+    monkeypatch.setenv("BOXMOT_SERVICE_ASSO_FUNC", "giou")
     monkeypatch.setenv("BOXMOT_SERVICE_DEVICE", "cuda:1")
     monkeypatch.setenv("BOXMOT_SERVICE_HALF", "off")
     monkeypatch.setenv("BOXMOT_SERVICE_REID_WEIGHTS", "/models/reid.pt")
@@ -187,6 +231,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     overridden = ServiceSettings.from_env()
 
     assert overridden.tracker_type == "boosttrack"
+    assert overridden.asso_func == "giou"
     assert overridden.device == "cuda:1"
     assert overridden.half is False
     assert overridden.reid_weights == "/models/reid.pt"
@@ -197,6 +242,20 @@ def test_environment_rejects_invalid_boolean(monkeypatch) -> None:
     monkeypatch.setenv("BOXMOT_SERVICE_HALF", "sometimes")
 
     with pytest.raises(ValueError, match="BOXMOT_SERVICE_HALF must be a boolean"):
+        ServiceSettings.from_env()
+
+
+def test_environment_rejects_noncanonical_tracker_name(monkeypatch) -> None:
+    monkeypatch.setenv("BOXMOT_SERVICE_TRACKER", "ByteTrack")
+
+    with pytest.raises(ValueError, match="Tracker 'ByteTrack' is not available"):
+        ServiceSettings.from_env()
+
+
+def test_environment_rejects_noncanonical_association_name(monkeypatch) -> None:
+    monkeypatch.setenv("BOXMOT_SERVICE_ASSO_FUNC", "GIoU")
+
+    with pytest.raises(ValueError, match="Unsupported association function 'GIoU'"):
         ServiceSettings.from_env()
 
 
@@ -229,15 +288,54 @@ def test_service_tracks_aabb_detections_with_isolated_stream_state() -> None:
         ],
         "tracks": [
             [10.0, 20.0, 30.0, 50.0, 1, pytest.approx(0.9), 0, 0],
-            [40.0, 30.0, 60.0, 70.0, 1, pytest.approx(0.8), 2, 1],
+            [40.0, 30.0, 60.0, 70.0, 2, pytest.approx(0.8), 2, 1],
         ],
         "replayed": False,
     }
     assert second.status_code == 200
     assert len(factory.instances) == 2
     assert factory.instances[0].frame_rate == 25
-    assert factory.instances[0].calls[0][1].shape == (480, 640, 3)
-    assert factory.instances[0].calls[0][1].strides[:2] == (0, 0)
+    received_frame = factory.instances[0].calls[0][1]
+    assert isinstance(received_frame, Frame)
+    assert received_frame.image.shape == (3, 480, 640)
+    assert received_frame.image.is_contiguous()
+
+
+def test_service_preserves_int64_class_ids_without_float32_rounding() -> None:
+    factory = _FakeFactory()
+    class_id = 2**40 + 123
+
+    with TestClient(create_app(_settings(), tracker_factory=factory)) as client:
+        response = client.post(
+            "/v1/streams/camera/sessions/run/frames",
+            json=_aabb_frame(detections=[[10, 20, 30, 50, 0.9, class_id]]),
+        )
+
+    assert response.status_code == 200
+    assert factory.instances[0].calls[0][0].class_ids.tolist() == [class_id]
+    assert response.json()["tracks"][0][6] == class_id
+
+
+def test_cpu_motion_only_tracker_receives_detections_without_a_dummy_image() -> None:
+    tracker = _DetectionsOnlyTracker()
+    manager = TrackerManager(_settings(), tracker_factory=lambda _: tracker)
+    key = ("camera", "run")
+
+    async def scenario() -> None:
+        result = await manager.process(key, FrameRequest(**_aabb_frame()))
+        state = manager._states[key]
+
+        assert result.tracks == ()
+        assert state.pipeline._requirements.frame is False
+        await manager.close()
+
+    asyncio.run(scenario())
+
+    assert len(tracker.calls) == 1
+    np.testing.assert_allclose(
+        tracker.calls[0].to_aabb_rows().numpy(),
+        np.array([[10, 20, 30, 50, 0.9, 0]], dtype=np.float32),
+    )
 
 
 def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
@@ -250,8 +348,9 @@ def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
 
     assert response.status_code == 200
     decoded = factory.instances[0].calls[0][1]
-    assert decoded.flags.c_contiguous
-    np.testing.assert_array_equal(decoded, source)
+    assert isinstance(decoded, Frame)
+    assert decoded.image.is_contiguous()
+    np.testing.assert_array_equal(decoded.image.permute(1, 2, 0).numpy(), source[..., ::-1])
 
 
 def test_gpu_profile_requires_an_image_on_every_frame_even_without_detections() -> None:
@@ -300,11 +399,12 @@ def test_gpu_profile_decodes_supported_images_with_exact_dimensions(extension) -
 
     assert response.status_code == 200
     decoded = factory.instances[0].calls[0][1]
-    assert decoded.shape == (24, 32, 3)
-    assert decoded.dtype == np.uint8
-    assert decoded.flags.c_contiguous
+    assert isinstance(decoded, Frame)
+    assert decoded.image.shape == (3, 24, 32)
+    assert decoded.image.dtype == torch.uint8
+    assert decoded.image.is_contiguous()
     if extension == ".png":
-        np.testing.assert_array_equal(decoded, source)
+        np.testing.assert_array_equal(decoded.image.permute(1, 2, 0).numpy(), source[..., ::-1])
 
 
 @pytest.mark.parametrize(
@@ -332,8 +432,8 @@ def test_invalid_encoded_images_return_422_without_creating_a_tracker(image_base
 
 
 def test_tracker_creation_failure_returns_managed_500_without_retaining_state() -> None:
-    def failing_factory(frame_rate: int):
-        raise RuntimeError(f"cannot create tracker at {frame_rate} FPS")
+    def failing_factory(spec: TrackerSpec):
+        raise RuntimeError(f"cannot create tracker from {spec}")
 
     application = create_app(_settings(), tracker_factory=failing_factory)
     with TestClient(application, raise_server_exceptions=False) as client:
@@ -396,50 +496,125 @@ def test_gpu_retry_identity_includes_encoded_image_bytes() -> None:
     assert len(factory.instances[0].calls) == 2
 
 
-def test_gpu_manager_shares_one_prebuilt_reid_backend_across_trackers(monkeypatch) -> None:
+def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monkeypatch) -> None:
     settings = _settings(profile="gpu", tracker_type="botsort", device="cuda:0")
-    shared_model = object()
-    model_factory_calls = []
-    tracker_calls = []
+    encoder_factory_calls = []
+    tracker_specs = []
 
-    def model_factory(received_settings):
-        model_factory_calls.append(received_settings)
-        return shared_model
+    class _Encoder:
+        embedding_dim = 4
+        requirements = EncoderRequirements()
 
-    def fake_create_tracker(tracker_type, **kwargs):
-        tracker_calls.append((tracker_type, kwargs))
-        return _FakeTracker(len(tracker_calls), kwargs["tracker_kwargs"]["frame_rate"])
+        def __init__(self) -> None:
+            self.calls = []
+
+        def encode(self, frames, detections):
+            self.calls.append((frames, detections))
+            return [torch.full((len(item), 4), 0.5, dtype=torch.float32) for item in detections]
+
+    shared_encoder = _Encoder()
+
+    def encoder_factory(received_settings):
+        encoder_factory_calls.append(received_settings)
+        return shared_encoder
+
+    class _EmbeddingTracker(_FakeTracker):
+        requirements = TrackerRequirements(embeddings=True, frame=True)
+
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+            assert detections.embeddings is not None
+            return super().update(detections, frame)
+
+    def fake_create_tracker(spec: TrackerSpec):
+        tracker_specs.append(spec)
+        return _EmbeddingTracker(len(tracker_specs), int(spec.option_dict["frame_rate"]))
 
     monkeypatch.setattr(service_manager, "create_tracker", fake_create_tracker)
-    manager = TrackerManager(settings, reid_model_factory=model_factory)
+    manager = TrackerManager(settings, encoder_factory=encoder_factory)
+    encoded, _ = _encoded_image()
 
-    first = manager._tracker_factory(24)
-    second = manager._tracker_factory(30)
+    async def scenario() -> None:
+        await manager.process(
+            ("one", "run"),
+            FrameRequest(**_aabb_frame(width=32, height=24, frame_rate=24, image_base64=encoded)),
+        )
+        await manager.process(
+            ("two", "run"),
+            FrameRequest(**_aabb_frame(width=32, height=24, frame_rate=30, image_base64=encoded)),
+        )
+        await manager.close()
 
-    assert model_factory_calls == [settings]
-    assert first is not second
-    assert [call[0] for call in tracker_calls] == ["botsort", "botsort"]
-    assert [call[1]["tracker_kwargs"] for call in tracker_calls] == [
-        {"frame_rate": 24},
-        {"frame_rate": 30},
+    asyncio.run(scenario())
+
+    assert encoder_factory_calls == [settings]
+    assert len(shared_encoder.calls) == 2
+    assert [spec.name for spec in tracker_specs] == ["botsort", "botsort"]
+    assert [spec.option_dict for spec in tracker_specs] == [
+        {"asso_func": "iou", "frame_rate": 24},
+        {"asso_func": "iou", "frame_rate": 30},
     ]
-    assert all(call[1]["reid_model"] is shared_model for call in tracker_calls)
-    assert all(call[1]["warmup_model"] is False for call in tracker_calls)
 
 
-def test_custom_gpu_tracker_factory_skips_shared_reid_backend_construction() -> None:
+def test_shared_segmentor_runs_before_mask_aware_encoder_and_stream_tracker() -> None:
+    events: list[str] = []
+
+    class _Segmentor:
+        def segment(self, frames, detections):
+            events.append("segment")
+            return [
+                MaskBatch(torch.ones((len(items), frame.height, frame.width), dtype=torch.bool))
+                for frame, items in zip(frames, detections)
+            ]
+
+    class _MaskAwareEncoder:
+        embedding_dim = 4
+        requirements = EncoderRequirements(masks=True)
+
+        def encode(self, frames, detections):
+            assert all(items.masks is not None for items in detections)
+            events.append("encode")
+            return [torch.ones((len(items), 4), dtype=torch.float32) for items in detections]
+
+    class _EnrichedTracker(_FakeTracker):
+        requirements = TrackerRequirements(embeddings=True, frame=True)
+
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
+            assert detections.masks is not None
+            assert detections.embeddings is not None
+            events.append("track")
+            return super().update(detections, frame)
+
+    tracker = _EnrichedTracker(1, 25)
+    manager = TrackerManager(
+        _settings(),
+        tracker_factory=lambda _spec: tracker,
+        encoder=_MaskAwareEncoder(),
+        segmentor=_Segmentor(),
+    )
+
+    async def scenario() -> None:
+        await manager.process(("camera", "run"), FrameRequest(**_aabb_frame()))
+        await manager.close()
+
+    asyncio.run(scenario())
+
+    assert events == ["segment", "encode", "track"]
+
+
+def test_custom_gpu_tracker_factory_skips_shared_encoder_construction() -> None:
     factory = _FakeFactory()
 
-    def unexpected_model_factory(settings):
-        pytest.fail(f"ReID model factory unexpectedly called for {settings}")
+    def unexpected_encoder_factory(settings):
+        pytest.fail(f"encoder factory unexpectedly called for {settings}")
 
     manager = TrackerManager(
         _settings(profile="gpu", tracker_type="botsort", device="cuda:0"),
         tracker_factory=factory,
-        reid_model_factory=unexpected_model_factory,
+        encoder_factory=unexpected_encoder_factory,
     )
 
-    assert manager._tracker_factory(25) is factory.instances[0]
+    spec = TrackerSpec(name="botsort", geometry="aabb", options=(("frame_rate", 25),))
+    assert manager._tracker_factory(spec) is factory.instances[0]
 
 
 def test_empty_obb_frame_preserves_the_seven_column_detection_schema() -> None:
@@ -453,7 +628,20 @@ def test_empty_obb_frame_preserves_the_seven_column_detection_schema() -> None:
     assert response.json()["box_type"] == "obb"
     assert response.json()["tracks"] == []
     assert response.json()["track_columns"][:5] == ["cx", "cy", "w", "h", "angle"]
-    assert factory.instances[0].calls[0][0].shape == (0, 7)
+    assert factory.instances[0].calls[0][0].to_obb_rows().shape == (0, 7)
+
+
+@pytest.mark.parametrize("asso_func", ["iou", "giou", "diou", "ciou", "hmiou", "centroid"])
+def test_all_association_functions_accept_obb_requests(asso_func) -> None:
+    factory = _FakeFactory()
+    frame = _aabb_frame(box_type="obb", detections=[])
+
+    with TestClient(create_app(_settings(asso_func=asso_func), tracker_factory=factory)) as client:
+        response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
+
+    assert response.status_code == 200
+    assert response.json()["box_type"] == "obb"
+    assert len(factory.instances) == 1
 
 
 def test_exact_retry_is_replayed_but_conflicts_and_gaps_are_rejected() -> None:
@@ -589,14 +777,14 @@ def test_manager_serializes_updates_for_the_same_stream() -> None:
             self.active_updates = 0
             self.max_active_updates = 0
 
-        def update(self, detections: np.ndarray, image: np.ndarray) -> np.ndarray:
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
             self.active_updates += 1
             self.max_active_updates = max(self.max_active_updates, self.active_updates)
             if not self.calls:
                 entered.set()
                 assert release.wait(timeout=2)
             try:
-                return super().update(detections, image)
+                return super().update(detections, frame)
             finally:
                 self.active_updates -= 1
 
@@ -626,7 +814,7 @@ def test_manager_bounds_concurrent_updates_across_streams() -> None:
     entries = 0
 
     class _ProcessBlockingTracker(_FakeTracker):
-        def update(self, detections: np.ndarray, image: np.ndarray) -> np.ndarray:
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
             nonlocal entries
             with guard:
                 entries += 1
@@ -634,14 +822,14 @@ def test_manager_bounds_concurrent_updates_across_streams() -> None:
             if entry_number == 1:
                 entered.set()
                 assert release.wait(timeout=2)
-            return super().update(detections, image)
+            return super().update(detections, frame)
 
     instance_id = 0
 
-    def factory(frame_rate: int) -> _ProcessBlockingTracker:
+    def factory(spec: TrackerSpec) -> _ProcessBlockingTracker:
         nonlocal instance_id
         instance_id += 1
-        return _ProcessBlockingTracker(instance_id, frame_rate)
+        return _ProcessBlockingTracker(instance_id, int(spec.option_dict.get("frame_rate", 30)))
 
     manager = TrackerManager(
         _settings(max_concurrent_updates=1),
@@ -675,7 +863,7 @@ def test_cancellation_drains_tracker_thread_before_releasing_stream_lock() -> No
             self.active_updates = 0
             self.max_active_updates = 0
 
-        def update(self, detections: np.ndarray, image: np.ndarray) -> np.ndarray:
+        def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
             self.entries += 1
             self.active_updates += 1
             self.max_active_updates = max(self.max_active_updates, self.active_updates)
@@ -683,7 +871,7 @@ def test_cancellation_drains_tracker_thread_before_releasing_stream_lock() -> No
                 entered.set()
                 assert release.wait(timeout=2)
             try:
-                return super().update(detections, image)
+                return super().update(detections, frame)
             finally:
                 self.active_updates -= 1
 
@@ -763,41 +951,43 @@ def test_default_factory_processes_canonical_empty_and_nonempty_frames(
     assert len(tracked_response.json()["track_columns"]) == column_count
 
 
-def test_supported_service_trackers_do_not_import_torch() -> None:
-    """Keep the detection-only service usable in its Torch-free image."""
+def test_supported_cpu_service_trackers_use_canonical_torch_structures() -> None:
+    """The CPU service image includes Torch and exercises the v24 contract."""
 
     script = textwrap.dedent(
         """
-        import builtins
+        import torch
 
-        original_import = builtins.__import__
+        from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
+        from boxmot.trackers import TrackerSpec, create_tracker
 
-        def import_without_torch(name, *args, **kwargs):
-            if name == "torch" or name.startswith("torch."):
-                raise AssertionError(f"service tracker imported {name}")
-            return original_import(name, *args, **kwargs)
-
-        builtins.__import__ = import_without_torch
-
-        import numpy as np
-
-        from boxmot.trackers.registry import create_tracker
-
-        image = np.zeros((120, 160, 3), dtype=np.uint8)
-        cases = (
-            ("bytetrack", np.array([[10, 20, 60, 100, 0.95, 0]], dtype=np.float32)),
-            ("ocsort", np.array([[35, 60, 50, 80, 0.1, 0.95, 0]], dtype=np.float32)),
-            ("sfsort", np.array([[10, 20, 60, 100, 0.95, 0]], dtype=np.float32)),
+        frame = Frame(
+            torch.zeros((3, 120, 160), dtype=torch.uint8),
+            sample_id="sample-0",
+            sequence_id="sequence-0",
+            frame_index=0,
         )
-        for tracker_type, detections in cases:
-            tracker_kwargs = {"frame_rate": 30} if tracker_type == "bytetrack" else None
-            tracker = create_tracker(
-                tracker_type,
+        cases = (
+            ("bytetrack", "aabb", Boxes(torch.tensor([[10, 20, 60, 100]], dtype=torch.float32))),
+            ("ocsort", "obb", OrientedBoxes(torch.tensor([[35, 60, 50, 80, 0.1]], dtype=torch.float32))),
+            ("sfsort", "aabb", Boxes(torch.tensor([[10, 20, 60, 100]], dtype=torch.float32))),
+        )
+        for tracker_type, geometry_mode, geometry in cases:
+            options = (("frame_rate", 30),) if tracker_type == "bytetrack" else ()
+            tracker = create_tracker(TrackerSpec(
+                name=tracker_type,
+                geometry=geometry_mode,
                 per_class=True,
-                tracker_backend="python",
-                tracker_kwargs=tracker_kwargs,
+                options=options,
+            ))
+            detections = Detections(
+                geometry=geometry,
+                scores=torch.tensor([0.95], dtype=torch.float32),
+                class_ids=torch.tensor([0], dtype=torch.int64),
+                sample_id=frame.sample_id,
             )
-            tracker.update(detections, image)
+            tracks = tracker.update(detections, frame if tracker.requirements.frame else None)
+            assert isinstance(tracks, Tracks)
         """
     )
 

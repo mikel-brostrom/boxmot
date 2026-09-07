@@ -160,18 +160,6 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         )
         self.P = 0.5 * (self.P + self.P.T)
 
-    @staticmethod
-    def _affine_components(m: np.ndarray) -> Tuple[float, float, float]:
-        u, _, vh = np.linalg.svd(m)
-        rot = u @ vh
-        if np.linalg.det(rot) < 0:
-            u[:, -1] *= -1.0
-            rot = u @ vh
-        angle = float(np.arctan2(rot[1, 0], rot[0, 0]))
-        scale_x = max(float(np.linalg.norm(m[:, 0])), 1e-6)
-        scale_y = max(float(np.linalg.norm(m[:, 1])), 1e-6)
-        return scale_x, scale_y, angle
-
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
         scale = self._scale_from_measurement(measurement)
         if self._is_obb:
@@ -307,63 +295,6 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             mean[4, 0] = float(self._wrap_angle(mean[4, 0]))
         covariance = 0.5 * (covariance + covariance.T)
         return mean, covariance
-
-    def apply_affine_correction(self, m: np.ndarray, t: np.ndarray) -> None:
-        """Apply affine correction to state and covariance (used by DeepOcSort CMC)."""
-        m = np.asarray(m, dtype=float).reshape((2, 2))
-        t = np.asarray(t, dtype=float).reshape((2, 1))
-        scale_x, scale_y, rot = self._affine_components(m)
-        area_scale = scale_x * scale_y
-        ratio_scale = scale_x / scale_y
-
-        vel_slice = slice(5, 7) if self._is_obb else slice(4, 6)
-        self.x[:2] = m @ self.x[:2] + t
-        self.x[vel_slice] = m @ self.x[vel_slice]
-        if self._is_obb:
-            self.x[2, 0] *= area_scale
-            self.x[3, 0] *= ratio_scale
-            self.x[4, 0] = float(self._wrap_angle(self.x[4, 0] + rot))
-            self.x[7, 0] *= area_scale
-
-        self.P[:2, :2] = m @ self.P[:2, :2] @ m.T
-        self.P[vel_slice, vel_slice] = m @ self.P[vel_slice, vel_slice] @ m.T
-        if self._is_obb:
-            self.P[2, 2] *= area_scale**2
-            self.P[3, 3] *= ratio_scale**2
-            self.P[7, 7] *= area_scale**2
-
-        if not self.observed and self.attr_saved is not None:
-            self.attr_saved["x"][:2] = m @ self.attr_saved["x"][:2] + t
-            self.attr_saved["x"][vel_slice] = m @ self.attr_saved["x"][vel_slice]
-            if self._is_obb:
-                self.attr_saved["x"][2, 0] *= area_scale
-                self.attr_saved["x"][3, 0] *= ratio_scale
-                self.attr_saved["x"][4, 0] = float(
-                    self._wrap_angle(self.attr_saved["x"][4, 0] + rot)
-                )
-                self.attr_saved["x"][7, 0] *= area_scale
-
-            self.attr_saved["P"][:2, :2] = m @ self.attr_saved["P"][:2, :2] @ m.T
-            self.attr_saved["P"][vel_slice, vel_slice] = (
-                m @ self.attr_saved["P"][vel_slice, vel_slice] @ m.T
-            )
-            if self._is_obb:
-                self.attr_saved["P"][2, 2] *= area_scale**2
-                self.attr_saved["P"][3, 3] *= ratio_scale**2
-                self.attr_saved["P"][7, 7] *= area_scale**2
-
-            if self.attr_saved["last_measurement"] is not None:
-                self.attr_saved["last_measurement"][:2] = (
-                    m @ self.attr_saved["last_measurement"][:2] + t
-                )
-                if self._is_obb:
-                    self.attr_saved["last_measurement"][2, 0] *= area_scale
-                    self.attr_saved["last_measurement"][3, 0] *= ratio_scale
-                    self.attr_saved["last_measurement"][4, 0] = float(
-                        self._wrap_angle(self.attr_saved["last_measurement"][4, 0] + rot)
-                    )
-
-        self._enforce_state_constraints()
 
     def predict(
         self,

@@ -5,19 +5,17 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 from copy import deepcopy
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 import yaml
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
-from boxmot.engine.config import list_training_recipes, load_training_recipe
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
-from boxmot.reid.training.presets import TRAINING_RECIPES_DIR
+from boxmot.reid.training.presets import TRAINING_RECIPES_DIR, list_training_recipes, load_training_recipe
 from tests._paths import REPO_ROOT
 
 RECIPE_NAME = "csl_tinyvit_7m_multilevel_suppression"
@@ -112,11 +110,7 @@ def test_multilevel_suppression_recipe_resolves_through_train_cli(monkeypatch) -
     def fake_main(args) -> None:
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         ["train-reid", "--recipe", RECIPE_NAME, "--data-dir", "."],

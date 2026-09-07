@@ -1,25 +1,51 @@
-# Low-level API
+# Component API Reference
 
-Auto-generated reference for the building blocks used by the high-level facade. Use these when you want to compose the detector, ReID runtime, and trackers explicitly.
+## Detection
 
-## Detector
+::: boxmot.detectors.protocols.Detector
 
-::: boxmot.detectors.detector.Detector
+::: boxmot.detectors.protocols.DetectorCapabilities
 
-## Structured detections
+::: boxmot.detectors.specs.DetectorSpec
 
-::: boxmot.detectors.base.Detections
+::: boxmot.detectors.factory.create_detector
 
-## ReID
+## Segmentation
 
-::: boxmot.reid.core.runtime.ReID
+::: boxmot.segmentors.protocols.Segmentor
 
-## Tracker factory
+::: boxmot.segmentors.specs.SegmentorSpec
 
-::: boxmot.trackers.registry.create_tracker
+::: boxmot.segmentors.factory.create_segmentor
 
-::: boxmot.trackers.registry.get_tracker_config
+## Appearance encoding
 
-## Structured tracker output
+::: boxmot.reid.protocols.AppearanceEncoder
 
-::: boxmot.trackers.results.TrackResults
+::: boxmot.reid.protocols.EncoderRequirements
+
+::: boxmot.reid.specs.ReIDEncoderSpec
+
+::: boxmot.reid.factory.create_reid_encoder
+
+## Tracking
+
+::: boxmot.trackers.protocols.Tracker
+
+::: boxmot.trackers.protocols.ReIDConfigurableTracker
+
+::: boxmot.trackers.protocols.TrackerRequirements
+
+::: boxmot.trackers.specs.TrackerSpec
+
+::: boxmot.trackers.factory.create_tracker
+
+Trackers accept canonical `Detections` or, for standalone box-only calls, exact
+NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be
+passed separately. NumPy input returns packed `float64` AABB `M x 8` / OBB
+`M x 9` rows; canonical input returns `Tracks`. Appearance and mask inference
+normally belong upstream in a `PerceptionPipeline`. Every high-level
+ReID-enabled tracker adapter can also lazily invoke ReID when its input has no
+embeddings and a `Frame` is supplied. Attached embeddings bypass that internal
+backend. Native adapters then pass the resolved features to their model-free
+C++ tracker libraries.

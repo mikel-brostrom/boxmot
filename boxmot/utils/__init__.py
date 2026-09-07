@@ -6,9 +6,8 @@ import os
 import threading
 from pathlib import Path
 
+from rich.console import Console
 from rich.logging import RichHandler
-
-from boxmot.utils.rich.core.ui import get_console
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,7 +22,7 @@ TOML = ROOT / "pyproject.toml"
 
 BOXMOT     = ROOT / "boxmot"
 ENGINE     = BOXMOT / "engine"
-DATASETS = BOXMOT / "datasets"
+DATASETS = ROOT / "datasets"
 MOT_DATASETS = DATASETS / "mot"
 REID_DATASETS = DATASETS / "reid"
 
@@ -62,11 +61,17 @@ class _ProcessFilter(logging.Filter):
         return _is_main_process()
 
 
-def configure_logging(main_only: bool = True, main_thread_only: bool = False):
+def configure_logging(
+    main_only: bool = True,
+    main_thread_only: bool = False,
+    *,
+    console: Console | None = None,
+):
     """Configure the boxmot logger with a single Rich handler.
 
     Subsequent calls fully replace any previously installed handlers so the
-    logger keeps a single output destination.
+    logger keeps a single output destination. Engine entry points inject their
+    shared UI console; standalone library use receives an independent console.
     """
     _stdlib_logger.handlers.clear()
     _stdlib_logger.setLevel(logging.INFO)
@@ -74,7 +79,7 @@ def configure_logging(main_only: bool = True, main_thread_only: bool = False):
 
     handler = RichHandler(
         level=logging.INFO,
-        console=get_console(stderr=True),
+        console=console if console is not None else Console(stderr=True),
         show_time=False,
         show_path=False,
         rich_tracebacks=True,

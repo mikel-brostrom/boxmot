@@ -6,12 +6,10 @@ include(BoxMOTNative)
 
 boxmot_add_native_tracker(
     NAME botsort
-    OPENCV_COMPONENTS calib3d core dnn imgcodecs imgproc video
+    OPENCV_COMPONENTS calib3d core imgproc video
     CORE_SOURCES
         src/cmc.cpp
-        src/data_io.cpp
         src/kalman_filter.cpp
-        src/reid_onnx.cpp
         src/track.cpp
         src/tracker.cpp
 )

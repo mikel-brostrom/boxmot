@@ -3,13 +3,34 @@ name: Docs
 on:
   push:
     branches:
-      - '**'
+      - master
+    paths:
+      - '.github/actions/setup-ci-python/**'
+      - '.github/workflows/docs.yml'
+      - 'boxmot/**'
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'README.md'
+      - 'tests/unit/docs/**'
+      - 'uv.lock'
+  pull_request:
+    branches:
+      - master
+    paths:
+      - '.github/actions/setup-ci-python/**'
+      - '.github/workflows/docs.yml'
+      - 'boxmot/**'
+      - 'docs/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'README.md'
+      - 'tests/unit/docs/**'
+      - 'uv.lock'
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: docs-${{ github.ref }}
@@ -18,36 +39,63 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Configure GitHub Pages
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master'
         uses: actions/configure-pages@v5
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.12'
 
       - name: Install docs dependencies
         run: |
-          bash .github/scripts/uv_ci_install.sh cpu --group docs
+          uv sync --locked --no-default-groups --extra cpu --group docs --group test
+
+      - name: Validate documentation tooling
+        run: |
+          .venv/bin/ruff check docs/gen_ref_pages.py tests/unit/docs
+          .venv/bin/ruff format --check docs/gen_ref_pages.py tests/unit/docs
+          .venv/bin/pytest -q tests/unit/docs
 
       - name: Build docs
         run: |
           # Avoid an implicit uv sync that replaces the prepared CPU-only env.
           .venv/bin/mkdocs build --strict
 
+      - name: Verify code reference output
+        run: |
+          test -f site/reference/index.html
+          test -f site/reference/boxmot/structures/frame/index.html
+          test -f site/reference/boxmot/pipelines/tracking/index.html
+          test -f site/reference/boxmot/trackers/specs/index.html
+          test ! -e site/reference/SUMMARY
+          grep -q 'id="boxmot.structures.frame.Frame"' site/reference/boxmot/structures/frame/index.html
+          grep -q 'id="boxmot.pipelines.tracking.TrackingPipeline"' site/reference/boxmot/pipelines/tracking/index.html
+          grep -q 'id="boxmot.trackers.specs.TrackerSpec"' site/reference/boxmot/trackers/specs/index.html
+          grep -q 'id="boxmot.ByteTrack"' site/trackers/bytetrack/index.html
+
       - name: Upload GitHub Pages artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master'
         uses: actions/upload-pages-artifact@v4
         with:
           path: site
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

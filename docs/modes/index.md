@@ -1,84 +1,55 @@
 # Modes Overview
 
-BoxMOT organizes its workflows into one CLI command group plus a high-level
-Python facade for tracking, benchmark, and ReID paths.
+The engine exposes one command group. Domain components remain usable on their
+own and pipelines contain no source, output, persistence, retry, or display
+logic.
 
-| Mode | Use it when | Main command | Install notes | Start here |
-| --- | --- | --- | --- | --- |
-| `track` | You want detector + tracker output on a live or saved source | `boxmot track` | Core install. `yolo` extra preinstalls common YOLO backends. | [Track](track.md) |
-| `generate` | You want reusable detections and embeddings | `boxmot generate` | Same as `track`. | [Generate](generate.md) |
-| `eval` | You want MOT metrics on a benchmark | `boxmot eval` | Same as `generate`; reuses cached detections and embeddings. | [Evaluate](eval.md) |
-| `tune` | You want to optimize tracker hyperparameters | `boxmot tune` | Add the `evolve` extra. | [Tune](tune.md) |
-| `research` | You want GEPA to propose and score tracker code changes | `boxmot research` | Add the `research` extra. | [Research](research.md) |
-| `train-reid` | You want to train a ReID backbone on a ReID dataset | `boxmot train-reid` | Core install. | [Train ReID](train.md) |
-| `eval-reid` | You want `mAP` and CMC metrics for a trained ReID checkpoint | `boxmot eval-reid` | Core install. | [Evaluate ReID](eval-reid.md) |
-| `compare-reid` | You want a cross-domain matrix for several ReID checkpoints and datasets | `boxmot compare-reid` | Core install. | [Compare ReID](compare-reid.md) |
-| `export` | You want to convert a ReID model to deployment formats | `boxmot export` | Add the relevant format extra (`onnx`, `coreml`, `openvino`, or `tflite`); TensorRT needs CUDA. | [Export](export.md) |
-| `build` | You want to compile native tracker libraries | `boxmot build` | Requires a supported C++ toolchain. | [Native C++ Integration](../native/index.md) |
+| Mode | Purpose | Required input |
+| --- | --- | --- |
+| `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
+| `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
+| `eval` | Materialize/replay a build and calculate MOT metrics | experiment, or dataset plus `--build` |
+| `tune` | Optimize tracker parameters against a build | experiment plus `--build` |
+| `research` | Score proposed tracker changes against a build | experiment plus `--build` |
+| `train-reid` | Train a reusable appearance backbone | ReID dataset/config |
+| `eval-reid` | Evaluate query/gallery retrieval | checkpoint and ReID dataset |
+| `compare-reid` | Compare checkpoints across ReID datasets | checkpoints and targets |
+| `export` | Export a ReID backbone | checkpoint and formats |
+| `build` | Compile native tracker libraries | tracker selector/toolchain |
 
-See [Installation](../getting-started/installation.md#mode-specific-extras) for exact extras commands.
-
-## Two workflow families
-
-### Direct-source execution
-
-Use `track` when you already have a webcam, video, image folder, or stream and want annotated output immediately.
+## Live tracking
 
 ```bash
-boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
+boxmot track \
+  --source video.mp4 \
+  --detector yolov8n \
+  --reid osnet_x0_25_msmt17 \
+  --tracker botsort \
+  --save
 ```
 
-### Experiment-driven execution
+The engine creates canonical RGB `Frame` values, runs a `TrackingPipeline`, and
+sends each `(frame, result)` pair to configured sinks.
 
-Use `generate`, `eval`, `tune`, and `research` when you want repeatable experiments backed by YAML configs in `boxmot/configs`.
+## Reproducible benchmark workflow
+
+Perception runs once during materialization. Eval can perform that deterministic
+step automatically; tune and research consume the resulting explicit build:
 
 ```bash
-boxmot generate --experiment mot17-ablation-yolox-lmbn
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack
-boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
-The benchmark modes share several workflow flags, with mode-specific scope:
+These workflows never select a latest build. They verify source, split,
+taxonomy, geometry, and component fingerprints before replay.
 
-- `--experiment` selects an experiment ID or explicit experiment YAML (for
-  example, `mot17-ablation-yolox-lmbn`). It is required by `tune` and
-  `research`, and is one of the input choices for `generate` and `eval`.
-- `--split` overrides the dataset split for `generate`, `eval`, and `tune`.
-  Research uses the split resolved by its experiment.
-- `--detection-source` selects `private` model detections or `public` sequence
-  detections for `generate`, `eval`, and `tune`; choose a source-specific
-  experiment when the exact public producer matters.
-- `--postprocessing` applies steps such as `gsi`, `gbrc`, or `gta` during
-  `eval` and `tune`; comma-separated steps run in order.
-- `--tune-kf` estimates Kalman filter noise (Q/R) from ground truth before tracking (`eval` and `tune` only).
+See [Materialize](materialize.md), [Evaluate](eval.md), [Tune](tune.md), and
+[Research](research.md).
 
-See [Evaluation and Postprocessing](../guides/evaluation.md) and [Experiment Workflows](../guides/experiments.md) for details.
+## Python composition
 
-### ReID model lifecycle
-
-Use `train-reid`, `eval-reid`, `compare-reid`, and `export` when you are working on
-the appearance model itself rather than the full tracking loop.
-
-```bash
-boxmot train-reid --model osnet_x0_25 --dataset market1501 --data-dir /data/reid
-boxmot eval-reid --weights runs/reid_train/exp/best.pt --dataset market1501 --data-dir /data/reid
-boxmot compare-reid --weights runs/reid_train/exp/best.pt --target msmt17=/data/reid
-boxmot export --weights runs/reid_train/exp/best.pt --include onnx
-```
-
-## Shared CLI shape
-
-All BoxMOT modes start from the same command group:
-
-```bash
-boxmot MODE [OPTIONS]
-```
-
-Commands that select runtime components take them as options, for example
-`--detector`, `--reid`, and `--tracker`; they are not positional arguments.
-
-See [CLI](../usage/index.md) for the high-level syntax. Each mode page below includes its own examples and a generated CLI argument table.
-
-## Python API path
-
-If you want the same workflows from Python, start with the [Python API Overview](../python/index.md). The public facade is `boxmot.BoxMOT`.
+Python callers use factories and canonical structures directly. See the
+[Python API](../python/index.md) for detector, segmentor, appearance encoder,
+tracker, and pipeline examples.

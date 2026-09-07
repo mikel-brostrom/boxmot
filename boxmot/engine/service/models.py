@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+from enum import Enum
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from boxmot.core.box_schema import BoxType
+
+class BoxType(str, Enum):
+    """Geometry selector used by the stable HTTP v1 wire contract."""
+
+    AABB = "aabb"
+    OBB = "obb"
 
 
 class FrameRequest(BaseModel):
@@ -15,7 +22,9 @@ class FrameRequest(BaseModel):
     height: int = Field(gt=0, le=32_768)
     frame_rate: int = Field(default=30, ge=1, le=240)
     box_type: BoxType = BoxType.AABB
-    detections: list[list[float]] = Field(default_factory=list, max_length=2_000)
+    # Keep integer JSON numbers intact for IDs while continuing to accept the
+    # established numeric row wire format for geometry and scores.
+    detections: list[list[float | int]] = Field(default_factory=list, max_length=2_000)
     image_base64: str | None = Field(
         default=None,
         description="Base64-encoded JPEG or PNG frame; required by the GPU/ReID service profile.",
@@ -45,4 +54,4 @@ class ReadinessResponse(BaseModel):
     max_streams: int
 
 
-__all__ = ("FrameRequest", "FrameResponse", "ReadinessResponse")
+__all__ = ("BoxType", "FrameRequest", "FrameResponse", "ReadinessResponse")

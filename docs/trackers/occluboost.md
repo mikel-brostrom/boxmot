@@ -21,7 +21,10 @@ trajectory association (GTA) for longer appearance-based recovery.
 
 ## What BoxMOT Needs For OccluBoost
 
-- A detector and a ReID model (the recovery pass and second-pass appearance gate both rely on embeddings).
+- A detector and appearance embeddings (the recovery pass and second-pass
+  appearance gate rely on them). Both the Python implementation and native
+  adapter can extract missing embeddings from a supplied `Frame` or consume
+  embeddings already attached to `Detections`.
 - AABB or OBB detections. OBB inputs use oriented IoU, OBB-aware confidence
   boosting, optional ReID recovery and second-pass matching, and the 9-column
   output schema `[cx, cy, w, h, angle, id, conf, cls, det_ind]`.
@@ -34,11 +37,11 @@ BoxMOT ships a native C++17 OccluBoost implementation under
 confirmation, recovery, second-pass, duplicate-suppression, and AMS paths and
 supports:
 
-- cached replay for `eval` and `tune`
+- cached `eval` and `tune` streamed through the live typed API
 - live `track` through `--tracker-backend cpp`
-- both AABB and OBB detections for live tracking and cached replay
-- ReID inference through the shared native `OnnxReIdModel`, used for the first-pass association, the ReID-only recovery pass, and the appearance-gated low-confidence second pass
-- automatic `.pt -> .onnx` export for native cpp inference when you pass PyTorch ReID weights
+- both AABB and OBB detections for live tracking and cached evaluation
+- typed generated or precomputed embeddings for association and recovery through the v2 update ABI
+- model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
 Online GTA and adaptive-Kalman controls are currently Python-only; selecting
 the C++ backend does not enable those two extensions.
@@ -53,20 +56,24 @@ Requirements:
 Example:
 
 ```bash
-boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker occluboost --tracker-backend cpp
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker occluboost --tracker-backend cpp
 boxmot track --tracker occluboost --tracker-backend cpp --reid models/lmbn_n_duke.pt --source 0
 ```
 
-When `--tracker-backend cpp` is set, cached replay requests the native C++ ReID
-producer and stores its embeddings under `embs/cpp/`. Python-generated
-embeddings use a separate `embs/python/` bucket; native initialization and model
-errors are surfaced rather than silently changing producer. If the native ReID
-module cannot be imported, backend resolution selects the Python producer first
-and therefore writes to `embs/python/`. These buckets
-describe how embeddings were computed, not which tracker algorithm consumes
-them. See [Native C++ Integration](../native/index.md#embedding-cache-layout)
-for the full layout and the runtime knobs (`BOXMOT_REID_BACKEND`,
-`BOXMOT_REID_DEVICE`).
+Native and Python OccluBoost both accept embeddings already attached to
+canonical `Detections`. When `use_embeddings=True` and a non-empty batch has no
+embeddings, the high-level tracker lazily initializes its configured encoder or
+backend and extracts embeddings from the supplied `Frame`. A native adapter
+then passes that typed feature buffer to its model-free C++ library.
+Configuration may come from a complete `ReIDEncoderSpec`, an injected
+`reid_model`, or `reid_weights`, `device`, `half`, and `reid_preprocess`. If no
+weights or spec are supplied, the default ReID model is used.
+Attached embeddings bypass inference, and empty batches do not initialize the
+model. See [Live embeddings in ReID-enabled
+trackers](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+Materialized builds record the encoder fingerprint and publish embeddings as
+keyed Parquet rows.
+See [Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
 ## Tuning notes
 
@@ -81,7 +88,7 @@ numeric values into a custom config. The main parameter groups are:
 - `confirm_hits`, `instant_confirm_thresh`, and `tentative_max_age` for the
   tentative pool. Fewer confirmation hits emit tracks sooner but admit more
   short-lived false positives.
-- `recovery_*`, `feat_alpha`, and `with_reid` for appearance recovery.
+- `recovery_*`, `feat_alpha`, and `use_embeddings` for appearance recovery.
 - `use_second_pass`, `second_*`, and `track_low_thresh` for guarded
   low-confidence association.
 - `gta_*` for the optional Python-only global trajectory association path.
@@ -94,25 +101,27 @@ When `adaptive_kf: true` is set in the tracker config, the process noise covaria
 
 **When to use it:**
 
-- Deploying to a new domain where you have no ground truth to run `--tune-kf`.
+- Deploying to a new domain where you do not yet have tuned static motion parameters.
 - Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
 - Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
 
 **When NOT to use it:**
 
-- You already have a tuned static Q from `boxmot eval --tune-kf` on representative data — the static solution is cheaper and deterministic.
+- You already have validated static motion parameters — the static solution is cheaper and deterministic.
 - Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
 
-Enable it through the Python facade:
+Enable it through the structured factory:
 
 ```python
-from boxmot import BoxMOT
+from boxmot import create_tracker
+from boxmot.trackers import TrackerSpec
 
-model = BoxMOT(
-    tracker="occluboost",
-    tracker_kwargs={"adaptive_kf": True},
+tracker = create_tracker(
+    TrackerSpec(
+        name="occluboost",
+        options=(("adaptive_kf", True),),
+    )
 )
-model.track(source="video.mp4")
 ```
 
 Or set it in a custom tracker config YAML:
@@ -121,8 +130,8 @@ Or set it in a custom tracker config YAML:
 adaptive_kf: true
 ```
 
-Use `boxmot eval --tune-kf` when you want a calibrated static Kalman model.
-Tracker tuning can also explore `adaptive_kf` because it is declared as a
-choice in the built-in search space.
+Use a custom tracker configuration when you have calibrated static Kalman
+parameters. Tracker tuning can also explore `adaptive_kf` because it is
+declared as a choice in the built-in search space.
 
-::: boxmot.trackers.bbox.occluboost.OccluBoost
+::: boxmot.OccluBoost

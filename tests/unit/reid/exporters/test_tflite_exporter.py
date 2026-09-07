@@ -6,20 +6,20 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot.engine.reid.export import (
-    ExportTask,
-    _resolve_export_weights,
-    _run_tflite_for_parity,
-    _verify_export_parity,
-    create_export_tasks,
-    perform_exports,
-    setup_model,
-)
 from boxmot.reid.core.registry import ReIDModelRegistry
+from boxmot.reid.exporters.config import resolve_export_weights
+from boxmot.reid.exporters.model_setup import prepare_export_model
 from boxmot.reid.exporters.onnx_exporter import ONNXExporter
 from boxmot.reid.exporters.openvino_exporter import OpenVINOExporter
 from boxmot.reid.exporters.tensorrt_exporter import EngineExporter
 from boxmot.reid.exporters.tflite_exporter import TFLiteExporter
+from boxmot.reid.exporters.workflow import (
+    ExportTask,
+    _run_tflite_for_parity,
+    create_export_tasks,
+    perform_exports,
+    verify_export_parity,
+)
 from boxmot.utils.checks import RequirementsChecker
 
 
@@ -39,11 +39,11 @@ def test_export_keeps_existing_explicit_weight_path(tmp_path):
     weights = tmp_path / "best.pt"
     weights.touch()
 
-    assert _resolve_export_weights(weights) == weights
+    assert resolve_export_weights(weights) == weights
 
 
 def test_export_setup_uses_reid_crop_shape_for_mobilenetv4(monkeypatch, tmp_path):
-    import boxmot.engine.reid.export as export_module
+    import boxmot.reid.exporters.model_setup as model_setup
 
     class FakeModel(torch.nn.Module):
         def __init__(self):
@@ -65,10 +65,10 @@ def test_export_setup_uses_reid_crop_shape_for_mobilenetv4(monkeypatch, tmp_path
         optimize=False,
         batch_size=2,
     )
-    monkeypatch.setattr(export_module, "ReID", FakeReID)
+    monkeypatch.setattr(model_setup, "ReID", FakeReID)
     monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "mobilenetv4_conv_small")
 
-    model, dummy_input = setup_model(args)
+    model, dummy_input = prepare_export_model(args)
 
     assert isinstance(model, FakeModel)
     assert args.imgsz == (384, 128)
@@ -76,7 +76,7 @@ def test_export_setup_uses_reid_crop_shape_for_mobilenetv4(monkeypatch, tmp_path
 
 
 def test_export_setup_allows_cpu_onnx_fp16_graph_conversion(monkeypatch, tmp_path):
-    import boxmot.engine.reid.export as export_module
+    import boxmot.reid.exporters.model_setup as model_setup
 
     class FakeModel(torch.nn.Module):
         def __init__(self):
@@ -100,10 +100,10 @@ def test_export_setup_allows_cpu_onnx_fp16_graph_conversion(monkeypatch, tmp_pat
         optimize=False,
         batch_size=2,
     )
-    monkeypatch.setattr(export_module, "ReID", FakeReID)
+    monkeypatch.setattr(model_setup, "ReID", FakeReID)
     monkeypatch.setattr(ReIDModelRegistry, "get_model_name", lambda _weights: "mobilenetv4_conv_small")
 
-    model, dummy_input = setup_model(args)
+    model, dummy_input = prepare_export_model(args)
 
     assert isinstance(model, FakeModel)
     assert next(model.parameters()).dtype == torch.float32
@@ -121,7 +121,7 @@ def test_export_setup_rejects_cpu_tensorrt_fp16(tmp_path):
     )
 
     with pytest.raises(AssertionError, match="TensorRT export requires GPU"):
-        setup_model(args)
+        prepare_export_model(args)
 
 
 def test_tflite_export_uses_litert_torch_direct_api(monkeypatch, tmp_path):
@@ -597,7 +597,7 @@ def test_tflite_export_parity_uses_litert_interpreter(monkeypatch, tmp_path):
     exported = tmp_path / "flatten.tflite"
     args = types.SimpleNamespace(half=False)
 
-    report = _verify_export_parity(args, model, dummy_input, {"tflite": str(exported)})
+    report = verify_export_parity(args, model, dummy_input, {"tflite": str(exported)})
 
     assert captured["model_path"] == str(exported)
     assert captured["input_index"] == 0

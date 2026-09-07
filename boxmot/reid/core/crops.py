@@ -10,10 +10,10 @@ import cv2
 import numpy as np
 import torch
 
-from boxmot.core.box_schema import AABB_SCHEMA, OBB_SCHEMA
-
-AABB_COLUMN_COUNTS = frozenset((AABB_SCHEMA.geometry_cols, AABB_SCHEMA.detection_cols, AABB_SCHEMA.track_cols))
-OBB_COLUMN_COUNTS = frozenset((OBB_SCHEMA.geometry_cols, OBB_SCHEMA.detection_cols, OBB_SCHEMA.track_cols))
+_AABB_GEOMETRY_COLUMNS = 4
+_OBB_GEOMETRY_COLUMNS = 5
+AABB_COLUMN_COUNTS = frozenset((4, 6, 8))
+OBB_COLUMN_COUNTS = frozenset((5, 7, 9))
 OBB_SQUARE_RTOL = 1e-3
 
 
@@ -34,16 +34,16 @@ def coerce_boxes(boxes: Any) -> np.ndarray:
     array = np.asarray(boxes, dtype=np.float32)
     if array.ndim == 1:
         if array.size == 0:
-            return np.empty((0, AABB_SCHEMA.geometry_cols), dtype=np.float32)
+            return np.empty((0, _AABB_GEOMETRY_COLUMNS), dtype=np.float32)
         array = array.reshape(1, -1)
     if array.ndim != 2:
         raise ValueError(f"ReID boxes must be a 2D array, got shape {array.shape}")
 
     columns = array.shape[1]
     if columns in AABB_COLUMN_COUNTS:
-        geometry_cols = AABB_SCHEMA.geometry_cols
+        geometry_cols = _AABB_GEOMETRY_COLUMNS
     elif columns in OBB_COLUMN_COUNTS:
-        geometry_cols = OBB_SCHEMA.geometry_cols
+        geometry_cols = _OBB_GEOMETRY_COLUMNS
     else:
         raise ValueError(
             f"ReID expects AABB rows with 4/6/8 columns or OBB rows with 5/7/9 columns, got shape {array.shape}"
@@ -156,8 +156,8 @@ def boxes_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     """Normalize AABB/OBB detections to enclosing `[x1, y1, x2, y2]`."""
     array = coerce_boxes(boxes)
     if array.size == 0:
-        return np.empty((0, AABB_SCHEMA.geometry_cols), dtype=np.float32)
-    if array.shape[1] == OBB_SCHEMA.geometry_cols:
+        return np.empty((0, _AABB_GEOMETRY_COLUMNS), dtype=np.float32)
+    if array.shape[1] == _OBB_GEOMETRY_COLUMNS:
         return np.vstack([obb_to_xyxy(box[:5]) for box in array]).astype(np.float32)
     return array
 
@@ -170,7 +170,7 @@ def extract_crops(
     """Extract native AABB or rectified OBB crops from an image."""
     image_height, image_width = image.shape[:2]
     coerced = coerce_boxes(boxes)
-    oriented = coerced.shape[1] == OBB_SCHEMA.geometry_cols
+    oriented = coerced.shape[1] == _OBB_GEOMETRY_COLUMNS
     crops: list[np.ndarray] = []
     for box in coerced:
         if oriented:
@@ -212,7 +212,15 @@ def prepare_crop_batch(
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB)
         tensor = torch.from_numpy(rgb).to(device, dtype=dtype)
         batch[index] = tensor.permute(2, 0, 1)
-    return ((batch / 255.0) - mean) / std
+    # Keep normalization in the requested inference dtype.  In particular,
+    # PyTorch promotes an FP16 crop batch to FP32 when the broadcast constants
+    # are FP32.  That silently doubles accelerator memory until the backend
+    # casts the result back to FP16 in ``inference_preprocess``.  Normalize
+    # in-place so crop preparation retains only the preallocated batch.
+    normalized_mean = mean.to(device=device, dtype=dtype)
+    normalized_std = std.to(device=device, dtype=dtype)
+    batch.div_(255.0).sub_(normalized_mean).div_(normalized_std)
+    return batch
 
 
 def build_crop_batch(

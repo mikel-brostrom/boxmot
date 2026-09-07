@@ -1,208 +1,290 @@
 from __future__ import annotations
 
-import queue
-from io import StringIO
-from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 
-from boxmot.native.trackers import sfsort as native_module
-from boxmot.trackers.bbox.sfsort import SFSORT
+from boxmot.native.trackers import sfsort as native_binding
+from boxmot.structures import Tracks
+from boxmot.trackers.box.sfsort import native as native_module
+from boxmot.trackers.box.sfsort.tracker import SFSORT
+from boxmot.trackers.protocols import TrackerRequirements
+
+from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr, update_rows
 
 
-def _empty_tracks_for(dets):
-    columns = 9 if dets.shape[1] == 7 else 8
-    return native_module.np.empty((0, columns), dtype=native_module.np.float32)
+class _FakeLibrary:
+    def __init__(self) -> None:
+        self.calls: list[tuple[Any, ...]] = []
+
+    def create(self, cfg: dict[str, Any]) -> str:
+        self.calls.append(("create", cfg["high_th"], cfg["dynamic_tuning"]))
+        return "handle"
+
+    def reset(self, handle: str) -> None:
+        self.calls.append(("reset", handle))
+
+    def update(
+        self,
+        handle: str,
+        *,
+        geometry,
+        scores,
+        class_ids,
+        detection_indices,
+        embeddings,
+        image,
+    ):
+        image_shape = None if image is None else image.shape
+        self.calls.append(("update", handle, len(geometry), image_shape, geometry.shape[1], embeddings))
+        return empty_native_batch(geometry.shape[1])
+
+    def destroy(self, handle: str) -> None:
+        self.calls.append(("destroy", handle))
 
 
-def test_process_sequence_cpp_builds_native_command(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        native_module, "ensure_sfsort_cpp_executable", lambda force_rebuild=False: Path("/tmp/sfsort_replay")
+def test_native_sfsort_routes_canonical_structures_through_live_library() -> None:
+    library = _FakeLibrary()
+    tracker = native_module.NativeSFSORTTracker(
+        {"high_th": 0.55, "dynamic_tuning": True},
+        geometry="aabb",
+        library=library,
     )
-
-    class FakePopen:
-        def __init__(self, cmd, stdout, stderr, text, bufsize):
-            assert cmd[0] == "/tmp/sfsort_replay"
-            assert "--sequence" in cmd
-            assert "MOT17-02-FRCNN" in cmd
-            assert "--high-th" in cmd
-            assert "--match-th-first" in cmd
-            assert "--obb-theta-damping" in cmd
-            assert cmd[cmd.index("--obb-theta-damping") + 1] == "0.75"
-            assert "--dynamic-tuning" in cmd
-            assert stdout is native_module.subprocess.PIPE
-            assert stderr is native_module.subprocess.PIPE
-            assert text is True
-            assert bufsize == 1
-            self.stdout = StringIO(
-                '{"sequence":"MOT17-02-FRCNN","num_frames":2,"track_time_ms":12.5,"kept_frame_ids":[1,2]}\n'
-            )
-            self.stderr = StringIO("")
-
-        def wait(self):
-            return 0
-
-    monkeypatch.setattr(native_module.subprocess, "Popen", FakePopen)
-
-    seq_name, kept_ids, timing = native_module.process_sequence_cpp(
-        seq_name="MOT17-02-FRCNN",
-        mot_root="/data/train",
-        project_root="/runs",
-        detector_name="yolox_x.pt",
-        reid_name="/weights/unused.pt",
-        tracker_name="sfsort",
-        exp_folder=str(tmp_path),
-        target_fps=None,
-        cfg_dict={
-            "high_th": 0.6,
-            "match_th_first": 0.67,
-            "new_track_th": 0.7,
-            "low_th": 0.1,
-            "match_th_second": 0.3,
-            "dynamic_tuning": True,
-            "cth": 0.5,
-            "obb_theta_damping": 0.75,
-        },
-        dataset_name="mot17-mini",
-        conf_threshold=0.25,
-    )
-
-    assert seq_name == "MOT17-02-FRCNN"
-    assert kept_ids == [1, 2]
-    assert timing == {"track_time_ms": 12.5, "num_frames": 2}
-
-
-def test_process_sequence_cpp_rejects_other_trackers():
-    try:
-        native_module.process_sequence_cpp(
-            seq_name="MOT17-02-FRCNN",
-            mot_root="/data/train",
-            project_root="/runs",
-            detector_name="yolox_x.pt",
-            reid_name="/weights/unused.pt",
-            tracker_name="bytetrack",
-            exp_folder="/tmp",
-            target_fps=None,
+    detections = detections_from_rows(
+        np.array(
+            [[1, 1, 4, 5, 0.9, 0], [2, 2, 6, 7, 0.8, 0]],
+            dtype=np.float32,
         )
-    except ValueError as exc:
-        assert "tracker='sfsort' only" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for non-SFSORT tracker")
-
-
-def test_native_sfsort_tracker_uses_live_library_wrapper():
-    calls = []
-
-    class _FakeLibrary:
-        def create(self, cfg):
-            calls.append(("create", cfg["high_th"], cfg["dynamic_tuning"]))
-            return "handle"
-
-        def reset(self, handle):
-            calls.append(("reset", handle))
-
-        def update(self, handle, dets, img):
-            calls.append(("update", handle, dets.shape, img.shape))
-            return _empty_tracks_for(dets)
-
-        def destroy(self, handle):
-            calls.append(("destroy", handle))
-
-    tracker = native_module.NativeSFSORTTracker({"high_th": 0.55, "dynamic_tuning": True}, library=_FakeLibrary())
-
-    dets = native_module.np.array(
-        [[1, 1, 4, 5, 0.9, 0], [2, 2, 6, 7, 0.8, 0]],
-        dtype=native_module.np.float32,
     )
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
+    frame = frame_from_bgr(np.zeros((8, 8, 3), dtype=np.uint8))
 
-    out = tracker.update(dets, img)
+    output = tracker.update(detections, frame)
     tracker.reset()
     tracker.close()
 
-    assert out.shape == (0, 8)
-    assert calls == [
+    assert isinstance(output, Tracks)
+    assert output.sample_id == detections.sample_id
+    assert output.to_aabb_rows().shape == (0, 8)
+    assert library.calls == [
         ("create", 0.55, True),
-        ("update", "handle", (2, 6), (8, 8, 3)),
+        ("update", "handle", 2, (8, 8, 3), 4, None),
         ("reset", "handle"),
         ("destroy", "handle"),
     ]
 
 
-def test_native_sfsort_tracker_accepts_obb_rows():
-    calls = []
+def test_native_sfsort_accepts_numpy_aabb6_when_frame_requirement_is_met() -> None:
+    library = _FakeLibrary()
+    tracker = native_module.NativeSFSORTTracker(geometry="aabb", library=library)
+    rows = np.array([[1, 1, 4, 5, 0.9, 0]], dtype=np.float64)
+    frame = frame_from_bgr(np.zeros((8, 8, 3), dtype=np.uint8), sample_id="camera-1:000042")
 
-    class _FakeLibrary:
-        def create(self, cfg):
-            return "handle"
+    try:
+        with pytest.raises(ValueError, match="requires a frame"):
+            tracker.update(rows)
 
-        def reset(self, handle):
-            return None
-
-        def update(self, handle, dets, img):
-            calls.append((handle, dets.shape, img.shape))
-            return native_module.np.ones((1, 9), dtype=native_module.np.float32)
-
-        def destroy(self, handle):
-            return None
-
-    tracker = native_module.NativeSFSORTTracker(library=_FakeLibrary())
-    dets = native_module.np.ones((1, 7), dtype=native_module.np.float32)
-    img = native_module.np.zeros((8, 8, 3), dtype=native_module.np.uint8)
-
-    out = tracker.update(dets, img)
-
-    assert out.shape == (1, 9)
-    assert calls == [("handle", (1, 7), (8, 8, 3))]
-    tracker.close()
+        output = tracker.update(rows, frame)
+        assert type(output) is np.ndarray
+        assert output.shape == (0, 8)
+        assert library.calls[1] == ("update", "handle", 1, (8, 8, 3), 4, None)
+    finally:
+        tracker.close()
 
 
-def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant():
-    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+@pytest.mark.parametrize(
+    ("options", "requirements"),
+    [
+        (None, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"central_timeout": 5, "marginal_timeout": 1}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"asso_func": "centroid"}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        ({"frame_width": 640, "frame_height": 480}, TrackerRequirements()),
+        (
+            {"central_timeout": 5, "marginal_timeout": 1, "frame_width": 640, "frame_height": 480},
+            TrackerRequirements(),
+        ),
+        ({"asso_func": "centroid", "frame_width": 640, "frame_height": 480}, TrackerRequirements()),
+    ],
+)
+def test_native_sfsort_requirements_are_frozen_from_configuration(
+    options: dict[str, Any] | None,
+    requirements: TrackerRequirements,
+) -> None:
+    tracker = native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
+    try:
+        assert tracker.requirements == requirements
+        assert tracker.supports_masks is False
+        assert tracker.use_embeddings is False
+    finally:
+        tracker.close()
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"frame_width": 640},
+        {"frame_height": 480},
+        {"frame_width": 0, "frame_height": 0},
+        {"frame_width": -1, "frame_height": 480},
+        {"frame_width": 640, "frame_height": -1},
+    ),
+)
+def test_native_sfsort_rejects_partial_or_negative_frame_dimensions(options: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="frame_width and frame_height"):
+        native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
+
+
+@pytest.mark.parametrize(
+    "options",
+    (
+        {"frame_width": True, "frame_height": 480},
+        {"frame_width": 640, "frame_height": "480"},
+    ),
+)
+def test_native_sfsort_rejects_noninteger_frame_dimensions(options: dict[str, Any]) -> None:
+    with pytest.raises(TypeError, match="must be an integer"):
+        native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
+
+
+def test_native_sfsort_geometry_mode_is_fixed_at_construction() -> None:
+    tracker = native_module.NativeSFSORTTracker(geometry="aabb", library=_FakeLibrary())
+    detections = detections_from_rows(np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float32))
+    frame = frame_from_bgr(np.zeros((12, 12, 3), dtype=np.uint8))
+
+    try:
+        with pytest.raises(ValueError, match="fixed to AABB geometry"):
+            tracker.update(detections, frame)
+    finally:
+        tracker.close()
+
+
+def test_native_sfsort_accepts_numpy_obb7_with_frame() -> None:
+    library = _FakeLibrary()
+    tracker = native_module.NativeSFSORTTracker(geometry="obb", library=library)
+    rows = np.array([[4, 5, 3, 2, 0.1, 0.9, 0]], dtype=np.float64)
+    frame = frame_from_bgr(np.zeros((12, 12, 3), dtype=np.uint8))
+
+    try:
+        output = tracker.update(rows, frame)
+    finally:
+        tracker.close()
+
+    assert type(output) is np.ndarray
+    assert output.shape == (0, 9)
+    assert library.calls[1] == ("update", "handle", 1, (12, 12, 3), 5, None)
+
+
+def test_native_sfsort_live_obb_cost_is_equivalent_form_invariant() -> None:
+    library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
     tracker = native_module.NativeSFSORTTracker(
         {
             "high_th": 0.5,
             "new_track_th": 0.5,
             "low_th": 0.1,
-            # The pre-fix direct-only width/height term produced a cost of
-            # 0.5 for this physically identical swapped representation.
             "match_th_first": 0.1,
             "dynamic_tuning": False,
             "frame_width": 160,
             "frame_height": 120,
         },
+        geometry="obb",
         library=library,
     )
-    image = native_module.np.zeros((120, 160, 3), dtype=native_module.np.uint8)
-    first = native_module.np.array(
-        [[80, 60, 80, 20, (4 * native_module.np.pi) + 0.2, 0.95, 0]],
-        dtype=native_module.np.float32,
+    first = np.array(
+        [[80, 60, 80, 20, (4 * np.pi) + 0.2, 0.95, 0]],
+        dtype=np.float32,
     )
-    equivalent = native_module.np.array(
-        [[80, 60, 20, 80, 0.2 + (native_module.np.pi / 2), 0.95, 0]],
-        dtype=native_module.np.float32,
+    equivalent = np.array(
+        [[80, 60, 20, 80, 0.2 + (np.pi / 2), 0.95, 0]],
+        dtype=np.float32,
     )
+    image = np.zeros((120, 160, 3), dtype=np.uint8)
 
     try:
-        first_output = tracker.update(first, image)
-        equivalent_output = tracker.update(equivalent, image)
+        first_output = update_rows(tracker, first, image)
+        equivalent_output = update_rows(tracker, equivalent, image)
     finally:
         tracker.close()
 
     assert first_output.shape == (1, 9)
     assert equivalent_output.shape == (1, 9)
-    assert -native_module.np.pi <= first_output[0, 4] < native_module.np.pi
+    # Canonical OBB angles intentionally remain finite and unwrapped.
+    assert np.isfinite(first_output[0, 4])
     assert equivalent_output[0, 5] == first_output[0, 5]
-    native_module.np.testing.assert_allclose(
-        equivalent_output[0, :5],
-        first_output[0, :5],
-        atol=1e-4,
-    )
+    np.testing.assert_allclose(equivalent_output[0, :5], first_output[0, :5], atol=1e-4)
 
 
-def test_native_sfsort_low_only_obb_frame_keeps_track():
-    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
+@pytest.mark.parametrize("common_rotation", [0.0, 0.73])
+def test_native_sfsort_obb_directional_center_penalty_matches_python(common_rotation: float) -> None:
+    cfg = {
+        "high_th": 0.1,
+        "new_track_th": 0.1,
+        "low_th": 0.01,
+        "match_th_first": 0.55,
+        "dynamic_tuning": False,
+        "frame_width": 320,
+        "frame_height": 240,
+    }
+    center = np.array([150.0, 100.0])
+    short_axis_move = np.array([-50.0 / np.sqrt(2.0), 50.0 / np.sqrt(2.0)])
+    cosine = np.cos(common_rotation)
+    sine = np.sin(common_rotation)
+    rotation = np.array([[cosine, -sine], [sine, cosine]])
+    moved_center = center + rotation @ short_axis_move
+    angle = (np.pi / 4.0) + common_rotation
+    first_detection = np.array([[*center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
+    moved_detection = np.array([[*moved_center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
+
+    python_tracker = SFSORT(is_obb=True, **cfg)
+    library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, geometry="obb", library=library)
+    image = np.zeros((240, 320, 3), dtype=np.uint8)
+    try:
+        python_first = update_rows(python_tracker, first_detection, image)
+        native_first = update_rows(native_tracker, first_detection, image)
+        python_moved = update_rows(python_tracker, moved_detection, image)
+        native_moved = update_rows(native_tracker, moved_detection, image)
+    finally:
+        native_tracker.close()
+
+    np.testing.assert_allclose(native_first, python_first, atol=1e-5)
+    np.testing.assert_allclose(native_moved, python_moved, atol=1e-5)
+    assert python_moved[0, 5] != python_first[0, 5]
+    assert native_moved[0, 5] != native_first[0, 5]
+
+
+def test_native_sfsort_tiny_obb_shape_cost_matches_python() -> None:
+    cfg = {
+        "high_th": 0.1,
+        "new_track_th": 0.1,
+        "low_th": 0.01,
+        "match_th_first": 0.5,
+        "dynamic_tuning": False,
+        "frame_width": 320,
+        "frame_height": 240,
+    }
+    first_detection = np.array([[0, 0, 4e-9, 2e-9, 0.3, 0.999, 0]], dtype=np.float32)
+    candidate_detection = np.array([[0, 0, 3e-9, 1.5e-9, -0.2, 0.999, 0]], dtype=np.float32)
+    image = np.zeros((240, 320, 3), dtype=np.uint8)
+
+    python_tracker = SFSORT(is_obb=True, **cfg)
+    library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, geometry="obb", library=library)
+    try:
+        python_first = update_rows(python_tracker, first_detection, image)
+        native_first = update_rows(native_tracker, first_detection, image)
+        python_candidate = update_rows(python_tracker, candidate_detection, image)
+        native_candidate = update_rows(native_tracker, candidate_detection, image)
+    finally:
+        native_tracker.close()
+
+    assert python_first.shape == native_first.shape == (1, 9)
+    assert python_candidate.shape == native_candidate.shape == (1, 9)
+    assert python_candidate[0, 5] == python_first[0, 5]
+    assert native_candidate[0, 5] == native_first[0, 5]
+
+
+def test_native_sfsort_low_only_obb_frame_keeps_track() -> None:
+    library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
     tracker = native_module.NativeSFSORTTracker(
         {
             "high_th": 0.6,
@@ -213,16 +295,17 @@ def test_native_sfsort_low_only_obb_frame_keeps_track():
             "frame_width": 160,
             "frame_height": 120,
         },
+        geometry="obb",
         library=library,
     )
-    image = native_module.np.zeros((120, 160, 3), dtype=native_module.np.uint8)
-    high = native_module.np.array([[80, 60, 40, 20, 0.2, 0.9, 0]], dtype=native_module.np.float32)
+    image = np.zeros((120, 160, 3), dtype=np.uint8)
+    high = np.array([[80, 60, 40, 20, 0.2, 0.9, 0]], dtype=np.float32)
     low = high.copy()
     low[:, 5] = 0.3
 
     try:
-        first = tracker.update(high, image)
-        second = tracker.update(low, image)
+        first = update_rows(tracker, high, image)
+        second = update_rows(tracker, low, image)
     finally:
         tracker.close()
 
@@ -247,11 +330,11 @@ def test_native_sfsort_low_only_obb_frame_keeps_track():
     ids=["aabb", "obb"],
 )
 def test_native_sfsort_threshold_aware_assignment_matches_python(
-    initial_detections,
-    ambiguous_detections,
-    match_threshold,
-):
-    """Keep the same valid identity that lapjv's cost limit selects."""
+    initial_detections: list[list[float]],
+    ambiguous_detections: list[list[float]],
+    match_threshold: float,
+) -> None:
+    """Keep the same valid identity selected by threshold-aware assignment."""
     cfg = {
         "high_th": 0.6,
         "new_track_th": 0.7,
@@ -264,58 +347,18 @@ def test_native_sfsort_threshold_aware_assignment_matches_python(
         "horizontal_margin": 0,
         "vertical_margin": 0,
     }
-    python_tracker = SFSORT(**cfg)
-    library = native_module._SFSORTLiveLibrary(native_module.ensure_sfsort_cpp_library())
-    native_tracker = native_module.NativeSFSORTTracker(cfg, library=library)
+    is_obb = len(initial_detections[0]) == 7
+    geometry = "obb" if is_obb else "aabb"
+    python_tracker = SFSORT(is_obb=is_obb, **cfg)
+    library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
+    native_tracker = native_module.NativeSFSORTTracker(cfg, geometry=geometry, library=library)
     image = np.zeros((100, 100, 3), dtype=np.uint8)
 
     try:
-        for detections in (initial_detections, ambiguous_detections):
-            dets = np.asarray(detections, dtype=np.float32)
-            python_output = np.asarray(python_tracker.update(dets, image))
-            native_output = np.asarray(native_tracker.update(dets, image))
+        for rows in (initial_detections, ambiguous_detections):
+            detections = np.asarray(rows, dtype=np.float32)
+            python_output = update_rows(python_tracker, detections, image)
+            native_output = update_rows(native_tracker, detections, image)
             np.testing.assert_allclose(native_output, python_output, atol=1e-5)
     finally:
         native_tracker.close()
-
-
-def test_process_sequence_cpp_streams_progress_updates(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        native_module, "ensure_sfsort_cpp_executable", lambda force_rebuild=False: Path("/tmp/sfsort_replay")
-    )
-
-    class FakePopen:
-        def __init__(self, cmd, stdout, stderr, text, bufsize):
-            assert cmd[0] == "/tmp/sfsort_replay"
-            assert stdout is native_module.subprocess.PIPE
-            assert stderr is native_module.subprocess.PIPE
-            assert text is True
-            assert bufsize == 1
-            self.stdout = StringIO(
-                '{"sequence":"MOT17-02-FRCNN","num_frames":2,"track_time_ms":12.5,"kept_frame_ids":[1,2]}\n'
-            )
-            self.stderr = StringIO("BOXMOT_PROGRESS\tMOT17-02-FRCNN\t1\t2\nBOXMOT_PROGRESS\tMOT17-02-FRCNN\t2\t2\n")
-
-        def wait(self):
-            return 0
-
-    monkeypatch.setattr(native_module.subprocess, "Popen", FakePopen)
-
-    progress_queue = queue.Queue()
-    seq_name, kept_ids, timing = native_module.process_sequence_cpp(
-        seq_name="MOT17-02-FRCNN",
-        mot_root="/data/train",
-        project_root="/runs",
-        detector_name="yolox_x.pt",
-        reid_name="/weights/unused.pt",
-        tracker_name="sfsort",
-        exp_folder=str(tmp_path),
-        target_fps=None,
-        progress_queue=progress_queue,
-    )
-
-    assert seq_name == "MOT17-02-FRCNN"
-    assert kept_ids == [1, 2]
-    assert timing == {"track_time_ms": 12.5, "num_frames": 2}
-    assert progress_queue.get_nowait() == ("MOT17-02-FRCNN", 1, 2)
-    assert progress_queue.get_nowait() == ("MOT17-02-FRCNN", 2, 2)

@@ -16,10 +16,7 @@ class KalmanBoxTracker {
 public:
     using Ptr = std::shared_ptr<KalmanBoxTracker>;
 
-    KalmanBoxTracker(const Detection& detection, int max_obs);
-
-    static void ResetCount();
-    static int NextId();
+    KalmanBoxTracker(const Detection& detection, int max_obs, std::int64_t track_id);
 
     // Advance the predict step: bumps age + time_since_update; resets
     // hit_streak if a frame was missed; returns the predicted [x1,y1,x2,y2].
@@ -54,19 +51,18 @@ public:
     std::deque<Eigen::Vector4d>& ams_buffer() { return ams_buffer_; }
     const std::deque<Eigen::Vector4d>& ams_buffer() const { return ams_buffer_; }
 
-    int id = 0;
+    std::int64_t id = 0;
     int age = 0;
     int hit_streak = 0;
     int time_since_update = 0;
     bool is_activated = false;
     float conf = 0.0F;
-    int cls = 0;
-    int det_ind = -1;
+    std::int64_t cls = 0;
+    std::int64_t det_ind = -1;
 
     KalmanFilterXYHR kf;
 
 private:
-    static int count_;
     int max_obs_;
     bool is_obb_ = false;
     Eigen::VectorXf embedding_;

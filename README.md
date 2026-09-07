@@ -15,7 +15,6 @@
   [![downloads](https://static.pepy.tech/badge/boxmot)](https://pepy.tech/project/boxmot)
   [![license](https://img.shields.io/badge/license-AGPL%203.0-blue)](https://github.com/mikel-brostrom/boxmot/blob/master/LICENSE)
   [![python-version](https://img.shields.io/pypi/pyversions/boxmot)](https://badge.fury.io/py/boxmot)
-  [![docker pulls](https://img.shields.io/docker/pulls/boxmot/boxmot?logo=docker)](https://hub.docker.com/r/boxmot/boxmot)
   [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.8132989.svg)](https://doi.org/10.5281/zenodo.8132989)
   [![colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/18nIqkBr68TkK8dHdarxTco6svHUJGggY?usp=sharing)
   [![discord](https://img.shields.io/discord/1377565354326495283?logo=discord&label=discord&labelColor=fff&color=5865f2)](https://discord.gg/tUmFEcYU4q)
@@ -33,18 +32,22 @@
 
 </div>
 
-BoxMOT gives you one CLI and one Python API for running modern multi-object tracking workflows. It covers direct tracking, catalog-backed evaluation, tuning, research loops, ReID training and evaluation, and ReID export without forcing you to rebuild the detector and tracker stack for each experiment.
+BoxMOT provides independent detector, segmentor, appearance-encoder, and tracker
+components built around validated Torch structures. Pipelines compose those
+components; the CLI owns sources, outputs, materialized datasets, evaluation,
+tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `generate`, `eval`, `tune`, `research`,
-  `train-reid`, `eval-reid`, `export`, and native `build`
+- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
+  `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
-- Swappable trackers with shared detector and ReID plumbing.
-- Dataset and experiment workflows with reusable detections and embeddings.
+- Swappable components with explicit capabilities and requirements.
+- Immutable, keyed Parquet builds with reusable detections, masks, and
+  embeddings.
 - Support for both AABB and OBB tracking paths.
 - Optional production-ready native C++ tracker implementations with the same metrics as the Python path, opted into via `--tracker-backend cpp` and embeddable in standalone C++ projects via CMake (see [Native C++ Integration](docs/native/index.md)).
-- Public Python API for embedding the same workflows in applications and notebooks.
+- A structured Python API for embedding components and pipelines in applications.
 
 ## Installation
 
@@ -61,42 +64,6 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 `research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
 
-## Docker images
-
-Published images cover GPU and CPU CLI workflows plus separate CPU geometry
-and GPU ReID tracker services:
-
-```bash
-# GPU-enabled detector, CLI, evaluation, and interactive workflows
-docker run --rm -it --gpus all boxmot/boxmot:latest
-
-# The same CLI workflows on CPU
-docker run --rm -it boxmot/boxmot:latest-cpu
-
-# CPU-only stateful HTTP tracking from externally supplied detections
-docker run --rm -p 8000:8000 boxmot/boxmot-service:latest
-
-# CUDA/ReID stateful tracking from detections plus an encoded image per frame
-docker run --rm --gpus all -p 8000:8000 \
-  -v "$PWD/models/osnet_x0_25_msmt17.pt:/models/osnet_x0_25_msmt17.pt:ro" \
-  -e BOXMOT_SERVICE_REID_WEIGHTS=/models/osnet_x0_25_msmt17.pt \
-  boxmot/boxmot-service:latest-gpu
-```
-
-Versioned and commit-addressed tags are also published. GPU CLI tags are
-`<version>` and `sha-<commit>`; CPU CLI tags append `-cpu`. The CPU service uses
-canonical `<version>` and `sha-<commit>` tags in its own repository, while the
-GPU service appends `-gpu`. See the
-[installation guide](docs/getting-started/installation.md) for local builds.
-
-Both services accept ordered AABB or OBB detections and keep isolated state per
-stream/session; neither runs a detector. The CPU image supports ByteTrack,
-OCSort, and SFSORT without image pixels. The GPU image supports StrongSORT,
-BotSORT, DeepOCSORT, HybridSORT, BoostTrack, and OccluBoost, and requires a raw
-base64-encoded JPEG or PNG in `image_base64` for every frame, including empty
-detection frames. See the [deployment guide](docs/guides/deployment.md) for the
-request schema and horizontal-scaling requirements.
-
 ## Benchmark Results
 
 <div align="center" markdown="1">
@@ -105,7 +72,7 @@ request schema and horizontal-scaling requirements.
 <table>
   <thead>
     <tr>
-      <th rowspan="2" align="left"><sub>Tracker</sub></th>
+      <th rowspan="2" align="left"><sub>Tracker key</sub></th>
       <th rowspan="2" align="center"><sub>Status</sub></th>
       <th colspan="3" align="center"><sub>MOT17 ablation</sub></th>
       <th colspan="3" align="center"><sub>SportsMOT val</sub></th>
@@ -273,26 +240,40 @@ Related guides:
 CLI:
 
 ```bash
-boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost --source 0 --save --show
+boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
+  --asso-func diou --source 0 --save --show
+```
+
+Evaluate a tracker. The first run materializes reusable detections and
+embeddings automatically:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker occluboost
 ```
 
 Python:
 
+When detections do not include embeddings, `OccluBoost` generates them from
+the frame. The other ReID-enabled trackers, including native C++ tracker
+adapters, support the same high-level fallback. A NumPy detection array returns
+a NumPy track array; the input may use any real numeric dtype.
+
 ```python
 import numpy as np
-from boxmot.trackers import OccluBoost
+import torch
+
+from boxmot import OccluBoost
+from boxmot.structures import Frame
 
 tracker = OccluBoost()
-
-# dets: (N, 6) array with [x1, y1, x2, y2, conf, cls] per detection
-dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
-# OBB alternative: (N, 7) with [cx, cy, w, h, angle_radians, conf, cls]
-# dets = np.array([[200, 300, 200, 200, 0.25, 0.9, 0]], dtype=np.float32)
-img = np.zeros((480, 640, 3), dtype=np.uint8)  # current frame
-
-# tracks: AABB (M, 8), or OBB (M, 9) with angle after h
-tracks = tracker.update(dets, img)
-print(tracks)
+dets = np.array([[100, 200, 300, 400, 0.9, 0]])
+frame = Frame(
+    image=torch.zeros((3, 480, 640), dtype=torch.uint8),
+    sample_id="camera-1:000001",
+)
+tracks = tracker.update(dets, frame)
+print(tracks[:, 4].astype(int))  # track IDs
 ```
 
 ## Contributing

@@ -8,9 +8,14 @@
 
 [tool.uv]
 preview = true
+required-version = "==0.12.4"
 conflicts = [
   [
     { extra = "cpu" },
+    { extra = "cu130" },
+  ],
+  [
+    { group = "service-runtime" },
     { extra = "cu130" },
   ],
 ]
@@ -19,10 +24,12 @@ extra-build-dependencies = { yolox = ["setuptools", { requirement = "torch", mat
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cpu", group = "service-runtime" },
   { index = "pytorch-cu130", extra = "cu130" },
 ]
 torchvision = [
   { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cpu", group = "service-runtime" },
   { index = "pytorch-cu130", extra = "cu130" },
 ]
 
@@ -58,8 +65,8 @@ ignore = ["E731", "F405", "E402", "E741"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 norecursedirs = [
-  "boxmot/datasets/mot",
-  "boxmot/datasets/reid",
+  "datasets/mot",
+  "datasets/reid",
   "runs",
 ]
 
@@ -71,13 +78,47 @@ norecursedirs = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.build]
+# Native libraries may be produced inside their package directories by release
+# and container builders. Include those platform artifacts even though normal
+# editable-build outputs are ignored by Git; clean source wheels are unchanged
+# when no library exists.
+artifacts = [
+  "/boxmot/native/cpp/**/*.so",
+  "/boxmot/native/cpp/**/*.dylib",
+  "/boxmot/native/cpp/**/*.dll",
+  "/boxmot/native/cpp/**/*.pyd",
+]
+exclude = [
+  "/artifacts/**",
+  "/builds/**",
+  "/datasets/**",
+  "/boxmot/**/.staging/**",
+  "/boxmot/**/*.npy",
+  "/boxmot/**/*.npz",
+  "/boxmot/**/*.parquet",
+  "/boxmot/**/repo-to-text_*.txt",
+  "/runs/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/boxmot",
+  "/LICENSE",
+  "/README.md",
+  "/pyproject.toml",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["boxmot"]
+
 ###########
 # Project #
 ###########
 
 [project]
 name            = "boxmot"
-version         = "23.0.0"
+version         = "24.0.0"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
 requires-python = ">=3.10,<3.14"
@@ -135,7 +176,14 @@ dependencies = [
   "click>=8.1.8",
   # Rich console + logging UI used across the CLI workflows.
   "rich>=15.0.0",
+  # Dependency-light progress fallback for resources and postprocessing.
+  "tqdm>=4.67.1,<5.0.0",
+  # Backport typing.Self for the supported Python 3.10 runtime.
+  "typing-extensions>=4.12.2,<5.0.0",
   "huggingface-hub>=1.7.1",
+  # Canonical keyed dataset storage and platform-local metadata caches.
+  "pyarrow>=18.0.0,<24.0.0",
+  "platformdirs>=4.3.0,<5.0.0",
 ]
 
 [project.scripts]
@@ -150,12 +198,19 @@ boxmot-service = "boxmot.engine.service.__main__:main"
 dev  = ["ipykernel>=6.29.5,<7.0.0", "pre-commit>=4.0.1"]
 test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
 docs = [
-  "mkdocs>=1.6.1", "mkdocs-click>=0.9.0",
-  "mkdocs-include-markdown-plugin>=7.1.6",
-  "mkdocs-material==9.6.15",
-  "mkdocstrings>=0.30.0", "mkdocstrings-python>=1.16.12",
+  "mkdocs>=1.6.1,<2.0.0",
+  "mkdocs-autorefs>=1.4.4,<2.0.0",
+  "mkdocs-click>=0.9.0,<1.0.0",
+  # Use the final MkDocs-only releases while this site remains on MkDocs.
+  "mkdocs-gen-files>=0.6.0,<0.6.1",
+  "mkdocs-include-markdown-plugin>=7.1.6,<8.0.0",
+  "mkdocs-literate-nav>=0.6.2,<0.6.3",
+  "mkdocs-material>=9.7.7,<10.0.0",
+  "mkdocs-section-index>=0.3.10,<0.3.11",
+  "mkdocstrings>=1.0.3,<2.0.0", "mkdocstrings-python>=2.0.3,<3.0.0",
+  "ruff>=0.12.0,<1.0.0",
 ]
-# Minimal, Torch-free dependencies for the geometry-only HTTP service image.
+# Minimal dependencies for the canonical Torch-structure HTTP service image.
 # Docker runs BoxMOT from source and installs only this local dependency group.
 service-runtime = [
   "fastapi>=0.135.1,<1.0.0",
@@ -166,6 +221,8 @@ service-runtime = [
   "pyyaml>=6.0.0,<7.0.0",
   "rich>=15.0.0",
   "scipy>=1.11.0,<2.0.0",
+  "torch>=2.2.1,<3.0.0",
+  "torchvision>=0.17.1,<1.0.0",
   "uvicorn>=0.44.0,<1.0.0",
 ]
 

@@ -18,6 +18,11 @@ iou_threshold:
   default: 0.3
   range: [0.1, 0.9]
 
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
 use_cmc:
   type: choice
   default: True
@@ -88,7 +93,7 @@ use_vt:
   default: True # True for BoostTrack++
   options: [False, True]
 
-with_reid:
+use_embeddings:
   type: choice
   default: True # True for BoostTrack+ and BoostTrack++
   options: [False, True]

@@ -97,7 +97,7 @@ class TrackFormattingMixin:
         """Filter output rows by area and width/height ratio in AABB or OBB mode."""
         if outputs.size == 0:
             dtype = outputs.dtype if hasattr(outputs, "dtype") else np.float32
-            return self.empty_output(dtype=dtype)
+            return self._empty_output(dtype=dtype)
 
         outputs = np.asarray(outputs)
         if self.is_obb:

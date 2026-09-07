@@ -47,9 +47,16 @@ class ProcessMemoryGuard:
                 return
             try:
                 root = psutil.Process(self.process.pid)
-                processes = [root, *root.children(recursive=True)]
+                try:
+                    children = root.children(recursive=True)
+                except (psutil.AccessDenied, PermissionError):
+                    # Sandboxed macOS runners can deny the global process-table
+                    # query used by ``children`` while still allowing direct
+                    # inspection of the subprocess we created.
+                    children = []
+                processes = [root, *children]
                 rss_bytes = sum(child.memory_info().rss for child in processes if child.is_running())
-            except (psutil.AccessDenied, psutil.NoSuchProcess, ProcessLookupError):
+            except (psutil.AccessDenied, psutil.NoSuchProcess, PermissionError, ProcessLookupError):
                 continue
             self.peak_rss_bytes = max(self.peak_rss_bytes, rss_bytes)
             if rss_bytes > limit_bytes:

@@ -60,7 +60,7 @@ limits to prevent runaway Apple graph compilation.
           --weights runs/reid_train/exp/best.pt \
           --include tflite \
           --tflite-quantize static \
-          --tflite-calibration-data Market-1501-v15.09.15/bounding_box_train \
+          --tflite-calibration-data datasets/reid/Market-1501-v15.09.15/bounding_box_train \
           --tflite-calibration-samples 512 \
           --tflite-calibration-seed 0 \
           --tflite-calibration-update minmax \
@@ -73,29 +73,9 @@ limits to prevent runaway Apple graph compilation.
 
     === "Python"
 
-        ```python
-        from boxmot import BoxMOT
-
-        boxmot = BoxMOT(reid="osnet_x0_25_msmt17")
-        exported = boxmot.export(
-            include=("onnx", "engine"),
-            dynamic=True,
-            batch_size=16,
-            device="0",
-        )
-        print(exported.files)
-
-        reid = BoxMOT(reid="models/lmbn_n_duke.pt")
-        exported = reid.export(format="onnx")
-        embeddings = exported.embed(source="path/to/image.jpg")
-
-        apple_reid = BoxMOT(reid="runs/reid_train/exp/best.pt")
-        apple_export = apple_reid.export(
-            format="coreml",
-            coreml_batch_buckets=(1, 8, 16, 32),
-        )
-        print(apple_export.files["coreml"])
-        ```
+        Reusable exporter implementations live in `boxmot.reid.exporters`.
+        CLI parsing, output naming, and workflow orchestration remain engine
+        concerns and are intentionally absent from the package root.
 
 ## Typical use cases
 
@@ -106,9 +86,8 @@ limits to prevent runaway Apple graph compilation.
 ## CLI Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.cli
-    :command: boxmot
-    :depth: 1
+    :module: boxmot.engine.commands.reid.export
     :command: export
+    :depth: 0
     :style: table
     :prog_name: boxmot export

@@ -3,7 +3,6 @@
 Config additions should follow the existing split:
 
 - `boxmot/configs/datasets/` for dataset facts
-- `boxmot/configs/artifacts/` for public and precomputed data
 - `boxmot/configs/experiments/` for dataset + detector + ReID composition
 - `boxmot/configs/detectors/` for detector profiles
 - `boxmot/configs/reid/` for runtime ReID profiles
@@ -17,7 +16,7 @@ Adding a new dataset/experiment combination usually means:
 1. add a dataset YAML
 2. add an experiment YAML
 3. confirm detector and ReID profiles already exist or add them
-4. use unique kebab-case IDs and portable repository-relative paths
+4. use kebab-case IDs for ID-backed assets and kebab-case paths for experiments
 5. update docs if the experiment becomes a documented workflow
 
 Adding a tuned tracker usually means:

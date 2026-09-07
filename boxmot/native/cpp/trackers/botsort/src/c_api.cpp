@@ -1,12 +1,11 @@
 #include "botsort/c_api.hpp"
 
-#include "boxmot/trackers/base/live_c_api.hpp"
 #include "botsort/tracker.hpp"
 #include "botsort/types.hpp"
+#include "boxmot/trackers/base/live_c_api.hpp"
 
 #include <opencv2/core.hpp>
 
-#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -29,51 +28,22 @@ botsort::Config ConvertConfig(const BoxMOTBotSortConfig& config) {
     native_config.second_match_thresh = config.second_match_thresh;
     native_config.unconfirmed_match_thresh = config.unconfirmed_match_thresh;
     native_config.unconfirmed_emb_scale = config.unconfirmed_emb_scale;
-    native_config.cmc_method = config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
+    native_config.cmc_method =
+        config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     native_config.frame_rate = config.frame_rate;
     native_config.fuse_first_associate = config.fuse_first_associate != 0;
-    native_config.with_reid = config.with_reid != 0;
+    native_config.use_embeddings = config.use_embeddings != 0;
     native_config.max_obs = config.max_obs;
-    native_config.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
-    native_config.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
-}
-
-std::vector<botsort::Detection> ConvertDetections(
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const float* embs,
-    const int emb_rows,
-    const int emb_cols
-) {
-    if (det_rows < 0 || det_cols < 0 || emb_rows < 0 || emb_cols < 0) {
-        throw std::runtime_error("Negative matrix dimensions are not allowed.");
-    }
-    if (embs != nullptr && emb_rows != det_rows) {
-        throw std::runtime_error("Detection and embedding row counts must match.");
-    }
-
-    std::vector<botsort::Detection> converted =
-        boxmot::trackers::base::ConvertLiveDetections<botsort::Detection>(dets, det_rows, det_cols, "BoTSORT");
-    for (std::size_t row = 0; row < converted.size(); ++row) {
-        if (embs != nullptr && emb_cols > 0) {
-            botsort::Detection& detection = converted[row];
-            detection.embedding.resize(emb_cols);
-            const float* emb_row = embs + (row * static_cast<std::size_t>(emb_cols));
-            for (int col = 0; col < emb_cols; ++col) {
-                detection.embedding(col) = emb_row[col];
-            }
-        }
-    }
-    return converted;
 }
 
 }  // namespace
 
 struct BoxMOTBotSortHandle {
     explicit BoxMOTBotSortHandle(botsort::Config tracker_config)
-        : config(std::move(tracker_config)), tracker(std::make_unique<botsort::BotSortTracker>(config)) {}
+        : config(std::move(tracker_config)),
+          tracker(std::make_unique<botsort::BotSortTracker>(config)) {}
 
     botsort::Config config;
     std::unique_ptr<botsort::BotSortTracker> tracker;
@@ -84,16 +54,17 @@ extern "C" {
 BoxMOTBotSortHandle* boxmot_botsort_create(const BoxMOTBotSortConfig* config) {
     try {
         if (config == nullptr) {
-            throw std::runtime_error("Native BoTSORT config is required.");
+            throw std::runtime_error("Native BotSort config is required.");
         }
         botsort::Config native_config = ConvertConfig(*config);
         g_last_error.clear();
         return new BoxMOTBotSortHandle(std::move(native_config));
     } catch (const std::exception& exc) {
-        boxmot::trackers::base::SetLastError(g_last_error, exc.what());
+        boxmot::native::SetLastError(g_last_error, exc.what());
         return nullptr;
     } catch (...) {
-        boxmot::trackers::base::SetLastError(g_last_error, "Unknown native BoTSORT creation failure");
+        boxmot::native::SetLastError(g_last_error,
+                                             "Unknown native BotSort creation failure");
         return nullptr;
     }
 }
@@ -103,96 +74,55 @@ void boxmot_botsort_destroy(BoxMOTBotSortHandle* handle) {
 }
 
 int boxmot_botsort_reset(BoxMOTBotSortHandle* handle) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is null.");
-        }
-        handle->tracker = std::make_unique<botsort::BotSortTracker>(handle->config);
-    }, g_last_error, "Unknown native BoTSORT failure");
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native BotSort handle is null.");
+            }
+            handle->tracker = std::make_unique<botsort::BotSortTracker>(handle->config);
+        },
+        g_last_error,
+        "Unknown native BotSort failure");
 }
 
-int boxmot_botsort_update(
-    BoxMOTBotSortHandle* handle,
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const float* embs,
-    const int emb_rows,
-    const int emb_cols,
-    const std::uint8_t* image_data,
-    const int image_rows,
-    const int image_cols,
-    const int image_channels,
-    float* out_tracks,
-    const int out_capacity_rows,
-    const int out_cols,
-    int* out_rows,
-    int* out_is_obb
-) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is not initialized.");
-        }
-        if (out_rows == nullptr || out_is_obb == nullptr) {
-            throw std::runtime_error("Output pointers are null.");
-        }
-        const std::vector<botsort::Detection> detections =
-            ConvertDetections(dets, det_rows, det_cols, embs, emb_rows, emb_cols);
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "BoTSORT");
-        const std::vector<botsort::TrackOutput> tracks = handle->tracker->Update(detections, image);
-        boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "BoTSORT");
-        *out_rows = static_cast<int>(tracks.size());
-        *out_is_obb = boxmot::trackers::base::LiveOutputUsesObb(tracks, det_cols) ? 1 : 0;
-    }, g_last_error, "Unknown native BoTSORT failure");
+int boxmot_botsort_update_v2(BoxMOTBotSortHandle* handle,
+                             const BoxMOTDetectionBatchV2* detections,
+                             const BoxMOTImageV2* image,
+                             BoxMOTTrackBatchV2** output) {
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr || handle->tracker == nullptr) {
+                throw std::runtime_error("Native BotSort handle is not initialized.");
+            }
+            if (detections == nullptr || output == nullptr) {
+                throw std::runtime_error("Native BotSort input/output pointers are null.");
+            }
+            *output = nullptr;
+            const std::vector<botsort::Detection> converted =
+                boxmot::trackers::base::ConvertLiveDetectionsV2<botsort::Detection, true>(
+                    *detections, "BotSort");
+            const cv::Mat image_mat =
+                boxmot::trackers::base::WrapOptionalLiveImageV2(image, "BotSort");
+            const bool cmc_needs_image =
+                !handle->config.cmc_method.empty() && handle->config.cmc_method != "none";
+            if (image_mat.empty() && cmc_needs_image) {
+                throw std::runtime_error("Native BotSort requires an image when CMC is active.");
+            }
+            if (handle->config.use_embeddings && detections->rows > 0 &&
+                detections->embedding_cols <= 0) {
+                throw std::runtime_error("Native BotSort requires precomputed embeddings.");
+            }
+            const std::vector<botsort::TrackOutput> tracks =
+                handle->tracker->Update(converted, image_mat);
+            *output =
+                boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
+        },
+        g_last_error,
+        "Unknown native BotSort failure");
 }
 
-int boxmot_botsort_last_reid_time_ms(BoxMOTBotSortHandle* handle, double* out_reid_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is not initialized.");
-        }
-        if (out_reid_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_reid_time_ms = handle->tracker->LastReIdTimeMs();
-    }, g_last_error, "Unknown native BoTSORT failure");
-}
-
-int boxmot_botsort_last_reid_preprocess_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdPreprocessTimeMs();
-    }, g_last_error, "Unknown native BoTSORT failure");
-}
-
-int boxmot_botsort_last_reid_process_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdProcessTimeMs();
-    }, g_last_error, "Unknown native BoTSORT failure");
-}
-
-int boxmot_botsort_last_reid_postprocess_time_ms(BoxMOTBotSortHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native BoTSORT handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdPostprocessTimeMs();
-    }, g_last_error, "Unknown native BoTSORT failure");
+void boxmot_botsort_result_free_v2(BoxMOTTrackBatchV2* output) {
+    boxmot::trackers::base::FreeLiveOutputV2(output);
 }
 
 const char* boxmot_botsort_last_error() {

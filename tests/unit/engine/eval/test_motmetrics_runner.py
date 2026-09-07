@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from boxmot.engine.eval import motmetrics as motmetrics_module
-from boxmot.engine.eval.motmetrics import SequenceData, run_motmetrics
+from boxmot.engine.eval.motmetrics import SequenceData, build_dataset_eval_settings, run_motmetrics
 
 PARITY_FIELDS = ("HOTA", "DetA", "AssA", "AssRe", "MOTA", "MOTP", "IDF1", "IDR", "IDP", "IDSW", "IDs")
 AABB_LEGACY_GOLDEN = {
@@ -95,14 +95,58 @@ def test_run_motmetrics_aabb_perfect_sequence(tmp_path):
     assert results["person"]["IDs"] == 1
 
 
+def test_run_motmetrics_preserves_negative_clear_accuracy_percentages(tmp_path):
+    source = tmp_path / "source"
+    exp_dir = tmp_path / "runs" / "exp"
+    seq_name = "SEQ-NEGATIVE-MOTA"
+
+    _write_rows(
+        source / seq_name / "gt" / "gt_temp.txt",
+        [[1, 1, 0, 0, 10, 10, 1, 1, 1]],
+    )
+    _write_rows(
+        exp_dir / f"{seq_name}.txt",
+        [
+            [1, 10, 20, 20, 10, 10, 0.9, 1, -1],
+            [1, 11, 40, 40, 10, 10, 0.9, 1, -1],
+            [1, 12, 60, 60, 10, 10, 0.9, 1, -1],
+        ],
+    )
+
+    args = Namespace(
+        source=source,
+        exp_dir=exp_dir,
+        benchmark="",
+        experiment_id=None,
+        dataset_id=None,
+        remapped_class_ids=None,
+        remapped_class_names=None,
+        classes=None,
+    )
+
+    result = run_motmetrics(
+        args,
+        [source / seq_name / "img1"],
+        tmp_path / "save",
+        source,
+        seq_info={seq_name: 1},
+    )["person"]
+
+    assert result["MOTA"] == pytest.approx(-300.0)
+    assert result["MODA"] == pytest.approx(-300.0)
+    assert result["sMOTA"] == pytest.approx(-300.0)
+    assert result["HOTA"] == pytest.approx(0.0)
+
+
 def test_run_motmetrics_obb_perfect_sequence(tmp_path):
     source = tmp_path / "source"
+    annotations = tmp_path / "custom-labels"
     exp_dir = tmp_path / "runs" / "exp"
     seq_name = "data01-1"
     corners = [0, 0, 10, 0, 10, 10, 0, 10]
 
     _write_rows(
-        source / seq_name / "gt" / "gt.txt",
+        annotations / f"{seq_name}.txt",
         [[1, 7, *corners, 1, 0, 0]],
     )
     _write_rows(
@@ -117,6 +161,7 @@ def test_run_motmetrics_obb_perfect_sequence(tmp_path):
         experiment_id=None,
         dataset_id=None,
         eval_box_type="obb",
+        evaluation_config={"annotation_layout": "flat", "box_type": "obb"},
         remapped_class_ids=[0],
         remapped_class_names=["car"],
         translated_benchmark_class_names=None,
@@ -127,7 +172,7 @@ def test_run_motmetrics_obb_perfect_sequence(tmp_path):
         args,
         [source / seq_name],
         tmp_path / "save",
-        source,
+        annotations,
         seq_info={seq_name: 1},
     )
 
@@ -139,6 +184,54 @@ def test_run_motmetrics_obb_perfect_sequence(tmp_path):
     assert results["car"]["AssRe"] == pytest.approx(100.0)
     assert results["car"]["IDSW"] == 0
     assert results["car"]["IDs"] == 1
+
+
+def test_configured_flat_obb_annotations_never_fall_back_to_unconfigured_ground_truth(tmp_path):
+    source = tmp_path / "dataset" / "test" / "npy"
+    annotations = tmp_path / "dataset" / "labels" / "test"
+    exp_dir = tmp_path / "runs" / "exp"
+    seq_name = "data01-1"
+    corners = [0, 0, 10, 0, 10, 10, 0, 10]
+    _write_rows(annotations / f"{seq_name}.txt", [[1, 7, *corners, 1, 0]])
+    _write_rows(source.parent / "mot" / f"{seq_name}.txt", [[1, 7, *corners, 1, 0, 0]])
+    _write_rows(exp_dir / f"{seq_name}.txt", [[1, 3, *corners, 0.9, 0, -1]])
+    args = Namespace(
+        source=source,
+        exp_dir=exp_dir,
+        benchmark="",
+        eval_box_type="obb",
+        evaluation_config={"annotation_layout": "flat", "box_type": "obb"},
+        remapped_class_ids=[0],
+        remapped_class_names=["car"],
+        classes=None,
+    )
+
+    with pytest.raises(ValueError, match="expected 13 columns"):
+        run_motmetrics(
+            args,
+            [source / seq_name],
+            tmp_path / "save",
+            annotations,
+            seq_info={seq_name: 1},
+        )
+
+
+def test_dataset_eval_settings_use_flat_configured_annotations(tmp_path):
+    args = Namespace(
+        benchmark="",
+        classes=None,
+        evaluation_config={
+            "layout": "mot",
+            "box_type": "aabb",
+            "annotation_layout": "flat",
+        },
+        remapped_class_ids=[1],
+        remapped_class_names=["person"],
+    )
+
+    settings = build_dataset_eval_settings(args, tmp_path / "custom-labels", {"SEQ-01": 1})
+
+    assert settings["gt_loc_format"] == "{gt_folder}/{seq}.txt"
 
 
 def test_run_motmetrics_aabb_matches_legacy_golden_report_metrics(tmp_path):

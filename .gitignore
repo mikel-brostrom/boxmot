@@ -1,5 +1,5 @@
 .vscode/
-.venv/
+.venv
 .eggs/
 env/
 *.DS_Store
@@ -8,6 +8,7 @@ htmlcov/
 # interpreter bytecode
 __pycache__/
 __MACOSX/
+repo-to-text_*.txt
 
 # experiment results
 runs/
@@ -29,10 +30,7 @@ weights/*.tflite
 
 # runtime evaluation downloads
 /data/
-boxmot/datasets/mot/*
-boxmot/datasets/reid/*
-!boxmot/datasets/mot/.gitkeep
-!boxmot/datasets/reid/.gitkeep
+/datasets/
 
 # zip files
 *.zip

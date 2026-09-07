@@ -1,60 +1,55 @@
-# Quickstart
+# BoxMOT
 
-!!! example "Quickstart"
+BoxMOT is a structured tracking-by-detection toolkit for axis-aligned boxes,
+oriented boxes, and instance masks. Its dependency direction is explicit:
 
-    === "CLI"
+```text
+structures -> domain components -> pipelines -> engine
+```
 
-        Install BoxMOT and inspect the CLI:
+Detectors, segmentors, appearance encoders, and trackers are independently
+usable. Pipelines normally provide reusable masks and appearance embeddings.
+For live use, every high-level ReID-enabled tracker adapter can also extract
+missing embeddings lazily from a supplied frame. Native adapters pass those
+features to their model-free C++ tracker libraries. The engine owns media
+sources, sinks, services, CLI workflows, evaluation, tuning, and resumable
+materialization.
 
-        ```bash
-        pip install "boxmot[yolo]"
-        boxmot --help
-        ```
+## Get started
 
-        Track a video:
+```bash
+pip install boxmot
+boxmot --help
 
-        ```bash
-        boxmot track --detector yolov8n --reid osnet_x0_25_msmt17 --tracker botsort --source video.mp4 --save
-        ```
+boxmot track \
+  --source video.mp4 \
+  --detector yolov8n \
+  --tracker bytetrack \
+  --save
+```
 
-        Run a tracker experiment from a built-in config:
+For repeatable evaluation, publish perception once and name the build on every
+downstream command:
 
-        ```bash
-        boxmot eval --experiment mot17-ablation-yolox-lmbn --tracker boosttrack --verbose
-        ```
+```bash
+boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+```
 
-        Research tracker code changes on a built-in config:
+## Where to go next
 
-        ```bash
-        pip install "boxmot[yolo,research]"
-        boxmot research --experiment mot17-ablation-yolox-lmbn --tracker bytetrack --proposal-model openai/gpt-5.4 --max-metric-calls 24
-        ```
+| Goal | Guide |
+| --- | --- |
+| Install optional detector, service, or export runtimes | [Installation](getting-started/installation.md) |
+| Run the CLI | [CLI](usage/index.md) |
+| Track live or finite media | [Track](modes/track.md) |
+| Build reusable keyed perception data | [Materialize](modes/materialize.md) |
+| Evaluate, tune, or research against a fixed build | [Modes](modes/index.md) |
+| Compose Torch-native components in Python | [Python API](python/index.md) |
+| Select an association algorithm | [Trackers](trackers/index.md) |
+| Embed a service or native tracker | [Integrations](integrations/index.md) |
 
-    === "Python"
-
-        Use the high-level Python API:
-
-        ```python
-        from boxmot import BoxMOT
-
-        boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-        run = boxmot.track(source="video.mp4", save=True)
-        print(run)
-
-        metrics = boxmot.val(experiment="mot17-mini-train-yolox-lmbn")
-        print(metrics)
-        ```
-
-The high-level Python API is available directly from `boxmot`. Shared tracking
-defaults come from `boxmot/configs/runtime.yaml`, so the CLI and Python entry
-points remain aligned.
-
-Next steps:
-
-- [Modes Overview](modes/index.md)
-- [CLI Usage](usage/index.md)
-- [Python API](python/index.md)
-- [Configuration](config/index.md)
-- [API Reference](python/high-level.md)
-- [Trackers](trackers/index.md)
-- [Native C++ Integration](native/index.md)
+Canonical structures are CPU-contiguous and validated without implicit
+conversion. Standalone box-only tracker calls may use exact NumPy AABB6 or OBB7
+rows and receive packed NumPy AABB8 or OBB9 rows; pipelines and enriched
+detections use canonical structures.

@@ -49,6 +49,27 @@ def test_cmc_apply_empty_detections(cmc_object):
     assert np.array_equal(result, np.eye(2, 3, dtype=np.float32))
 
 
+@pytest.mark.parametrize("cmc_class", [ECC, ORB, SIFT, SOF])
+def test_cmc_reset_clears_sequence_state(cmc_class):
+    cmc = cmc_class()
+    image = np.zeros((100, 100, 3), dtype=np.uint8)
+    cmc.apply(image)
+
+    cmc.reset()
+
+    for attr_name in ("prev_img", "prev_frame", "prev_keypoints", "prev_descriptors"):
+        if hasattr(cmc, attr_name):
+            assert getattr(cmc, attr_name) is None
+    if hasattr(cmc, "initialized"):
+        assert cmc.initialized is False
+
+
+@pytest.mark.parametrize("keyword", ["warp_mode", "eps", "max_iter"])
+def test_sift_rejects_removed_compatibility_options(keyword):
+    with pytest.raises(TypeError, match=f"unexpected keyword argument '{keyword}'"):
+        SIFT(**{keyword: 1})
+
+
 def test_sof_uses_detection_mask_for_keypoints(monkeypatch):
     captured_masks = []
 

@@ -53,9 +53,8 @@ The latency plot is enabled by the default timed passes. Set
 ## CLI Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.cli
-    :command: boxmot
-    :depth: 1
+    :module: boxmot.engine.commands.reid.compare
     :command: compare_reid
+    :depth: 0
     :style: table
     :prog_name: boxmot compare-reid

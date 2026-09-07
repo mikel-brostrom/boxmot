@@ -62,49 +62,60 @@ class ONNXBackend(BaseModelBackend):
 
     @staticmethod
     def _select_runtime_backend() -> str:
-        """Pick the ONNX runtime backend.
+        """Return the exact runtime requested through ``BOXMOT_REID_BACKEND``.
 
-        Honours ``BOXMOT_REID_BACKEND`` (also consulted by the native C++ ReID
-        path), so users can swap between ``onnxruntime`` and OpenCV's DNN
-        module without editing code:
-
-        * ``ort`` / ``onnxruntime`` → ``onnxruntime`` (default)
-        * ``opencv`` / ``cv`` / ``dnn`` → ``cv2.dnn.readNetFromONNX``
-        * ``auto`` / unset → ``onnxruntime``
+        ``auto`` (also used when the variable is unset) may choose another
+        available implementation. Explicit requests are never downgraded.
         """
-        raw = os.environ.get("BOXMOT_REID_BACKEND", "").strip().lower()
-        if raw in {"opencv", "cv", "dnn", "opencv_dnn"}:
-            return "opencv"
-        return "ort"
+        raw = os.environ.get("BOXMOT_REID_BACKEND")
+        if raw is None:
+            return "auto"
+        if raw in {"auto", "onnxruntime", "opencv"}:
+            return raw
+        raise ValueError(f"Invalid BOXMOT_REID_BACKEND value {raw!r}. Expected one of: auto, onnxruntime, opencv.")
+
+    def _validate_opencv_device(self) -> None:
+        device_type = self._device_type(self._requested_device)
+        if device_type not in {"auto", "cpu"}:
+            raise ValueError(f"OpenCV DNN ReID supports only device=cpu; got device={device_type!r}.")
 
     def _select_execution_providers(self, available_providers) -> list[str]:
         device_type = self._device_type(self._requested_device)
-        if device_type == "cpu":
-            return ["CPUExecutionProvider"]
-        preferred = list(self._DEVICE_PROVIDER_ORDER.get(device_type, ()))
-        # ONNX Runtime has no MPS execution provider. Its Core ML EP translates
-        # ONNX graphs at session creation and can use extreme RAM for static
-        # transformer batches, so it is never selected implicitly. Native
-        # ``_coreml_model`` MLPrograms are the supported Apple accelerator path.
-        # Retain an explicit escape hatch for controlled diagnostics.
-        if (
-            device_type == "mps"
-            and os.environ.get("BOXMOT_ENABLE_LEGACY_ONNX_COREML", "").strip().lower()
-            in {"1", "true", "yes"}
-        ):
-            preferred.append("CoreMLExecutionProvider")
-        if device_type != "cuda":
-            preferred.extend(self._SYSTEM_PROVIDER_ORDER.get(platform.system(), ()))
+        available = list(available_providers)
+        self._provider_selection_is_explicit = device_type != "auto"
+
+        if device_type == "mps":
+            raise ValueError(
+                "ONNX Runtime has no MPS execution provider. "
+                "Use a Core ML artifact for device='mps' or select device='cpu'."
+            )
+
+        explicit_provider = {
+            "cpu": "CPUExecutionProvider",
+            "cuda": "CUDAExecutionProvider",
+            "coreml": "CoreMLExecutionProvider",
+        }.get(device_type)
+        if explicit_provider is not None:
+            if explicit_provider not in available:
+                raise RuntimeError(
+                    f"{explicit_provider} was explicitly requested for ONNX ReID but is unavailable. "
+                    f"Available providers: {available or ['none']}."
+                )
+            return [explicit_provider]
+
+        if device_type != "auto":
+            raise ValueError(f"Unsupported ONNX ReID device {device_type!r}. Expected one of: auto, cpu, cuda, coreml.")
+
+        preferred = list(self._DEVICE_PROVIDER_ORDER["cuda"])
+        preferred.extend(self._SYSTEM_PROVIDER_ORDER.get(platform.system(), ()))
         preferred.append("CPUExecutionProvider")
-
-        providers: list[str] = []
-        for provider in preferred:
-            if provider in available_providers and provider not in providers:
-                providers.append(provider)
-
-        if providers:
-            return providers
-        return list(available_providers) if available_providers else ["CPUExecutionProvider"]
+        providers = [provider for provider in preferred if provider in available]
+        if not providers:
+            raise RuntimeError(
+                "No supported ONNX Runtime execution provider is available. "
+                f"Available providers: {available or ['none']}."
+            )
+        return providers
 
     _ORT_TYPE_TO_NUMPY = {
         "tensor(float)": "float32",
@@ -140,6 +151,12 @@ class ONNXBackend(BaseModelBackend):
 
         sess_opts = onnxruntime.SessionOptions()
         sess_opts.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_ENABLE_ALL
+        if (
+            getattr(self, "_provider_selection_is_explicit", False)
+            and providers
+            and providers[0] in {"CUDAExecutionProvider", "CoreMLExecutionProvider"}
+        ):
+            sess_opts.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
         # Silence ONNX Runtime's chatty default warnings (e.g. CoreML / CUDA EP
         # node-assignment notices) so they don't tear up Rich live displays.
         # Override at runtime via BOXMOT_ORT_LOG_LEVEL in {0..4} (VERBOSE,
@@ -161,13 +178,23 @@ class ONNXBackend(BaseModelBackend):
         return onnxruntime.InferenceSession(str(weights), sess_options=sess_opts, providers=providers)
 
     def load_model(self, w):
-        self._backend = self._select_runtime_backend()
+        backend_request = self._select_runtime_backend()
+        self._backend = "onnxruntime" if backend_request == "auto" else backend_request
         if self._backend == "opencv":
+            self._validate_opencv_device()
             self._load_opencv_dnn(w)
             return
-        self._ensure_onnxruntime_installed()
+        try:
+            self._ensure_onnxruntime_installed()
+            import onnxruntime
+        except ImportError:
+            if backend_request != "auto":
+                raise RuntimeError("ONNX Runtime was explicitly requested for ReID but is unavailable.") from None
+            self._validate_opencv_device()
+            self._backend = "opencv"
+            self._load_opencv_dnn(w)
+            return
         import numpy as np
-        import onnxruntime
 
         available_providers = onnxruntime.get_available_providers()
         providers = self._select_execution_providers(available_providers)
@@ -243,14 +270,12 @@ class ONNXBackend(BaseModelBackend):
         graph_input_shape = (int(graph_height), int(graph_width))
         if graph_input_shape != configured_shape:
             LOGGER.warning(
-                f"ONNX graph input size {graph_input_shape} overrides configured "
-                f"ReID crop size {configured_shape}"
+                f"ONNX graph input size {graph_input_shape} overrides configured ReID crop size {configured_shape}"
             )
         self.input_shape = graph_input_shape
         crop_shape = (3, *self.input_shape)
         self._pad_buffers: dict[int, np.ndarray] = {
-            bs: np.zeros((bs,) + crop_shape, dtype=self._input_np_dtype)
-            for bs in buckets
+            bs: np.zeros((bs,) + crop_shape, dtype=self._input_np_dtype) for bs in buckets
         }
 
         # Warm each session so first inference doesn't pay the CoreML compile cost.
@@ -336,10 +361,7 @@ class ONNXBackend(BaseModelBackend):
         self._fixed_batch_size = None
         self.providers = ["OpenCVDnn"]
 
-        LOGGER.info(
-            f"OpenCV-DNN ReID model={os.path.basename(str(w))} "
-            f"target=CPU (BOXMOT_REID_BACKEND=opencv)"
-        )
+        LOGGER.info(f"OpenCV-DNN ReID model={os.path.basename(str(w))} target=CPU (BOXMOT_REID_BACKEND=opencv)")
 
     def _forward_opencv_dnn(self, im_batch, np):
         """Run a single forward pass through the loaded ``cv2.dnn.Net``."""

@@ -24,6 +24,7 @@ bytetrack::Config ConvertConfig(const BoxMOTByteTrackConfig& config) {
     native_config.track_buffer = config.track_buffer;
     native_config.frame_rate = config.frame_rate;
     native_config.max_obs = config.max_obs;
+    native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
 }
 
@@ -31,7 +32,8 @@ bytetrack::Config ConvertConfig(const BoxMOTByteTrackConfig& config) {
 
 struct BoxMOTByteTrackHandle {
     explicit BoxMOTByteTrackHandle(bytetrack::Config tracker_config)
-        : config(std::move(tracker_config)), tracker(std::make_unique<bytetrack::ByteTrackTracker>(config)) {}
+        : config(std::move(tracker_config)),
+          tracker(std::make_unique<bytetrack::ByteTrackTracker>(config)) {}
 
     bytetrack::Config config;
     std::unique_ptr<bytetrack::ByteTrackTracker> tracker;
@@ -48,10 +50,11 @@ BoxMOTByteTrackHandle* boxmot_bytetrack_create(const BoxMOTByteTrackConfig* conf
         g_last_error.clear();
         return new BoxMOTByteTrackHandle(std::move(native_config));
     } catch (const std::exception& exc) {
-        boxmot::trackers::base::SetLastError(g_last_error, exc.what());
+        boxmot::native::SetLastError(g_last_error, exc.what());
         return nullptr;
     } catch (...) {
-        boxmot::trackers::base::SetLastError(g_last_error, "Unknown native ByteTrack creation failure");
+        boxmot::native::SetLastError(g_last_error,
+                                             "Unknown native ByteTrack creation failure");
         return nullptr;
     }
 }
@@ -61,50 +64,46 @@ void boxmot_bytetrack_destroy(BoxMOTByteTrackHandle* handle) {
 }
 
 int boxmot_bytetrack_reset(BoxMOTByteTrackHandle* handle) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr) {
-            throw std::runtime_error("Native ByteTrack handle is null.");
-        }
-        handle->tracker = std::make_unique<bytetrack::ByteTrackTracker>(handle->config);
-    }, g_last_error, "Unknown native ByteTrack failure");
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native ByteTrack handle is null.");
+            }
+            handle->tracker = std::make_unique<bytetrack::ByteTrackTracker>(handle->config);
+        },
+        g_last_error,
+        "Unknown native ByteTrack failure");
 }
 
-int boxmot_bytetrack_update(
-    BoxMOTByteTrackHandle* handle,
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const std::uint8_t* image_data,
-    const int image_rows,
-    const int image_cols,
-    const int image_channels,
-    float* out_tracks,
-    const int out_capacity_rows,
-    const int out_cols,
-    int* out_rows,
-    int* out_is_obb
-) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native ByteTrack handle is not initialized.");
-        }
-        if (out_rows == nullptr || out_is_obb == nullptr) {
-            throw std::runtime_error("Output pointers are null.");
-        }
-        const std::vector<bytetrack::Detection> detections =
-            boxmot::trackers::base::ConvertLiveDetections<bytetrack::Detection>(
-                dets,
-                det_rows,
-                det_cols,
-                "ByteTrack"
-            );
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "ByteTrack");
-        const std::vector<bytetrack::TrackOutput> tracks = handle->tracker->Update(detections, image);
-        boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "ByteTrack");
-        *out_rows = static_cast<int>(tracks.size());
-        *out_is_obb = boxmot::trackers::base::LiveOutputUsesObb(tracks, det_cols) ? 1 : 0;
-    }, g_last_error, "Unknown native ByteTrack failure");
+int boxmot_bytetrack_update_v2(BoxMOTByteTrackHandle* handle,
+                               const BoxMOTDetectionBatchV2* detections,
+                               const BoxMOTImageV2* image,
+                               BoxMOTTrackBatchV2** output) {
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr || handle->tracker == nullptr) {
+                throw std::runtime_error("Native ByteTrack handle is not initialized.");
+            }
+            if (detections == nullptr || output == nullptr) {
+                throw std::runtime_error("Native ByteTrack input/output pointers are null.");
+            }
+            *output = nullptr;
+            const std::vector<bytetrack::Detection> converted =
+                boxmot::trackers::base::ConvertLiveDetectionsV2<bytetrack::Detection>(*detections,
+                                                                                      "ByteTrack");
+            const cv::Mat image_mat =
+                boxmot::trackers::base::WrapOptionalLiveImageV2(image, "ByteTrack");
+            const std::vector<bytetrack::TrackOutput> tracks =
+                handle->tracker->Update(converted, image_mat);
+            *output =
+                boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
+        },
+        g_last_error,
+        "Unknown native ByteTrack failure");
+}
+
+void boxmot_bytetrack_result_free_v2(BoxMOTTrackBatchV2* output) {
+    boxmot::trackers::base::FreeLiveOutputV2(output);
 }
 
 const char* boxmot_bytetrack_last_error() {

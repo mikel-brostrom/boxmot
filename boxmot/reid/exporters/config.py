@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping
 
 import yaml
+
+from boxmot.resources.paths import resolve_model_path
+from boxmot.utils import WEIGHTS
 
 EXPORT_DEFAULTS_PATH = Path(__file__).resolve().parent / "defaults.yaml"
 
@@ -87,4 +91,34 @@ def load_export_defaults() -> ExportModeDefaults:
     return ExportModeDefaults.from_mapping(payload)
 
 
-__all__ = ("EXPORT_DEFAULTS_PATH", "ExportModeDefaults", "load_export_defaults")
+def resolve_export_weights(weights: str | Path, default_dir: Path = WEIGHTS) -> Path:
+    """Resolve a ReID export checkpoint while preserving explicit paths."""
+
+    path = Path(weights)
+    if not path.suffix:
+        path = path.with_suffix(".pt")
+    return resolve_model_path(path, default_dir=default_dir)
+
+
+def build_export_namespace(payload: Mapping[str, Any]) -> SimpleNamespace:
+    """Build normalized ReID export arguments from domain-owned defaults."""
+
+    values = asdict(load_export_defaults())
+    values.update(dict(payload))
+    values["weights"] = resolve_export_weights(values["weights"])
+    calibration_data = values.get("tflite_calibration_data")
+    values["tflite_calibration_data"] = Path(calibration_data) if calibration_data else None
+    values["include"] = tuple(values.get("include") or ())
+    if values.get("project") is not None:
+        values["project"] = Path(values["project"])
+    values.setdefault("verbose", False)
+    return SimpleNamespace(**values)
+
+
+__all__ = (
+    "EXPORT_DEFAULTS_PATH",
+    "ExportModeDefaults",
+    "build_export_namespace",
+    "load_export_defaults",
+    "resolve_export_weights",
+)

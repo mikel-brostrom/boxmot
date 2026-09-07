@@ -13,7 +13,7 @@ LOGGER = logging.getLogger(__name__)
 METRIC_COLS = ["HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW"]
 BOOL_PARAMS = [
     "use_cmc", "use_dlo_boost", "use_duo_boost", "s_sim_corr",
-    "use_rich_s", "use_sb", "use_vt", "with_reid", "use_second_pass",
+    "use_rich_s", "use_sb", "use_vt", "use_embeddings", "use_second_pass",
     "ams_enabled", "gta_enabled", "gta_interpolate",
 ]
 KEY_CONTINUOUS = [

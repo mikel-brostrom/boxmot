@@ -21,7 +21,6 @@ from boxmot.reid.core.formats import (
     resolve_reid_format,
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
-from boxmot.reid.core.runtime import ReID
 from boxmot.reid.exporters.registry import EXPORTER_SPECS
 from tests._paths import REPO_ROOT
 

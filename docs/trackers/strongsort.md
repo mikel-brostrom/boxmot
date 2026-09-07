@@ -6,8 +6,14 @@ StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The pap
 
 ## What BoxMOT Needs For StrongSort
 
-- A detector plus a ReID model. Appearance cues are central to this tracker.
+- A detector plus appearance embeddings. Appearance cues are central to this
+  tracker. The Python implementation can generate missing embeddings from a
+  supplied `Frame` or consume embeddings already attached to `Detections`.
 - Supports both AABB and OBB detections in BoxMOT.
 - Good when appearance matching matters more than raw speed, especially for pedestrian-style MOT benchmarks.
 
-::: boxmot.trackers.bbox.strongsort.StrongSort
+Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
+`half`, and `reid_preprocess` options described in the
+[Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+::: boxmot.StrongSort

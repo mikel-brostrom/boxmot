@@ -1,41 +1,35 @@
-# Python API Reference
+# Public API Reference
 
-Auto-generated reference for the public Python surface: the `BoxMOT` facade, runtime wrappers, explicit workflow helpers, and structured result objects.
+The supported Python surface is split by ownership. Heavy model and native
+runtimes remain lazy until their factories—or a ReID-enabled tracker adapter's
+live embedding path—are invoked.
 
-## BoxMOT facade
+## Structures
 
-::: boxmot.BoxMOT
+::: boxmot.structures.Frame
 
-## Runtime wrappers
+::: boxmot.structures.Boxes
 
-::: boxmot.Detector
+::: boxmot.structures.OrientedBoxes
 
-::: boxmot.ReIDModel
+::: boxmot.structures.MaskBatch
 
-## Workflow helpers
+::: boxmot.structures.Detections
 
-::: boxmot.api.functional.track
+::: boxmot.structures.Tracks
 
-::: boxmot.api.functional.evaluate
+## Pipelines
 
-## Result objects
+::: boxmot.pipelines.PerceptionPipeline
 
-::: boxmot.api.results.TrackRunResult
+::: boxmot.pipelines.TrackingPipeline
 
-::: boxmot.api.results.GenerateResult
+::: boxmot.pipelines.PipelineOutputs
 
-::: boxmot.api.results.ValidationResult
+::: boxmot.pipelines.PipelineResult
 
-::: boxmot.api.results.TuneResult
+## Dataset loader
 
-::: boxmot.api.results.TuneTrialResult
+::: boxmot.datasets.DatasetSample
 
-::: boxmot.api.results.ResearchResult
-
-::: boxmot.api.results.ExportResult
-
-::: boxmot.reid.training.trainer.TrainResult
-
-::: boxmot.engine.tracking.results.Results
-
-::: boxmot.engine.tracking.results.FrameResult
+::: boxmot.datasets.CachedVisionDataset

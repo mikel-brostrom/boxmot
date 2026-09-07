@@ -12,7 +12,6 @@ from boxmot.reid.datasets.registry import (
     registered_dataset_names,
 )
 
-
 __all__ = (
     "DATASET_REGISTRY",
     "DATASET_SPECS",

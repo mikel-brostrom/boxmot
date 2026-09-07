@@ -1,311 +1,272 @@
 # Python API
 
-Use `boxmot` for the high-level workflow facade and runtime wrappers, and explicit modules such as `boxmot.trackers.registry` or `boxmot.trackers.bbox` when you want lower-level control.
+BoxMOT v24 separates values, components, composition, and orchestration:
 
-## High-level facade
-
-Use `BoxMOT` when you want the Python equivalent of the CLI with minimal boilerplate:
-
-```python
-from boxmot import BoxMOT
-
-boxmot = BoxMOT(detector="yolov8n", reid="lmbn_n_duke", tracker="boosttrack")
-run = boxmot.track(source="video.mp4", save=True, fps=30)
-print(run)
-print(run.setup_timings)
-
-cache = BoxMOT().generate(experiment="mot17-mini-train-yolox-lmbn")
-print(cache.cache_dir)
-
-metrics = boxmot.val(experiment="mot17-mini-train-yolox-lmbn")
-print(metrics)
-
-tuned = boxmot.tune(experiment="mot17-mini-train-yolox-lmbn", n_trials=2)
-print(tuned)
+```text
+structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
-`fps` is an optional positive-integer override for saved video. Omit it to use
-the source video's frame rate; live sources use the 30 FPS fallback.
+The package root deliberately exports only `__version__`, `create_tracker`, and
+the ten lazily loaded tracker classes. Import every other public contract from
+its domain package.
 
-Component strings have component-specific meanings: detector strings resolve model names or artifacts, ReID strings resolve model names or paths, and tracker strings resolve registered tracker algorithms. Keep component-specific settings grouped so options such as `half` and `max_age` do not become ambiguous:
+## Canonical values
+
+Component boundaries use CPU-contiguous Torch tensors. Constructors validate
+their inputs without casting, clipping, filtering, copying, or moving them.
 
 ```python
-from boxmot import BoxMOT
+import torch
 
-model = BoxMOT(
-    detector="yolox_x_MOT17_ablation",
-    reid="models/lmbn_n_duke.onnx",
-    tracker="occluboost",
-    detector_kwargs={
-        "confidence": 0.25,
-        "image_size": 640,
-        "half": True,
-    },
-    reid_kwargs={
-        "half": True,
-    },
-    tracker_kwargs={
-        "with_reid": True,
-    },
+from boxmot.structures import Boxes, Detections, Frame
+
+frame = Frame(
+    image=torch.zeros((3, 480, 640), dtype=torch.uint8),  # RGB CHW
+    sample_id="camera-1:000042",
+    sequence_id="camera-1",
+    frame_index=42,
+    timestamp_s=1.4,
+    source_uri="camera:1",
+)
+detections = Detections(
+    geometry=Boxes(
+        torch.tensor([[100, 120, 260, 420]], dtype=torch.float32)
+    ),
+    scores=torch.tensor([0.94], dtype=torch.float32),
+    class_ids=torch.tensor([0], dtype=torch.int64),
+    sample_id=frame.sample_id,
 )
 ```
 
-Tracker selection accepts a string key, a registered tracker class, or an
-initialized tracker instance. A string can use built-in defaults or
-`tracker_kwargs` overrides:
+Use `OrientedBoxes` for `float32[N,5]` `cxcywha` geometry. Angles are radians
+and may remain unwrapped across frames. `MaskBatch` stores full-frame
+`bool[N,H,W]` masks. `Detections` can carry row-aligned instance IDs, masks,
+and `float32[N,D]` embeddings.
+
+`select`, `with_masks`, `with_embeddings`, and `with_instance_ids` return new
+immutable values. Use `to_aabb_rows()` or `to_obb_rows()` only when a file or
+wire boundary requires the legacy 6/7- or 8/9-column representation.
+
+## Tracker factory
+
+Tracker specifications contain algorithm configuration; pipelines can keep
+appearance models and segmentors as separate reusable components. Every
+high-level ReID-enabled tracker adapter supports live appearance extraction: it
+can lazily invoke ReID when embeddings are absent and a `Frame` is supplied.
+For a native backend, the adapter sends those features to the model-free C++
+tracker library.
 
 ```python
-from boxmot import BoxMOT, ReIDModel
-from boxmot.trackers import OccluBoost
+from boxmot import create_tracker
+from boxmot.trackers import TrackerSpec
 
-simple = BoxMOT(tracker="occluboost")
-
-configured = BoxMOT(
-    tracker="occluboost",
-    tracker_kwargs={"with_reid": True},
-)
-
-by_class = BoxMOT(
-    tracker=OccluBoost,
-    tracker_kwargs={"with_reid": True},
-)
-
-my_reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
-tracker = OccluBoost(reid_model=my_reid, with_reid=True)
-injected = BoxMOT(tracker=tracker)
-```
-
-ReID lifecycle workflows are available from the same facade:
-
-```python
-from boxmot import BoxMOT
-
-api = BoxMOT()
-train_result = api.train(
-    model="mobilenetv2_x1_0",
-    dataset="market1501",
-    data_dir="assets/reid-mini",
-    device="cpu",
-    epochs=5,
-    batch_size=16,
-)
-
-metrics = api.eval_reid(
-    weights=train_result.weights_path,
-    model="mobilenetv2_x1_0",
-    dataset="market1501",
-    data_dir="assets/reid-mini",
-    device="cpu",
-)
-print(metrics)
-```
-
-You can also bind the facade to a ReID weight file and use the same object for
-training, export, and direct embedding extraction:
-
-```python
-from boxmot import BoxMOT
-
-reid = BoxMOT(reid="models/lmbn_n_duke.pt")
-train_result = reid.train(cfg="custom_config.yaml")
-export_result = reid.export(format="onnx", half=True)
-embeddings = reid.embed(source="path/to/image.jpg")
-```
-
-The same facade also exposes `research(...)` for GEPA-backed benchmark optimization, `train(...)` and `eval_reid(...)` for ReID model lifecycle workflows, `export(...)` for ReID conversion workflows, and `embed(...)` for direct ReID inference.
-
-Use `.summary`, `.timings`, `.delta_summary`, or `.to_dict()` on returned results when you need structured data instead of the human-readable report.
-
-## Native C++ backends
-
-Use `tracker_backend="cpp"` when the selected tracker has a native backend:
-
-```python
-from boxmot import BoxMOT
-
-native_track = BoxMOT(detector="yolov8n", tracker="bytetrack")
-run = native_track.track(source="video.mp4", tracker_backend="cpp")
-
-native_eval = BoxMOT(tracker="ocsort")
-metrics = native_eval.val(experiment="mot17-ablation-yolox-lmbn", tracker_backend="cpp")
-```
-
-Native C++ backends are currently registered for `botsort`, `bytetrack`, `ocsort`, `occluboost`, and `sfsort`.
-
-Native replay is supported by `val(...)` and `tune(...)`. The current
-`research(...)` workflow evaluates Python tracker code and does not forward
-native backend selectors. Native live trackers also do not support
-`per_class=True`.
-
-## Streaming frame results
-
-When you want per-frame access to tracks, detections, and embeddings, iterate the results yourself instead of passing `show=True` or `save=True`:
-
-```python
-from boxmot import BoxMOT
-
-model = BoxMOT(detector="yolov8l.pt", reid="lmbn_n_duke.pt", tracker="occluboost")
-results = model.track(source=0)
-
-for frame_result in results:
-    tracks = frame_result.tracks          # (M, 8) AABB or (M, 9) OBB TrackResults
-    ids    = frame_result.tracks.id       # (M,) track IDs
-    confs  = frame_result.tracks.conf     # (M,) confidences
-    boxes  = frame_result.tracks.xyxy     # (M, 4) AABBs (enclosing AABBs in OBB mode)
-    obbs   = frame_result.tracks.xywha    # (M, 5) in OBB mode
-    dets   = frame_result.detections      # (M, 6/7) matched detections, aligned to tracks
-    embs   = frame_result.embeddings      # (M, D) matched embeddings, aligned to tracks
-    masks  = frame_result.masks           # (M, H, W) aligned/refined masks, or None
-
-    print(f"Frame {frame_result.frame_idx}: {len(ids)} tracks")
-
-    frame_result.save_csv("tracks.csv")   # append tracks to CSV
-    frame_result.save_vid("output.mp4")   # append frame to video (auto-detects FPS)
-
-    if not frame_result.show():           # display frame, quit on 'q'
-        break
-
-frame_result.close_vid()                  # finalize the video file
-```
-
-!!! note "Detections, embeddings, and masks are track-aligned"
-    `frame_result.detections[i]` and `frame_result.embeddings[i]` correspond to `frame_result.tracks[i]`.
-    Coasting tracks (no matched detection) have zero-filled rows.
-    Use `frame_result.tracks.det_ind` to check which tracks are coasting (`-1`).
-    When masks are available, `frame_result.masks[i]` is the detector-aligned or
-    tracker-refined mask for the same output row.
-
-!!! warning "Know when the facade consumes the stream"
-    A live source such as a camera index or URL remains lazy when `show` and
-    `save` are false. Finite file and directory sources are consumed before the
-    facade returns so their summary is immediately complete. Passing
-    `show=True`, `save=True`, or `save_txt=True` also consumes results internally.
-    For lazy iteration over a finite source, compose explicit components and use
-    `boxmot.api.functional.track(...)`.
-
-## Composable runtime
-
-If you need more control, compose the detector, ReID runtime, and tracker explicitly:
-
-```python
-import cv2
-
-from boxmot import Detector, ReIDModel
-from boxmot.trackers import OccluBoost
-
-image = cv2.imread("image.jpg")
-detector = Detector("yolov8n.pt", device="cpu")
-reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu")
-tracker = OccluBoost(reid_model=reid, with_reid=True)
-
-detections = detector.predict(image)
-embeddings = reid.embed(image, boxes=detections.boxes)  # xyxy for AABB, xywha for OBB
-tracks = tracker.update(detections, image=image, embeddings=embeddings)
-```
-
-`detections.xyxy` always returns axis-aligned geometry; in OBB mode it is the
-enclosing AABB. Use `detections.boxes` or `detections.xywha` when extracting
-orientation-aware ReID crops.
-
-## Importing trackers directly
-
-`OccluBoost` is the package-level tracker export:
-
-```python
-from boxmot.trackers import OccluBoost
-```
-
-Use the registry for string-based construction, or import other concrete tracker classes from `boxmot.trackers.bbox.<name>`.
-
-### Using the tracker factory
-
-The `create_tracker` factory builds a tracker from its string name and loads its default YAML config automatically:
-
-```python
-from boxmot.trackers.registry import create_tracker
-
-# Motion-only tracker (no ReID model needed)
-tracker = create_tracker("bytetrack")
-
-# ReID-aware tracker — pass weights so the factory builds the ReID backend
 tracker = create_tracker(
-    "botsort",
-    reid_weights="osnet_x0_25_msmt17.pt",
-    device="cpu",
-    half=False,
-)
-```
-
-### Instantiating a tracker class directly
-
-Import the class and pass parameters yourself for full control:
-
-```python
-import numpy as np
-from boxmot.trackers.bbox.bytetrack import ByteTrack
-
-tracker = ByteTrack(
-    track_high_thresh=0.6,
-    track_low_thresh=0.1,
-    track_buffer=30,
-)
-
-# Feed detections frame-by-frame
-# dets: (N, 6) array with columns [x1, y1, x2, y2, conf, cls]
-# img:  the current frame as a numpy array (H, W, 3)
-tracks = tracker.update(dets, img)
-```
-
-For ReID-aware trackers, supply a ReID model:
-
-```python
-from boxmot.trackers import OccluBoost
-from boxmot import ReIDModel
-
-reid = ReIDModel("osnet_x0_25_msmt17.pt", device="cpu", half=False)
-
-tracker = OccluBoost(reid_model=reid, with_reid=True)
-
-embeddings = reid.embed(img, boxes=dets[:, :4])
-tracks = tracker.update(dets, image=img, embeddings=embeddings)
-
-# tracks is a TrackResults array (M, 8) with columns:
-# [x1, y1, x2, y2, id, conf, cls, det_ind]
-print(tracks.id)    # track IDs
-print(tracks.xyxy)  # bounding boxes
-print(tracks.conf)  # confidences
-```
-
-### Available trackers
-
-| Import name | String key | Uses ReID | Uses masks |
-| --- | --- | --- | --- |
-| `boxmot.trackers.bbox.bytetrack.ByteTrack` | `bytetrack` | No | No |
-| `boxmot.trackers.bbox.botsort.BotSort` | `botsort` | Yes | No |
-| `boxmot.trackers.bbox.strongsort.StrongSort` | `strongsort` | Yes | No |
-| `boxmot.trackers.bbox.ocsort.OcSort` | `ocsort` | No | No |
-| `boxmot.trackers.bbox.deepocsort.DeepOcSort` | `deepocsort` | Yes | No |
-| `boxmot.trackers.bbox.hybridsort.HybridSort` | `hybridsort` | Yes | No |
-| `boxmot.trackers.bbox.boosttrack.BoostTrack` | `boosttrack` | Yes | No |
-| `boxmot.trackers.bbox.occluboost.OccluBoost` | `occluboost` | Yes | No |
-| `boxmot.trackers.bbox.sfsort.SFSORT` | `sfsort` | No | No |
-| `boxmot.trackers.hybrid.sam2mot.Sam2Mot` | `sam2mot` | No | Yes |
-
-!!! tip "Custom config overrides"
-    Pass `tracker_config` to `create_tracker` to load a non-default YAML, or
-    pass `evolve_param_dict` with a plain dict of parameters to skip YAML
-    entirely:
-
-    ```python
-    from boxmot.trackers.registry import create_tracker
-
-    tracker = create_tracker(
-        "ocsort",
-        evolve_param_dict={"det_thresh": 0.3, "iou_threshold": 0.2, "max_age": 50},
+    TrackerSpec(
+        name="bytetrack",
+        backend="python",
+        geometry="aabb",
+        per_class=False,
+        options=(("track_thresh", 0.55),),
     )
-    ```
+)
 
-## Reference pages
+tracks = tracker.update(detections)
+print(tracks.geometry.values, tracks.track_ids)
+tracker.reset()
+```
 
-- [High-level API](high-level.md) — `BoxMOT`, `Detector`, `ReIDModel`, explicit workflow helpers, and result objects
-- [Low-level API](low-level.md) — `Detector`, `Detections`, `ReID`, the tracker factory, and `TrackResults`
+The public method preserves the input representation:
+
+```text
+update(detections: Detections, frame: Frame | None = None) -> Tracks
+update(detections: np.ndarray, frame: Frame | None = None) -> np.ndarray
+```
+
+A tracker configured for AABB expects exactly `N x 6`
+`(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
+`(cx, cy, w, h, angle, confidence, class_id)` rows. Real numeric arrays are
+normalized to canonical dtypes. Geometry is still fixed by `TrackerSpec`, not
+inferred from the first matrix.
+
+Class IDs retain only the integer precision present in the packed array. Use
+`Detections.class_ids` with `int64` storage when large IDs must remain exact.
+
+Packed NumPy input returns a C-contiguous `float64` matrix. AABB output is
+`M x 8` in `(x1, y1, x2, y2, track_id, confidence, class_id,
+detection_index)` order. OBB output is `M x 9` with
+`(cx, cy, w, h, angle)` replacing the first four coordinates. Empty results
+retain the corresponding `(0, 8)` or `(0, 9)` shape. Integer columns must fit
+the exact `float64` integer range (`-2**53` through `2**53`); use structured
+`Detections` input and `Tracks` output when unrestricted `int64` values or
+track-aligned masks are required.
+
+The NumPy form is a convenience for tracker calls without masks or precomputed
+embeddings. Use `Detections` when providing either enrichment, retaining sample
+metadata, or composing a pipeline. Any high-level ReID-enabled tracker adapter
+may pair NumPy rows with a supplied `Frame` to generate missing embeddings
+lazily; the return value remains a NumPy matrix without sample metadata. A
+`detection_index == -1` value identifies a propagated track without a current
+detection.
+
+Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
+`frame` is true, attach/provide that value before calling `update`. For a
+ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
+required by the algorithm; the direct update boundary can satisfy it from
+either attached embeddings or a `Frame`.
+
+### Live embeddings in ReID-enabled trackers
+
+`BotSort`, `StrongSort`, `DeepOcSort`, `HybridSort`, `BoostTrack`, and
+`OccluBoost` share the same Python direct-construction options. The native
+BotSort and OccluBoost adapters expose the same live fallback:
+
+- `reid_model` injects a pre-built backend exposing `get_features(boxes, image)`.
+- `reid_weights` selects the weights for a lazily built backend; omitting it
+  selects the default ReID model.
+- `device`, `half`, and `reid_preprocess` configure that lazy backend.
+
+When embeddings are already attached, the tracker uses them without invoking
+its backend. A non-empty batch without embeddings requires a `Frame`, then
+extracts one embedding per detection. An empty batch bypasses ReID extraction
+and does not initialize the model; independent frame requirements such as CMC
+still apply. For trackers with a `use_embeddings` option, disabling it also
+disables extraction. The resolved `tracker.generates_embeddings` property
+reports whether this fallback is active for either backend.
+
+These are direct class-construction options for real-time tracking loops. A
+resolved `ReIDEncoderSpec` can instead be installed before the first update of
+a sequence with `tracker.configure_reid(spec)`; the tracker keeps the full
+backend, artifact hash, preprocessing, and encoder options and still constructs
+the encoder lazily. A composed pipeline can also share one `AppearanceEncoder`
+and attach its output before the tracker runs. Model settings do not belong in
+`TrackerSpec` for either backend. A native adapter owns the optional encoder;
+the underlying C++ tracker library accepts only the resulting typed embedding
+buffer and never loads a model.
+
+Factory results use the general `Tracker` type because not every tracker can
+own ReID. Narrow their configuration surface with the runtime-checkable
+optional protocol, then confirm that embedding generation is enabled before
+installing a complete encoder specification:
+
+```python
+from boxmot.reid import ReIDEncoderSpec
+from boxmot.trackers import ReIDConfigurableTracker, TrackerSpec, create_tracker
+
+tracker = create_tracker(TrackerSpec(name="botsort", backend="cpp"))
+spec = ReIDEncoderSpec(backend="onnx", artifact="/models/reid.onnx")
+
+if not isinstance(tracker, ReIDConfigurableTracker) or not tracker.generates_embeddings:
+    raise TypeError("This tracker cannot own ReID inference.")
+tracker.configure_reid(spec)
+```
+
+## Component factories
+
+Each factory accepts one frozen, immutable specification:
+
+```python
+from boxmot.detectors import DetectorSpec, create_detector
+from boxmot.reid import ReIDEncoderSpec, create_reid_encoder
+from boxmot.segmentors import SegmentorSpec, create_segmentor
+
+# Values produced by your artifact resolver before component construction.
+detector_sha256 = "..."
+segmentor_sha256 = "..."
+encoder_sha256 = "..."
+
+detector = create_detector(
+    DetectorSpec(
+        backend="ultralytics",
+        artifact="/models/yolo11n.pt",
+        artifact_sha256=detector_sha256,
+        device="cuda:0",
+        precision="fp16",
+        geometry_mode="aabb",
+    )
+)
+
+segmentor = create_segmentor(
+    SegmentorSpec(
+        backend="sam",
+        artifact="/models/sam2_b.pt",
+        artifact_sha256=segmentor_sha256,
+        device="cuda:0",
+        precision="fp16",
+    )
+)
+
+encoder = create_reid_encoder(
+    ReIDEncoderSpec(
+        backend="pytorch",
+        artifact="/models/osnet_x0_25_msmt17.pt",
+        artifact_sha256=encoder_sha256,
+        device="cuda:0",
+        precision="fp16",
+    )
+)
+```
+
+Resolve real artifact paths and hashes before creating a materialization plan.
+Backend `options` are sorted tuples of key/value pairs so specs remain
+canonical-JSON serializable.
+
+The encoder derives each crop from the supplied detection geometry: AABBs use
+clipped axis-aligned crops and OBBs use the canonical rectified transform.
+Built-in ReID encoders ignore detection masks. A custom mask-dependent encoder
+can declare `EncoderRequirements(masks=True)` instead.
+
+## Pipelines
+
+`PerceptionPipeline` batches detection and enrichment. `TrackingPipeline` owns
+one tracker state and exactly one sequence at a time.
+
+```python
+from boxmot.pipelines import PipelineOutputs, TrackingPipeline
+
+pipeline = TrackingPipeline(
+    detector=detector,
+    segmentor=None,
+    reid=encoder,
+    tracker=tracker,
+    outputs=PipelineOutputs(embeddings=True),
+)
+
+result = pipeline.step(frame)
+assert result.detections.sample_id == result.tracks.sample_id
+pipeline.reset()
+```
+
+In this example, `outputs.embeddings=True` makes embeddings part of the public
+`PipelineResult`, so an external `reid` encoder is required unless the detector
+already supplies them. If embeddings are needed only inside a ReID-enabled
+tracker adapter, omit both `reid` and the embeddings output request; the
+pipeline forwards the `Frame` and the tracker extracts them privately. This is
+the same for Python implementations and ReID-enabled native adapters.
+
+For service or cached inputs, construct a pipeline with `detector=None` and call
+`step_detections(frame, detections)`. Both entry points use the same enrichment
+and runtime-validation path. A `PipelineResult` has exactly two fields:
+`detections` and `tracks`.
+
+## Materialized datasets
+
+```python
+from boxmot.datasets import CachedVisionDataset
+
+dataset = CachedVisionDataset(
+    "runs/materializations/BUILD_ID",
+    split="ablation",
+    load_images=False,
+    load_masks=False,
+    load_embeddings=True,
+)
+for sample in dataset:
+    print(sample.sample_id, sample.detections.instance_ids)
+```
+
+The loader validates requested artifacts at construction and joins every table
+by `sample_id` and `instance_id`; Parquet row position has no meaning.
+
+For files, cameras, retry policy, rendering, metrics, persistence, and CLI
+workflows, use `boxmot.engine` or the CLI rather than adding those concerns to a
+component or pipeline.

@@ -1,0 +1,13 @@
+id: osnet-x0-25-msmt17
+
+weights:
+  path: models/osnet_x0_25_msmt17.pt
+  uri: https://drive.google.com/uc?id=1sSwXSUlj4_tHZequ_iZ8w_Jh0VaRQMqF
+
+runtime:
+  device: auto
+  precision: fp32
+
+preprocessing:
+  mode: resize
+  image_size: [256, 128]

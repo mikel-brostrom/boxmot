@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import sys
-from types import SimpleNamespace
-
 import torch
 from click.testing import CliRunner
 
-from boxmot.engine.config import load_training_recipe
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit import csl_tinyvit_7m_v20
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
+from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.resume import contract_fingerprint
 from boxmot.reid.training.trainer import ReIDTrainer
 
@@ -109,11 +107,7 @@ def test_7m_v20_model_selection_resolves_promoted_training_contract(
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [
@@ -128,7 +122,7 @@ def test_7m_v20_model_selection_resolves_promoted_training_contract(
     assert result.exit_code == 0, result.output
     args = captured["args"]
     assert args.model == "csl_tinyvit_7m_v20"
-    assert args.data_dir == "boxmot/datasets/reid/Market-1501-v15.09.15"
+    assert args.data_dir == "datasets/reid/Market-1501-v15.09.15"
     assert args.feat_dim == 384
     assert args.neck_dim == 384
     assert args.anatomical_token_dim == 96

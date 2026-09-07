@@ -141,28 +141,28 @@ def _take_items(items: Sequence[TrackT], indices: np.ndarray) -> Sequence[TrackT
     return [items[int(i)] for i in indices]
 
 
-def detection_track_iou_assignment(
-    iou_matrix: np.ndarray,
+def detection_track_similarity_assignment(
+    similarity_matrix: np.ndarray,
     threshold: float,
     assignment_solver: DetectionTrackAssignmentSolver,
 ) -> AssociationResult:
-    """Adapt detector-row/track-column IoU matching to canonical stage output."""
-    iou_matrix = np.asarray(iou_matrix, dtype=float)
-    n_dets, n_tracks = iou_matrix.shape
-    if iou_matrix.size == 0 or iou_matrix.max(initial=0.0) <= threshold:
+    """Adapt detector-row/track-column similarity matching to canonical stage output."""
+    similarity_matrix = np.asarray(similarity_matrix, dtype=float)
+    n_dets, n_tracks = similarity_matrix.shape
+    if similarity_matrix.size == 0 or similarity_matrix.max(initial=0.0) <= threshold:
         return AssociationResult(
             matches=np.empty((0, 2), dtype=int),
             unmatched_tracks=np.arange(n_tracks, dtype=int),
             unmatched_dets=np.arange(n_dets, dtype=int),
-            cost_matrix=1.0 - iou_matrix.T,
+            cost_matrix=1.0 - similarity_matrix.T,
         )
 
-    matched_indices = np.asarray(assignment_solver(-iou_matrix), dtype=int).reshape(-1, 2)
+    matched_indices = np.asarray(assignment_solver(-similarity_matrix), dtype=int).reshape(-1, 2)
     matches = []
     matched_dets = set()
     matched_tracks = set()
     for det_idx, track_idx in matched_indices:
-        if iou_matrix[det_idx, track_idx] < threshold:
+        if similarity_matrix[det_idx, track_idx] < threshold:
             continue
         matches.append([track_idx, det_idx])
         matched_dets.add(int(det_idx))
@@ -174,22 +174,5 @@ def detection_track_iou_assignment(
         matches=np.asarray(matches, dtype=int).reshape(-1, 2),
         unmatched_tracks=np.asarray(unmatched_tracks, dtype=int),
         unmatched_dets=np.asarray(unmatched_dets, dtype=int),
-        cost_matrix=1.0 - iou_matrix.T,
-    )
-
-
-def detection_track_tuple_to_association_result(
-    result: tuple[np.ndarray, Sequence[int], Sequence[int]],
-    cost_matrix: np.ndarray | None = None,
-) -> AssociationResult:
-    """Convert detector-row/track-column tuples to canonical track-row orientation."""
-    matches, unmatched_dets, unmatched_tracks = result
-    matches = np.asarray(matches, dtype=int).reshape(-1, 2)
-    if matches.size > 0:
-        matches = matches[:, [1, 0]]
-    return AssociationResult(
-        matches=matches,
-        unmatched_tracks=np.asarray(unmatched_tracks, dtype=int),
-        unmatched_dets=np.asarray(unmatched_dets, dtype=int),
-        cost_matrix=cost_matrix,
+        cost_matrix=1.0 - similarity_matrix.T,
     )

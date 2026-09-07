@@ -1,15 +1,15 @@
 #pragma once
 
-#include <cstdint>
+#include "boxmot/trackers/base/c_api_v2.hpp"
 
 #if defined(_WIN32)
-#  if defined(BOXMOT_OCCLUBOOST_BUILDING_DLL)
-#    define BOXMOT_OCCLUBOOST_API __declspec(dllexport)
-#  else
-#    define BOXMOT_OCCLUBOOST_API __declspec(dllimport)
-#  endif
+#if defined(BOXMOT_OCCLUBOOST_BUILDING_DLL)
+#define BOXMOT_OCCLUBOOST_API __declspec(dllexport)
 #else
-#  define BOXMOT_OCCLUBOOST_API __attribute__((visibility("default")))
+#define BOXMOT_OCCLUBOOST_API __declspec(dllimport)
+#endif
+#else
+#define BOXMOT_OCCLUBOOST_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {
@@ -32,7 +32,7 @@ struct BoxMOTOccluBoostConfig {
     int use_rich_s;
     int use_sb;
     int use_vt;
-    int with_reid;
+    int use_embeddings;
     const char* cmc_method;
     int max_obs;
 
@@ -69,38 +69,19 @@ struct BoxMOTOccluBoostConfig {
     float obb_second_iou_thresh;
 
     // ReID
-    const char* reid_model_path;
-    const char* reid_preprocess;
-    const char* reid_device;
+    const char* asso_func;
 };
 
 struct BoxMOTOccluBoostHandle;
 
-BOXMOT_OCCLUBOOST_API BoxMOTOccluBoostHandle* boxmot_occluboost_create(const BoxMOTOccluBoostConfig* config);
+BOXMOT_OCCLUBOOST_API BoxMOTOccluBoostHandle* boxmot_occluboost_create(
+    const BoxMOTOccluBoostConfig* config);
 BOXMOT_OCCLUBOOST_API void boxmot_occluboost_destroy(BoxMOTOccluBoostHandle* handle);
 BOXMOT_OCCLUBOOST_API int boxmot_occluboost_reset(BoxMOTOccluBoostHandle* handle);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update(
-    BoxMOTOccluBoostHandle* handle,
-    const float* dets,
-    int det_rows,
-    int det_cols,
-    const float* embs,
-    int emb_rows,
-    int emb_cols,
-    const std::uint8_t* image_data,
-    int image_rows,
-    int image_cols,
-    int image_channels,
-    float* out_tracks,
-    int out_capacity_rows,
-    int out_cols,
-    int* out_rows,
-    int* out_is_obb
-);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_time_ms(BoxMOTOccluBoostHandle* handle, double* out_reid_time_ms);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_preprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_process_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
-BOXMOT_OCCLUBOOST_API int boxmot_occluboost_last_reid_postprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms);
+BOXMOT_OCCLUBOOST_API int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
+                                                      const BoxMOTDetectionBatchV2* detections,
+                                                      const BoxMOTImageV2* image,
+                                                      BoxMOTTrackBatchV2** output);
+BOXMOT_OCCLUBOOST_API void boxmot_occluboost_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_OCCLUBOOST_API const char* boxmot_occluboost_last_error();
-
 }

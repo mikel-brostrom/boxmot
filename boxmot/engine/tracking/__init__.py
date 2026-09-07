@@ -1,11 +1,10 @@
-"""Tracking runtime sub-package: tracker orchestration, inference pipeline, and result containers."""
+"""Engine-owned stream execution for live and finite tracking sources."""
 
 __all__ = (
-    "detections",
-    "inference",
-    "rendering",
-    "results",
-    "runtime",
-    "video",
+    "profiling",
+    "runner",
+    "sinks",
+    "sources",
+    "timing",
     "workflow",
 )

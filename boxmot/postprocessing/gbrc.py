@@ -1,4 +1,3 @@
-import argparse
 from pathlib import Path
 from typing import Callable
 
@@ -210,26 +209,9 @@ def gbrc(
     ).run(mot_results_folder, progress_callback=progress_callback)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="Apply Gradient Boosting Reconnection Context (GBRC/GBI) postprocessing to tracking results."
-    )
-    parser.add_argument("--path", type=str, required=True, help="Path to MOT results folder")
-    parser.add_argument("--interval", type=int, default=20, help="Maximum gap to interpolate (default: 20)")
-    parser.add_argument("--n_estimators", type=int, default=115, help="GBR n_estimators (default: 115)")
-    parser.add_argument("--learning_rate", type=float, default=0.065, help="GBR learning_rate (default: 0.065)")
-    parser.add_argument("--min_samples_split", type=int, default=6, help="GBR min_samples_split (default: 6)")
-    args = parser.parse_args()
-
-    mot_results_folder = Path(args.path)
-    gbrc(
-        mot_results_folder,
-        interval=args.interval,
-        n_estimators=args.n_estimators,
-        learning_rate=args.learning_rate,
-        min_samples_split=args.min_samples_split,
-    )
-
-
-if __name__ == "__main__":
-    main()
+__all__ = (
+    "GBRCPostprocessor",
+    "gbrc",
+    "gradient_boosting_smooth",
+    "linear_interpolation",
+)

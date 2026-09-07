@@ -1,14 +1,10 @@
-id: dancetrack-val-yolox-lmbn
-
 dataset:
   ref: dancetrack
   split: val
 
-detections:
-  source: model
-  model:
-    ref: yolox-x-dancetrack
-    checkpoint: default
+detector:
+  ref: yolox-x-dancetrack
+  checkpoint: default
 
 reid:
   ref: lmbn-n-duke

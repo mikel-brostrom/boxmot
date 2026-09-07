@@ -18,9 +18,6 @@ class SIFT(BaseCMC):
 
     def __init__(
         self,
-        warp_mode: int = cv2.MOTION_EUCLIDEAN,  # kept for API compatibility; we still output 2x3
-        eps: float = 1e-5,
-        max_iter: int = 100,
         scale: float = 0.15,
         grayscale: bool = True,
         draw_keypoint_matches: bool = False,
@@ -28,7 +25,6 @@ class SIFT(BaseCMC):
     ) -> None:
         self.grayscale = bool(grayscale)
         self.scale = float(scale)
-        self.warp_mode = int(warp_mode)  # not strictly used (kept as parameter)
 
         self.detector = cv2.SIFT_create(nOctaveLayers=2, contrastThreshold=0.5, edgeThreshold=10)
         self.extractor = cv2.SIFT_create(nOctaveLayers=2, contrastThreshold=0.5, edgeThreshold=10)
@@ -45,13 +41,22 @@ class SIFT(BaseCMC):
         self.prev_img_aligned: Optional[np.ndarray] = None
         self.matches_img: Optional[np.ndarray] = None
 
+    def reset(self) -> None:
+        """Clear the previous-frame and debug state."""
+        self.prev_img = None
+        self.prev_keypoints = None
+        self.prev_descriptors = None
+        self.prev_dets = None
+        self.prev_img_aligned = None
+        self.matches_img = None
+
     def apply(self, img: np.ndarray, dets: Optional[np.ndarray] = None) -> np.ndarray:
         H = np.eye(2, 3, dtype=np.float32)
 
         img_p = self.preprocess(img)
         h, w = img_p.shape[:2]
 
-        mask = self.generate_mask(img_p, dets, self.scale)
+        mask = self.generate_mask(img_p, dets)
 
         keypoints = self.detector.detect(img_p, mask)
         keypoints, descriptors = self.extractor.compute(img_p, keypoints)

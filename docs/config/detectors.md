@@ -31,6 +31,8 @@ The resolver requires exactly two positive `image_size` values in height-width
 order, a confidence threshold in `[0, 1]`, and matching detector/dataset box
 types.
 
-Detector profiles belong to experiment resolution. In direct-source and
-model-free `--dataset` workflows, the CLI's `--detector` option is a detector
-weight path or model identifier such as `yolov8n`; it is not a profile selector.
+Experiments resolve their detector profile before computing a build ID.
+Materialization accepts only an experiment and has no detector or geometry
+override; create another experiment to select a different detector checkpoint.
+Python callers construct a `DetectorSpec` with the resolved artifact path,
+SHA-256, preprocessing, precision, geometry, and normalized backend options.

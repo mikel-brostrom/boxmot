@@ -1,14 +1,10 @@
-id: sportsmot-val-yolox-lmbn
-
 dataset:
   ref: sportsmot
   split: val
 
-detections:
-  source: model
-  model:
-    ref: yolox-x-sportsmot
-    checkpoint: default
+detector:
+  ref: yolox-x-sportsmot
+  checkpoint: default
 
 reid:
   ref: lmbn-n-duke

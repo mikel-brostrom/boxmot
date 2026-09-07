@@ -651,7 +651,15 @@ class CSLTinyViTFeatureFusion(nn.Module):
         if mode == "last3_fpn_stage2":
             # FPN-style semantic order: final, stage 2, then stage 1 resized to stage 2.
             return (2, 1)
-        if mode in {"last3_fpn_stage1_add", "last3_fpn_stage1_split", "last3_panet_stage1_split", "last3_panet_stage1_shared", "last3_panet_stage1_scale_aware", "last3_bifpn_stage1_split", "last3_bifpn_stage1_branch_aware"}:
+        if mode in {
+            "last3_fpn_stage1_add",
+            "last3_fpn_stage1_split",
+            "last3_panet_stage1_split",
+            "last3_panet_stage1_shared",
+            "last3_panet_stage1_scale_aware",
+            "last3_bifpn_stage1_split",
+            "last3_bifpn_stage1_branch_aware",
+        }:
             return (2, 1)
         if mode == "last3_pafpn_stage2":
             # PAFPN-style semantic order: final -> stage 2 -> stage 1, then bottom-up to stage 2.
@@ -720,7 +728,12 @@ class CSLTinyViTFeatureFusion(nn.Module):
             "global_final_parts_hierarchical_fpn",
             "late_concat_stage2",
         }:
-            if mode in {"last4_layer0_target", "last4_fpn_layer0_target", "global_final_parts_fpn_layer0", "global_final_parts_hierarchical_fpn"}:
+            if mode in {
+                "last4_layer0_target",
+                "last4_fpn_layer0_target",
+                "global_final_parts_fpn_layer0",
+                "global_final_parts_hierarchical_fpn",
+            }:
                 return 0
             if mode in {
                 "last3_stage1_concat", "global_final_parts_stage1_concat", "last3_fpn_stage1_add",
@@ -786,7 +799,11 @@ class CSLTinyViTFeatureFusion(nn.Module):
         )
 
     @staticmethod
-    def _fast_normalized_fusion(features: list[torch.Tensor], weights: torch.Tensor, epsilon: float = 1e-4) -> torch.Tensor:
+    def _fast_normalized_fusion(
+        features: list[torch.Tensor],
+        weights: torch.Tensor,
+        epsilon: float = 1e-4,
+    ) -> torch.Tensor:
         positive_weights = F.relu(weights)
         normalized_weights = positive_weights / (positive_weights.sum() + epsilon)
         return sum(weight * feature for weight, feature in zip(normalized_weights, features, strict=True))
@@ -1117,7 +1134,11 @@ class CSLTinyViTFeatureFusion(nn.Module):
             final_low, stage2_low, _ = self._stage2_pyramid_inputs(final_feature, path_features)
             pyramid = self.layer0_fpn_outputs["2"](final_low + stage2_low)
             for stage_index in (1, 0):
-                stage = self._project_path(stage_index, path_features[stage_index], path_features[stage_index].shape[-2:])
+                stage = self._project_path(
+                    stage_index,
+                    path_features[stage_index],
+                    path_features[stage_index].shape[-2:],
+                )
                 pyramid = self.layer0_fpn_outputs[str(stage_index)](
                     stage + self._resize_feature(pyramid, stage.shape[-2:])
                 )
@@ -1246,7 +1267,13 @@ class CSLTinyViTFeatureFusion(nn.Module):
             coarse = self.layer0_fpn_outputs["1"](stage1 + self._resize_feature(coarse, stage1.shape[-2:]))
             stage0 = self._project_path(0, path_features[0], path_features[0].shape[-2:])
             fine = self.layer0_fpn_outputs["0"](stage0 + self._resize_feature(coarse, stage0.shape[-2:]))
-            return final_low + self.residual_scales["1"] * self._project_path(1, path_features[1], final_low.shape[-2:]) + self.residual_scales["2"] * stage2_low, coarse, fine
+            global_feature = (
+                final_low
+                + self.residual_scales["1"]
+                * self._project_path(1, path_features[1], final_low.shape[-2:])
+                + self.residual_scales["2"] * stage2_low
+            )
+            return global_feature, coarse, fine
 
         output_size = self._output_size(final_feature, path_features)
         fused = self._resize_feature(final_feature, output_size)

@@ -9,7 +9,7 @@ Common problems and their resolutions when working with BoxMOT.
 The core `pip install boxmot` is enough for the Python API but not for many CLI workflows. Install the extra that matches the mode you want to use:
 
 ```bash
-pip install "boxmot[yolo]"        # track / generate / eval with YOLO backends
+pip install "boxmot[yolo]"        # track / materialize with YOLO backends
 pip install "boxmot[evolve]"      # tune
 pip install "boxmot[research]"    # research
 pip install "boxmot[onnx]"        # export --include onnx
@@ -20,17 +20,12 @@ pip install "boxmot[tflite]"      # export --include tflite and LiteRT inference
 
 See [Installation](../getting-started/installation.md#mode-specific-extras) for the full table.
 
-### ONNX on MPS consumes excessive memory
+### ONNX does not run on MPS
 
-ONNX Runtime does not provide an MPS execution provider. BoxMOT therefore runs
-`.onnx` weights on CPU on macOS, even when `device="mps"` is requested. Export
-the checkpoint with `--include coreml` and use the resulting
-`*_coreml_model/` directory for Apple GPU/CPU execution.
-
-The legacy ONNX Runtime Core ML execution provider is disabled by default
-because transformer graph compilation can consume extreme RAM. It can be
-enabled only for controlled diagnostics with
-`BOXMOT_ENABLE_LEGACY_ONNX_COREML=1`; the native MLProgram path is recommended.
+ONNX Runtime does not provide an MPS execution provider, so `.onnx` weights
+reject `device="mps"` instead of silently running on CPU. Export the checkpoint
+with `--include coreml` and use the resulting `*_coreml_model/` directory for
+Apple GPU/CPU execution, or select `device="cpu"` explicitly.
 
 ### `ModuleNotFoundError: boxmot` when running a script
 
@@ -52,18 +47,15 @@ BoxMOT supports Python 3.10 through 3.13.
 
 ### macOS: ReID feels slow or runs on CPU
 
-The ONNX ReID backend intentionally selects `CPUExecutionProvider` on macOS,
-even when `device="mps"` is requested. Changing the ONNX Runtime wheel does
-not make ONNX use MPS. For Apple GPU/CPU acceleration, export native Core ML
-and pass the resulting `*_coreml_model/` directory as the ReID weights:
+The ONNX ReID backend rejects `device="mps"`; changing the ONNX Runtime wheel
+does not make ONNX use MPS. For Apple GPU/CPU acceleration, export native Core
+ML and pass the resulting `*_coreml_model/` directory as the ReID weights:
 
 ```bash
 boxmot export --weights model.pt --include coreml --device cpu
 ```
 
-For PyTorch weights, use `device="mps"` directly. The legacy ONNX Core ML
-provider remains available only through the diagnostic environment variable
-described above.
+For PyTorch weights, use `device="mps"` directly.
 
 ### CUDA: detector or ReID falls back to CPU
 
@@ -74,7 +66,8 @@ python -c "import torch; print(torch.cuda.is_available())"
 python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 ```
 
-`CUDAExecutionProvider` must appear in the second output for the ONNX ReID backend to pick it up.
+`CUDAExecutionProvider` must appear in the second output. An explicit CUDA
+request fails during initialization when that provider is unavailable.
 
 ### TensorRT auto-install succeeds but import still fails
 
@@ -82,9 +75,16 @@ The TensorRT ReID backend and `export --include engine` try to install `nvidia-t
 
 ## OBB tracking
 
-### "Detections must have 7 columns for OBB" or shape errors
+### Tracker geometry mismatch errors
 
-OBB detections must be `(cx, cy, w, h, angle, conf, cls)` (7 columns); AABB detections are `(x1, y1, x2, y2, conf, cls)` (6 columns). Trackers infer the mode from the column count via `BaseTracker.setup_decorator`. Make sure your detector emits the correct shape and that the tracker has `supports_obb = True`.
+Construct canonical detections with `OrientedBoxes` for OBB geometry or `Boxes`
+for AABB geometry. The tracker's geometry mode is fixed by `TrackerSpec`; the
+inherited `BaseTracker.update()` rejects a `Detections` object with a different
+geometry mode. For standalone box-only calls, the same fixed mode selects the
+required NumPy input shape: exact AABB `N x 6` or OBB `N x 7` rows. Use
+`Detections` when passing embeddings or masks, controlling sample identity
+or composing a pipeline. Plain NumPy input returns `float64` AABB `M x 8` or
+OBB `M x 9` rows; `Detections` input returns `Tracks`.
 
 ### Track angle "snaps" or flips between frames
 
@@ -105,15 +105,23 @@ Native backends are currently available for `botsort`, `bytetrack`, `ocsort`, `o
 
 ## Experiment workflows
 
-### `eval` re-runs detection every time
+### `eval` says the build is incompatible
 
-`generate`, `eval`, `tune`, and `research` share detection and embedding
-caches, but the key is more specific than detector + ReID + dataset. The root
-includes benchmark, split, and detector or public-detection producer.
-Embeddings additionally include their Python/C++ producer, ReID format and
-runtime, weights fingerprint, preprocessing policy, and crop-schema version.
-Keep those inputs and overrides identical across modes to reuse the same
-artifacts.
+An explicitly selected incompatible build is never modified or silently
+replaced. Either omit `--build` so experiment-backed eval materializes a
+compatible canonical build, or materialize the same experiment yourself and
+pass the result explicitly:
+
+```bash
+boxmot eval --experiment EXPERIMENT
+
+boxmot materialize --experiment EXPERIMENT
+boxmot eval --experiment EXPERIMENT --build BUILD_ID
+```
+
+If the build came from an older direct-source or dataset-only materialization,
+materialize it again through an experiment so its manifest contains the
+canonical dataset, split, taxonomy, geometry, and component identity.
 
 ### Replay is slow on trackers that use camera motion compensation
 

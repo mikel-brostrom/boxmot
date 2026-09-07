@@ -12,7 +12,8 @@ Proposed workflow
 # Then clone your fork locally
 git clone https://github.com/your-username/boxmot.git
 cd boxmot
-pip install uv
+# Keep this bootstrap version aligned with [tool.uv].required-version.
+pip install "uv==0.12.4"
 # Select exactly one PyTorch profile. Use cu130 instead of cpu on CUDA 13.0 hosts.
 uv sync --extra cpu --extra yolo --extra evolve --extra service \
   --group dev --group test --group docs
@@ -25,9 +26,9 @@ git checkout -b feature/short-desc
 
 # Run functionality where changes were introduced
 uv run --no-sync boxmot track --detector yolov8x --reid osnet_x0_25_msmt17 --tracker bytetrack --source my_video.mp4 --classes 0
-uv run --no-sync boxmot generate --detector yolov8x --reid osnet_x0_25_msmt17 --source path/to/dataset --classes 0
-uv run --no-sync boxmot eval --dataset mot17 --split ablation --tracker bytetrack
-uv run --no-sync boxmot tune --experiment mot17-ablation-yolox-lmbn --tracker bytetrack
+uv run --no-sync boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml --build-root runs/materializations
+uv run --no-sync boxmot eval --dataset mot17 --split ablation --build BUILD_ID --tracker bytetrack
+uv run --no-sync boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker bytetrack
 
 # Run tests
 uv run --no-sync pytest

@@ -1679,10 +1679,27 @@ class MultiBranchHead(nn.Module):
         """Width consumed by an optional margin-based classifier."""
         return self.metric_dim
 
+    def _returns_training_feature_packet(self) -> bool:
+        """Return whether training emits the complete feature dictionary."""
+        return bool(
+            self.compact_deployment_head
+            or self.branch_metric
+            or self.return_cross_scale_features
+            or self.return_treeboost_features
+            or self.return_auxiliary_features
+            or self.multilevel_suppression_enabled
+            or self.late_interaction_matcher is not None
+            or self.anatomical_auxiliary_enabled
+            or self.hpgrd_part_packet_runtime_active
+            or self.retrieval_packet_runtime_active
+            or self.mcpt is not None
+            or self.jpm is not None
+        )
+
     @property
     def center_dim(self) -> int | None:
         """Width consumed by center loss under the active branch policy."""
-        if self.scale_balanced_branches:
+        if self.scale_balanced_branches or not self._returns_training_feature_packet():
             return self.metric_dim
         return self._declared_feature_dim("global")
 
@@ -2612,21 +2629,7 @@ class MultiBranchHead(nn.Module):
                 return raw_features[self.inference_feature]
             raise ValueError(f"Unsupported CSL-TinyViT inference_feature: {self.inference_feature}")
 
-        if self.compact_deployment_head:
-            feats = raw_features
-        elif (
-            self.branch_metric
-            or self.return_cross_scale_features
-            or self.return_treeboost_features
-            or self.return_auxiliary_features
-            or self.multilevel_suppression_enabled
-            or self.late_interaction_matcher is not None
-            or self.anatomical_auxiliary_enabled
-            or self.hpgrd_part_packet_runtime_active
-            or self.retrieval_packet_runtime_active
-            or self.mcpt is not None
-            or self.jpm is not None
-        ):
+        if self._returns_training_feature_packet():
             feats = raw_features
         elif self.metric_feature == "concat_bn":
             feats = bn_features

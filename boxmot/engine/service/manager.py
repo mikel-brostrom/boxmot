@@ -5,35 +5,33 @@ import base64
 import binascii
 import hashlib
 import struct
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Protocol, TypeAlias
+from typing import TypeAlias
 
 import cv2
 import numpy as np
+import torch
 
-from boxmot.core.box_schema import BoxSchema, BoxType, get_box_schema
+from boxmot.components.artifacts import resolve_artifact
 from boxmot.engine.service.config import ServiceSettings
-from boxmot.engine.service.models import FrameRequest
-from boxmot.trackers.registry import create_tracker
+from boxmot.engine.service.models import BoxType, FrameRequest
+from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
+from boxmot.reid import AppearanceEncoder, ReIDEncoderSpec, create_reid_encoder
+from boxmot.segmentors import Segmentor
+from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
+from boxmot.trackers import Tracker, TrackerSpec, create_tracker
 from boxmot.utils import logger as LOGGER
 
 StreamKey: TypeAlias = tuple[str, str]
 TrackValue: TypeAlias = float | int
 
 
-class TrackerProtocol(Protocol):
-    """Small tracker surface required by the service manager."""
-
-    def update(self, dets: np.ndarray, img: np.ndarray) -> np.ndarray: ...
-
-    def reset(self) -> None: ...
-
-
-TrackerFactory: TypeAlias = Callable[[int], TrackerProtocol]
-ReIDModelFactory: TypeAlias = Callable[[ServiceSettings], object]
+TrackerFactory: TypeAlias = Callable[[TrackerSpec], Tracker]
+EncoderFactory: TypeAlias = Callable[[ServiceSettings], AppearanceEncoder]
 
 
 class ServiceRequestError(Exception):
@@ -75,12 +73,11 @@ class FrameResult:
 class StreamState:
     """Mutable state owned by exactly one stream/session key."""
 
-    tracker: TrackerProtocol
+    pipeline: TrackingPipeline
     width: int
     height: int
     frame_rate: int
     box_type: BoxType
-    image: np.ndarray
     lock: asyncio.Lock
     last_seen: float
     last_frame_id: int | None = None
@@ -97,55 +94,75 @@ class TrackerManager:
         settings: ServiceSettings,
         *,
         tracker_factory: TrackerFactory | None = None,
-        reid_model_factory: ReIDModelFactory | None = None,
+        encoder_factory: EncoderFactory | None = None,
+        encoder: AppearanceEncoder | None = None,
+        segmentor: Segmentor | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
-        self._reid_model = None
-        if settings.requires_image and tracker_factory is None:
-            model_factory = reid_model_factory or self._build_reid_model
-            self._reid_model = model_factory(settings)
+        if encoder is not None and encoder_factory is not None:
+            raise ValueError("Pass either encoder or encoder_factory, not both.")
+        self._encoder = encoder
+        if settings.requires_image and self._encoder is None and tracker_factory is None:
+            self._encoder = (encoder_factory or self._build_encoder)(settings)
+        self._segmentor = segmentor
         self._tracker_factory = tracker_factory or self._build_tracker
         self._clock = clock
         self._states: dict[StreamKey, StreamState] = {}
         self._registry_lock = asyncio.Lock()
         self._update_slots = asyncio.Semaphore(settings.max_concurrent_updates)
+        self._component_lock = threading.Lock()
 
-    def _build_tracker(self, frame_rate: int) -> TrackerProtocol:
-        tracker_kwargs = {"frame_rate": frame_rate} if self.settings.tracker_type in {"bytetrack", "botsort"} else None
-        return create_tracker(
-            self.settings.tracker_type,
+    def _build_tracker(self, spec: TrackerSpec) -> Tracker:
+        return create_tracker(spec)
+
+    def _tracker_spec(self, request: FrameRequest) -> TrackerSpec:
+        options: dict[str, object] = {"asso_func": self.settings.asso_func}
+        if self.settings.tracker_type in {"bytetrack", "botsort"}:
+            options["frame_rate"] = request.frame_rate
+        return TrackerSpec(
+            name=self.settings.tracker_type,
+            backend="python",
+            geometry=request.box_type.value,
             per_class=True,
-            tracker_backend="python",
-            tracker_kwargs=tracker_kwargs,
-            reid_model=self._reid_model,
-            warmup_model=False,
+            options=tuple(sorted(options.items())),
         )
 
     @staticmethod
-    def _build_reid_model(settings: ServiceSettings) -> object:
-        """Load and warm one ReID backend shared by all streams in this process."""
+    def _build_encoder(settings: ServiceSettings) -> AppearanceEncoder:
+        """Resolve and construct one encoder shared by all streams."""
 
-        from boxmot.reid.core import ReID
-        from boxmot.utils.misc import resolve_model_path
-
-        weights = resolve_model_path(Path(settings.reid_weights))
-        if not weights.is_file():
-            raise FileNotFoundError(
-                f"ReID weights were not found at {weights}. Mount the checkpoint and set "
-                "BOXMOT_SERVICE_REID_WEIGHTS to its path."
+        artifact = resolve_artifact(Path(settings.reid_weights), allow_download=False)
+        suffix = artifact.path.suffix.lower()
+        backend_by_suffix = {
+            ".pt": "pytorch",
+            ".pth": "pytorch",
+            ".onnx": "onnx",
+            ".xml": "openvino",
+            ".tflite": "tflite",
+            ".mlpackage": "coreml",
+        }
+        try:
+            backend = backend_by_suffix[suffix]
+        except KeyError as exc:
+            raise ValueError(f"Unsupported service ReID artifact format: {artifact.path.name}") from exc
+        return create_reid_encoder(
+            ReIDEncoderSpec(
+                backend=backend,
+                artifact=str(artifact.path),
+                artifact_sha256=artifact.sha256,
+                device=settings.device,
+                precision="fp16" if settings.half else "fp32",
             )
-        model = ReID(weights=weights, device=settings.device, half=settings.half).model
-        model.warmup()
-        return model
+        )
 
     async def process(self, key: StreamKey, request: FrameRequest) -> FrameResult:
         """Validate and process one sequential frame for ``key``."""
 
-        detections, schema = self._prepare_detections(request)
+        detections = self._prepare_detections(key, request)
         await self._update_slots.acquire()
         try:
-            return await self._process_with_slot(key, request, detections, schema)
+            return await self._process_with_slot(key, request, detections)
         finally:
             self._update_slots.release()
 
@@ -153,8 +170,7 @@ class TrackerManager:
         self,
         key: StreamKey,
         request: FrameRequest,
-        detections: np.ndarray,
-        schema: BoxSchema,
+        detections: Detections,
     ) -> FrameResult:
         """Decode and update while holding one process-wide frame slot."""
 
@@ -179,19 +195,20 @@ class TrackerManager:
                     "Send every frame, including frames with no detections."
                 )
 
-            frame_class_ids = self._frame_class_ids(detections, schema)
+            frame_class_ids = set(detections.class_ids.tolist())
             if len(state.observed_class_ids | frame_class_ids) > self.settings.max_classes_per_stream:
                 raise DetectionValidationError(
                     f"A tracker session may contain at most {self.settings.max_classes_per_stream} distinct class IDs."
                 )
 
             try:
-                raw_tracks, was_cancelled = await self._update_without_releasing_lock(
+                frame = self._canonical_frame(key, request, image)
+                pipeline_result, was_cancelled = await self._update_without_releasing_lock(
                     state,
                     detections,
-                    state.image if image is None else image,
+                    frame,
                 )
-                tracks = self._serialize_tracks(raw_tracks, schema)
+                tracks = self._serialize_tracks(pipeline_result.tracks)
             except Exception as exc:
                 await self._discard_state(key, state)
                 await self._reset_state(state, reason=f"failed stream {key[0]}/{key[1]}")
@@ -254,53 +271,90 @@ class TrackerManager:
             async with state.lock:
                 await self._reset_state(state, reason="application shutdown")
 
-    def _prepare_detections(self, request: FrameRequest) -> tuple[np.ndarray, BoxSchema]:
-        schema = get_box_schema(request.box_type)
+    def _prepare_detections(self, key: StreamKey, request: FrameRequest) -> Detections:
+        geometry_cols = 5 if request.box_type is BoxType.OBB else 4
+        detection_cols = geometry_cols + 2
         row_count = len(request.detections)
         if row_count > self.settings.max_detections_per_frame:
             raise DetectionValidationError(
                 f"At most {self.settings.max_detections_per_frame} detections are allowed per frame."
             )
         if row_count == 0:
-            return schema.empty_detections(), schema
+            values = np.empty((0, geometry_cols + 1), dtype=np.float32)
+            canonical_class_ids = np.empty(0, dtype=np.int64)
+        else:
+            if any(len(row) != detection_cols for row in request.detections):
+                actual_shape = np.asarray(request.detections, dtype=object).shape
+                raise DetectionValidationError(
+                    f"{request.box_type.value.upper()} detections must have shape "
+                    f"(N, {detection_cols}), got {actual_shape}."
+                )
+            try:
+                uncast = np.asarray(
+                    [row[: geometry_cols + 1] for row in request.detections],
+                    dtype=np.float64,
+                )
+            except (OverflowError, TypeError, ValueError) as exc:
+                raise DetectionValidationError(
+                    "Input should be a valid number within the supported float64 range."
+                ) from exc
+            expected_numeric_shape = (row_count, geometry_cols + 1)
+            if uncast.shape != expected_numeric_shape:
+                raise DetectionValidationError(
+                    f"{request.box_type.value.upper()} detections must have shape "
+                    f"(N, {detection_cols}), got {uncast.shape}."
+                )
+            if not np.isfinite(uncast).all():
+                raise DetectionValidationError("Detections must contain only finite numbers.")
+            if np.abs(uncast[:, : geometry_cols + 1]).max(initial=0.0) > np.finfo(np.float32).max:
+                raise DetectionValidationError("Detection geometry or confidence exceeds the supported float32 range.")
 
-        try:
-            values = np.asarray(request.detections, dtype=np.float64)
-        except (OverflowError, TypeError, ValueError) as exc:
-            raise DetectionValidationError("Detections must be a rectangular numeric matrix.") from exc
-        expected_shape = (row_count, schema.detection_cols)
-        if values.shape != expected_shape:
-            raise DetectionValidationError(
-                f"{request.box_type.value.upper()} detections must have shape "
-                f"(N, {schema.detection_cols}), got {values.shape}."
-            )
-        if not np.isfinite(values).all():
-            raise DetectionValidationError("Detections must contain only finite numbers.")
-        if np.abs(values).max(initial=0.0) > np.finfo(np.float32).max:
-            raise DetectionValidationError("Detection values exceed the supported float32 range.")
+            geometry_values = uncast[:, :geometry_cols]
+            if request.box_type is BoxType.OBB:
+                if np.any(geometry_values[:, 2:4] <= 0.0):
+                    raise DetectionValidationError("OBB width and height must be positive.")
+            elif np.any(geometry_values[:, 2] <= geometry_values[:, 0]) or np.any(
+                geometry_values[:, 3] <= geometry_values[:, 1]
+            ):
+                raise DetectionValidationError("AABB detections must satisfy x2 > x1 and y2 > y1.")
 
-        geometry = values[:, : schema.geometry_cols]
-        if schema.is_obb:
-            if np.any(geometry[:, 2:4] <= 0.0):
-                raise DetectionValidationError("OBB width and height must be positive.")
-        elif np.any(geometry[:, 2] <= geometry[:, 0]) or np.any(geometry[:, 3] <= geometry[:, 1]):
-            raise DetectionValidationError("AABB detections must satisfy x2 > x1 and y2 > y1.")
+            confidences = uncast[:, geometry_cols]
+            if np.any((confidences < 0.0) | (confidences > 1.0)):
+                raise DetectionValidationError("Detection confidence must be between 0 and 1.")
 
-        confidences = values[:, schema.detection_conf_index]
-        if np.any((confidences < 0.0) | (confidences > 1.0)):
-            raise DetectionValidationError("Detection confidence must be between 0 and 1.")
+            class_ids: list[int] = []
+            for row in request.detections:
+                raw_class_id = row[geometry_cols + 1]
+                if isinstance(raw_class_id, bool):
+                    raise DetectionValidationError("Detection class IDs must be non-negative integers.")
+                if isinstance(raw_class_id, float):
+                    if not np.isfinite(raw_class_id) or not raw_class_id.is_integer():
+                        raise DetectionValidationError("Detection class IDs must be non-negative integers.")
+                    if abs(raw_class_id) > 2**53:
+                        raise DetectionValidationError(
+                            "Detection class IDs above 2^53 must be encoded as JSON integers."
+                        )
+                class_id = int(raw_class_id)
+                if class_id < 0:
+                    raise DetectionValidationError("Detection class IDs must be non-negative integers.")
+                if class_id > np.iinfo(np.int64).max:
+                    raise DetectionValidationError("Detection class IDs exceed the supported int64 range.")
+                class_ids.append(class_id)
+            canonical_class_ids = np.asarray(class_ids, dtype=np.int64)
+            if np.unique(canonical_class_ids).size > self.settings.max_classes_per_stream:
+                raise DetectionValidationError(
+                    f"A frame may contain at most {self.settings.max_classes_per_stream} distinct class IDs."
+                )
+            values = uncast.astype(np.float32)
 
-        class_ids = values[:, schema.detection_class_index]
-        if np.any(class_ids < 0.0) or not np.equal(class_ids, np.floor(class_ids)).all():
-            raise DetectionValidationError("Detection class IDs must be non-negative integers.")
-        if np.any(class_ids > 16_777_215):
-            raise DetectionValidationError("Detection class IDs must not exceed 16777215.")
-        if np.unique(class_ids).size > self.settings.max_classes_per_stream:
-            raise DetectionValidationError(
-                f"A frame may contain at most {self.settings.max_classes_per_stream} distinct class IDs."
-            )
-
-        return values.astype(np.float32), schema
+        geometry_tensor = torch.from_numpy(values[:, :geometry_cols]).contiguous()
+        geometry = OrientedBoxes(geometry_tensor) if request.box_type is BoxType.OBB else Boxes(geometry_tensor)
+        return Detections(
+            geometry=geometry,
+            scores=torch.from_numpy(values[:, geometry_cols]).contiguous(),
+            class_ids=torch.from_numpy(canonical_class_ids).contiguous(),
+            sample_id=self._sample_id(key, request.frame_id),
+        )
 
     async def _prepare_image(self, request: FrameRequest) -> tuple[np.ndarray | None, bytes]:
         """Decode and validate an optional frame without blocking the event loop."""
@@ -421,8 +475,33 @@ class TrackerManager:
         raise ImageValidationError("image_base64 must encode a JPEG or PNG image.")
 
     @staticmethod
-    def _frame_class_ids(detections: np.ndarray, schema: BoxSchema) -> set[int]:
-        return set(detections[:, schema.detection_class_index].astype(np.int64).tolist())
+    def _sample_id(key: StreamKey, frame_id: int) -> str:
+        return f"{key[0]}/{key[1]}:{frame_id}"
+
+    @staticmethod
+    def _sequence_id(key: StreamKey) -> str:
+        return f"{key[0]}/{key[1]}"
+
+    def _canonical_frame(
+        self,
+        key: StreamKey,
+        request: FrameRequest,
+        bgr_image: np.ndarray | None,
+    ) -> Frame:
+        """Create the canonical RGB tensor passed through the service pipeline."""
+
+        if bgr_image is None:
+            image = torch.zeros((3, request.height, request.width), dtype=torch.uint8)
+        else:
+            rgb = np.ascontiguousarray(bgr_image[..., ::-1])
+            image = torch.from_numpy(rgb).permute(2, 0, 1).contiguous()
+        return Frame(
+            image=image,
+            sample_id=self._sample_id(key, request.frame_id),
+            sequence_id=self._sequence_id(key),
+            frame_index=request.frame_id,
+            source_uri=f"service://{key[0]}/{key[1]}",
+        )
 
     async def _get_or_create_state(self, key: StreamKey, request: FrameRequest) -> StreamState:
         await self._evict_expired(self._clock())
@@ -439,24 +518,26 @@ class TrackerManager:
                 raise StreamCapacityError(f"Tracker capacity reached ({self.settings.max_streams} active streams).")
 
             try:
-                tracker = self._tracker_factory(request.frame_rate)
+                tracker = self._tracker_factory(self._tracker_spec(request))
+                pipeline = TrackingPipeline(
+                    detector=None,
+                    tracker=tracker,
+                    segmentor=self._segmentor,
+                    reid=self._encoder,
+                    outputs=PipelineOutputs(),
+                )
             except Exception as exc:
                 LOGGER.exception("Failed to create tracker for stream %s/%s", *key)
                 raise TrackerExecutionError(
                     "Tracker creation failed; verify the selected tracker and service profile."
                 ) from exc
 
-            image = np.broadcast_to(
-                np.zeros((1, 1, 3), dtype=np.uint8),
-                (request.height, request.width, 3),
-            )
             state = StreamState(
-                tracker=tracker,
+                pipeline=pipeline,
                 width=request.width,
                 height=request.height,
                 frame_rate=request.frame_rate,
                 box_type=request.box_type,
-                image=image,
                 lock=asyncio.Lock(),
                 last_seen=now,
             )
@@ -497,19 +578,27 @@ class TrackerManager:
 
     async def _reset_state(self, state: StreamState, *, reason: str) -> None:
         try:
-            await asyncio.to_thread(state.tracker.reset)
+            await asyncio.to_thread(state.pipeline.reset)
         except Exception:
             LOGGER.exception("Failed to reset tracker after %s", reason)
 
-    @staticmethod
     async def _update_without_releasing_lock(
+        self,
         state: StreamState,
-        detections: np.ndarray,
-        image: np.ndarray,
-    ) -> tuple[np.ndarray, bool]:
+        detections: Detections,
+        frame: Frame,
+    ) -> tuple[PipelineResult, bool]:
         """Drain a tracker thread before allowing cancellation to release its lock."""
 
-        update_task = asyncio.create_task(asyncio.to_thread(state.tracker.update, detections, image))
+        def run_step() -> PipelineResult:
+            if self._encoder is None and self._segmentor is None:
+                return state.pipeline.step_detections(frame, detections)
+            with self._component_lock:
+                return state.pipeline.step_detections(frame, detections)
+
+        update_task = asyncio.create_task(
+            asyncio.to_thread(run_step)
+        )
         was_cancelled = False
         while not update_task.done():
             try:
@@ -521,42 +610,33 @@ class TrackerManager:
     @staticmethod
     def _request_digest(
         request: FrameRequest,
-        detections: np.ndarray,
+        detections: Detections,
         image_digest: bytes,
     ) -> bytes:
         digest = hashlib.blake2b(digest_size=16)
         digest.update(
             f"{request.frame_id}:{request.width}:{request.height}:{request.frame_rate}:{request.box_type.value}".encode()
         )
-        digest.update(detections.tobytes(order="C"))
+        digest.update(detections.geometry.values.numpy().tobytes(order="C"))
+        digest.update(detections.scores.numpy().tobytes(order="C"))
+        digest.update(detections.class_ids.numpy().tobytes(order="C"))
         digest.update(image_digest)
         return digest.digest()
 
     @staticmethod
-    def _serialize_tracks(raw_tracks: np.ndarray, schema: BoxSchema) -> tuple[tuple[TrackValue, ...], ...]:
-        tracks = np.asarray(raw_tracks, dtype=np.float32)
-        if tracks.size == 0:
-            tracks = schema.empty_tracks()
-        if tracks.ndim != 2 or tracks.shape[1] != schema.track_cols:
-            raise ValueError(
-                f"Tracker returned shape {tracks.shape}; expected (N, {schema.track_cols}) for {schema.box_type.value}."
-            )
-        if not np.isfinite(tracks).all():
-            raise ValueError("Tracker returned non-finite values.")
-
-        integer_columns = {
-            schema.track_id_index,
-            schema.track_class_index,
-            schema.track_detection_index,
-        }
-        for column in integer_columns:
-            values = tracks[:, column]
-            if not np.equal(values, np.floor(values)).all():
-                raise ValueError("Tracker returned non-integer IDs or detection indices.")
+    def _serialize_tracks(tracks: Tracks) -> tuple[tuple[TrackValue, ...], ...]:
+        tracks.validate()
+        geometry = tracks.geometry.values.tolist()
         rows: list[tuple[TrackValue, ...]] = []
-        for row in tracks:
+        for index, values in enumerate(geometry):
             rows.append(
-                tuple(int(value) if column in integer_columns else float(value) for column, value in enumerate(row))
+                (
+                    *(float(value) for value in values),
+                    int(tracks.track_ids[index]),
+                    float(tracks.scores[index]),
+                    int(tracks.class_ids[index]),
+                    int(tracks.detection_indices[index]),
+                )
             )
         return tuple(rows)
 
@@ -566,7 +646,7 @@ __all__ = (
     "FrameConflictError",
     "FrameResult",
     "ImageValidationError",
-    "ReIDModelFactory",
+    "EncoderFactory",
     "ServiceRequestError",
     "StreamCapacityError",
     "TrackerExecutionError",

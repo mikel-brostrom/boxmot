@@ -38,6 +38,34 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 
+# Build every native C API once in a dedicated stage. The installed artifacts
+# are merged into the Python package before its wheel is built below, so the
+# final CLI images can use native trackers without carrying CMake, headers, or
+# a compiler. Native ReID intentionally uses OpenCV DNN in these images.
+FROM cli-build-base AS native-cli-builder
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+        cmake \
+        libeigen3-dev \
+        libopencv-dev \
+        ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY boxmot/native/cpp ./boxmot/native/cpp
+
+RUN cmake \
+        -S boxmot/native/cpp \
+        -B /tmp/boxmot-native-build \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBOXMOT_INSTALL_NATIVE=ON \
+        -DBOXMOT_REID_ONNXRUNTIME=OFF \
+        -DCMAKE_INSTALL_PREFIX=/opt/boxmot-native \
+    && cmake --build /tmp/boxmot-native-build --parallel \
+    && cmake --install /tmp/boxmot-native-build --strip
+
+
 FROM cli-build-base AS cli-gpu-builder
 
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -50,15 +78,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra cu130
 
 COPY boxmot ./boxmot
+COPY --from=native-cli-builder /opt/boxmot-native/boxmot/native/cpp/ ./boxmot/native/cpp/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
         --locked \
         --no-dev \
         --no-editable \
+        --reinstall-package boxmot \
         --extra yolo \
         --extra trackeval \
-        --extra cu130
+        --extra cu130 \
+    && cd /tmp \
+    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
 
 
 FROM cli-build-base AS cli-cpu-builder
@@ -73,15 +105,19 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra cpu
 
 COPY boxmot ./boxmot
+COPY --from=native-cli-builder /opt/boxmot-native/boxmot/native/cpp/ ./boxmot/native/cpp/
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
         --locked \
         --no-dev \
         --no-editable \
+        --reinstall-package boxmot \
         --extra yolo \
         --extra trackeval \
-        --extra cpu
+        --extra cpu \
+    && cd /tmp \
+    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
 
 
 FROM build-base AS service-cpu-builder
@@ -90,6 +126,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
         --locked \
         --no-dev \
+        --no-install-package boxmot \
         --only-group service-runtime
 
 COPY boxmot ./boxmot
@@ -130,6 +167,11 @@ RUN apt-get update \
         libgl1 \
         libglib2.0-0 \
         libgomp1 \
+        libopencv-calib3d406 \
+        libopencv-core406 \
+        libopencv-dnn406 \
+        libopencv-imgproc406 \
+        libopencv-video406 \
         libsm6 \
         libxext6 \
         libxrender1 \
@@ -157,6 +199,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/boxmot/.venv \
     PATH="/opt/boxmot/.venv/bin:${PATH}" \
     BOXMOT_SERVICE_PORT=8000 \
+    BOXMOT_SERVICE_ASSO_FUNC=iou \
     OMP_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     OPENBLAS_NUM_THREADS=1
@@ -181,8 +224,8 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 CMD ["python", "-m", "boxmot.engine.service"]
 
 
-# Geometry-only detection-to-track service. It contains neither PyTorch nor
-# CUDA and remains the image published under the canonical service tags.
+# Canonical CPU detection-to-track service. It uses CPU Torch structures but
+# contains no CUDA runtime and remains the image under the canonical tags.
 FROM service-runtime AS service-cpu
 
 ENV BOXMOT_SERVICE_PROFILE=cpu \

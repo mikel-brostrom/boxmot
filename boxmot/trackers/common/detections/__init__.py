@@ -4,15 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from boxmot.trackers.common.detections.layout import (
-    AABB_DETECTIONS,
-    OBB_DETECTIONS,
-    AxisAlignedDetections,
-    DetectionLayout,
-    OrientedDetections,
-    get_detection_layout,
-    infer_detection_layout,
-)
+from boxmot.trackers.common.detections.layout import DetectionLayout
 from boxmot.trackers.common.tracking.records import DetectionRecord
 
 
@@ -22,7 +14,7 @@ def _validate_aligned_optional(name: str, values: np.ndarray | None, size: int) 
 
 
 @dataclass(frozen=True)
-class DetectionBatch:
+class _DetectionBatch:
     """Immutable view of detections parsed through a detection layout."""
 
     boxes: np.ndarray
@@ -40,7 +32,7 @@ class DetectionBatch:
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
         copy: bool = True,
-    ) -> DetectionBatch:
+    ) -> _DetectionBatch:
         """Parse raw or det-indexed detections using ``layout``."""
         dets = np.asarray(dets)
         if dets.ndim != 2:
@@ -92,9 +84,9 @@ class DetectionBatch:
     def __len__(self) -> int:
         return int(self.boxes.shape[0])
 
-    def select(self, indices: np.ndarray | list[int] | list[bool]) -> DetectionBatch:
+    def select(self, indices: np.ndarray | list[int] | list[bool]) -> _DetectionBatch:
         """Return a detection batch filtered by integer indices or a boolean mask."""
-        return DetectionBatch(
+        return _DetectionBatch(
             boxes=self.boxes[indices],
             confs=self.confs[indices],
             clss=self.clss[indices],
@@ -107,7 +99,7 @@ class DetectionBatch:
         self,
         high_thresh: float,
         low_thresh: float | None = None,
-    ) -> tuple[DetectionBatch, DetectionBatch]:
+    ) -> tuple[_DetectionBatch, _DetectionBatch]:
         """Return high-confidence and optional second-stage detections.
 
         The split follows the tracker convention used by ByteTrack-like update
@@ -121,11 +113,11 @@ class DetectionBatch:
             low = self.select((self.confs > low_thresh) & (self.confs < high_thresh))
         return high, low
 
-    def with_confs(self, confs: np.ndarray) -> DetectionBatch:
+    def with_confs(self, confs: np.ndarray) -> _DetectionBatch:
         """Return a copy of this batch with updated confidence scores."""
         confs = np.asarray(confs)
         _validate_aligned_optional("Confidences", confs, len(self))
-        return DetectionBatch(
+        return _DetectionBatch(
             boxes=self.boxes,
             confs=confs.astype(self.confs.dtype, copy=True),
             clss=self.clss,
@@ -134,7 +126,7 @@ class DetectionBatch:
             masks=self.masks,
         )
 
-    def with_embs(self, embs: np.ndarray | None) -> DetectionBatch:
+    def with_embs(self, embs: np.ndarray | None) -> _DetectionBatch:
         """Return a copy of this batch with updated aligned embeddings."""
         if embs is None:
             embs_arr = None
@@ -142,7 +134,7 @@ class DetectionBatch:
             embs_arr = np.asarray(embs)
             _validate_aligned_optional("Embeddings", embs_arr, len(self))
             embs_arr = embs_arr.copy()
-        return DetectionBatch(
+        return _DetectionBatch(
             boxes=self.boxes,
             confs=self.confs,
             clss=self.clss,
@@ -178,13 +170,4 @@ class DetectionBatch:
         return np.column_stack((self.boxes, self.confs)).astype(dtype, copy=False)
 
 
-__all__ = (
-    "AABB_DETECTIONS",
-    "OBB_DETECTIONS",
-    "AxisAlignedDetections",
-    "DetectionBatch",
-    "DetectionLayout",
-    "OrientedDetections",
-    "get_detection_layout",
-    "infer_detection_layout",
-)
+__all__: tuple[str, ...] = ()

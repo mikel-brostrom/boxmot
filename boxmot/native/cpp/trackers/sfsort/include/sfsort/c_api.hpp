@@ -1,15 +1,15 @@
 #pragma once
 
-#include <cstdint>
+#include "boxmot/trackers/base/c_api_v2.hpp"
 
 #if defined(_WIN32)
-#  if defined(BOXMOT_SFSORT_BUILDING_DLL)
-#    define BOXMOT_SFSORT_API __declspec(dllexport)
-#  else
-#    define BOXMOT_SFSORT_API __declspec(dllimport)
-#  endif
+#if defined(BOXMOT_SFSORT_BUILDING_DLL)
+#define BOXMOT_SFSORT_API __declspec(dllexport)
 #else
-#  define BOXMOT_SFSORT_API __attribute__((visibility("default")))
+#define BOXMOT_SFSORT_API __declspec(dllimport)
+#endif
+#else
+#define BOXMOT_SFSORT_API __attribute__((visibility("default")))
 #endif
 
 extern "C" {
@@ -34,6 +34,7 @@ struct BoxMOTSFSORTConfig {
     int vertical_margin;
     int frame_rate;
     int max_obs;
+    const char* asso_func;
 };
 
 struct BoxMOTSFSORTHandle;
@@ -41,21 +42,11 @@ struct BoxMOTSFSORTHandle;
 BOXMOT_SFSORT_API BoxMOTSFSORTHandle* boxmot_sfsort_create(const BoxMOTSFSORTConfig* config);
 BOXMOT_SFSORT_API void boxmot_sfsort_destroy(BoxMOTSFSORTHandle* handle);
 BOXMOT_SFSORT_API int boxmot_sfsort_reset(BoxMOTSFSORTHandle* handle);
-BOXMOT_SFSORT_API int boxmot_sfsort_update(
-    BoxMOTSFSORTHandle* handle,
-    const float* dets,
-    int det_rows,
-    int det_cols,
-    const std::uint8_t* image_data,
-    int image_rows,
-    int image_cols,
-    int image_channels,
-    float* out_tracks,
-    int out_capacity_rows,
-    int out_cols,
-    int* out_rows,
-    int* out_is_obb
-);
+BOXMOT_SFSORT_API int boxmot_sfsort_update_v2(BoxMOTSFSORTHandle* handle,
+                                              const BoxMOTDetectionBatchV2* detections,
+                                              const BoxMOTImageV2* image,
+                                              BoxMOTTrackBatchV2** output);
+BOXMOT_SFSORT_API void boxmot_sfsort_result_free_v2(BoxMOTTrackBatchV2* output);
 BOXMOT_SFSORT_API const char* boxmot_sfsort_last_error();
 
 }  // extern "C"

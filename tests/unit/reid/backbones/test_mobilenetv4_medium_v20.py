@@ -11,8 +11,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from click.testing import CliRunner
 
-from boxmot.engine.config import load_training_recipe
 from boxmot.engine.cli import boxmot
+from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.backbones.families.csl_tinyvit.deployment import (
     FoldedBNNeck,
     optimize_csl_tinyvit_for_inference,
@@ -26,6 +26,7 @@ from boxmot.reid.backbones.mobilenetv4 import (
 )
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.base_exporter import as_inference_export_model
+from boxmot.reid.training.presets import load_training_recipe
 from boxmot.reid.training.trainer import ReIDTrainer
 
 
@@ -240,11 +241,7 @@ def test_medium_v20_cli_recipe_resolves_training_contract(
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         ["train-reid", "--recipe", recipe_name, "--data-dir", "."],
@@ -286,11 +283,7 @@ def test_conv_medium_v20_cli_accepts_spatial_timm_head_ablation(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         [
@@ -325,11 +318,7 @@ def test_promoted_mobile_model_alias_selects_v20_recipe(
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
         ["train-reid", "--model", model_name, "--data-dir", "."],
@@ -353,11 +342,7 @@ def test_conv_medium_v20_cli_accepts_followup_ablation_axes(monkeypatch):
     def fake_main(args):
         captured["args"] = args
 
-    monkeypatch.setitem(
-        sys.modules,
-        "boxmot.engine.reid.trainer",
-        SimpleNamespace(main=fake_main),
-    )
+    monkeypatch.setattr(train_command, "main", fake_main)
     timm_model_name = "mobilenetv4_conv_medium.e250_r384_in12k_ft_in1k"
     result = CliRunner().invoke(
         boxmot,

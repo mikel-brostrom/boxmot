@@ -1,15 +1,12 @@
-id: mot17-test-yolox-lmbn
 mode: inference
 
 dataset:
   ref: mot17
   split: test
 
-detections:
-  source: model
-  model:
-    ref: yolox-x-mot17
-    checkpoint: test
+detector:
+  ref: yolox-x-mot17
+  checkpoint: test
 
 reid:
   ref: lmbn-n-duke

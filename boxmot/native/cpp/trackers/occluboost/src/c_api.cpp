@@ -6,7 +6,6 @@
 
 #include <opencv2/core.hpp>
 
-#include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -35,7 +34,7 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.use_rich_s = config.use_rich_s != 0;
     c.use_sb = config.use_sb != 0;
     c.use_vt = config.use_vt != 0;
-    c.with_reid = config.with_reid != 0;
+    c.use_embeddings = config.use_embeddings != 0;
     c.cmc_method = config.cmc_method == nullptr ? "ecc" : std::string(config.cmc_method);
     c.max_obs = config.max_obs;
 
@@ -68,40 +67,8 @@ occluboost::Config ConvertConfig(const BoxMOTOccluBoostConfig& config) {
     c.obb_recovery_max_age = config.obb_recovery_max_age;
     c.obb_second_iou_thresh = config.obb_second_iou_thresh;
 
-    c.reid_model_path = config.reid_model_path == nullptr ? "" : std::string(config.reid_model_path);
-    c.reid_preprocess = config.reid_preprocess == nullptr ? "resize_pad" : std::string(config.reid_preprocess);
-    c.reid_device = config.reid_device == nullptr ? "auto" : std::string(config.reid_device);
+    c.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return c;
-}
-
-std::vector<occluboost::Detection> ConvertDetections(
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const float* embs,
-    const int emb_rows,
-    const int emb_cols
-) {
-    if (det_rows < 0 || det_cols < 0 || emb_rows < 0 || emb_cols < 0) {
-        throw std::runtime_error("Negative matrix dimensions are not allowed.");
-    }
-    if (embs != nullptr && emb_rows != det_rows) {
-        throw std::runtime_error("Detection and embedding row counts must match.");
-    }
-
-    std::vector<occluboost::Detection> converted =
-        boxmot::trackers::base::ConvertLiveDetections<occluboost::Detection>(dets, det_rows, det_cols, "OccluBoost");
-    for (std::size_t row = 0; row < converted.size(); ++row) {
-        if (embs != nullptr && emb_cols > 0) {
-            occluboost::Detection& detection = converted[row];
-            detection.embedding.resize(emb_cols);
-            const float* emb_row = embs + (row * static_cast<std::size_t>(emb_cols));
-            for (int col = 0; col < emb_cols; ++col) {
-                detection.embedding(col) = emb_row[col];
-            }
-        }
-    }
-    return converted;
 }
 
 }  // namespace
@@ -126,10 +93,11 @@ BoxMOTOccluBoostHandle* boxmot_occluboost_create(const BoxMOTOccluBoostConfig* c
         g_last_error.clear();
         return new BoxMOTOccluBoostHandle(std::move(native_config));
     } catch (const std::exception& exc) {
-        boxmot::trackers::base::SetLastError(g_last_error, exc.what());
+        boxmot::native::SetLastError(g_last_error, exc.what());
         return nullptr;
     } catch (...) {
-        boxmot::trackers::base::SetLastError(g_last_error, "Unknown native OccluBoost creation failure");
+        boxmot::native::SetLastError(g_last_error,
+                                             "Unknown native OccluBoost creation failure");
         return nullptr;
     }
 }
@@ -139,96 +107,55 @@ void boxmot_occluboost_destroy(BoxMOTOccluBoostHandle* handle) {
 }
 
 int boxmot_occluboost_reset(BoxMOTOccluBoostHandle* handle) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is null.");
-        }
-        handle->tracker = std::make_unique<occluboost::OccluBoostTracker>(handle->config);
-    }, g_last_error, "Unknown native OccluBoost failure");
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr) {
+                throw std::runtime_error("Native OccluBoost handle is null.");
+            }
+            handle->tracker = std::make_unique<occluboost::OccluBoostTracker>(handle->config);
+        },
+        g_last_error,
+        "Unknown native OccluBoost failure");
 }
 
-int boxmot_occluboost_update(
-    BoxMOTOccluBoostHandle* handle,
-    const float* dets,
-    const int det_rows,
-    const int det_cols,
-    const float* embs,
-    const int emb_rows,
-    const int emb_cols,
-    const std::uint8_t* image_data,
-    const int image_rows,
-    const int image_cols,
-    const int image_channels,
-    float* out_tracks,
-    const int out_capacity_rows,
-    const int out_cols,
-    int* out_rows,
-    int* out_is_obb
-) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is not initialized.");
-        }
-        if (out_rows == nullptr || out_is_obb == nullptr) {
-            throw std::runtime_error("Output pointers are null.");
-        }
-        const std::vector<occluboost::Detection> detections =
-            ConvertDetections(dets, det_rows, det_cols, embs, emb_rows, emb_cols);
-        const cv::Mat image =
-            boxmot::trackers::base::WrapLiveImage(image_data, image_rows, image_cols, image_channels, "OccluBoost");
-        const std::vector<occluboost::TrackOutput> tracks = handle->tracker->Update(detections, image);
-        boxmot::trackers::base::WriteLiveOutputs(tracks, out_tracks, out_capacity_rows, out_cols, "OccluBoost");
-        *out_rows = static_cast<int>(tracks.size());
-        *out_is_obb = boxmot::trackers::base::LiveOutputUsesObb(tracks, det_cols) ? 1 : 0;
-    }, g_last_error, "Unknown native OccluBoost failure");
+int boxmot_occluboost_update_v2(BoxMOTOccluBoostHandle* handle,
+                                const BoxMOTDetectionBatchV2* detections,
+                                const BoxMOTImageV2* image,
+                                BoxMOTTrackBatchV2** output) {
+    return boxmot::native::GuardCall(
+        [&]() {
+            if (handle == nullptr || handle->tracker == nullptr) {
+                throw std::runtime_error("Native OccluBoost handle is not initialized.");
+            }
+            if (detections == nullptr || output == nullptr) {
+                throw std::runtime_error("Native OccluBoost input/output pointers are null.");
+            }
+            *output = nullptr;
+            const std::vector<occluboost::Detection> converted =
+                boxmot::trackers::base::ConvertLiveDetectionsV2<occluboost::Detection, true>(
+                    *detections, "OccluBoost");
+            const cv::Mat image_mat =
+                boxmot::trackers::base::WrapOptionalLiveImageV2(image, "OccluBoost");
+            const bool cmc_needs_image =
+                !handle->config.cmc_method.empty() && handle->config.cmc_method != "none";
+            if (image_mat.empty() && cmc_needs_image) {
+                throw std::runtime_error("Native OccluBoost requires an image when CMC is active.");
+            }
+            if (handle->config.use_embeddings && detections->rows > 0 &&
+                detections->embedding_cols <= 0) {
+                throw std::runtime_error("Native OccluBoost requires precomputed embeddings.");
+            }
+            const std::vector<occluboost::TrackOutput> tracks =
+                handle->tracker->Update(converted, image_mat);
+            *output =
+                boxmot::trackers::base::AllocateLiveOutputV2(tracks, detections->geometry_cols);
+        },
+        g_last_error,
+        "Unknown native OccluBoost failure");
 }
 
-int boxmot_occluboost_last_reid_time_ms(BoxMOTOccluBoostHandle* handle, double* out_reid_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is not initialized.");
-        }
-        if (out_reid_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_reid_time_ms = handle->tracker->LastReIdTimeMs();
-    }, g_last_error, "Unknown native OccluBoost failure");
-}
-
-int boxmot_occluboost_last_reid_preprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdPreprocessTimeMs();
-    }, g_last_error, "Unknown native OccluBoost failure");
-}
-
-int boxmot_occluboost_last_reid_process_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdProcessTimeMs();
-    }, g_last_error, "Unknown native OccluBoost failure");
-}
-
-int boxmot_occluboost_last_reid_postprocess_time_ms(BoxMOTOccluBoostHandle* handle, double* out_time_ms) {
-    return boxmot::trackers::base::GuardCall([&]() {
-        if (handle == nullptr || handle->tracker == nullptr) {
-            throw std::runtime_error("Native OccluBoost handle is not initialized.");
-        }
-        if (out_time_ms == nullptr) {
-            throw std::runtime_error("Output ReID timing pointer is null.");
-        }
-        *out_time_ms = handle->tracker->LastReIdPostprocessTimeMs();
-    }, g_last_error, "Unknown native OccluBoost failure");
+void boxmot_occluboost_result_free_v2(BoxMOTTrackBatchV2* output) {
+    boxmot::trackers::base::FreeLiveOutputV2(output);
 }
 
 const char* boxmot_occluboost_last_error() {

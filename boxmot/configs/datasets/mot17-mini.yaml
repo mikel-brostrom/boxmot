@@ -5,7 +5,7 @@ format:
   box_type: aabb
 
 storage:
-  root: assets/MOT17-mini
+  root: MOT17-mini
 
 default_split: train
 
