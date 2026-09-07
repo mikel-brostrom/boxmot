@@ -17,6 +17,13 @@ def _job_script(workflow_path: Path, job_name: str) -> str:
     return "\n".join(str(step.get("run", "")) for step in workflow["jobs"][job_name]["steps"])
 
 
+def test_benchmark_workflow_is_manual_only() -> None:
+    workflow = yaml.safe_load(BENCHMARK_WORKFLOW.read_text(encoding="utf-8"))
+    triggers = workflow.get("on", workflow.get(True))
+
+    assert set(triggers) == {"workflow_dispatch"}
+
+
 @pytest.mark.parametrize(
     ("workflow_path", "job_name"),
     (

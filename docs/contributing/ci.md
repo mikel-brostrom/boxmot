@@ -10,7 +10,7 @@ The top-level `on:` block decides whether any job in a workflow is created:
 | --- | --- |
 | `.github/workflows/ci.yml` | Pushes to `master` and pull requests targeting `master` |
 | `.github/workflows/docs.yml` | Pushes to `master`, pull requests targeting `master`, and manual dispatch; deployment from `master` |
-| `.github/workflows/benchmark.yml` | Pushes to `master`, pull requests targeting `master`, and manual dispatch |
+| `.github/workflows/benchmark.yml` | Manual dispatch only |
 | `.github/workflows/wheels.yml` | Reusable release gate and manual dispatch |
 | `.github/workflows/publish.yml` | Manual dispatch after the wheel and Docker gates pass |
 | `.github/workflows/docker.yml` | Reusable pre-publication gate and published releases |
