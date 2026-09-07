@@ -61,6 +61,16 @@ CI invokes `.venv/bin` commands directly after syncing because uv does not
 persist an activated optional extra. A later plain `uv run` could otherwise
 re-sync without the selected CPU/CUDA profile.
 
+The `materialize` job creates the MOT17-mini detection and embedding build once
+on Python 3.12. An exact-key Actions cache reuses that build and its resolved
+model artifacts on later runs only when the lockfile, package sources, dataset
+fixture, workflow, and asset preparation inputs still match. The canonical
+materialize command validates a restored build without rerunning inference. The
+job then uploads a run-scoped bundle that both Python-version matrices of
+`tune` and `metrics` download and validate. This avoids four independent
+inference passes and prevents concurrent jobs from racing to populate the same
+cache key.
+
 ## Typical CI-sensitive changes
 
 - adding a new tracker
