@@ -1569,6 +1569,68 @@ def test_explicit_feature_dimensions_bypass_training_forward(tmp_path):
     assert trainer._probe_classifier_feat_dim(model) == 1152
 
 
+def test_csl_tinyvit_7m_raw_concat_center_loss_matches_training_descriptor(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        pretrained=False,
+        img_size=(64, 32),
+        metric_feature="raw_concat",
+        inference_feature="norm_concat_bn",
+        feature_fusion="last2",
+        head_pool="gelu_gem",
+        device="cpu",
+    )
+    models = trainer._build_model_bundle(num_classes=4)
+    losses = trainer._build_loss_bundle(models, num_classes=4)
+    pids = torch.tensor([0, 1])
+
+    models.model.train()
+    with torch.no_grad():
+        _, features = models.model(torch.randn(2, 3, 64, 32))
+    center_features, center_pids, center_scale = trainer._center_loss_inputs(features, pids)
+
+    assert isinstance(features, torch.Tensor)
+    assert isinstance(center_features, torch.Tensor)
+    assert features.shape == center_features.shape == (2, 1536)
+    assert torch.equal(center_pids, pids)
+    assert center_scale == 1.0
+    assert models.model.head.metric_dim == 1536
+    assert models.model.head.center_dim == 1536
+    assert losses.metric_dim == 1536
+    assert losses.criterion_center.feat_dim == 1536
+    assert losses.criterion_center.centers.shape == (4, 1536)
+    assert torch.isfinite(losses.criterion_center(center_features, center_pids)).item()
+
+
+def test_multibranch_packet_center_dim_matches_global_selector(tmp_path):
+    trainer = _trainer(
+        tmp_path,
+        metric_feature="raw_concat",
+        branch_aware_metric=True,
+    )
+    head = MultiBranchHead(
+        8,
+        feat_dim=4,
+        num_classes=3,
+        metric_feature="raw_concat",
+        branch_metric=True,
+    ).train()
+    pids = torch.tensor([0, 1])
+
+    _, packet = head(torch.randn(2, 8, 2, 1))
+    center_features, center_pids, center_scale = trainer._center_loss_inputs(packet, pids)
+
+    assert packet["raw_concat"].shape == (2, 12)
+    assert isinstance(center_features, torch.Tensor)
+    assert center_features.shape == (2, 4)
+    assert head.metric_dim == 12
+    assert head.center_dim == 4
+    assert trainer._probe_feat_dim(head) == 4
+    assert torch.equal(center_pids, pids)
+    assert center_scale == 1.0
+    assert torch.isfinite(CenterLoss(3, 4)(center_features, center_pids)).item()
+
+
 def test_vit_tiny_dpt_fpn_reid_uses_intermediate_block_maps():
     vit_tiny = _vit_tiny_module()
     model = vit_tiny.vit_tiny_dpt_fpn_reid(
