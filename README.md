@@ -244,6 +244,14 @@ boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
   --asso-func diou --source 0 --save --show
 ```
 
+Evaluate a tracker. The first run materializes reusable detections and
+embeddings automatically:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker occluboost
+```
+
 Python:
 
 When detections do not include embeddings, `OccluBoost` generates them from
