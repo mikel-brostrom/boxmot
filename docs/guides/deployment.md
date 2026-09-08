@@ -88,15 +88,15 @@ For an empty frame, send `"detections": []` with the next `frame_id`. For OBB,
 set `"box_type": "obb"` and use
 `(cx, cy, width, height, angle_radians, confidence, class_id)` rows.
 
-The CPU profile does not require pixels. The GPU profile requires
+The CPU profile does not require source image pixels; requests without an image
+must include both `width` and `height`. When `image_base64` is supplied, the
+service infers dimensions from the decoded image. The GPU profile requires
 `image_base64` to contain the raw base64 text of a valid JPEG or PNG for every
 request, including frames whose `detections` array is empty:
 
 ```json
 {
   "frame_id": 0,
-  "width": 1920,
-  "height": 1080,
   "frame_rate": 30,
   "box_type": "aabb",
   "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
@@ -104,13 +104,13 @@ request, including frames whose `detections` array is empty:
 }
 ```
 
-Do not include a `data:image/...;base64,` prefix. The decoded image dimensions
-must exactly match `width` and `height`. ReID and camera-motion compensation
-need the real frame even when the detector found nothing, so an empty detection
-frame cannot omit `image_base64`.
+Do not include a `data:image/...;base64,` prefix. Omit `width` and `height` when
+supplying an image; if provided, they must match the decoded image. ReID and
+camera-motion compensation need the real frame even when the detector found
+nothing, so an empty detection frame cannot omit `image_base64`.
 
-For example, a Python client can attach a compressed frame to the same metadata
-used by the CPU endpoint:
+For example, a Python client can attach a compressed frame without specifying
+its dimensions:
 
 ```python
 import base64
@@ -120,8 +120,6 @@ import requests
 
 payload = {
     "frame_id": 0,
-    "width": 1920,
-    "height": 1080,
     "frame_rate": 30,
     "box_type": "aabb",
     "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
@@ -146,13 +144,13 @@ angle before `id`. Use `detection_index` to relate a returned track to the
 corresponding input row. Track and detection counts are not guaranteed to be
 equal.
 
-Width, height, frame rate, and box type are fixed after the first request for a
-session. Frames must then be contiguous, with at most one request in flight for
-each session. A gap or conflicting retry returns HTTP 409 without advancing the
-tracker. Repeating the most recent frame with the exact same body safely
-replays its cached response. A new session must start with frame 0; this also
-prevents an expired or misrouted session from silently restarting midway
-through a sequence.
+Frame dimensions, whether inferred or explicit, frame rate, and box type are
+fixed after the first request for a session. Frames must then be contiguous,
+with at most one request in flight for each session. A gap or conflicting retry
+returns HTTP 409 without advancing the tracker. Repeating the most recent frame
+with the exact same body safely replays its cached response. A new session must
+start with frame 0; this also prevents an expired or misrouted session from
+silently restarting midway through a sequence.
 
 Delete a session to release its tracker immediately:
 
@@ -196,7 +194,7 @@ docker run --rm \
 ```
 
 Centroid normalization uses the session's fixed `width` and `height`. The CPU
-profile therefore remains pixel-free when centroid is selected.
+profile does not require source image pixels when centroid is selected.
 
 For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
 convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint

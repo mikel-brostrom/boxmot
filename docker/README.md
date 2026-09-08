@@ -158,9 +158,9 @@ From another terminal, verify that it is ready:
 curl --fail http://127.0.0.1:8000/healthz
 ```
 
-It supports ByteTrack, OcSort, and SFSORT and does not need image pixels. The
-service forwards `img=None` for these motion-only/default configurations instead
-of allocating a dummy frame. Send one request per frame.
+It supports ByteTrack, OcSort, and SFSORT and does not require source image
+pixels. Send one request per frame, including `width` and `height` when no image
+is supplied.
 
 In-process BoxMOT trackers infer AABB or OBB mode automatically from each
 non-empty detection row's column count. The HTTP API still declares `box_type`
@@ -221,7 +221,7 @@ base64-encoded JPEG or PNG in `image_base64` for every frame, even when
 so prefer compressed JPEG for high-volume streams and enforce request-size
 limits at ingress.
 
-For example, send a 640 by 480 `frame.jpg` from Python:
+For example, send `frame.jpg` from Python. The service infers its dimensions:
 
 ```python
 import base64
@@ -231,8 +231,6 @@ import requests
 
 payload = {
     "frame_id": 0,
-    "width": 640,
-    "height": 480,
     "frame_rate": 30,
     "box_type": "aabb",
     "detections": [[10, 20, 60, 120, 0.95, 0]],
@@ -247,7 +245,8 @@ response.raise_for_status()
 print(response.json())
 ```
 
-The declared `width` and `height` must exactly match the encoded image. Send
+Omit `width` and `height` when supplying an image. If provided, they must match
+the encoded image. Frame dimensions must remain fixed within a session. Send
 only the raw base64 text, without a `data:image/...;base64,` prefix.
 
 Neither service runs detector inference. Keep one service process per

@@ -175,6 +175,10 @@ class TrackerManager:
         """Decode and update while holding one process-wide frame slot."""
 
         image, image_digest = await self._prepare_image(request)
+        if image is not None:
+            # Session validation and retry identity use the actual image dimensions.
+            height, width = image.shape[:2]
+            request = request.model_copy(update={"width": width, "height": height})
         request_digest = self._request_digest(request, detections, image_digest)
         state = await self._get_or_create_state(key, request)
 
@@ -365,8 +369,6 @@ class TrackerManager:
                     "image_base64 is required by the GPU service profile, including on frames with no detections."
                 )
             return None, b""
-        if request.width * request.height > self.settings.max_frame_pixels:
-            raise ImageValidationError(f"Frame dimensions exceed the {self.settings.max_frame_pixels}-pixel limit.")
         decode_task = asyncio.create_task(asyncio.to_thread(self._decode_image, request))
         was_cancelled = False
         while not decode_task.done():
@@ -397,9 +399,13 @@ class TrackerManager:
             raise ImageValidationError(f"Encoded image exceeds the {self.settings.max_image_bytes}-byte limit.")
 
         encoded_width, encoded_height = self._encoded_image_dimensions(image_bytes)
+        if max(encoded_width, encoded_height) > 32_768:
+            raise ImageValidationError("Encoded image width and height must not exceed 32768 pixels.")
         if encoded_width * encoded_height > self.settings.max_frame_pixels:
             raise ImageValidationError(f"Encoded image exceeds the {self.settings.max_frame_pixels}-pixel limit.")
-        if (encoded_width, encoded_height) != (request.width, request.height):
+        if (request.width is not None and request.width != encoded_width) or (
+            request.height is not None and request.height != encoded_height
+        ):
             raise ImageValidationError(
                 "Encoded image dimensions must match the declared frame dimensions: "
                 f"expected {(request.width, request.height)}, got {(encoded_width, encoded_height)}."
@@ -409,7 +415,7 @@ class TrackerManager:
         image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), decode_flags)
         if image is None:
             raise ImageValidationError("image_base64 must encode a valid JPEG or PNG image.")
-        expected_shape = (request.height, request.width, 3)
+        expected_shape = (encoded_height, encoded_width, 3)
         if image.shape != expected_shape:
             raise ImageValidationError(f"Decoded image must have shape {expected_shape}, got {image.shape}.")
         image_digest = hashlib.blake2b(image_bytes, digest_size=16).digest()
@@ -491,6 +497,7 @@ class TrackerManager:
         """Create the canonical RGB tensor passed through the service pipeline."""
 
         if bgr_image is None:
+            assert request.width is not None and request.height is not None
             image = torch.zeros((3, request.height, request.width), dtype=torch.uint8)
         else:
             rgb = np.ascontiguousarray(bgr_image[..., ::-1])
@@ -504,6 +511,7 @@ class TrackerManager:
         )
 
     async def _get_or_create_state(self, key: StreamKey, request: FrameRequest) -> StreamState:
+        assert request.width is not None and request.height is not None
         await self._evict_expired(self._clock())
         async with self._registry_lock:
             now = self._clock()
@@ -596,9 +604,7 @@ class TrackerManager:
             with self._component_lock:
                 return state.pipeline.step_detections(frame, detections)
 
-        update_task = asyncio.create_task(
-            asyncio.to_thread(run_step)
-        )
+        update_task = asyncio.create_task(asyncio.to_thread(run_step))
         was_cancelled = False
         while not update_task.done():
             try:
