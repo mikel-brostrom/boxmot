@@ -10,95 +10,25 @@ import click
 
 from boxmot.engine.commands._options import (
     association_function_option,
-    build_selection_options,
     data_root_option,
     dataset_fps_option,
-    dataset_option,
-    experiment_option,
     kalman_calibration_option,
+    replay_build_options,
     replay_options,
     split_option,
     tracker_backend_option,
     tracker_config_option,
 )
 from boxmot.engine.commands._support import (
-    _build_cli_namespace,
     _dispatch_cli_workflow,
-    _is_option_explicit,
-    _run_engine_workflow,
-    _workflow_setup,
+    _prepare_replay_build,
+    _require_replay_input,
 )
 from boxmot.engine.config import BOXMOT_DEFAULTS
-from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
-from boxmot.trackers.registry import get_tracker_definition
-
-
-def _require_eval_input(
-    experiment: str | None,
-    dataset: str | None,
-) -> tuple[str | None, str | None]:
-    """Require exactly one experiment or dataset selector."""
-
-    if experiment and dataset:
-        raise click.UsageError(
-            "eval accepts either --dataset <dataset-id-or-yaml> or --experiment <experiment-yaml>, not both."
-        )
-    if not experiment and not dataset:
-        raise click.UsageError("eval requires either --dataset <dataset-id-or-yaml> or --experiment <experiment-yaml>.")
-    return experiment, dataset
-
-
-def _validate_component_selection(
-    *,
-    experiment: str | None,
-    dataset: str | None,
-    detector: str | None,
-    reid: str | None,
-    build_ref: str | None,
-) -> None:
-    """Validate direct component selectors before materialization or replay."""
-
-    components = tuple(name for name, value in (("--detector", detector), ("--reid", reid)) if value)
-    if experiment and components:
-        names = " and ".join(components)
-        raise click.UsageError(
-            f"{names} cannot be combined with --experiment because experiment YAML fixes perception components."
-        )
-    if reid and not detector:
-        raise click.UsageError("--reid requires --detector when selecting evaluation components directly.")
-    if detector and not dataset:
-        raise click.UsageError("--detector requires --dataset when selecting evaluation components directly.")
-    if build_ref is None and dataset and not detector:
-        raise click.UsageError(
-            "eval with --dataset requires --detector for automatic materialization, or --build to replay an "
-            "existing materialized build."
-        )
 
 
 @click.command(name="eval", help="Evaluate tracking performance")
-@experiment_option
-@dataset_option(default=BOXMOT_DEFAULTS.eval.dataset)
-@click.option(
-    "--detector",
-    type=str,
-    default=None,
-    help=(
-        "Detector profile ID or YAML config used to resolve an authored experiment with --dataset; "
-        "append /CHECKPOINT to disambiguate."
-    ),
-)
-@click.option(
-    "--reid",
-    type=str,
-    default=None,
-    help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
-)
-@build_selection_options(required=False)
-@click.option(
-    "--device",
-    default=BOXMOT_DEFAULTS.materialize.device,
-    help="Perception device used for automatic materialization, e.g. cpu, mps, cuda:0, or 0.",
-)
+@replay_build_options(dataset_default=BOXMOT_DEFAULTS.eval.dataset)
 @data_root_option
 @split_option
 @dataset_fps_option
@@ -161,7 +91,7 @@ def eval(
 ) -> None:
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
-    experiment, dataset = _require_eval_input(experiment, dataset)
+    _require_replay_input(experiment, dataset, "eval")
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.tracker_config import resolve_tracker_options
         from boxmot.engine.tuning.kalman import validate_kf_calibration
@@ -179,57 +109,22 @@ def eval(
             )
         except (TypeError, ValueError, FileNotFoundError) as exc:
             raise click.UsageError(str(exc)) from exc
-    _validate_component_selection(
+    experiment, dataset, build_ref = _prepare_replay_build(
+        ctx,
+        mode="eval",
         experiment=experiment,
         dataset=dataset,
         detector=detector,
         reid=reid,
         build_ref=build_ref,
+        build_root=build_root,
+        device=device,
+        data_root=data_root,
+        split=split,
+        tracker=str(kwargs["tracker"]),
+        fps=kwargs.get("fps"),
+        allow_noncanonical_build=allow_noncanonical_build,
     )
-    if detector is not None:
-        with _workflow_setup("Evaluation", "Resolving experiment…"):
-            try:
-                experiment = str(
-                    resolve_matching_experiment_path(
-                        dataset=str(dataset),
-                        detector=detector,
-                        reid=reid,
-                        split=split,
-                        mode="eval",
-                    )
-                )
-            except (ConfigurationError, FileNotFoundError) as exc:
-                raise click.UsageError(str(exc)) from exc
-        dataset = None
-    if build_ref is not None and _is_option_explicit(ctx, "device"):
-        raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
-    if build_ref is None:
-        if allow_noncanonical_build:
-            raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")
-        tracker_capabilities = get_tracker_definition(str(kwargs["tracker"])).capabilities
-        materialize_args = _build_cli_namespace(
-            ctx,
-            "materialize",
-            {
-                "experiment": experiment,
-                "data_root": data_root,
-                "build_root": build_root,
-                "device": device,
-                "fps": kwargs.get("fps"),
-                "publish_image_refs": True,
-                "publish_masks": tracker_capabilities.requires_masks,
-                "publish_embeddings": tracker_capabilities.accepts_embeddings,
-                "plan_path": None,
-                "plan_overrides": (),
-                "resume": True,
-            },
-        )
-        materialize_args.materialize_split = split
-        materialize_args.materialize_mode = "eval"
-        build_ref = _run_engine_workflow(
-            "boxmot.engine.materialization.workflow",
-            materialize_args,
-        )
 
     _dispatch_cli_workflow(
         ctx,

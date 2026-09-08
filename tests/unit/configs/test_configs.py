@@ -210,7 +210,9 @@ def test_engine_config_rejects_domain_owned_modes(mode: str):
         build_mode_namespace(mode, {})
 
 
-def test_get_mode_defaults_returns_normalized_merged_defaults():
+@pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (4, 4), (32, 8)])
+def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_count, expected_workers):
+    monkeypatch.setattr("boxmot.engine.config.os.cpu_count", lambda: cpu_count)
     defaults = get_mode_defaults("eval")
 
     assert defaults["detector"] == DEFAULT_DETECTOR
@@ -218,8 +220,9 @@ def test_get_mode_defaults_returns_normalized_merged_defaults():
     assert defaults["tracker"] == get_mode_default("eval", "tracker")
     assert defaults["project"] == Path(get_mode_default("eval", "project"))
     assert defaults["show_timing"] is False
-    assert isinstance(defaults["n_threads"], int)
-    assert defaults["n_threads"] >= 1
+    assert isinstance(defaults["sequence_workers"], int)
+    assert defaults["sequence_workers"] == expected_workers
+    assert "n_threads" not in defaults
 
 
 def test_boxmot_defaults_bundle_exposes_typed_mode_defaults():

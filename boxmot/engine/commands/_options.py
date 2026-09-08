@@ -124,11 +124,11 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             default=defaults.device,
             help="cuda device(s), e.g. 0 or 0,1,2,3, mps, or cpu",
         ),
-        "n_threads": click.option(
-            "--n-threads",
+        "sequence_workers": click.option(
+            "--sequence-workers",
             type=click.IntRange(min=1),
-            default=defaults.n_threads,
-            help="Maximum spawned worker processes for sequence-parallel cached evaluation",
+            default=defaults.sequence_workers,
+            help="Maximum number of sequence worker processes. During tuning, this limit applies per trial.",
         ),
         "project": click.option(
             "--project",
@@ -255,7 +255,7 @@ def replay_options(*, mode: str, parallel: bool = False) -> Callable:
     defaults = getattr(BOXMOT_DEFAULTS, mode)
     option_names = _REPLAY_CORE_OPTION_NAMES
     if parallel:
-        option_names = ("n_threads", *option_names)
+        option_names = ("sequence_workers", *option_names)
 
     def decorator(func: Callable) -> Callable:
         return _apply_core_options(func, defaults, option_names)
@@ -381,6 +381,44 @@ def data_root_option(func: Callable) -> Callable:
     )(func)
 
 
+def replay_build_options(*, dataset_default: str | None = None) -> Callable:
+    """Attach shared eval/tune inputs for build reuse or automatic materialization."""
+
+    from boxmot.engine.config import BOXMOT_DEFAULTS
+
+    def decorator(func: Callable) -> Callable:
+        options = (
+            experiment_option,
+            dataset_option(default=dataset_default),
+            click.option(
+                "--detector",
+                type=str,
+                default=None,
+                help=(
+                    "Detector profile ID or YAML config used to resolve an authored experiment with --dataset; "
+                    "append /CHECKPOINT to disambiguate."
+                ),
+            ),
+            click.option(
+                "--reid",
+                type=str,
+                default=None,
+                help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
+            ),
+            build_selection_options(required=False),
+            click.option(
+                "--device",
+                default=BOXMOT_DEFAULTS.materialize.device,
+                help="Perception device used for automatic materialization, e.g. cpu, mps, cuda:0, or 0.",
+            ),
+        )
+        for option in reversed(options):
+            func = option(func)
+        return func
+
+    return decorator
+
+
 def tracker_backend_option(*, default: str) -> Callable:
     """Attach the tracker implementation backend option."""
 
@@ -447,6 +485,7 @@ __all__ = (
     "dataset_option",
     "experiment_option",
     "kalman_calibration_option",
+    "replay_build_options",
     "replay_options",
     "source_option",
     "split_option",

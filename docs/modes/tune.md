@@ -1,34 +1,75 @@
 # Tune
 
-`tune` optimizes tracker parameters while replaying the same immutable
-perception build for every trial. It requires an experiment and an explicit
-build:
+`tune` prepares or reuses a canonical perception build once, optionally
+calibrates the Kalman filter, and optimizes tracker parameters by replaying
+that same immutable build in every trial:
 
 ```bash
 boxmot tune \
-  --experiment mot17/ablation-yolox-lmbn.yaml \
-  --build BUILD_ID \
-  --tracker bytetrack \
-  --n-trials 50
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort \
+  --device mps \
+  --fps 2 \
+  --calibrate-kf \
+  --n-trials 200
 ```
 
-Materialize first if the build does not exist:
+This command prepares 2 FPS data, calibrates the KF from cached detections and
+ground truth, then runs 200 tracker trials with the KF settings fixed. Omit
+`--calibrate-kf` to keep default or loaded KF settings without fitting them.
+
+The dataset and component selectors resolve a matching authored experiment.
+You can select it directly with `--experiment mot17/ablation-yolox-lmbn.yaml`
+in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
+catalog matches produce an error; use `--experiment` to select the intended
+configuration. See [experiment workflows](../guides/experiments.md).
+
+## Build preparation and reuse
+
+When `--build` is omitted, tuning resolves the canonical build from the
+selected experiment, source data, perception settings, and requested frame
+rate. A matching complete build is validated and reused; otherwise,
+materialization runs once before calibration and Ray start. Reuse requires
+matching source and semantic component fingerprints, geometry, class taxonomy,
+and the payloads needed by the tracker. It never selects a latest build.
+
+`--device` controls perception during automatic preparation, for example
+`mps`, `cuda:0`, or `cpu`. With an explicit `--build`, no perception models run
+and `--device` is rejected. Use either an experiment or a dataset to replay a
+specific build:
 
 ```bash
-boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
+boxmot tune \
+  --dataset mot17 \
+  --split ablation \
+  --build BUILD_ID \
+  --tracker botsort \
+  --n-trials 200
 ```
 
-To tune at a lower dataset frame rate, materialize with `--fps 5` first and
-select that build. Tuning reads its recorded FPS automatically; an explicit
-`tune --fps` must match. Replayed images, detections, and ground truth share the
-same selected frames and contiguous frame numbers, while capture timestamps
-keep their original elapsed time. See [dataset FPS](eval.md#dataset-fps).
+A build ID resolves below `--build-root`; an existing build path is used
+directly. An explicitly selected build must already exist and be compatible.
+Dataset-only selection requires `--build`; automatic preparation needs an
+experiment or `--dataset` plus `--detector` and optional `--reid`.
 
-Tuning validates source, split, taxonomy, geometry, component fingerprints,
-and the selected tracker's requirements once before optimization. Trials run no
-detector, segmentor, or encoder and cannot silently select or create another
-build. Worker count and retry policy are execution settings, not semantic
-fingerprints.
+With automatic preparation, `--fps 2` selects a 2 FPS build. A compatible
+full-rate cache can supply the selected detections and embeddings without
+rerunning perception. With an explicit `--build`, omitting `--fps` uses its
+recorded rate, and an explicit rate must match it. Replayed images,
+detections, and ground truth share the selected frames and contiguous frame
+numbers, while capture timestamps retain their original elapsed time. See
+[dataset FPS](eval.md#dataset-fps).
+
+Tuning validates the build and the tracker's requirements before optimization.
+Trials run no detector, segmentor, or encoder and cannot select or create
+another build. Worker count and retry policy are execution settings, not
+semantic fingerprints.
+
+`--sequence-workers 4` allows up to four sequence worker processes per trial.
+Use `--max-concurrent-trials` to limit how many trials run at once.
 
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
@@ -40,28 +81,10 @@ rejected before a native trial starts.
 
 ## Calibrate the KF before tracker tuning
 
-Add `--calibrate-kf` to estimate Kalman noise once from the build's cached
-detections and ground truth, then tune the remaining tracker parameters.
-For a 2 FPS run, first prepare a build at that rate:
-
-```bash
-boxmot materialize \
-  --experiment mot17/ablation-yolox-lmbn.yaml \
-  --fps 2
-```
-
-Use the printed build ID as `BUILD_ID` below. If you already have a compatible
-2 FPS build, reuse its ID and skip materialization:
-
-```bash
-boxmot tune \
-  --experiment mot17/ablation-yolox-lmbn.yaml \
-  --build BUILD_ID \
-  --tracker botsort \
-  --fps 2 \
-  --calibrate-kf \
-  --n-trials 200
-```
+Add `--calibrate-kf`, as in the first example, to estimate Kalman noise once
+from the prepared build's cached detections and ground truth, then tune the
+remaining tracker parameters. The flag works with automatic preparation or
+an explicitly selected build.
 
 Calibration runs after build validation and before Ray and the search start.
 The five calibrated covariance scales, their timing settings, and the filter's
@@ -69,11 +92,9 @@ reference process-noise priors stay fixed throughout all 200 tracker trials.
 `adaptive_kf` also stays fixed for trackers that support it. No search-schema
 edits are needed.
 
-`--fps 2` checks the build's dataset sampling rate. It cannot resample a
-full-rate build during tuning; use the 2 FPS build prepared above. You can
-omit `--fps` to use the build's recorded rate automatically. Add
-`--variable-dt` to calibrate and predict using capture timestamps in seconds.
-Fixed-step mode remains the default.
+Add `--variable-dt` to calibrate and predict using capture timestamps in
+seconds. Fixed-step mode remains the default; `--fps` does not change the
+Kalman timing mode.
 
 The tuning directory contains `kf-tuning/calibrated.yaml` and
 `kf-tuning/calibration.json`. The first is the calibrated starting tracker
@@ -81,9 +102,9 @@ configuration; the second records the data and estimates used for calibration.
 The tuning result's `best.yaml` contains the selected tracker parameters with
 the fixed KF settings included. Evaluate that result on held-out sequences.
 
-To resume this search, use the same experiment and build with
-`--resume-tune <tuning-directory>`. The saved calibration is restored
-automatically. Combining `--calibrate-kf` with `--resume-tune` is rejected
+Resume with `--resume-tune <tuning-directory>`, using the same experiment or
+dataset selection and build. The saved calibration is restored automatically.
+Combining `--calibrate-kf` with `--resume-tune` is rejected
 because a fresh calibration would change the existing search.
 Resuming retains the original search space; start a new run to use updated
 search definitions, including the removal of KF search dimensions.

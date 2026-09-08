@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Iterator
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Mapping
 
 import click
@@ -124,12 +125,109 @@ def _require_experiment_input(experiment: str | None, command_name: str) -> str:
     return experiment
 
 
+def _require_replay_input(experiment: str | None, dataset: str | None, command_name: str) -> None:
+    """Require exactly one authored experiment or dataset for cached replay."""
+
+    if experiment and dataset:
+        raise click.UsageError(
+            f"{command_name} accepts either --dataset <dataset-id-or-yaml> or --experiment <experiment-yaml>, not both."
+        )
+    if not experiment and not dataset:
+        raise click.UsageError(
+            f"{command_name} requires either --dataset <dataset-id-or-yaml> or --experiment <experiment-yaml>."
+        )
+
+
+def _prepare_replay_build(
+    ctx: click.Context,
+    *,
+    mode: str,
+    experiment: str | None,
+    dataset: str | None,
+    detector: str | None,
+    reid: str | None,
+    build_ref: str | None,
+    build_root: Path | None,
+    device: str,
+    data_root: Path | None,
+    split: str | None,
+    tracker: str,
+    fps: float | None,
+    allow_noncanonical_build: bool = False,
+) -> tuple[str | None, str | None, str | Path]:
+    """Resolve replay inputs and reuse or create one canonical build before dispatch."""
+
+    from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
+    from boxmot.trackers.registry import get_tracker_definition
+
+    components = tuple(name for name, value in (("--detector", detector), ("--reid", reid)) if value)
+    if experiment and components:
+        names = " and ".join(components)
+        raise click.UsageError(
+            f"{names} cannot be combined with --experiment because experiment YAML fixes perception components."
+        )
+    if reid and not detector:
+        raise click.UsageError("--reid requires --detector when selecting perception components directly.")
+    if detector and not dataset:
+        raise click.UsageError("--detector requires --dataset when selecting perception components directly.")
+    if build_ref is None and dataset and not detector:
+        raise click.UsageError(
+            f"{mode} with --dataset requires --detector for automatic materialization, or --build to replay an "
+            "existing materialized build."
+        )
+    if build_ref is not None and _is_option_explicit(ctx, "device"):
+        raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
+    if build_ref is None and allow_noncanonical_build:
+        raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")
+
+    if detector is not None:
+        title = "Tuning" if mode == "tune" else "Evaluation"
+        with _workflow_setup(title, "Resolving experiment…"):
+            try:
+                experiment = str(
+                    resolve_matching_experiment_path(
+                        dataset=str(dataset), detector=detector, reid=reid, split=split, mode=mode
+                    )
+                )
+            except (ConfigurationError, FileNotFoundError) as exc:
+                raise click.UsageError(str(exc)) from exc
+        dataset = None
+
+    if build_ref is not None:
+        return experiment, dataset, build_ref
+
+    capabilities = get_tracker_definition(tracker).capabilities
+    materialize_args = _build_cli_namespace(
+        ctx,
+        "materialize",
+        {
+            "experiment": experiment,
+            "data_root": data_root,
+            "build_root": build_root,
+            "device": device,
+            "fps": fps,
+            "publish_image_refs": True,
+            "publish_masks": capabilities.requires_masks,
+            "publish_embeddings": capabilities.accepts_embeddings,
+            "plan_path": None,
+            "plan_overrides": (),
+            "resume": True,
+        },
+    )
+    materialize_args.materialize_split = split
+    materialize_args.materialize_mode = mode
+    build_ref = _run_engine_workflow("boxmot.engine.materialization.workflow", materialize_args)
+    return experiment, dataset, build_ref
+
+
 __all__ = (
     "_build_cli_namespace",
     "_dispatch_cli_workflow",
     "_explicit_cli_keys",
     "_is_option_explicit",
+    "_prepare_replay_build",
     "_require_experiment_input",
+    "_require_replay_input",
     "_run_engine_workflow",
     "_workflow_setup",
 )

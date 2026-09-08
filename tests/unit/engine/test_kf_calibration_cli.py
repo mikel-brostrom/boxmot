@@ -12,7 +12,6 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands import _support
-from boxmot.engine.commands import eval as eval_command
 from boxmot.engine.eval.evaluator import _tracker_options
 from boxmot.engine.tracking.workflow import _tracker_spec
 
@@ -49,7 +48,6 @@ def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_o
         pytest.fail("Removed search options must fail before materialization")
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
-    monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
         [mode, "--experiment", "fixture", "--build", "fixture-build", *flags, *removed_options],
@@ -69,15 +67,12 @@ def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode,
         pytest.fail("Unsupported trackers must fail before materialization")
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
-    monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
         [
             mode,
             "--experiment",
             "fixture",
-            "--build",
-            "fixture-build",
             "--calibrate-kf",
             "--tracker",
             tracker,
@@ -116,13 +111,14 @@ def test_kalman_calibration_dispatch_needs_no_search_dependencies(monkeypatch) -
 
 
 @pytest.mark.parametrize("tracker,backend", [("sfsort", "python"), ("botsort", "cpp")])
-def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, tracker, backend) -> None:
+@pytest.mark.parametrize("mode", ["eval", "tune"])
+def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, mode, tracker, backend) -> None:
     def unexpected_workflow(*args):
         pytest.fail("Unsupported timestamp modes must fail before materialization")
 
-    monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
+    monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
-        boxmot, ["eval", "--experiment", "fixture", "--tracker", tracker, "--tracker-backend", backend, "--variable-dt"]
+        boxmot, [mode, "--experiment", "fixture", "--tracker", tracker, "--tracker-backend", backend, "--variable-dt"]
     )
     assert result.exit_code == 2
     assert "does not support variable_dt" in result.output
@@ -311,7 +307,8 @@ def test_calibrated_config_rejects_conflicting_timing_override(tmp_path, mode, s
 
 
 @pytest.mark.parametrize("saved_mode, flag", [(False, "--variable-dt"), (True, "--fixed-dt")])
-def test_eval_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_path, saved_mode, flag) -> None:
+@pytest.mark.parametrize("mode", ["eval", "tune"])
+def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_path, mode, saved_mode, flag) -> None:
     path = tmp_path / "calibrated.yaml"
     path.write_text(
         yaml.safe_dump(
@@ -328,10 +325,9 @@ def test_eval_rejects_calibrated_unit_flip_before_materialization(monkeypatch, t
         pytest.fail("Conflicting calibration units must fail before materialization")
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
-    monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture", "--tracker-config", str(path), flag],
+        [mode, "--experiment", "fixture", "--tracker-config", str(path), flag],
     )
 
     assert result.exit_code == 2

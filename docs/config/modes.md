@@ -7,7 +7,7 @@ Shared tracking-workflow defaults live in `boxmot/configs/runtime.yaml`.
 `runtime.yaml` centralizes defaults for:
 
 - shared detector and ReID selections
-- runtime options such as `imgsz`, `device`, `batch_size`, and `n_threads`
+- runtime options such as `imgsz`, `device`, `batch_size`, and `sequence_workers`
 - command-specific defaults for `track`, `materialize`, `eval`, `tune`, and `research`
 
 ## Current shape

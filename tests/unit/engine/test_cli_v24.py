@@ -25,6 +25,10 @@ EXPECTED_COMMAND_ORDER = (
     "build",
 )
 EXPECTED_COMMANDS = set(EXPECTED_COMMAND_ORDER)
+CACHED_WORKFLOW_MODULES = {
+    "eval": "boxmot.engine.eval.evaluator",
+    "tune": "boxmot.engine.tuning.tuner",
+}
 
 
 def _command_options(command_name: str) -> dict[str, click.Option]:
@@ -226,16 +230,17 @@ def test_materialization_default_device_is_not_an_override(monkeypatch) -> None:
     assert "device" not in captured["args"].materialize_explicit_keys
 
 
-def test_cached_workflows_expose_build_requirements_and_eval_component_selectors() -> None:
+def test_cached_workflows_expose_build_requirements_and_component_selectors() -> None:
     for command in ("eval", "tune", "research"):
         options = _command_options(command)
         help_result = CliRunner().invoke(boxmot, [command, "--help"])
         assert help_result.exit_code == 0
         assert "--build TEXT" in help_result.output
-        assert options["build_ref"].required is (command != "eval")
-        if command == "eval":
+        assert options["build_ref"].required is (command == "research")
+        if command in {"eval", "tune"}:
             assert "--detector" in help_result.output
             assert "--reid" in help_result.output
+            assert "--device" in help_result.output
         else:
             assert "--detector" not in help_result.output
             assert "--reid" not in help_result.output
@@ -243,33 +248,70 @@ def test_cached_workflows_expose_build_requirements_and_eval_component_selectors
         assert "--conf" not in help_result.output
         assert "--postprocessing" not in help_result.output
         assert "--tracking-backend" not in help_result.output
+        assert "--n-threads" not in help_result.output
         if command in {"eval", "tune"}:
-            assert "--n-threads" in help_result.output
+            assert "--sequence-workers" in help_result.output
         else:
-            assert "--n-threads" not in help_result.output
-    eval_build_help = _command_options("eval")["build_ref"].help
-    assert eval_build_help is not None
-    assert "--experiment" in eval_build_help
-    assert "--detector" in eval_build_help
-    assert "materializ" in eval_build_help
+            assert "--sequence-workers" not in help_result.output
+    for command in ("eval", "tune"):
+        build_help = _command_options(command)["build_ref"].help
+        assert build_help is not None
+        assert "--experiment" in build_help
+        assert "--detector" in build_help
+        assert "materializ" in build_help
 
 
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command: str) -> None:
+    captured = {}
+    module = "boxmot.engine.eval.evaluator" if command == "eval" else "boxmot.engine.tuning.tuner"
+    monkeypatch.setitem(sys.modules, module, SimpleNamespace(main=lambda args: captured.setdefault("args", args)))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", "--sequence-workers", "3"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].sequence_workers == 3
+    assert not hasattr(captured["args"], "n_threads")
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
 @pytest.mark.parametrize(
-    ("command", "selector"),
-    (
-        ("tune", ("--experiment", "mot17/ablation-yolox-lmbn.yaml")),
-        ("research", ("--experiment", "mot17/ablation-yolox-lmbn.yaml")),
-    ),
+    "option, value, error",
+    [
+        ("--n-threads", "2", "No such option '--n-threads'"),
+        ("--sequence-workers", "0", "Invalid value for '--sequence-workers'"),
+        ("--sequence-workers", "-1", "Invalid value for '--sequence-workers'"),
+        ("--sequence-workers", "1.5", "Invalid value for '--sequence-workers'"),
+    ],
 )
-def test_cached_workflows_reject_missing_explicit_build(command: str, selector: tuple[str, str]) -> None:
-    result = CliRunner().invoke(boxmot, [command, *selector])
+def test_sequence_worker_options_fail_before_workflow_dispatch(monkeypatch, command, option, value, error) -> None:
+    calls = []
+    module = "boxmot.engine.eval.evaluator" if command == "eval" else "boxmot.engine.tuning.tuner"
+    monkeypatch.setitem(sys.modules, module, SimpleNamespace(main=lambda args: calls.append(args)))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", option, value],
+    )
+
+    assert result.exit_code == 2
+    assert error in result.output
+    assert calls == []
+
+
+def test_research_rejects_missing_explicit_build() -> None:
+    result = CliRunner().invoke(boxmot, ["research", "--experiment", "mot17/ablation-yolox-lmbn.yaml"])
 
     assert result.exit_code != 0
     assert "Missing option '--build'" in result.output
 
 
-def test_eval_dataset_without_build_requires_a_detector() -> None:
-    result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17"])
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_dataset_without_build_requires_a_detector(command: str) -> None:
+    result = CliRunner().invoke(boxmot, [command, "--dataset", "mot17"])
 
     assert result.exit_code == 2
     assert "--detector" in result.output
@@ -277,10 +319,11 @@ def test_eval_dataset_without_build_requires_a_detector() -> None:
 
 
 @pytest.mark.parametrize("option", ("--detector", "--reid"))
-def test_eval_experiment_rejects_direct_component_overrides(option: str) -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_experiment_rejects_direct_component_overrides(command: str, option: str) -> None:
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture-experiment", option, "component-profile"],
+        [command, "--experiment", "fixture-experiment", option, "component-profile"],
     )
 
     assert result.exit_code == 2
@@ -289,10 +332,11 @@ def test_eval_experiment_rejects_direct_component_overrides(option: str) -> None
     assert option in result.output
 
 
-def test_eval_reid_selection_requires_a_detector() -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_reid_selection_requires_a_detector(command: str) -> None:
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--dataset", "mot17", "--reid", "lmbn-n-duke"],
+        [command, "--dataset", "mot17", "--reid", "lmbn-n-duke"],
     )
 
     assert result.exit_code == 2
@@ -300,10 +344,11 @@ def test_eval_reid_selection_requires_a_detector() -> None:
     assert "--detector" in result.output
 
 
-def test_eval_direct_components_require_a_dataset() -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_direct_components_require_a_dataset(command: str) -> None:
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"],
+        [command, "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"],
     )
 
     assert result.exit_code == 2
@@ -312,23 +357,35 @@ def test_eval_direct_components_require_a_dataset() -> None:
 
 
 @pytest.mark.parametrize("fps", (None, 5.0, 2.5))
-def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_experiment(
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_direct_components_materialize_before_replaying_the_matching_authored_experiment(
     monkeypatch,
     tmp_path,
+    command: str,
     fps: float | None,
 ) -> None:
+    from boxmot.engine import experiment_config
+
     build_path = tmp_path / "builds" / ("b" * 64)
     calls = []
     captured = {}
+    resolution_modes = []
+    resolve = experiment_config.resolve_matching_experiment_path
+
+    def resolve_selection(**kwargs):
+        resolution_modes.append(kwargs["mode"])
+        return resolve(**kwargs)
+
+    monkeypatch.setattr(experiment_config, "resolve_matching_experiment_path", resolve_selection)
 
     def materialize_main(args):
         calls.append("materialize")
         captured["materialize"] = args
         return build_path
 
-    def eval_main(args):
-        calls.append("eval")
-        captured["eval"] = args
+    def replay_main(args):
+        calls.append(command)
+        captured[command] = args
 
     monkeypatch.setitem(
         sys.modules,
@@ -337,13 +394,13 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
     )
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
-        SimpleNamespace(main=eval_main),
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=replay_main),
     )
     result = CliRunner().invoke(
         boxmot,
         [
-            "eval",
+            command,
             "--dataset",
             "mot17",
             "--split",
@@ -359,7 +416,8 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
     )
 
     assert result.exit_code == 0, result.output
-    assert calls == ["materialize", "eval"]
+    assert calls == ["materialize", command]
+    assert resolution_modes == [command]
     expected_experiment = (EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml").resolve()
     for args in captured.values():
         assert resolve_experiment_path(args.experiment) == expected_experiment
@@ -369,20 +427,24 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
         assert args.fps == fps
     materialize_args = captured["materialize"]
     assert materialize_args.materialize_split == "ablation"
-    assert materialize_args.materialize_mode == "eval"
+    assert materialize_args.materialize_mode == command
     assert materialize_args.publish_image_refs is True
     assert materialize_args.publish_masks is False
     assert materialize_args.publish_embeddings is True
     assert materialize_args.resume is True
     assert "device" not in materialize_args.materialize_explicit_keys
     assert ("fps" in materialize_args.materialize_explicit_keys) is (fps is not None)
-    eval_args = captured["eval"]
-    assert eval_args.build == build_path
-    assert eval_args.split == "ablation"
-    assert eval_args.tracker == "botsort"
+    replay_args = captured[command]
+    assert replay_args.build == build_path
+    assert replay_args.split == "ablation"
+    assert replay_args.tracker == "botsort"
 
 
-def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("calibrate_kf", (False, True))
+def test_without_build_materializes_experiment_once_before_replay(
+    monkeypatch, tmp_path, command: str, calibrate_kf: bool
+) -> None:
     build_path = tmp_path / "builds" / ("a" * 64)
     calls = []
     captured = {}
@@ -392,9 +454,9 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
         captured["materialize"] = args
         return build_path
 
-    def eval_main(args):
-        calls.append("eval")
-        captured["eval"] = args
+    def replay_main(args):
+        calls.append(command)
+        captured[command] = args
 
     monkeypatch.setitem(
         sys.modules,
@@ -403,8 +465,8 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
     )
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
-        SimpleNamespace(main=eval_main),
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=replay_main),
     )
 
     data_root = tmp_path / "data"
@@ -412,7 +474,7 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
     result = CliRunner().invoke(
         boxmot,
         [
-            "eval",
+            command,
             "--experiment",
             "fixture-experiment",
             "--data-root",
@@ -421,29 +483,34 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
             str(build_root),
             "--split",
             "ablation",
+            *(["--n-trials", "200"] if command == "tune" else []),
+            *(["--calibrate-kf"] if calibrate_kf else []),
         ],
     )
 
     assert result.exit_code == 0, result.output
-    assert calls == ["materialize", "eval"]
+    assert calls == ["materialize", command]
     materialize_args = captured["materialize"]
     assert materialize_args.experiment == "fixture-experiment"
     assert materialize_args.data_root == data_root
     assert materialize_args.build_root == build_root
     assert materialize_args.materialize_split == "ablation"
-    assert materialize_args.materialize_mode == "eval"
+    assert materialize_args.materialize_mode == command
     assert materialize_args.publish_image_refs is True
     assert materialize_args.publish_masks is False
     assert materialize_args.publish_embeddings is False
     assert materialize_args.resume is True
     assert "device" not in materialize_args.materialize_explicit_keys
-    eval_args = captured["eval"]
-    assert eval_args.build == build_path
-    assert isinstance(eval_args.build, Path)
-    assert eval_args.build_root == build_root
-    assert eval_args.data_root == data_root
-    assert eval_args.experiment == "fixture-experiment"
-    assert eval_args.split == "ablation"
+    replay_args = captured[command]
+    assert replay_args.build == build_path
+    assert isinstance(replay_args.build, Path)
+    assert replay_args.build_root == build_root
+    assert replay_args.data_root == data_root
+    assert replay_args.experiment == "fixture-experiment"
+    assert replay_args.split == "ablation"
+    assert replay_args.calibrate_kf is calibrate_kf
+    if command == "tune":
+        assert replay_args.n_trials == 200
 
 
 @pytest.mark.parametrize(
@@ -453,9 +520,11 @@ def test_eval_without_build_materializes_experiment_then_evaluates(monkeypatch, 
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )
-def test_eval_forwards_explicit_automatic_materialization_device(
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_forwards_explicit_automatic_materialization_device(
     monkeypatch,
     tmp_path,
+    command: str,
     selection: tuple[str, ...],
 ) -> None:
     captured = {}
@@ -472,13 +541,13 @@ def test_eval_forwards_explicit_automatic_materialization_device(
     )
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
-        SimpleNamespace(main=lambda args: captured.setdefault("eval", args)),
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=lambda args: captured.setdefault(command, args)),
     )
 
     result = CliRunner().invoke(
         boxmot,
-        ["eval", *selection, "--device", "mps"],
+        [command, *selection, "--device", "mps"],
     )
 
     assert result.exit_code == 0, result.output
@@ -493,11 +562,12 @@ def test_eval_forwards_explicit_automatic_materialization_device(
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )
-def test_eval_rejects_materialization_device_with_explicit_build(selection: tuple[str, ...]) -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_rejects_materialization_device_with_explicit_build(command: str, selection: tuple[str, ...]) -> None:
     result = CliRunner().invoke(
         boxmot,
         [
-            "eval",
+            command,
             *selection,
             "--build",
             "a" * 64,
@@ -519,9 +589,11 @@ def test_eval_rejects_materialization_device_with_explicit_build(selection: tupl
         ("sfsort", False, False),
     ),
 )
-def test_eval_automatic_materialization_publishes_tracker_compatible_artifacts(
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     monkeypatch,
     tmp_path,
+    command: str,
     tracker: str,
     publish_masks: bool,
     publish_embeddings: bool,
@@ -540,13 +612,13 @@ def test_eval_automatic_materialization_publishes_tracker_compatible_artifacts(
     )
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
-        SimpleNamespace(main=lambda args: captured.setdefault("eval", args)),
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=lambda args: captured.setdefault(command, args)),
     )
 
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture-experiment", "--tracker", tracker],
+        [command, "--experiment", "fixture-experiment", "--tracker", tracker],
     )
 
     assert result.exit_code == 0, result.output
@@ -573,8 +645,10 @@ def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )
-def test_eval_does_not_start_after_automatic_materialization_fails(
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_replay_does_not_start_after_automatic_materialization_fails(
     monkeypatch,
+    command: str,
     selection: tuple[str, ...],
 ) -> None:
     evaluated = []
@@ -589,11 +663,11 @@ def test_eval_does_not_start_after_automatic_materialization_fails(
     )
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
+        CACHED_WORKFLOW_MODULES[command],
         SimpleNamespace(main=lambda args: evaluated.append(args)),
     )
 
-    result = CliRunner().invoke(boxmot, ["eval", *selection])
+    result = CliRunner().invoke(boxmot, [command, *selection])
 
     assert result.exit_code == 1
     assert isinstance(result.exception, RuntimeError)
@@ -601,11 +675,12 @@ def test_eval_does_not_start_after_automatic_materialization_fails(
     assert evaluated == []
 
 
-def test_eval_requires_exactly_one_dataset_or_experiment_selector() -> None:
-    missing = CliRunner().invoke(boxmot, ["eval", "--build", "build-id"])
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_replay_requires_exactly_one_dataset_or_experiment_selector(command: str) -> None:
+    missing = CliRunner().invoke(boxmot, [command, "--build", "build-id"])
     conflicting = CliRunner().invoke(
         boxmot,
-        ["eval", "--dataset", "mot17", "--experiment", "experiment", "--build", "build-id"],
+        [command, "--dataset", "mot17", "--experiment", "experiment", "--build", "build-id"],
     )
 
     assert missing.exit_code != 0
@@ -614,12 +689,11 @@ def test_eval_requires_exactly_one_dataset_or_experiment_selector() -> None:
     assert "accepts either --dataset" in conflicting.output
 
 
-@pytest.mark.parametrize("command", ("tune", "research"))
-def test_experiment_only_cached_workflows_reject_dataset_or_missing_experiment(command: str) -> None:
-    missing = CliRunner().invoke(boxmot, [command, "--build", "build-id"])
+def test_research_rejects_dataset_or_missing_experiment() -> None:
+    missing = CliRunner().invoke(boxmot, ["research", "--build", "build-id"])
     dataset_override = CliRunner().invoke(
         boxmot,
-        [command, "--dataset", "mot17", "--build", "build-id"],
+        ["research", "--dataset", "mot17", "--build", "build-id"],
     )
 
     assert missing.exit_code != 0
@@ -629,11 +703,14 @@ def test_experiment_only_cached_workflows_reject_dataset_or_missing_experiment(c
 
 
 @pytest.mark.parametrize("direct_components", (False, True))
-def test_eval_dispatches_explicit_build(monkeypatch, direct_components: bool) -> None:
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_replay_dispatches_explicit_build_without_materialization(
+    monkeypatch, command: str, direct_components: bool
+) -> None:
     captured = {}
     monkeypatch.setitem(
         sys.modules,
-        "boxmot.engine.eval.evaluator",
+        CACHED_WORKFLOW_MODULES[command],
         SimpleNamespace(main=lambda args: captured.setdefault("args", args)),
     )
     monkeypatch.setitem(
@@ -646,11 +723,12 @@ def test_eval_dispatches_explicit_build(monkeypatch, direct_components: bool) ->
     if direct_components:
         selection.extend(("--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"))
 
-    result = CliRunner().invoke(boxmot, ["eval", *selection])
+    result = CliRunner().invoke(boxmot, [command, *selection])
 
     assert result.exit_code == 0, result.output
     assert captured["args"].build == "build-0123456789abcdef01234567"
-    assert captured["args"].allow_noncanonical_build is False
+    if command == "eval":
+        assert captured["args"].allow_noncanonical_build is False
     if direct_components:
         assert (
             resolve_experiment_path(captured["args"].experiment)

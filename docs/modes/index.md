@@ -10,7 +10,7 @@ logic.
 | `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
 | `time-variant` | Derive a timestamped frame-loss dataset using cached perception | dataset, sequence, and `--build` |
 | `eval` | Materialize/replay a build and calculate MOT metrics | experiment (filename or component shorthand), or dataset plus `--build` |
-| `tune` | Optimize tracker parameters against a build | experiment plus `--build` |
+| `tune` | Prepare/replay a build and optimize tracker parameters | experiment (filename or component shorthand), or dataset plus `--build` |
 | `research` | Score proposed tracker changes against a build | experiment plus `--build` |
 | `train-reid` | Train a reusable appearance backbone | ReID dataset/config |
 | `eval-reid` | Evaluate query/gallery retrieval | checkpoint and ReID dataset |
@@ -34,12 +34,12 @@ sends each `(frame, result)` pair to configured sinks.
 
 ## Reproducible benchmark workflow
 
-Perception runs once during materialization. Eval can perform that deterministic
-step automatically; tune and research consume the resulting explicit build:
+Perception runs once during materialization. Eval and tune can perform that
+deterministic step automatically; research consumes an explicit build:
 
 ```bash
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
-boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml
 boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 

@@ -121,7 +121,7 @@ def test_cached_kalman_calibration_runs_no_tracker_until_final_evaluation(monkey
         remapped_class_ids=[1],
         remapped_class_names=["person"],
         compare_trackeval=False,
-        n_threads=1,
+        sequence_workers=1,
     )
 
     calibration = calibrate_kalman(args, output_dir=tmp_path / "calibration")

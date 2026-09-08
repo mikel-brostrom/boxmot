@@ -353,11 +353,11 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
         tracker_items.append(("Name", tracker))
     if tracker_backend:
         tracker_items.append(("Backend", tracker_backend))
-    n_threads = getattr(args, "n_threads", None)
-    if n_threads is not None:
+    sequence_workers = getattr(args, "sequence_workers", None)
+    if sequence_workers is not None:
         sequence_info = getattr(args, "seq_info", None)
         sequence_count = len(sequence_info) if isinstance(sequence_info, Mapping) else 0
-        active_processes = min(int(n_threads), sequence_count) if sequence_count else int(n_threads)
+        active_processes = min(int(sequence_workers), sequence_count) if sequence_count else int(sequence_workers)
         tracker_items.append(("Processes", active_processes))
     if cmc_method not in {None, "", "none"}:
         tracker_items.append(("CMC", cmc_method))

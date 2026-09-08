@@ -79,8 +79,8 @@ def test_materialize_guide_documents_build_workflow() -> None:
 
     assert "boxmot materialize" in content
     assert "--build BUILD_ID" in content
-    assert "never selects a “latest” build" in content
-    assert "run canonical materialization automatically" in content
+    assert "Neither command selects a “latest” build." in content
+    assert "prepare or reuse a canonical build automatically" in " ".join(content.split())
     assert ":command: materialize" in content
 
 

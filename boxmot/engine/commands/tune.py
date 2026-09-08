@@ -9,17 +9,16 @@ from typing import Any
 import click
 
 from boxmot.engine.commands._options import (
-    build_selection_options,
     data_root_option,
     dataset_fps_option,
-    experiment_option,
     kalman_calibration_option,
+    replay_build_options,
     replay_options,
     split_option,
     tracker_backend_option,
     tracker_config_option,
 )
-from boxmot.engine.commands._support import _dispatch_cli_workflow, _require_experiment_input
+from boxmot.engine.commands._support import _dispatch_cli_workflow, _prepare_replay_build, _require_replay_input
 from boxmot.engine.config import BOXMOT_DEFAULTS
 
 _TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
@@ -155,8 +154,7 @@ def _tune_options(func):
 
 
 @click.command(cls=TuneCommand, help="Tune models via evolutionary algorithms")
-@experiment_option
-@build_selection_options
+@replay_build_options()
 @data_root_option
 @split_option
 @dataset_fps_option
@@ -169,33 +167,53 @@ def _tune_options(func):
 def tune(
     ctx: click.Context,
     experiment: str | None,
-    build_ref: str,
+    dataset: str | None,
+    detector: str | None,
+    reid: str | None,
+    build_ref: str | None,
     build_root: Path | None,
+    device: str,
     data_root: Path | None,
     split: str | None,
     calibrate_kf: bool,
     **kwargs: Any,
 ) -> None:
-    """Tune a tracker against an immutable materialized build."""
+    """Prepare one reusable perception build, then tune tracker parameters."""
 
-    experiment = _require_experiment_input(experiment, "tune")
-    if calibrate_kf:
-        if kwargs.get("resume_tune"):
-            raise click.UsageError(
-                "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
-            )
+    _require_replay_input(experiment, dataset, "tune")
+    if calibrate_kf and kwargs.get("resume_tune"):
+        raise click.UsageError(
+            "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
+        )
+    if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.tracker_config import resolve_tracker_options
         from boxmot.engine.tuning.kalman import validate_kf_calibration
         from boxmot.trackers.specs import parse_tracker_spec
 
         try:
             tracker_spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])
-            validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
+            if calibrate_kf:
+                validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
             resolve_tracker_options(
                 SimpleNamespace(**{**kwargs, "tracker": tracker_spec.name, "tracker_backend": tracker_spec.backend})
             )
         except (TypeError, ValueError, FileNotFoundError) as exc:
             raise click.UsageError(str(exc)) from exc
+    experiment, dataset, build_ref = _prepare_replay_build(
+        ctx,
+        mode="tune",
+        experiment=experiment,
+        dataset=dataset,
+        detector=detector,
+        reid=reid,
+        build_ref=build_ref,
+        build_root=build_root,
+        device=device,
+        data_root=data_root,
+        split=split,
+        tracker=str(kwargs["tracker"]),
+        fps=kwargs.get("fps"),
+    )
     _dispatch_cli_workflow(
         ctx,
         "tune",
@@ -204,8 +222,10 @@ def tune(
             **kwargs,
             "calibrate_kf": calibrate_kf,
             "experiment": experiment,
+            "dataset": dataset,
             "build": build_ref,
             "build_root": build_root,
+            "device": device,
             "data_root": data_root,
             "source": None,
             "benchmark": "",

@@ -17,7 +17,7 @@ def _args(tmp_path, **overrides):
             "dataset_id": "fixture",
             "experiment_id": None,
             "geometry": "aabb",
-            "n_threads": 3,
+            "sequence_workers": 3,
             "seq_info": {"sequence": 2},
             "sequence_names": None,
             "split": "validation",

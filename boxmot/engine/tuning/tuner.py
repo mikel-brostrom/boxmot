@@ -295,8 +295,8 @@ class Tuner:
                 def tune_wrapper(cfg):
                     return objective(normalize_trial_config(cfg))
 
-                n_threads = int(args.n_threads)
-                trainable = tune.with_resources(tune_wrapper, {"cpu": n_threads, "gpu": 0})
+                sequence_workers = int(args.sequence_workers)
+                trainable = tune.with_resources(tune_wrapper, {"cpu": sequence_workers, "gpu": 0})
 
                 # Build or restore the Ray Tuner
                 tuner = self._build_or_restore_tuner(
