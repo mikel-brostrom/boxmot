@@ -10,9 +10,9 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
+from boxmot.engine import experiment_config
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands import _support
-from boxmot.engine.commands import eval as eval_command
 from boxmot.engine.ui.core import ui
 from boxmot.utils.config import ConfigurationError
 
@@ -93,17 +93,21 @@ def test_setup_does_not_add_output_to_non_terminal_commands(monkeypatch) -> None
     assert output.getvalue() == ""
 
 
-def test_eval_shows_setup_before_resolving_components_and_preserves_usage_errors(monkeypatch) -> None:
+@pytest.mark.parametrize(("command", "title"), (("eval", "Evaluation"), ("tune", "Tuning")))
+def test_replay_shows_setup_before_resolving_components_and_preserves_usage_errors(
+    monkeypatch, command: str, title: str
+) -> None:
     console, output = _console(monkeypatch)
 
     def resolve(**_kwargs):
         assert "Resolving experiment" in output.getvalue()
         assert "Setup" in output.getvalue()
+        assert title in output.getvalue()
         assert len(console._live_stack) == 1
         raise ConfigurationError("No matching authored experiment")
 
-    monkeypatch.setattr(eval_command, "resolve_matching_experiment_path", resolve)
-    result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17", "--detector", "missing"])
+    monkeypatch.setattr(experiment_config, "resolve_matching_experiment_path", resolve)
+    result = CliRunner().invoke(boxmot, [command, "--dataset", "mot17", "--detector", "missing"])
 
     assert result.exit_code == 2, result.output
     assert "No matching authored experiment" in result.output
