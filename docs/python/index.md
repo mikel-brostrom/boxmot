@@ -79,8 +79,8 @@ tracker.reset()
 The public method preserves the input representation:
 
 ```text
-update(detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks
-update(detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray
+update(detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None) -> Tracks
+update(detections: np.ndarray, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None) -> np.ndarray
 ```
 
 The optional `frame` accepts a canonical `Frame` or a NumPy image. NumPy images
@@ -119,6 +119,94 @@ Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
 required by the algorithm; the direct update boundary can satisfy it from
 either attached embeddings or a supplied `Frame` or NumPy image.
+
+### Elapsed time
+
+Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
+motion behavior used by established benchmarks and tuning. Timestamps remain
+metadata in this mode; supplying them does not enable variable timing.
+
+Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
+and OccluBoost offer an experimental seconds-based mode. Enable it explicitly
+when constructing the tracker:
+
+```python
+tracker = create_tracker(
+    TrackerSpec(
+        name="bytetrack",
+        backend="python",
+        options=(("variable_dt", True),),
+    )
+)
+tracks = tracker.update(detections, frame=frame)
+```
+
+The tracker then derives elapsed seconds internally from `Frame.timestamp_s`.
+For detections-only calls or NumPy images, supply the capture timestamp in
+seconds with `tracker.update(detections, timestamp_s=12.04)`. Use one timestamp
+source: passing this keyword together with a timestamp-bearing `Frame` raises
+an error.
+
+The first timestamp anchors the clock; later updates use the difference from
+the preceding timestamp. Timestamps must be finite and increase strictly,
+including on updates with no detections. Variable timing requires timestamps
+on every update, starting with the first. `tracker.reset()` clears the clock
+for a new sequence. The tracker does not infer capture intervals from
+wall-clock time, since processing and network delays do not describe object
+motion.
+
+The `track`, `eval`, and `tune` commands accept `--variable-dt` to enable the
+experimental mode, or `--fixed-dt` to select fixed steps explicitly. Omitting
+both flags preserves the tracker YAML setting, which defaults to fixed steps.
+Tuning holds this mode constant, records it with the tuned configuration, and
+requires the same timing settings when resuming a run. Saved configurations
+declare `kf_time_unit: frames` or `kf_time_unit: seconds`; an override that
+conflicts with those units is rejected. Untuned defaults use `kf_time_unit: null`
+to resolve the units from the chosen mode. Video sources provide media
+timestamps, falling back to the
+nominal frame rate when timestamps are unavailable or stop advancing and that
+rate is known.
+
+The five Python Kalman filters (`xyah`, `xywh`, `xysr`, `xyscr`, and `xyhr`)
+retain the optional `dt` in their low-level `predict`, `multi_predict`, and
+`predict_state` methods. The tracker supplies this interval internally, updates
+the transition matrix, and integrates process covariance over the entire
+capture interval. A larger capture gap therefore changes both predicted
+motion and uncertainty without using processing time. A filter configured
+for seconds requires an explicit measured interval in these low-level methods;
+the reference interval never substitutes for a missing capture interval.
+
+The seconds-based mode converts historic per-frame priors using the fixed
+reference interval `h = kf_reference_dt_s`, which defaults to `1/30` second.
+This is the basis of the original noise priors, not a measured source frame
+interval. The conversion is:
+
+| Reference prior | Seconds-based value before tuning multipliers |
+| --- | --- |
+| Position process covariance `Q_position` per reference frame | Position noise density `Q_position / h` |
+| Velocity process covariance `Q_velocity` per reference frame | Velocity noise density `Q_velocity / h³` |
+| Initial velocity covariance `P_velocity` | `P_velocity / h²` |
+| Initial position covariance and measurement covariance `R` | Unchanged |
+
+The converted process values define continuous noise densities. Integrating
+velocity noise also contributes to position covariance and position–velocity
+cross-covariance, so prediction at the reference interval does not reproduce
+the legacy discrete process covariance exactly.
+
+Five independent, dimensionless multipliers then calibrate position and
+velocity process noise, measurement noise, and initial position and velocity
+covariance. They default to `1.0`. [Kalman calibration](../modes/eval.md#kalman-calibration)
+and joint `tune` share the tracker YAML's logarithmic search ranges. Timing
+mode, units, and reference interval remain fixed while noise is tuned.
+Unit conversion provides coherent priors; it does not guarantee that existing
+benchmark accuracy transfers without calibration and held-out evaluation.
+
+SFSORT, SAM2, and native C++ tracker adapters reject `variable_dt=True` and
+retain fixed-step behavior. Native C++ elapsed-time prediction is not
+implemented. Track expiration and confirmation settings such as `max_age`,
+`track_buffer`, and `min_hits`
+remain counts of updates; elapsed-time prediction does not turn them into
+durations.
 
 ### Live embeddings in ReID-enabled trackers
 
@@ -253,6 +341,41 @@ For service or cached inputs, construct a pipeline with `detector=None` and call
 `step_detections(frame, detections)`. Both entry points use the same enrichment
 and runtime-validation path. A `PipelineResult` has exactly two fields:
 `detections` and `tracks`.
+
+### Capture timestamps
+
+Enable `variable_dt` on the tracker and pass timestamp-bearing frames to the
+pipeline normally. The tracker derives prediction intervals internally.
+Here, `samples` contains consecutive `(Frame, Detections)` pairs with capture
+timestamps:
+
+```python
+pipeline = TrackingPipeline(
+    detector=None,
+    tracker=create_tracker(
+        TrackerSpec(
+            name="bytetrack",
+            backend="python",
+            options=(("variable_dt", True),),
+        )
+    ),
+)
+for frame, detections in samples:
+    result = pipeline.step_detections(frame, detections)
+pipeline.reset()
+```
+
+Every frame must have a finite timestamp, strictly increasing within the
+sequence, including frames without detections. The first frame establishes
+the clock; later frames use the difference from the preceding timestamp.
+`reset()` clears the clock along with tracker state. Use capture or media
+timestamps rather than processing or network arrival times.
+
+The same behavior applies to `step(frame)` when the pipeline owns a detector.
+No pipeline timing option or interval argument is needed. With the default
+`variable_dt=False`, timestamps are metadata and prediction uses fixed steps.
+Variable timing requires one of the [supported Python trackers](#elapsed-time)
+and timestamps on every frame.
 
 ## Materialized datasets
 

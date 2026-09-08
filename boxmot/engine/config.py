@@ -14,7 +14,7 @@ import yaml
 from boxmot.configs import CONFIG_ROOT
 from boxmot.trackers.specs import parse_tracker_spec
 
-RUNTIME_MODES = frozenset({"track", "materialize", "eval", "tune", "research"})
+RUNTIME_MODES = frozenset({"track", "materialize", "time-variant", "eval", "tune", "research"})
 RUNTIME_DEFAULTS_PATH = CONFIG_ROOT / "runtime.yaml"
 
 
@@ -90,6 +90,7 @@ def build_mode_namespace(
                 "data_root",
                 "device",
                 "experiment",
+                "fps",
                 "plan_overrides",
                 "plan_path",
                 "publish_embeddings",
@@ -103,6 +104,12 @@ def build_mode_namespace(
             if values.get(path_key) is not None:
                 values[path_key] = Path(values[path_key])
         values["materialize_explicit_keys"] = tuple(sorted(explicit & allowed_keys))
+    elif normalized_mode == "time-variant":
+        allowed_keys = frozenset({"dataset", "split", "sequence", "build", "build_root", "data_root", "name", "seed"})
+        values = {key: value for key, value in values.items() if key in allowed_keys}
+        for path_key in ("data_root", "build_root"):
+            if values.get(path_key) is not None:
+                values[path_key] = Path(values[path_key])
     elif normalized_mode in RUNTIME_MODES:
         if normalized_mode == "track":
             values["detector"] = values.get("detector", DEFAULT_DETECTOR)
@@ -182,7 +189,7 @@ class SharedModeDefaults:
 @dataclass(frozen=True, slots=True)
 class RuntimeModeDefaults:
     imgsz: Any
-    fps: int | None
+    fps: float | None
     conf: float | None
     iou: float
     device: str

@@ -1,8 +1,11 @@
 from collections import deque
-from typing import Optional, Tuple, Union
+from numbers import Real
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 import scipy.linalg
+
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 
 """
 Table for the 0.95 quantile of the chi-square distribution with N degrees of
@@ -36,7 +39,11 @@ class BaseKalmanFilter:
         motion_mat: Optional[np.ndarray] = None,
         update_mat: Optional[np.ndarray] = None,
         max_obs: int = 50,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
+        if noise_config is not None and not isinstance(noise_config, KalmanNoiseConfig):
+            raise TypeError("noise_config must be a KalmanNoiseConfig object.")
+        self.noise_config = KalmanNoiseConfig() if noise_config is None else noise_config
         self.ndim = ndim
         self.dim_z = dim_z if dim_z is not None else ndim
         self.dim_x = dim_x if dim_x is not None else 2 * self.ndim
@@ -48,25 +55,17 @@ class BaseKalmanFilter:
             if motion_mat is not None
             else self._default_motion_matrix(self.dim_x, self.dim_z)
         )
-        self._update_mat = (
-            update_mat.astype(float).copy()
-            if update_mat is not None
-            else np.eye(self.dim_z, self.dim_x)
-        )
+        self._update_mat = update_mat.astype(float).copy() if update_mat is not None else np.eye(self.dim_z, self.dim_x)
         self.F = self._motion_mat.copy()
         self.H = self._update_mat.copy()
 
         # Motion and observation uncertainty weights.
-        self._std_weight_position = getattr(
-            type(self), '_tuned_std_weight_position', 1.0 / 20
-        )
-        self._std_weight_velocity = getattr(
-            type(self), '_tuned_std_weight_velocity', 1.0 / 160
-        )
+        self._std_weight_position = getattr(type(self), "_tuned_std_weight_position", 1.0 / 20)
+        self._std_weight_velocity = getattr(type(self), "_tuned_std_weight_velocity", 1.0 / 160)
 
         # Stateful Kalman filter members used by matrix-based subclasses.
         self.x = np.zeros((self.dim_x, 1))
-        self.P = np.eye(self.dim_x)
+        self.P = self.noise_config.initial_covariance(np.eye(self.dim_x), self.dim_z)
         self.Q = np.eye(self.dim_x)
         self.R = np.eye(self.dim_z)
         self.B = None
@@ -91,6 +90,15 @@ class BaseKalmanFilter:
         self.observed = False
         self.last_measurement = None
 
+        # These records belong to stateful tracks. Stateless/batch prediction
+        # never changes timing on a filter shared by several tracks.
+        self._time_aware = False
+        self._last_observed_measurement = None
+        self._prediction_origin = None
+        self._prediction_steps = []
+        self._prediction_history_overflowed = False
+        self._unrecorded_prediction = False
+
     @staticmethod
     def _default_motion_matrix(dim_x: int, dim_z: int) -> np.ndarray:
         """Build a simple constant-velocity transition matrix."""
@@ -99,6 +107,142 @@ class BaseKalmanFilter:
         for i in range(velocity_dims):
             motion_mat[i, dim_z + i] = 1.0
         return motion_mat
+
+    @staticmethod
+    def validate_dt(dt: float | None) -> float | None:
+        """Validate an elapsed interval without accepting booleans or arrays."""
+        if dt is None:
+            return None
+        if isinstance(dt, (bool, np.bool_)) or not isinstance(dt, Real):
+            raise ValueError("dt must be a finite, strictly positive real scalar")
+        try:
+            dt = float(dt)
+        except OverflowError as error:
+            raise ValueError("dt must be a finite, strictly positive real scalar") from error
+        if not np.isfinite(dt) or dt <= 0.0:
+            raise ValueError("dt must be a finite, strictly positive real scalar")
+        return dt
+
+    def _motion_generator(self, motion_mat: np.ndarray | None = None) -> np.ndarray:
+        """Return A for the configured constant-velocity model, where A² = 0."""
+        motion_mat = self._motion_mat if motion_mat is None else motion_mat
+        return (motion_mat - np.eye(self.dim_x)) / self.dt
+
+    def _validate_prediction_dt(self, dt: float | None) -> float | None:
+        """Require a measured interval when state velocities use seconds."""
+        dt = self.validate_dt(dt)
+        if dt is None and self.noise_config.time_unit == "seconds":
+            raise ValueError("A Kalman filter configured in seconds requires an explicit measured dt for prediction.")
+        return dt
+
+    def _elapsed_motion(
+        self,
+        noise: np.ndarray,
+        dt: float | None,
+        *,
+        motion_mat: np.ndarray | None = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Build F(dt) and integrate continuous process noise over the interval.
+
+        With an explicit interval, calibrated baseline noise becomes a spectral
+        density L in the configured time unit. Seconds convert frame priors
+        using the fixed reference interval independently of measured dt.
+        Integrating (I + t A) L (I + t A).T from zero to dt gives
+        dt L + dt²/2 (A L + L A.T) + dt³/3 A L A.T. This preserves
+        positive semidefiniteness and composes over successive intervals for
+        constant L. Noise may also contain a leading batch dimension.
+        Omitting dt retains the configured discrete, fixed-step model.
+        """
+        dt = self._validate_prediction_dt(dt)
+        motion_mat = self._motion_mat if motion_mat is None else motion_mat
+        noise = self.noise_config.process_covariance(noise, self.dim_z, continuous=dt is not None)
+        if dt is None:
+            return motion_mat, noise
+        generator = self._motion_generator(motion_mat)
+        try:
+            with np.errstate(over="raise", invalid="raise"):
+                left = generator @ noise
+                noise = dt * noise + (dt**2 / 2.0) * (left + noise @ generator.T) + (dt**3 / 3.0) * (left @ generator.T)
+                motion_mat = np.eye(self.dim_x) + dt * generator
+        except (FloatingPointError, OverflowError) as error:
+            raise ValueError("dt produces an unrepresentable motion covariance") from error
+        return motion_mat, noise
+
+    def _remember_observation(self, measurement: np.ndarray) -> None:
+        """Retain one real observation as the origin for timed gap replay."""
+        self._last_observed_measurement = measurement.copy()
+        self._prediction_origin = None
+        self._prediction_steps.clear()
+        self._prediction_history_overflowed = False
+        self._unrecorded_prediction = False
+
+    def _record_prediction(
+        self,
+        interval: float,
+        transition: np.ndarray,
+        noise: np.ndarray,
+        control: np.ndarray | None,
+    ) -> None:
+        """Keep actual prediction models between observations for gap replay."""
+        if self._last_observed_measurement is None or self._prediction_history_overflowed:
+            return
+        if self.max_obs is not None and len(self._prediction_steps) >= self.max_obs:
+            # An overlong gap cannot be reconstructed with bounded history.
+            # Keep the current prediction and correct the recovery directly.
+            self._prediction_origin = None
+            self._prediction_steps.clear()
+            self._prediction_history_overflowed = True
+            return
+        if not self._prediction_steps:
+            self._prediction_origin = (self.x.copy(), self.P.copy())
+        self._prediction_steps.append((interval, transition.copy(), noise.copy(), control))
+
+    def transform_timed_history(
+        self,
+        transform_state: Callable[[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray]],
+        transform_measurement: Callable[[np.ndarray], np.ndarray],
+    ) -> None:
+        """Move replay's origin into the current camera coordinates.
+
+        Reuse the track's state/covariance and measurement transforms so timed
+        replay has the same camera compensation as its live Kalman state.
+        """
+        if self._last_observed_measurement is not None:
+            self._last_observed_measurement = transform_measurement(self._last_observed_measurement)
+        if self._prediction_origin is not None:
+            self._prediction_origin = transform_state(*self._prediction_origin)
+
+    def _replay_timed_observations(
+        self,
+        measurement: np.ndarray,
+        R: Optional[np.ndarray] = None,
+        H: Optional[np.ndarray] = None,
+    ) -> None:
+        """Reconstruct missing observations at their actual elapsed intervals.
+
+        Subclasses supply geometry interpolation and correction hooks. The
+        recovery measurement is left for the caller to correct exactly once.
+        Separate prediction records avoid duplicate observation-history entries
+        affecting elapsed time in observation-centric filters.
+        """
+        if self._prediction_origin is None or len(self._prediction_steps) < 2:
+            return
+        self.x, self.P = (value.copy() for value in self._prediction_origin)
+        total = sum(step[0] for step in self._prediction_steps)
+        elapsed = 0.0
+        for index, (interval, transition, noise, control) in enumerate(self._prediction_steps):
+            self.x = transition @ self.x
+            if control is not None:
+                self.x = self.x + control
+            self.P = self._alpha_sq * (transition @ self.P @ transition.T) + noise
+            self.x_prior, self.P_prior = self.x.copy(), self.P.copy()
+            self._enforce_state_constraints()
+            elapsed += interval
+            if index < len(self._prediction_steps) - 1:
+                interpolated = self._interpolate_observation(
+                    self._last_observed_measurement, measurement, elapsed / total
+                )
+                self._correct_observation(interpolated, R=R, H=H)
 
     def _resolve_matrix(self, matrix: Optional[np.ndarray], fallback: np.ndarray) -> np.ndarray:
         return matrix if matrix is not None else fallback
@@ -194,9 +338,7 @@ class BaseKalmanFilter:
         return projected_mean, projected_cov, measurements
 
     @staticmethod
-    def _gating_from_residuals(
-        residuals: np.ndarray, covariance: np.ndarray, metric: str
-    ) -> np.ndarray:
+    def _gating_from_residuals(residuals: np.ndarray, covariance: np.ndarray, metric: str) -> np.ndarray:
         if metric == "gaussian":
             return np.sum(residuals * residuals, axis=1)
         if metric == "maha":
@@ -219,9 +361,7 @@ class BaseKalmanFilter:
             mean[theta_vel_idx] = 0.0
         return mean
 
-    def _damp_theta_velocity(
-        self, mean: np.ndarray, damping: float = 0.8
-    ) -> np.ndarray:
+    def _damp_theta_velocity(self, mean: np.ndarray, damping: float = 0.8) -> np.ndarray:
         """Damp angular velocity to reduce jitter while preserving turn dynamics."""
         theta_vel_idx = self._theta_velocity_index(self.dim_x)
         damping = float(np.clip(damping, 0.0, 1.0))
@@ -240,7 +380,7 @@ class BaseKalmanFilter:
         mean = np.r_[mean_pos, mean_vel]
 
         std = self._get_initial_covariance_std(measurement)
-        covariance = np.diag(np.square(std))
+        covariance = self.noise_config.initial_covariance(np.diag(np.square(std)), self.dim_z)
         return mean, covariance
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
@@ -251,19 +391,16 @@ class BaseKalmanFilter:
         raise NotImplementedError
 
     def predict(
-        self, mean: np.ndarray, covariance: np.ndarray
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Run Kalman filter prediction step.
-        """
+        """Predict using the configured fixed step or an explicit elapsed interval."""
+        dt = self.validate_dt(dt)
         std_pos, std_vel = self._get_process_noise_std(mean)
         motion_cov = np.diag(np.square(np.r_[std_pos, std_vel]))
 
-        mean = np.dot(mean, self._motion_mat.T)
-        covariance = (
-            np.linalg.multi_dot((self._motion_mat, covariance, self._motion_mat.T))
-            + motion_cov
-        )
+        motion_mat, motion_cov = self._elapsed_motion(motion_cov, dt)
+        mean = np.dot(mean, motion_mat.T)
+        covariance = np.linalg.multi_dot((motion_mat, covariance, motion_mat.T)) + motion_cov
 
         return mean, covariance
 
@@ -274,9 +411,7 @@ class BaseKalmanFilter:
         """
         raise NotImplementedError
 
-    def _get_measurement_noise_std(
-        self, mean: np.ndarray, confidence: float
-    ) -> np.ndarray:
+    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
         """
         Return standard deviations for measurement noise.
         Should be implemented by stateless subclasses.
@@ -300,29 +435,29 @@ class BaseKalmanFilter:
         # which results in a low Re.
         std = [(1 - confidence) * x for x in std]
 
-        innovation_cov = np.diag(np.square(std))
+        innovation_cov = self.noise_config.measurement_covariance(np.diag(np.square(std)))
 
         mean = np.dot(self._update_mat, mean)
-        covariance = np.linalg.multi_dot(
-            (self._update_mat, covariance, self._update_mat.T)
-        )
+        covariance = np.linalg.multi_dot((self._update_mat, covariance, self._update_mat.T))
         return mean, covariance + innovation_cov
 
     def multi_predict(
-        self, mean: np.ndarray, covariance: np.ndarray
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """
-        Run Kalman filter prediction step (Vectorized version).
-        """
+        """Predict a batch over one shared interval without changing filter state."""
+        dt = self.validate_dt(dt)
+        if len(mean) == 0:
+            return mean.copy(), covariance.copy()
         std_pos, std_vel = self._get_multi_process_noise_std(mean)
         sqr = np.square(np.r_[std_pos, std_vel]).T
 
         motion_cov = [np.diag(sqr[i]) for i in range(len(mean))]
         motion_cov = np.asarray(motion_cov)
 
-        mean = np.dot(mean, self._motion_mat.T)
-        left = np.dot(self._motion_mat, covariance).transpose((1, 0, 2))
-        covariance = np.dot(left, self._motion_mat.T) + motion_cov
+        motion_mat, motion_cov = self._elapsed_motion(motion_cov, dt)
+        mean = np.dot(mean, motion_mat.T)
+        left = np.dot(motion_mat, covariance).transpose((1, 0, 2))
+        covariance = np.dot(left, motion_mat.T) + motion_cov
 
         return mean, covariance
 
@@ -338,9 +473,7 @@ class BaseKalmanFilter:
         """
         projected_mean, projected_cov = self.project(mean, covariance, confidence)
 
-        chol_factor, lower = scipy.linalg.cho_factor(
-            projected_cov, lower=True, check_finite=False
-        )
+        chol_factor, lower = scipy.linalg.cho_factor(projected_cov, lower=True, check_finite=False)
         kalman_gain = scipy.linalg.cho_solve(
             (chol_factor, lower),
             np.dot(covariance, self._update_mat.T).T,
@@ -349,14 +482,10 @@ class BaseKalmanFilter:
         innovation = measurement - projected_mean
 
         new_mean = mean + np.dot(innovation, kalman_gain.T)
-        new_covariance = covariance - np.linalg.multi_dot(
-            (kalman_gain, projected_cov, kalman_gain.T)
-        )
+        new_covariance = covariance - np.linalg.multi_dot((kalman_gain, projected_cov, kalman_gain.T))
         return new_mean, new_covariance
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """
         Return standard deviations for process noise in vectorized form.
         Should be implemented by subclasses.
@@ -369,19 +498,39 @@ class BaseKalmanFilter:
         B: Optional[np.ndarray] = None,
         F: Optional[np.ndarray] = None,
         Q: Optional[np.ndarray] = None,
+        *,
+        dt: float | None = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
+        """Predict state over dt; explicitly supplied F/Q are already discrete.
+
+        An explicit F or Q overrides only that matrix and is never rescaled.
+        B and u retain their discrete control-input semantics.
         """
-        Stateful predict step for matrix-based filters.
-        """
+        dt = self._validate_prediction_dt(dt)
         B = self._resolve_matrix(B, self.B)
-        F = self._resolve_matrix(F, self.F)
-        Q = self._resolve_matrix(Q, self.Q)
+        noise = self._resolve_matrix(Q, self.Q)
+        if np.isscalar(noise):
+            noise = np.eye(self.dim_x) * float(noise)
+        if F is not None and Q is not None:
+            motion, integrated_noise = F, noise
+        else:
+            motion, integrated_noise = self._elapsed_motion(noise, dt, motion_mat=self.F)
+        F = self._resolve_matrix(F, self.F if dt is None else motion)
+        Q = noise if Q is not None else integrated_noise
+        control = np.dot(B, u) if B is not None and u is not None else None
+        if dt is not None:
+            self._time_aware = True
+            if self._unrecorded_prediction:
+                # Timing started partway through a gap whose earlier models
+                # were intentionally not retained. Correct recovery directly.
+                self._prediction_history_overflowed = True
+        if self._time_aware:
+            self._record_prediction(self.dt if dt is None else dt, F, Q, control)
+        else:
+            self._unrecorded_prediction = self._last_observed_measurement is not None
 
-        if np.isscalar(Q):
-            Q = np.eye(self.dim_x) * float(Q)
-
-        if B is not None and u is not None:
-            self.x = np.dot(F, self.x) + np.dot(B, u)
+        if control is not None:
+            self.x = np.dot(F, self.x) + control
         else:
             self.x = np.dot(F, self.x)
 
@@ -403,7 +552,7 @@ class BaseKalmanFilter:
         state = self.x if x is None else x
         covariance = self.P if P is None else P
         H = self._resolve_matrix(H, self.H)
-        R = self._resolve_matrix(R, self.R)
+        R = self.noise_config.measurement_covariance(self.R) if R is None else R
         if np.isscalar(R):
             R = np.eye(self.dim_z) * float(R)
 
@@ -421,7 +570,7 @@ class BaseKalmanFilter:
         Stateful update step for matrix-based filters.
         """
         H = self._resolve_matrix(H, self.H)
-        R = self._resolve_matrix(R, self.R)
+        R = self.noise_config.measurement_covariance(self.R) if R is None else R
         if np.isscalar(R):
             R = np.eye(self.dim_z) * float(R)
 
@@ -441,17 +590,13 @@ class BaseKalmanFilter:
         ).T
         self.y = measurement - projected_mean
         self.S = projected_cov
-        self.SI = scipy.linalg.cho_solve(
-            (chol_factor, lower), np.eye(self.dim_z), check_finite=False
-        )
+        self.SI = scipy.linalg.cho_solve((chol_factor, lower), np.eye(self.dim_z), check_finite=False)
 
         self.x = self.x + np.dot(self.K, self.y)
         # Joseph form keeps P symmetric and positive semi-definite under
         # numerical noise; the simple ``P - K S K^T`` form does not.
         I_KH = self._I - np.dot(self.K, H)
-        self.P = np.linalg.multi_dot((I_KH, self.P, I_KH.T)) + np.linalg.multi_dot(
-            (self.K, R, self.K.T)
-        )
+        self.P = np.linalg.multi_dot((I_KH, self.P, I_KH.T)) + np.linalg.multi_dot((self.K, R, self.K.T))
         self.P = 0.5 * (self.P + self.P.T)
         self.z = measurement.copy()
         self.x_post = self.x.copy()
@@ -480,11 +625,9 @@ class BaseKalmanFilter:
             scale = 1.0
         eye = np.eye(n)
         for exponent in range(-12, 4):
-            jitter = scale * (10.0 ** exponent)
+            jitter = scale * (10.0**exponent)
             try:
-                return scipy.linalg.cho_factor(
-                    matrix + jitter * eye, lower=True, check_finite=False
-                )
+                return scipy.linalg.cho_factor(matrix + jitter * eye, lower=True, check_finite=False)
             except scipy.linalg.LinAlgError:
                 continue
 
@@ -542,9 +685,7 @@ class BaseKalmanFilter:
             return np.sum(d * d, axis=1)
         elif metric == "maha":
             cholesky_factor = np.linalg.cholesky(covariance)
-            z = scipy.linalg.solve_triangular(
-                cholesky_factor, d.T, lower=True, check_finite=False, overwrite_b=True
-            )
+            z = scipy.linalg.solve_triangular(cholesky_factor, d.T, lower=True, check_finite=False, overwrite_b=True)
             squared_maha = np.sum(z * z, axis=0)
             return squared_maha
         else:

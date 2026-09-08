@@ -6,6 +6,7 @@ from collections import deque
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
@@ -56,6 +57,8 @@ class KalmanBoxTracker(SortBoxTrack):
         Q_xy_scaling=0.01,
         Q_s_scaling=0.0001,
         id_allocator: TrackIdAllocator | None = None,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -72,7 +75,7 @@ class KalmanBoxTracker(SortBoxTrack):
         self.Q_s_scaling = Q_s_scaling
 
         self.motion_model = create_motion_model(MotionModelKind.XYSR, is_obb=False)
-        self.kf = self.motion_model.create_filter()
+        self.kf = self.motion_model.create_filter(noise_config=noise_config)
         self.kf.F = np.array(
             [
                 # x  y  s  r  x' y' s'
@@ -232,6 +235,7 @@ class KalmanBoxTracker(SortBoxTrack):
             return np.asarray(warped).reshape(original_shape)
 
         self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.transform_timed_history(transform_state, warp_measurement)
         self.kf.history_obs = deque(
             (warp_measurement(item) for item in self.kf.history_obs),
             maxlen=self.kf.history_obs.maxlen,
@@ -246,16 +250,17 @@ class KalmanBoxTracker(SortBoxTrack):
             )
             saved["last_measurement"] = warp_measurement(saved["last_measurement"])
 
-    def predict(self):
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
         # Don't allow negative bounding boxes
-        if (self.kf.x[6] + self.kf.x[2]) <= 0:
+        interval = 1.0 if dt is None else dt
+        if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
             self.kf.x[6] *= 0.0
         Q = None
 
-        self.kf.predict(Q=Q)
+        self.kf.predict(Q=Q, dt=dt)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -278,7 +283,19 @@ class KalmanBoxTracker(SortBoxTrack):
 class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
     """OcSort oriented motion state extended with DeepOcSort appearance state."""
 
-    def __init__(self, det, *, emb, alpha, delta_t, max_obs, Q_xy_scaling, Q_s_scaling, id_allocator):
+    def __init__(
+        self,
+        det,
+        *,
+        emb,
+        alpha,
+        delta_t,
+        max_obs,
+        Q_xy_scaling,
+        Q_s_scaling,
+        id_allocator,
+        noise_config: KalmanNoiseConfig | None = None,
+    ):
         super().__init__(
             det[:6],
             det[6],
@@ -290,6 +307,7 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
             Q_a_scaling=Q_s_scaling,
             is_obb=True,
             id_allocator=id_allocator,
+            noise_config=noise_config,
         )
         self.emb = emb
         self.alpha = alpha
@@ -349,6 +367,7 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
             )
 
         self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.transform_timed_history(transform_state, warp_measurement)
         self.kf.history_obs = deque(
             (warp_measurement(item) for item in self.kf.history_obs),
             maxlen=self.kf.history_obs.maxlen,

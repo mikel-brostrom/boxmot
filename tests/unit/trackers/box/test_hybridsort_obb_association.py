@@ -150,7 +150,7 @@ def test_hybridsort_obb_discards_tracks_with_invalid_predictions() -> None:
     row = np.array([[64, 64, 40, 12, 0.2, 0.95, 0]], dtype=np.float32)
     first = _update(tracker, row, frame_index=0)
     first_id = first.track_ids.item()
-    tracker.active_tracks[0].predict = lambda: np.full((1, 6), np.nan, dtype=float)
+    tracker.active_tracks[0].predict = lambda *, dt=None: np.full((1, 6), np.nan, dtype=float)
 
     second = _update(tracker, row, frame_index=1)
 

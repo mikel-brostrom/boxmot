@@ -1,4 +1,5 @@
 """YAML config parsing and search-space helpers shared across all backends."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -13,6 +14,7 @@ from boxmot.utils import logger as LOGGER
 # YAML loading
 # ---------------------------------------------------------------------------
 
+
 def load_yaml_config(tracker_name: str) -> dict:
     """Load and validate the tuning metadata from a combined tracker YAML."""
 
@@ -24,6 +26,7 @@ def load_yaml_config(tracker_name: str) -> dict:
 # ---------------------------------------------------------------------------
 # Flattening / conditional tree
 # ---------------------------------------------------------------------------
+
 
 def flatten_yaml_config(yaml_cfg: dict) -> dict:
     """Flatten a nested YAML config into a single-level dict.
@@ -81,14 +84,17 @@ def conditional_yaml_tree(config: dict) -> tuple[dict[str, dict], set[str], dict
 # Validation helpers
 # ---------------------------------------------------------------------------
 
+
 def is_valid_search_param(param: str, details: dict, *, warn: bool = True) -> bool:
     """Validate a YAML search-space entry."""
     if not isinstance(details, dict):
         if warn:
             LOGGER.warning(
-                f"Skipping malformed config entry '{param}': expected a mapping, "
-                f"got {type(details).__name__}"
+                f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}"
             )
+        return False
+
+    if set(details) == {"default"}:
         return False
 
     t = details.get("type")
@@ -131,19 +137,23 @@ def validate_tuning_config(tracker_name: str, config: dict) -> None:
 
     allowed_fields = {"type", "default", "range", "options", "values", "activates"}
     for param, details in flat.items():
+        if isinstance(details, dict) and set(details) == {"default"}:
+            continue
+        if param in {"variable_dt", "kf_time_unit", "kf_reference_dt_s"}:
+            raise ValueError(f"{param} is a fixed runtime setting and cannot have tuning metadata.")
         if not is_valid_search_param(param, details, warn=False):
             raise ValueError(f"Tuning config for {tracker_name} has invalid search metadata for {param!r}.")
         unsupported = sorted(set(details) - allowed_fields)
         if unsupported:
             raise ValueError(
-                f"Tuning config for {tracker_name} has unsupported metadata for {param!r}: "
-                f"{', '.join(unsupported)}"
+                f"Tuning config for {tracker_name} has unsupported metadata for {param!r}: {', '.join(unsupported)}"
             )
 
 
 # ---------------------------------------------------------------------------
 # Flat Ray Tune search space (used by HyperOpt and random backends)
 # ---------------------------------------------------------------------------
+
 
 def yaml_to_tune_space(config: dict, tune) -> dict:
     """Convert a tracker YAML config into a flat Ray Tune search space dict.
@@ -157,6 +167,8 @@ def yaml_to_tune_space(config: dict, tune) -> dict:
             LOGGER.warning(
                 f"Skipping malformed config entry '{param}': expected a mapping, got {type(details).__name__}"
             )
+            continue
+        if set(details) == {"default"}:
             continue
         t = details.get("type")
         rng = details.get("range")
@@ -202,6 +214,7 @@ def yaml_to_tune_space(config: dict, tune) -> dict:
 # Default baseline config
 # ---------------------------------------------------------------------------
 
+
 def default_tune_config(
     yaml_cfg: dict,
     search_space: dict | None = None,
@@ -241,6 +254,8 @@ def default_tune_config(
 
     baseline: dict[str, Any] = {}
     for param in keys:
+        if isinstance(flat.get(param), dict) and set(flat[param]) == {"default"}:
+            continue
         has_default, value = _default_value(param)
         if not has_default:
             continue
@@ -263,6 +278,7 @@ def default_tune_config(
 # ---------------------------------------------------------------------------
 # Normalization helpers
 # ---------------------------------------------------------------------------
+
 
 def to_builtin_value(value: Any) -> Any:
     """Convert NumPy scalar values returned by search backends to Python scalars."""

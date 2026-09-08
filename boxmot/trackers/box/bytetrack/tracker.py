@@ -39,6 +39,8 @@ class ByteTrack(BoxTracker):
         kalman_filter (KalmanFilterXYAH): Motion model used for prediction.
     """
 
+    supports_variable_dt = True
+
     def __init__(
         self,
         # ByteTrack-specific parameters
@@ -68,7 +70,11 @@ class ByteTrack(BoxTracker):
         self.det_thresh = track_thresh  # Same as track_thresh
 
         # Motion model
-        self.kalman_filter = KalmanFilterXYAH()
+        self.kalman_filter = (
+            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
+            if self.is_obb
+            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        )
 
         self.active_tracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -81,7 +87,6 @@ class ByteTrack(BoxTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.kalman_filter = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
         batch = self._make_detection_batch(dets, embs=embs, masks=masks)
         self.frame_count += 1
         activated_starcks = []
@@ -121,7 +126,7 @@ class ByteTrack(BoxTracker):
         """ Step 2: First association, with high conf detection boxes"""
         strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
-        STrack.multi_predict(strack_pool)
+        STrack.multi_predict(strack_pool, dt=self._prediction_dt)
         first_stage = AssociationStage(
             name="bytetrack_high",
             cost=self._fused_association_cost,
@@ -241,4 +246,8 @@ class ByteTrack(BoxTracker):
     def reset(self) -> None:
         self._reset_common_state()
         self.frame_id = 0
-        self.kalman_filter = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
+        self.kalman_filter = (
+            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
+            if self.is_obb
+            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        )

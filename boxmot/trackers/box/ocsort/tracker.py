@@ -41,6 +41,8 @@ class OcSort(BoxTracker):
         active_tracks (list): Currently active tracks.
     """
 
+    supports_variable_dt = True
+
     uses_frame_dimensions_for_association = True
 
     def __init__(
@@ -108,7 +110,7 @@ class OcSort(BoxTracker):
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.active_tracks[t].predict()[0]
+            pos = self.active_tracks[t].predict(dt=self._prediction_dt)[0]
             trk[:] = [pos[i] for i in range(self.detection_layout.box_cols)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
@@ -231,6 +233,7 @@ class OcSort(BoxTracker):
                 max_obs=self.max_obs,
                 is_obb=self.is_obb,
                 id_allocator=self.id_allocator,
+                noise_config=self.kalman_noise_config,
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

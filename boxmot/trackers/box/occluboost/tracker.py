@@ -77,6 +77,8 @@ class OccluBoost(BoostTrack):
     capability; oriented detections are dispatched to :meth:`_update_obb`.
     """
 
+    supports_variable_dt = True
+
     accepts_embeddings = True
 
     def __init__(
@@ -235,7 +237,7 @@ class OccluBoost(BoostTrack):
         trks = []
         confs = []
         for trk in self.trackers:
-            pos = trk.predict()[0]
+            pos = trk.predict(dt=self._prediction_dt)[0]
             conf = trk.get_confidence()
             confs.append(conf)
             trks.append(np.concatenate([pos, [conf]]))
@@ -434,6 +436,7 @@ class OccluBoost(BoostTrack):
                     emb=det_emb,
                     adaptive_kf=self.adaptive_kf,
                     id_allocator=self.id_allocator,
+                    noise_config=self.kalman_noise_config,
                 )
                 # Tentative until confirmed; high-conf detections skip the
                 # confirmation period so first-frame appearances still emit.
@@ -681,6 +684,7 @@ class OccluBoost(BoostTrack):
                 is_obb=is_obb,
                 adaptive_kf=self.adaptive_kf,
                 track_id=grave_id,
+                noise_config=self.kalman_noise_config,
             )
             new_trk.is_activated = True
             self.trackers.append(new_trk)
@@ -972,7 +976,7 @@ class OccluBoost(BoostTrack):
         trks_xywha = []
         confs = []
         for trk in self.trackers:
-            pos = trk.predict()[0]  # [cx, cy, w, h, angle]
+            pos = trk.predict(dt=self._prediction_dt)[0]  # [cx, cy, w, h, angle]
             trks_xywha.append(pos)
             confs.append(trk.get_confidence())
         trks_xywha = np.vstack(trks_xywha) if len(trks_xywha) > 0 else np.empty((0, 5))
@@ -1164,6 +1168,7 @@ class OccluBoost(BoostTrack):
                     is_obb=True,
                     adaptive_kf=self.adaptive_kf,
                     id_allocator=self.id_allocator,
+                    noise_config=self.kalman_noise_config,
                 )
                 new_trk.is_activated = bool(det_conf >= self.obb_instant_confirm_thresh or self.confirm_hits <= 1)
                 self.trackers.append(new_trk)

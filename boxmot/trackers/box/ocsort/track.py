@@ -8,6 +8,7 @@ from collections import deque
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.geometry.obb import (
     smooth_obb_corners,
     transform_obb,
@@ -66,6 +67,8 @@ class KalmanBoxTracker(SortBoxTrack):
         is_obb=False,
         Q_a_scaling=0.0001,
         id_allocator: TrackIdAllocator | None = None,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -85,7 +88,7 @@ class KalmanBoxTracker(SortBoxTrack):
         )
 
         if self.is_obb:
-            self.kf = self.motion_model.create_filter()
+            self.kf = self.motion_model.create_filter(noise_config=noise_config)
             self.kf.F = np.array(
                 [
                     [1, 0, 0, 0, 0, 1, 0, 0, 0],  # x += vx
@@ -117,7 +120,7 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.Q[8, 8] *= self.Q_a_scaling
             self.kf.x[:5] = self.motion_model.to_measurement(bbox[:5])
         else:
-            self.kf = self.motion_model.create_filter()
+            self.kf = self.motion_model.create_filter(noise_config=noise_config)
             self.kf.F = np.array(
                 [
                     [1, 0, 0, 0, 1, 0, 0],
@@ -225,18 +228,19 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.update(bbox)
             sync_track_meta(self)
 
-    def predict(self):
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
+        interval = 1.0 if dt is None else dt
         if self.is_obb:
-            if (self.kf.x[7] + self.kf.x[2]) <= 0:
+            if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
                 self.kf.x[7] *= 0.0
         else:
-            if (self.kf.x[6] + self.kf.x[2]) <= 0:
+            if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
                 self.kf.x[6] *= 0.0
 
-        self.kf.predict()
+        self.kf.predict(dt=dt)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -288,6 +292,7 @@ class KalmanBoxTracker(SortBoxTrack):
 
         self._transform_cached_velocity(transform, source_center)
         self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.transform_timed_history(transform_state, warp_measurement)
         self.kf.history_obs = deque(
             (warp_measurement(item) for item in self.kf.history_obs),
             maxlen=self.kf.history_obs.maxlen,

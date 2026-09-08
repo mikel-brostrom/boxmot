@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
@@ -11,11 +12,13 @@ from boxmot.engine.commands._options import (
     association_function_option,
     build_selection_options,
     data_root_option,
+    dataset_fps_option,
     dataset_option,
     experiment_option,
     replay_options,
     split_option,
     tracker_backend_option,
+    tracker_config_option,
 )
 from boxmot.engine.commands._support import (
     _build_cli_namespace,
@@ -97,9 +100,36 @@ def _validate_component_selection(
 )
 @data_root_option
 @split_option
+@dataset_fps_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
+@tracker_config_option
 @association_function_option
 @replay_options(mode="eval", parallel=True)
+@click.option(
+    "--show",
+    is_flag=True,
+    default=False,
+    help="Preview tracking at source timing; with --kf-tuning, show only the final selected replay.",
+)
+@click.option(
+    "--save",
+    is_flag=True,
+    default=False,
+    help="Save annotated tracking videos from cached replay; with --kf-tuning, save only the final selected replay.",
+)
+@click.option(
+    "--kf-tuning",
+    is_flag=True,
+    default=False,
+    help="Tune five Kalman covariance scales for HOTA on this split before evaluation; Python Kalman trackers only.",
+)
+@click.option(
+    "--kf-trials",
+    type=click.IntRange(min=1),
+    default=20,
+    show_default=True,
+    help="Total Kalman-tuning trials, including the starting configuration; requires --kf-tuning.",
+)
 @click.option(
     "--sequence",
     "sequence_names",
@@ -137,11 +167,32 @@ def eval(
     sequence_names: tuple[str, ...],
     allow_noncanonical_build: bool,
     compare_trackeval: bool,
+    kf_tuning: bool,
+    kf_trials: int,
     **kwargs: Any,
 ) -> None:
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     experiment, dataset = _require_eval_input(experiment, dataset)
+    if not kf_tuning and _is_option_explicit(ctx, "kf_trials"):
+        raise click.UsageError("--kf-trials requires --kf-tuning.")
+    if kf_tuning or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
+        from boxmot.engine.tracker_config import resolve_tracker_options
+        from boxmot.engine.tuning.kalman import validate_kf_tuning
+        from boxmot.trackers.specs import parse_tracker_spec
+
+        try:
+            tracker_spec = parse_tracker_spec(
+                kwargs["tracker"],
+                default_backend=kwargs["tracker_backend"],
+            )
+            if kf_tuning:
+                validate_kf_tuning(tracker_spec.name, tracker_spec.backend)
+            resolve_tracker_options(
+                SimpleNamespace(**{**kwargs, "tracker": tracker_spec.name, "tracker_backend": tracker_spec.backend})
+            )
+        except (TypeError, ValueError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
     _validate_component_selection(
         experiment=experiment,
         dataset=dataset,
@@ -178,6 +229,7 @@ def eval(
                 "data_root": data_root,
                 "build_root": build_root,
                 "device": device,
+                "fps": kwargs.get("fps"),
                 "publish_image_refs": True,
                 "publish_masks": tracker_capabilities.requires_masks,
                 "publish_embeddings": tracker_capabilities.accepts_embeddings,
@@ -211,6 +263,8 @@ def eval(
             "sequence_names": sequence_names,
             "allow_noncanonical_build": allow_noncanonical_build,
             "compare_trackeval": compare_trackeval,
+            "kf_tuning": kf_tuning,
+            "kf_trials": kf_trials,
         },
     )
 

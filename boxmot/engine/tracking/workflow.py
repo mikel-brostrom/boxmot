@@ -10,6 +10,7 @@ from boxmot import create_tracker
 from boxmot.detectors import Detector, DetectorSpec, create_detector
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.engine.tracking.profiling import RuntimeProfiler, profile_components, startup_stage
 from boxmot.engine.tracking.runner import RunSummary, TrackingRunner
 from boxmot.engine.tracking.sinks import (
@@ -97,9 +98,9 @@ def _reid_spec(args: Any) -> ReIDEncoderSpec:
 
 
 def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
-    options: dict[str, object] = {}
-    if getattr(args, "asso_func", None):
-        options["asso_func"] = str(args.asso_func)
+    """Resolve tracker defaults, an optional runtime config, and CLI overrides."""
+
+    options = resolve_tracker_options(args)
     return TrackerSpec(
         name=str(args.tracker),
         backend=str(getattr(args, "tracker_backend", "python")),
@@ -181,6 +182,7 @@ def run_track(
     if geometry not in {"aabb", "obb"}:
         raise ValueError("geometry must be 'aabb' or 'obb'")
     tracker_was_injected = tracker is not None
+    tracker_spec = _tracker_spec(args, geometry) if tracker is None else None
 
     if detector is None:
         if ui_pipeline is not None:
@@ -191,7 +193,7 @@ def run_track(
         if ui_pipeline is not None:
             ui_pipeline.update("Loading tracker…")
         with startup_stage(startup_timings_ms, "tracker_load"):
-            tracker = create_tracker(_tracker_spec(args, geometry))
+            tracker = create_tracker(tracker_spec)
             requirements = tracker.requirements
             generates_embeddings = getattr(tracker, "generates_embeddings", False)
             if not isinstance(generates_embeddings, bool):

@@ -11,6 +11,7 @@ from boxmot.engine.commands._options import (
     source_option,
     track_options,
     tracker_backend_option,
+    tracker_config_option,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _is_option_explicit
 from boxmot.engine.config import BOXMOT_DEFAULTS
@@ -48,9 +49,7 @@ def _is_live_source_value(source: str | None) -> bool:
 def _apply_track_cli_defaults(ctx: click.Context, payload: dict[str, Any]) -> dict[str, Any]:
     resolved = dict(payload)
     source = resolved.get("source")
-    has_explicit_output = any(
-        _is_option_explicit(ctx, option_name) for option_name in ("show", "save", "save_txt")
-    )
+    has_explicit_output = any(_is_option_explicit(ctx, option_name) for option_name in ("show", "save", "save_txt"))
     if _is_live_source_value(source) and not has_explicit_output:
         resolved["show"] = True
     return resolved
@@ -59,6 +58,7 @@ def _apply_track_cli_defaults(ctx: click.Context, payload: dict[str, Any]) -> di
 @click.command(help="Run tracking only")
 @source_option(default=BOXMOT_DEFAULTS.track.source, help_text="file/dir/URL/glob, 0 for webcam")
 @tracker_backend_option(default=BOXMOT_DEFAULTS.track.tracker_backend)
+@tracker_config_option
 @association_function_option
 @track_options
 @_singular_model_options

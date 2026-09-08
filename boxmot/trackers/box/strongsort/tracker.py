@@ -69,6 +69,8 @@ class _Detection:
 
 class StrongSort(BoxTracker):
     accepts_embeddings = True
+
+    supports_variable_dt = True
     requires_embeddings = True
     requires_frame = True
     use_embeddings = True
@@ -213,7 +215,7 @@ class StrongSort(BoxTracker):
     def _predict_tracks(self) -> None:
         """Propagate all active track states to the current frame."""
         for track in self.tracks:
-            track.predict()
+            track.predict(dt=self._prediction_dt)
 
     def _update_tracks(self, detections: list[_Detection]) -> None:
         """Associate detections, update matched tracks, and manage lifecycle state."""
@@ -314,6 +316,7 @@ class StrongSort(BoxTracker):
                 self.max_obs,
                 self.ema_alpha,
                 is_obb=detection.is_obb,
+                noise_config=self.kalman_noise_config,
             )
         )
 

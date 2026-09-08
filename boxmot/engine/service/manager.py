@@ -117,7 +117,10 @@ class TrackerManager:
         return create_tracker(spec)
 
     def _tracker_spec(self, request: FrameRequest) -> TrackerSpec:
-        options: dict[str, object] = {"asso_func": self.settings.asso_func}
+        options: dict[str, object] = {
+            "asso_func": self.settings.asso_func,
+            "variable_dt": self.settings.variable_dt,
+        }
         if self.settings.tracker_type in {"bytetrack", "botsort"}:
             options["frame_rate"] = request.frame_rate
         return TrackerSpec(
@@ -198,6 +201,12 @@ class TrackerManager:
                     f"Expected frame {state.last_frame_id + 1}, got {request.frame_id}. "
                     "Send every frame, including frames with no detections."
                 )
+
+            if getattr(state.pipeline.tracker, "variable_dt", False):
+                try:
+                    state.pipeline.tracker.validate_timing(timestamp_s=request.timestamp_s)
+                except ValueError as exc:
+                    raise FrameConflictError(str(exc)) from exc
 
             frame_class_ids = set(detections.class_ids.tolist())
             if len(state.observed_class_ids | frame_class_ids) > self.settings.max_classes_per_stream:
@@ -507,6 +516,7 @@ class TrackerManager:
             sample_id=self._sample_id(key, request.frame_id),
             sequence_id=self._sequence_id(key),
             frame_index=request.frame_id,
+            timestamp_s=request.timestamp_s,
             source_uri=f"service://{key[0]}/{key[1]}",
         )
 
@@ -521,6 +531,10 @@ class TrackerManager:
             if request.frame_id != 0:
                 raise FrameConflictError(
                     "The tracker session does not exist or has expired. Start a new session with frame 0."
+                )
+            if self.settings.variable_dt and request.timestamp_s is None:
+                raise ServiceRequestError(
+                    "timestamp_s is required on every frame, including frame 0, when BOXMOT_VARIABLE_DT is enabled."
                 )
             if len(self._states) >= self.settings.max_streams:
                 raise StreamCapacityError(f"Tracker capacity reached ({self.settings.max_streams} active streams).")
@@ -627,6 +641,7 @@ class TrackerManager:
         digest.update(detections.scores.numpy().tobytes(order="C"))
         digest.update(detections.class_ids.numpy().tobytes(order="C"))
         digest.update(image_digest)
+        digest.update(str(request.timestamp_s).encode())
         return digest.digest()
 
     @staticmethod

@@ -68,6 +68,8 @@ class BotSort(BoxTracker):
         cmc: Camera-motion compensation method.
     """
 
+    supports_variable_dt = True
+
     accepts_embeddings = True
 
     def __init__(
@@ -115,7 +117,7 @@ class BotSort(BoxTracker):
 
         self.buffer_size = int(frame_rate / 30.0 * track_buffer)
         self.max_time_lost = self.buffer_size
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4)
+        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
 
         self.proximity_thresh = proximity_thresh
         self.appearance_thresh = appearance_thresh
@@ -129,9 +131,6 @@ class BotSort(BoxTracker):
         self.cmc = create_cmc(cmc_method, enabled=use_cmc)
         self.fuse_first_associate = fuse_first_associate
         self._requires_frame = self._requires_frame or self.cmc is not None
-
-    def _kalman_ndim(self) -> int:
-        return self.detection_layout.box_cols
 
     def _detection_boxes(self, dets: np.ndarray) -> np.ndarray:
         return self.detection_layout.boxes(dets)
@@ -186,7 +185,6 @@ class BotSort(BoxTracker):
         embs: np.ndarray = None,
         masks: np.ndarray = None,
     ) -> np.ndarray:
-        self.kalman_filter = KalmanFilterXYWH(ndim=self._kalman_ndim())
         self.frame_count += 1
 
         activated_stracks, refind_stracks, lost_stracks, removed_stracks = [], [], [], []
@@ -313,7 +311,7 @@ class BotSort(BoxTracker):
         refind_stracks,
         strack_pool,
     ):
-        STrack.multi_predict(strack_pool)
+        STrack.multi_predict(strack_pool, dt=self._prediction_dt)
 
         # Fix camera motion
         self._apply_camera_motion_compensation(dets, img, strack_pool, unconfirmed)
@@ -521,4 +519,4 @@ class BotSort(BoxTracker):
 
     def reset(self) -> None:
         self._reset_common_state()
-        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4)
+        self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)

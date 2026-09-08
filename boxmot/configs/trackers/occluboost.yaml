@@ -259,3 +259,33 @@ obb_second_iou_thresh:
   type: uniform
   default: 0.3
   range: [0.05, 0.9]
+
+# Timing and reference-prior units stay fixed across all tuning trials.
+variable_dt:
+  default: false
+kf_time_unit:
+  default: null
+kf_reference_dt_s:
+  default: 0.03333333333333333
+
+# Dimensionless covariance multipliers shared by KF-only and joint tuning.
+kf_process_position_scale:
+  type: loguniform
+  default: 1.0
+  range: [0.01, 100.0]
+kf_process_velocity_scale:
+  type: loguniform
+  default: 1.0
+  range: [0.01, 100.0]
+kf_measurement_noise_scale:
+  type: loguniform
+  default: 1.0
+  range: [0.01, 100.0]
+kf_initial_position_scale:
+  type: loguniform
+  default: 1.0
+  range: [0.01, 100.0]
+kf_initial_velocity_scale:
+  type: loguniform
+  default: 1.0
+  range: [0.01, 100.0]

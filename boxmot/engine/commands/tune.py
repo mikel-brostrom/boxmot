@@ -10,10 +10,12 @@ import click
 from boxmot.engine.commands._options import (
     build_selection_options,
     data_root_option,
+    dataset_fps_option,
     experiment_option,
     replay_options,
     split_option,
     tracker_backend_option,
+    tracker_config_option,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _require_experiment_input
 from boxmot.engine.config import BOXMOT_DEFAULTS
@@ -155,7 +157,9 @@ def _tune_options(func):
 @build_selection_options
 @data_root_option
 @split_option
+@dataset_fps_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
+@tracker_config_option
 @replay_options(mode="tune", parallel=True)
 @_tune_options
 @click.pass_context

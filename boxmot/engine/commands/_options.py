@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, Callable
 
@@ -16,6 +17,7 @@ _TRACK_CORE_OPTION_NAMES = (
     "project",
     "half",
     "tracker",
+    "variable_dt",
     "verbose",
     "show",
     "show_trajectories",
@@ -31,6 +33,7 @@ _REPLAY_CORE_OPTION_NAMES = (
     "exist_ok",
     "ci",
     "tracker",
+    "variable_dt",
     "verbose",
     "show_timing",
     "per_class",
@@ -107,7 +110,7 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--fps",
             type=click.IntRange(min=1),
             default=defaults.fps,
-            help="frame-rate override: saved track video FPS or evaluation target FPS",
+            help="Frame rate of saved tracking video; input frames and capture timestamps are unchanged.",
         ),
         "conf": click.option(
             "--conf",
@@ -153,6 +156,14 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             default=defaults.tracker,
             show_default=True,
             help=f"one of: {tracker_help}",
+        ),
+        "variable_dt": click.option(
+            "--variable-dt/--fixed-dt",
+            default=None,
+            help=(
+                "Use capture timestamps for Kalman prediction; otherwise keep the tracker YAML setting "
+                "(default: fixed dt)."
+            ),
         ),
         "verbose": click.option(
             "--verbose",
@@ -295,6 +306,29 @@ def dataset_option(*, default: str | None = None) -> Callable:
     )
 
 
+def _parse_dataset_fps(_ctx: click.Context, _param: click.Parameter, value: float | None) -> float | None:
+    """Require a finite, positive target rate for dataset frame selection."""
+
+    if value is not None and (not math.isfinite(value) or value <= 0):
+        raise click.BadParameter("must be a finite number greater than zero")
+    return value
+
+
+def dataset_fps_option(func: Callable) -> Callable:
+    """Attach synchronized dataset frame selection for materialization and replay."""
+
+    return click.option(
+        "--fps",
+        type=float,
+        callback=_parse_dataset_fps,
+        default=None,
+        help=(
+            "Target dataset FPS: sample frames before perception and align ground truth. "
+            "Default: original frames, or the selected build's FPS when replaying."
+        ),
+    )(func)
+
+
 def build_selection_options(func: Callable | None = None, *, required: bool = True) -> Callable:
     """Attach immutable-build selection, optionally allowing workflow preparation."""
 
@@ -362,6 +396,17 @@ def tracker_backend_option(*, default: str) -> Callable:
     )
 
 
+def tracker_config_option(func: Callable) -> Callable:
+    """Attach a reusable tracker runtime config or built-in preset selector."""
+
+    return click.option(
+        "--tracker-config",
+        type=str,
+        default=None,
+        help="Tracker runtime YAML path or built-in preset; overrides must preserve calibrated time units.",
+    )(func)
+
+
 def association_function_option(func: Callable) -> Callable:
     """Attach the shared detection-track geometry selector."""
 
@@ -384,6 +429,7 @@ __all__ = (
     "association_function_option",
     "build_selection_options",
     "data_root_option",
+    "dataset_fps_option",
     "dataset_option",
     "experiment_option",
     "replay_options",
@@ -391,4 +437,5 @@ __all__ = (
     "split_option",
     "track_options",
     "tracker_backend_option",
+    "tracker_config_option",
 )

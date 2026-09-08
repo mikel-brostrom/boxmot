@@ -116,6 +116,7 @@ nav:
           - Track: modes/track.md
       - Benchmarking:
           - Materialize: modes/materialize.md
+          - Time-variant dataset: modes/time-variant.md
           - Evaluate: modes/eval.md
           - Tune: modes/tune.md
           - Research: modes/research.md

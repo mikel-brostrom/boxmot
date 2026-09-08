@@ -3,6 +3,7 @@ from typing import Tuple
 import numpy as np
 
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 
 
 class KalmanFilterXYAH(BaseKalmanFilter):
@@ -13,27 +14,27 @@ class KalmanFilterXYAH(BaseKalmanFilter):
     - `ndim=5`: [x, y, a, h, theta]
     """
 
-    def __init__(self, ndim: int = 4):
+    def __init__(self, ndim: int = 4, *, noise_config: KalmanNoiseConfig | None = None):
         if ndim not in (4, 5):
             raise ValueError("ndim must be 4 (AABB) or 5 (OBB)")
-        super().__init__(ndim=ndim)
+        super().__init__(ndim=ndim, noise_config=noise_config)
         self._is_obb = ndim == 5
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
         # low uncertainty for aspect ratio and its velocity to keep ratio stable.
         std = [
-            2 * self._std_weight_position * measurement[3],     # x
-            2 * self._std_weight_position * measurement[3],     # y
-            1e-2,                                               # a
-            2 * self._std_weight_position * measurement[3],     # h
-            10 * self._std_weight_velocity * measurement[3],    # vx
-            10 * self._std_weight_velocity * measurement[3],    # vy
-            1e-5,                                               # va
-            10 * self._std_weight_velocity * measurement[3],    # vh
+            2 * self._std_weight_position * measurement[3],  # x
+            2 * self._std_weight_position * measurement[3],  # y
+            1e-2,  # a
+            2 * self._std_weight_position * measurement[3],  # h
+            10 * self._std_weight_velocity * measurement[3],  # vx
+            10 * self._std_weight_velocity * measurement[3],  # vy
+            1e-5,  # va
+            10 * self._std_weight_velocity * measurement[3],  # vh
         ]
         if self._is_obb:
             std.insert(4, 1e-2)  # theta
-            std.append(1e-5)     # v_theta
+            std.append(1e-5)  # v_theta
         return std
 
     def _get_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -54,9 +55,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             std_vel.append(1e-5)
         return std_pos, std_vel
 
-    def _get_measurement_noise_std(
-        self, mean: np.ndarray, confidence: float
-    ) -> np.ndarray:
+    def _get_measurement_noise_std(self, mean: np.ndarray, confidence: float) -> np.ndarray:
         std_noise = [
             self._std_weight_position * mean[3],
             self._std_weight_position * mean[3],
@@ -67,9 +66,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             std_noise.append(1e-1)
         return std_noise
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         std_pos = [
             self._std_weight_position * mean[:, 3],
             self._std_weight_position * mean[:, 3],
@@ -104,15 +101,19 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         mean = self._enforce_xyah_constraints(mean, self._is_obb)
         return mean, covariance
 
-    def predict(self, mean: np.ndarray, covariance: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        mean, covariance = super().predict(mean, covariance)
+    def predict(
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Predict box geometry over the supplied elapsed interval."""
+        mean, covariance = super().predict(mean, covariance, dt=dt)
         mean = self._enforce_xyah_constraints(mean, self._is_obb)
         return mean, covariance
 
     def multi_predict(
-        self, mean: np.ndarray, covariance: np.ndarray
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
-        mean, covariance = super().multi_predict(mean, covariance)
+        """Predict a batch of boxes over the supplied elapsed interval."""
+        mean, covariance = super().multi_predict(mean, covariance, dt=dt)
         mean[:, 2] = np.maximum(mean[:, 2], 1e-4)
         mean[:, 3] = np.maximum(mean[:, 3], 1e-4)
         if self._is_obb:
@@ -132,15 +133,11 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             if mean_arr.ndim == 2:
                 measurement_arr = measurement_arr.reshape((self.ndim, 1))
                 reference_theta = float(mean_arr[4, 0])
-                measurement_arr[4, 0] = self._align_angle_to_reference(
-                    measurement_arr[4, 0], reference_theta
-                )
+                measurement_arr[4, 0] = self._align_angle_to_reference(measurement_arr[4, 0], reference_theta)
             else:
                 measurement_arr = measurement_arr.reshape((self.ndim,))
                 reference_theta = float(mean_arr[4])
-                measurement_arr[4] = self._align_angle_to_reference(
-                    measurement_arr[4], reference_theta
-                )
+                measurement_arr[4] = self._align_angle_to_reference(measurement_arr[4], reference_theta)
             measurement = measurement_arr
         new_mean, new_covariance = super().update(mean, covariance, measurement, confidence)
         new_mean = self._enforce_xyah_constraints(new_mean, self._is_obb)
@@ -161,10 +158,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             mean, covariance, measurements, self.project
         )
         measurements[:, 4] = np.array(
-            [
-                self._align_angle_to_reference(angle, projected_mean[4])
-                for angle in measurements[:, 4]
-            ],
+            [self._align_angle_to_reference(angle, projected_mean[4]) for angle in measurements[:, 4]],
             dtype=float,
         )
 

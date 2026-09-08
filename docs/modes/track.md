@@ -71,6 +71,25 @@ present, they must increase. Reset the pipeline before starting another
 sequence. The runner handles this for engine-owned sources; embedded Python
 callers invoke `pipeline.reset()` themselves.
 
+## Reuse tracker settings
+
+Load a scalar tracker YAML, a built-in preset, or the `best.yaml` saved by
+[Kalman calibration](eval.md#kalman-calibration) with `--tracker-config`:
+
+```bash
+boxmot track \
+  --source video.mp4 \
+  --tracker botsort \
+  --tracker-config path/to/kf-tuning/best.yaml
+```
+
+The file overlays built-in tracker defaults and must match the selected
+tracker when it declares a `tracker` name. Explicit `--asso-func` overrides
+the loaded value. Saved `variable_dt`, `kf_time_unit`, and `kf_reference_dt_s`
+settings preserve the calibrated timing contract. A conflicting timing flag,
+such as `--fixed-dt` with a seconds-based calibration, is rejected. Timestamps
+alone do not enable variable timing; the default remains fixed-step prediction.
+
 ## Python
 
 Use factories and structures when composing a pipeline:

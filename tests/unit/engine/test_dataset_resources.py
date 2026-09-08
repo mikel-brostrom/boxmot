@@ -369,7 +369,7 @@ def test_evaluation_ensures_the_raw_split_before_cataloging(monkeypatch, tmp_pat
     monkeypatch.setattr(
         evaluator,
         "DatasetManifest",
-        SimpleNamespace(load=lambda _path: events.append("manifest") or object()),
+        SimpleNamespace(load=lambda _path: events.append("manifest") or SimpleNamespace(metadata={})),
     )
     monkeypatch.setattr(
         evaluator,

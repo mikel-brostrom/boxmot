@@ -7,6 +7,7 @@ from collections import deque
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
@@ -51,6 +52,8 @@ class Track:
         max_obs,
         ema_alpha,
         is_obb=False,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         self.id = id
         self.is_obb = bool(is_obb)
@@ -77,7 +80,11 @@ class Track:
         self._n_init = n_init
         self._max_age = max_age
 
-        self.kf = KalmanFilterXYWH(ndim=5) if self.is_obb else KalmanFilterXYAH()
+        self.kf = (
+            KalmanFilterXYWH(ndim=5, noise_config=noise_config)
+            if self.is_obb
+            else KalmanFilterXYAH(noise_config=noise_config)
+        )
         self.mean, self.covariance = self.kf.initiate(self.bbox)
         self.history_observations = deque(maxlen=max(1, int(max_obs)))
         self._plot_angle = None
@@ -139,9 +146,9 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
-    def predict(self):
+    def predict(self, *, dt: float | None = None) -> None:
         """Propagate the state distribution to the current time step."""
-        self.mean, self.covariance = self.kf.predict(self.mean, self.covariance)
+        self.mean, self.covariance = self.kf.predict(self.mean, self.covariance, dt=dt)
         self.age += 1
         self.time_since_update += 1
 

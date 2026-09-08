@@ -37,6 +37,8 @@ class _EmbeddingDetector(_Detector):
 class _Tracker:
     name = "botsort"
     supports_obb = True
+    supports_variable_dt = False
+    variable_dt = False
     capabilities = TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=frozenset({GeometryKind.AABB, GeometryKind.OBB}),
@@ -52,7 +54,14 @@ class _Tracker:
     def configure_reid(self, spec: ReIDEncoderSpec) -> None:
         self.configured_reid_specs.append(spec)
 
-    def update(self, detections, frame=None):  # pragma: no cover - the source is deliberately empty
+    def validate_timing(
+        self, frame=None, *, timestamp_s: float | None = None
+    ) -> float | None:  # pragma: no cover - the source is deliberately empty
+        raise AssertionError("Unexpected tracker timing call.")
+
+    def update(
+        self, detections, frame=None, *, timestamp_s: float | None = None
+    ):  # pragma: no cover - the source is deliberately empty
         raise AssertionError("Unexpected tracker call.")
 
     def reset(self) -> None:

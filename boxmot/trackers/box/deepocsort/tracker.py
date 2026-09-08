@@ -26,6 +26,8 @@ from boxmot.trackers.common.motion.cmc import create_cmc
 
 class DeepOcSort(BoxTracker):
     accepts_embeddings = True
+
+    supports_variable_dt = True
     uses_frame_dimensions_for_association = True
 
     """Initialize the DeepOcSort tracker.
@@ -165,7 +167,7 @@ class DeepOcSort(BoxTracker):
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.active_tracks[t].predict()[0]
+            pos = self.active_tracks[t].predict(dt=self._prediction_dt)[0]
             trk[:] = [*pos[: self.detection_layout.box_cols], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
@@ -272,6 +274,7 @@ class DeepOcSort(BoxTracker):
                 Q_s_scaling=self.Q_s_scaling,
                 max_obs=self.max_obs,
                 id_allocator=self.id_allocator,
+                noise_config=self.kalman_noise_config,
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

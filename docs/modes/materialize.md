@@ -11,7 +11,8 @@ builds.
 `--experiment YAML_FILE` is the only materialization input. The experiment
 owns the dataset, split, geometry, detector checkpoint, optional segmentor and
 ReID encoder, and evaluation class map. Materialization does not accept
-command-line replacements for those semantic values.
+command-line replacements for those semantic values. `--fps` optionally
+selects a lower frame rate from that dataset.
 
 Use a built-in experiment's catalog-relative YAML filename or pass an explicit
 experiment YAML path. To change a dataset, split, or perception component,
@@ -61,6 +62,56 @@ component keeps its configured device; a configured `auto` resolves to the
 command default (`cpu`). Unavailable explicit accelerators fail before model
 loading with an actionable error. The effective per-component devices are shown
 in the Rich panel and included in the immutable build fingerprint.
+
+## Dataset FPS
+
+Add `--fps 5` to build a dataset sampled at 5 FPS:
+
+```bash
+boxmot materialize \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --device mps --fps 5
+```
+
+An existing build at the requested rate is reused first. Otherwise, BoxMOT
+looks for a compatible published full-rate materialization and copies only
+the selected detections, embeddings, and masks into the sampled build, without
+loading perception models. Reuse validates source images, capture timestamps,
+ground-truth provenance, component settings and artifacts, geometry, class
+mapping, and availability of every requested payload. If no compatible parent
+exists, perception runs only on the selected frames.
+
+Images, detections, embeddings, and evaluation ground truth refer to the same
+selected frames, with contiguous frame numbers and unchanged capture
+timestamps. The target FPS is part of the catalog and immutable build
+identity. Omitting it keeps every original frame; fractional positive rates
+are supported, and extra frames are never generated.
+
+`eval` and `tune` infer the rate from an explicitly selected build when `--fps`
+is omitted. Passing `--fps` during replay requires the same value as the build.
+See [dataset FPS](eval.md#dataset-fps) for automatic evaluation preparation.
+
+## Sequence capture timestamps
+
+A MOT-style sequence can provide `timestamps.csv` beside `seqinfo.ini`:
+
+```csv
+frame_id,timestamp_s
+1,0.0
+2,0.04
+3,0.21
+```
+
+`frame_id` numbers every image in the catalog's sorted order, starting at one.
+The file must contain exactly one row per image, in order, with finite,
+strictly increasing capture timestamps in seconds. Missing, duplicate, extra,
+or malformed rows are errors. No image paths are read from this file.
+
+When present, this timeline replaces timestamps derived from `seqinfo.ini`
+FPS. Both sample timestamps and the sidecar's exact content enter the catalog
+identity, so editing the timeline invalidates the corresponding build identity.
+Without a sidecar, timestamps use the sequence's nominal FPS. When `--fps` is
+also omitted, the existing catalog identity is preserved.
 
 ## Build location and resume
 

@@ -157,6 +157,7 @@ def catalog_mot_dataset_for_evaluation(
     data_root: str | Path | None = None,
     cache_path: str | Path | None = None,
     status_callback: StatusCallback | None = None,
+    fps: float | None = None,
 ) -> SourceCatalog:
     """Catalog MOT data with safe, eval-only reuse of file metadata."""
 
@@ -192,6 +193,7 @@ def catalog_mot_dataset_for_evaluation(
             split=split,
             data_root=data_root,
             metadata_resolver=cache.resolve,
+            fps=fps,
         )
     return catalog
 

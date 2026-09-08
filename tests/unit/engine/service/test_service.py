@@ -200,6 +200,8 @@ def test_service_profiles_have_disjoint_expected_tracker_sets() -> None:
         ({"device": " "}, "device must not be empty"),
         ({"reid_weights": " "}, "weights must not be empty"),
         ({"asso_func": "overlap"}, "Unsupported association function"),
+        ({"variable_dt": "true"}, "variable_dt must be a boolean"),
+        ({"tracker_type": "sfsort", "variable_dt": True}, "SFSORT does not support"),
     ],
 )
 def test_service_settings_reject_invalid_profile_configuration(overrides, detail) -> None:
@@ -212,6 +214,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
         "BOXMOT_SERVICE_PROFILE",
         "BOXMOT_SERVICE_TRACKER",
         "BOXMOT_SERVICE_ASSO_FUNC",
+        "BOXMOT_VARIABLE_DT",
         "BOXMOT_SERVICE_DEVICE",
         "BOXMOT_SERVICE_HALF",
         "BOXMOT_SERVICE_REID_WEIGHTS",
@@ -226,6 +229,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     assert defaults.profile == "gpu"
     assert defaults.tracker_type == "botsort"
     assert defaults.asso_func == "iou"
+    assert defaults.variable_dt is False
     assert defaults.device == "0"
     assert defaults.half is True
     assert defaults.max_concurrent_updates == 1
@@ -233,6 +237,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     monkeypatch.setenv("BOXMOT_SERVICE_TRACKER", "boosttrack")
     monkeypatch.setenv("BOXMOT_SERVICE_ASSO_FUNC", "giou")
+    monkeypatch.setenv("BOXMOT_VARIABLE_DT", "on")
     monkeypatch.setenv("BOXMOT_SERVICE_DEVICE", "cuda:1")
     monkeypatch.setenv("BOXMOT_SERVICE_HALF", "off")
     monkeypatch.setenv("BOXMOT_SERVICE_REID_WEIGHTS", "/models/reid.pt")
@@ -242,16 +247,18 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     assert overridden.tracker_type == "boosttrack"
     assert overridden.asso_func == "giou"
+    assert overridden.variable_dt is True
     assert overridden.device == "cuda:1"
     assert overridden.half is False
     assert overridden.reid_weights == "/models/reid.pt"
     assert overridden.max_concurrent_updates == 3
 
 
-def test_environment_rejects_invalid_boolean(monkeypatch) -> None:
-    monkeypatch.setenv("BOXMOT_SERVICE_HALF", "sometimes")
+@pytest.mark.parametrize("name", ["BOXMOT_SERVICE_HALF", "BOXMOT_VARIABLE_DT"])
+def test_environment_rejects_invalid_boolean(name, monkeypatch) -> None:
+    monkeypatch.setenv(name, "sometimes")
 
-    with pytest.raises(ValueError, match="BOXMOT_SERVICE_HALF must be a boolean"):
+    with pytest.raises(ValueError, match=f"{name} must be a boolean"):
         ServiceSettings.from_env()
 
 
@@ -662,8 +669,8 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     assert len(shared_encoder.calls) == 2
     assert [spec.name for spec in tracker_specs] == ["botsort", "botsort"]
     assert [spec.option_dict for spec in tracker_specs] == [
-        {"asso_func": "iou", "frame_rate": 24},
-        {"asso_func": "iou", "frame_rate": 30},
+        {"asso_func": "iou", "frame_rate": 24, "variable_dt": False},
+        {"asso_func": "iou", "frame_rate": 30, "variable_dt": False},
     ]
 
 

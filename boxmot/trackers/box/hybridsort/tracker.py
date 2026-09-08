@@ -30,6 +30,8 @@ from boxmot.trackers.common.motion.cmc import create_cmc
 
 class HybridSort(BoxTracker):
     accepts_embeddings = True
+
+    supports_variable_dt = True
     uses_frame_dimensions_for_association = True
 
     """Initialize the HybridSort tracker.
@@ -224,7 +226,7 @@ class HybridSort(BoxTracker):
         trks = np.zeros((len(self.active_tracks), 6))
         to_del = []
         for t in range(len(trks)):
-            pos, kal_score, simple_score = self.active_tracks[t].predict()
+            pos, kal_score, simple_score = self.active_tracks[t].predict(dt=self._prediction_dt)
             x1, y1, x2, y2 = pos[0].tolist()
             trks[t] = [x1, y1, x2, y2, kal_score, simple_score]
             if np.any(np.isnan(pos)):
@@ -395,6 +397,7 @@ class HybridSort(BoxTracker):
                 cls=_safe_cls(cls_keep[i]),
                 det_ind=int(det_inds_keep[i]) if len(det_inds_keep) else -1,
                 id_allocator=self.id_allocator,
+                noise_config=self.kalman_noise_config,
             )
             self.active_tracks.append(trk)
 
@@ -441,7 +444,7 @@ class HybridSort(BoxTracker):
         predicted = []
         valid_tracks = []
         for track in self.active_tracks:
-            prediction = np.asarray(track.predict()[0][:5], dtype=np.float32)
+            prediction = np.asarray(track.predict(dt=self._prediction_dt)[0][:5], dtype=np.float32)
             if np.isfinite(prediction).all():
                 predicted.append(prediction)
                 valid_tracks.append(track)
@@ -501,6 +504,7 @@ class HybridSort(BoxTracker):
                 max_obs=self.max_obs,
                 is_obb=True,
                 id_allocator=self.id_allocator,
+                noise_config=self.kalman_noise_config,
             )
             track.smooth_feat = high_embs[det_index]
             self.active_tracks.append(track)

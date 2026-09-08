@@ -93,7 +93,8 @@ track_buffer:
   range: [10, 61, 10]
 ```
 
-There is no separate `--tracker-config` CLI flag. The tracker name selects its
-combined built-in file. The Python factory accepts only a canonical
+The tracker name selects its combined built-in file. `track` and `eval` accept
+`--tracker-config` to overlay a scalar YAML file or a built-in preset. Explicit
+runtime flags override the loaded values. The Python factory accepts a canonical
 `TrackerSpec`; place scalar overrides in its sorted `options` tuple. Tuning
-writes fully resolved scalar YAML for engine-owned workflows.
+writes resolved scalar YAML that can be reused with `--tracker-config`.

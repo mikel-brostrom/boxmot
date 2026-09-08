@@ -41,6 +41,29 @@ configuration with `use_embeddings: true` requires embeddings in the build;
 Sam2Mot requires full-frame detection-aligned masks and frames. Missing inputs
 produce an actionable materialization error.
 
+## Evaluate variable capture intervals
+
+Use [`time-variant`](../modes/time-variant.md) to create a reproducible frame-loss
+variant with original capture times, remapped ground truth, and a derived
+perception build. After generating the MOT17-10-FRCNN example, evaluate its
+`variable` split using the derived build ID printed by that command:
+
+```bash
+boxmot eval \
+  --dataset datasets/mot/variants/mot17-10-frcnn-variable-time/dataset.yaml \
+  --split variable \
+  --build DERIVED_BUILD_ID \
+  --tracker botsort \
+  --variable-dt
+```
+
+Cached replay does not accept `--device`. Comparisons should use the same
+variant and perception build, with tracker settings calibrated for the
+selected timing mode. See [Kalman calibration](../modes/eval.md#kalman-calibration)
+for fitting and reusing noise settings.
+
+## Replay and postprocessing
+
 Cached replay is sequence-parallel: each sequence is handled by a spawned
 process with its own tracker instance. Use `--n-threads` to cap the active
 sequence processes; the evaluation UI shows a separate frame-progress row for

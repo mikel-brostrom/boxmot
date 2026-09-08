@@ -5,6 +5,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 
 
 class KalmanFilterXYSCR(BaseKalmanFilter):
@@ -28,6 +29,8 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
         dim_z: int = 5,
         dim_u: int = 0,
         max_obs: Optional[int] = 50,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         if dim_x != 9 or dim_z != 5:
             raise ValueError("KalmanFilterXYSCR expects dim_x=9 and dim_z=5")
@@ -41,6 +44,7 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
             motion_mat=self._build_motion_matrix(),
             update_mat=np.eye(dim_z, dim_x, dtype=float),
             max_obs=max_obs,
+            noise_config=noise_config,
         )
         self.dim_u = dim_u
         self.max_obs = None if max_obs is None else max(1, int(max_obs))
@@ -130,9 +134,7 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
             dtype=float,
         )
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         if mean.ndim != 2:
             raise ValueError("Expected mean to have shape (n, dim_x)")
 
@@ -162,7 +164,7 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
         covariance = np.diag(np.square(std))
         mean[2, 0] = max(float(mean[2, 0]), 1e-6)
         mean[4, 0] = max(float(mean[4, 0]), 1e-6)
-        return mean, covariance
+        return mean, self.noise_config.initial_covariance(covariance, self.dim_z)
 
     def predict(
         self,
@@ -170,8 +172,11 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
         B: Optional[np.ndarray] = None,
         F: Optional[np.ndarray] = None,
         Q: Optional[np.ndarray] = None,
+        *,
+        dt: float | None = None,
     ) -> None:
-        self.predict_state(u=u, B=B, F=F, Q=Q)
+        """Predict score and box geometry over the supplied elapsed interval."""
+        self.predict_state(u=u, B=B, F=F, Q=Q, dt=dt)
         self._enforce_state_constraints()
 
     def freeze(self) -> None:
@@ -240,7 +245,7 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
         self.history_obs.append(None if measurement is None else measurement.copy())
 
         if measurement is None:
-            if self.observed:
+            if not self._time_aware and self.observed:
                 self.freeze()
             self.observed = False
             self.z = np.array([[None] * self.dim_z]).T
@@ -250,12 +255,39 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
             return
 
         if not self.observed:
-            self.unfreeze()
+            if self._time_aware:
+                self._replay_timed_observations(measurement, R=R, H=H)
+            else:
+                self.unfreeze()
         self.observed = True
 
+        self._correct_observation(measurement, R=R, H=H)
+        self._remember_observation(measurement)
+
+    def _correct_observation(
+        self,
+        measurement: np.ndarray,
+        R: Optional[np.ndarray] = None,
+        H: Optional[np.ndarray] = None,
+    ) -> None:
+        """Correct a real or interpolated score-aware observation."""
         self.update_state(z=measurement, R=R, H=H)
         self._enforce_state_constraints()
 
+    def _interpolate_observation(self, previous: np.ndarray, current: np.ndarray, fraction: float) -> np.ndarray:
+        """Interpolate position, confidence and box width/height in elapsed time."""
+        previous = np.asarray(previous, dtype=float).reshape(-1)
+        current = np.asarray(current, dtype=float).reshape(-1)
+        measurement = previous + fraction * (current - previous)
+        previous_w = np.sqrt(previous[2] * previous[4])
+        previous_h = np.sqrt(previous[2] / previous[4])
+        current_w = np.sqrt(current[2] * current[4])
+        current_h = np.sqrt(current[2] / current[4])
+        width = max(previous_w + fraction * (current_w - previous_w), 1e-6)
+        height = max(previous_h + fraction * (current_h - previous_h), 1e-6)
+        measurement[2], measurement[4] = width * height, width / height
+        return measurement.reshape((self.dim_z, 1))
+
     def md_for_measurement(self, z: np.ndarray) -> float:
         measurement = self._prepare_measurement(z)
-        return self.mahalanobis_distance(z=measurement, H=self.H, R=self.R)
+        return self.mahalanobis_distance(z=measurement, H=self.H)

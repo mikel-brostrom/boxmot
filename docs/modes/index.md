@@ -8,6 +8,7 @@ logic.
 | --- | --- | --- |
 | `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
 | `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
+| `time-variant` | Derive a timestamped frame-loss dataset using cached perception | dataset, sequence, and `--build` |
 | `eval` | Materialize/replay a build and calculate MOT metrics | experiment (filename or component shorthand), or dataset plus `--build` |
 | `tune` | Optimize tracker parameters against a build | experiment plus `--build` |
 | `research` | Score proposed tracker changes against a build | experiment plus `--build` |
@@ -47,6 +48,9 @@ taxonomy, geometry, and component fingerprints before replay.
 
 See [Materialize](materialize.md), [Evaluate](eval.md), [Tune](tune.md), and
 [Research](research.md).
+
+Use [Time-variant dataset](time-variant.md) to compare timing modes under
+reproducible frame loss without rerunning perception.
 
 ## Python composition
 

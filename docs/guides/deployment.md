@@ -159,6 +159,51 @@ curl --request DELETE \
   http://localhost:8000/v1/streams/camera-01/sessions/run-01
 ```
 
+## Capture timestamps
+
+The service defaults to fixed-step prediction (`BOXMOT_VARIABLE_DT=false`),
+matching established tracker tuning. The optional `timestamp_s` request field
+is metadata by default and does not change motion prediction.
+
+To try experimental prediction in elapsed seconds, start the service with
+`BOXMOT_VARIABLE_DT=true`. This mode needs separate motion-noise calibration;
+existing benchmark accuracy is not guaranteed. Supply a finite capture or
+media timestamp in seconds on every frame, including frames without
+detections. For example, the CPU service accepts this first request:
+
+```json
+{
+  "frame_id": 0,
+  "timestamp_s": 12.0,
+  "width": 1920,
+  "height": 1080,
+  "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]]
+}
+```
+
+The first timestamp establishes the session clock. A following request with
+`"frame_id": 1` and `"timestamp_s": 12.04` advances Kalman prediction by 0.04
+seconds. The service passes the capture timestamp to the tracker, which
+computes the interval internally. GPU requests use the same field alongside
+their required image.
+Use capture or media timestamps rather than processing or network arrival
+times, and keep frame IDs contiguous even when capture intervals vary.
+
+Timing mode is process configuration; request timestamps and `frame_rate` do
+not enable it. When enabled, a missing timestamp on a new session's first
+frame returns HTTP 422 before creating a tracker. Missing or non-increasing
+timestamps on subsequent frames return HTTP 409 without advancing the tracker.
+When disabled, optional timestamps may appear, disappear, or change without
+affecting prediction. In either mode, changing a timestamp on a retry returns
+HTTP 409; an exact retry of the most recent frame replays its cached response.
+
+SFSORT rejects `BOXMOT_VARIABLE_DT=true` at service startup. All other service
+trackers support this option. When enabled, motion priors are converted to
+seconds using a fixed `1/30`-second reference interval, then integrated over
+the actual capture interval. The reference does not replace capture timestamps;
+review [elapsed-time prediction](../python/index.md#elapsed-time) when tuning
+noise. Track expiration and confirmation settings remain counts of updates.
+
 ## Configure the process
 
 The CPU image defaults to ByteTrack; the GPU image defaults to BotSort. Their
@@ -169,6 +214,7 @@ process-level settings are:
 | `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
 | `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
 | `BOXMOT_SERVICE_ASSO_FUNC` | `iou` | `iou` | Geometry used for AABB or OBB detection-track matching: `iou`, `giou`, `diou`, `ciou`, `hmiou`, or `centroid`. |
+| `BOXMOT_VARIABLE_DT` | `false` | `false` | Opt into experimental elapsed-seconds prediction; requires `timestamp_s` on every frame and separate motion-noise calibration. Unsupported by SFSORT. |
 | `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
 | `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
 | `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |

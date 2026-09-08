@@ -45,6 +45,9 @@ class ReplayFrame:
     result: PipelineResult
 
 
+ReplayFrameCallback = Callable[[ReplayFrame], None]
+
+
 @dataclass(frozen=True, slots=True)
 class ReplayResult:
     """Published tracker text files produced by a replay run."""
@@ -133,7 +136,7 @@ def _frame_for_sample(
 
 
 def iter_cached_tracks(
-    dataset: CachedVisionDataset,
+    dataset: Iterable[DatasetSample],
     tracker: Tracker,
     *,
     sequence_ids: frozenset[str] | None = None,
@@ -685,24 +688,31 @@ def _replay_with_injected_tracker(
     destination: Path,
     tracker: Tracker,
     sequence_ids: tuple[str, ...] | None,
+    frame_callback: ReplayFrameCallback | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
+    sequence_frame_counts: Mapping[str, int] | None = None,
 ) -> ReplayResult:
     """Preserve the caller-owned, in-process tracker path used by tests and embedding clients."""
 
     requirements = tracker.requirements
-    dataset = load_cached_build(
-        build_path,
-        split=split,
-        load_images=requirements.frame_pixels,
-        load_masks=requirements.masks,
-        load_embeddings=requirements.embeddings,
-    )
-    validate_build_compatibility(
-        dataset.manifest,
-        split=split,
-        geometry=tracker_spec.geometry,
-        require_masks=requirements.masks,
-        require_embeddings=requirements.embeddings,
-    )
+    if frame_callback is None:
+        dataset = load_cached_build(
+            build_path,
+            split=split,
+            load_images=requirements.frame_pixels,
+            load_masks=requirements.masks,
+            load_embeddings=requirements.embeddings,
+        )
+        validate_build_compatibility(
+            dataset.manifest,
+            split=split,
+            geometry=tracker_spec.geometry,
+            require_masks=requirements.masks,
+            require_embeddings=requirements.embeddings,
+        )
+    else:
+        assert sequence_frame_counts is not None
+        dataset = _callback_samples(build_path, tracker, split=split, frame_counts=sequence_frame_counts)
 
     handles: dict[str, TextIO] = {}
     sequence_paths: dict[str, Path] = {}
@@ -715,10 +725,39 @@ def _replay_with_injected_tracker(
         if not sequence_ids:
             raise ValueError("sequence_ids must not be empty when supplied")
         selected_sequences = frozenset(_validate_sequence_id(value) for value in sequence_ids)
+    frame_counts = dict(sequence_frame_counts or {})
+    ordinals = {sequence: ordinal for ordinal, sequence in enumerate(frame_counts)}
+    completed: Counter[str] = Counter()
+    sequence_rows: Counter[str] = Counter()
+    latest: dict[int, ReplayProgressEvent] = {}
+
+    def progress(sequence: str, status: ReplayProgressStatus, detail: str | None = None) -> None:
+        if sequence not in frame_counts:
+            return
+        _publish_progress(
+            ReplayProgressEvent(
+                sequence_id=sequence,
+                status=status,
+                completed=completed[sequence],
+                total=frame_counts[sequence],
+                track_rows=sequence_rows[sequence],
+                detail=detail,
+                ordinal=ordinals[sequence],
+            ),
+            progress_callback,
+            latest,
+        )
+
+    for sequence in frame_counts:
+        progress(sequence, "queued")
+    replayed_frames = iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences)
+    active_sequence: str | None = None
     try:
-        for replayed in iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences):
+        for replayed in replayed_frames:
             sequence = _validate_sequence_id(replayed.sample.sequence_id)
+            active_sequence = sequence
             if sequence not in handles:
+                progress(sequence, "running", "streaming cached inputs")
                 path = destination / f"{sequence}.txt"
                 path.unlink(missing_ok=True)
                 handles[sequence] = path.open("x", encoding="utf-8")
@@ -727,7 +766,26 @@ def _replay_with_injected_tracker(
             _write_rows(handles[sequence], rows)
             frames += 1
             track_rows += len(rows)
+            completed[sequence] += 1
+            sequence_rows[sequence] += len(rows)
+            if frame_callback is not None:
+                frame_callback(replayed)
+            progress(sequence, "running", replayed.sample.sample_id)
+            if completed[sequence] == frame_counts.get(sequence):
+                progress(sequence, "completed")
+        if frame_callback is not None:
+            for handle in handles.values():
+                handle.flush()
+                os.fsync(handle.fileno())
+    except Exception as exc:
+        if active_sequence is not None:
+            progress(active_sequence, "failed", f"{type(exc).__name__}: {exc}")
+        raise
     finally:
+        replayed_frames.close()
+        close_samples = getattr(dataset, "close", None)
+        if callable(close_samples):
+            close_samples()
         for handle in handles.values():
             handle.close()
 
@@ -742,6 +800,105 @@ def _replay_with_injected_tracker(
         sequence_files=tuple(sequence_paths[name] for name in sorted(sequence_paths)),
         frames=frames,
         track_rows=track_rows,
+    )
+
+
+def _callback_samples(
+    build_path: Path,
+    tracker: Tracker,
+    *,
+    split: str | None,
+    frame_counts: Mapping[str, int],
+) -> Iterator[DatasetSample]:
+    """Stream selected sequences with real pixels and bounded optional payloads."""
+
+    requirements = tracker.requirements
+    for sequence, expected in frame_counts.items():
+        dataset = CachedVisionDataset._stream_sequence(
+            build_path,
+            sequence_id=sequence,
+            split=split,
+            load_images=True,
+            load_masks=requirements.masks,
+            load_embeddings=requirements.embeddings,
+        )
+        if len(dataset) != expected:
+            raise RuntimeError(
+                f"Sequence {sequence!r} changed while replay was starting: "
+                f"expected {expected} frames, loaded {len(dataset)}."
+            )
+        with _prefetch_samples(dataset) as samples:
+            yield from samples
+
+
+def _replay_with_frame_callback(
+    build_path: Path,
+    tracker_spec: TrackerSpec,
+    *,
+    split: str | None,
+    destination: Path,
+    tracker: Tracker | None,
+    sequence_ids: tuple[str, ...] | None,
+    sequence_frame_counts: Mapping[str, int] | None,
+    workers: int | None,
+    frame_callback: ReplayFrameCallback,
+    progress_callback: ReplayProgressCallback | None,
+) -> ReplayResult:
+    """Keep rendering on the caller's thread and publish only a complete replay."""
+
+    manifest = DatasetManifest.load(build_path)
+    actual_counts = dict(_sequence_frame_counts(build_path, manifest, split=split))
+    selected = _select_sequence_ids(tuple(actual_counts), sequence_ids)
+    _validated_worker_count(workers, len(selected))
+    if sequence_frame_counts is not None:
+        supplied_counts = _validated_sequence_frame_counts(sequence_frame_counts)
+        for sequence in selected:
+            if supplied_counts.get(sequence) != actual_counts[sequence]:
+                raise ValueError(
+                    f"Sequence {sequence!r} has {actual_counts[sequence]} cached frames, "
+                    f"but sequence_frame_counts specifies {supplied_counts.get(sequence)!r}."
+                )
+    frame_counts = {sequence: actual_counts[sequence] for sequence in selected}
+    with tempfile.TemporaryDirectory(prefix=".replay-", dir=destination) as staging_dir:
+        ownership = _owned_tracker(tracker_spec) if tracker is None else nullcontext(tracker)
+        with ownership as active_tracker:
+            requirements = active_tracker.requirements
+            validate_build_compatibility(
+                manifest,
+                split=split,
+                geometry=tracker_spec.geometry,
+                require_masks=requirements.masks,
+                require_embeddings=requirements.embeddings,
+            )
+            if not manifest.publish.image_references:
+                raise BuildCompatibilityError(
+                    f"Build {manifest.build_id!r} is missing image references required for rendering. "
+                    "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."
+                )
+            if not selected:
+                return ReplayResult(build_path, destination, (), 0, 0)
+            replayed = _replay_with_injected_tracker(
+                build_path,
+                tracker_spec,
+                split=split,
+                destination=Path(staging_dir),
+                tracker=active_tracker,
+                sequence_ids=selected,
+                sequence_frame_counts=frame_counts,
+                frame_callback=frame_callback,
+                progress_callback=progress_callback,
+            )
+        sequence_paths: list[Path] = []
+        for staged in replayed.sequence_files:
+            path = destination / staged.name
+            os.replace(staged, path)
+            sequence_paths.append(path)
+    return ReplayResult(
+        build=build_path,
+        output_dir=destination,
+        sequence_files=tuple(sequence_paths),
+        frames=replayed.frames,
+        track_rows=replayed.track_rows,
     )
 
 
@@ -781,6 +938,7 @@ def replay_build(
     sequence_frame_counts: Mapping[str, int] | None = None,
     workers: int | None = None,
     progress_callback: ReplayProgressCallback | None = None,
+    frame_callback: ReplayFrameCallback | None = None,
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -788,15 +946,34 @@ def replay_build(
     this keeps dependency-injected trackers usable without attempting to
     pickle their state. The default path sends only immutable specs and paths
     to workers, which construct and release their own trackers.
+
+    A ``frame_callback`` also selects serial replay on the caller's thread and
+    receives each result with its decoded source frame and original timestamp.
+    Callback failures propagate without publishing partial MOT result files.
     """
 
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
     if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
         raise ValueError("split must be a non-empty canonical string or None")
+    if frame_callback is not None and not callable(frame_callback):
+        raise TypeError("frame_callback must be callable or None")
     build_path = resolve_build_path(build, build_root=build_root)
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
+    if frame_callback is not None:
+        return _replay_with_frame_callback(
+            build_path,
+            tracker_spec,
+            split=split,
+            destination=destination,
+            tracker=tracker,
+            sequence_ids=sequence_ids,
+            sequence_frame_counts=sequence_frame_counts,
+            workers=workers,
+            frame_callback=frame_callback,
+            progress_callback=progress_callback,
+        )
     if tracker is not None:
         return _replay_with_injected_tracker(
             build_path,
@@ -879,6 +1056,7 @@ def replay_build(
 
 __all__ = (
     "ReplayFrame",
+    "ReplayFrameCallback",
     "ReplayProgressEvent",
     "ReplayResult",
     "iter_cached_tracks",

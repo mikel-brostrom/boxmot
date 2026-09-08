@@ -39,7 +39,7 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
+- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
   `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
 - Swappable components with explicit capabilities and requirements.
@@ -254,6 +254,24 @@ boxmot eval \
   --reid lmbn-n-duke \
   --tracker botsort
 ```
+
+Add `--fps 5` to evaluate the dataset at 5 FPS. A compatible full-rate
+materialization supplies cached detections and embeddings without rerunning
+the models. The sampled build, replayed images, and ground truth use the same
+selected frames, preserving capture timestamps. Each rate has its own
+immutable build identity. See
+[dataset FPS](docs/modes/eval.md#dataset-fps) for materialization and replay.
+
+Add `--kf-tuning` to fit five Kalman noise scales on the selected split, using
+fixed steps by default or capture timestamps with `--variable-dt`. Saved
+settings record their time units and reference interval; reuse them with
+`--tracker-config path/to/kf-tuning/best.yaml` in the same timing mode. See
+[Kalman calibration](docs/modes/eval.md#kalman-calibration) for timing modes and
+evaluation on held-out data.
+
+Use [`boxmot time-variant`](docs/modes/time-variant.md) to derive a reproducible
+frame-loss stress test from one MOT sequence and an existing perception build.
+It preserves real capture times and reuses cached detections and embeddings.
 
 Use NumPy detections and BGR images directly:
 

@@ -545,6 +545,7 @@ def test_video_catalog_decode_preserves_frame_identity_and_timestamps(tmp_path) 
     assert [frame.sequence_id for frame in frames] == [sample.sequence_id for sample in catalog.samples]
     assert [frame.frame_index for frame in frames] == [sample.frame_index for sample in catalog.samples]
     assert [frame.timestamp_s for frame in frames] == [sample.timestamp_s for sample in catalog.samples]
+    assert [frame.timestamp_s for frame in frames] == pytest.approx([0.0, 0.1, 0.2])
     assert all(frame.source_uri == path.as_uri() for frame in frames)
 
 

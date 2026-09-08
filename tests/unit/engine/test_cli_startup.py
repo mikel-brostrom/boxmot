@@ -46,6 +46,7 @@ _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
     "boxmot.engine.commands.materialize",
+    "boxmot.engine.commands.time_variant",
     "boxmot.engine.commands.research",
     "boxmot.engine.commands.track",
     "boxmot.engine.commands.tune",
@@ -69,6 +70,7 @@ _REID_COMMAND_MODULES = (
 _COMMAND_MODULE_BY_NAME = {
     "track": "boxmot.engine.commands.track",
     "materialize": "boxmot.engine.commands.materialize",
+    "time-variant": "boxmot.engine.commands.time_variant",
     "eval": "boxmot.engine.commands.eval",
     "tune": "boxmot.engine.commands.tune",
     "research": "boxmot.engine.commands.research",

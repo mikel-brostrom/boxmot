@@ -205,6 +205,19 @@ contiguous `frame_id` values (`1`, `2`, ...) and send `"detections": []` when
 a frame has no detections. The response's `track_columns` field defines the
 column order of each returned track.
 
+Prediction uses fixed steps by default, preserving established tracker tuning.
+Optional `timestamp_s` values remain metadata. To try experimental prediction
+in elapsed seconds, start the container with `-e BOXMOT_VARIABLE_DT=true` and
+include finite, strictly increasing capture timestamps on frame 0 and every
+subsequent request. Timestamps `12.0` and `12.04` on frames 0 and 1 then give
+the tracker a prediction interval of 0.04 seconds. Exact retries retain their
+original timestamps. Motion priors use a fixed `1/30`-second reference for unit
+conversion; actual prediction intervals come from the timestamps. This mode
+needs separate motion-noise calibration and does not support SFSORT; track
+expiration still counts updates. See
+[capture timestamps](../docs/guides/deployment.md#capture-timestamps) for session
+validation and tuning limitations.
+
 Run the CUDA/ReID service with an NVIDIA GPU and a mounted checkpoint:
 
 ```bash

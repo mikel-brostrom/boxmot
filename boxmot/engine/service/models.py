@@ -31,6 +31,11 @@ class FrameRequest(BaseModel):
         description="Frame height in pixels; inferred from image_base64, required without an image.",
     )
     frame_rate: int = Field(default=30, ge=1, le=240)
+    timestamp_s: float | None = Field(
+        default=None,
+        allow_inf_nan=False,
+        description="Capture time in seconds; supply on every session frame to enable variable-time prediction.",
+    )
     box_type: BoxType = BoxType.AABB
     # Keep integer JSON numbers intact for IDs while continuing to accept the
     # established numeric row wire format for geometry and scores.
