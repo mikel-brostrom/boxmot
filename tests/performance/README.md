@@ -16,6 +16,9 @@ The benchmarks are grouped by domain:
 - `benchmark_eval.py` times fresh evaluation CLI invocations on an existing
   materialized build, records setup/replay/metrics separately, and verifies
   tracking-file hashes and metrics across repetitions.
+- `benchmark_cli_startup.py` measures launch-to-first-visible-output latency
+  through a real terminal on macOS/Linux, without importing workflow modules
+  ahead of the CLI. It also records the first Setup and workflow titles.
 
 Run each benchmark as a module from the repository root:
 
@@ -55,3 +58,18 @@ a time. Output is redirected to logs, so interactive terminal rendering costs
 can differ. Invocation time includes process startup/shutdown and the small
 checksum/JSON-reporting overhead. Profiled timings include instrumentation
 overhead and should not be used to claim speedups.
+
+For startup and interactive UI measurements, run the command through a PTY:
+
+```bash
+uv run --no-sync python -m tests.performance.benchmark_cli_startup \
+  --repeat 3 --label startup -- \
+  eval --dataset mot17 --split ablation --detector yolox-x-mot17 \
+  --reid lmbn-n-duke --tracker sfsort --device mps
+```
+
+This benchmark writes terminal transcripts and timestamp JSON files under
+`runs/replay-benchmark/startup`. Its invocation timer includes interpreter
+startup, runtime imports, interactive rendering, and shutdown. Workflow-title
+timestamps indicate the first displayed panel, including transient Setup
+panels; use `benchmark_eval.py` for execution-stage timings and output equality.

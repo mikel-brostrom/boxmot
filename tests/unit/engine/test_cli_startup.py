@@ -31,6 +31,8 @@ _MODEL_RUNTIME_MODULES = (
     "boxmot.reid.training.losses",
 )
 
+_CONFIG_RUNTIME_MODULES = (*_HEAVY_RUNTIME_MODULES, *_MODEL_RUNTIME_MODULES, "pyarrow")
+
 _ROOT_HELP_RUNTIME_MODULES = (
     "cv2",
     "torch",
@@ -125,6 +127,24 @@ def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
     assert _imported_heavy_modules(module_name) == []
 
 
+@pytest.mark.parametrize(
+    "module_name",
+    (
+        "boxmot.datasets",
+        "boxmot.datasets.config",
+        "boxmot.detectors",
+        "boxmot.detectors.config",
+        "boxmot.reid.config",
+        "boxmot.engine.experiment_config",
+        "boxmot.engine.commands.eval",
+    ),
+)
+def test_evaluation_selectors_keep_data_and_model_runtimes_lazy(module_name: str) -> None:
+    """Selecting profiles must not load tensor runtimes before progress can start."""
+
+    assert _imported_modules(module_name, _CONFIG_RUNTIME_MODULES) == []
+
+
 def test_training_package_preserves_public_exports_without_resolving_them():
     expected_exports = {
         "AdaSPLoss",
@@ -147,11 +167,7 @@ def test_training_package_preserves_public_exports_without_resolving_them():
         "WeightedRegularizedTripletLoss",
         "evaluate_ranking",
     }
-    probe = (
-        "import json; "
-        "import boxmot.reid.training as training; "
-        "print(json.dumps(sorted(training.__all__)))"
-    )
+    probe = "import json; import boxmot.reid.training as training; print(json.dumps(sorted(training.__all__)))"
     completed = subprocess.run(
         [sys.executable, "-c", probe],
         cwd=REPO_ROOT,
@@ -189,10 +205,13 @@ def test_evaluator_import_stays_light_until_the_workflow_panel_starts():
     ),
 )
 def test_component_selector_modules_keep_ultralytics_runtime_lazy(module_name: str):
-    assert _imported_modules(
-        module_name,
-        ("ultralytics", "boxmot.detectors.backends.ultralytics"),
-    ) == []
+    assert (
+        _imported_modules(
+            module_name,
+            ("ultralytics", "boxmot.detectors.backends.ultralytics"),
+        )
+        == []
+    )
 
 
 def test_engine_command_namespace_does_not_eagerly_import_children():
@@ -314,6 +333,29 @@ def test_command_help_keeps_model_runtimes_lazy(command_name: str):
         text=True,
     )
     assert json.loads(completed.stdout.splitlines()[-1]) == []
+
+
+def test_eval_help_keeps_data_and_model_runtimes_lazy() -> None:
+    """Help exercises Click's complete command loading path in a fresh process."""
+
+    probe = (
+        "import json, sys; "
+        "from click.testing import CliRunner; "
+        "from boxmot.engine.cli import boxmot; "
+        "result = CliRunner().invoke(boxmot, ['eval', '--help']); "
+        "assert result.exit_code == 0, result.output; "
+        "assert '--detector' in result.output; "
+        "blocked = json.loads(sys.argv[1]); "
+        "print(json.dumps([name for name in blocked if name in sys.modules]))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", probe, json.dumps(_CONFIG_RUNTIME_MODULES)],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(completed.stdout) == []
 
 
 @pytest.mark.parametrize(

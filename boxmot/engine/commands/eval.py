@@ -22,6 +22,7 @@ from boxmot.engine.commands._support import (
     _dispatch_cli_workflow,
     _is_option_explicit,
     _run_engine_workflow,
+    _workflow_setup,
 )
 from boxmot.engine.config import BOXMOT_DEFAULTS
 from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
@@ -149,18 +150,19 @@ def eval(
         build_ref=build_ref,
     )
     if detector is not None:
-        try:
-            experiment = str(
-                resolve_matching_experiment_path(
-                    dataset=str(dataset),
-                    detector=detector,
-                    reid=reid,
-                    split=split,
-                    mode="eval",
+        with _workflow_setup("Evaluation", "Resolving experiment…"):
+            try:
+                experiment = str(
+                    resolve_matching_experiment_path(
+                        dataset=str(dataset),
+                        detector=detector,
+                        reid=reid,
+                        split=split,
+                        mode="eval",
+                    )
                 )
-            )
-        except (ConfigurationError, FileNotFoundError) as exc:
-            raise click.UsageError(str(exc)) from exc
+            except (ConfigurationError, FileNotFoundError) as exc:
+                raise click.UsageError(str(exc)) from exc
         dataset = None
     if build_ref is not None and _is_option_explicit(ctx, "device"):
         raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
