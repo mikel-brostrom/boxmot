@@ -204,6 +204,7 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/eval.py",
     "engine/commands/materialize.py",
     "engine/commands/research.py",
+    "engine/commands/time_variant.py",
     "engine/commands/track.py",
     "engine/commands/tune.py",
     "engine/commands/reid/__init__.py",
