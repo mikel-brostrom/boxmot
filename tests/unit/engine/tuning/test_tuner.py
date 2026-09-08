@@ -123,7 +123,6 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
 
     assert {parameter: details["default"] for parameter, details in flat_config.items()} == runtime_defaults
     assert default_tune_config(yaml_cfg) == {
-        **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
         "min_conf": 0.1,
         "track_thresh": 0.6,
         "track_buffer": 30,
@@ -164,7 +163,11 @@ def test_all_builtin_tracker_entries_have_runtime_defaults(tracker_name):
     runtime_defaults = load_tracker_defaults(tracker_name)
 
     assert set(flat_config) == set(runtime_defaults)
+    assert not {"Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"}.intersection(runtime_defaults)
     assert all(details["default"] == runtime_defaults[parameter] for parameter, details in flat_config.items())
+    for parameter in (*KALMAN_NOISE_OPTIONS, "adaptive_kf"):
+        if parameter in flat_config:
+            assert flat_config[parameter] == {"default": runtime_defaults[parameter]}
 
 
 @pytest.mark.parametrize(
@@ -173,7 +176,7 @@ def test_all_builtin_tracker_entries_have_runtime_defaults(tracker_name):
 def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, variable_dt, backend):
     captured = {}
     workflow_state = {"stopped": False}
-    detail_updates: list[tuple[str | None, str | None]] = []
+    detail_updates: list[tuple[str | None, object]] = []
     (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
 
     class _FakeRequirementsChecker:
@@ -196,7 +199,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
             activate=lambda *a, **k: None,
             set_detail=lambda title, text, **k: detail_updates.append((title, text)),
             clear_detail=lambda *a, **k: None,
-            set_detail_renderable=lambda *a, **k: None,
+            set_detail_renderable=lambda title, renderable, **k: detail_updates.append((title, renderable)),
             transition=lambda *a, **k: None,
             stop=lambda: workflow_state.update(stopped=True),
             steps=[],
@@ -359,11 +362,9 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     scale = 2.0 if backend == "python" else 1.0
     tuner_module.Tuner(args, baseline_config={"kf_process_position_scale": scale}).fit()
 
-    if backend == "python":
-        assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["param_space"])
-        assert captured["search_kwargs"]["points_to_evaluate"][0]["kf_process_position_scale"] == scale
-    else:
-        assert all(captured["param_space"][key] == 1.0 for key in KALMAN_NOISE_OPTIONS)
+    expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kf_process_position_scale": scale}
+    assert all(captured["param_space"][key] == value for key, value in expected_scales.items())
+    assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["search_kwargs"]["points_to_evaluate"][0])
     assert captured["param_space"]["variable_dt"] is bool(variable_dt)
     assert captured["param_space"]["kf_time_unit"] == ("seconds" if variable_dt else "frames")
     assert captured["param_space"]["kf_reference_dt_s"] == DEFAULT_REFERENCE_DT_S
@@ -379,6 +380,11 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
     assert os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] == "0"
     assert any(title == tune_reporting.TUNE_OPTIMIZE_STEP for title, _ in detail_updates)
+    first_detail = next(detail for title, detail in detail_updates if title == tune_reporting.TUNE_OPTIMIZE_STEP)
+    initial = ui_module.capture_renderable(first_detail, width=120)
+    assert "0/3 trials" in initial
+    assert "pending" in initial
+    assert "running" not in initial
     assert captured["fit"] is True
     assert workflow_state["stopped"] is True
 
@@ -562,10 +568,10 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
 
 
 def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
-    updates: list[tuple[str, str]] = []
+    updates: list[tuple[str, object]] = []
     workflow = SimpleNamespace(
         _lock=threading.RLock(),
-        set_detail=lambda title, detail: updates.append((title, detail)),
+        set_detail_renderable=lambda title, detail: updates.append((title, detail)),
     )
     callback = tune_reporting.TuneWorkflowCallback(total=1, maximize=["HOTA"], minimize=[])
 
@@ -1212,21 +1218,23 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
     )
     workflow.complete(tune_reporting.TUNE_SETUP_STEP, render=False)
     workflow.activate(tune_reporting.TUNE_OPTIMIZE_STEP, render=False)
-    workflow.set_detail(
+    workflow.set_detail_renderable(
         tune_reporting.TUNE_OPTIMIZE_STEP,
-        "Tune     20%  (2/10)  running trial 3/10  remaining 00:34",
+        tune_reporting.format_tune_progress(2, 10, current_trial=3, remaining_seconds=34),
         render=False,
     )
 
     rendered = ui_module.capture_renderable(workflow.renderable(compact=True), width=180)
 
-    assert rendered.count("\n") + 1 <= 12
+    assert rendered.count("\n") + 1 <= 14
     assert "Setup" in rendered
     assert "Pipeline" in rendered
     assert "OBJECTIVE" in rendered
     assert "Pareto: max HOTA, MOTA / min IDSW_rate" in rendered
     assert "[✓] Setup / [>] Optimize" in rendered
-    assert "Tune     20%  (2/10)  running trial 3/10  remaining 00:34" in rendered
+    assert "Tuning: 2/10 trials done" in rendered
+    assert "2/10 trials" in rendered
+    assert "running · trial 3/10 · remaining 00:34" in rendered
 
 
 def test_build_tune_artifacts_renderable_lists_paths() -> None:

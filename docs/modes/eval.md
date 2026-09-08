@@ -96,15 +96,14 @@ boxmot eval \
   --split ablation \
   --build BUILD_ID \
   --tracker botsort \
-  --tracker-config path/to/kf-tuning/best.yaml \
+  --tracker-config path/to/kf-tuning/calibrated.yaml \
   --show --save
 ```
 
-Use the `best.yaml` printed by a previous calibration run; omit
+Use the `calibrated.yaml` printed by a previous calibration run; omit
 `--tracker-config` to use the tracker defaults. The saved configuration retains
-its timing mode. `--show` and `--save` also work with `--kf-tuning`: only the
-final replay of the selected configuration is displayed or recorded, not the
-search trials.
+its timing mode. `--show` and `--save` also work with `--calibrate-kf`: the tracker
+replay is displayed or recorded after noise calibration finishes.
 
 Preview follows source timestamps when available. Press **q** or **Esc** to
 close the preview while evaluation continues. Annotated videos are written to
@@ -156,6 +155,10 @@ to prepare a different rate using automatic reuse, or run
 `track --fps` controls saved video playback speed; dataset frame selection
 applies to `materialize`, `eval`, and `tune`.
 
+Combine `--fps 2 --calibrate-kf` to fit Kalman noise using the selected 2 FPS
+detections and ground truth before evaluating once. The
+[calibration example](#kalman-calibration) also enables timestamp-based prediction.
+
 ## Legacy builds
 
 An unbound build created before canonical experiment materialization can be
@@ -180,62 +183,102 @@ the default and do not need this flag.
 
 ## Kalman calibration
 
-Use `--kf-tuning` to calibrate five Kalman covariance multipliers for HOTA on
-the selected split, then run evaluation with the selected configuration:
+Use `--calibrate-kf` to estimate Kalman noise directly from cached detector
+predictions and ground truth on the selected split, then evaluate the calibrated
+tracker once:
 
 ```bash
 boxmot eval \
   --experiment mot17/ablation-yolox-lmbn.yaml \
   --tracker botsort \
+  --fps 2 \
   --variable-dt \
-  --kf-tuning \
-  --kf-trials 20
+  --calibrate-kf
 ```
 
-The default is 20 trials total, including the starting configuration. Optuna
-uses seed 0. `--kf-trials 1` evaluates only the starting configuration, and
-`--kf-trials` requires `--kf-tuning`. Perception data is materialized or reused
-once; all trials replay the same build.
-This requires the `evolve` installation extra, which provides Optuna.
+This example selects 2 FPS data and uses its capture timestamps for prediction.
+Omit `--variable-dt` to calibrate in fixed-step mode, or omit `--fps` to retain
+the original dataset rate during automatic preparation.
 
-| Parameter | What it scales | Default | Search range |
-| --- | --- | --- | --- |
-| `kf_process_position_scale` | Position process noise | `1.0` | `0.01–100` |
-| `kf_process_velocity_scale` | Velocity process noise | `1.0` | `0.01–100` |
-| `kf_measurement_noise_scale` | Measurement covariance | `1.0` | `0.01–100` |
-| `kf_initial_position_scale` | Initial position covariance | `1.0` | `0.01–100` |
-| `kf_initial_velocity_scale` | Initial velocity covariance | `1.0` | `0.01–100` |
+Perception is materialized or reused once. Calibration matches detections to
+ground truth by class and IoU (at least `0.5`), then fits five dimensionless
+covariance multipliers from the observed errors:
 
-These logarithmic search ranges come from the tracker YAML and are shared with
-[joint tracker tuning](tune.md). They are dimensionless multipliers of the
-filter's reference priors, after conversion into the selected time units. The
-same ranges apply in fixed-step and elapsed-seconds modes.
+| Parameter | What provides the calibration residuals |
+| --- | --- |
+| `kf_process_position_scale` | Position-noise contribution to ground-truth box prediction errors |
+| `kf_process_velocity_scale` | Velocity-noise contribution to the same prediction errors |
+| `kf_measurement_noise_scale` | Matched detector boxes minus ground-truth boxes |
+| `kf_initial_position_scale` | Detection errors at each GT object's first matched observation |
+| `kf_initial_velocity_scale` | Zero-initialized velocity errors relative to local ground-truth motion |
 
-For OC-SORT and DeepOCSORT, this search holds `Q_xy_scaling` and `Q_s_scaling`
-fixed. To keep them fixed during joint tuning too, see
-[fixing base process noise](tune.md#fix-oc-sort-base-process-noise).
+Measurement and initialization scales use residual second moments. Both process
+scales are fitted together from constant-velocity prediction errors across
+three consecutive annotated frames. The fit accounts for process noise from
+both intervening intervals and the covariance between adjacent prediction
+errors. Adjacent error pairs require four consecutive annotated frames and
+help separate position from velocity noise, including at regular frame rates.
+Ground-truth motion contributes even when a detection is missed; missing
+annotations break the motion samples.
+The first matched detection for each object supplies an initialization proxy.
+Calibration requires at least one valid detection/ground-truth match. If a
+scale lacks sufficient evidence, its current value is retained and the report
+records why.
 
-These values multiply covariance, not standard deviation. The search keeps
-other tracker settings fixed, including `variable_dt`; timestamps do not
-enable variable timing. Use `--variable-dt` explicitly to calibrate the
-experimental elapsed-seconds mode. Calibration supports Python ByteTrack,
-BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost.
-Native backends, SFSORT, and SAM2 are rejected before automatic materialization.
+The estimates scale the selected filter's reference covariance priors. Values
+multiply covariance, not standard deviation. Calibration keeps all other
+tracker settings fixed, including the timing mode. The filter's internal
+base priors remain fixed; the five shared scales provide the noise-calibration
+interface.
+
+`eval --calibrate-kf` does not launch Ray Tune or Optuna, replay HOTA trials, or
+require the `evolve` extra. Use [`boxmot tune`](tune.md#kalman-noise-and-timing)
+for metric-based search over tracker parameters; Kalman settings remain fixed
+during that search. Covariance multipliers are runtime settings estimated by
+calibration, with defaults retained in the tracker YAML and no search ranges.
+Use [`tune --calibrate-kf`](tune.md#calibrate-the-kf-before-tracker-tuning) to
+calibrate once before searching the other tracker settings, keeping the KF
+calibration fixed throughout the search.
+A positive numerical floor keeps calibrated covariances valid. See
+[OC-SORT base process noise](tune.md#oc-sort-base-process-noise) for the
+relationship between model priors and calibrated multipliers.
+
+Calibration supports AABB and OBB ground truth with Python ByteTrack, BotSort,
+StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost. Native
+backends and trackers without a Kalman filter are rejected before automatic
+materialization. HybridSORT's confidence state has no ground-truth confidence
+target, so confidence residuals are excluded from fitting; the shared scales
+still apply to that state during tracking.
+
+### Timing and saved settings
+
+Fixed-step prediction remains the default. Add `--variable-dt` to fit and use
+noise in seconds, with elapsed intervals from capture timestamps. Neither
+mode searches `dt`, and measurement noise is not scaled by elapsed time.
+`--fps 2` selects dataset frames at 2 FPS; it does not enable `--variable-dt`.
 
 `kf_reference_dt_s` fixes the interval used to convert historic per-frame priors
 into seconds: its default `0.03333333333333333` represents a 30 FPS reference.
-It is not the source clock or the prediction interval. Actual elapsed intervals
-come from capture timestamps. This reference and `kf_time_unit` are default-only
-runtime settings, never search dimensions. See [time-unit conversion](../python/index.md#elapsed-time)
-for the covariance scaling rules.
+It is not the source clock or the prediction interval. This reference and
+`kf_time_unit` stay fixed during calibration and tracker tuning. See
+[time-unit conversion](../python/index.md#elapsed-time) for the covariance
+scaling rules.
 
-Each run writes `<run>/kf-tuning/best.yaml`, containing the resolved scalar
-tracker parameters, tracker name, `variable_dt`, explicit `kf_time_unit`
-(`frames` or `seconds`), and `kf_reference_dt_s`. `trials.json` records the trial
-results and timing settings.
-The final score is measured on the same split used to select those parameters.
-It is a tuned score, not an independent accuracy estimate; calibration does
-not guarantee improvement on other sequences.
+Each run writes:
+
+- `<run>/kf-tuning/calibrated.yaml`: resolved scalar tracker settings, tracker
+  name, `variable_dt`, explicit `kf_time_unit` (`frames` or `seconds`), and
+  `kf_reference_dt_s`.
+- `<run>/kf-tuning/calibration.json`: calibration evidence, timing settings,
+  and the final evaluation result.
+
+Calibration fits noise statistics, so it does not guarantee a higher HOTA.
+The final replay uses the fitting split. Evaluate the saved settings on
+separate sequences before judging how well they generalize. Initial velocity
+uses a local ground-truth finite difference as a proxy. Annotation noise and
+camera motion contribute to motion errors measured in image coordinates.
+Measurement estimates describe
+detections that pass the IoU match threshold; they do not model false positives.
 
 Use `--tracker-config` to evaluate the saved configuration on a separate split
 with ground truth and a compatible build. For example, after preparing a
@@ -247,7 +290,7 @@ boxmot eval \
   --split val \
   --build /srv/boxmot/materializations/HELD_OUT_BUILD \
   --tracker botsort \
-  --tracker-config path/to/kf-tuning/best.yaml
+  --tracker-config path/to/kf-tuning/calibrated.yaml
 ```
 
 `--tracker-config` also accepts a partial scalar YAML or a built-in preset such
@@ -256,36 +299,32 @@ flags such as `--asso-func` can override scalar parameters, but a calibrated
 config's time units must match the selected mode. For example,
 `--fixed-dt --tracker-config seconds-config.yaml` is rejected when that file
 declares `kf_time_unit: seconds`. Recalibrate in the intended mode instead of
-reinterpreting the saved values. Geometry,
-backend, class selection, and per-class tracking remain separate CLI or dataset
-controls, recorded in the trial report. Repeat `--per-class` if it was used
-during fitting, and use the same geometry and backend.
+reinterpreting the saved values. Keep the detector, geometry, backend, class
+selection, and per-class tracking behavior consistent with calibration.
 
 ### Live streams
 
-The full five-parameter search uses ground truth to compare tracking results.
-Run it on representative timestamped recordings, including dropped frames and
-missed detections, then load the saved profile for live tracking. Keep the
-same detector, geometry, timing mode, and reference interval.
+Direct calibration needs ground truth. Run it on representative timestamped
+recordings, including dropped frames and missed detections, then load the
+saved profile for live tracking. Keep the same detector, geometry, timing mode,
+and reference interval:
+
+```bash
+boxmot track \
+  --source <stream> \
+  --tracker botsort \
+  --tracker-config path/to/kf-tuning/calibrated.yaml
+```
 
 BoostTrack and OccluBoost also support experimental online process-noise
 adaptation with `adaptive_kf: true`. This learns from each track's prediction
 errors; it does not learn measurement noise or initial uncertainty and does
 not measure tracking accuracy. Incorrect associations can distort its estimates.
-Enable it in the starting configuration during calibration if deployment will
-use it, so the fitting and deployment behavior agree:
-
-```yaml title="live-kf.yaml"
-tracker: occluboost
-variable_dt: true
-adaptive_kf: true
-```
-
-Pass `--tracker occluboost --tracker-config live-kf.yaml --kf-tuning` to the
-evaluation command, then use its `best.yaml` with
-`boxmot track --tracker occluboost --source <stream> --tracker-config <best.yaml>`.
+Calibration estimates the starting priors and preserves this setting; it does
+not fit the online adaptation behavior. Keep it consistent during evaluation
+and deployment.
 Other trackers support the calibrated static profile and interval-aware
-prediction; they do not gain online noise adaptation from `--variable-dt`.
+prediction; `--variable-dt` itself does not enable online noise adaptation.
 
 Live intervals must come from trustworthy source timestamps. A nominal-FPS
 fallback cannot reveal unseen capture dropouts or reconnect duration; use

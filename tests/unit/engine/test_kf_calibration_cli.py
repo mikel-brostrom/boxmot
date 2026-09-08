@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import builtins
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
@@ -13,14 +15,14 @@ from boxmot.engine.commands import _support
 from boxmot.engine.commands import eval as eval_command
 from boxmot.engine.eval.evaluator import _tracker_options
 from boxmot.engine.tracking.workflow import _tracker_spec
-from boxmot.engine.tuning import kalman
 
 
+@pytest.mark.parametrize("mode", ["eval", "tune"])
 @pytest.mark.parametrize(
-    "flags, enabled, trials",
-    [([], False, 20), (["--kf-tuning"], True, 20), (["--kf-tuning", "--kf-trials", "1"], True, 1)],
+    "flags, enabled",
+    [([], False), (["--calibrate-kf"], True)],
 )
-def test_eval_dispatch_preserves_kalman_tuning_selection(monkeypatch, flags, enabled, trials) -> None:
+def test_dispatch_preserves_kalman_calibration_selection(monkeypatch, mode, flags, enabled) -> None:
     captured = {}
 
     def run_workflow(module, args):
@@ -29,46 +31,40 @@ def test_eval_dispatch_preserves_kalman_tuning_selection(monkeypatch, flags, ena
     monkeypatch.setattr(_support, "_run_engine_workflow", run_workflow)
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture", "--build", "fixture-build", *flags],
+        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags],
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["module"] == "boxmot.engine.eval.evaluator"
-    assert captured["args"].kf_tuning is enabled
-    assert captured["args"].kf_trials == trials
+    assert captured["module"] == {"eval": "boxmot.engine.eval.evaluator", "tune": "boxmot.engine.tuning.tuner"}[mode]
+    assert captured["args"].calibrate_kf is enabled
+    assert not hasattr(captured["args"], "kf_trials")
     assert captured["args"].variable_dt is None
 
 
-@pytest.mark.parametrize("trials", ["1", "20"])
-def test_explicit_kalman_trials_require_tuning_flag(monkeypatch, trials) -> None:
+@pytest.mark.parametrize("mode", ["eval", "tune"])
+@pytest.mark.parametrize("flags", [[], ["--calibrate-kf"]])
+@pytest.mark.parametrize("removed_options", [["--kf-trials", "20"], ["--kf-tuning"]])
+def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_options) -> None:
     def unexpected_workflow(*args):
-        pytest.fail("Invalid tuning options must fail before materialization")
+        pytest.fail("Removed search options must fail before materialization")
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
-    result = CliRunner().invoke(boxmot, ["eval", "--experiment", "fixture", "--kf-trials", trials])
-
-    assert result.exit_code == 2
-    assert "--kf-trials requires --kf-tuning" in result.output
-
-
-@pytest.mark.parametrize("trials", ["0", "-1"])
-def test_kalman_trials_must_include_at_least_the_baseline(trials) -> None:
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture", "--kf-tuning", "--kf-trials", trials],
+        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags, *removed_options],
     )
 
     assert result.exit_code == 2
-    assert "--kf-trials" in result.output
-    assert "range" in result.output
+    assert f"No such option '{removed_options[0]}'" in result.output
 
 
+@pytest.mark.parametrize("mode", ["eval", "tune"])
 @pytest.mark.parametrize(
     "tracker, backend",
     [("sfsort", "python"), ("sam2mot", "python"), ("botsort", "cpp")],
 )
-def test_unsupported_kalman_tuning_fails_before_materialization(monkeypatch, tracker, backend) -> None:
+def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode, tracker, backend) -> None:
     def unexpected_workflow(*args):
         pytest.fail("Unsupported trackers must fail before materialization")
 
@@ -77,10 +73,12 @@ def test_unsupported_kalman_tuning_fails_before_materialization(monkeypatch, tra
     result = CliRunner().invoke(
         boxmot,
         [
-            "eval",
+            mode,
             "--experiment",
             "fixture",
-            "--kf-tuning",
+            "--build",
+            "fixture-build",
+            "--calibrate-kf",
             "--tracker",
             tracker,
             "--tracker-backend",
@@ -92,17 +90,29 @@ def test_unsupported_kalman_tuning_fails_before_materialization(monkeypatch, tra
     assert "Kalman" in result.output or "Python" in result.output
 
 
-def test_missing_optuna_fails_before_materialization(monkeypatch) -> None:
-    find_spec = kalman.importlib.util.find_spec
-    monkeypatch.setattr(kalman.importlib.util, "find_spec", lambda name: None if name == "optuna" else find_spec(name))
+def test_kalman_calibration_dispatch_needs_no_search_dependencies(monkeypatch) -> None:
+    real_import = builtins.__import__
+    real_find_spec = importlib.util.find_spec
+    captured = {}
 
-    def unexpected_workflow(*args):
-        pytest.fail("Missing tuning dependencies must fail before materialization")
+    def import_without_search(name, *args, **kwargs):
+        if name.split(".")[0] in {"optuna", "ray"}:
+            raise ModuleNotFoundError(f"No module named '{name}'")
+        return real_import(name, *args, **kwargs)
 
-    monkeypatch.setattr(eval_command, "_run_engine_workflow", unexpected_workflow)
-    result = CliRunner().invoke(boxmot, ["eval", "--experiment", "fixture", "--kf-tuning"])
-    assert result.exit_code == 2
-    assert "requires Optuna" in result.output
+    monkeypatch.setattr(builtins, "__import__", import_without_search)
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *args: None if name.split(".")[0] in {"optuna", "ray"} else real_find_spec(name, *args),
+    )
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval", "--experiment", "fixture", "--build", "fixture-build", "--calibrate-kf"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].calibrate_kf is True
 
 
 @pytest.mark.parametrize("tracker,backend", [("sfsort", "python"), ("botsort", "cpp")])
@@ -132,24 +142,25 @@ def test_live_config_unit_conflict_fails_before_detector_loading(monkeypatch, tm
         workflow.run_track(SimpleNamespace(tracker="bytetrack", tracker_config=profile, variable_dt=False))
 
 
+@pytest.mark.parametrize("mode", ["eval", "tune"])
 @pytest.mark.parametrize(
     "tracker",
     ["botsort", "boosttrack", "bytetrack", "deepocsort", "hybridsort", "occluboost", "ocsort", "strongsort"],
 )
-def test_supported_kalman_trackers_reach_evaluation(monkeypatch, tracker) -> None:
+def test_supported_kalman_trackers_reach_workflow(monkeypatch, mode, tracker) -> None:
     captured = {}
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
         [
-            "eval",
+            mode,
             "--experiment",
             "fixture",
             "--build",
             "fixture-build",
             "--tracker",
             tracker,
-            "--kf-tuning",
+            "--calibrate-kf",
             "--fixed-dt",
         ],
     )
@@ -157,6 +168,68 @@ def test_supported_kalman_trackers_reach_evaluation(monkeypatch, tracker) -> Non
     assert result.exit_code == 0, result.output
     assert captured["args"].tracker == tracker
     assert captured["args"].variable_dt is False
+
+
+def test_tune_calibration_cannot_replace_a_resumed_search(monkeypatch) -> None:
+    def unexpected_workflow(*args):
+        pytest.fail("A resumed search cannot start a fresh calibration")
+
+    monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--experiment",
+            "fixture",
+            "--build",
+            "fixture-build",
+            "--calibrate-kf",
+            "--resume-tune",
+            "previous-run",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "--calibrate-kf cannot be combined with --resume-tune" in result.output
+
+
+def test_tune_resume_dispatches_without_recalibrating(monkeypatch) -> None:
+    captured = {}
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
+    result = CliRunner().invoke(
+        boxmot,
+        ["tune", "--experiment", "fixture", "--build", "fixture-build", "--resume-tune", "previous-run"],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].calibrate_kf is False
+    assert captured["args"].resume_tune == "previous-run"
+
+
+def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch, tmp_path) -> None:
+    path = tmp_path / "seconds.yaml"
+    path.write_text("tracker: botsort\nvariable_dt: true\nkf_time_unit: seconds\n")
+
+    def unexpected_workflow(*args):
+        pytest.fail("Conflicting calibration units must fail before tuning")
+
+    monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--experiment",
+            "fixture",
+            "--build",
+            "fixture-build",
+            "--tracker",
+            "botsort",
+            "--tracker-config",
+            str(path),
+            "--fixed-dt",
+            "--calibrate-kf",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "kf_time_unit" in result.output
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])
@@ -191,7 +264,7 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
         "kf_initial_position_scale": 0.75,
         "kf_initial_velocity_scale": 4.0,
     }
-    path = tmp_path / "best.yaml"
+    path = tmp_path / "calibrated.yaml"
     path.write_text(yaml.safe_dump(saved))
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path, variable_dt=override, asso_func="iou")
 
@@ -216,7 +289,7 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
 @pytest.mark.parametrize("mode", ["track", "eval"])
 @pytest.mark.parametrize("saved_mode", [False, True])
 def test_calibrated_config_rejects_conflicting_timing_override(tmp_path, mode, saved_mode) -> None:
-    path = tmp_path / "best.yaml"
+    path = tmp_path / "calibrated.yaml"
     path.write_text(
         yaml.safe_dump(
             {
@@ -239,7 +312,7 @@ def test_calibrated_config_rejects_conflicting_timing_override(tmp_path, mode, s
 
 @pytest.mark.parametrize("saved_mode, flag", [(False, "--variable-dt"), (True, "--fixed-dt")])
 def test_eval_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_path, saved_mode, flag) -> None:
-    path = tmp_path / "best.yaml"
+    path = tmp_path / "calibrated.yaml"
     path.write_text(
         yaml.safe_dump(
             {
@@ -277,7 +350,7 @@ def test_tracker_config_accepts_builtin_preset(mode) -> None:
 
 @pytest.mark.parametrize("mode", ["track", "eval"])
 def test_tracker_config_rejects_metadata_for_a_different_tracker(tmp_path, mode) -> None:
-    path = tmp_path / "best.yaml"
+    path = tmp_path / "calibrated.yaml"
     path.write_text("tracker: botsort\nkf_process_position_scale: 2.0\n")
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path)
 

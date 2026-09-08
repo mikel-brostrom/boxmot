@@ -41,6 +41,37 @@ configuration with `use_embeddings: true` requires embeddings in the build;
 Sam2Mot requires full-frame detection-aligned masks and frames. Missing inputs
 produce an actionable materialization error.
 
+## Calibrate the KF at a selected FPS
+
+Use `--fps 2 --calibrate-kf` to sample MOT17 at 2 FPS, fit Kalman noise from
+the selected cached detections and ground truth, then evaluate once:
+
+```bash
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort \
+  --fps 2 \
+  --calibrate-kf
+```
+
+With no `--build`, evaluation prepares or reuses a compatible 2 FPS build.
+With an explicit `--build`, `--fps` must match its recorded sampling rate;
+omitting `--fps` uses that rate automatically. Detections, images, and ground
+truth use the same selected frames, retaining their capture timestamps.
+
+`--calibrate-kf` fits the five shared covariance scales directly; evaluation
+then runs once. To calibrate before searching tracker parameters, use
+[`boxmot tune --calibrate-kf`](../modes/tune.md#calibrate-the-kf-before-tracker-tuning)
+with a materialized 2 FPS build. Calibration runs once before the trials,
+which keep the fitted KF settings fixed.
+
+Fixed-step prediction is the default. Add `--variable-dt` to calibrate and
+predict using elapsed seconds from capture timestamps; `--fps` alone does
+not enable it. Calibration requires ground truth and a supported Python
+Kalman tracker. See [dataset FPS](../modes/eval.md#dataset-fps) and
+[Kalman calibration](../modes/eval.md#kalman-calibration) for sampling details,
+saved profiles, and evaluation on held-out sequences.
+
 ## Evaluate variable capture intervals
 
 Use [`time-variant`](../modes/time-variant.md) to create a reproducible frame-loss

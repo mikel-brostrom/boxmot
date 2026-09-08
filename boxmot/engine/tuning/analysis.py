@@ -12,14 +12,29 @@ LOGGER = logging.getLogger(__name__)
 
 METRIC_COLS = ["HOTA", "MOTA", "IDF1", "AssA", "AssRe", "IDSW"]
 BOOL_PARAMS = [
-    "use_cmc", "use_dlo_boost", "use_duo_boost", "s_sim_corr",
-    "use_rich_s", "use_sb", "use_vt", "use_embeddings", "use_second_pass",
-    "ams_enabled", "gta_enabled", "gta_interpolate",
+    "use_cmc",
+    "use_dlo_boost",
+    "use_duo_boost",
+    "s_sim_corr",
+    "use_rich_s",
+    "use_sb",
+    "use_vt",
+    "use_embeddings",
+    "use_second_pass",
+    "ams_enabled",
+    "gta_enabled",
+    "gta_interpolate",
 ]
 KEY_CONTINUOUS = [
-    "det_thresh", "iou_threshold", "lambda_iou", "lambda_mhd",
-    "lambda_emb_multiplier", "new_track_thresh", "feat_alpha",
-    "recovery_appearance_thresh", "max_age",
+    "det_thresh",
+    "iou_threshold",
+    "lambda_iou",
+    "lambda_mhd",
+    "lambda_emb_multiplier",
+    "new_track_thresh",
+    "feat_alpha",
+    "recovery_appearance_thresh",
+    "max_age",
 ]
 
 
@@ -47,6 +62,7 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
 
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         import seaborn as sns
@@ -62,7 +78,7 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
         return None
 
     n_trials = n_trials or len(df)
-    df = df[df["HOTA"] > 0].reset_index(drop=True)
+    df = df[np.isfinite(df["HOTA"]) & (df["HOTA"] > 0)].reset_index(drop=True)
     if len(df) < 5:
         LOGGER.warning("Too few valid trials for analysis plots.")
         return None
@@ -72,7 +88,8 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
 
     # ─── Parameter importance (Spearman) ───────────────────────────────────
     numeric_params = [
-        c for c in df.columns
+        c
+        for c in df.columns
         if c not in METRIC_COLS + ["trial_id", "IDs", "IDSW_rate", "cmc_method"]
         and df[c].dtype in [np.float64, np.int64, float, int]
     ]
@@ -85,19 +102,22 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
 
     importance = {}
     for col in numeric_params:
-        valid = df[[col, "HOTA"]].dropna()
-        if len(valid) > 10:
-            rho, _ = spearmanr(valid[col], valid["HOTA"])
+        valid = df[[col, "HOTA"]].replace([np.inf, -np.inf], np.nan).dropna()
+        # Fixed settings and constant scores have no defined correlation.
+        # Check the paired samples because conditional parameters can be sparse.
+        if len(valid) <= 10 or valid[col].nunique() < 2 or valid["HOTA"].nunique() < 2:
+            continue
+        rho, _ = spearmanr(valid[col], valid["HOTA"])
+        if np.isfinite(rho):
             importance[col] = rho
-    importance = pd.Series(importance).sort_values(key=abs, ascending=False)
+    importance = pd.Series(importance, dtype=float).sort_values(key=abs, ascending=False)
 
     # ─── Main figure (4 panels) ───────────────────────────────────────────
     title = f"{tracker_name or 'Tracker'} Tuning Analysis ({n_trials} trials)"
     sns.set_theme(style="whitegrid", font_scale=0.85)
     fig = plt.figure(figsize=(20, 16))
     fig.suptitle(title, fontsize=16, fontweight="bold", y=0.98)
-    gs = fig.add_gridspec(3, 3, hspace=0.4, wspace=0.3,
-                          left=0.08, right=0.97, top=0.93, bottom=0.05)
+    gs = fig.add_gridspec(3, 3, hspace=0.4, wspace=0.3, left=0.08, right=0.97, top=0.93, bottom=0.05)
 
     # Panel 1: Convergence curve
     ax1 = fig.add_subplot(gs[0, 0])
@@ -107,18 +127,20 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
     ax1.set_xlabel("Trial index")
     ax1.set_ylabel("Cumulative-best HOTA")
     ax1.set_title("Convergence Curve")
-    ax1.annotate(f"Best: {best['HOTA']:.2f}", xy=(best_idx, best["HOTA"]),
-                 xytext=(max(0, best_idx - 80), best["HOTA"] - 1.5),
-                 arrowprops=dict(arrowstyle="->", color="tab:red"),
-                 fontsize=9, color="tab:red")
+    ax1.annotate(
+        f"Best: {best['HOTA']:.2f}",
+        xy=(best_idx, best["HOTA"]),
+        xytext=(max(0, best_idx - 80), best["HOTA"] - 1.5),
+        arrowprops=dict(arrowstyle="->", color="tab:red"),
+        fontsize=9,
+        color="tab:red",
+    )
 
     # Panel 2: HOTA distribution
     ax2 = fig.add_subplot(gs[0, 1])
-    sns.histplot(df["HOTA"], bins=40, kde=True, ax=ax2, color="tab:blue", alpha=0.6)
-    ax2.axvline(best["HOTA"], ls="--", color="tab:red", lw=1.5,
-                label=f"Best={best['HOTA']:.2f}")
-    ax2.axvline(df["HOTA"].median(), ls="--", color="tab:orange", lw=1.5,
-                label=f"Median={df['HOTA'].median():.2f}")
+    sns.histplot(df["HOTA"], bins=40, kde=df["HOTA"].nunique() > 1, ax=ax2, color="tab:blue", alpha=0.6)
+    ax2.axvline(best["HOTA"], ls="--", color="tab:red", lw=1.5, label=f"Best={best['HOTA']:.2f}")
+    ax2.axvline(df["HOTA"].median(), ls="--", color="tab:orange", lw=1.5, label=f"Median={df['HOTA'].median():.2f}")
     ax2.set_title("HOTA Distribution")
     ax2.legend(fontsize=8)
 
@@ -127,8 +149,11 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
     available_metrics = [m for m in METRIC_COLS if m in df.columns]
     top100 = df.nlargest(min(100, len(df)), "HOTA")[available_metrics]
     corr = top100.corr()
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0,
-                ax=ax3, cbar_kws={"shrink": 0.8})
+    if np.isfinite(corr.to_numpy()).any():
+        sns.heatmap(corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0, ax=ax3, cbar_kws={"shrink": 0.8})
+    else:
+        ax3.text(0.5, 0.5, "No varying metrics to correlate", ha="center", va="center", transform=ax3.transAxes)
+        ax3.set_axis_off()
     ax3.set_title("Metric Correlation (Top-100)")
 
     # Panel 4: Boolean feature impact box plots
@@ -139,9 +164,16 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
             for _, row in df[[bp, "HOTA"]].iterrows():
                 bool_data.append({"param": bp, "value": str(bool(row[bp])), "HOTA": row["HOTA"]})
         bool_df = pd.DataFrame(bool_data)
-        sns.boxplot(data=bool_df, x="param", y="HOTA", hue="value",
-                    ax=ax4, palette={"True": "tab:blue", "False": "tab:orange"},
-                    fliersize=2, linewidth=0.8)
+        sns.boxplot(
+            data=bool_df,
+            x="param",
+            y="HOTA",
+            hue="value",
+            ax=ax4,
+            palette={"True": "tab:blue", "False": "tab:orange"},
+            fliersize=2,
+            linewidth=0.8,
+        )
         ax4.set_title("Boolean Feature Impact on HOTA")
         ax4.set_xlabel("")
         ax4.tick_params(axis="x", rotation=35)
@@ -175,11 +207,9 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
 
         for i, param in enumerate(available_continuous):
             ax = fig2.add_subplot(n_rows, n_cols, i + 1)
-            ax.scatter(df[param], df["HOTA"], c=df["HOTA"], cmap="viridis",
-                       s=12, alpha=0.6, edgecolors="none")
+            ax.scatter(df[param], df["HOTA"], c=df["HOTA"], cmap="viridis", s=12, alpha=0.6, edgecolors="none")
             ax.axhline(best["HOTA"], ls="--", color="tab:red", lw=0.8, alpha=0.5)
-            ax.scatter([best[param]], [best["HOTA"]], c="red", s=60, zorder=5,
-                       marker="*", label="Best")
+            ax.scatter([best[param]], [best["HOTA"]], c="red", s=60, zorder=5, marker="*", label="Best")
             ax.set_xlabel(param)
             ax.set_ylabel("HOTA")
             ax.set_title(param)

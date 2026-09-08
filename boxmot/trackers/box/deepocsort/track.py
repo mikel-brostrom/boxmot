@@ -54,8 +54,6 @@ class KalmanBoxTracker(SortBoxTrack):
         emb=None,
         alpha=0,
         max_obs=50,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001,
         id_allocator: TrackIdAllocator | None = None,
         *,
         noise_config: KalmanNoiseConfig | None = None,
@@ -70,9 +68,6 @@ class KalmanBoxTracker(SortBoxTrack):
         self.conf = det[4]
         self.cls = det[5]
         self.det_ind = det[6]
-
-        self.Q_xy_scaling = Q_xy_scaling
-        self.Q_s_scaling = Q_s_scaling
 
         self.motion_model = create_motion_model(MotionModelKind.XYSR, is_obb=False)
         self.kf = self.motion_model.create_filter(noise_config=noise_config)
@@ -99,8 +94,6 @@ class KalmanBoxTracker(SortBoxTrack):
         self.kf.R[2:, 2:] *= 10.0
         self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
         self.kf.P *= 10.0
-        self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
-        self.kf.Q[-1, -1] *= self.Q_s_scaling
 
         self.bbox_to_z_func = self.motion_model.to_measurement
         self.x_to_bbox_func = self.motion_model.to_box
@@ -291,8 +284,6 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
         alpha,
         delta_t,
         max_obs,
-        Q_xy_scaling,
-        Q_s_scaling,
         id_allocator,
         noise_config: KalmanNoiseConfig | None = None,
     ):
@@ -302,9 +293,6 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
             det[7],
             delta_t=delta_t,
             max_obs=max_obs,
-            Q_xy_scaling=Q_xy_scaling,
-            Q_s_scaling=Q_s_scaling,
-            Q_a_scaling=Q_s_scaling,
             is_obb=True,
             id_allocator=id_allocator,
             noise_config=noise_config,

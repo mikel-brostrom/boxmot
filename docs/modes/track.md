@@ -73,14 +73,14 @@ callers invoke `pipeline.reset()` themselves.
 
 ## Reuse tracker settings
 
-Load a scalar tracker YAML, a built-in preset, or the `best.yaml` saved by
+Load a scalar tracker YAML, a built-in preset, or the `calibrated.yaml` saved by
 [Kalman calibration](eval.md#kalman-calibration) with `--tracker-config`:
 
 ```bash
 boxmot track \
   --source video.mp4 \
   --tracker botsort \
-  --tracker-config path/to/kf-tuning/best.yaml
+  --tracker-config path/to/kf-tuning/calibrated.yaml
 ```
 
 The file overlays built-in tracker defaults and must match the selected

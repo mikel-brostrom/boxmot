@@ -14,6 +14,10 @@ class KalmanFilterXYSR(BaseKalmanFilter):
 
     - `dim_z=4, dim_x=7`: [x, y, s, r, vx, vy, vs]
     - `dim_z=5, dim_x=9`: [x, y, s, r, theta, vx, vy, vs, vtheta]
+
+    Canonical layouts use fixed reference process variances of 0.01 for
+    center velocity and 0.0001 for area/angular velocity. The shared noise
+    configuration scales these priors when predicting.
     """
 
     def __init__(
@@ -24,7 +28,7 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         max_obs: int = 50,
         *,
         noise_config: KalmanNoiseConfig | None = None,
-    ):
+    ) -> None:
         if dim_x < 1:
             raise ValueError("dim_x must be 1 or greater")
         if dim_z < 1:
@@ -49,6 +53,11 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             max_obs=max_obs,
             noise_config=noise_config,
         )
+
+        if (dim_x, dim_z) == (7, 4):
+            self.Q[4:, 4:] = np.diag((0.01, 0.01, 0.0001))
+        elif (dim_x, dim_z) == (9, 5):
+            self.Q[5:, 5:] = np.diag((0.01, 0.01, 0.0001, 0.0001))
 
         self.dim_u = dim_u
         self._is_obb = dim_z >= 5

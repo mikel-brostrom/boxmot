@@ -407,6 +407,20 @@ def tracker_config_option(func: Callable) -> Callable:
     )(func)
 
 
+def kalman_calibration_option(*, mode: str) -> Callable:
+    """Expose direct covariance calibration before evaluation or tracker tuning."""
+    outcome = {
+        "eval": "then evaluate once",
+        "tune": "then tune tracker parameters with calibrated KF settings fixed",
+    }[mode]
+    return click.option(
+        "--calibrate-kf",
+        is_flag=True,
+        default=False,
+        help=f"Calibrate Kalman noise from cached detections and ground truth, {outcome}; Python Kalman trackers only.",
+    )
+
+
 def association_function_option(func: Callable) -> Callable:
     """Attach the shared detection-track geometry selector."""
 
@@ -432,6 +446,7 @@ __all__ = (
     "dataset_fps_option",
     "dataset_option",
     "experiment_option",
+    "kalman_calibration_option",
     "replay_options",
     "source_option",
     "split_option",

@@ -482,12 +482,12 @@ def main(args: argparse.Namespace) -> ValidationResult:
     with pipeline:
         calibration = None
         with suppress_boxmot_logs(True, level="WARNING"):
-            if getattr(args, "kf_tuning", False):
-                from boxmot.engine.tuning.kalman import tune_kalman
+            if getattr(args, "calibrate_kf", False):
+                from boxmot.engine.tuning.kalman import calibrate_kalman
 
                 eval_setup(args, pipeline=pipeline)
                 output_dir = _output_directory(args, None)
-                calibration = tune_kalman(args, output_dir=output_dir, progress=pipeline.update)
+                calibration = calibrate_kalman(args, output_dir=output_dir, progress=pipeline.update)
                 args.tracker_config = str(calibration.config_path)
                 result = run_eval(args, setup=False, verbose=False, pipeline=pipeline, output_dir=output_dir)
                 calibration.record_final(result)

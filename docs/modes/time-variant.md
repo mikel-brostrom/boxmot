@@ -88,10 +88,10 @@ boxmot eval \
 ```
 
 Run the same command with `--fixed-dt` to compare timing modes on identical
-images, detections, and labels. Add `--kf-tuning` to calibrate the five noise
+images, detections, and labels. Add `--calibrate-kf` to calibrate the five noise
 scales for the selected mode; see [Kalman calibration](eval.md#kalman-calibration).
 
-To view the tracking results after tuning, load the `best.yaml` printed by the
+To view the tracking results after calibration, load the `calibrated.yaml` printed by the
 calibration run:
 
 ```bash
@@ -100,17 +100,17 @@ boxmot eval \
   --split variable \
   --build VARIANT_BUILD_ID \
   --tracker botsort \
-  --tracker-config path/to/kf-tuning/best.yaml \
+  --tracker-config path/to/kf-tuning/calibrated.yaml \
   --variable-dt \
   --show --save
 ```
 
-This replays the cached detections and embeddings with the tuned tracker, using
+This replays the cached detections and embeddings with the calibrated tracker, using
 the irregular capture timestamps. Preview and saved video hold each image
 across its capture gap. Videos are saved under `<run>/videos/`; see
 [view tracking results](eval.md#view-tracking-results) for playback details.
-Alternatively, append `--show --save` to the tuning command to display and
-record its final selected replay after all trials finish.
+Alternatively, append `--show --save` to the calibration command to display and
+record its tracker replay after calibration finishes.
 
 The variant is one `variable` split, intended as a controlled stress test of
 the source scene. It does not create an independent training or validation set.

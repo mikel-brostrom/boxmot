@@ -21,8 +21,6 @@ def _resolve_tracker_config(options: dict[str, Any] | None) -> dict[str, Any]:
         native_only_keys=("iou_threshold", "max_obs"),
     )
     resolve_association_function(cfg)
-    cfg["q_xy_scaling"] = cfg.pop("Q_xy_scaling")
-    cfg["q_s_scaling"] = cfg.pop("Q_s_scaling")
     cfg.setdefault("iou_threshold", 0.3)
     cfg.setdefault("max_obs", int(cfg["max_age"]) + 5)
     return cfg

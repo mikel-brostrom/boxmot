@@ -16,7 +16,7 @@ namespace {
 
 thread_local std::string g_last_error;
 
-ocsort::Config ConvertConfig(const BoxMOTOCSORTConfig& config) {
+ocsort::Config ConvertConfig(const BoxMOTOCSORTConfigV2& config) {
     ocsort::Config native_config;
     native_config.min_conf = config.min_conf;
     native_config.det_thresh = config.det_thresh;
@@ -26,8 +26,6 @@ ocsort::Config ConvertConfig(const BoxMOTOCSORTConfig& config) {
     native_config.delta_t = config.delta_t;
     native_config.use_byte = config.use_byte != 0;
     native_config.inertia = config.inertia;
-    native_config.q_xy_scaling = config.q_xy_scaling;
-    native_config.q_s_scaling = config.q_s_scaling;
     native_config.max_obs = config.max_obs;
     native_config.asso_func = config.asso_func == nullptr ? "iou" : std::string(config.asso_func);
     return native_config;
@@ -46,7 +44,7 @@ struct BoxMOTOCSORTHandle {
 
 extern "C" {
 
-BoxMOTOCSORTHandle* boxmot_ocsort_create(const BoxMOTOCSORTConfig* config) {
+BoxMOTOCSORTHandle* boxmot_ocsort_create_v2(const BoxMOTOCSORTConfigV2* config) {
     try {
         if (config == nullptr) {
             throw std::runtime_error("Native OcSort config is required.");

@@ -18,6 +18,8 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kAssignmentThreshold = 1.0e9;
+constexpr float kCenterVelocityProcessNoise = 0.01F;
+constexpr float kSizeVelocityProcessNoise = 0.0001F;
 
 Eigen::VectorXd DetectionRow(const Detection& detection) {
     if (detection.is_obb) {
@@ -120,14 +122,9 @@ Eigen::VectorXd OCSORTTracker::KalmanBoxTracker::ObservationVector(const Detecti
 OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
                                                   const int delta_t_value,
                                                   const int max_obs_value,
-                                                  const double q_xy_scaling_value,
-                                                  const double q_s_scaling_value,
                                                   const bool is_obb_mode,
                                                   const std::int64_t track_id)
     : det_ind(detection.det_ind),
-      q_xy_scaling(q_xy_scaling_value),
-      q_s_scaling(q_s_scaling_value),
-      q_a_scaling(q_s_scaling_value),
       is_obb(is_obb_mode),
       kf(is_obb_mode ? 9 : 7, is_obb_mode ? 5 : 4, max_obs_value),
       id(track_id),
@@ -145,9 +142,9 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
         kf.R.block(2, 2, 3, 3) *= 10.0;
         kf.P.block(5, 5, 4, 4) *= 1000.0;
         kf.P *= 10.0;
-        kf.Q.block(5, 5, 2, 2) *= q_xy_scaling;
-        kf.Q(7, 7) *= q_s_scaling;
-        kf.Q(8, 8) *= q_a_scaling;
+        kf.Q.block(5, 5, 2, 2) *= kCenterVelocityProcessNoise;
+        kf.Q(7, 7) *= kSizeVelocityProcessNoise;
+        kf.Q(8, 8) *= kSizeVelocityProcessNoise;
         kf.x.head(5) = ConvertObbToZ(detection.xywha);
     } else {
         kf.F << 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0,
@@ -156,8 +153,8 @@ OCSORTTracker::KalmanBoxTracker::KalmanBoxTracker(const Detection& detection,
         kf.R.block(2, 2, 2, 2) *= 10.0;
         kf.P.block(4, 4, 3, 3) *= 1000.0;
         kf.P *= 10.0;
-        kf.Q.block(4, 4, 2, 2) *= q_xy_scaling;
-        kf.Q(6, 6) *= q_s_scaling;
+        kf.Q.block(4, 4, 2, 2) *= kCenterVelocityProcessNoise;
+        kf.Q(6, 6) *= kSizeVelocityProcessNoise;
         kf.x.head(4) = XyxyToXysr(detection.xyxy);
     }
 }
@@ -607,8 +604,6 @@ std::vector<TrackOutput> OCSORTTracker::Update(const std::vector<Detection>& det
         active_tracks_.emplace_back(detections_first[det_index],
                                     config_.delta_t,
                                     config_.max_obs,
-                                    config_.q_xy_scaling,
-                                    config_.q_s_scaling,
                                     is_obb_mode_,
                                     next_track_id_++);
     }

@@ -56,14 +56,14 @@ def test_runtime_specs_apply_only_explicit_timing_override(value):
 @pytest.mark.parametrize(
     "tracker", ["bytetrack", "botsort", "boosttrack", "deepocsort", "hybridsort", "occluboost", "ocsort", "strongsort"]
 )
-def test_builtin_timing_mode_is_fixed_default_only(tracker):
+def test_builtin_timing_and_kf_noise_are_fixed_default_only(tracker):
     schema = load_yaml_config(tracker)
     assert schema["variable_dt"] == {"default": False}
     assert load_tracker_defaults(tracker)["variable_dt"] is False
     assert "variable_dt" not in default_tune_config(schema)
     for parameter in KALMAN_NOISE_OPTIONS:
-        assert schema[parameter] == {"type": "loguniform", "default": 1.0, "range": [0.01, 100]}
-        assert default_tune_config(schema)[parameter] == 1.0
+        assert schema[parameter] == {"default": 1.0}
+        assert parameter not in default_tune_config(schema)
     for parameter in ("kf_time_unit", "kf_reference_dt_s"):
         assert set(schema[parameter]) == {"default"}
         assert parameter not in default_tune_config(schema)

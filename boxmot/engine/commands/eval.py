@@ -15,6 +15,7 @@ from boxmot.engine.commands._options import (
     dataset_fps_option,
     dataset_option,
     experiment_option,
+    kalman_calibration_option,
     replay_options,
     split_option,
     tracker_backend_option,
@@ -109,27 +110,15 @@ def _validate_component_selection(
     "--show",
     is_flag=True,
     default=False,
-    help="Preview tracking at source timing; with --kf-tuning, show only the final selected replay.",
+    help="Preview tracking at source timing, after calibration when --calibrate-kf is enabled.",
 )
 @click.option(
     "--save",
     is_flag=True,
     default=False,
-    help="Save annotated tracking videos from cached replay; with --kf-tuning, save only the final selected replay.",
+    help="Save annotated tracking videos from cached replay, after calibration when --calibrate-kf is enabled.",
 )
-@click.option(
-    "--kf-tuning",
-    is_flag=True,
-    default=False,
-    help="Tune five Kalman covariance scales for HOTA on this split before evaluation; Python Kalman trackers only.",
-)
-@click.option(
-    "--kf-trials",
-    type=click.IntRange(min=1),
-    default=20,
-    show_default=True,
-    help="Total Kalman-tuning trials, including the starting configuration; requires --kf-tuning.",
-)
+@kalman_calibration_option(mode="eval")
 @click.option(
     "--sequence",
     "sequence_names",
@@ -167,18 +156,15 @@ def eval(
     sequence_names: tuple[str, ...],
     allow_noncanonical_build: bool,
     compare_trackeval: bool,
-    kf_tuning: bool,
-    kf_trials: int,
+    calibrate_kf: bool,
     **kwargs: Any,
 ) -> None:
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     experiment, dataset = _require_eval_input(experiment, dataset)
-    if not kf_tuning and _is_option_explicit(ctx, "kf_trials"):
-        raise click.UsageError("--kf-trials requires --kf-tuning.")
-    if kf_tuning or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
+    if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.tracker_config import resolve_tracker_options
-        from boxmot.engine.tuning.kalman import validate_kf_tuning
+        from boxmot.engine.tuning.kalman import validate_kf_calibration
         from boxmot.trackers.specs import parse_tracker_spec
 
         try:
@@ -186,8 +172,8 @@ def eval(
                 kwargs["tracker"],
                 default_backend=kwargs["tracker_backend"],
             )
-            if kf_tuning:
-                validate_kf_tuning(tracker_spec.name, tracker_spec.backend)
+            if calibrate_kf:
+                validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
             resolve_tracker_options(
                 SimpleNamespace(**{**kwargs, "tracker": tracker_spec.name, "tracker_backend": tracker_spec.backend})
             )
@@ -263,8 +249,7 @@ def eval(
             "sequence_names": sequence_names,
             "allow_noncanonical_build": allow_noncanonical_build,
             "compare_trackeval": compare_trackeval,
-            "kf_tuning": kf_tuning,
-            "kf_trials": kf_trials,
+            "calibrate_kf": calibrate_kf,
         },
     )
 

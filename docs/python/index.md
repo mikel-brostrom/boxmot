@@ -195,9 +195,10 @@ the legacy discrete process covariance exactly.
 
 Five independent, dimensionless multipliers then calibrate position and
 velocity process noise, measurement noise, and initial position and velocity
-covariance. They default to `1.0`. [Kalman calibration](../modes/eval.md#kalman-calibration)
-and joint `tune` share the tracker YAML's logarithmic search ranges. Timing
-mode, units, and reference interval remain fixed while noise is tuned.
+covariance. They default to `1.0` and are estimated by
+[Kalman calibration](../modes/eval.md#kalman-calibration), with timing mode,
+units, and reference interval held fixed. New tracker tuning runs preserve the
+default or loaded Kalman settings; they have no YAML search ranges.
 Unit conversion provides coherent priors; it does not guarantee that existing
 benchmark accuracy transfers without calibration and held-out evaluation.
 

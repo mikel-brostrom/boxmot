@@ -30,24 +30,84 @@ detector, segmentor, or encoder and cannot silently select or create another
 build. Worker count and retry policy are execution settings, not semantic
 fingerprints.
 
+The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
+the configured objective and the latest completed trial, even as other trials
+start or fail.
+
 Use a native tracker with `--tracker-backend cpp` when that geometry and feature
 combination is supported. Unsupported masks, per-class mode, or geometry are
 rejected before a native trial starts.
 
+## Calibrate the KF before tracker tuning
+
+Add `--calibrate-kf` to estimate Kalman noise once from the build's cached
+detections and ground truth, then tune the remaining tracker parameters.
+For a 2 FPS run, first prepare a build at that rate:
+
+```bash
+boxmot materialize \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --fps 2
+```
+
+Use the printed build ID as `BUILD_ID` below. If you already have a compatible
+2 FPS build, reuse its ID and skip materialization:
+
+```bash
+boxmot tune \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --build BUILD_ID \
+  --tracker botsort \
+  --fps 2 \
+  --calibrate-kf \
+  --n-trials 200
+```
+
+Calibration runs after build validation and before Ray and the search start.
+The five calibrated covariance scales, their timing settings, and the filter's
+reference process-noise priors stay fixed throughout all 200 tracker trials.
+`adaptive_kf` also stays fixed for trackers that support it. No search-schema
+edits are needed.
+
+`--fps 2` checks the build's dataset sampling rate. It cannot resample a
+full-rate build during tuning; use the 2 FPS build prepared above. You can
+omit `--fps` to use the build's recorded rate automatically. Add
+`--variable-dt` to calibrate and predict using capture timestamps in seconds.
+Fixed-step mode remains the default.
+
+The tuning directory contains `kf-tuning/calibrated.yaml` and
+`kf-tuning/calibration.json`. The first is the calibrated starting tracker
+configuration; the second records the data and estimates used for calibration.
+The tuning result's `best.yaml` contains the selected tracker parameters with
+the fixed KF settings included. Evaluate that result on held-out sequences.
+
+To resume this search, use the same experiment and build with
+`--resume-tune <tuning-directory>`. The saved calibration is restored
+automatically. Combining `--calibrate-kf` with `--resume-tune` is rejected
+because a fresh calibration would change the existing search.
+Resuming retains the original search space; start a new run to use updated
+search definitions, including the removal of KF search dimensions.
+
+`eval --calibrate-kf` instead calibrates and evaluates the tracker once. See
+[Kalman calibration](eval.md#kalman-calibration) for the estimator, supported
+trackers, and limitations.
+
 ## Kalman noise and timing
 
-For Python Kalman trackers, joint tuning includes five covariance multipliers:
-position and velocity process noise, measurement noise, and initial position
-and velocity uncertainty. Each defaults to `1.0` and uses a logarithmic
-`0.01–100` range. The tracker YAML is the common source for these ranges and
-the [KF-only HOTA search](eval.md#kalman-calibration) activated by
-`eval --kf-tuning`.
+New tracker tuning runs hold Kalman settings fixed. The five covariance
+multipliers retain their runtime defaults of `1.0` in the tracker YAML;
+`adaptive_kf` and timing settings also retain their YAML runtime defaults where
+supported. OC-SORT's base process-noise priors are fixed inside the filter.
+These settings have no search ranges.
+Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
+scales from detections and ground truth.
 
-To continue from a KF-only calibration, add
-`--tracker-config path/to/kf-tuning/best.yaml` to the `tune` command. This
-loads the saved tracker settings as the baseline for joint optimization,
-including their timing mode, units, and reference interval. The selector also
-accepts scalar runtime YAMLs and built-in presets.
+To reuse an existing calibration without fitting again, start a new tuning
+run with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
+`--calibrate-kf`. The loaded KF values stay fixed while the other tracker
+parameters are optimized. Without a profile, the built-in KF defaults stay
+fixed. The selector also accepts partial scalar runtime YAMLs and built-in
+presets.
 
 `variable_dt`, `kf_time_unit`, and `kf_reference_dt_s` are fixed runtime
 settings. They are not tuning parameters, and elapsed `dt` is never sampled.
@@ -61,47 +121,24 @@ interval. Reuse them with `--tracker-config` in `track`, `eval`, or another
 measure the fitting split; evaluate on separate held-out sequences before
 judging whether the selected settings improve deployment accuracy.
 
-### Fix OC-SORT base process noise
+### OC-SORT base process noise
 
-For Python OC-SORT and DeepOCSORT, `Q_xy_scaling` sets the base process noise
-for centre velocity, while `Q_s_scaling` sets it for bounding-box area velocity.
-The shared velocity multiplier scales both:
+OC-SORT and DeepOCSORT use fixed reference process covariances of `0.01` for
+centre velocity and `0.0001` for bounding-box area velocity. OBB angular
+velocity also uses `0.0001`. Python Kalman calibration scales these priors
+with the shared velocity multiplier:
 
 ```text
-centre-velocity noise = Q_xy_scaling × kf_process_velocity_scale
-area-velocity noise   = Q_s_scaling  × kf_process_velocity_scale
+centre-velocity noise = 0.01   × kf_process_velocity_scale
+area-velocity noise   = 0.0001 × kf_process_velocity_scale
+angular-velocity noise = 0.0001 × kf_process_velocity_scale  (OBB)
 ```
 
-These products describe the reference noise before time-unit conversion and
-integration into `Q(dt)`. Searching all three parameters allows different
-combinations to produce identical noise. Their relative centre/area balance
-remains a distinct choice; the five shared multipliers cannot change it.
-In OBB mode, these trackers also tie angular-velocity base noise to `Q_s_scaling`.
-
-To preserve the existing base priors while searching only the five shared
-Kalman multipliers, replace the two entries in the selected built-in search
-schema, `boxmot/configs/trackers/ocsort.yaml` or
-`boxmot/configs/trackers/deepocsort.yaml`, with:
-
-```yaml
-Q_xy_scaling:
-  default: 0.01
-
-Q_s_scaling:
-  default: 0.0001
-```
-
-Remove their `type` and `range` fields, and keep the five `kf_*_scale` search
-entries. Joint tuning holds default-only entries fixed while continuing to
-search the remaining tracker and Kalman parameters. This retains the existing
-noise balance and removes the two extra search dimensions.
-Start a new tuning run after changing the schema; `--resume-tune` restores
-the previous search state.
-
-`eval --kf-tuning` already holds these base settings fixed, so it needs no
-schema change. A scalar `--tracker-config` can override their resolved values;
-freezing a parameter during joint tuning requires the default-only search
-entry above. The timing settings remain fixed in either case.
+These products describe reference noise before time-unit conversion and
+integration into `Q(dt)`. The relative balance between centre, area, and
+angular velocity noise is fixed by the filter; calibration scales them
+together. The five shared `kf_*_scale` settings are the noise-calibration
+interface.
 
 ## Arguments
 

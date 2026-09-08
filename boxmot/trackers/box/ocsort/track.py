@@ -62,10 +62,7 @@ class KalmanBoxTracker(SortBoxTrack):
         det_ind,
         delta_t=3,
         max_obs=50,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001,
         is_obb=False,
-        Q_a_scaling=0.0001,
         id_allocator: TrackIdAllocator | None = None,
         *,
         noise_config: KalmanNoiseConfig | None = None,
@@ -77,9 +74,6 @@ class KalmanBoxTracker(SortBoxTrack):
         # define constant velocity model
         self.det_ind = det_ind
 
-        self.Q_xy_scaling = Q_xy_scaling
-        self.Q_s_scaling = Q_s_scaling
-        self.Q_a_scaling = Q_a_scaling
         self.is_obb = is_obb
         self.motion_model = create_motion_model(
             MotionModelKind.XYSR,
@@ -115,9 +109,6 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.P[5:, 5:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
             self.kf.P *= 10.0
 
-            self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
-            self.kf.Q[7, 7] *= self.Q_s_scaling
-            self.kf.Q[8, 8] *= self.Q_a_scaling
             self.kf.x[:5] = self.motion_model.to_measurement(bbox[:5])
         else:
             self.kf = self.motion_model.create_filter(noise_config=noise_config)
@@ -145,8 +136,6 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
             self.kf.P *= 10.0
 
-            self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
-            self.kf.Q[-1, -1] *= self.Q_s_scaling
             self.kf.x[:4] = self.motion_model.to_measurement(bbox)
         self._assign_sort_id(id_allocator=id_allocator)
         self._init_sort_counters(max_obs=max_obs)

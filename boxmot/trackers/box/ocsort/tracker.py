@@ -29,8 +29,6 @@ class OcSort(BoxTracker):
         inertia (float): Weight applied to the velocity-direction term during
             matching.
         use_byte (bool): Whether to enable ByteTrack-style second association.
-        Q_xy_scaling (float): Process-noise scaling for position coordinates.
-        Q_s_scaling (float): Process-noise scaling for scale coordinates.
         **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
             including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
             ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
@@ -52,8 +50,6 @@ class OcSort(BoxTracker):
         delta_t: int = 3,
         inertia: float = 0.2,
         use_byte: bool = False,
-        Q_xy_scaling: float = 0.01,
-        Q_s_scaling: float = 0.0001,
         **kwargs: Any,  # BaseTracker parameters
     ):
         super().__init__(**kwargs)
@@ -63,8 +59,6 @@ class OcSort(BoxTracker):
         self.delta_t: int = delta_t
         self.inertia: float = inertia
         self.use_byte: bool = use_byte
-        self.Q_xy_scaling: float = Q_xy_scaling
-        self.Q_s_scaling: float = Q_s_scaling
         self.frame_count: int = 0
 
         # Initialize tracker collections
@@ -227,9 +221,6 @@ class OcSort(BoxTracker):
                 high_batch.clss[i],
                 high_batch.det_inds[i],
                 delta_t=self.delta_t,
-                Q_xy_scaling=self.Q_xy_scaling,
-                Q_s_scaling=self.Q_s_scaling,
-                Q_a_scaling=self.Q_s_scaling,
                 max_obs=self.max_obs,
                 is_obb=self.is_obb,
                 id_allocator=self.id_allocator,

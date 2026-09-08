@@ -14,7 +14,7 @@
 
 extern "C" {
 
-struct BoxMOTOCSORTConfig {
+struct BoxMOTOCSORTConfigV2 {
     float min_conf;
     float det_thresh;
     float iou_threshold;
@@ -23,15 +23,13 @@ struct BoxMOTOCSORTConfig {
     int delta_t;
     int use_byte;
     float inertia;
-    float q_xy_scaling;
-    float q_s_scaling;
     int max_obs;
     const char* asso_func;
 };
 
 struct BoxMOTOCSORTHandle;
 
-BOXMOT_OCSORT_API BoxMOTOCSORTHandle* boxmot_ocsort_create(const BoxMOTOCSORTConfig* config);
+BOXMOT_OCSORT_API BoxMOTOCSORTHandle* boxmot_ocsort_create_v2(const BoxMOTOCSORTConfigV2* config);
 BOXMOT_OCSORT_API void boxmot_ocsort_destroy(BoxMOTOCSORTHandle* handle);
 BOXMOT_OCSORT_API int boxmot_ocsort_reset(BoxMOTOCSORTHandle* handle);
 BOXMOT_OCSORT_API int boxmot_ocsort_update_v2(BoxMOTOCSORTHandle* handle,
