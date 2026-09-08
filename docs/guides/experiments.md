@@ -6,7 +6,7 @@ again by eval, tune, and research.
 
 ```bash
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml
-boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml
 boxmot research --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 ```
 
@@ -15,7 +15,7 @@ detector, segmentor, ReID encoder, and class map are part of that experiment's
 semantic identity. Direct component selectors cannot override an authored
 `--experiment`; create another experiment when its configuration should change.
 
-Evaluation also accepts `--dataset` and `--detector` with an optional `--reid`
+Evaluation and tuning also accept `--dataset` and `--detector` with an optional `--reid`
 selector as shorthand for an authored catalog experiment:
 
 ```bash
@@ -31,9 +31,12 @@ semantic settings. No match or multiple matches produce an error; use
 Append `/CHECKPOINT` to the detector profile when needed to narrow a match.
 Omitting `--reid` matches only experiments without a ReID profile.
 
-Dataset-only evaluation without a detector requires an explicit `--build`.
-Tune and research require an authored experiment and an explicit build.
-Materialization remains experiment-backed for both evaluation forms.
+Evaluation and tuning prepare or reuse a canonical build when `--build` is
+omitted. Their dataset-only forms without a detector require an explicit
+`--build`. Automatic preparation remains experiment-backed, whether selected
+by filename or component shorthand; source and semantic fingerprints must
+match for reuse. Research requires an authored experiment and an explicit
+build.
 
 The build manifest records resolved artifact hashes, source and taxonomy
 digests, stage fingerprints, publish flags, shard counts/hashes, and

@@ -174,9 +174,9 @@ datasets still require explicit setup.
 
 ## Consume the build
 
-`tune` and `research` require an explicit build ID or path. `eval` accepts the
-same explicit form, but can also run canonical materialization automatically
-when an experiment is selected and `--build` is omitted:
+`research` requires an explicit build ID or path. `eval` and `tune` accept the
+same explicit form and can also prepare or reuse a canonical build
+automatically when an experiment is selected and `--build` is omitted.
 
 When the build root is configured, the compact form is `--build BUILD_ID`.
 The checkout-oriented examples below instead use the complete build path so
@@ -189,12 +189,15 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
   --data-root datasets/mot
 boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
   --build runs/materializations/BUILD_ID --data-root datasets/mot
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
+  --data-root datasets/mot
 boxmot research --experiment mot17/ablation-yolox-lmbn.yaml \
   --build runs/materializations/BUILD_ID --data-root datasets/mot
 ```
 
-Automatic eval preparation resolves the deterministic build for the selected
-experiment; it never selects a “latest” build. Tune and research do not
+Automatic eval and tune preparation resolve the deterministic build for the
+selected experiment and inputs; reuse requires matching source and component
+fingerprints. Neither command selects a “latest” build. Research does not
 materialize implicitly. Legacy NumPy, NPZ, and text-only cache roots are
 unsupported and are never migrated or deleted.
 

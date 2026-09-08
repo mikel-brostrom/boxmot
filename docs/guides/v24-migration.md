@@ -16,7 +16,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | `boxmot.api` | Removed; compose public domain packages directly |
 | `boxmot.data` | `boxmot.datasets` for immutable build loading and dataset configuration; engine materialization owns finite sources |
 | `boxmot generate` | `boxmot materialize` |
-| Eval/tune/research selecting or creating caches | Eval can materialize an authored experiment selected by filename or component shorthand when `--build` is omitted; dataset-only eval without a detector, tune, and research require `--build PATH_OR_ID` |
+| Eval/tune/research selecting or creating caches | Eval and tune prepare or reuse the resolved experiment's canonical build when `--build` is omitted; their dataset-only forms without a detector and research require `--build PATH_OR_ID` |
 | Positional `.npy`/`.npz` caches | Keyed `boxmot.dataset/v1` Parquet builds joined by `sample_id` and `instance_id` |
 | Native replay executable and caller-sized float row buffers | Live typed v2 C ABI with `int64` identifiers and library-owned output/free |
 

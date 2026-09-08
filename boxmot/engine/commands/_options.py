@@ -381,6 +381,44 @@ def data_root_option(func: Callable) -> Callable:
     )(func)
 
 
+def replay_build_options(*, dataset_default: str | None = None) -> Callable:
+    """Attach shared eval/tune inputs for build reuse or automatic materialization."""
+
+    from boxmot.engine.config import BOXMOT_DEFAULTS
+
+    def decorator(func: Callable) -> Callable:
+        options = (
+            experiment_option,
+            dataset_option(default=dataset_default),
+            click.option(
+                "--detector",
+                type=str,
+                default=None,
+                help=(
+                    "Detector profile ID or YAML config used to resolve an authored experiment with --dataset; "
+                    "append /CHECKPOINT to disambiguate."
+                ),
+            ),
+            click.option(
+                "--reid",
+                type=str,
+                default=None,
+                help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
+            ),
+            build_selection_options(required=False),
+            click.option(
+                "--device",
+                default=BOXMOT_DEFAULTS.materialize.device,
+                help="Perception device used for automatic materialization, e.g. cpu, mps, cuda:0, or 0.",
+            ),
+        )
+        for option in reversed(options):
+            func = option(func)
+        return func
+
+    return decorator
+
+
 def tracker_backend_option(*, default: str) -> Callable:
     """Attach the tracker implementation backend option."""
 
@@ -447,6 +485,7 @@ __all__ = (
     "dataset_option",
     "experiment_option",
     "kalman_calibration_option",
+    "replay_build_options",
     "replay_options",
     "source_option",
     "split_option",

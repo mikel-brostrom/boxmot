@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import configparser
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -12,6 +13,7 @@ import cv2
 import numpy as np
 import pytest
 import torch
+from click.testing import CliRunner
 
 import boxmot.engine.eval.catalog_cache as catalog_cache
 import boxmot.engine.eval.evaluator as evaluator
@@ -20,6 +22,7 @@ import boxmot.engine.materialization.stages.embed as embed_stage
 import boxmot.engine.materialization.workflow as workflow
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
+from boxmot.engine.cli import boxmot
 from boxmot.engine.eval.replay import iter_cached_tracks, tracks_to_mot_rows
 from boxmot.engine.materialization.catalog import catalog_mot_dataset
 from boxmot.reid import ReIDEncoderSpec
@@ -321,6 +324,60 @@ def test_dataset_fps_build_identity_and_reuse(fps_case: SimpleNamespace, monkeyp
     encoder_factory.assert_not_called()
     native_catalog = catalog_mot_dataset(fps_case.dataset, split="ablation", data_root=fps_case.data_root)
     assert DatasetManifest.load(native).metadata["source_catalog_digest"] == native_catalog.fingerprint
+
+
+def test_eval_then_tune_cli_reuses_the_same_sampled_build_without_perception(
+    fps_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Automatic CLI preparation shares a real published build across modes."""
+
+    evaluate = Mock()
+    tune = Mock()
+    monkeypatch.setattr(evaluator, "main", evaluate)
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.tuner", SimpleNamespace(main=tune))
+    options = [
+        "--experiment",
+        str(fps_case.experiment["source_path"]),
+        "--split",
+        "ablation",
+        "--fps",
+        "5",
+        "--tracker",
+        "botsort",
+        "--data-root",
+        str(fps_case.data_root),
+        "--build-root",
+        str(fps_case.root / "builds"),
+    ]
+    runner = CliRunner()
+    evaluated = runner.invoke(boxmot, ["eval", *options])
+    assert evaluated.exit_code == 0, (evaluated.output, evaluated.exception)
+    evaluate.assert_called_once()
+    build = Path(evaluate.call_args.args[0].build)
+    assert DatasetManifest.load(build).metadata["fps"] == 5.0
+    samples = list(CachedVisionDataset(build, load_embeddings=True))
+    assert len(samples) == 4
+    assert [len(sample.detections) for sample in samples] == [1, 0, 1, 1]
+    assert fps_case.detector.seen == [1, 7, 13, 19]
+    assert fps_case.encoder.seen == [1, 13, 19]
+
+    # Remove runtime caches so reuse cannot hide unnecessary model construction.
+    monkeypatch.setattr(detect_stage, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(embed_stage, "_WORKER_ENCODERS", {})
+    detector_factory = Mock(side_effect=AssertionError("Published reuse must not construct a detector"))
+    encoder_factory = Mock(side_effect=AssertionError("Published reuse must not construct an encoder"))
+    monkeypatch.setattr(detect_stage, "create_detector", detector_factory)
+    monkeypatch.setattr(embed_stage, "create_reid_encoder", encoder_factory)
+
+    tuned = runner.invoke(boxmot, ["tune", *options])
+    assert tuned.exit_code == 0, (tuned.output, tuned.exception)
+    tune.assert_called_once()
+    assert Path(tune.call_args.args[0].build) == build
+    assert tune.call_args.args[0].fps == 5.0
+    assert fps_case.detector.seen == [1, 7, 13, 19]
+    assert fps_case.encoder.seen == [1, 13, 19]
+    detector_factory.assert_not_called()
+    encoder_factory.assert_not_called()
 
 
 def test_reused_fps_build_has_canonical_identity_and_experiment_provenance(fps_case: SimpleNamespace) -> None:
