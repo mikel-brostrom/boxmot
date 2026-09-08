@@ -2,22 +2,27 @@
 
 Thank you for improving this project! Please follow these guidelines.
 
+## Development setup
+
+Fork the repository on GitHub, then clone your fork and install the contributor dependencies:
+
+```bash
+git clone https://github.com/your-username/boxmot.git
+cd boxmot
+pip install "uv==0.12.4"
+uv sync --extra cpu --extra yolo --extra evolve --extra service \
+  --group dev --group test --group docs
+```
+
+Replace `your-username` with your GitHub username. Use `cu130` instead of `cpu`
+for CUDA 13.0. Repeat the chosen profile on later `uv sync` commands and run
+commands with `uv run --no-sync`, for example `uv run --no-sync pytest`.
+
 ## Pull Requests
 
 Proposed workflow
 
 ```bash
-# Fork the repository on GitHub
-
-# Then clone your fork locally
-git clone https://github.com/your-username/boxmot.git
-cd boxmot
-# Keep this bootstrap version aligned with [tool.uv].required-version.
-pip install "uv==0.12.4"
-# Select exactly one PyTorch profile. Use cu130 instead of cpu on CUDA 13.0 hosts.
-uv sync --extra cpu --extra yolo --extra evolve --extra service \
-  --group dev --group test --group docs
-
 # Create a branch
 git checkout -b feature/short-desc
 
