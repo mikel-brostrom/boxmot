@@ -241,7 +241,7 @@ CLI:
 
 ```bash
 boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
-  --asso-func diou --source 0 --save --show
+  --source 0 --save --show
 ```
 
 Evaluate a tracker:
