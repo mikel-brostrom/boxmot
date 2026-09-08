@@ -39,7 +39,7 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
+- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
   `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
 - Swappable components with explicit capabilities and requirements.
@@ -241,7 +241,7 @@ CLI:
 
 ```bash
 boxmot track --detector yolo26n --reid lmbn_n_duke --tracker occluboost \
-  --asso-func diou --source 0 --save --show
+  --source 0 --save --show
 ```
 
 Evaluate a tracker:
@@ -254,6 +254,9 @@ boxmot eval \
   --reid lmbn-n-duke \
   --tracker botsort
 ```
+
+See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
+`--calibrate-kf` usage.
 
 Use NumPy detections and BGR images directly:
 

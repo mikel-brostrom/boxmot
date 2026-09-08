@@ -62,6 +62,7 @@ class ServiceSettings:
     profile: str = "cpu"
     tracker_type: str = "bytetrack"
     asso_func: str = "iou"
+    variable_dt: bool = False
     device: str = "cpu"
     half: bool = False
     reid_weights: str = "osnet_x0_25_msmt17.pt"
@@ -87,9 +88,11 @@ class ServiceSettings:
             )
         if self.asso_func not in ASSOCIATION_FUNCTIONS:
             available = ", ".join(ASSOCIATION_FUNCTIONS)
-            raise ValueError(
-                f"Unsupported association function {self.asso_func!r}; choose one of: {available}."
-            )
+            raise ValueError(f"Unsupported association function {self.asso_func!r}; choose one of: {available}.")
+        if not isinstance(self.variable_dt, bool):
+            raise ValueError("variable_dt must be a boolean.")
+        if self.variable_dt and self.tracker_type == "sfsort":
+            raise ValueError("SFSORT does not support variable_dt=True.")
         if not self.device.strip():
             raise ValueError("Service device must not be empty.")
         if not self.reid_weights.strip():
@@ -121,7 +124,7 @@ class ServiceSettings:
 
     @classmethod
     def from_env(cls) -> ServiceSettings:
-        """Build settings from ``BOXMOT_SERVICE_*`` environment variables."""
+        """Build settings from service variables and ``BOXMOT_VARIABLE_DT``."""
 
         profile = os.getenv("BOXMOT_SERVICE_PROFILE", "cpu").strip().lower()
         default_tracker = "botsort" if profile == "gpu" else "bytetrack"
@@ -130,6 +133,7 @@ class ServiceSettings:
             profile=profile,
             tracker_type=tracker_type,
             asso_func=os.getenv("BOXMOT_SERVICE_ASSO_FUNC", "iou"),
+            variable_dt=_environment_bool("BOXMOT_VARIABLE_DT", False),
             device=os.getenv("BOXMOT_SERVICE_DEVICE", "0" if profile == "gpu" else "cpu").strip(),
             half=_environment_bool("BOXMOT_SERVICE_HALF", profile == "gpu"),
             reid_weights=os.getenv(

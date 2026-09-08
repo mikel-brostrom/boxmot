@@ -14,6 +14,7 @@ from boxmot.engine.experiment_config import EXPERIMENT_CONFIGS_DIR, resolve_expe
 EXPECTED_COMMAND_ORDER = (
     "track",
     "materialize",
+    "time-variant",
     "eval",
     "tune",
     "research",
@@ -165,6 +166,7 @@ def test_materialize_option_and_dispatch_contract_is_experiment_only(monkeypatch
         "data_root",
         "device",
         "experiment",
+        "fps",
         "plan_overrides",
         "plan_path",
         "publish_embeddings",
@@ -309,9 +311,11 @@ def test_eval_direct_components_require_a_dataset() -> None:
     assert "--dataset" in result.output
 
 
+@pytest.mark.parametrize("fps", (None, 5.0, 2.5))
 def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_experiment(
     monkeypatch,
     tmp_path,
+    fps: float | None,
 ) -> None:
     build_path = tmp_path / "builds" / ("b" * 64)
     calls = []
@@ -350,6 +354,7 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
             "lmbn-n-duke",
             "--tracker",
             "botsort",
+            *([] if fps is None else ["--fps", str(fps)]),
         ],
     )
 
@@ -361,6 +366,7 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
         assert getattr(args, "dataset", None) is None
         assert not hasattr(args, "detector")
         assert not hasattr(args, "reid")
+        assert args.fps == fps
     materialize_args = captured["materialize"]
     assert materialize_args.materialize_split == "ablation"
     assert materialize_args.materialize_mode == "eval"
@@ -369,6 +375,7 @@ def test_eval_direct_components_materialize_and_evaluate_the_matching_authored_e
     assert materialize_args.publish_embeddings is True
     assert materialize_args.resume is True
     assert "device" not in materialize_args.materialize_explicit_keys
+    assert ("fps" in materialize_args.materialize_explicit_keys) is (fps is not None)
     eval_args = captured["eval"]
     assert eval_args.build == build_path
     assert eval_args.split == "ablation"

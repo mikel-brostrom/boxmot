@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import configparser
+import csv
 import hashlib
+import io
+import math
 import os
 import struct
 from collections.abc import Callable
@@ -15,6 +18,8 @@ import cv2
 
 from boxmot.datasets.manifest import canonical_json_bytes, sha256_file
 from boxmot.datasets.readers.images import NUMPY_IMAGE_EXTENSIONS, probe_numpy_image_size
+from boxmot.engine.dataset_variants.fps import select_sequence_frames, validate_dataset_fps
+from boxmot.engine.frame_timing import SourceTimestamps
 from boxmot.engine.materialization.source import SourceSample
 from boxmot.engine.tracking.sources import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, is_appledouble_file
 
@@ -417,6 +422,7 @@ def _video_samples(
     samples: list[SourceSample] = []
     source_index = 0
     try:
+        timestamps = SourceTimestamps(float(capture.get(cv2.CAP_PROP_FPS)))
         while capture.grab():
             height = int(round(float(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))))
             width = int(round(float(capture.get(cv2.CAP_PROP_FRAME_WIDTH))))
@@ -427,7 +433,7 @@ def _video_samples(
                     split=split,
                     sequence_id=sequence_id,
                     frame_index=source_index,
-                    timestamp_s=position_ms / 1000.0 if position_ms > 0 else None,
+                    timestamp_s=timestamps.resolve(position_ms, frame_index=source_index),
                     image_size=(height, width),
                     source_uri=uri,
                     source_sha256=source_sha256,
@@ -548,7 +554,47 @@ def _sequence_rate(sequence_root: Path) -> float | None:
     parser = configparser.ConfigParser()
     parser.read(path)
     value = parser.getfloat("Sequence", "frameRate", fallback=0.0)
-    return value if value > 0 else None
+    return value if math.isfinite(value) and value > 0 else None
+
+
+def _read_sequence_timestamps(path: Path, frame_count: int) -> tuple[tuple[float, ...], CatalogFileMetadata]:
+    """Validate a complete sequence timeline and hash the exact parsed bytes."""
+
+    contents = path.read_bytes()
+    timestamps: list[float] = []
+    try:
+        rows = csv.reader(io.StringIO(contents.decode("utf-8"), newline=""), strict=True)
+        if next(rows, None) != ["frame_id", "timestamp_s"]:
+            raise ValueError(f"{path} must have exactly the columns frame_id,timestamp_s.")
+        for row in rows:
+            if len(row) != 2:
+                raise ValueError(f"{path} line {rows.line_num} must contain exactly two values.")
+            try:
+                frame_id = int(row[0])
+            except ValueError as exc:
+                raise ValueError(f"{path} line {rows.line_num} frame_id must be an integer.") from exc
+            expected_frame_id = len(timestamps) + 1
+            if frame_id != expected_frame_id or frame_id > frame_count:
+                raise ValueError(f"{path} frame_id values must cover frames 1..{frame_count} exactly once in order.")
+            try:
+                timestamp = float(row[1])
+            except ValueError as exc:
+                raise ValueError(f"{path} line {rows.line_num} timestamp_s must be a finite number.") from exc
+            if not math.isfinite(timestamp):
+                raise ValueError(f"{path} line {rows.line_num} timestamp_s must be a finite number.")
+            if timestamps and timestamp <= timestamps[-1]:
+                raise ValueError(f"{path} timestamp_s values must increase strictly.")
+            timestamps.append(timestamp)
+    except (csv.Error, UnicodeError) as exc:
+        raise ValueError(f"{path} must contain valid UTF-8 CSV data: {exc}") from exc
+    if len(timestamps) != frame_count:
+        raise ValueError(
+            f"{path} must contain one timestamp for every image; expected {frame_count}, got {len(timestamps)}."
+        )
+    return tuple(timestamps), CatalogFileMetadata(
+        sha256=hashlib.sha256(contents).hexdigest(),
+        size_bytes=len(contents),
+    )
 
 
 def catalog_mot_dataset(
@@ -557,6 +603,7 @@ def catalog_mot_dataset(
     split: str | None = None,
     data_root: str | Path | None = None,
     metadata_resolver: CatalogMetadataResolver | None = None,
+    fps: float | None = None,
 ) -> SourceCatalog:
     """Resolve a MOT-layout dataset split beneath the selected tracking-data root.
 
@@ -564,8 +611,16 @@ def catalog_mot_dataset(
     safely reuse file metadata. The default always reads and hashes every
     source, which keeps materialization's build identity cryptographically
     fresh.
+
+    An optional sequence-root ``timestamps.csv`` supplies ``frame_id,timestamp_s``
+    rows for every sorted image, numbered from one. The validated sidecar takes
+    precedence over ``seqinfo.ini`` frame rate and participates in content identity.
+    ``fps`` keeps the first frame in each occupied sampling interval, retains its
+    capture timestamp, and numbers selected frames contiguously for cache/GT use.
     """
 
+    if fps is not None:
+        fps = validate_dataset_fps(fps)
     layout = str(config.get("layout") or "")
     if layout not in {"mot", "visdrone"}:
         raise ValueError(f"Unsupported dataset layout {layout!r}; expected 'mot' or 'visdrone'.")
@@ -586,6 +641,8 @@ def catalog_mot_dataset(
     samples: list[SourceSample] = []
     sources: list[dict[str, Any]] = []
     ground_truth_sources: list[dict[str, Any]] = []
+    timestamp_sources: list[dict[str, Any]] = []
+    frame_sampling: dict[str, list[int]] = {}
     resolve_metadata = metadata_resolver or inspect_catalog_file
     sequence_roots = sorted(item for item in split_root.iterdir() if item.is_dir() and not is_appledouble_file(item))
     for sequence_root in sequence_roots:
@@ -597,8 +654,36 @@ def catalog_mot_dataset(
             for item in image_root.iterdir()
             if item.is_file() and not is_appledouble_file(item) and item.suffix.lower() in STILL_FRAME_EXTENSIONS
         )
-        frame_rate = _sequence_rate(sequence_root)
-        for frame_index, image_path in enumerate(image_paths):
+        timestamp_path = sequence_root / "timestamps.csv"
+        timestamps = None
+        if timestamp_path.exists() or timestamp_path.is_symlink():
+            timestamp_ref = timestamp_path.relative_to(dataset_root).as_posix()
+            resolved_timestamp_path = _resolve_dataset_child(dataset_root, timestamp_ref, description="timestamp")
+            if not resolved_timestamp_path.is_file():
+                raise ValueError(f"Sequence timestamps.csv must be a regular file: {timestamp_path}.")
+            timestamps, timestamp_metadata = _read_sequence_timestamps(resolved_timestamp_path, len(image_paths))
+            timestamp_record = {
+                "ref": timestamp_ref,
+                "sha256": timestamp_metadata.sha256,
+                "size_bytes": timestamp_metadata.size_bytes,
+            }
+            sources.append(timestamp_record)
+            timestamp_sources.append(timestamp_record)
+        frame_rate = _sequence_rate(sequence_root) if timestamps is None else None
+        sequence_timestamps = (
+            timestamps
+            if timestamps is not None
+            else tuple(None if frame_rate is None else index / frame_rate for index in range(len(image_paths)))
+        )
+        selected_indices = (
+            tuple(range(len(image_paths)))
+            if fps is None
+            else select_sequence_frames(sequence_timestamps, fps=fps, sequence_id=sequence_root.name)
+        )
+        if fps is not None:
+            frame_sampling[sequence_root.name] = [index + 1 for index in selected_indices]
+        for frame_index, source_index in enumerate(selected_indices):
+            image_path = image_paths[source_index]
             sample_id = f"{split_name}:{sequence_root.name}:{frame_index}"
             image_ref = _relative_ref(image_path, dataset_root)
             file_metadata = resolve_metadata(image_path, True)
@@ -610,7 +695,7 @@ def catalog_mot_dataset(
                     split=split_name,
                     sequence_id=sequence_root.name,
                     frame_index=frame_index,
-                    timestamp_s=None if frame_rate is None else frame_index / frame_rate,
+                    timestamp_s=sequence_timestamps[source_index],
                     image_size=file_metadata.image_size,
                     source_uri=image_path.as_uri(),
                     source_sha256=file_metadata.sha256,
@@ -672,7 +757,19 @@ def catalog_mot_dataset(
             "split": split_name,
             "layout": layout,
             "class_taxonomy_digest": hashlib.sha256(canonical_json_bytes(class_taxonomy)).hexdigest(),
-            "ground_truth_digest": hashlib.sha256(canonical_json_bytes(ground_truth_sources)).hexdigest(),
+            "ground_truth_digest": hashlib.sha256(
+                canonical_json_bytes(
+                    ground_truth_sources
+                    if fps is None
+                    else {"sources": ground_truth_sources, "frame_sampling": frame_sampling}
+                )
+            ).hexdigest(),
+            **({"fps": fps, "frame_sampling": frame_sampling} if fps is not None else {}),
+            **(
+                {"timestamps_digest": hashlib.sha256(canonical_json_bytes(timestamp_sources)).hexdigest()}
+                if timestamp_sources
+                else {}
+            ),
         },
     )
 

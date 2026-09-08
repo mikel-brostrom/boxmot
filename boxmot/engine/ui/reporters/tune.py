@@ -11,16 +11,20 @@ import boxmot.engine.ui.core.ui as ui
 from boxmot.engine.eval.results import CORE_SUMMARY_COLUMNS, SUMMARY_COLUMNS
 from boxmot.engine.ui.workflow import steps as step_labels
 from boxmot.engine.ui.workflow.reporting import RichWorkflowCallback, RichWorkflowReporter, SilentProgressReporter
+from boxmot.engine.ui.workflow.task_progress import create_task_progress
 
 TUNE_SETUP_STEP = step_labels.SETUP
 TUNE_OPTIMIZE_STEP = step_labels.OPTIMIZE
 
 
-def _format_core_summary(summary: dict[str, Any]) -> str:
-    return " ".join(
-        f"{metric}={float(summary.get(metric, 0.0) or 0.0):.3f}"
-        for metric in CORE_SUMMARY_COLUMNS
-    )
+def _format_core_summary(summary: dict[str, Any] | None) -> str:
+    """Format the three main metrics without inventing missing measurements."""
+    metrics = []
+    for metric in CORE_SUMMARY_COLUMNS:
+        value = (summary or {}).get(metric)
+        formatted = f"{float(value):.3f}" if value is not None and math.isfinite(float(value)) else "--"
+        metrics.append(f"{metric}={formatted}")
+    return " ".join(metrics)
 
 
 def _score_summary(
@@ -105,8 +109,9 @@ def log_tune_pipeline_intro(args: Any, *, maximize: list[str], minimize: list[st
     return TuneWorkflowReporter(args, maximize=maximize, minimize=minimize).create()
 
 
-def format_initial_tune_progress(total: int) -> str:
-    return format_tune_progress(0, int(total), current_trial=1)
+def format_initial_tune_progress(total: int) -> Group:
+    """Show the shared progress row while the first trial waits to start."""
+    return format_tune_progress(0, int(total))
 
 
 def set_tune_progress_workflow(workflow: ui.WorkflowProgress | None) -> None:
@@ -128,11 +133,14 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.maximize = list(maximize)
         self.minimize = list(minimize)
         self.completed = 0
+        self.failed = 0
         self._trial_index_offset = 0
         self.trial_durations: list[float] = []
         self.trial_indices: dict[str, int] = {}
         self.active_trials: set[str] = set()
         self.best_score: tuple[float, ...] | None = None
+        self.best_summary: dict[str, float] | None = None
+        self.last_summary: dict[str, float] | None = None
 
     def _trial_id(self, trial: Any) -> str:
         return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
@@ -146,23 +154,24 @@ class TuneWorkflowCallback(RichWorkflowCallback):
     def _running_index(self) -> int | None:
         if self.active_trials:
             return min(self.trial_indices[trial_id] for trial_id in self.active_trials)
-        if self.completed < self.total:
-            return min(self.completed + 1, self.total)
         return None
 
     def _remaining_seconds(self) -> float | None:
         remaining_trials = max(self.total - self.completed, 0)
         return estimate_tune_remaining(self.trial_durations, remaining_trials)
 
-    def _set_progress(self, summary: dict[str, Any] | None = None, *, is_new_best: bool = False) -> None:
-        self.set_workflow_detail(
+    def _set_progress(self) -> None:
+        """Keep completed-trial metrics visible between callback events."""
+        self.set_workflow_detail_renderable(
             format_tune_progress(
                 self.completed,
                 self.total,
-                summary,
+                self.last_summary,
+                best_summary=self.best_summary,
                 current_trial=self._running_index(),
-                is_new_best=is_new_best,
                 remaining_seconds=self._remaining_seconds(),
+                failed=self.failed,
+                active_trials=len(self.active_trials),
             )
         )
 
@@ -180,21 +189,25 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         duration = result.get("time_total_s")
         if duration is not None:
             self.trial_durations.append(float(duration))
-        summary = {key: float(result.get(key, 0.0)) for key in SUMMARY_COLUMNS if key in result}
-        score = _score_summary(summary, maximize=self.maximize, minimize=self.minimize) if summary else None
-        is_new_best = score is not None and (self.best_score is None or score > self.best_score)
-        if is_new_best and score is not None:
-            self.best_score = score
-        self._set_progress(summary if summary else None, is_new_best=is_new_best)
+        metrics = dict.fromkeys((*SUMMARY_COLUMNS, *self.maximize, *self.minimize))
+        summary = {key: float(result[key]) for key in metrics if result.get(key) is not None}
+        if summary:
+            self.last_summary = summary
+            score = _score_summary(summary, maximize=self.maximize, minimize=self.minimize)
+            if all(math.isfinite(value) for value in score) and (self.best_score is None or score > self.best_score):
+                self.best_score = score
+                self.best_summary = summary.copy()
+        self._set_progress()
 
     def on_trial_error(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
         trial_id = self._trial_id(trial)
         self.active_trials.discard(trial_id)
         self.completed += 1
+        self.failed += 1
         self._set_progress()
 
 
-# ── Tune progress formatting (moved from workflow_reporting) ─────────────
+# ── Tune progress presentation ────────────────────────────────────────
 
 
 def format_remaining_time(seconds: float | None) -> str:
@@ -218,49 +231,58 @@ def estimate_tune_remaining(trial_durations: Sequence[float], remaining_trials: 
     return avg_trial_seconds * remaining_trials
 
 
-def format_progress_bar(current: int, total: int, *, bar_width: int = 20) -> tuple[str, float]:
-    if total <= 0:
-        pct = 1.0 if current >= total else 0.0
-    else:
-        pct = min(max(current / total, 0.0), 1.0)
-
-    filled = int(bar_width * pct)
-    bar = "█" * filled + "░" * (bar_width - filled)
-    return bar, pct
-
-
-def format_named_progress(label: str, current: int, total: int, *, detail: str = "") -> str:
-    bar, pct = format_progress_bar(current, total)
-    message = f"  {label:<8s} {bar} {pct:>5.0%}  ({current}/{total})"
-    if detail:
-        message = f"{message}  {detail}"
-    return message
-
-
 def format_tune_progress(
     completed: int,
     total: int,
-    summary: dict[str, Any] | None = None,
+    last_summary: dict[str, Any] | None = None,
     *,
+    best_summary: dict[str, Any] | None = None,
     current_trial: int | None = None,
-    is_new_best: bool = False,
     remaining_seconds: float | None = None,
-) -> str:
-    remaining = format_remaining_time(remaining_seconds)
-    if summary is None:
-        running = current_trial if current_trial is not None else (completed + 1)
-        return format_named_progress(
-            "Tune",
-            completed,
-            total,
-            detail=f"running trial {running}/{total}  remaining {remaining}",
-        )
+    failed: int = 0,
+    active_trials: int | None = None,
+) -> Group:
+    """Use evaluation's Rich bar, count, and status columns for trial progress.
 
-    core = _format_core_summary(summary)
-    suffix = "  best" if is_new_best else ""
-    if current_trial is not None and current_trial > completed:
-        detail = f"running trial {current_trial}/{total}  last {core}{suffix}  remaining {remaining}"
-        return format_named_progress("Tune", completed, total, detail=detail)
+    This renderable is created in the driver and only stored in its workflow.
+    Ray callbacks retain ordinary counts and metrics, never Rich progress locks.
+    """
+    total = max(0, int(total))
+    completed = min(max(0, int(completed)), total)
+    failed = min(max(0, int(failed)), completed)
+    active = max(0, int(active_trials)) if active_trials is not None else int(current_trial is not None)
+    finished = completed >= total
+    if finished:
+        active = 0
+    status = ("failed" if failed else "completed") if finished else ("running" if active else "queued")
 
-    detail = f"{core}{suffix}  remaining {remaining}"
-    return format_named_progress("Tune", completed, total, detail=detail)
+    aggregate = Text("Tuning: ", style=ui.STYLE_TEXT_STRONG)
+    aggregate.append(f"{completed - failed}/{total} trials done", style=ui.STYLE_STATUS_DONE)
+    if active:
+        aggregate.append(f" · {active} running", style=ui.STYLE_STATUS_ACTIVE)
+    if failed:
+        aggregate.append(f" · {failed} failed", style=ui.STYLE_STATUS_FAILED)
+
+    detail = []
+    if not finished and current_trial is not None:
+        detail.append(f"trial {current_trial}/{total}")
+    remaining = format_remaining_time(0.0 if finished else remaining_seconds)
+    detail.append(f"remaining {remaining}")
+    progress = create_task_progress(unit="trials")
+    task_id = progress.add_task(
+        "Tune",
+        total=total,
+        completed=completed,
+        start=bool(active or completed or finished),
+        status=status,
+        detail=" · ".join(detail),
+    )
+    if finished:
+        progress.update(task_id, completed=completed)
+        progress.stop_task(task_id)
+    parts: list[RenderableType] = [aggregate, progress]
+    if best_summary is not None or last_summary is not None:
+        metrics = Text(f"Best trial: {_format_core_summary(best_summary)}", style=ui.STYLE_STATUS_DONE)
+        metrics.append(f" · Last trial: {_format_core_summary(last_summary)}", style=ui.STYLE_MUTED)
+        parts.append(metrics)
+    return Group(*parts)

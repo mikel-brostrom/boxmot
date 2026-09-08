@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.motion.kalman_filters.xyscr import KalmanFilterXYSCR
@@ -23,7 +24,7 @@ class MotionModelKind(str, Enum):
     XYSCR = "xyscr"
 
 
-FilterFactory = Callable[[np.ndarray | None], Any]
+FilterFactory = Callable[[np.ndarray | None, KalmanNoiseConfig | None], Any]
 MeasurementConverter = Callable[[np.ndarray], np.ndarray]
 StateConverter = Callable[[np.ndarray, float | None], np.ndarray]
 
@@ -40,11 +41,14 @@ class MotionModelAdapter:
     _measurement_from_box: MeasurementConverter
     _box_from_state: StateConverter
 
-    def create_filter(self, initial_measurement: np.ndarray | None = None) -> Any:
+    def create_filter(
+        self, initial_measurement: np.ndarray | None = None, *, noise_config: KalmanNoiseConfig | None = None
+    ) -> Any:
+        """Create an independent filter with the caller's noise configuration."""
         measurement = None
         if initial_measurement is not None:
             measurement = np.asarray(initial_measurement, dtype=float).reshape(-1)
-        return self._filter_factory(measurement)
+        return self._filter_factory(measurement, noise_config)
 
     def to_measurement(self, box: np.ndarray, column: bool = True) -> np.ndarray:
         measurement = self._measurement_from_box(box)
@@ -224,7 +228,7 @@ def create_motion_model(
             dim_x=2 * dim_z,
             dim_z=dim_z,
             is_obb=is_obb,
-            _filter_factory=lambda _: KalmanFilterXYAH(ndim=dim_z),
+            _filter_factory=lambda _, noise: KalmanFilterXYAH(ndim=dim_z, noise_config=noise),
             _measurement_from_box=xywha_to_xyah_measurement if is_obb else xyxy_to_xyah_measurement,
             _box_from_state=xyah_state_to_xywha if is_obb else xyah_state_to_xyxy,
         )
@@ -236,7 +240,7 @@ def create_motion_model(
             dim_x=2 * dim_z,
             dim_z=dim_z,
             is_obb=is_obb,
-            _filter_factory=lambda _: KalmanFilterXYWH(ndim=dim_z),
+            _filter_factory=lambda _, noise: KalmanFilterXYWH(ndim=dim_z, noise_config=noise),
             _measurement_from_box=xywha_to_xywh_measurement if is_obb else xyxy_to_xywh_measurement,
             _box_from_state=xywh_state_to_xywha if is_obb else xywh_state_to_xyxy,
         )
@@ -249,7 +253,9 @@ def create_motion_model(
             dim_x=dim_x,
             dim_z=dim_z,
             is_obb=is_obb,
-            _filter_factory=lambda _: KalmanFilterXYSR(dim_x=dim_x, dim_z=dim_z, max_obs=max_obs),
+            _filter_factory=lambda _, noise: KalmanFilterXYSR(
+                dim_x=dim_x, dim_z=dim_z, max_obs=max_obs, noise_config=noise
+            ),
             _measurement_from_box=xywha_to_xysr_measurement if is_obb else xyxy_to_xysr_measurement,
             _box_from_state=xysr_state_to_xywha if is_obb else xysr_state_to_xyxy,
         )
@@ -262,12 +268,13 @@ def create_motion_model(
             dim_x=dim_x,
             dim_z=dim_z,
             is_obb=is_obb,
-            _filter_factory=lambda measurement: KalmanFilterXYHR(
+            _filter_factory=lambda measurement, noise: KalmanFilterXYHR(
                 measurement,
                 ndim=dim_x,
                 dim_z=dim_z,
                 adaptive_kf=adaptive_kf,
                 cls_id=cls_id,
+                noise_config=noise,
             ),
             _measurement_from_box=xywha_to_xyhr_measurement if is_obb else xyxy_to_xyhr_measurement,
             _box_from_state=xyhr_state_to_xywha if is_obb else xyhr_state_to_xyxy,
@@ -280,7 +287,7 @@ def create_motion_model(
         dim_x=9,
         dim_z=5,
         is_obb=False,
-        _filter_factory=lambda _: KalmanFilterXYSCR(max_obs=max_obs),
+        _filter_factory=lambda _, noise: KalmanFilterXYSCR(max_obs=max_obs, noise_config=noise),
         _measurement_from_box=xyxy_to_xyscr_measurement,
         _box_from_state=xyscr_state_to_xyxy,
     )

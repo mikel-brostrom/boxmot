@@ -10,6 +10,7 @@ import numpy as np
 import torch
 
 from boxmot.components.timing import timed_component_phase
+from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS, normalize_kalman_options
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
@@ -79,12 +80,22 @@ def load_native_tracker_config(
 
     resolved = load_tracker_defaults(tracker_name)
     if options is not None:
-        accepted_keys = set(resolved) | set(native_only_keys)
+        accepted_keys = (
+            set(resolved)
+            | set(native_only_keys)
+            | {"variable_dt"}
+            | set(KALMAN_NOISE_OPTIONS)
+            | set(KALMAN_TIMING_OPTIONS)
+        )
         unexpected_keys = set(options) - accepted_keys
         if unexpected_keys:
             unexpected = next(key for key in options if key in unexpected_keys)
             raise TypeError(f"Native tracker '{tracker_name}' got an unexpected option {unexpected!r}.")
         resolved.update(options)
+    variable_dt = resolved.pop("variable_dt", False)
+    normalize_kalman_options(resolved, variable_dt=variable_dt, tracker_name=tracker_name, backend="cpp")
+    for option in (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS):
+        resolved.pop(option, None)
     return resolved
 
 
@@ -127,6 +138,8 @@ class NativeTrackerAdapter(LiveReIDMixin):
 
     _native_display_name: str
     supports_obb = True
+    supports_variable_dt = False
+    variable_dt = False
     supports_masks = False
     accepts_embeddings = False
 
@@ -175,20 +188,32 @@ class NativeTrackerAdapter(LiveReIDMixin):
 
         return self._requirements
 
-    @overload
-    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks: ...
+    def validate_timing(self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None) -> None:
+        """Keep frame timestamps as metadata; native prediction uses fixed steps."""
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray: ...
+    def update(
+        self, detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> Tracks: ...
+
+    @overload
+    def update(
+        self, detections: np.ndarray, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> np.ndarray: ...
 
     def update(
-        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+        self,
+        detections: Detections | np.ndarray,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        timestamp_s: float | None = None,
     ) -> Tracks | np.ndarray:
         """Invoke a native update with an optional Frame or uint8 HWC BGR image.
 
         The detection representation determines the output representation.
         """
 
+        self.validate_timing(frame, timestamp_s=timestamp_s)
         frame = prepare_frame(frame)
 
         is_obb = self.is_obb

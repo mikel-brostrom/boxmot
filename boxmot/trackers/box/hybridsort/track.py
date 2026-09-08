@@ -12,6 +12,7 @@ from typing import Optional
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.appearance import (
     blend_embeddings,
     ema_update_embedding,
@@ -86,9 +87,10 @@ class KalmanBoxTracker(SortBoxTrack):
         cls: int = 0,
         det_ind: int = -1,
         id_allocator: TrackIdAllocator | None = None,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         self.motion_model = create_motion_model(MotionModelKind.XYSCR, max_obs=max_obs)
-        self.kf = self.motion_model.create_filter()
+        self.kf = self.motion_model.create_filter(noise_config=noise_config)
         self.kf.R[2:, 2:] *= 10.0
         self.kf.P[5:, 5:] *= 1000.0
         self.kf.P *= 10.0
@@ -252,6 +254,10 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.P,
             transform,
         )
+        self.kf.transform_timed_history(
+            lambda mean, covariance: self._map_camera_state_and_covariance(mean, covariance, transform),
+            lambda measurement: self._warp_camera_measurement(measurement, transform),
+        )
 
         if self.last_observation[-1] >= 0:
             self.last_observation = self._warp_aabb_row(self.last_observation, transform)
@@ -362,11 +368,13 @@ class KalmanBoxTracker(SortBoxTrack):
             self.confidence_pre = None
             sync_track_meta(self)
 
-    def predict(self):
-        if (self.kf.x[7] + self.kf.x[2]) <= 0:
+    def predict(self, *, dt: float | None = None) -> tuple[np.ndarray, float, float]:
+        """Predict box and score over an optional elapsed time interval."""
+        interval = 1.0 if dt is None else dt
+        if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
             self.kf.x[7] *= 0.0
 
-        self.kf.predict()
+        self.kf.predict(dt=dt)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0

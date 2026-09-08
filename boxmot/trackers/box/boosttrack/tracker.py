@@ -61,6 +61,8 @@ class BoostTrack(BoxTracker):
         cmc: Camera-motion compensation method when enabled.
     """
 
+    supports_variable_dt = True
+
     accepts_embeddings = True
     uses_frame_dimensions_for_association = True
 
@@ -163,7 +165,7 @@ class BoostTrack(BoxTracker):
         confs = []
 
         for trk in self.trackers:
-            pos = trk.predict()[0]
+            pos = trk.predict(dt=self._prediction_dt)[0]
             conf = trk.get_confidence()
             confs.append(conf)
             assoc_pos = xywha_to_xyxy(pos.reshape(1, 5))[0] if self.is_obb else pos[:4]
@@ -251,6 +253,7 @@ class BoostTrack(BoxTracker):
                         is_obb=self.is_obb,
                         adaptive_kf=self.adaptive_kf,
                         id_allocator=self.id_allocator,
+                        noise_config=self.kalman_noise_config,
                     )
                 )
 

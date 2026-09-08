@@ -26,6 +26,8 @@ from boxmot.trackers.common.motion.cmc import create_cmc
 
 class DeepOcSort(BoxTracker):
     accepts_embeddings = True
+
+    supports_variable_dt = True
     uses_frame_dimensions_for_association = True
 
     """Initialize the DeepOcSort tracker.
@@ -42,8 +44,6 @@ class DeepOcSort(BoxTracker):
             them from the frame when absent.
         cmc_off (bool): Whether to disable camera-motion compensation.
         aw_off (bool): Whether to disable adaptive appearance weighting.
-        Q_xy_scaling (float): Process-noise scaling for position coordinates.
-        Q_s_scaling (float): Process-noise scaling for scale coordinates.
         reid_model (Any | None): Optional pre-built ReID backend used when
             embeddings are absent.
         reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
@@ -71,8 +71,6 @@ class DeepOcSort(BoxTracker):
         use_embeddings: bool = True,
         cmc_off: bool = False,
         aw_off: bool = False,
-        Q_xy_scaling: float = 0.01,
-        Q_s_scaling: float = 0.0001,
         *,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
@@ -98,8 +96,6 @@ class DeepOcSort(BoxTracker):
         self.w_association_emb = w_association_emb
         self.alpha_fixed_emb = alpha_fixed_emb
         self.aw_param = aw_param
-        self.Q_xy_scaling = Q_xy_scaling
-        self.Q_s_scaling = Q_s_scaling
         if not isinstance(use_embeddings, bool):
             raise TypeError("use_embeddings must be bool.")
         self.use_embeddings = use_embeddings
@@ -165,7 +161,7 @@ class DeepOcSort(BoxTracker):
         to_del = []
         ret = []
         for t, trk in enumerate(trks):
-            pos = self.active_tracks[t].predict()[0]
+            pos = self.active_tracks[t].predict(dt=self._prediction_dt)[0]
             trk[:] = [*pos[: self.detection_layout.box_cols], 0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
@@ -268,10 +264,9 @@ class DeepOcSort(BoxTracker):
                 delta_t=self.delta_t,
                 emb=dets_embs[i],
                 alpha=dets_alpha[i],
-                Q_xy_scaling=self.Q_xy_scaling,
-                Q_s_scaling=self.Q_s_scaling,
                 max_obs=self.max_obs,
                 id_allocator=self.id_allocator,
+                noise_config=self.kalman_noise_config,
             )
             self.active_tracks.append(trk)
         i = len(self.active_tracks)

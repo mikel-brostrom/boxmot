@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
@@ -11,17 +12,21 @@ from boxmot.engine.commands._options import (
     association_function_option,
     build_selection_options,
     data_root_option,
+    dataset_fps_option,
     dataset_option,
     experiment_option,
+    kalman_calibration_option,
     replay_options,
     split_option,
     tracker_backend_option,
+    tracker_config_option,
 )
 from boxmot.engine.commands._support import (
     _build_cli_namespace,
     _dispatch_cli_workflow,
     _is_option_explicit,
     _run_engine_workflow,
+    _workflow_setup,
 )
 from boxmot.engine.config import BOXMOT_DEFAULTS
 from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
@@ -96,9 +101,24 @@ def _validate_component_selection(
 )
 @data_root_option
 @split_option
+@dataset_fps_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
+@tracker_config_option
 @association_function_option
 @replay_options(mode="eval", parallel=True)
+@click.option(
+    "--show",
+    is_flag=True,
+    default=False,
+    help="Preview tracking at source timing, after calibration when --calibrate-kf is enabled.",
+)
+@click.option(
+    "--save",
+    is_flag=True,
+    default=False,
+    help="Save annotated tracking videos from cached replay, after calibration when --calibrate-kf is enabled.",
+)
+@kalman_calibration_option(mode="eval")
 @click.option(
     "--sequence",
     "sequence_names",
@@ -136,11 +156,29 @@ def eval(
     sequence_names: tuple[str, ...],
     allow_noncanonical_build: bool,
     compare_trackeval: bool,
+    calibrate_kf: bool,
     **kwargs: Any,
 ) -> None:
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     experiment, dataset = _require_eval_input(experiment, dataset)
+    if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
+        from boxmot.engine.tracker_config import resolve_tracker_options
+        from boxmot.engine.tuning.kalman import validate_kf_calibration
+        from boxmot.trackers.specs import parse_tracker_spec
+
+        try:
+            tracker_spec = parse_tracker_spec(
+                kwargs["tracker"],
+                default_backend=kwargs["tracker_backend"],
+            )
+            if calibrate_kf:
+                validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
+            resolve_tracker_options(
+                SimpleNamespace(**{**kwargs, "tracker": tracker_spec.name, "tracker_backend": tracker_spec.backend})
+            )
+        except (TypeError, ValueError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
     _validate_component_selection(
         experiment=experiment,
         dataset=dataset,
@@ -149,18 +187,19 @@ def eval(
         build_ref=build_ref,
     )
     if detector is not None:
-        try:
-            experiment = str(
-                resolve_matching_experiment_path(
-                    dataset=str(dataset),
-                    detector=detector,
-                    reid=reid,
-                    split=split,
-                    mode="eval",
+        with _workflow_setup("Evaluation", "Resolving experiment…"):
+            try:
+                experiment = str(
+                    resolve_matching_experiment_path(
+                        dataset=str(dataset),
+                        detector=detector,
+                        reid=reid,
+                        split=split,
+                        mode="eval",
+                    )
                 )
-            )
-        except (ConfigurationError, FileNotFoundError) as exc:
-            raise click.UsageError(str(exc)) from exc
+            except (ConfigurationError, FileNotFoundError) as exc:
+                raise click.UsageError(str(exc)) from exc
         dataset = None
     if build_ref is not None and _is_option_explicit(ctx, "device"):
         raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
@@ -176,6 +215,7 @@ def eval(
                 "data_root": data_root,
                 "build_root": build_root,
                 "device": device,
+                "fps": kwargs.get("fps"),
                 "publish_image_refs": True,
                 "publish_masks": tracker_capabilities.requires_masks,
                 "publish_embeddings": tracker_capabilities.accepts_embeddings,
@@ -209,6 +249,7 @@ def eval(
             "sequence_names": sequence_names,
             "allow_noncanonical_build": allow_noncanonical_build,
             "compare_trackeval": compare_trackeval,
+            "calibrate_kf": calibrate_kf,
         },
     )
 

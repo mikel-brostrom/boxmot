@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -14,6 +15,16 @@ from boxmot.utils.config import CONFIG_ID_PATTERN, ConfigurationError, iter_conf
 
 EXPERIMENT_CONFIGS_DIR = CONFIG_ROOT / "experiments"
 _EXPERIMENT_KEYS = frozenset({"mode", "dataset", "detector", "segmentor", "reid", "evaluation"})
+
+
+@dataclass(frozen=True, slots=True)
+class _ResolvedExperiment:
+    """Validated semantics and the source identities needed for selector matching."""
+
+    config: dict[str, Any]
+    dataset_path: Path
+    detector_path: Path
+    reid_path: Path | None
 
 
 def resolve_experiment_path(reference: str | Path) -> Path:
@@ -108,7 +119,9 @@ def _resolve_detector_checkpoint(
     detector_ref: str,
     checkpoint_name: str,
     dataset: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Path]:
+    """Resolve checkpoint semantics while retaining the authored detector's identity."""
+
     detector = load_detector_config(detector_ref)
     if detector["box_type"] != dataset["box_type"]:
         raise ConfigurationError(
@@ -133,13 +146,15 @@ def _resolve_detector_checkpoint(
         "confidence_threshold": detector["confidence_threshold"],
         "classes": detector["classes"],
         "classes_by_name": detector["classes_by_name"],
-    }
+    }, Path(detector["config_path"]).resolve()
 
 
 def _resolve_detector(
     experiment: Mapping[str, Any],
     dataset: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Path]:
+    """Validate detector selection and resolve its checkpoint and profile path."""
+
     context = f'Experiment "{experiment.get("id", "<unknown>")}"'
     detector_cfg = _required_mapping(experiment, "detector", context)
     unknown = set(detector_cfg).difference({"ref", "checkpoint"})
@@ -253,6 +268,18 @@ def resolve_experiment_config(
     mode: str | None = None,
 ) -> dict[str, Any]:
     """Resolve an experiment into a complete, validated semantic configuration."""
+
+    return _resolve_experiment(reference, split=split, mode=mode).config
+
+
+def _resolve_experiment(
+    reference: str | Path,
+    *,
+    split: str | None = None,
+    mode: str | None = None,
+) -> _ResolvedExperiment:
+    """Load and validate one experiment, retaining component paths without reloading."""
+
     source_path = resolve_experiment_path(reference)
     experiment = load_yaml_mapping(source_path)
     context = f'Experiment config "{source_path}"'
@@ -278,7 +305,7 @@ def resolve_experiment_config(
     effective_mode = mode or experiment.get("mode")
     _validate_evaluation_split(dataset, split_name, effective_mode)
 
-    detector = _resolve_detector(experiment, dataset)
+    detector, detector_path = _resolve_detector(experiment, dataset)
     reid = _resolve_reid(experiment)
     segmentor = experiment.get("segmentor")
     if segmentor is not None and not isinstance(segmentor, (str, dict)):
@@ -286,7 +313,7 @@ def resolve_experiment_config(
     bridge, ignore_ids = _resolve_class_bridge(experiment, dataset, detector)
     split_cfg = dataset["splits"][split_name]
 
-    return {
+    config = {
         "id": experiment_id,
         "mode": str(experiment.get("mode") or "evaluation"),
         "source_path": source_path,
@@ -310,6 +337,12 @@ def resolve_experiment_config(
             "ignore_dataset_ids": ignore_ids,
         },
     }
+    return _ResolvedExperiment(
+        config=config,
+        dataset_path=Path(dataset["config_path"]).resolve(),
+        detector_path=detector_path,
+        reid_path=None if reid is None else Path(reid["config_path"]).resolve(),
+    )
 
 
 def _direct_detector_selection(reference: str | Path) -> tuple[dict[str, Any], str | None]:
@@ -344,18 +377,6 @@ def _direct_detector_selection(reference: str | Path) -> tuple[dict[str, Any], s
     return detector, explicit_checkpoint
 
 
-def _authored_component_configs(experiment_path: Path) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any] | None]:
-    """Load the component profiles referenced by an authored experiment."""
-
-    authored = load_yaml_mapping(experiment_path)
-    context = f'Experiment config "{experiment_path}"'
-    dataset_selection = _required_mapping(authored, "dataset", context)
-    detector_selection = _required_mapping(authored, "detector", context)
-    dataset = load_dataset_config(_required_text(dataset_selection, "ref", context))
-    detector = load_detector_config(_required_text(detector_selection, "ref", context))
-    return dataset, detector, _resolve_reid(authored)
-
-
 def resolve_matching_experiment_path(
     *,
     dataset: str | Path,
@@ -383,15 +404,13 @@ def resolve_matching_experiment_path(
 
     matches: list[Path] = []
     for candidate in iter_config_paths(EXPERIMENT_CONFIGS_DIR):
-        resolved = resolve_experiment_config(candidate)
-        candidate_dataset, candidate_detector, candidate_reid = _authored_component_configs(candidate)
-        candidate_reid_path = None if candidate_reid is None else Path(candidate_reid["config_path"]).resolve()
+        resolved = _resolve_experiment(candidate)
         if (
-            Path(candidate_dataset["config_path"]).resolve() == dataset_path
-            and resolved["dataset"]["split"] == split_name
-            and Path(candidate_detector["config_path"]).resolve() == detector_path
-            and (explicit_checkpoint is None or resolved["detector"]["checkpoint"] == explicit_checkpoint)
-            and candidate_reid_path == reid_path
+            resolved.dataset_path == dataset_path
+            and resolved.config["dataset"]["split"] == split_name
+            and resolved.detector_path == detector_path
+            and (explicit_checkpoint is None or resolved.config["detector"]["checkpoint"] == explicit_checkpoint)
+            and resolved.reid_path == reid_path
         ):
             matches.append(candidate.resolve())
 

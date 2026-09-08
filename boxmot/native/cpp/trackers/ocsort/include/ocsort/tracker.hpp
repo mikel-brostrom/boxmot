@@ -22,8 +22,6 @@ public:
         explicit KalmanBoxTracker(const Detection& detection,
                                   int delta_t,
                                   int max_obs,
-                                  double q_xy_scaling,
-                                  double q_s_scaling,
                                   bool is_obb,
                                   std::int64_t track_id);
 
@@ -33,9 +31,6 @@ public:
         [[nodiscard]] Eigen::VectorXd CurrentOutputBox() const;
 
         std::int64_t det_ind = -1;
-        double q_xy_scaling = 0.01;
-        double q_s_scaling = 0.0001;
-        double q_a_scaling = 0.0001;
         bool is_obb = false;
         KalmanFilterXYSR kf;
         int time_since_update = 0;

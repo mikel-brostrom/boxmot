@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from collections import Counter
+from pathlib import Path
+from typing import IO, Any
+
 import pytest
 import yaml
 
@@ -27,8 +31,11 @@ def test_every_built_in_experiment_has_a_materializable_detector() -> None:
         assert resolved["detector"]["ref"], path
         assert resolved["detector"]["checkpoint"], path
         assert resolved["detector"]["model"], path
+        assert "config_path" not in resolved["dataset"], path
+        assert "config_path" not in resolved["detector"], path
         if resolved["reid"] is not None:
             assert "crop_strategy" not in resolved["reid"], path
+            assert "config_path" not in resolved["reid"], path
 
 
 @pytest.mark.parametrize("reference", ("test-yolo11l-lmbn", "test-yolo11l-lmbn.yaml"))
@@ -205,6 +212,84 @@ def test_component_selectors_do_not_override_an_authored_split(monkeypatch, tmp_
             reid="lmbn-n-duke",
             mode="eval",
         )
+
+
+def test_component_selection_reads_each_candidate_and_its_profiles_once(monkeypatch, tmp_path) -> None:
+    """Identity matching must reuse profiles already read for semantic validation."""
+
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    candidate.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+    reads: Counter[Path] = Counter()
+    original_open = Path.open
+
+    def counted_open(path: Path, *args: Any, **kwargs: Any) -> IO[Any]:
+        """Record reads of authored YAML files and their component profiles."""
+
+        reads[path.resolve()] += 1
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", counted_open)
+
+    assert (
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17",
+            reid="lmbn-n-duke",
+        )
+        == candidate.resolve()
+    )
+
+    assert reads[candidate.resolve()] == 1
+    for directory, filename in (
+        ("datasets", "mot17.yaml"),
+        ("detectors", "yolox-x-mot17.yaml"),
+        ("reid", "lmbn-n-duke.yaml"),
+    ):
+        # One read validates the explicit selector, one resolves the candidate.
+        assert reads[(experiment_config.CONFIG_ROOT / directory / filename).resolve()] == 2
+
+
+def test_component_selection_still_validates_unrelated_candidates(monkeypatch, tmp_path) -> None:
+    """An existing match must not hide invalid authored configurations elsewhere."""
+
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
+    (tmp_path / "a-match.yaml").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    unrelated = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "mmot-obb" / "test-yolo11l-lmbn.yaml")
+    unrelated["evaluation"]["class_map"] = {"absent-class": "absent-class"}
+    (tmp_path / "z-invalid.yaml").write_text(yaml.safe_dump(unrelated, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    with pytest.raises(ConfigurationError, match='Dataset class "absent-class"'):
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17",
+            reid="lmbn-n-duke",
+        )
+
+
+def test_component_selection_observes_configuration_edits_between_calls(monkeypatch, tmp_path) -> None:
+    """Selector reuse must not return stale matches after an authored file changes."""
+
+    source = EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml"
+    candidate = tmp_path / "candidate.yaml"
+    contents = source.read_text(encoding="utf-8")
+    candidate.write_text(contents, encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+    selectors = {
+        "dataset": "mot17",
+        "split": "ablation",
+        "detector": "yolox-x-mot17/ablation",
+        "reid": "lmbn-n-duke",
+    }
+    assert resolve_matching_experiment_path(**selectors) == candidate.resolve()
+
+    candidate.write_text(contents.replace("checkpoint: ablation", "checkpoint: test"), encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="(?i)no .*experiment"):
+        resolve_matching_experiment_path(**selectors)
 
 
 def test_mot17_osnet_experiment_references_component_filenames() -> None:

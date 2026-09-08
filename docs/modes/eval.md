@@ -84,6 +84,83 @@ and—when applicable—component fingerprints.
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
 
+## View tracking results
+
+Add `--show` to preview annotated tracks, `--save` to write one MP4 per sequence,
+or both. Replay uses the cached detections and embeddings, so no perception
+models run with an explicit `--build`:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --build BUILD_ID \
+  --tracker botsort \
+  --tracker-config path/to/kf-tuning/calibrated.yaml \
+  --show --save
+```
+
+Use the `calibrated.yaml` printed by a previous calibration run; omit
+`--tracker-config` to use the tracker defaults. The saved configuration retains
+its timing mode. `--show` and `--save` also work with `--calibrate-kf`: the tracker
+replay is displayed or recorded after noise calibration finishes.
+
+Preview follows source timestamps when available. Press **q** or **Esc** to
+close the preview while evaluation continues. Annotated videos are written to
+`<run>/videos/<sequence>.mp4` at 30 FPS. Frames are held across capture gaps,
+quantized to a 30 FPS output grid, with one final 1/30-second frame. Sources
+without timestamps use one output frame per input frame. `eval --fps` retains
+its dataset-sampling meaning; it does not change the output video rate.
+
+Visualization decodes source images and replays sequences serially on the main
+thread, regardless of `--n-threads`. Reported replay timing includes rendering,
+video writing, and preview pacing; omit these flags for speed benchmarks.
+
+## Dataset FPS
+
+Use `--fps` to select a lower dataset frame rate:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort --device mps --fps 5
+```
+
+For a 30 FPS sequence, `--fps 5` selects every sixth frame. Materialization,
+replayed image loading, and ground truth share this selection. Tracker results
+and ground truth use matching contiguous frame numbers, while capture
+timestamps retain the original elapsed time. Fractional rates such as
+`--fps 2.5` are supported. Selection uses the sequence's capture timeline,
+including `timestamps.csv` when present; it never creates extra frames.
+
+Automatic preparation first reuses an existing build at the requested rate.
+Otherwise, it looks for a compatible published full-rate materialization and
+copies the selected detections, embeddings, and masks into a smaller build
+without loading the models. The parent must match the source images, capture
+timestamps, ground-truth provenance, perception components, geometry, and class
+mapping, and contain every requested payload. If no compatible parent exists,
+materialization runs perception on the selected frames.
+
+The target FPS enters the catalog and build identity, so each rate retains
+its own immutable build. Omitting `--fps` during automatic preparation keeps
+all original frames. With an explicit `--build`, omission uses the rate
+recorded in that build. An explicit rate must match the build; omit `--build`
+to prepare a different rate using automatic reuse, or run
+`materialize --experiment YAML --fps RATE` first.
+
+`--variable-dt` independently enables capture timestamps for Kalman prediction.
+`track --fps` controls saved video playback speed; dataset frame selection
+applies to `materialize`, `eval`, and `tune`.
+
+Combine `--fps 2 --calibrate-kf` to fit Kalman noise using the selected 2 FPS
+detections and ground truth before evaluating once. The
+[calibration example](#kalman-calibration) also enables timestamp-based prediction.
+
+## Legacy builds
+
 An unbound build created before canonical experiment materialization can be
 evaluated only with the explicit `--allow-noncanonical-build` escape hatch.
 This relaxes the missing build-binding check; it does not turn incompatible
@@ -103,6 +180,156 @@ boxmot eval \
 
 Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
 the default and do not need this flag.
+
+## Kalman calibration
+
+Use `--calibrate-kf` to estimate Kalman noise directly from cached detector
+predictions and ground truth on the selected split, then evaluate the calibrated
+tracker once:
+
+```bash
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort \
+  --fps 2 \
+  --variable-dt \
+  --calibrate-kf
+```
+
+This example selects 2 FPS data and uses its capture timestamps for prediction.
+Omit `--variable-dt` to calibrate in fixed-step mode, or omit `--fps` to retain
+the original dataset rate during automatic preparation.
+
+Perception is materialized or reused once. Calibration matches detections to
+ground truth by class and IoU (at least `0.5`), then fits five dimensionless
+covariance multipliers from the observed errors:
+
+| Parameter | What provides the calibration residuals |
+| --- | --- |
+| `kf_process_position_scale` | Position-noise contribution to ground-truth box prediction errors |
+| `kf_process_velocity_scale` | Velocity-noise contribution to the same prediction errors |
+| `kf_measurement_noise_scale` | Matched detector boxes minus ground-truth boxes |
+| `kf_initial_position_scale` | Detection errors at each GT object's first matched observation |
+| `kf_initial_velocity_scale` | Zero-initialized velocity errors relative to local ground-truth motion |
+
+Measurement and initialization scales use residual second moments. Both process
+scales are fitted together from constant-velocity prediction errors across
+three consecutive annotated frames. The fit accounts for process noise from
+both intervening intervals and the covariance between adjacent prediction
+errors. Adjacent error pairs require four consecutive annotated frames and
+help separate position from velocity noise, including at regular frame rates.
+Ground-truth motion contributes even when a detection is missed; missing
+annotations break the motion samples.
+The first matched detection for each object supplies an initialization proxy.
+Calibration requires at least one valid detection/ground-truth match. If a
+scale lacks sufficient evidence, its current value is retained and the report
+records why.
+
+The estimates scale the selected filter's reference covariance priors. Values
+multiply covariance, not standard deviation. Calibration keeps all other
+tracker settings fixed, including the timing mode. The filter's internal
+base priors remain fixed; the five shared scales provide the noise-calibration
+interface.
+
+`eval --calibrate-kf` does not launch Ray Tune or Optuna, replay HOTA trials, or
+require the `evolve` extra. Use [`boxmot tune`](tune.md#kalman-noise-and-timing)
+for metric-based search over tracker parameters; Kalman settings remain fixed
+during that search. Covariance multipliers are runtime settings estimated by
+calibration, with defaults retained in the tracker YAML and no search ranges.
+Use [`tune --calibrate-kf`](tune.md#calibrate-the-kf-before-tracker-tuning) to
+calibrate once before searching the other tracker settings, keeping the KF
+calibration fixed throughout the search.
+A positive numerical floor keeps calibrated covariances valid. See
+[OC-SORT base process noise](tune.md#oc-sort-base-process-noise) for the
+relationship between model priors and calibrated multipliers.
+
+Calibration supports AABB and OBB ground truth with Python ByteTrack, BotSort,
+StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost. Native
+backends and trackers without a Kalman filter are rejected before automatic
+materialization. HybridSORT's confidence state has no ground-truth confidence
+target, so confidence residuals are excluded from fitting; the shared scales
+still apply to that state during tracking.
+
+### Timing and saved settings
+
+Fixed-step prediction remains the default. Add `--variable-dt` to fit and use
+noise in seconds, with elapsed intervals from capture timestamps. Neither
+mode searches `dt`, and measurement noise is not scaled by elapsed time.
+`--fps 2` selects dataset frames at 2 FPS; it does not enable `--variable-dt`.
+
+`kf_reference_dt_s` fixes the interval used to convert historic per-frame priors
+into seconds: its default `0.03333333333333333` represents a 30 FPS reference.
+It is not the source clock or the prediction interval. This reference and
+`kf_time_unit` stay fixed during calibration and tracker tuning. See
+[time-unit conversion](../python/index.md#elapsed-time) for the covariance
+scaling rules.
+
+Each run writes:
+
+- `<run>/kf-tuning/calibrated.yaml`: resolved scalar tracker settings, tracker
+  name, `variable_dt`, explicit `kf_time_unit` (`frames` or `seconds`), and
+  `kf_reference_dt_s`.
+- `<run>/kf-tuning/calibration.json`: calibration evidence, timing settings,
+  and the final evaluation result.
+
+Calibration fits noise statistics, so it does not guarantee a higher HOTA.
+The final replay uses the fitting split. Evaluate the saved settings on
+separate sequences before judging how well they generalize. Initial velocity
+uses a local ground-truth finite difference as a proxy. Annotation noise and
+camera motion contribute to motion errors measured in image coordinates.
+Measurement estimates describe
+detections that pass the IoU match threshold; they do not model false positives.
+
+Use `--tracker-config` to evaluate the saved configuration on a separate split
+with ground truth and a compatible build. For example, after preparing a
+validation build whose sequences are held out from calibration:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split val \
+  --build /srv/boxmot/materializations/HELD_OUT_BUILD \
+  --tracker botsort \
+  --tracker-config path/to/kf-tuning/calibrated.yaml
+```
+
+`--tracker-config` also accepts a partial scalar YAML or a built-in preset such
+as `botsort-mot17-ablation`. It overlays tracker defaults. Explicit runtime
+flags such as `--asso-func` can override scalar parameters, but a calibrated
+config's time units must match the selected mode. For example,
+`--fixed-dt --tracker-config seconds-config.yaml` is rejected when that file
+declares `kf_time_unit: seconds`. Recalibrate in the intended mode instead of
+reinterpreting the saved values. Keep the detector, geometry, backend, class
+selection, and per-class tracking behavior consistent with calibration.
+
+### Live streams
+
+Direct calibration needs ground truth. Run it on representative timestamped
+recordings, including dropped frames and missed detections, then load the
+saved profile for live tracking. Keep the same detector, geometry, timing mode,
+and reference interval:
+
+```bash
+boxmot track \
+  --source <stream> \
+  --tracker botsort \
+  --tracker-config path/to/kf-tuning/calibrated.yaml
+```
+
+BoostTrack and OccluBoost also support experimental online process-noise
+adaptation with `adaptive_kf: true`. This learns from each track's prediction
+errors; it does not learn measurement noise or initial uncertainty and does
+not measure tracking accuracy. Incorrect associations can distort its estimates.
+Calibration estimates the starting priors and preserves this setting; it does
+not fit the online adaptation behavior. Keep it consistent during evaluation
+and deployment.
+Other trackers support the calibrated static profile and interval-aware
+prediction; `--variable-dt` itself does not enable online noise adaptation.
+
+Live intervals must come from trustworthy source timestamps. A nominal-FPS
+fallback cannot reveal unseen capture dropouts or reconnect duration; use
+capture/PTS metadata or provide `Frame.timestamp_s` through the Python API.
+Elapsed inference time is not a capture timestamp.
 
 ## Sequence parallelism
 
@@ -130,9 +357,9 @@ sequence IDs. Neither path eagerly loads masks or embeddings in the
 coordinator. It marks each sequence as queued before starting the process pool.
 A worker then opens only its assigned sequence and streams optional masks and
 embeddings in bounded Arrow batches as frame iteration advances. Images are
-decoded only when the resolved tracker requires source pixels. A
+decoded when the resolved tracker or `--show`/`--save` requires source pixels. A
 dimensions-only tracker such as SFSORT receives width and height from cached
-sample metadata without opening the source image.
+sample metadata without opening the source image unless visualization is enabled.
 
 Current materializations also use bounded Parquet row groups so workers can
 prune unrelated `sample_id` ranges. Older `boxmot.dataset/v1` builds remain

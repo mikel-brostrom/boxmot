@@ -38,12 +38,22 @@ inertia:
   default: 0.1  # from the default parameters
   range: [0.1, 0.4]
 
-Q_xy_scaling:
-  type: loguniform
-  default: 0.01  # from the default parameters
-  range: [0.01, 1]
+# Timing and reference-prior units stay fixed across all tuning trials.
+variable_dt:
+  default: false
+kf_time_unit:
+  default: null
+kf_reference_dt_s:
+  default: 0.03333333333333333
 
-Q_s_scaling:
-  type: loguniform
-  default: 0.0001  # from the default parameters
-  range: [0.0001, 1]
+# Fixed runtime covariance defaults; --calibrate-kf supplies fitted values.
+kf_process_position_scale:
+  default: 1.0
+kf_process_velocity_scale:
+  default: 1.0
+kf_measurement_noise_scale:
+  default: 1.0
+kf_initial_position_scale:
+  default: 1.0
+kf_initial_velocity_scale:
+  default: 1.0

@@ -17,8 +17,6 @@ struct Config {
     int delta_t = 3;
     bool use_byte = false;
     float inertia = 0.1F;
-    float q_xy_scaling = 0.01F;
-    float q_s_scaling = 0.0001F;
     int max_obs = 50;
 };
 

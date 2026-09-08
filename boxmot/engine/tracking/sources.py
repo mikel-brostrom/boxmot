@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from typing_extensions import Self
 
+from boxmot.engine.frame_timing import SourceTimestamps
 from boxmot.structures import Frame
 
 IMAGE_EXTENSIONS = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"})
@@ -113,7 +114,15 @@ class ImageSource(_BaseFrameSource):
 
 
 class VideoSource(_BaseFrameSource):
-    """A video, URL, or webcam with bounded reconnect handling."""
+    """A video, URL, or webcam with bounded reconnect handling.
+
+    Increasing media PTS supplies timestamps, including a zero origin when FPS
+    is available. Missing or non-increasing PTS falls back to nominal FPS,
+    accounting for skipped source frames. Timing availability is fixed by the
+    first emitted frame: zero PTS with unknown FPS remains untimed throughout.
+    A stream established from positive PTS without FPS must keep increasing.
+    Processing time and reconnect delays never become capture timestamps.
+    """
 
     def __init__(
         self,
@@ -155,6 +164,7 @@ class VideoSource(_BaseFrameSource):
         source_index = 0
         emitted_index = 0
         reconnects = 0
+        timestamps: SourceTimestamps | None = None
         try:
             while True:
                 assert self._capture is not None
@@ -173,7 +183,9 @@ class VideoSource(_BaseFrameSource):
                 if current_index % self.stride:
                     continue
                 position_ms = float(self._capture.get(cv2.CAP_PROP_POS_MSEC))
-                timestamp_s = position_ms / 1000.0 if position_ms > 0 else None
+                if timestamps is None:
+                    timestamps = SourceTimestamps(float(self._capture.get(cv2.CAP_PROP_FPS)))
+                timestamp_s = timestamps.resolve(position_ms, frame_index=current_index)
                 yield frame_from_bgr(
                     image,
                     sample_id=f"{sequence_id}:{current_index:012d}",

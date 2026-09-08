@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 from typing import Any
 
+from boxmot.motion.kalman_filters.noise import normalize_kalman_options
 from boxmot.structures import GeometryKind
 from boxmot.trackers.config import load_tracker_config
 from boxmot.trackers.protocols import Tracker, TrackerRequirements
@@ -109,6 +110,11 @@ def _create_native_tracker(
         raise ValueError(f"Native {spec.name} does not support {geometry_kind.value.upper()} geometry.")
     if definition.capabilities.accepts_masks:
         raise ValueError(f"Native {spec.name} does not support masks.")
+    variable_dt = spec.option_dict.get("variable_dt", False)
+    if not isinstance(variable_dt, bool):
+        raise TypeError("variable_dt must be bool.")
+    if variable_dt:
+        raise ValueError("The native tracker backend does not support variable_dt=True; use the Python backend.")
 
     option_names = set(spec.option_dict)
     mask_options = sorted(option_names & _FORBIDDEN_NATIVE_MASK_OPTIONS)
@@ -137,6 +143,13 @@ def create_tracker(spec: TrackerSpec) -> Tracker:
         raise TypeError(f"spec must be TrackerSpec, got {type(spec).__name__}.")
 
     definition = get_tracker_definition(spec.name)
+    tracker_args = load_tracker_config(definition.config_name or definition.name, None, spec.option_dict)
+    normalize_kalman_options(
+        tracker_args,
+        variable_dt=tracker_args.get("variable_dt", False),
+        tracker_name=spec.name,
+        backend=spec.backend,
+    )
     geometry_kind = _validate_geometry(spec, definition)
     model_options = sorted(set(spec.option_dict) & _REID_MODEL_OPTIONS)
     if model_options:
@@ -150,11 +163,6 @@ def create_tracker(spec: TrackerSpec) -> Tracker:
         tracker = _create_native_tracker(spec, definition, geometry_kind)
         return _bind_and_validate_capabilities(tracker, definition.capabilities)
 
-    tracker_args = load_tracker_config(
-        definition.config_name or definition.name,
-        None,
-        spec.option_dict,
-    )
     tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
     if definition.accepts_per_class:
         tracker_args["per_class"] = spec.per_class

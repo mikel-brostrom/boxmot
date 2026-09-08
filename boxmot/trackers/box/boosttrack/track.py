@@ -5,6 +5,7 @@ from typing import Optional
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
@@ -37,6 +38,8 @@ class KalmanBoxTracker(SortBoxTrack):
         adaptive_kf: bool = False,
         id_allocator: TrackIdAllocator | None = None,
         track_id: int | None = None,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         self.is_obb = bool(is_obb)
         self._assign_sort_id(id_allocator=id_allocator, track_id=track_id)
@@ -56,7 +59,8 @@ class KalmanBoxTracker(SortBoxTrack):
             cls_id=int(self.cls),
         )
         self.kf = self.motion_model.create_filter(
-            self.motion_model.to_measurement(det[:5] if self.is_obb else det[:4], column=False)
+            self.motion_model.to_measurement(det[:5] if self.is_obb else det[:4], column=False),
+            noise_config=noise_config,
         )
         self.emb = emb
         self._init_sort_counters(max_obs=max_obs)
@@ -135,8 +139,9 @@ class KalmanBoxTracker(SortBoxTrack):
         width, height = x2_ - x1_, y2_ - y1_
         self.kf.x[:4] = [x1_ + (width / 2), y1_ + (height / 2), height, width / height]
 
-    def predict(self):
-        self.kf.predict()
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
+        """Predict geometry over an optional elapsed time interval."""
+        self.kf.predict(dt=dt)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0

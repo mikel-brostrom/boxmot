@@ -5,6 +5,7 @@ from typing import ClassVar
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.geometry import xywh2xyxy
 from boxmot.trackers.common.geometry.obb import smooth_obb_corners, xywha_to_xyxy
 from boxmot.trackers.common.tracking.track import (
@@ -88,7 +89,8 @@ class BoxTrack(TrackLifecycleMixin):
     def _after_update(self, new_track: "BoxTrack") -> None:
         pass
 
-    def predict(self):
+    def predict(self, *, dt: float | None = None) -> None:
+        """Propagate this track over an optional elapsed time interval."""
         mean_state = self.mean.copy()
         if self.state != self._local_tracked_state():
             if self.is_obb:
@@ -98,28 +100,27 @@ class BoxTrack(TrackLifecycleMixin):
         self.mean, self.covariance = self.kalman_filter.predict(
             mean_state,
             self.covariance,
+            dt=dt,
         )
 
     @classmethod
-    def multi_predict(cls, stracks):
-        if not stracks:
-            return
-        multi_mean = np.asarray([st.mean.copy() for st in stracks])
-        multi_covariance = np.asarray([st.covariance for st in stracks])
-        is_obb = getattr(stracks[0], "is_obb", False)
-        for i, st in enumerate(stracks):
-            if st.state != cls._local_tracked_state():
-                if is_obb:
-                    multi_mean[i][7:10] = 0
-                else:
-                    cls._reset_inactive_aabb_motion(multi_mean[i])
-        kalman = cls.shared_kalman_obb if is_obb else cls.shared_kalman
-        multi_mean, multi_covariance = kalman.multi_predict(
-            multi_mean,
-            multi_covariance,
-        )
-        for st, mean, cov in zip(stracks, multi_mean, multi_covariance):
-            st.mean, st.covariance = mean, cov
+    def multi_predict(cls, stracks, *, dt: float | None = None) -> None:
+        """Predict batches using each owner's filter and noise configuration."""
+        groups: dict[BaseKalmanFilter, list[BoxTrack]] = {}
+        for track in stracks:
+            groups.setdefault(track.kalman_filter, []).append(track)
+        for kalman, tracks in groups.items():
+            multi_mean = np.asarray([track.mean.copy() for track in tracks])
+            multi_covariance = np.asarray([track.covariance for track in tracks])
+            for index, track in enumerate(tracks):
+                if track.state != cls._local_tracked_state():
+                    if track.is_obb:
+                        multi_mean[index][7:10] = 0
+                    else:
+                        cls._reset_inactive_aabb_motion(multi_mean[index])
+            multi_mean, multi_covariance = kalman.multi_predict(multi_mean, multi_covariance, dt=dt)
+            for track, mean, covariance in zip(tracks, multi_mean, multi_covariance):
+                track.mean, track.covariance = mean, covariance
 
     def activate(self, kalman_filter, frame_id):
         """Activate a new track."""

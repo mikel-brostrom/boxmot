@@ -1,4 +1,5 @@
 """Post-processing for tune results: trial collection, CSV, summary, Pareto."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -23,6 +24,7 @@ ALL_TUNE_METRICS = (*SUMMARY_COLUMNS, "IDSW_rate")
 # ---------------------------------------------------------------------------
 # Metrics aggregation
 # ---------------------------------------------------------------------------
+
 
 def aggregate_results(results: dict) -> dict:
     """Aggregate per-class MOT metric results into a single flat dict.
@@ -50,6 +52,7 @@ def aggregate_results(results: dict) -> dict:
 # Pareto front
 # ---------------------------------------------------------------------------
 
+
 def find_pareto_front(rows: list, maximize: list, minimize: list) -> list:
     """Return the subset of *rows* (list of dicts) that is Pareto-optimal."""
     pareto = []
@@ -75,6 +78,7 @@ def write_trial_yaml(
     path: Path,
     *,
     base_config: dict | None = None,
+    tracker_name: str | None = None,
 ):
     """Write a reusable scalar tracker config for one tuning trial.
 
@@ -85,6 +89,8 @@ def write_trial_yaml(
     del yaml_cfg  # retained in the public signature for tuning callers
     resolved = normalize_trial_config(base_config)
     resolved.update(normalize_trial_config(config))
+    if tracker_name is not None:
+        resolved = {"tracker": tracker_name, **resolved}
     path.write_text(
         yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
@@ -94,6 +100,7 @@ def write_trial_yaml(
 # ---------------------------------------------------------------------------
 # Trial data collection
 # ---------------------------------------------------------------------------
+
 
 def collect_trial_data(results) -> list:
     """Extract trial_id, config, metrics from Ray Tune ResultGrid."""
@@ -111,13 +118,15 @@ def collect_trial_data(results) -> list:
                 continue
             trial_id = result.metrics.get("trial_id", "unknown")
             validation = result.metrics.get("_validation", {})
-            trial_data.append({
-                "trial_id": trial_id,
-                "trial_dir": Path(result.path),
-                "config": normalize_trial_config(result.config),
-                "metrics": {k: result.metrics.get(k, 0.0) for k in ALL_TUNE_METRICS},
-                "validation": validation if isinstance(validation, dict) else {},
-            })
+            trial_data.append(
+                {
+                    "trial_id": trial_id,
+                    "trial_dir": Path(result.path),
+                    "config": normalize_trial_config(result.config),
+                    "metrics": {k: result.metrics.get(k, 0.0) for k in ALL_TUNE_METRICS},
+                    "validation": validation if isinstance(validation, dict) else {},
+                }
+            )
         except Exception as exc:
             LOGGER.debug(f"Skipping malformed trial result: {exc}")
             continue
@@ -127,6 +136,7 @@ def collect_trial_data(results) -> list:
 # ---------------------------------------------------------------------------
 # Scoring / best trial
 # ---------------------------------------------------------------------------
+
 
 def score_summary(
     summary: dict[str, Any],
@@ -158,6 +168,7 @@ def best_trial_data(trial_data: list, *, maximize: list[str], minimize: list[str
 # CSV
 # ---------------------------------------------------------------------------
 
+
 def save_results_csv(csv_path: Path, trial_data: list):
     """Write (or overwrite) a tidy CSV with one row per trial."""
     import csv
@@ -181,6 +192,7 @@ def save_results_csv(csv_path: Path, trial_data: list):
 # ---------------------------------------------------------------------------
 # Convergence helpers
 # ---------------------------------------------------------------------------
+
 
 def _convergence_label(search_range, top10_vals):
     if not isinstance(search_range, list) or len(search_range) < 2:
@@ -227,6 +239,7 @@ def _format_markdown_value(value: Any) -> str:
 
 def _format_value_counts(values: list[Any]) -> str:
     from collections import Counter
+
     counts = Counter(values)
     return ", ".join(
         f"{_format_markdown_value(value)}: {count}"
@@ -237,6 +250,7 @@ def _format_value_counts(values: list[Any]) -> str:
 # ---------------------------------------------------------------------------
 # Summary generation
 # ---------------------------------------------------------------------------
+
 
 def generate_summary(
     tune_dir: Path,
@@ -300,9 +314,9 @@ def generate_summary(
         lines.append("---\n")
         opt_label = f"maximize {', '.join(maximize)} | minimize {', '.join(minimize)}"
         lines.append(f"## Pareto Front ({opt_label})\n")
-        display_cols = list(dict.fromkeys(
-            maximize + minimize + [c for c in ALL_TUNE_METRICS if c not in maximize + minimize]
-        ))
+        display_cols = list(
+            dict.fromkeys(maximize + minimize + [c for c in ALL_TUNE_METRICS if c not in maximize + minimize])
+        )
         lines.append("| rank | " + " | ".join(display_cols) + " |")
         lines.append("| ---: | " + " | ".join("---:" for _ in display_cols) + " |")
         for i, m in enumerate(pareto_sorted, 1):
@@ -348,9 +362,7 @@ def generate_summary(
                 search_range = details.get("range", details.get("options", []))
                 top_vals_f = _as_float_values(top_vals)
                 if top_vals_f is None:
-                    lines.append(
-                        f"| {param} | {search_range} | {_format_value_counts(top_vals)} | — | categorical |"
-                    )
+                    lines.append(f"| {param} | {search_range} | {_format_value_counts(top_vals)} | — | categorical |")
                     continue
                 t_lo, t_hi = min(top_vals_f), max(top_vals_f)
                 t_mean = np.mean(top_vals_f)
@@ -383,6 +395,7 @@ def generate_summary(
 # Orchestrate all post-processing
 # ---------------------------------------------------------------------------
 
+
 def save_all_results(
     tune_dir: Path,
     results,
@@ -409,7 +422,7 @@ def save_all_results(
         if trial_dir.exists():
             try:
                 yaml_path = trial_dir / f"{tracker_name}_{td['trial_id']}.yaml"
-                write_trial_yaml(yaml_cfg, td["config"], yaml_path, base_config=base_config)
+                write_trial_yaml(yaml_cfg, td["config"], yaml_path, base_config=base_config, tracker_name=tracker_name)
             except OSError as exc:
                 LOGGER.debug(f"Failed to write trial YAML for {td['trial_id']}: {exc}")
 
@@ -429,7 +442,7 @@ def save_all_results(
         return None
     best_yaml_path = tune_dir / "best.yaml"
     try:
-        write_trial_yaml(yaml_cfg, best["config"], best_yaml_path, base_config=base_config)
+        write_trial_yaml(yaml_cfg, best["config"], best_yaml_path, base_config=base_config, tracker_name=tracker_name)
         if emit_logs:
             LOGGER.info(f"[bold]Best config ({best['trial_id']}):[/bold] [cyan]{best_yaml_path}[/cyan]")
     except OSError as exc:
@@ -440,8 +453,14 @@ def save_all_results(
     summary_path = None
     try:
         summary_path = generate_summary(
-            tune_dir, trial_data, yaml_cfg, tracker_name,
-            maximize, minimize, args, emit_logs=emit_logs,
+            tune_dir,
+            trial_data,
+            yaml_cfg,
+            tracker_name,
+            maximize,
+            minimize,
+            args,
+            emit_logs=emit_logs,
         )
     except Exception as exc:
         LOGGER.warning(f"Failed to generate summary: {exc}")
@@ -449,6 +468,7 @@ def save_all_results(
     # Analysis plots
     try:
         from boxmot.engine.tuning.analysis import generate_tune_analysis
+
         generate_tune_analysis(tune_dir, tracker_name=tracker_name, n_trials=len(trial_data))
     except Exception as exc:
         LOGGER.debug(f"Analysis plot generation skipped: {exc}")

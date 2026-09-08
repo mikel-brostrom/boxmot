@@ -4,6 +4,7 @@ import time as _time
 from contextlib import contextmanager
 from typing import Any, Callable, ClassVar, Iterator, Sequence
 
+from rich.console import RenderableType
 from rich.progress import (
     BarColumn,
     Progress,
@@ -388,6 +389,12 @@ class RichWorkflowCallback:
         workflow = type(self)._workflow
         if workflow is not None:
             workflow.set_detail(type(self).detail_step, detail)
+
+    def set_workflow_detail_renderable(self, renderable: RenderableType) -> None:
+        """Publish Rich content without retaining it in the serializable callback."""
+        workflow = type(self)._workflow
+        if workflow is not None:
+            workflow.set_detail_renderable(type(self).detail_step, renderable)
 
     def setup(self, **info: Any) -> None:
         return None

@@ -40,6 +40,8 @@ class Tracker(Protocol):
     """Stateful, single-sequence tracker contract."""
 
     name: str
+    supports_variable_dt: bool
+    variable_dt: bool
 
     @property
     def capabilities(self) -> TrackerCapabilities:
@@ -56,18 +58,32 @@ class Tracker(Protocol):
         """Return whether missing embeddings can be generated from a frame."""
         ...
 
+    def validate_timing(
+        self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> float | None:
+        """Validate capture timestamps without advancing sequence state."""
+        ...
+
     @overload
-    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks:
+    def update(
+        self, detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> Tracks:
         """Advance one frame and return canonical tracks."""
         ...
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray:
+    def update(
+        self, detections: np.ndarray, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> np.ndarray:
         """Advance one frame and return packed NumPy track rows."""
         ...
 
     def update(
-        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+        self,
+        detections: Detections | np.ndarray,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        timestamp_s: float | None = None,
     ) -> Tracks | np.ndarray:
         """Advance with a Frame or uint8 HWC BGR image; preserve the detection representation."""
         ...

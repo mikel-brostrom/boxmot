@@ -30,6 +30,12 @@ _COMMAND_SPECS = (
         "materialize",
         "Build an immutable keyed perception dataset",
     ),
+    _CommandSpec(
+        "time-variant",
+        "boxmot.engine.commands.time_variant",
+        "time_variant",
+        "Derive a timestamped frame-loss dataset from a build",
+    ),
     _CommandSpec("eval", "boxmot.engine.commands.eval", "eval", "Evaluate tracker performance on MOT dataset"),
     _CommandSpec("tune", "boxmot.engine.commands.tune", "tune", "Optimize tracker hyperparameters"),
     _CommandSpec(
@@ -143,9 +149,7 @@ class CommandFirstGroup(click.Group):
 
             formatter.write_text("3. Evaluate on MOT dataset:")
             with formatter.indentation():
-                formatter.write_text(
-                    "boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --tracker boosttrack"
-                )
+                formatter.write_text("boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --tracker boosttrack")
             formatter.write_paragraph()
 
             formatter.write_text("4. Tune tracker hyperparameters:")

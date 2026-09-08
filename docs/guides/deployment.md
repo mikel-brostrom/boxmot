@@ -88,15 +88,15 @@ For an empty frame, send `"detections": []` with the next `frame_id`. For OBB,
 set `"box_type": "obb"` and use
 `(cx, cy, width, height, angle_radians, confidence, class_id)` rows.
 
-The CPU profile does not require pixels. The GPU profile requires
+The CPU profile does not require source image pixels; requests without an image
+must include both `width` and `height`. When `image_base64` is supplied, the
+service infers dimensions from the decoded image. The GPU profile requires
 `image_base64` to contain the raw base64 text of a valid JPEG or PNG for every
 request, including frames whose `detections` array is empty:
 
 ```json
 {
   "frame_id": 0,
-  "width": 1920,
-  "height": 1080,
   "frame_rate": 30,
   "box_type": "aabb",
   "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
@@ -104,13 +104,13 @@ request, including frames whose `detections` array is empty:
 }
 ```
 
-Do not include a `data:image/...;base64,` prefix. The decoded image dimensions
-must exactly match `width` and `height`. ReID and camera-motion compensation
-need the real frame even when the detector found nothing, so an empty detection
-frame cannot omit `image_base64`.
+Do not include a `data:image/...;base64,` prefix. Omit `width` and `height` when
+supplying an image; if provided, they must match the decoded image. ReID and
+camera-motion compensation need the real frame even when the detector found
+nothing, so an empty detection frame cannot omit `image_base64`.
 
-For example, a Python client can attach a compressed frame to the same metadata
-used by the CPU endpoint:
+For example, a Python client can attach a compressed frame without specifying
+its dimensions:
 
 ```python
 import base64
@@ -120,8 +120,6 @@ import requests
 
 payload = {
     "frame_id": 0,
-    "width": 1920,
-    "height": 1080,
     "frame_rate": 30,
     "box_type": "aabb",
     "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]],
@@ -146,13 +144,13 @@ angle before `id`. Use `detection_index` to relate a returned track to the
 corresponding input row. Track and detection counts are not guaranteed to be
 equal.
 
-Width, height, frame rate, and box type are fixed after the first request for a
-session. Frames must then be contiguous, with at most one request in flight for
-each session. A gap or conflicting retry returns HTTP 409 without advancing the
-tracker. Repeating the most recent frame with the exact same body safely
-replays its cached response. A new session must start with frame 0; this also
-prevents an expired or misrouted session from silently restarting midway
-through a sequence.
+Frame dimensions, whether inferred or explicit, frame rate, and box type are
+fixed after the first request for a session. Frames must then be contiguous,
+with at most one request in flight for each session. A gap or conflicting retry
+returns HTTP 409 without advancing the tracker. Repeating the most recent frame
+with the exact same body safely replays its cached response. A new session must
+start with frame 0; this also prevents an expired or misrouted session from
+silently restarting midway through a sequence.
 
 Delete a session to release its tracker immediately:
 
@@ -160,6 +158,51 @@ Delete a session to release its tracker immediately:
 curl --request DELETE \
   http://localhost:8000/v1/streams/camera-01/sessions/run-01
 ```
+
+## Capture timestamps
+
+The service defaults to fixed-step prediction (`BOXMOT_VARIABLE_DT=false`),
+matching established tracker tuning. The optional `timestamp_s` request field
+is metadata by default and does not change motion prediction.
+
+To try experimental prediction in elapsed seconds, start the service with
+`BOXMOT_VARIABLE_DT=true`. This mode needs separate motion-noise calibration;
+existing benchmark accuracy is not guaranteed. Supply a finite capture or
+media timestamp in seconds on every frame, including frames without
+detections. For example, the CPU service accepts this first request:
+
+```json
+{
+  "frame_id": 0,
+  "timestamp_s": 12.0,
+  "width": 1920,
+  "height": 1080,
+  "detections": [[620.0, 210.0, 790.0, 690.0, 0.94, 0]]
+}
+```
+
+The first timestamp establishes the session clock. A following request with
+`"frame_id": 1` and `"timestamp_s": 12.04` advances Kalman prediction by 0.04
+seconds. The service passes the capture timestamp to the tracker, which
+computes the interval internally. GPU requests use the same field alongside
+their required image.
+Use capture or media timestamps rather than processing or network arrival
+times, and keep frame IDs contiguous even when capture intervals vary.
+
+Timing mode is process configuration; request timestamps and `frame_rate` do
+not enable it. When enabled, a missing timestamp on a new session's first
+frame returns HTTP 422 before creating a tracker. Missing or non-increasing
+timestamps on subsequent frames return HTTP 409 without advancing the tracker.
+When disabled, optional timestamps may appear, disappear, or change without
+affecting prediction. In either mode, changing a timestamp on a retry returns
+HTTP 409; an exact retry of the most recent frame replays its cached response.
+
+SFSORT rejects `BOXMOT_VARIABLE_DT=true` at service startup. All other service
+trackers support this option. When enabled, motion priors are converted to
+seconds using a fixed `1/30`-second reference interval, then integrated over
+the actual capture interval. The reference does not replace capture timestamps;
+review [elapsed-time prediction](../python/index.md#elapsed-time) when tuning
+noise. Track expiration and confirmation settings remain counts of updates.
 
 ## Configure the process
 
@@ -171,6 +214,7 @@ process-level settings are:
 | `BOXMOT_SERVICE_PROFILE` | `cpu` | `gpu` | Selects the tracker allowlist and whether images/ReID are required. Use the profile built into the image. |
 | `BOXMOT_SERVICE_TRACKER` | `bytetrack` | `botsort` | CPU: `bytetrack`, `ocsort`, or `sfsort`. GPU: `strongsort`, `botsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost`. |
 | `BOXMOT_SERVICE_ASSO_FUNC` | `iou` | `iou` | Geometry used for AABB or OBB detection-track matching: `iou`, `giou`, `diou`, `ciou`, `hmiou`, or `centroid`. |
+| `BOXMOT_VARIABLE_DT` | `false` | `false` | Opt into experimental elapsed-seconds prediction; requires `timestamp_s` on every frame and separate motion-noise calibration. Unsupported by SFSORT. |
 | `BOXMOT_SERVICE_DEVICE` | `cpu` | `0` | ReID device passed to the GPU backend. |
 | `BOXMOT_SERVICE_HALF` | `false` | `true` | Enables FP16 ReID inference; relevant to the GPU profile. |
 | `BOXMOT_SERVICE_REID_WEIGHTS` | Not used | `/models/osnet_x0_25_msmt17.pt` | Mounted ReID checkpoint path. |
@@ -196,7 +240,7 @@ docker run --rm \
 ```
 
 Centroid normalization uses the session's fixed `width` and `height`. The CPU
-profile therefore remains pixel-free when centroid is selected.
+profile does not require source image pixels when centroid is selected.
 
 For OBB sessions, `iou` uses oriented-rectangle overlap, `giou` uses the joint
 convex hull, and `diou`/`ciou` use the rotation-invariant minimum-area joint

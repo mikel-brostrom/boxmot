@@ -49,9 +49,10 @@ def _fixture(tmp_path: Path) -> tuple[dict[str, object], Path, Path]:
     return config, data_root, image_path
 
 
-def test_eval_catalog_cache_hits_preserve_exact_uncached_catalog(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("fps", (None, 5.0))
+def test_eval_catalog_cache_hits_preserve_exact_uncached_catalog(tmp_path, monkeypatch, fps) -> None:
     config, data_root, _ = _fixture(tmp_path)
-    uncached = catalog_mot_dataset(config, split="train", data_root=data_root)
+    uncached = catalog_mot_dataset(config, split="train", data_root=data_root, fps=fps)
     cache_path = tmp_path / "cache" / "catalog.json"
     real_inspect = cache_module.inspect_catalog_file
     inspected: list[Path] = []
@@ -66,6 +67,7 @@ def test_eval_catalog_cache_hits_preserve_exact_uncached_catalog(tmp_path, monke
         split="train",
         data_root=data_root,
         cache_path=cache_path,
+        fps=fps,
     )
     cold_reads = tuple(inspected)
     inspected.clear()
@@ -74,6 +76,7 @@ def test_eval_catalog_cache_hits_preserve_exact_uncached_catalog(tmp_path, monke
         split="train",
         data_root=data_root,
         cache_path=cache_path,
+        fps=fps,
     )
 
     assert len(cold_reads) == 3  # image, seqinfo.ini, and ground truth

@@ -3,10 +3,42 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any, Mapping
 
 import click
 from click.core import ParameterSource
+
+_WORKFLOW_SETUP_TITLES = {
+    "boxmot.engine.materialization.workflow": "Dataset Materialization",
+    "boxmot.engine.eval.evaluator": "Evaluation",
+}
+
+
+@contextmanager
+def _workflow_setup(title: str | None, detail: str) -> Iterator[None]:
+    """Paint terminal setup before runtime imports, then release the workflow's Live.
+
+    The transient panel covers work before a workflow can create its own
+    reporter. Captured commands remain quiet, and errors retain Click's normal
+    handling. No reporter is attached to namespaces passed to worker processes.
+    """
+
+    from boxmot.engine.ui.core.ui import create_workflow_progress, get_console
+    from boxmot.engine.ui.workflow.steps import SETUP, compose
+
+    if title is None or not get_console(stderr=True).is_terminal:
+        yield
+        return
+
+    progress = create_workflow_progress(title, (), steps=compose(SETUP), stderr=True, transient=True)
+    progress.set_detail("Setup", detail)
+    try:
+        progress.start()
+        yield
+    finally:
+        progress.stop(refresh_final=False)
 
 
 def _is_option_explicit(ctx: click.Context, option_name: str) -> bool:
@@ -45,14 +77,15 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
     printing a second traceback.
     """
 
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as exc:
-        raise click.ClickException(
-            f"Failed to import engine module '{module_name}': {exc}\n"
-            "Install the required feature extra while repeating one PyTorch profile; "
-            "for example: uv sync --extra cpu --extra yolo"
-        ) from exc
+    with _workflow_setup(_WORKFLOW_SETUP_TITLES.get(module_name), "Preparing workflow…"):
+        try:
+            module = importlib.import_module(module_name)
+        except ImportError as exc:
+            raise click.ClickException(
+                f"Failed to import engine module '{module_name}': {exc}\n"
+                "Install the required feature extra while repeating one PyTorch profile; "
+                "for example: uv sync --extra cpu --extra yolo"
+            ) from exc
 
     main_fn = getattr(module, "main", None)
     if main_fn is None:
@@ -98,4 +131,5 @@ __all__ = (
     "_is_option_explicit",
     "_require_experiment_input",
     "_run_engine_workflow",
+    "_workflow_setup",
 )

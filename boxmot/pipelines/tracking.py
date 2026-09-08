@@ -127,10 +127,10 @@ class TrackingPipeline:
             raise ValueError(
                 f"Detection mask size {detections.masks.image_size} does not match frame size {frame.image_size}."
             )
-        tracks = self.tracker.update(
-            detections=detections,
-            frame=frame if self._requirements.frame or needs_live_embedding_pixels else None,
+        needs_frame = (
+            self._requirements.frame or needs_live_embedding_pixels or getattr(self.tracker, "variable_dt", False)
         )
+        tracks = self.tracker.update(detections=detections, frame=frame if needs_frame else None)
         if not isinstance(tracks, Tracks):
             raise TypeError("Tracker.update() must return a Tracks object.")
         tracks.validate()
@@ -155,6 +155,8 @@ class TrackingPipeline:
         if not isinstance(detections, Detections):
             raise TypeError(f"detections must be a Detections object, not {type(detections).__name__}.")
         self._validate_frame_order(frame)
+        if getattr(self.tracker, "variable_dt", False):
+            self.tracker.validate_timing(frame)
         enriched = self._perception.enrich((frame,), (detections,), self._perception_requirements)[0]
         return self._track(frame, enriched)
 
@@ -167,6 +169,8 @@ class TrackingPipeline:
                 "TrackingPipeline.step() requires a detector; use step_detections() for caller-supplied detections."
             )
         self._validate_frame_order(frame)
+        if getattr(self.tracker, "variable_dt", False):
+            self.tracker.validate_timing(frame)
         detections = self._perception.process((frame,))[0]
         return self._track(frame, detections)
 

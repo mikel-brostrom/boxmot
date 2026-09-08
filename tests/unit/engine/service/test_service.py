@@ -121,6 +121,16 @@ def _aabb_frame(frame_id: int = 0, detections=None, **overrides) -> dict:
     return frame
 
 
+def _image_frame(image_base64: str, **overrides) -> dict:
+    """Build an image request whose dimensions come from the encoded frame."""
+
+    frame = _aabb_frame(image_base64=image_base64)
+    del frame["width"]
+    del frame["height"]
+    frame.update(overrides)
+    return frame
+
+
 def _encoded_image(
     *,
     width: int = 32,
@@ -190,6 +200,8 @@ def test_service_profiles_have_disjoint_expected_tracker_sets() -> None:
         ({"device": " "}, "device must not be empty"),
         ({"reid_weights": " "}, "weights must not be empty"),
         ({"asso_func": "overlap"}, "Unsupported association function"),
+        ({"variable_dt": "true"}, "variable_dt must be a boolean"),
+        ({"tracker_type": "sfsort", "variable_dt": True}, "SFSORT does not support"),
     ],
 )
 def test_service_settings_reject_invalid_profile_configuration(overrides, detail) -> None:
@@ -202,6 +214,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
         "BOXMOT_SERVICE_PROFILE",
         "BOXMOT_SERVICE_TRACKER",
         "BOXMOT_SERVICE_ASSO_FUNC",
+        "BOXMOT_VARIABLE_DT",
         "BOXMOT_SERVICE_DEVICE",
         "BOXMOT_SERVICE_HALF",
         "BOXMOT_SERVICE_REID_WEIGHTS",
@@ -216,6 +229,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
     assert defaults.profile == "gpu"
     assert defaults.tracker_type == "botsort"
     assert defaults.asso_func == "iou"
+    assert defaults.variable_dt is False
     assert defaults.device == "0"
     assert defaults.half is True
     assert defaults.max_concurrent_updates == 1
@@ -223,6 +237,7 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     monkeypatch.setenv("BOXMOT_SERVICE_TRACKER", "boosttrack")
     monkeypatch.setenv("BOXMOT_SERVICE_ASSO_FUNC", "giou")
+    monkeypatch.setenv("BOXMOT_VARIABLE_DT", "on")
     monkeypatch.setenv("BOXMOT_SERVICE_DEVICE", "cuda:1")
     monkeypatch.setenv("BOXMOT_SERVICE_HALF", "off")
     monkeypatch.setenv("BOXMOT_SERVICE_REID_WEIGHTS", "/models/reid.pt")
@@ -232,16 +247,18 @@ def test_gpu_environment_defaults_and_overrides(monkeypatch) -> None:
 
     assert overridden.tracker_type == "boosttrack"
     assert overridden.asso_func == "giou"
+    assert overridden.variable_dt is True
     assert overridden.device == "cuda:1"
     assert overridden.half is False
     assert overridden.reid_weights == "/models/reid.pt"
     assert overridden.max_concurrent_updates == 3
 
 
-def test_environment_rejects_invalid_boolean(monkeypatch) -> None:
-    monkeypatch.setenv("BOXMOT_SERVICE_HALF", "sometimes")
+@pytest.mark.parametrize("name", ["BOXMOT_SERVICE_HALF", "BOXMOT_VARIABLE_DT"])
+def test_environment_rejects_invalid_boolean(name, monkeypatch) -> None:
+    monkeypatch.setenv(name, "sometimes")
 
-    with pytest.raises(ValueError, match="BOXMOT_SERVICE_HALF must be a boolean"):
+    with pytest.raises(ValueError, match=f"{name} must be a boolean"):
         ServiceSettings.from_env()
 
 
@@ -341,7 +358,7 @@ def test_cpu_motion_only_tracker_receives_detections_without_a_dummy_image() -> 
 def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
     factory = _FakeFactory()
     encoded, source = _encoded_image()
-    frame = _aabb_frame(width=32, height=24, image_base64=encoded)
+    frame = _image_frame(encoded)
 
     with TestClient(create_app(_settings(), tracker_factory=factory)) as client:
         response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
@@ -353,18 +370,26 @@ def test_cpu_profile_uses_a_supplied_real_image_when_present() -> None:
     np.testing.assert_array_equal(decoded.image.permute(1, 2, 0).numpy(), source[..., ::-1])
 
 
+@pytest.mark.parametrize("omitted_dimensions", [("width",), ("height",), ("width", "height")])
+def test_requests_without_images_require_both_dimensions(omitted_dimensions) -> None:
+    factory = _FakeFactory()
+    frame = _aabb_frame()
+    for dimension in omitted_dimensions:
+        del frame[dimension]
+
+    with TestClient(create_app(_settings(), tracker_factory=factory)) as client:
+        response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
+
+    assert response.status_code == 422
+    assert factory.instances == []
+
+
 def test_gpu_profile_requires_an_image_on_every_frame_even_without_detections() -> None:
     factory = _FakeFactory()
     settings = _settings(profile="gpu", tracker_type="botsort", device="cuda:0")
     encoded, _ = _encoded_image()
-    first = _aabb_frame(width=32, height=24, image_base64=encoded)
-    second = _aabb_frame(
-        frame_id=1,
-        width=32,
-        height=24,
-        detections=[],
-        image_base64=encoded,
-    )
+    first = _image_frame(encoded)
+    second = _image_frame(encoded, frame_id=1, detections=[])
 
     with TestClient(create_app(settings, tracker_factory=factory)) as client:
         missing_first = client.post(
@@ -388,11 +413,11 @@ def test_gpu_profile_requires_an_image_on_every_frame_even_without_detections() 
 
 
 @pytest.mark.parametrize("extension", [".jpg", ".png"])
-def test_gpu_profile_decodes_supported_images_with_exact_dimensions(extension) -> None:
+def test_gpu_profile_infers_dimensions_from_supported_images(extension) -> None:
     factory = _FakeFactory()
     settings = _settings(profile="gpu", tracker_type="botsort", device="cuda:0")
     encoded, source = _encoded_image(extension=extension)
-    frame = _aabb_frame(width=32, height=24, image_base64=encoded)
+    frame = _image_frame(encoded)
 
     with TestClient(create_app(settings, tracker_factory=factory)) as client:
         response = client.post("/v1/streams/a/sessions/b/frames", json=frame)
@@ -423,7 +448,7 @@ def test_invalid_encoded_images_return_422_without_creating_a_tracker(image_base
     with TestClient(create_app(settings, tracker_factory=factory)) as client:
         response = client.post(
             "/v1/streams/a/sessions/b/frames",
-            json=_aabb_frame(width=32, height=24, detections=[], image_base64=image_base64),
+            json=_image_frame(image_base64, detections=[]),
         )
 
     assert response.status_code == 422
@@ -463,33 +488,127 @@ def test_decoded_image_dimensions_must_exactly_match_request_metadata() -> None:
     assert factory.instances == []
 
 
+@pytest.mark.parametrize(
+    ("declared_dimensions", "status_code"),
+    [
+        ({"width": 32}, 200),
+        ({"height": 24}, 200),
+        ({"width": 31}, 422),
+        ({"height": 23}, 422),
+    ],
+)
+def test_image_requests_validate_each_supplied_dimension(declared_dimensions, status_code) -> None:
+    factory = _FakeFactory()
+    encoded, _ = _encoded_image()
+
+    with TestClient(create_app(_settings(), tracker_factory=factory)) as client:
+        response = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(encoded, **declared_dimensions),
+        )
+
+    assert response.status_code == status_code
+    if status_code == 200:
+        assert factory.instances[0].calls[0][1].image.shape == (3, 24, 32)
+    else:
+        assert "dimensions" in response.json()["detail"]
+        assert factory.instances == []
+
+
+@pytest.mark.parametrize("extension", [".jpg", ".png"])
+def test_inferred_pixel_limit_is_checked_before_decoding(extension, monkeypatch) -> None:
+    factory = _FakeFactory()
+    encoded, _ = _encoded_image(extension=extension)
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("Images above the pixel limit must be rejected before decoding")
+
+    monkeypatch.setattr(service_manager.cv2, "imdecode", unexpected_decode)
+    with TestClient(create_app(_settings(max_frame_pixels=32 * 24 - 1), tracker_factory=factory)) as client:
+        response = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(encoded),
+        )
+
+    assert response.status_code == 422
+    assert "pixel limit" in response.json()["detail"]
+    assert factory.instances == []
+
+
+@pytest.mark.parametrize(("width", "height"), [(32_769, 1), (1, 32_769)])
+def test_inferred_dimensions_respect_axis_limits_before_decoding(width, height, monkeypatch) -> None:
+    factory = _FakeFactory()
+    encoded, _ = _encoded_image(width=width, height=height)
+
+    def unexpected_decode(*args, **kwargs):
+        pytest.fail("Images above an axis limit must be rejected before decoding")
+
+    monkeypatch.setattr(service_manager.cv2, "imdecode", unexpected_decode)
+    with TestClient(create_app(_settings(), tracker_factory=factory)) as client:
+        response = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(encoded),
+        )
+
+    assert response.status_code == 422
+    assert "32768 pixels" in response.json()["detail"]
+    assert factory.instances == []
+
+
+def test_inferred_resolution_change_is_rejected_without_advancing_session() -> None:
+    factory = _FakeFactory()
+    settings = _settings(profile="gpu", tracker_type="botsort", device="cuda:0")
+    encoded, _ = _encoded_image()
+    larger_image, _ = _encoded_image(width=64, height=48)
+
+    with TestClient(create_app(settings, tracker_factory=factory)) as client:
+        first = client.post("/v1/streams/a/sessions/b/frames", json=_image_frame(encoded))
+        changed = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(larger_image, frame_id=1),
+        )
+        accepted = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(encoded, frame_id=1),
+        )
+
+    assert first.status_code == 200
+    assert changed.status_code == 409
+    assert "cannot change" in changed.json()["detail"]
+    assert accepted.status_code == 200
+    assert accepted.json()["next_frame_id"] == 2
+    assert len(factory.instances) == 1
+    assert len(factory.instances[0].calls) == 2
+
+
 def test_gpu_retry_identity_includes_encoded_image_bytes() -> None:
     factory = _FakeFactory()
     settings = _settings(profile="gpu", tracker_type="botsort", device="cuda:0")
     first_image, _ = _encoded_image(value=32)
     different_image, _ = _encoded_image(value=224)
-    first_frame = _aabb_frame(width=32, height=24, image_base64=first_image)
+    first_frame = _image_frame(first_image)
 
     with TestClient(create_app(settings, tracker_factory=factory)) as client:
         first = client.post("/v1/streams/a/sessions/b/frames", json=first_frame)
         retry = client.post("/v1/streams/a/sessions/b/frames", json=first_frame)
+        explicit_retry = client.post(
+            "/v1/streams/a/sessions/b/frames",
+            json=_image_frame(first_image, width=32, height=24),
+        )
         conflict = client.post(
             "/v1/streams/a/sessions/b/frames",
-            json=_aabb_frame(width=32, height=24, image_base64=different_image),
+            json=_image_frame(different_image),
         )
         next_frame = client.post(
             "/v1/streams/a/sessions/b/frames",
-            json=_aabb_frame(
-                frame_id=1,
-                width=32,
-                height=24,
-                image_base64=different_image,
-            ),
+            json=_image_frame(different_image, frame_id=1),
         )
 
     assert first.status_code == 200
     assert retry.status_code == 200
     assert retry.json()["replayed"] is True
+    assert explicit_retry.status_code == 200
+    assert explicit_retry.json()["replayed"] is True
     assert conflict.status_code == 409
     assert "different input" in conflict.json()["detail"]
     assert next_frame.status_code == 200
@@ -536,11 +655,11 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     async def scenario() -> None:
         await manager.process(
             ("one", "run"),
-            FrameRequest(**_aabb_frame(width=32, height=24, frame_rate=24, image_base64=encoded)),
+            FrameRequest(**_image_frame(encoded, frame_rate=24)),
         )
         await manager.process(
             ("two", "run"),
-            FrameRequest(**_aabb_frame(width=32, height=24, frame_rate=30, image_base64=encoded)),
+            FrameRequest(**_image_frame(encoded, frame_rate=30)),
         )
         await manager.close()
 
@@ -550,8 +669,8 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     assert len(shared_encoder.calls) == 2
     assert [spec.name for spec in tracker_specs] == ["botsort", "botsort"]
     assert [spec.option_dict for spec in tracker_specs] == [
-        {"asso_func": "iou", "frame_rate": 24},
-        {"asso_func": "iou", "frame_rate": 30},
+        {"asso_func": "iou", "frame_rate": 24, "variable_dt": False},
+        {"asso_func": "iou", "frame_rate": 30, "variable_dt": False},
     ]
 
 

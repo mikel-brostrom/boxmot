@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol
 
 from rich.console import Group
-from rich.progress import BarColumn, Progress, ProgressColumn, Task, TextColumn
+from rich.progress import Progress
 from rich.table import Table
 from rich.text import Text
 
@@ -28,6 +28,7 @@ from boxmot.engine.ui.workflow.steps import (
 from boxmot.engine.ui.workflow.steps import (
     eval_steps,
 )
+from boxmot.engine.ui.workflow.task_progress import create_task_progress
 
 SequenceProgressStatus = Literal["queued", "running", "completed", "failed"]
 _TERMINAL_SEQUENCE_STATES = frozenset({"completed", "failed"})
@@ -51,34 +52,6 @@ class _SequenceProgressState:
     completed: int = 0
     status: SequenceProgressStatus = "queued"
     detail: str | None = None
-
-
-class _SequenceCountColumn(ProgressColumn):
-    def render(self, task: Task) -> Text:
-        completed = int(task.completed)
-        if task.total is None:
-            return Text(f"{completed:,} frames", style=ui.STYLE_MUTED)
-        return Text(f"{completed:,}/{int(task.total):,} frames", style=ui.STYLE_MUTED)
-
-
-class _SequenceStatusColumn(ProgressColumn):
-    _STYLES = {
-        "queued": ("○", "pending", ui.STYLE_STATUS_TODO),
-        "running": ("▶", "running", ui.STYLE_STATUS_ACTIVE),
-        "completed": ("✓", "done", ui.STYLE_STATUS_DONE),
-        "failed": ("✕", "failed", ui.STYLE_STATUS_FAILED),
-    }
-
-    def render(self, task: Task) -> Text:
-        status = str(task.fields["status"])
-        marker, label, style = self._STYLES[status]
-        rendered = Text()
-        rendered.append(marker, style=style)
-        rendered.append(f" {label}", style=style)
-        detail = task.fields.get("detail")
-        if detail:
-            rendered.append(f" · {detail}", style=ui.STYLE_MUTED)
-        return rendered
 
 
 class _SequenceProgressView:
@@ -132,14 +105,7 @@ class EvalSequenceProgressPresenter:
         self._last_refresh_s: float | None = None
         self._detail_scope: Any | None = None
         self._active = False
-        self._progress = Progress(
-            TextColumn("{task.description}", style=ui.STYLE_TEXT_STRONG, markup=False),
-            BarColumn(),
-            _SequenceCountColumn(),
-            _SequenceStatusColumn(),
-            expand=True,
-            auto_refresh=False,
-        )
+        self._progress = create_task_progress(unit="frames")
         self._states: dict[str, _SequenceProgressState] = {}
         for sequence_id, total in sequence_totals.items():
             sequence_id = self._validate_sequence_id(sequence_id)
@@ -269,23 +235,14 @@ class EvalSequenceProgressPresenter:
         # transport-level placeholder ``0/0`` when queued or when startup
         # fails. The catalog total supplied to this presenter remains
         # authoritative.
-        if (
-            normalized_status in {"queued", "failed"}
-            and completed == 0
-            and total == 0
-            and state.total is not None
-        ):
+        if normalized_status in {"queued", "failed"} and completed == 0 and total == 0 and state.total is not None:
             total = None
         if state.total is not None and total is not None and total != state.total:
-            raise ValueError(
-                f"Sequence {sequence_id!r} total changed from {state.total} to {total}."
-            )
+            raise ValueError(f"Sequence {sequence_id!r} total changed from {state.total} to {total}.")
         if state.total is None and total is not None:
             state.total = total
         if state.total is not None and completed > state.total:
-            raise ValueError(
-                f"Sequence {sequence_id!r} completed count {completed} exceeds total {state.total}."
-            )
+            raise ValueError(f"Sequence {sequence_id!r} completed count {completed} exceeds total {state.total}.")
 
         if state.status in _TERMINAL_SEQUENCE_STATES and normalized_status != state.status:
             return

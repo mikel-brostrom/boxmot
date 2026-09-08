@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Iterable, Mapping
+from numbers import Real
 from pathlib import Path
 from typing import Any, overload
 
@@ -9,6 +10,7 @@ import numpy as np
 import torch
 
 from boxmot.components.timing import timed_component_phase
+from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, normalize_kalman_options
 from boxmot.structures import Boxes, Detections, Frame, Geometry, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.association.iou import AssociationFunction
@@ -56,6 +58,7 @@ class BaseTracker(
     _requires_frame_dimensions_only = False
     _requires_masks = False
     uses_frame_dimensions_for_association = True
+    supports_variable_dt = False
 
     def _resolve_detection_layout(self, is_obb: bool):
         """Return the private row layout for a resolved geometry mode."""
@@ -93,6 +96,14 @@ class BaseTracker(
         class_names: Mapping[int, str] | None = None,
         asso_func: str = "iou",
         is_obb: bool = False,
+        variable_dt: bool = False,
+        kf_process_position_scale: float = 1.0,
+        kf_process_velocity_scale: float = 1.0,
+        kf_measurement_noise_scale: float = 1.0,
+        kf_initial_position_scale: float = 1.0,
+        kf_initial_velocity_scale: float = 1.0,
+        kf_reference_dt_s: float = DEFAULT_REFERENCE_DT_S,
+        kf_time_unit: str | None = None,
         reid_model: Any | None = _REID_OPTION_UNSET,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
         device: Any = _REID_OPTION_UNSET,
@@ -118,6 +129,16 @@ class BaseTracker(
           OBB ``hmiou`` is an experimental global-y height cue intended only
           where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
+        - variable_dt: Use measured capture intervals for prediction in seconds.
+        - kf_process_position_scale: Multiplier for process noise in measured states.
+        - kf_process_velocity_scale: Multiplier for process noise in derivatives.
+        - kf_measurement_noise_scale: Multiplier for Kalman measurement covariance.
+        - kf_initial_position_scale: Multiplier for initial measured-state covariance.
+        - kf_initial_velocity_scale: Multiplier for initial velocity covariance.
+        - kf_reference_dt_s: Fixed seconds per reference frame for converting the
+          original priors and noise; independent of measured frame intervals.
+        - kf_time_unit: Persisted 'frames' or 'seconds', which must agree with
+          variable_dt. None derives the unit from the selected timing mode.
         - reid_model: Optional pre-built ReID backend exposing
           ``get_features(boxes, image)``.
         - reid_weights: Weights used to lazily construct a ReID backend when
@@ -134,6 +155,27 @@ class BaseTracker(
         if kwargs:
             unexpected = next(iter(kwargs))
             raise TypeError(f"{self.__class__.__name__}.__init__() got an unexpected keyword argument '{unexpected}'")
+        if not isinstance(variable_dt, bool):
+            raise TypeError("variable_dt must be bool.")
+        if variable_dt and not self.supports_variable_dt:
+            raise ValueError(f"{self.__class__.__name__} does not support variable_dt.")
+        self.variable_dt = variable_dt
+        self.kalman_noise_config = normalize_kalman_options(
+            {
+                "kf_process_position_scale": kf_process_position_scale,
+                "kf_process_velocity_scale": kf_process_velocity_scale,
+                "kf_measurement_noise_scale": kf_measurement_noise_scale,
+                "kf_initial_position_scale": kf_initial_position_scale,
+                "kf_initial_velocity_scale": kf_initial_velocity_scale,
+                "kf_reference_dt_s": kf_reference_dt_s,
+                "kf_time_unit": kf_time_unit,
+            },
+            variable_dt=variable_dt,
+        )
+        self.kf_time_unit = self.kalman_noise_config.time_unit
+        self.kf_reference_dt_s = self.kalman_noise_config.reference_dt_s
+        if not self.kalman_noise_config.is_default and not self.supports_variable_dt:
+            raise ValueError(f"{self.__class__.__name__} does not support Kalman noise scaling.")
         self._init_live_reid(
             reid_model=reid_model,
             reid_weights=reid_weights,
@@ -180,6 +222,8 @@ class BaseTracker(
         self.active_tracks = []
         self.class_track_states = None
         self._first_frame_processed = False
+        self._prediction_dt: float | None = None
+        self._last_timestamp_s: float | None = None
 
         if self.per_class:
             self._initialize_class_track_states()
@@ -202,6 +246,7 @@ class BaseTracker(
             "per_class": per_class,
             "class_ids": None if self.class_ids is None else tuple(sorted(self.class_ids)),
             "asso_func": self._asso_func_base_name,
+            "variable_dt": self.variable_dt,
         }
         params_str = ", ".join(f"{k}={v}" for k, v in base_params.items())
         LOGGER.info(f"{self.name}: {params_str}")
@@ -216,19 +261,64 @@ class BaseTracker(
             frame_dimensions_only=bool(self._requires_frame_dimensions_only),
         )
 
-    @overload
-    def update(self, detections: Detections, frame: Frame | np.ndarray | None = None) -> Tracks: ...
+    def _resolve_timing(
+        self, frame: Frame | np.ndarray | None, timestamp_s: float | None
+    ) -> tuple[float | None, float | None]:
+        """Resolve capture time and prediction interval without advancing state."""
+        if not self.variable_dt:
+            return None, None
+        frame_timestamp = frame.timestamp_s if isinstance(frame, Frame) else None
+        if timestamp_s is not None and frame_timestamp is not None:
+            raise ValueError("Supply timestamp_s either in Frame or as an update argument, not both.")
+        timestamp_s = frame_timestamp if timestamp_s is None else timestamp_s
+        if timestamp_s is None:
+            raise ValueError("variable_dt=True requires timestamp_s on every frame, including the first.")
+        if isinstance(timestamp_s, (bool, np.bool_)) or not isinstance(timestamp_s, Real):
+            raise ValueError("timestamp_s must be a finite real scalar.")
+        try:
+            timestamp_s = float(timestamp_s)
+        except OverflowError as error:
+            raise ValueError("timestamp_s must be a finite real scalar.") from error
+        if not np.isfinite(timestamp_s):
+            raise ValueError("timestamp_s must be a finite real scalar.")
+        dt = None
+        if self._last_timestamp_s is not None:
+            dt = timestamp_s - self._last_timestamp_s
+            if not np.isfinite(dt) or dt <= 0:
+                raise ValueError("timestamp_s must increase by a finite positive interval; reset for a new sequence.")
+        return timestamp_s, dt
+
+    def validate_timing(
+        self, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> float | None:
+        """Check capture timing without advancing it, before expensive upstream work."""
+        return self._resolve_timing(frame, timestamp_s)[1]
 
     @overload
-    def update(self, detections: np.ndarray, frame: Frame | np.ndarray | None = None) -> np.ndarray: ...
+    def update(
+        self, detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> Tracks: ...
+
+    @overload
+    def update(
+        self, detections: np.ndarray, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
+    ) -> np.ndarray: ...
 
     def update(
-        self, detections: Detections | np.ndarray, frame: Frame | np.ndarray | None = None
+        self,
+        detections: Detections | np.ndarray,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        timestamp_s: float | None = None,
     ) -> Tracks | np.ndarray:
         """Advance one sequence with an optional Frame or uint8 HWC BGR image.
 
         The detection representation determines the output representation.
+        With ``variable_dt=True``, derive elapsed seconds from
+        ``Frame.timestamp_s`` or the capture timestamp argument. Fixed-step
+        prediction is the default even when timestamp metadata is present.
         """
+        timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
         frame = prepare_frame(frame)
 
         numpy_input = type(detections) is np.ndarray
@@ -296,6 +386,7 @@ class BaseTracker(
                 f"got {mask_image_size} and {frame_image_size(frame)}."
             )
 
+        self._prediction_dt = dt
         self._mark_live_reid_updated()
         tracks = self._update_arrays(
             geometry=geometry,
@@ -309,6 +400,7 @@ class BaseTracker(
             numpy_output=numpy_input,
             prepared_bgr=prepared_bgr,
         )
+        self._last_timestamp_s = timestamp_s
         return tracks
 
     def _update_arrays(
@@ -335,7 +427,8 @@ class BaseTracker(
         requirements = self.requirements
         img = None
         if frame is not None:
-            if requirements.frame_dimensions_only:
+            if requirements.frame_dimensions_only or not requirements.frame:
+                # A Frame may provide only capture time to a detection-only tracker.
                 height, width = frame_image_size(frame)
                 self._initialize_frame_dimensions(width=width, height=height)
             else:
@@ -594,6 +687,8 @@ class BaseTracker(
     def _reset_common_state(self) -> None:
         """Reset sequence-local state while keeping tracker configuration."""
         self.frame_count = 0
+        self._prediction_dt = None
+        self._last_timestamp_s = None
         self.active_tracks = []
         self._first_frame_processed = False
         self._reset_live_reid_sequence()

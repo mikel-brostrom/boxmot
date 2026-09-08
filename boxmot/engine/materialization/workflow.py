@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Callable
+from copy import copy
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping, TypeVar
@@ -31,7 +32,7 @@ from boxmot.engine.materialization import (
     default_source_metadata_cache_path,
     fingerprint,
 )
-from boxmot.engine.materialization.builds import import_former_default_build
+from boxmot.engine.materialization.builds import find_fps_parent_build, import_former_default_build
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
@@ -182,6 +183,7 @@ def _resolved_inputs(
             split=dataset["split"],
             data_root=data_root,
             metadata_resolver=metadata_cache.resolve,
+            fps=getattr(args, "fps", None),
         )
     metadata = {
         "experiment_id": resolved["id"],
@@ -434,6 +436,37 @@ def materialize(
             raise RuntimeError("Refusing to discard staging outside the selected build root.")
         shutil.rmtree(plan.staging_root)
     import_former_default_build(plan, status_callback=progress.setup_status)
+
+    def load_native_catalog() -> SourceCatalog:
+        """Resolve native frames only when a matching perception build exists."""
+
+        native_args = copy(args)
+        native_args.fps = None
+        return _resolved_inputs(native_args, status_callback=progress.setup_status)[2]
+
+    parent = find_fps_parent_build(plan, load_catalog=load_native_catalog, status_callback=progress.setup_status)
+    if parent is not None:
+        from boxmot.engine.dataset_variants.cache import reuse_cached_build
+
+        parent_build, parent_catalog = parent
+        progress.setup_status(f"Reusing detections and cached payloads from full-rate build {parent_build.name[:12]}…")
+        frame_sampling = catalog.metadata["frame_sampling"]
+        sample_map = {
+            sample.sample_id: (
+                f"{sample.split}:{sample.sequence_id}:{frame_sampling[sample.sequence_id][sample.frame_index] - 1}"
+            )
+            for sample in catalog.samples
+        }
+        return reuse_cached_build(
+            parent_build,
+            parent_catalog=parent_catalog,
+            catalog=catalog,
+            sample_map=sample_map,
+            plan=plan,
+            progress=progress,
+            embedding_metadata=embedding_metadata,
+            target_shard_rows=int(settings["writer"]["instance_rows_per_shard"]),
+        )
 
     # Keep every runtime as its immutable specification until the first pending
     # shard reaches that stage. The stage worker then constructs and caches the

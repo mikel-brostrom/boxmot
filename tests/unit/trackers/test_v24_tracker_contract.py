@@ -143,7 +143,7 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.TrackerRequirements is TrackerRequirements
     assert public_trackers.TrackerSpec is TrackerSpec
     assert public_trackers.create_tracker is create_tracker
-    assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame")
+    assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame", "timestamp_s")
     for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
         assert not hasattr(public_trackers, implementation_name)
 
@@ -151,6 +151,8 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
 def test_reid_configurable_tracker_is_an_optional_runtime_protocol() -> None:
     class _Tracker:
         name = "fixture"
+        supports_variable_dt = False
+        variable_dt = False
         capabilities = TrackerCapabilities(
             family=TrackerFamily.BOX,
             geometry_kinds=frozenset({GeometryKind.AABB}),
@@ -160,8 +162,11 @@ def test_reid_configurable_tracker_is_an_optional_runtime_protocol() -> None:
         requirements = TrackerRequirements(embeddings=True)
         generates_embeddings = True
 
-        def update(self, detections, frame=None):
+        def update(self, detections, frame=None, *, timestamp_s=None):
             raise AssertionError("Runtime protocol checks must not call update().")
+
+        def validate_timing(self, frame=None, *, timestamp_s=None) -> float | None:
+            raise AssertionError("Runtime protocol checks must not call validate_timing().")
 
         def reset(self) -> None:
             return None
@@ -228,7 +233,8 @@ def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
     geometry_columns: int,
 ) -> None:
     signature = inspect.signature(BaseTracker.update)
-    assert tuple(signature.parameters) == ("self", "detections", "frame")
+    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s")
+    assert signature.parameters["timestamp_s"].kind is inspect.Parameter.KEYWORD_ONLY
 
     tracker = _RecordingTracker(is_obb=is_obb)
     tracks = tracker.update(rows)

@@ -76,6 +76,11 @@ Each tracker exposes an in-process shared library. Python streams keyed
 Parquet rows through this live API; positional NPY replay executables are not
 built or published.
 
+OcSort uses `boxmot_ocsort_create_v2` with `BoxMOTOCSORTConfigV2`; its process
+noise priors are internal constants. Versioning the constructor prevents older
+libraries from reading the revised configuration layout. Detection and track
+batches continue to use the shared typed v2 API.
+
 Build requirements:
 
 - C++17 compiler

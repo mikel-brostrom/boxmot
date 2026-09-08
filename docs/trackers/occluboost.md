@@ -131,7 +131,7 @@ adaptive_kf: true
 ```
 
 Use a custom tracker configuration when you have calibrated static Kalman
-parameters. Tracker tuning can also explore `adaptive_kf` because it is
-declared as a choice in the built-in search space.
+parameters. `adaptive_kf` is a runtime setting and stays fixed during tracker
+tuning, along with the calibrated covariance scales.
 
 ::: boxmot.OccluBoost

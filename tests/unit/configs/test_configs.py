@@ -170,6 +170,7 @@ def test_materialize_namespace_allows_only_canonical_inputs() -> None:
         "data_root": "datasets",
         "device": "mps",
         "experiment": "experiment-one",
+        "fps": 2.5,
         "plan_overrides": ("detect.batch_size=8",),
         "plan_path": "executor.yaml",
         "publish_embeddings": True,
@@ -199,6 +200,7 @@ def test_materialize_namespace_allows_only_canonical_inputs() -> None:
     assert args.data_root == Path("datasets")
     assert args.build_root == Path("builds")
     assert args.plan_path == Path("executor.yaml")
+    assert args.fps == canonical["fps"]
     assert args.materialize_explicit_keys == tuple(sorted(canonical))
 
 

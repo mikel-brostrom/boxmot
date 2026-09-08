@@ -29,7 +29,7 @@ def ensure_ocsort_cpp_library(force_rebuild: bool = False) -> Path:
     )
 
 
-class _OCSortCConfig(ctypes.Structure):
+class _OCSortCConfigV2(ctypes.Structure):
     _fields_ = [
         ("min_conf", ctypes.c_float),
         ("det_thresh", ctypes.c_float),
@@ -39,8 +39,6 @@ class _OCSortCConfig(ctypes.Structure):
         ("delta_t", ctypes.c_int),
         ("use_byte", ctypes.c_int),
         ("inertia", ctypes.c_float),
-        ("q_xy_scaling", ctypes.c_float),
-        ("q_s_scaling", ctypes.c_float),
         ("max_obs", ctypes.c_int),
         ("asso_func", ctypes.c_char_p),
     ]
@@ -52,8 +50,13 @@ class OcSortLibrary:
             os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
         self.library_path = Path(library_path)
         self._library = ctypes.CDLL(str(self.library_path))
-        self._library.boxmot_ocsort_create.argtypes = [ctypes.POINTER(_OCSortCConfig)]
-        self._library.boxmot_ocsort_create.restype = ctypes.c_void_p
+        self._create = getattr(self._library, "boxmot_ocsort_create_v2", None)
+        if self._create is None:
+            raise RuntimeError(
+                "Native OcSort library has an incompatible configuration ABI; rebuild the native library."
+            )
+        self._create.argtypes = [ctypes.POINTER(_OCSortCConfigV2)]
+        self._create.restype = ctypes.c_void_p
         self._library.boxmot_ocsort_destroy.argtypes = [ctypes.c_void_p]
         self._library.boxmot_ocsort_destroy.restype = None
         self._library.boxmot_ocsort_reset.argtypes = [ctypes.c_void_p]
@@ -67,7 +70,7 @@ class OcSortLibrary:
         return "Unknown native OcSort error." if raw is None else raw.decode("utf-8", errors="replace")
 
     def create(self, cfg: Mapping[str, Any]):
-        c_cfg = _OCSortCConfig(
+        c_cfg = _OCSortCConfigV2(
             min_conf=float(cfg["min_conf"]),
             det_thresh=float(cfg["det_thresh"]),
             iou_threshold=float(cfg["iou_threshold"]),
@@ -76,12 +79,10 @@ class OcSortLibrary:
             delta_t=int(cfg["delta_t"]),
             use_byte=int(bool(cfg["use_byte"])),
             inertia=float(cfg["inertia"]),
-            q_xy_scaling=float(cfg["q_xy_scaling"]),
-            q_s_scaling=float(cfg["q_s_scaling"]),
             max_obs=int(cfg["max_obs"]),
             asso_func=str(cfg["asso_func"]).encode(),
         )
-        handle = self._library.boxmot_ocsort_create(ctypes.byref(c_cfg))
+        handle = self._create(ctypes.byref(c_cfg))
         if not handle:
             raise RuntimeError(self._last_error())
         return handle

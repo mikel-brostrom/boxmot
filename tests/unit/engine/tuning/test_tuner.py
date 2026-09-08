@@ -16,6 +16,7 @@ from boxmot.engine.tuning.backends import SEARCH_BACKENDS, resolve_search_backen
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
 from boxmot.engine.tuning.postprocessing import generate_summary, write_trial_yaml
 from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_config, load_yaml_config
+from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 from boxmot.trackers.config import load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
@@ -162,28 +163,34 @@ def test_all_builtin_tracker_entries_have_runtime_defaults(tracker_name):
     runtime_defaults = load_tracker_defaults(tracker_name)
 
     assert set(flat_config) == set(runtime_defaults)
+    assert not {"Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"}.intersection(runtime_defaults)
     assert all(details["default"] == runtime_defaults[parameter] for parameter, details in flat_config.items())
+    for parameter in (*KALMAN_NOISE_OPTIONS, "adaptive_kf"):
+        if parameter in flat_config:
+            assert flat_config[parameter] == {"default": runtime_defaults[parameter]}
 
 
-def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
+@pytest.mark.parametrize(
+    "variable_dt, backend", [(None, "python"), (False, "python"), (True, "python"), (False, "cpp")]
+)
+def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, variable_dt, backend):
     captured = {}
     workflow_state = {"stopped": False}
-    detail_updates: list[tuple[str | None, str | None]] = []
+    detail_updates: list[tuple[str | None, object]] = []
     (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
 
     class _FakeRequirementsChecker:
         def sync_extra(self, extra, verbose=True):
             captured["extra"] = extra
 
-    monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
+    monkeypatch.setattr(tuner_module, "load_yaml_config", load_yaml_config)
     monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         tuner_module,
         "eval_setup",
-        lambda args, pipeline=None: (
-            setattr(args, "project", (tmp_path / "runs").resolve()),
-        ),
+        lambda args, pipeline=None: (setattr(args, "project", (tmp_path / "runs").resolve()),),
     )
+
     def _fake_tune_intro(args, **kwargs):
         return SimpleNamespace(
             _started=True,
@@ -192,7 +199,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             activate=lambda *a, **k: None,
             set_detail=lambda title, text, **k: detail_updates.append((title, text)),
             clear_detail=lambda *a, **k: None,
-            set_detail_renderable=lambda *a, **k: None,
+            set_detail_renderable=lambda title, renderable, **k: detail_updates.append((title, renderable)),
             transition=lambda *a, **k: None,
             stop=lambda: workflow_state.update(stopped=True),
             steps=[],
@@ -246,6 +253,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     class _FakeOptunaSearch:
         def __init__(self, **kwargs):
             self.kwargs = kwargs
+            captured["search_kwargs"] = kwargs
 
     class _FakeRunConfig:
         def __init__(self, storage_path, name, callbacks=None, verbose=None, **kwargs):
@@ -267,6 +275,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
             return False
 
         def __init__(self, trainable, param_space, tune_config, run_config):
+            captured["param_space"] = param_space
             captured["storage_path"] = run_config.storage_path
             captured["run_name"] = run_config.name
             captured["callbacks"] = run_config.callbacks
@@ -324,8 +333,13 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
     )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
-        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.tune",
+        SimpleNamespace(
+            RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig
+        ),
+    )
     monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
@@ -333,6 +347,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         detector=[tmp_path / "yolov8n.pt"],
         reid=[tmp_path / "osnet_x0_25_msmt17.pt"],
         tracker="strongsort",
+        variable_dt=variable_dt,
+        tracker_backend=backend,
         experiment="mot17-mini",
         maximize=("HOTA",),
         minimize=(),
@@ -343,8 +359,16 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
         verbose=False,
     )
 
-    tuner_module.main(args)
+    scale = 2.0 if backend == "python" else 1.0
+    tuner_module.Tuner(args, baseline_config={"kf_process_position_scale": scale}).fit()
 
+    expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kf_process_position_scale": scale}
+    assert all(captured["param_space"][key] == value for key, value in expected_scales.items())
+    assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["search_kwargs"]["points_to_evaluate"][0])
+    assert captured["param_space"]["variable_dt"] is bool(variable_dt)
+    assert captured["param_space"]["kf_time_unit"] == ("seconds" if variable_dt else "frames")
+    assert captured["param_space"]["kf_reference_dt_s"] == DEFAULT_REFERENCE_DT_S
+    assert args.variable_dt is bool(variable_dt)
     assert "restore_path" not in captured
     assert Path(captured["storage_path"]).is_absolute()
     assert Path(captured["storage_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini").resolve()
@@ -356,6 +380,11 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path):
     assert captured["ray_init_kwargs"]["log_to_driver"] is False
     assert os.environ["RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO"] == "0"
     assert any(title == tune_reporting.TUNE_OPTIMIZE_STEP for title, _ in detail_updates)
+    first_detail = next(detail for title, detail in detail_updates if title == tune_reporting.TUNE_OPTIMIZE_STEP)
+    initial = ui_module.capture_renderable(first_detail, width=120)
+    assert "0/3 trials" in initial
+    assert "pending" in initial
+    assert "running" not in initial
     assert captured["fit"] is True
     assert workflow_state["stopped"] is True
 
@@ -374,6 +403,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         "eval_setup",
         lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
+
     def _fake_create_pipeline(reporter, **kwargs):
         wf = SimpleNamespace(
             _started=True,
@@ -387,20 +417,45 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             transition=lambda *a, **k: None,
             stop=lambda: None,
         )
+
         class _FP:
             workflow = wf
-            def advance(self, *a, **k): pass
-            def start(self): pass
-            def stop(self): pass
-            def finish(self, *a, **k): pass
-            def callback(self, *a, **k): return lambda msg: None
-            def complete_step(self, *a, **k): pass
-            def update(self, *a, **k): pass
-            def refresh_fields(self, *a, **k): pass
-            def step(self, *a, **k): return "fake"
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
+
+            def advance(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def finish(self, *a, **k):
+                pass
+
+            def callback(self, *a, **k):
+                return lambda msg: None
+
+            def complete_step(self, *a, **k):
+                pass
+
+            def update(self, *a, **k):
+                pass
+
+            def refresh_fields(self, *a, **k):
+                pass
+
+            def step(self, *a, **k):
+                return "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
         return _FP()
+
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
@@ -434,8 +489,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
             captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
             captured["callbacks"] = run_config.callbacks
             captured["callback_has_workflow_lock"] = any(
-                hasattr(callback, "_lock")
-                for callback in run_config.callbacks or []
+                hasattr(callback, "_lock") for callback in run_config.callbacks or []
             )
             captured["verbose"] = run_config.verbose
 
@@ -478,8 +532,13 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
     )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
-        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.tune",
+        SimpleNamespace(
+            RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig
+        ),
+    )
     monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
@@ -509,10 +568,10 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
 
 
 def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
-    updates: list[tuple[str, str]] = []
+    updates: list[tuple[str, object]] = []
     workflow = SimpleNamespace(
         _lock=threading.RLock(),
-        set_detail=lambda title, detail: updates.append((title, detail)),
+        set_detail_renderable=lambda title, detail: updates.append((title, detail)),
     )
     callback = tune_reporting.TuneWorkflowCallback(total=1, maximize=["HOTA"], minimize=[])
 
@@ -556,6 +615,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         "eval_setup",
         lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
+
     def _fake_create_pipeline(reporter, **kwargs):
         wf = SimpleNamespace(
             _started=True,
@@ -568,20 +628,45 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
             transition=lambda *a, **k: None,
             stop=lambda: None,
         )
+
         class _FP:
             workflow = wf
-            def advance(self, *a, **k): pass
-            def start(self): pass
-            def stop(self): pass
-            def finish(self, *a, **k): pass
-            def callback(self, *a, **k): return lambda msg: None
-            def complete_step(self, *a, **k): pass
-            def update(self, *a, **k): pass
-            def refresh_fields(self, *a, **k): pass
-            def step(self, *a, **k): return "fake"
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
+
+            def advance(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def finish(self, *a, **k):
+                pass
+
+            def callback(self, *a, **k):
+                return lambda msg: None
+
+            def complete_step(self, *a, **k):
+                pass
+
+            def update(self, *a, **k):
+                pass
+
+            def refresh_fields(self, *a, **k):
+                pass
+
+            def step(self, *a, **k):
+                return "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
         return _FP()
+
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
@@ -649,8 +734,13 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
     )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
-        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.tune",
+        SimpleNamespace(
+            RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig
+        ),
+    )
     monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
@@ -690,6 +780,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         "eval_setup",
         lambda args, pipeline=None: setattr(args, "project", (tmp_path / "runs").resolve()),
     )
+
     def _fake_create_pipeline(reporter, **kwargs):
         wf = SimpleNamespace(
             start=lambda: None,
@@ -700,20 +791,45 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
             transition=lambda *a, **k: None,
             stop=lambda: None,
         )
+
         class _FP:
             workflow = wf
-            def advance(self, *a, **k): pass
-            def start(self): pass
-            def stop(self): pass
-            def finish(self, *a, **k): pass
-            def callback(self, *a, **k): return lambda msg: None
-            def complete_step(self, *a, **k): pass
-            def update(self, *a, **k): pass
-            def refresh_fields(self, *a, **k): pass
-            def step(self, *a, **k): return "fake"
-            def __enter__(self): return self
-            def __exit__(self, *a): pass
+
+            def advance(self, *a, **k):
+                pass
+
+            def start(self):
+                pass
+
+            def stop(self):
+                pass
+
+            def finish(self, *a, **k):
+                pass
+
+            def callback(self, *a, **k):
+                return lambda msg: None
+
+            def complete_step(self, *a, **k):
+                pass
+
+            def update(self, *a, **k):
+                pass
+
+            def refresh_fields(self, *a, **k):
+                pass
+
+            def step(self, *a, **k):
+                return "fake"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                pass
+
         return _FP()
+
     monkeypatch.setattr(tune_reporting.TuneWorkflowReporter, "pipeline", _fake_create_pipeline)
 
     class _FakeOptunaSearch:
@@ -778,8 +894,13 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
     )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
-        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.tune",
+        SimpleNamespace(
+            RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig
+        ),
+    )
     monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
@@ -1011,8 +1132,13 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
     )
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
-    monkeypatch.setitem(sys.modules, "ray.tune", SimpleNamespace(
-        RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig))
+    monkeypatch.setitem(
+        sys.modules,
+        "ray.tune",
+        SimpleNamespace(
+            RunConfig=_FakeRunConfig, FailureConfig=_FakeFailureConfig, CheckpointConfig=_FakeCheckpointConfig
+        ),
+    )
     monkeypatch.setitem(sys.modules, "ray.tune.search", SimpleNamespace(ConcurrencyLimiter=_FakeConcurrencyLimiter))
     monkeypatch.setitem(sys.modules, "ray.tune.search.optuna", SimpleNamespace(OptunaSearch=_FakeOptunaSearch))
 
@@ -1092,21 +1218,23 @@ def test_tune_workflow_renderable_is_compact_and_complete() -> None:
     )
     workflow.complete(tune_reporting.TUNE_SETUP_STEP, render=False)
     workflow.activate(tune_reporting.TUNE_OPTIMIZE_STEP, render=False)
-    workflow.set_detail(
+    workflow.set_detail_renderable(
         tune_reporting.TUNE_OPTIMIZE_STEP,
-        "Tune     20%  (2/10)  running trial 3/10  remaining 00:34",
+        tune_reporting.format_tune_progress(2, 10, current_trial=3, remaining_seconds=34),
         render=False,
     )
 
     rendered = ui_module.capture_renderable(workflow.renderable(compact=True), width=180)
 
-    assert rendered.count("\n") + 1 <= 12
+    assert rendered.count("\n") + 1 <= 14
     assert "Setup" in rendered
     assert "Pipeline" in rendered
     assert "OBJECTIVE" in rendered
     assert "Pareto: max HOTA, MOTA / min IDSW_rate" in rendered
     assert "[✓] Setup / [>] Optimize" in rendered
-    assert "Tune     20%  (2/10)  running trial 3/10  remaining 00:34" in rendered
+    assert "Tuning: 2/10 trials done" in rendered
+    assert "2/10 trials" in rendered
+    assert "running · trial 3/10 · remaining 00:34" in rendered
 
 
 def test_build_tune_artifacts_renderable_lists_paths() -> None:

@@ -3,6 +3,7 @@ from typing import Tuple
 import numpy as np
 
 from boxmot.motion.kalman_filters.base import BaseKalmanFilter
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 
 
 class KalmanFilterXYWH(BaseKalmanFilter):
@@ -13,10 +14,10 @@ class KalmanFilterXYWH(BaseKalmanFilter):
     - `ndim=5`: [x, y, w, h, theta]
     """
 
-    def __init__(self, ndim: int = 4):
+    def __init__(self, ndim: int = 4, *, noise_config: KalmanNoiseConfig | None = None):
         if ndim not in (4, 5):
             raise ValueError("ndim must be 4 (AABB) or 5 (OBB)")
-        super().__init__(ndim=ndim)
+        super().__init__(ndim=ndim, noise_config=noise_config)
         self._is_obb = ndim == 5
 
     def _get_initial_covariance_std(self, measurement: np.ndarray) -> np.ndarray:
@@ -32,7 +33,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         ]
         if self._is_obb:
             std.insert(4, 1e-2)  # theta
-            std.append(1e-5)     # v_theta
+            std.append(1e-5)  # v_theta
         return std
 
     def _get_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -64,9 +65,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             std_noise.append(1e-1)
         return std_noise
 
-    def _get_multi_process_noise_std(
-        self, mean: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_multi_process_noise_std(self, mean: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         std_pos = [
             self._std_weight_position * mean[:, 2],
             self._std_weight_position * mean[:, 3],
@@ -85,9 +84,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         return std_pos, std_vel
 
     @classmethod
-    def _align_obb_measurement(
-        cls, measurement: np.ndarray, reference: np.ndarray
-    ) -> np.ndarray:
+    def _align_obb_measurement(cls, measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
         """
         Resolve OBB representation ambiguity before update.
 
@@ -141,15 +138,19 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         mean = self._enforce_xywh_constraints(mean, self._is_obb)
         return mean, covariance
 
-    def predict(self, mean: np.ndarray, covariance: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        mean, covariance = super().predict(mean, covariance)
+    def predict(
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Predict box geometry over the supplied elapsed interval."""
+        mean, covariance = super().predict(mean, covariance, dt=dt)
         mean = self._enforce_xywh_constraints(mean, self._is_obb)
         return mean, covariance
 
     def multi_predict(
-        self, mean: np.ndarray, covariance: np.ndarray
+        self, mean: np.ndarray, covariance: np.ndarray, *, dt: float | None = None
     ) -> Tuple[np.ndarray, np.ndarray]:
-        mean, covariance = super().multi_predict(mean, covariance)
+        """Predict a batch of boxes over the supplied elapsed interval."""
+        mean, covariance = super().multi_predict(mean, covariance, dt=dt)
         if self._is_obb:
             mean[:, 2] = np.maximum(mean[:, 2], 1e-4)
             mean[:, 3] = np.maximum(mean[:, 3], 1e-4)
@@ -171,9 +172,7 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             measurement_arr = np.asarray(measurement, dtype=float).copy()
             if mean_arr.ndim == 2:
                 measurement_arr = measurement_arr.reshape((self.ndim, 1))
-                aligned = self._align_obb_measurement(
-                    measurement_arr[:, 0], mean_arr[:, 0]
-                )
+                aligned = self._align_obb_measurement(measurement_arr[:, 0], mean_arr[:, 0])
                 measurement_arr[:, 0] = aligned
             else:
                 measurement_arr = measurement_arr.reshape((self.ndim,))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import click
@@ -10,10 +11,13 @@ import click
 from boxmot.engine.commands._options import (
     build_selection_options,
     data_root_option,
+    dataset_fps_option,
     experiment_option,
+    kalman_calibration_option,
     replay_options,
     split_option,
     tracker_backend_option,
+    tracker_config_option,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _require_experiment_input
 from boxmot.engine.config import BOXMOT_DEFAULTS
@@ -155,8 +159,11 @@ def _tune_options(func):
 @build_selection_options
 @data_root_option
 @split_option
+@dataset_fps_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
+@tracker_config_option
 @replay_options(mode="tune", parallel=True)
+@kalman_calibration_option(mode="tune")
 @_tune_options
 @click.pass_context
 def tune(
@@ -166,17 +173,36 @@ def tune(
     build_root: Path | None,
     data_root: Path | None,
     split: str | None,
+    calibrate_kf: bool,
     **kwargs: Any,
 ) -> None:
     """Tune a tracker against an immutable materialized build."""
 
     experiment = _require_experiment_input(experiment, "tune")
+    if calibrate_kf:
+        if kwargs.get("resume_tune"):
+            raise click.UsageError(
+                "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
+            )
+        from boxmot.engine.tracker_config import resolve_tracker_options
+        from boxmot.engine.tuning.kalman import validate_kf_calibration
+        from boxmot.trackers.specs import parse_tracker_spec
+
+        try:
+            tracker_spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])
+            validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
+            resolve_tracker_options(
+                SimpleNamespace(**{**kwargs, "tracker": tracker_spec.name, "tracker_backend": tracker_spec.backend})
+            )
+        except (TypeError, ValueError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
     _dispatch_cli_workflow(
         ctx,
         "tune",
         "boxmot.engine.tuning.tuner",
         {
             **kwargs,
+            "calibrate_kf": calibrate_kf,
             "experiment": experiment,
             "build": build_ref,
             "build_root": build_root,

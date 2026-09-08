@@ -1,9 +1,9 @@
 """Tracker configuration loading.
 
 Built-in tracker YAMLs colocate runtime defaults and tuning metadata. This
-module extracts only the runtime values; interpretation of search metadata
-remains owned by :mod:`boxmot.engine.tuning`. Reusable presets and custom
-runtime configs are plain scalar mappings.
+module resolves scalar runtime values;
+interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
+Reusable presets and custom runtime configs are plain scalar mappings.
 """
 
 from __future__ import annotations
@@ -50,9 +50,7 @@ def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
     payload = _load_mapping(path, label=label)
 
     non_scalar = [
-        str(key)
-        for key, value in payload.items()
-        if not isinstance(value, (str, int, float, bool, type(None)))
+        str(key) for key, value in payload.items() if not isinstance(value, (str, int, float, bool, type(None)))
     ]
     if non_scalar:
         names = ", ".join(non_scalar)
@@ -71,9 +69,7 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
     def _visit(entries: Mapping[str, Any]) -> None:
         for parameter, details in entries.items():
             if not isinstance(details, Mapping):
-                raise ValueError(
-                    f'Tracker config {path} entry "{parameter}" must be a mapping containing a default.'
-                )
+                raise ValueError(f'Tracker config {path} entry "{parameter}" must be a mapping containing a default.')
             if parameter in flattened:
                 raise ValueError(f'Tracker config {path} defines parameter "{parameter}" more than once.')
             flattened[str(parameter)] = details
@@ -82,9 +78,7 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
             if children is None:
                 continue
             if not isinstance(children, Mapping):
-                raise ValueError(
-                    f'Tracker config {path} entry "{parameter}" has a non-mapping activates block.'
-                )
+                raise ValueError(f'Tracker config {path} entry "{parameter}" has a non-mapping activates block.')
             _visit(children)
 
     _visit(config)
@@ -108,9 +102,7 @@ def _strip_tracker_metadata(
         return resolved
 
     if declared_tracker != expected_tracker:
-        raise ValueError(
-            f'Tracker config {path} is for "{declared_tracker}", not "{expected_tracker}".'
-        )
+        raise ValueError(f'Tracker config {path} is for "{declared_tracker}", not "{expected_tracker}".')
     return resolved
 
 
@@ -121,33 +113,27 @@ def load_tracker_schema(tracker_name: str) -> dict[str, Any]:
     if not path.is_file():
         available = sorted(candidate.stem for candidate in TRACKER_CONFIGS_DIR.glob("*.yaml"))
         raise FileNotFoundError(
-            f"Tracker config not found: {path}\n"
-            f"Available trackers: {', '.join(available) or '(none)'}"
+            f"Tracker config not found: {path}\nAvailable trackers: {', '.join(available) or '(none)'}"
         )
     return _load_mapping(path, label="tracker")
 
 
 def load_tracker_defaults(tracker_name: str) -> dict[str, Any]:
-    """Extract scalar runtime defaults from one built-in tracker schema."""
+    """Extract runtime defaults from the tracker schema."""
 
     path = get_tracker_config_path(tracker_name)
     entries = _flatten_tracker_entries(load_tracker_schema(tracker_name), path=path)
     missing = sorted(parameter for parameter, details in entries.items() if "default" not in details)
     if missing:
-        raise ValueError(
-            f"Tracker config {path} must define a runtime default for: {', '.join(missing)}"
-        )
+        raise ValueError(f"Tracker config {path} must define a runtime default for: {', '.join(missing)}")
 
     defaults = {parameter: details["default"] for parameter, details in entries.items()}
     non_scalar = sorted(
-        parameter
-        for parameter, value in defaults.items()
-        if not isinstance(value, (str, int, float, bool, type(None)))
+        parameter for parameter, value in defaults.items() if not isinstance(value, (str, int, float, bool, type(None)))
     )
     if non_scalar:
         raise ValueError(
-            f"Tracker config {path} runtime defaults must be scalar values; invalid entries: "
-            f"{', '.join(non_scalar)}"
+            f"Tracker config {path} runtime defaults must be scalar values; invalid entries: {', '.join(non_scalar)}"
         )
     return defaults
 
@@ -192,9 +178,7 @@ def load_tracker_config(
         if config_path != default_path:
             is_builtin_config = config_path.parent == TRACKER_CONFIGS_DIR.resolve()
             if is_builtin_config and config_path.stem != tracker_name:
-                raise ValueError(
-                    f'Tracker config {config_path} is for "{config_path.stem}", not "{tracker_name}".'
-                )
+                raise ValueError(f'Tracker config {config_path} is for "{config_path.stem}", not "{tracker_name}".')
             is_builtin_preset = config_path.parent == TRACKER_PRESETS_DIR.resolve()
             overlay = _strip_tracker_metadata(
                 _load_scalar_mapping(config_path, label="tracker"),

@@ -41,9 +41,6 @@ class BaseTrack(BoxTrack):
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilterXYWH()
-    shared_kalman_obb = KalmanFilterXYWH(ndim=5)
-
     def __init__(
         self,
         det,

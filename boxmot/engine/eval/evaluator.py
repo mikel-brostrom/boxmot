@@ -2,7 +2,7 @@
 
 Evaluation is intentionally a consumer of an explicit immutable dataset build.
 It never creates detections, masks, or embeddings and never selects a "latest"
-cache. Ground truth remains in the raw dataset selected by the dataset adapter.
+cache. Ground truth follows the dataset adapter's frame selection.
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import argparse
 import json
 import time
 from collections.abc import Mapping
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +20,7 @@ from boxmot.datasets import DatasetManifest
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.dataset_resources import ensure_dataset_split_available
+from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
     catalog_mot_dataset_for_evaluation,
@@ -35,6 +37,7 @@ from boxmot.engine.materialization.catalog import (
     resolve_dataset_annotation_root,
     resolve_dataset_split_root,
 )
+from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.engine.ui.reporters.eval import (
     EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
@@ -201,6 +204,16 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
     build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
     manifest = DatasetManifest.load(build_path)
+    recorded_fps = manifest.metadata.get("fps")
+    requested_fps = getattr(args, "fps", None)
+    if requested_fps is not None and requested_fps != recorded_fps:
+        recorded_label = "native FPS" if recorded_fps is None else f"{recorded_fps:g} FPS"
+        raise ValueError(
+            f"Build {manifest.build_id!r} uses {recorded_label}, but --fps {requested_fps:g} was requested. "
+            "Omit --build for automatic materialization, or create a matching build with "
+            f"boxmot materialize --experiment <experiment-yaml> --fps {requested_fps:g}."
+        )
+    args.fps = recorded_fps if requested_fps is None else requested_fps
     ensure_dataset_split_available(
         dataset,
         split=split,
@@ -212,6 +225,7 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         split=split,
         data_root=getattr(args, "data_root", None),
         status_callback=status_callback,
+        fps=args.fps,
     )
     component_fingerprints = None
     if experiment is not None:
@@ -257,6 +271,17 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     else:
         args.sequence_names = None
     split_root = _split_root(dataset, getattr(args, "data_root", None))
+    gt_folder = resolve_dataset_annotation_root(dataset, split, getattr(args, "data_root", None))
+    if args.fps is not None:
+        if status_callback is not None:
+            status_callback(f"Aligning ground truth to {args.fps:g} FPS…")
+        variant_key = fingerprint({"catalog": catalog.fingerprint, "root": catalog.source_root.as_uri()})
+        split_root, gt_folder = materialize_fps_ground_truth(
+            dataset,
+            catalog,
+            Path(getattr(args, "project", None) or "runs") / ".fps-ground-truth" / variant_key,
+            data_root=getattr(args, "data_root", None),
+        )
     sequence_paths = []
     for name in sorted(sequence_lengths):
         path = split_root / name
@@ -270,11 +295,7 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     args.eval_box_type = args.geometry
     args.source = split_root
     split_config = dataset["splits"][split]
-    args.gt_folder = resolve_dataset_annotation_root(
-        dataset,
-        split,
-        getattr(args, "data_root", None),
-    )
+    args.gt_folder = gt_folder
     args.seq_paths = tuple(sequence_paths)
     args.seq_info = sequence_lengths
     args.evaluation_config = {
@@ -304,9 +325,7 @@ def _tracker_options(
     args: argparse.Namespace,
     overrides: Mapping[str, Any] | None,
 ) -> tuple[tuple[str, Any], ...]:
-    options: dict[str, Any] = dict(overrides or {})
-    if getattr(args, "asso_func", None):
-        options["asso_func"] = str(args.asso_func)
+    options = resolve_tracker_options(args, overrides)
     return tuple((str(key), freeze_json(value, location=f"tracker.{key}")) for key, value in sorted(options.items()))
 
 
@@ -325,7 +344,7 @@ def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None 
 def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | None) -> Path:
     base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
     if overrides:
-        base = base / "trials" / fingerprint(dict(overrides))[:16]
+        base = base / "trials" / fingerprint(dict(_tracker_options(args, overrides)))[:16]
         base.mkdir(parents=True, exist_ok=True)
         return base
     return increment_path(base, exist_ok=bool(getattr(args, "exist_ok", False)), mkdir=True)
@@ -374,6 +393,7 @@ def run_eval(
     show_progress: bool | None = None,
     pipeline: Any | None = None,
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
+    output_dir: Path | None = None,
 ) -> ValidationResult:
     """Replay one explicit build and evaluate it; perception is never run here."""
 
@@ -390,7 +410,7 @@ def run_eval(
         pipeline.advance("Replaying materialized detections through the tracker…")
     spec = _tracker_spec(args, evolve_config)
 
-    output_dir = _output_directory(args, evolve_config)
+    output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
     presenter = None
     if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
         presenter = EvalSequenceProgressPresenter(
@@ -398,7 +418,23 @@ def run_eval(
             args.seq_info,
         )
     started = time.perf_counter()
-    if presenter is None:
+    visualization = None
+    with ExitStack() as contexts:
+        replay_callbacks = {}
+        if presenter is not None:
+            replay_callbacks["progress_callback"] = contexts.enter_context(presenter)
+        if bool(getattr(args, "show", False)) or bool(getattr(args, "save", False)):
+            from boxmot.engine.eval.visualization import ReplayVisualization
+
+            visualization = contexts.enter_context(
+                ReplayVisualization(
+                    output_dir,
+                    show=bool(getattr(args, "show", False)),
+                    save=bool(getattr(args, "save", False)),
+                    class_names=dict(args.tracker_class_names),
+                )
+            )
+            replay_callbacks["frame_callback"] = visualization
         replay = replay_build(
             args.build_path,
             spec,
@@ -407,19 +443,10 @@ def run_eval(
             sequence_ids=args.sequence_names,
             sequence_frame_counts=args.seq_info,
             workers=int(getattr(args, "n_threads", 1)),
+            **replay_callbacks,
         )
-    else:
-        with presenter:
-            replay = replay_build(
-                args.build_path,
-                spec,
-                split=args.split,
-                output_dir=output_dir,
-                sequence_ids=args.sequence_names,
-                sequence_frame_counts=args.seq_info,
-                workers=int(getattr(args, "n_threads", 1)),
-                progress_callback=presenter,
-            )
+    args.video_paths = () if visualization is None else tuple(visualization.video_paths)
+    if presenter is not None:
         pipeline.store_step_info(presenter.renderable, step=EvalWorkflowReporter.TRACK)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     if pipeline is not None:
@@ -453,13 +480,35 @@ def main(args: argparse.Namespace) -> ValidationResult:
 
     pipeline = EvalWorkflowReporter(args).pipeline()
     with pipeline:
+        calibration = None
         with suppress_boxmot_logs(True, level="WARNING"):
-            result = run_eval(args, prepare_cache=False, verbose=False, pipeline=pipeline)
+            if getattr(args, "calibrate_kf", False):
+                from boxmot.engine.tuning.kalman import calibrate_kalman
+
+                eval_setup(args, pipeline=pipeline)
+                output_dir = _output_directory(args, None)
+                calibration = calibrate_kalman(args, output_dir=output_dir, progress=pipeline.update)
+                args.tracker_config = str(calibration.config_path)
+                result = run_eval(args, setup=False, verbose=False, pipeline=pipeline, output_dir=output_dir)
+                calibration.record_final(result)
+            else:
+                result = run_eval(args, prepare_cache=False, verbose=False, pipeline=pipeline)
+        rendered = result.renderable(
+            include_sequences=result.summary_label == "single_class",
+            include_timings=bool(getattr(args, "show_timing", False)),
+        )
+        if calibration is not None or getattr(args, "video_paths", ()):
+            from rich.console import Group
+            from rich.text import Text
+
+            details = []
+            if calibration is not None:
+                details.append(Text(calibration.description))
+            if getattr(args, "video_paths", ()):
+                details.append(Text("Saved tracking videos:\n" + "\n".join(map(str, args.video_paths))))
+            rendered = Group(*details, rendered)
         pipeline.finish(
-            result.renderable(
-                include_sequences=result.summary_label == "single_class",
-                include_timings=bool(getattr(args, "show_timing", False)),
-            ),
+            rendered,
             exp_dir=result.exp_dir,
         )
         return result

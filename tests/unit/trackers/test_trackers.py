@@ -11,15 +11,12 @@ import torch
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.box.deepocsort.track import KalmanBoxTracker as DeepOCSortKalmanBoxTracker
 from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
 from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OCSortKalmanBoxTracker
 from boxmot.trackers.box.ocsort.tracker import OcSort
 from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.common.geometry.obb import normalize_angle
-from boxmot.trackers.common.tracking.track import TrackIdAllocator
-from boxmot.trackers.config import load_tracker_defaults
+from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
 TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
@@ -192,36 +189,43 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     assert "longterm_bank_length" in tuning_config["use_embeddings"]["activates"]
 
 
-@pytest.mark.parametrize("track_type", (OcSort, DeepOcSort))
-def test_q_matrix_scaling_is_applied_to_ocsort_family(track_type) -> None:
-    q_xy = 0.05
-    q_scale = 0.0005
-    tracker = (
-        track_type(Q_xy_scaling=q_xy, Q_s_scaling=q_scale, use_embeddings=False, cmc_off=True)
-        if (track_type is DeepOcSort)
-        else track_type(Q_xy_scaling=q_xy, Q_s_scaling=q_scale)
+@pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort"])
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+@pytest.mark.parametrize("velocity_scale", [1.0, 5.0])
+def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
+    tracker_name: str, geometry: str, velocity_scale: float
+) -> None:
+    tracker = create_tracker(
+        TrackerSpec(tracker_name, geometry=geometry, options=(("kf_process_velocity_scale", velocity_scale),))
     )
-    bbox = np.array([0, 0, 100, 100, 0.9], dtype=np.float32)
-    if track_type is DeepOcSort:
-        track = DeepOCSortKalmanBoxTracker(
-            np.concatenate((bbox, [1, 0])),
-            Q_xy_scaling=tracker.Q_xy_scaling,
-            Q_s_scaling=tracker.Q_s_scaling,
-            id_allocator=TrackIdAllocator(),
-        )
-    else:
-        track = OCSortKalmanBoxTracker(
-            bbox,
-            cls=1,
-            det_ind=0,
-            Q_xy_scaling=tracker.Q_xy_scaling,
-            Q_s_scaling=tracker.Q_s_scaling,
-            id_allocator=TrackIdAllocator(),
-        )
+    rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
+    _update(tracker, rows, frame_index=0)
+    kalman = tracker.active_tracks[0].kf
+    velocity_priors = [0.01, 0.01, 0.0001, 0.0001] if geometry == "obb" else [0.01, 0.01, 0.0001]
+    prior = np.diag([1.0] * kalman.dim_z + velocity_priors)
+    np.testing.assert_allclose(kalman.Q, prior)
 
-    assert track.kf.Q[4, 4] == q_xy
-    assert track.kf.Q[5, 5] == q_xy
-    assert track.kf.Q[6, 6] == q_scale
+    kalman.P.fill(0.0)
+    kalman.predict()
+
+    expected = prior.copy()
+    expected[kalman.dim_z :, kalman.dim_z :] *= velocity_scale
+    np.testing.assert_allclose(kalman.P, expected)
+    np.testing.assert_allclose(kalman.Q, prior)
+
+
+@pytest.mark.parametrize("tracker_name, tracker_type", [("ocsort", OcSort), ("deepocsort", DeepOcSort)])
+@pytest.mark.parametrize("parameter", ["Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"])
+@pytest.mark.parametrize("source", ["constructor", "config"])
+def test_removed_sort_noise_parameters_are_rejected(tmp_path, tracker_name, tracker_type, parameter, source) -> None:
+    with pytest.raises(TypeError, match=f"unexpected keyword argument '{parameter}'"):
+        if source == "constructor":
+            tracker_type(**{parameter: 0.2})
+        else:
+            config = tmp_path / "tracker.yaml"
+            config.write_text(f"{parameter}: 0.2\n")
+            options = load_tracker_config(tracker_name, config)
+            tracker_type(**options)
 
 
 def test_per_class_tracking_accepts_sparse_detector_class_ids() -> None:

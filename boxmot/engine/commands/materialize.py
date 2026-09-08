@@ -6,7 +6,7 @@ from pathlib import Path
 
 import click
 
-from boxmot.engine.commands._options import experiment_option
+from boxmot.engine.commands._options import dataset_fps_option, experiment_option
 from boxmot.engine.commands._support import _dispatch_cli_workflow
 from boxmot.engine.config import BOXMOT_DEFAULTS
 
@@ -18,6 +18,7 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
     help="Single execution device for all perception stages, e.g. cpu, mps, cuda:0, or 0.",
 )
 @experiment_option(required=True)
+@dataset_fps_option
 @click.option("--publish-image-refs/--no-publish-image-refs", default=True, show_default=True)
 @click.option("--publish-masks/--no-publish-masks", default=False, show_default=True)
 @click.option("--publish-embeddings/--no-publish-embeddings", default=True, show_default=True)
@@ -61,6 +62,7 @@ def materialize(
     ctx: click.Context,
     experiment: str,
     device: str,
+    fps: float | None,
     publish_image_refs: bool,
     publish_masks: bool,
     publish_embeddings: bool,
@@ -79,6 +81,7 @@ def materialize(
         {
             "experiment": experiment,
             "device": device,
+            "fps": fps,
             "publish_image_refs": publish_image_refs,
             "publish_masks": publish_masks,
             "publish_embeddings": publish_embeddings,

@@ -2,8 +2,6 @@
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.xyah import KalmanFilterXYAH
-from boxmot.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.geometry import tlwh2xyah, xywh2tlwh, xyxy2xywh
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
@@ -28,9 +26,6 @@ class BaseTrack(BoxTrack):
 
 
 class STrack(BaseTrack):
-    shared_kalman = KalmanFilterXYAH()
-    shared_kalman_obb = KalmanFilterXYWH(ndim=5)
-
     def __init__(self, det, max_obs, id_allocator: TrackIdAllocator, is_obb: bool = False):
         super().__init__(det, id_allocator=id_allocator, max_obs=max_obs, is_obb=is_obb)
 

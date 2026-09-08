@@ -8,6 +8,7 @@ from collections import deque
 
 import numpy as np
 
+from boxmot.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.geometry.obb import (
     smooth_obb_corners,
     transform_obb,
@@ -61,11 +62,10 @@ class KalmanBoxTracker(SortBoxTrack):
         det_ind,
         delta_t=3,
         max_obs=50,
-        Q_xy_scaling=0.01,
-        Q_s_scaling=0.0001,
         is_obb=False,
-        Q_a_scaling=0.0001,
         id_allocator: TrackIdAllocator | None = None,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
     ):
         """
         Initialises a tracker using initial bounding box.
@@ -74,9 +74,6 @@ class KalmanBoxTracker(SortBoxTrack):
         # define constant velocity model
         self.det_ind = det_ind
 
-        self.Q_xy_scaling = Q_xy_scaling
-        self.Q_s_scaling = Q_s_scaling
-        self.Q_a_scaling = Q_a_scaling
         self.is_obb = is_obb
         self.motion_model = create_motion_model(
             MotionModelKind.XYSR,
@@ -85,7 +82,7 @@ class KalmanBoxTracker(SortBoxTrack):
         )
 
         if self.is_obb:
-            self.kf = self.motion_model.create_filter()
+            self.kf = self.motion_model.create_filter(noise_config=noise_config)
             self.kf.F = np.array(
                 [
                     [1, 0, 0, 0, 0, 1, 0, 0, 0],  # x += vx
@@ -112,12 +109,9 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.P[5:, 5:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
             self.kf.P *= 10.0
 
-            self.kf.Q[5:7, 5:7] *= self.Q_xy_scaling
-            self.kf.Q[7, 7] *= self.Q_s_scaling
-            self.kf.Q[8, 8] *= self.Q_a_scaling
             self.kf.x[:5] = self.motion_model.to_measurement(bbox[:5])
         else:
-            self.kf = self.motion_model.create_filter()
+            self.kf = self.motion_model.create_filter(noise_config=noise_config)
             self.kf.F = np.array(
                 [
                     [1, 0, 0, 0, 1, 0, 0],
@@ -142,8 +136,6 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.P[4:, 4:] *= 1000.0  # give high uncertainty to the unobservable initial velocities
             self.kf.P *= 10.0
 
-            self.kf.Q[4:6, 4:6] *= self.Q_xy_scaling
-            self.kf.Q[-1, -1] *= self.Q_s_scaling
             self.kf.x[:4] = self.motion_model.to_measurement(bbox)
         self._assign_sort_id(id_allocator=id_allocator)
         self._init_sort_counters(max_obs=max_obs)
@@ -225,18 +217,19 @@ class KalmanBoxTracker(SortBoxTrack):
             self.kf.update(bbox)
             sync_track_meta(self)
 
-    def predict(self):
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
+        interval = 1.0 if dt is None else dt
         if self.is_obb:
-            if (self.kf.x[7] + self.kf.x[2]) <= 0:
+            if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
                 self.kf.x[7] *= 0.0
         else:
-            if (self.kf.x[6] + self.kf.x[2]) <= 0:
+            if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
                 self.kf.x[6] *= 0.0
 
-        self.kf.predict()
+        self.kf.predict(dt=dt)
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -288,6 +281,7 @@ class KalmanBoxTracker(SortBoxTrack):
 
         self._transform_cached_velocity(transform, source_center)
         self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
+        self.kf.transform_timed_history(transform_state, warp_measurement)
         self.kf.history_obs = deque(
             (warp_measurement(item) for item in self.kf.history_obs),
             maxlen=self.kf.history_obs.maxlen,

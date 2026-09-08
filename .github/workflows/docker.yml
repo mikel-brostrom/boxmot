@@ -407,7 +407,7 @@ jobs:
             --request POST \
             --url http://127.0.0.1:8001/v1/streams/smoke-camera/sessions/smoke-run/frames \
             --header 'content-type: application/json' \
-            --data '{"frame_id":0,"width":32,"height":32,"frame_rate":30,"box_type":"aabb","detections":[[0.0,0.0,16.0,31.0,0.9,0]],"image_base64":"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJklEQVR4nO3NMQ0AAAwDoPo33arYsQQMkB6LQCAQCAQCgUAg+BIMi1X0pjxKe0gAAAAASUVORK5CYII="}' \
+            --data '{"frame_id":0,"frame_rate":30,"box_type":"aabb","detections":[[0.0,0.0,16.0,31.0,0.9,0]],"image_base64":"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJklEQVR4nO3NMQ0AAAwDoPo33arYsQQMkB6LQCAQCAQCgUAg+BIMi1X0pjxKe0gAAAAASUVORK5CYII="}' \
             > gpu-service-response.json
           python3 - <<'PY'
           import json

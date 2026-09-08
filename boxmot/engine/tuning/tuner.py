@@ -27,8 +27,10 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_DEDUP_LOGS", "1")
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
+
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
 from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
@@ -43,6 +45,7 @@ from boxmot.engine.tuning.postprocessing import (
 from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from boxmot.engine.tuning.search_space import (
     default_tune_config,
+    flatten_yaml_config,
     load_yaml_config,
     normalize_trial_config,
 )
@@ -58,7 +61,7 @@ from boxmot.engine.ui.reporters.tune import (
     set_tune_progress_workflow,
 )
 from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
-from boxmot.trackers.config import load_tracker_config
+from boxmot.motion.kalman_filters.noise import KALMAN_TIMING_OPTIONS, KALMAN_TRACKER_NAMES
 from boxmot.utils import logger as LOGGER
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
@@ -82,6 +85,7 @@ def run_eval(*args: Any, **kwargs: Any) -> Any:
 # Metric validation helpers
 # ---------------------------------------------------------------------------
 
+
 def _parse_metric_names(values: Any) -> list[str]:
     if values is None:
         return []
@@ -99,9 +103,7 @@ def _validate_tune_metrics(option_name: str, metrics: list[str], allowed_metrics
     invalid = [m for m in metrics if m not in allowed_metrics]
     if not invalid:
         return
-    suggestions = ", ".join(
-        f"{m}{_suggest(m, allowed_metrics)}" for m in invalid
-    )
+    suggestions = ", ".join(f"{m}{_suggest(m, allowed_metrics)}" for m in invalid)
     raise click.UsageError(
         f"Invalid value for {option_name}: {suggestions}\n"
         f"Available maximize metrics: {', '.join(MAXIMIZE_TUNE_METRICS)}\n"
@@ -120,6 +122,7 @@ def _suggest(metric: str, allowed: tuple[str, ...]) -> str:
 # Tuner class
 # ---------------------------------------------------------------------------
 
+
 class Tuner:
     """Orchestrates hyperparameter tuning via Ray Tune.
 
@@ -135,6 +138,8 @@ class Tuner:
         self._yaml_cfg: dict | None = None
         self._maximize: list[str] = []
         self._minimize: list[str] = []
+        self._calibrated_fixed_options: dict[str, Any] = {}
+        self._calibration_config_path: Path | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -143,6 +148,12 @@ class Tuner:
     def fit(self):
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
         self._resolve_metrics()
+        if getattr(self.args, "calibrate_kf", False):
+            from boxmot.engine.tuning.kalman import validate_kf_calibration
+
+            validate_kf_calibration(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
+            if getattr(self.args, "resume_tune", None):
+                raise ValueError("--calibrate-kf cannot be combined with --resume-tune; resume the saved calibration.")
         return self._run()
 
     # ------------------------------------------------------------------
@@ -152,9 +163,7 @@ class Tuner:
     def _resolve_metrics(self):
         args = self.args
         objectives = _parse_metric_names(getattr(args, "objectives", ()))
-        self._maximize = _parse_metric_names(getattr(args, "maximize", ())) or [
-            objectives[0] if objectives else "HOTA"
-        ]
+        self._maximize = _parse_metric_names(getattr(args, "maximize", ())) or [objectives[0] if objectives else "HOTA"]
         self._minimize = _parse_metric_names(getattr(args, "minimize", ()))
 
         _validate_tune_metrics("--objectives", objectives, ALL_TUNE_METRICS)
@@ -197,8 +206,7 @@ class Tuner:
         setattr(args, "search_alg", search_backend)
 
         baseline_overlay = normalize_trial_config(self.baseline_config)
-        runtime_config = load_tracker_config(args.tracker, None, baseline_overlay)
-        baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
+        runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
 
         max_concurrent = int(getattr(args, "max_concurrent_trials", 0)) or None
         if max_concurrent is None:
@@ -216,6 +224,41 @@ class Tuner:
             with pipeline:
                 pipeline.update("Initializing tuning runtime...")
                 pipeline.start()
+
+                pipeline.update("Preparing evaluation setup...")
+                with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
+                    eval_setup(args, pipeline=pipeline)
+
+                tune_dir = self._resolve_tune_dir()
+                tune_name = tune_dir.name
+                resume_tune = getattr(args, "resume_tune", None) or None
+
+                ray_dir = tune_dir.parent
+                if ray_dir.name != "ray" and ray_dir.parent.name == "ray":
+                    ray_dir = ray_dir.parent
+                if resume_tune and ray_dir.name == "ray":
+                    inferred_project = ray_dir.parent
+                    if inferred_project != Path(args.project).resolve():
+                        args.project = str(inferred_project)
+
+                runtime_config = self._prepare_kalman_calibration(runtime_config, tune_dir, pipeline)
+                # The local schema controls every backend's search dimensions.
+                # Preserve the selected KF model while optimizing association
+                # and track lifecycle parameters, without editing tracker YAMLs.
+                yaml_cfg = self._freeze_calibrated_schema(yaml_cfg)
+                self._yaml_cfg = yaml_cfg
+                self._runtime_config = runtime_config
+                flat_schema = flatten_yaml_config(yaml_cfg)
+                fixed_options = {
+                    parameter: value
+                    for parameter, value in runtime_config.items()
+                    if parameter not in flat_schema or set(flat_schema[parameter]) == {"default"}
+                }
+                fixed_options.update(self._calibrated_fixed_options)
+                if "variable_dt" in runtime_config:
+                    args.variable_dt = runtime_config["variable_dt"]
+                    fixed_options["variable_dt"] = args.variable_dt
+                baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
                 self._configure_warning_filters()
                 _sync_tuning_requirements(verbose=bool(getattr(args, "verbose", False)))
@@ -239,25 +282,13 @@ class Tuner:
                     max_concurrent=max_concurrent,
                 )
 
-                pipeline.update("Preparing evaluation setup...")
-                with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
-                    eval_setup(args, pipeline=pipeline)
+                # Runtime-only settings are recorded in every trial, never searched.
+                param_space.update(fixed_options)
 
                 pipeline.refresh_fields(build_tune_workflow_fields(args, maximize=maximize, minimize=minimize))
 
-                tune_dir = self._resolve_tune_dir()
-                tune_name = tune_dir.name
-                resume_tune = getattr(args, "resume_tune", None) or None
-
-                ray_dir = tune_dir.parent
-                if ray_dir.name != "ray" and ray_dir.parent.name == "ray":
-                    ray_dir = ray_dir.parent
-                if resume_tune and ray_dir.name == "ray":
-                    inferred_project = ray_dir.parent
-                    if inferred_project != Path(args.project).resolve():
-                        args.project = str(inferred_project)
-
-                pipeline.advance(format_initial_tune_progress(int(args.n_trials)))
+                pipeline.advance()
+                tune_callback.set_workflow_detail_renderable(format_initial_tune_progress(int(args.n_trials)))
 
                 objective = TrackerObjective(self._make_safe_namespace())
 
@@ -269,8 +300,16 @@ class Tuner:
 
                 # Build or restore the Ray Tuner
                 tuner = self._build_or_restore_tuner(
-                    trainable, tune, RunConfig, tune_callback, pipeline,
-                    param_space, search_alg, tune_dir, tune_name, max_concurrent,
+                    trainable,
+                    tune,
+                    RunConfig,
+                    tune_callback,
+                    pipeline,
+                    param_space,
+                    search_alg,
+                    tune_dir,
+                    tune_name,
+                    max_concurrent,
                 )
 
                 # Execute
@@ -293,9 +332,84 @@ class Tuner:
         finally:
             set_tune_progress_workflow(None)
 
+    def _prepare_kalman_calibration(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
+        """Fit KF noise once before search, or restore its fixed saved profile."""
+        from boxmot.engine.tuning.calibration_profile import CALIBRATED_KF_OPTIONS, load_tuning_calibration
+
+        if getattr(self.args, "calibrate_kf", False):
+            from boxmot.engine.tuning.kalman import calibrate_kalman
+
+            calibration = calibrate_kalman(
+                self.args,
+                output_dir=tune_dir,
+                progress=pipeline.update,
+                tracker_options=runtime_config,
+            )
+            self.args.tracker_config = str(calibration.config_path)
+            runtime_config = resolve_tracker_options(self.args, include_defaults=True, stamp_timing=True)
+            self._calibrated_fixed_options = {
+                key: runtime_config[key] for key in CALIBRATED_KF_OPTIONS if key in runtime_config
+            }
+            calibration.record_tuning(self._calibrated_fixed_options)
+            self._calibration_config_path = calibration.config_path
+            pipeline.update(f"{calibration.description}\nKeeping calibrated KF settings fixed during tracker tuning.")
+        elif getattr(self.args, "resume_tune", None):
+            restored = load_tuning_calibration(self.args, tune_dir, overrides=self.baseline_config)
+            if restored is not None:
+                runtime_config, self._calibrated_fixed_options = restored
+                self._calibration_config_path = tune_dir / "kf-tuning" / "calibrated.yaml"
+                if getattr(self.args, "tracker_config", None) is None:
+                    self.args.tracker_config = str(self._calibration_config_path)
+                pipeline.update(f"Restored fixed KF calibration: {self._calibration_config_path}")
+        return runtime_config
+
+    def _freeze_calibrated_schema(self, schema: dict) -> dict:
+        """Remove calibrated parameters from all search backends' local schema."""
+        if not self._calibrated_fixed_options:
+            return schema
+        fixed_schema = {}
+        for key, entry in schema.items():
+            if key in self._calibrated_fixed_options:
+                fixed_schema[key] = {"default": self._calibrated_fixed_options[key]}
+            elif isinstance(entry, dict) and isinstance(entry.get("activates"), dict):
+                fixed_schema[key] = {**entry, "activates": self._freeze_calibrated_schema(entry["activates"])}
+            else:
+                fixed_schema[key] = entry
+        return fixed_schema
+
+    def _validate_resumed_timing(self, results) -> None:
+        """Keep timing units and the reference prior basis fixed on resume."""
+        if self.args.tracker not in KALMAN_TRACKER_NAMES:
+            return
+        expected = getattr(self, "_runtime_config", None)
+        if expected is None:
+            expected = resolve_tracker_options(
+                self.args, self.baseline_config, include_defaults=True, stamp_timing=True
+            )
+        keys = ("variable_dt", *KALMAN_TIMING_OPTIONS)
+        for result in results:
+            saved = normalize_trial_config(result.config)
+            if any(key not in saved for key in keys):
+                raise ValueError("Saved Kalman trials lack explicit timing units/reference; start a new tuning run.")
+            if any(saved[key] != expected[key] for key in keys):
+                raise ValueError(
+                    "Resuming tuning requires the same variable_dt, kf_time_unit and kf_reference_dt_s as saved trials."
+                )
+            if any(saved.get(key) != value for key, value in self._calibrated_fixed_options.items()):
+                raise ValueError("Saved trials do not match the fixed KF calibration; start a new tuning run.")
+
     def _build_or_restore_tuner(
-        self, trainable, tune, RunConfig, tune_callback, pipeline,
-        param_space, search_alg, tune_dir, tune_name, max_concurrent,
+        self,
+        trainable,
+        tune,
+        RunConfig,
+        tune_callback,
+        pipeline,
+        param_space,
+        search_alg,
+        tune_dir,
+        tune_name,
+        max_concurrent,
     ):
         args = self.args
         resume_tune = getattr(args, "resume_tune", None) or None
@@ -306,9 +420,11 @@ class Tuner:
             try:
                 tuner = tune.Tuner.restore(restore_path_str, trainable=trainable, resume_errored=True)
                 self._inject_callback_into_restored(tuner, tune_callback, pipeline, tune_dir)
-                return tuner
             except Exception as exc:
                 LOGGER.warning(f"Failed to restore tuner: {exc}. Starting fresh.")
+            else:
+                self._validate_resumed_timing(tuner.get_results())
+                return tuner
 
         # Fresh tuner
         from ray.tune import CheckpointConfig, FailureConfig
@@ -346,6 +462,7 @@ class Tuner:
         completed = 0
         try:
             from ray.tune import ExperimentAnalysis
+
             df = ExperimentAnalysis(str(tune_dir)).dataframe()
             completed = len(df)
         except Exception:
@@ -353,7 +470,8 @@ class Tuner:
         if completed == 0:
             try:
                 completed = sum(
-                    1 for d in tune_dir.iterdir()
+                    1
+                    for d in tune_dir.iterdir()
                     if d.is_dir() and d.name.startswith("trial_") and (d / "result.json").exists()
                 )
             except Exception:
@@ -363,9 +481,7 @@ class Tuner:
         tuner._local_tuner._run_config.callbacks = [tune_callback]
         tuner._local_tuner._run_config.verbose = 0
         tuner._local_tuner._run_config.progress_reporter = TuneSilentReporter()
-        pipeline.advance(
-            format_tune_progress(completed, int(self.args.n_trials), current_trial=completed + 1)
-        )
+        tune_callback.set_workflow_detail_renderable(format_tune_progress(completed, int(self.args.n_trials)))
 
     def _execute_tuner(self, tuner):
         result_grid = None
@@ -407,8 +523,15 @@ class Tuner:
     ):
         try:
             return save_all_results(
-                tune_dir, result_grid, yaml_cfg, self.args.tracker,
-                maximize, minimize, self.args, base_config=base_config, emit_logs=False,
+                tune_dir,
+                result_grid,
+                yaml_cfg,
+                self.args.tracker,
+                maximize,
+                minimize,
+                self.args,
+                base_config=base_config,
+                emit_logs=False,
             )
         except Exception as exc:
             LOGGER.warning(f"Failed to save tune results: {type(exc).__name__}: {exc}")
@@ -439,6 +562,15 @@ class Tuner:
                 final_renderable = artifacts_renderable
         except Exception as exc:
             LOGGER.debug(f"Failed to build results renderable: {exc}")
+
+        if self._calibration_config_path is not None and final_renderable is not None:
+            from rich.console import Group
+            from rich.text import Text
+
+            final_renderable = Group(
+                Text(f"Fixed KF calibration: {self._calibration_config_path}"),
+                final_renderable,
+            )
 
         if interrupted:
             n_saved = len(saved_artifacts.get("trial_data", [])) if saved_artifacts else 0
@@ -525,6 +657,7 @@ class Tuner:
 
         try:
             import optuna.logging as optuna_logging
+
             optuna_logging.set_verbosity(optuna_logging.WARNING)
         except Exception:
             pass
@@ -533,6 +666,7 @@ class Tuner:
 # ---------------------------------------------------------------------------
 # Tracker objective (called inside each Ray trial)
 # ---------------------------------------------------------------------------
+
 
 class TrackerObjective:
     def __init__(self, opt):
@@ -574,20 +708,17 @@ class TrackerObjective:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     validation_payload = trial_data.get("validation", {})
     raw = validation_payload.get("raw")
     summary = validation_payload.get("summary")
     if not isinstance(summary, dict):
         summary = {
-            key: float(trial_data["metrics"].get(key, 0.0))
-            for key in SUMMARY_COLUMNS
-            if key in trial_data["metrics"]
+            key: float(trial_data["metrics"].get(key, 0.0)) for key in SUMMARY_COLUMNS if key in trial_data["metrics"]
         }
     return ValidationResult(
-        benchmark=str(
-            validation_payload.get("benchmark", getattr(args, "benchmark", getattr(args, "experiment", "")))
-        ),
+        benchmark=str(validation_payload.get("benchmark", getattr(args, "benchmark", getattr(args, "experiment", "")))),
         raw=raw if isinstance(raw, dict) else dict(summary),
         summary_label=str(validation_payload.get("summary_label", "all")),
         summary=dict(summary),
@@ -632,6 +763,7 @@ def _ray_pickle_dumps(value: Any) -> bytes:
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     """Run tuning and return a structured TuneResult."""
     tuner = Tuner(args, baseline_config=baseline_config)
@@ -654,11 +786,11 @@ def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     if best is None:
         raise RuntimeError("No successful tuning trials were produced.")
 
-    resolved_best_config = load_tracker_config(
-        str(args.tracker),
-        None,
-        normalize_trial_config(baseline_config),
-        best.config,
+    resolved_best_config = resolve_tracker_options(
+        args,
+        {**normalize_trial_config(baseline_config), **best.config},
+        include_defaults=True,
+        stamp_timing=True,
     )
     return TuneResult(
         benchmark=str(getattr(args, "benchmark", getattr(args, "experiment", ""))),

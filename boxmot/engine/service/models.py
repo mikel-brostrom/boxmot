@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class BoxType(str, Enum):
@@ -18,9 +18,24 @@ class FrameRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     frame_id: int = Field(ge=0, le=9_223_372_036_854_775_806)
-    width: int = Field(gt=0, le=32_768)
-    height: int = Field(gt=0, le=32_768)
+    width: int | None = Field(
+        default=None,
+        gt=0,
+        le=32_768,
+        description="Frame width in pixels; inferred from image_base64, required without an image.",
+    )
+    height: int | None = Field(
+        default=None,
+        gt=0,
+        le=32_768,
+        description="Frame height in pixels; inferred from image_base64, required without an image.",
+    )
     frame_rate: int = Field(default=30, ge=1, le=240)
+    timestamp_s: float | None = Field(
+        default=None,
+        allow_inf_nan=False,
+        description="Capture time in seconds; supply on every session frame to enable variable-time prediction.",
+    )
     box_type: BoxType = BoxType.AABB
     # Keep integer JSON numbers intact for IDs while continuing to accept the
     # established numeric row wire format for geometry and scores.
@@ -29,6 +44,13 @@ class FrameRequest(BaseModel):
         default=None,
         description="Base64-encoded JPEG or PNG frame; required by the GPU/ReID service profile.",
     )
+
+    @model_validator(mode="after")
+    def validate_frame_dimensions(self) -> FrameRequest:
+        """Require explicit dimensions only when no image can supply them."""
+        if self.image_base64 is None and (self.width is None or self.height is None):
+            raise ValueError("width and height are required when image_base64 is not provided.")
+        return self
 
 
 class FrameResponse(BaseModel):

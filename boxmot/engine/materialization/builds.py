@@ -9,7 +9,7 @@ import shutil
 import tempfile
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from filelock import FileLock
 from platformdirs import user_cache_path
@@ -21,6 +21,9 @@ from boxmot.datasets.storage import resolve_artifact_path
 from boxmot.datasets.validation import validate_published_build
 
 from .plan import BuildPlan, default_build_root
+
+if TYPE_CHECKING:
+    from .catalog import SourceCatalog
 
 _BUILD_ID = re.compile(r"[0-9a-f]{64}")
 
@@ -72,6 +75,92 @@ def _remove_import_path(path: Path) -> None:
         path.unlink(missing_ok=True)
     else:
         shutil.rmtree(path)
+
+
+def _matches_fps_parent(manifest: DatasetManifest, plan: BuildPlan) -> bool:
+    """Match full-rate perception semantics before checking expensive source data."""
+
+    metadata = manifest.metadata
+    if metadata.get("fps") is not None or manifest.box_type != plan.box_type:
+        return False
+    for key in ("dataset_id", "split", "class_taxonomy_digest", "class_bridge", "boxmot_version"):
+        if metadata.get(key) != plan.metadata.get(key):
+            return False
+    if plan.publish.embeddings and not manifest.publish.embeddings:
+        return False
+    if plan.publish.masks and not manifest.publish.masks:
+        return False
+    actual_components = metadata.get("component_fingerprints") or {}
+    expected_components = plan.metadata.get("component_fingerprints") or {}
+    if any(actual_components.get(name) != value for name, value in expected_components.items() if value is not None):
+        return False
+    stages = {stage.name: stage for stage in manifest.stages}
+    for expected in plan.stages:
+        if expected.name == "finalize":
+            continue
+        actual = stages.get(expected.name)
+        if actual is None or (
+            actual.fingerprint != expected.fingerprint
+            or actual.batch_size != expected.batch_size
+            or actual.config != expected.config
+            or actual.component != expected.component
+            or actual.inputs != expected.depends_on
+        ):
+            return False
+    return True
+
+
+def find_fps_parent_build(
+    plan: BuildPlan,
+    *,
+    load_catalog: Callable[[], SourceCatalog],
+    status_callback: Callable[[str], None] | None = None,
+) -> tuple[Path, SourceCatalog] | None:
+    """Find a validated native-rate build with the requested perception outputs.
+
+    Discovery uses a deterministic path order, never modification time. Catalog
+    construction is deferred until a candidate's models and output contract
+    match. Its complete source identity then verifies pixels, GT, and timing.
+    """
+
+    if plan.metadata.get("fps") is None or plan.output_root.exists():
+        return None
+    roots = [plan.build_root]
+    if _uses_repository_default(plan):
+        roots.append(former_default_build_root())
+    catalog = None
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in sorted(root.iterdir()):
+            if not _BUILD_ID.fullmatch(path.name) or path.is_symlink() or not path.is_dir():
+                continue
+            if not (path / SUCCESS_FILENAME).is_file():
+                continue
+            try:
+                manifest = DatasetManifest.load(path)
+            except (OSError, ValueError):
+                continue
+            if not _matches_fps_parent(manifest, plan):
+                continue
+            if catalog is None:
+                if status_callback is not None:
+                    status_callback("Validating full-rate source data for cached frame reuse…")
+                catalog = load_catalog()
+            try:
+                validate_build_compatibility(
+                    manifest,
+                    dataset_id=plan.dataset_name,
+                    split=str(plan.metadata["split"]),
+                    geometry=plan.box_type,
+                    source_catalog_digest=catalog.fingerprint,
+                    class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
+                )
+                validate_published_build(path, manifest=manifest)
+            except (OSError, ValueError):
+                continue
+            return path, catalog
+    return None
 
 
 def _fsync_directory(path: Path) -> None:
@@ -256,6 +345,7 @@ def load_cached_build(
 __all__ = (
     "BuildCompatibilityError",
     "default_build_root",
+    "find_fps_parent_build",
     "former_default_build_root",
     "import_former_default_build",
     "load_cached_build",
