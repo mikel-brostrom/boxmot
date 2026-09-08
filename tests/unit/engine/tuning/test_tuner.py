@@ -353,7 +353,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        n_threads=1,
+        sequence_workers=1,
         n_trials=3,
         project=Path("runs"),
         verbose=False,
@@ -389,7 +389,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert workflow_state["stopped"] is True
 
 
-def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
+def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp_path):
     captured = {}
 
     class _FakeRequirementsChecker:
@@ -487,6 +487,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
                 if isinstance(cell.cell_contents, tuner_module.TrackerObjective)
             )
             captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
+            captured["trial_args"] = vars(objective.opt)
             captured["callbacks"] = run_config.callbacks
             captured["callback_has_workflow_lock"] = any(
                 hasattr(callback, "_lock") for callback in run_config.callbacks or []
@@ -500,10 +501,14 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         def get_results(self):
             return []
 
+    def with_resources(function, resources):
+        captured["trial_resources"] = resources
+        return function
+
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
         TuneConfig=_FakeTuneConfig,
-        with_resources=lambda fn, resources: fn,
+        with_resources=with_resources,
         Callback=object,
     )
 
@@ -550,7 +555,7 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        n_threads=1,
+        sequence_workers=3,
         n_trials=3,
         project=Path("runs"),
         verbose=False,
@@ -561,6 +566,9 @@ def test_tuner_keeps_workflow_state_out_of_ray_callback(monkeypatch, tmp_path):
 
     assert captured["extra"] == "evolve"
     assert captured["driver_lock_in_trainable_args"] is False
+    assert captured["trial_args"]["sequence_workers"] == 3
+    assert "n_threads" not in captured["trial_args"]
+    assert captured["trial_resources"] == {"cpu": 3, "gpu": 0}
     assert len(captured["callbacks"]) == 1
     assert captured["callback_has_workflow_lock"] is False
     assert captured["verbose"] == 0
@@ -752,7 +760,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        n_threads=1,
+        sequence_workers=1,
         n_trials=3,
         project=Path("runs"),
         verbose=False,
@@ -912,7 +920,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         maximize=("HOTA,MOTA,IDF1",),
         minimize=("IDSW_rate",),
         objectives=("HOTA",),
-        n_threads=1,
+        sequence_workers=1,
         n_trials=100,
         project=Path("runs"),
         verbose=False,
@@ -1150,7 +1158,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        n_threads=1,
+        sequence_workers=1,
         n_trials=2,
         project=Path("runs"),
         verbose=False,

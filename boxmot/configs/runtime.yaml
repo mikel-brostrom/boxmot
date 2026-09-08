@@ -10,7 +10,7 @@ runtime:
   batch_size: 16
   auto_batch: true
   resume: true
-  n_threads: auto
+  sequence_workers: auto
   project: runs
   name: exp
   exist_ok: false

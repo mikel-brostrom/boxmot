@@ -135,10 +135,10 @@ def test_eval_sequence_progress_uses_two_columns_above_ten_sequences() -> None:
 
 
 def test_eval_workflow_fields_show_sequence_worker_processes() -> None:
-    fields = dict(EvalWorkflowReporter(SimpleNamespace(tracker="ocsort", n_threads=4)).fields())
+    fields = dict(EvalWorkflowReporter(SimpleNamespace(tracker="ocsort", sequence_workers=4)).fields())
     capped_fields = dict(
         EvalWorkflowReporter(
-            SimpleNamespace(tracker="ocsort", n_threads=8, seq_info={"seq-a": 1, "seq-b": 2})
+            SimpleNamespace(tracker="ocsort", sequence_workers=8, seq_info={"seq-a": 1, "seq-b": 2})
         ).fields()
     )
 

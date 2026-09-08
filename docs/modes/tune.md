@@ -30,6 +30,9 @@ detector, segmentor, or encoder and cannot silently select or create another
 build. Worker count and retry policy are execution settings, not semantic
 fingerprints.
 
+`--sequence-workers 4` allows up to four sequence worker processes per trial.
+Use `--max-concurrent-trials` to limit how many trials run at once.
+
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
 start or fail.

@@ -442,7 +442,7 @@ def run_eval(
             output_dir=output_dir,
             sequence_ids=args.sequence_names,
             sequence_frame_counts=args.seq_info,
-            workers=int(getattr(args, "n_threads", 1)),
+            workers=int(getattr(args, "sequence_workers", 1)),
             **replay_callbacks,
         )
     args.video_paths = () if visualization is None else tuple(visualization.video_paths)

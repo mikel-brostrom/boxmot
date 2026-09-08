@@ -93,7 +93,7 @@ def _child(args: argparse.Namespace) -> None:
         args.tracker,
         "--tracker-backend",
         "python",
-        "--n-threads",
+        "--sequence-workers",
         str(args.workers),
         "--project",
         str(args.output),

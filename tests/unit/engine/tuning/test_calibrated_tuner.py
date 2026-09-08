@@ -242,7 +242,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                 "per_class": False,
                 "tracker_class_ids": (1,),
                 "project": tmp_path / "runs",
-                "n_threads": 1,
+                "sequence_workers": 1,
                 "n_trials": 2,
                 "verbose": False,
                 "maximize": ("HOTA",),

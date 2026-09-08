@@ -124,11 +124,11 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             default=defaults.device,
             help="cuda device(s), e.g. 0 or 0,1,2,3, mps, or cpu",
         ),
-        "n_threads": click.option(
-            "--n-threads",
+        "sequence_workers": click.option(
+            "--sequence-workers",
             type=click.IntRange(min=1),
-            default=defaults.n_threads,
-            help="Maximum spawned worker processes for sequence-parallel cached evaluation",
+            default=defaults.sequence_workers,
+            help="Maximum number of sequence worker processes. During tuning, this limit applies per trial.",
         ),
         "project": click.option(
             "--project",
@@ -255,7 +255,7 @@ def replay_options(*, mode: str, parallel: bool = False) -> Callable:
     defaults = getattr(BOXMOT_DEFAULTS, mode)
     option_names = _REPLAY_CORE_OPTION_NAMES
     if parallel:
-        option_names = ("n_threads", *option_names)
+        option_names = ("sequence_workers", *option_names)
 
     def decorator(func: Callable) -> Callable:
         return _apply_core_options(func, defaults, option_names)

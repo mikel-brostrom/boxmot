@@ -37,7 +37,7 @@ def _merged_mode_defaults(mode: str) -> dict[str, Any]:
 
 
 def _resolve_default_value(key: str, value: Any) -> Any:
-    if key == "n_threads" and str(value).lower() == "auto":
+    if key == "sequence_workers" and str(value).lower() == "auto":
         return min(8, max(1, os.cpu_count() or 1))
 
     if key == "project" and value is not None:
@@ -154,7 +154,7 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
         "batch_size": int(values.get("batch_size", 1)),
         "auto_batch": bool(values.get("auto_batch", True)),
         "resume": bool(values.get("resume", True)),
-        "n_threads": int(values.get("n_threads", 1)),
+        "sequence_workers": int(values.get("sequence_workers", 1)),
         "project": Path(values.get("project") or "runs"),
         "name": str(values.get("name", "exp")),
         "exist_ok": bool(values.get("exist_ok", False)),
@@ -196,7 +196,7 @@ class RuntimeModeDefaults:
     batch_size: int
     auto_batch: bool
     resume: bool
-    n_threads: int
+    sequence_workers: int
     project: Path
     name: str
     exist_ok: bool

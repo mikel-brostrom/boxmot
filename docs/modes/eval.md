@@ -113,7 +113,7 @@ without timestamps use one output frame per input frame. `eval --fps` retains
 its dataset-sampling meaning; it does not change the output video rate.
 
 Visualization decodes source images and replays sequences serially on the main
-thread, regardless of `--n-threads`. Reported replay timing includes rendering,
+thread, regardless of `--sequence-workers`. Reported replay timing includes rendering,
 video writing, and preview pacing; omit these flags for speed benchmarks.
 
 ## Dataset FPS
@@ -336,7 +336,7 @@ Elapsed inference time is not a capture timestamp.
 Evaluation replays each sequence as one isolated spawned-process job. Every
 job constructs its own tracker from the immutable tracker spec, so tracker
 state and native handles never cross sequence or process boundaries.
-`--n-threads` sets the maximum number of sequence worker processes. The Rich
+`--sequence-workers` sets the maximum number of sequence worker processes. The Rich
 panel reports frame progress separately for every sequence while those jobs
 run.
 

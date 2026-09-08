@@ -243,15 +243,57 @@ def test_cached_workflows_expose_build_requirements_and_eval_component_selectors
         assert "--conf" not in help_result.output
         assert "--postprocessing" not in help_result.output
         assert "--tracking-backend" not in help_result.output
+        assert "--n-threads" not in help_result.output
         if command in {"eval", "tune"}:
-            assert "--n-threads" in help_result.output
+            assert "--sequence-workers" in help_result.output
         else:
-            assert "--n-threads" not in help_result.output
+            assert "--sequence-workers" not in help_result.output
     eval_build_help = _command_options("eval")["build_ref"].help
     assert eval_build_help is not None
     assert "--experiment" in eval_build_help
     assert "--detector" in eval_build_help
     assert "materializ" in eval_build_help
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
+def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command: str) -> None:
+    captured = {}
+    module = "boxmot.engine.eval.evaluator" if command == "eval" else "boxmot.engine.tuning.tuner"
+    monkeypatch.setitem(sys.modules, module, SimpleNamespace(main=lambda args: captured.setdefault("args", args)))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", "--sequence-workers", "3"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].sequence_workers == 3
+    assert not hasattr(captured["args"], "n_threads")
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize(
+    "option, value, error",
+    [
+        ("--n-threads", "2", "No such option '--n-threads'"),
+        ("--sequence-workers", "0", "Invalid value for '--sequence-workers'"),
+        ("--sequence-workers", "-1", "Invalid value for '--sequence-workers'"),
+        ("--sequence-workers", "1.5", "Invalid value for '--sequence-workers'"),
+    ],
+)
+def test_sequence_worker_options_fail_before_workflow_dispatch(monkeypatch, command, option, value, error) -> None:
+    calls = []
+    module = "boxmot.engine.eval.evaluator" if command == "eval" else "boxmot.engine.tuning.tuner"
+    monkeypatch.setitem(sys.modules, module, SimpleNamespace(main=lambda args: calls.append(args)))
+
+    result = CliRunner().invoke(
+        boxmot,
+        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", option, value],
+    )
+
+    assert result.exit_code == 2
+    assert error in result.output
+    assert calls == []
 
 
 @pytest.mark.parametrize(
