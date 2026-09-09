@@ -33,7 +33,8 @@ class-ID catalog before fusion.
 The image tracking CLI, `TrackingPipeline`, and cached evaluation/tuning flows
 cannot supply these sensor inputs. They reject `eagermot` before running
 perception. Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot`.
-The dedicated `eval-eagermot` command below supplies KITTI sensor inputs directly.
+The dedicated `eval-eagermot` and `tune-eagermot` commands below supply KITTI
+sensor inputs directly.
 
 ## Evaluate downloaded KITTI predictions
 
@@ -76,13 +77,15 @@ Results are written under `runs/eagermot/val` (then `val2`, and so on):
   metrics use the 0–100 scale, with signed CLEAR scores where applicable.
 - `metrics.csv`: combined results for each class and aggregate.
 - `mots/SEQUENCE.txt`: official MOTS predictions with real, disjoint masks.
+- `videos/SEQUENCE.mp4`: annotated video when `--save` is enabled.
 - `run.json`: paths, selected sequences, detector variant and tracker presets.
 
-The runner uses the released car and pedestrian presets separately, with
+By default, the runner uses the released car and pedestrian presets separately, with
 globally unique output identities. Image confidence resolves overlapping
 masks; empty masks are omitted. Every image frame advances tracking, including
 frames with no TrackR-CNN rows or missing PointGNN files. RGB pixels are not
 needed by EagerMOT; image headers establish the timeline and dimensions.
+Previewing or saving annotated videos reads the images for rendering.
 
 PointGNN scores can exceed one. The reader maps each nonnegative score `s` to
 `s / (1 + s)` for the canonical score contract. This is a bounded ranking
@@ -96,6 +99,97 @@ predictions come from TrackR-CNN, detector checkpoint training provenance has
 not been independently verified, and pedestrian detections use the supplied
 `trainval` variant. This command evaluates masks; KITTI 3D box evaluation
 requires separate 3D ground-truth labels and an evaluator.
+
+## Preview or save a sequence
+
+Use `--show` to preview tracked masks, identities and classes, and `--save` to
+write an annotated MP4 for each selected sequence. Add `--show-3d` to overlay
+the estimated 3D bounding boxes:
+
+```bash
+uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+  --data-root ./eagermot-data \
+  --images ~/Downloads/data_tracking_image_2/training/image_02 \
+  --instances ~/Downloads/instances \
+  --class-config runs/eagermot-tune/val/best.yaml \
+  --sequence 0016 \
+  --show \
+  --save \
+  --show-3d \
+  --project runs/eagermot-3d-preview
+```
+
+`--class-config` loads the saved profiles once when evaluation starts. If the
+tuner is still running, this uses a snapshot of its best completed trial;
+later improvements do not change the ongoing evaluation. Omit `--class-config`
+to use the default KITTI car and pedestrian presets.
+
+This command writes `runs/eagermot-3d-preview/val/videos/0016.mp4` at 10 FPS along
+with the normal masks and metrics. Repeated runs create `val2`, and so on.
+Remove `--show` on a headless machine. Press **q** or **Esc** to close the
+preview while evaluation and video saving continue.
+
+`--show-3d` requires `--show` or `--save`. It projects EagerMOT's current 3D
+track estimates through the sequence's full camera projection matrix. The
+cuboids use PointGNN observations and the Kalman motion state, including
+estimates sustained by a 2D observation when a 3D detection is missing.
+Only confirmed tracks updated by at least one sensor in the current frame
+are shown. A visible 3D-only track can appear without a mask; boxes behind the
+camera are skipped. Cuboids and masks share the same global track IDs and
+colors. The yaw-only box approximation described below still applies.
+This overlay affects visualization only; MOTS predictions, metrics and tuning
+remain unchanged.
+
+## Tune separate class profiles
+
+With the `mots` and `evolve` extras installed, `tune-eagermot` optimizes separate
+car and pedestrian tracker parameters together. Every trial evaluates both
+classes and maximizes their **class-average
+mask HOTA** on the selected sequences. Use the same sensor inputs as evaluation:
+
+```bash
+uv run --no-sync python -m boxmot.engine.cli tune-eagermot \
+  --data-root ./eagermot-data \
+  --images ~/Downloads/data_tracking_image_2/training/image_02 \
+  --instances ~/Downloads/instances \
+  --split val \
+  --n-trials 50 \
+  --seed 0 \
+  --project runs/eagermot-tune
+```
+
+The trial count includes the first trial with the default KITTI car and
+pedestrian profiles. Remaining trials independently sample each class's
+parameters from the shared EagerMOT YAML search ranges. Distance and 3D IoU
+thresholds are sampled only for their corresponding matching methods;
+`max_age_2d` and `asso_func` stay fixed. Trials run serially on CPU using saved
+predictions. The tuned `det_thresh_3d` applies to the transformed PointGNN
+score `s / (1 + s)`.
+
+`--sequence 0002` restricts tuning to one sequence; repeat it for several.
+Results go to `runs/eagermot-tune/val`, then `val2`, and so on:
+
+- `study.sqlite3`: the Optuna study and trial history.
+- `run.json`: input selection, sampling settings and search metadata.
+- `best.yaml`: complete scalar tracker profiles under `car` and `pedestrian`.
+- `trials/0000/metrics.json` and `trials/0000/mots/SEQUENCE.txt`: metrics and
+  mask predictions for each numbered trial, starting with the baseline.
+
+Pass the winning profiles to evaluation using `--class-config`:
+
+```bash
+uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+  --data-root ./eagermot-data \
+  --images ~/Downloads/data_tracking_image_2/training/image_02 \
+  --instances ~/Downloads/instances \
+  --split val \
+  --class-config runs/eagermot-tune/val/best.yaml \
+  --project runs/eagermot-tuned
+```
+
+This example reevaluates the fitting split. To measure generalization, tune
+and evaluate on separate sequences with detector checkpoints trained without
+the evaluation sequences.
 
 ## Sensor fusion example
 

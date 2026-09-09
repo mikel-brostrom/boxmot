@@ -10,13 +10,14 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 import torch
+import yaml
 from click.testing import CliRunner
 from PIL import Image
 
 from boxmot import EagerMot
 from boxmot.datasets.kitti_fusion import KittiFusionSequence
 from boxmot.engine.cli import boxmot
-from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame
+from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame, load_kitti_profiles
 from boxmot.engine.eval.mots_io import read_mots_results
 
 mask_utils = pytest.importorskip("pycocotools.mask")
@@ -116,7 +117,7 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
     data = _fixture(tmp_path)
     sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
     trackers = {class_id: EagerMot(**profile) for class_id, profile in KITTI_PROFILES.items()}
-    first = _track_frame(sequence[0], trackers)
+    first = _track_frame(sequence[0], trackers).image_tracks
     assert first.class_ids.tolist() == [1, 2]
     assert first.detection_indices.tolist() == [1, 0]
     assert len(first.track_ids.unique()) == 2
@@ -124,7 +125,7 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
     assert len(empty.detections) == len(empty.detections_3d) == 0
     assert len(_track_frame(empty, trackers)) == 0
     assert all(tracker.frame_count == 2 for tracker in trackers.values())
-    recovered = _track_frame(sequence[2], trackers)
+    recovered = _track_frame(sequence[2], trackers).image_tracks
     torch.testing.assert_close(recovered.track_ids, first.track_ids)
     assert recovered.detection_indices.tolist() == [1, 0]
     assert all(tracker.frame_count == 3 for tracker in trackers.values())
@@ -157,3 +158,43 @@ def test_missing_ground_truth_fails_before_output_and_restores_threads(tmp_path:
     assert "Missing KITTI MOTS ground-truth instance PNG" in invocation.output
     assert not data.project.exists()
     assert torch.get_num_threads() == previous_threads
+
+
+@pytest.mark.parametrize(
+    ("contents", "message"),
+    [
+        (None, "exactly 'car' and 'pedestrian'"),
+        ({"car": {}}, "exactly 'car' and 'pedestrian'"),
+        ({"car": [], "pedestrian": {}}, "must be a mapping"),
+        ({"car": {"distance_treshold": 1}, "pedestrian": {}}, "Unknown EagerMOT car options"),
+        ({"car": {}, "pedestrian": {"det_thresh": 1.1}}, "Invalid EagerMOT pedestrian configuration"),
+        ({"car": {}, "pedestrian": {"min_hits": "2"}}, "Invalid EagerMOT pedestrian configuration"),
+        ({"car": {"per_class": True}, "pedestrian": {}}, "replay already separates classes"),
+    ],
+)
+def test_class_config_rejects_invalid_values_before_replay(tmp_path: Path, contents: object, message: str) -> None:
+    path = tmp_path / "profiles.yaml"
+    path.write_text(yaml.safe_dump(contents), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_kitti_profiles(path)
+
+
+def test_class_overrides_preserve_other_class_and_do_not_mutate_presets(tmp_path: Path) -> None:
+    path = tmp_path / "profiles.yaml"
+    path.write_text("car: {max_age: 6}\npedestrian: {distance_threshold: 0.5}\n", encoding="utf-8")
+    profiles = load_kitti_profiles(path)
+    assert profiles[1] == {**KITTI_PROFILES[1], "max_age": 6}
+    assert profiles[2] == {**KITTI_PROFILES[2], "distance_threshold": 0.5}
+    profiles[1]["det_thresh"] = 0.7
+    assert load_kitti_profiles() == KITTI_PROFILES
+    assert KITTI_PROFILES[1]["det_thresh"] == 0.0
+
+
+def test_invalid_class_config_cli_fails_before_creating_results(tmp_path: Path) -> None:
+    data = _fixture(tmp_path)
+    path = tmp_path / "invalid.yaml"
+    path.write_text("car: [\n", encoding="utf-8")
+    invocation = CliRunner().invoke(boxmot, [*_arguments(data), "--class-config", str(path)])
+    assert invocation.exit_code == 1
+    assert "Invalid EagerMOT class configuration" in invocation.output
+    assert not data.project.exists()

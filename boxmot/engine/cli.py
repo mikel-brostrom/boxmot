@@ -45,6 +45,9 @@ _COMMAND_SPECS = (
     ),
     _CommandSpec("tune", "boxmot.engine.commands.tune", "tune", "Optimize tracker hyperparameters"),
     _CommandSpec(
+        "tune-eagermot", "boxmot.engine.commands.eagermot", "tune_eagermot", "Tune KITTI EagerMOT class profiles"
+    ),
+    _CommandSpec(
         "research",
         "boxmot.engine.commands.research",
         "research",

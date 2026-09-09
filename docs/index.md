@@ -24,6 +24,9 @@ on KITTI MOTS; see the MAF-HDA tracker page for the required paths.
 tracker API with independent detection batches and camera calibration.
 Use `boxmot eval-eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN
 predictions against KITTI MOTS masks; the tracker page provides the command.
+[`boxmot tune-eagermot`](trackers/eagermot.md#tune-separate-class-profiles)
+optimizes separate car and pedestrian profiles together for class-average mask
+HOTA and saves profiles for `eval-eagermot --class-config`.
 
 ## Get started
 

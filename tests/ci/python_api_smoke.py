@@ -92,6 +92,7 @@ def test_cli_command_surface_smoke() -> None:
         "eval-trackrcnn",
         "eval-eagermot",
         "tune",
+        "tune-eagermot",
         "research",
         "train-reid",
         "eval-reid",

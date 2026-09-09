@@ -241,6 +241,9 @@ Python API using independent detection batches and camera calibration. It
 returns image and spatial tracks with shared identities. The dedicated
 `boxmot eval-eagermot` command evaluates downloaded KITTI PointGNN and
 TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
+Use [`boxmot tune-eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
+to optimize separate car and pedestrian profiles together for class-average
+mask HOTA, then evaluate `best.yaml` with `eval-eagermot --class-config`.
 
 Related guides:
 

@@ -27,6 +27,15 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
+## EagerMOT with saved KITTI sensor inputs
+
+Use `boxmot tune-eagermot` for independent 2D/3D detections, calibration and
+ego poses. It tunes separate car and pedestrian profiles together for
+class-average mask HOTA. Trials run serially on CPU, starting with the default
+KITTI profiles, and save `best.yaml` for `boxmot eval-eagermot --class-config`.
+See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
+for input paths, split selection and outputs.
+
 ## Build preparation and reuse
 
 When `--build` is omitted, tuning resolves the canonical build from the
@@ -167,4 +176,12 @@ interface.
     :module: boxmot.engine.commands.tune
     :command: tune
     :prog_name: boxmot tune
+    :depth: 0
+
+### EagerMOT sensor tuning arguments
+
+::: mkdocs-click
+    :module: boxmot.engine.commands.eagermot
+    :command: tune_eagermot
+    :prog_name: boxmot tune-eagermot
     :depth: 0

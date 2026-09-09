@@ -69,6 +69,7 @@ def test_every_docker_image_checks_the_exact_v24_surface() -> None:
         "eval-trackrcnn",
         "eval-eagermot",
         "tune",
+        "tune-eagermot",
         "research",
         "train-reid",
         "eval-reid",

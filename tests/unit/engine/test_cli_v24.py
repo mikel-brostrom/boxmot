@@ -19,6 +19,7 @@ EXPECTED_COMMAND_ORDER = (
     "eval-trackrcnn",
     "eval-eagermot",
     "tune",
+    "tune-eagermot",
     "research",
     "train-reid",
     "eval-reid",
