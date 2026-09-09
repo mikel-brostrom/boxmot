@@ -33,8 +33,16 @@ FROM build-base AS cli-build-base
 
 # YOLOX compiles its fast_cocoeval extension when the yolo extra is selected.
 # The compiler remains in CLI builders and is not copied into runtime images.
+# Wheel smoke tests load the prebuilt native libraries in these builders, so
+# they need the same OpenCV runtime dependencies as the final CLI images.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends g++ \
+    && apt-get install --yes --no-install-recommends \
+        g++ \
+        libopencv-calib3d406 \
+        libopencv-core406 \
+        libopencv-dnn406 \
+        libopencv-imgproc406 \
+        libopencv-video406 \
     && rm -rf /var/lib/apt/lists/*
 
 

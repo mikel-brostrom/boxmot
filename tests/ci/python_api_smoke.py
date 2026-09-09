@@ -6,10 +6,10 @@ import numpy as np
 import torch
 from click.testing import CliRunner
 
-import boxmot
 from boxmot import ByteTrack, create_tracker
 from boxmot.engine.cli import boxmot as boxmot_cli
 from boxmot.trackers import TrackerSpec
+from tests.ci.release_contract import EXPECTED_CLI_COMMANDS, check_release_contract
 
 
 def test_python_api_smoke() -> None:
@@ -17,24 +17,7 @@ def test_python_api_smoke() -> None:
 
     assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
     assert not torch.cuda.is_available()
-    assert boxmot.__version__ == "24.0.0"
-    assert boxmot.__all__ == (
-        "__version__",
-        "create_tracker",
-        "BoostTrack",
-        "BotSort",
-        "ByteTrack",
-        "DeepOcSort",
-        "HybridSort",
-        "OccluBoost",
-        "OcSort",
-        "Sam2Mot",
-        "SFSORT",
-        "StrongSort",
-    )
-    assert not hasattr(boxmot, "BoxMOT")
-    assert not hasattr(boxmot, "Detector")
-    assert not hasattr(boxmot, "ReIDModel")
+    check_release_contract()
 
     tracker = create_tracker(TrackerSpec("bytetrack"))
     assert isinstance(tracker, ByteTrack)
@@ -53,17 +36,6 @@ def test_cli_command_surface_smoke() -> None:
     result = CliRunner().invoke(boxmot_cli, ["--help"])
 
     assert result.exit_code == 0, result.output
-    for command in (
-        "track",
-        "materialize",
-        "eval",
-        "tune",
-        "research",
-        "train-reid",
-        "eval-reid",
-        "compare-reid",
-        "export",
-        "build",
-    ):
+    for command in EXPECTED_CLI_COMMANDS:
         assert command in result.output
     assert "generate" not in result.output

@@ -139,51 +139,14 @@ jobs:
 
       - name: Smoke test v24 package and command surface
         run: |
-          docker run --rm --interactive \
+          python_args=(-I -)
+          case "${{ matrix.target }}" in
+            # Service images deliberately run their copied source via PYTHONPATH.
+            service-*) python_args=(-) ;;
+          esac
+          docker run --rm --interactive --workdir /tmp \
             ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python - <<'PY'
-          import importlib.util
-
-          import boxmot
-          from boxmot.engine.cli import boxmot as boxmot_cli
-          from boxmot.engine.experiment_config import resolve_experiment_config
-
-          expected_public_api = (
-              "__version__",
-              "create_tracker",
-              "BoostTrack",
-              "BotSort",
-              "ByteTrack",
-              "DeepOcSort",
-              "HybridSort",
-              "OccluBoost",
-              "OcSort",
-              "Sam2Mot",
-              "SFSORT",
-              "StrongSort",
-          )
-          expected_cli_commands = (
-              "track",
-              "materialize",
-              "eval",
-              "tune",
-              "research",
-              "train-reid",
-              "eval-reid",
-              "compare-reid",
-              "export",
-              "build",
-          )
-
-          assert boxmot.__version__ == "24.0.0"
-          assert boxmot.__all__ == expected_public_api
-          assert tuple(boxmot_cli.commands) == expected_cli_commands
-          assert importlib.util.find_spec("boxmot.api") is None
-          assert importlib.util.find_spec("boxmot.data") is None
-          experiment = resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml")
-          assert experiment["detector"]["id"] == "yolox-x-mot17"
-          assert experiment["reid"]["id"] == "lmbn-n-duke"
-          PY
+            python "${python_args[@]}" < tests/ci/release_contract.py
 
       - name: Smoke test CPU CLI image
         if: matrix.target == 'cli-cpu'

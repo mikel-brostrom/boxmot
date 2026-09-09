@@ -138,6 +138,12 @@ jobs:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
+      - name: Checkout release checks
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: source
+
       - uses: actions/download-artifact@v4
         with:
           name: boxmot-release-candidate
@@ -155,33 +161,14 @@ jobs:
       - name: Smoke-test v24 imports and CLI
         working-directory: ${{ runner.temp }}
         run: |
-          python - <<'PY'
-          import importlib.util
+          python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py" --check-cli-help
+          python -I - <<'PY'
           import sys
 
-          import boxmot
           import boxmot.engine.materialization.workflow
           import boxmot.engine.tracking.sinks
           import boxmot.engine.tracking.sources
 
-          expected = (
-              "__version__",
-              "create_tracker",
-              "BoostTrack",
-              "BotSort",
-              "ByteTrack",
-              "DeepOcSort",
-              "HybridSort",
-              "OccluBoost",
-              "OcSort",
-              "Sam2Mot",
-              "SFSORT",
-              "StrongSort",
-          )
-          assert boxmot.__version__ == "24.0.0"
-          assert boxmot.__all__ == expected
-          assert importlib.util.find_spec("boxmot.api") is None
-          assert importlib.util.find_spec("boxmot.data") is None
           assert "ultralytics" not in sys.modules
           assert not any(name.startswith("boxmot.native.trackers") for name in sys.modules)
           PY
@@ -191,9 +178,6 @@ jobs:
             echo "Removed generate command is still present" >&2
             exit 1
           fi
-          for command in track materialize eval tune research train-reid eval-reid compare-reid export build; do
-            boxmot "$command" --help > "boxmot-$command-help.txt"
-          done
           for module in \
             boxmot.engine.commands.reid.ablation \
             boxmot.engine.commands.reid.human_pretrain \
