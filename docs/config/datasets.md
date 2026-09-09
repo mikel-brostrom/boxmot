@@ -87,7 +87,37 @@ IoU; OBB ground truth is expected in 13-column corner format on disk.
 ## KITTI MOTS instance masks
 
 The `kitti-mots` profile reads the original KITTI tracking images and MOTS
-instance PNGs from this layout beneath `--data-root`:
+instance PNGs.
+
+### Download KITTI MOTS data
+
+Download these two archives:
+
+1. **Color images:** On the [KITTI tracking download page](https://www.cvlibs.net/datasets/kitti/eval_tracking.php),
+   select **Download left color images of tracking data set (15 GB)**.
+   The archive is **`data_tracking_image_2.zip`**. KITTI requires
+   [registration and a stated usage purpose](https://www.cvlibs.net/datasets/kitti/user_login.php)
+   before downloading.
+2. **Segmentation masks:** Under **KITTI MOTS** on the
+   [MOTS download page](https://www.vision.rwth-aachen.de/page/mots), select
+   **Annotations in png format (train+val)** to download **`instances.zip`**.
+   These are the ground-truth instance masks used by BoxMOT for both box and
+   segmentation evaluation.
+
+The [MOTS annotations](https://www.vision.rwth-aachen.de/page/mots) are licensed
+under CC BY-NC-SA 3.0 (attribution, noncommercial use, and share-alike).
+
+From the repository root, extract archives downloaded to `~/Downloads`:
+
+```bash
+mkdir -p datasets/KITTI-MOTS/data_tracking_image_2
+unzip ~/Downloads/data_tracking_image_2.zip -d datasets/KITTI-MOTS/data_tracking_image_2
+unzip ~/Downloads/instances.zip -d datasets/KITTI-MOTS
+```
+
+The image archive contains `training/` and `testing/`; the annotation archive
+already contains `instances/`. The resulting layout beneath `--data-root datasets`
+is:
 
 ```text
 KITTI-MOTS/
@@ -97,11 +127,12 @@ KITTI-MOTS/
 └── instances/0000/000000.png
 ```
 
-Extract the [KITTI tracking images](https://www.cvlibs.net/datasets/kitti/eval_tracking.php)
-and [MOTS instance annotations](https://www.vision.rwth-aachen.de/page/mots)
-locally. If both extracted directories already share a directory such as
+For example, use `--data-root datasets` when the dataset is at
+`datasets/KITTI-MOTS`. If both extracted directories already share a directory such as
 `~/Downloads`, copy the dataset YAML, set `storage.root: .`, and use that
 directory as `--data-root`. No conversion of images or labels is required.
+
+### Load and evaluate
 
 The profile provides the official 12-sequence `train` and 9-sequence `val`
 partitions, `fulltrain` for all 21 annotated sequences, and the unannotated

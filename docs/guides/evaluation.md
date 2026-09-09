@@ -52,9 +52,10 @@ masks can still be evaluated using boxes.
 | Boxes (default) | No extra flag | Detections | Box IoU |
 | Segmentation | `--eval-masks` | Detections and masks | Mask IoU |
 
-Prepare the [KITTI MOTS dataset](../config/datasets.md#kitti-mots-instance-masks)
-and a build for its `val` split. This command evaluates boxes without requiring
-predicted segmentations:
+Follow the [KITTI MOTS download and setup instructions](../config/datasets.md#download-kitti-mots-data)
+to obtain the color images and PNG annotations, then prepare a build for its
+`val` split. This command evaluates boxes without requiring predicted
+segmentations:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval \
