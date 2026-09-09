@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 import torch
+from scipy.spatial.transform import Rotation
 
 from boxmot import EagerMot
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D
@@ -91,9 +92,9 @@ def test_volumetric_iou_includes_height_and_oriented_ground_footprint() -> None:
     assert iou3d_matrix(np.empty((0, 7)), others).shape == (0, 5)
 
 
-def test_upright_pose_preserves_corners_and_relative_iou() -> None:
+@pytest.mark.parametrize("angle", [0.4, 2.1, -2.7, np.pi])
+def test_upright_pose_preserves_corners_and_relative_iou(angle: float) -> None:
     """A common world-frame pose changes coordinates while preserving physical boxes."""
-    angle = 0.4
     pose = np.array(
         [[np.cos(angle), 0, np.sin(angle), 100], [0, 1, 0, -4], [-np.sin(angle), 0, np.cos(angle), 200], [0, 0, 0, 1]]
     )
@@ -102,9 +103,39 @@ def test_upright_pose_preserves_corners_and_relative_iou() -> None:
     expected_corners = boxes3d_corners(original) @ pose[:3, :3].T + pose[:3, 3]
     np.testing.assert_allclose(boxes3d_corners(transformed), expected_corners, atol=1e-12)
     np.testing.assert_allclose(transform_boxes3d(transformed, np.linalg.inv(pose)), original, atol=1e-12)
+    np.testing.assert_allclose(transform_boxes3d(transformed, pose, inverse=True), original, atol=1e-12)
     np.testing.assert_allclose(iou3d_matrix(original, original), iou3d_matrix(transformed, transformed), atol=1e-4)
-    with pytest.raises(ValueError, match="y axis"):
-        transform_boxes3d(original, np.array([[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0], [0, 0, 0, 1]]))
+
+
+@pytest.mark.parametrize("angle", [0.4, 1.56, np.pi / 2, 1.58, 2.2, -2.2])
+def test_full_pose_matches_source_center_transform_and_retains_full_yaw_range(angle: float) -> None:
+    """Roll/pitch affect centers; yaw survives 90-degree turns and inverse mapping."""
+    pose = np.eye(4)
+    pose[:3, :3] = Rotation.from_euler("xyz", [0.17, angle, -0.11]).as_matrix()
+    pose[:3, 3] = [100.0, -3.0, 15.0]
+    original = np.stack((_box(), _box() + [1, 2, 3, 0.2, 0, 0, 0]))
+    transformed = transform_boxes3d(original, pose)
+    expected_centers = (pose @ np.c_[original[:, :3], np.ones(len(original))].T).T[:, :3]
+    np.testing.assert_allclose(transformed[:, :3], expected_centers, atol=1e-12)
+    np.testing.assert_allclose(transformed[:, 3], original[:, 3] + angle, atol=1e-12)
+    np.testing.assert_array_equal(transformed[:, 4:], original[:, 4:])
+    if abs(angle) < 1.56:
+        source_yaw = Rotation.from_matrix(pose[:3, :3]).as_euler("xyz")[1]
+        np.testing.assert_allclose(transformed[:, 3], original[:, 3] + source_yaw, atol=1e-12)
+    np.testing.assert_allclose(transform_boxes3d(transformed, pose, inverse=True), original, atol=1e-12)
+    assert transform_boxes3d(np.empty((0, 7)), pose, inverse=True).shape == (0, 7)
+    # A yaw-only state intentionally cannot retain the cuboid's full tilted corners.
+    tilted_corners = boxes3d_corners(original) @ pose[:3, :3].T + pose[:3, 3]
+    assert not np.allclose(boxes3d_corners(transformed), tilted_corners)
+
+
+@pytest.mark.parametrize(
+    "pose",
+    [np.diag([1.1, 1.0, 1.0, 1.0]), np.diag([-1.0, 1.0, 1.0, 1.0]), np.diag([1.0, 1.0, 1.0, 0.0])],
+)
+def test_box_transforms_reject_scaling_reflection_and_nonhomogeneous_poses(pose: np.ndarray) -> None:
+    with pytest.raises(ValueError, match="rigid"):
+        transform_boxes3d(_box()[None], pose)
 
 
 def test_projection_rounds_pixels_and_rejects_behind_camera_boxes() -> None:
@@ -168,6 +199,42 @@ def test_camera_accepted_float32_yaw_poses_work_through_tracker_updates() -> Non
         )
         result = tracker.update(image, detections_3d=spatial, camera=camera)
         assert result.image_tracks.track_ids.tolist() == result.spatial_tracks.track_ids.tolist() == [0]
+        np.testing.assert_allclose(result.spatial_tracks.geometry.values.numpy(), camera_boxes, atol=3e-5, rtol=0)
+        np.testing.assert_allclose(tracker._tracks[0].motion.box, world_box[0], atol=3e-5, rtol=0)
+
+
+def test_full_camera_pose_preserves_identity_and_yaw_through_3d_dropout() -> None:
+    """Both output and second-stage projection must undo the original pose yaw."""
+    tracker = EagerMot(distance_threshold=0.01)
+    projection = torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32)
+    world_box = np.array([[2.0, 1.0, 20.0, 0.1, 4.0, 2.0, 2.0]])
+    for frame, angles in enumerate(((0.17, 0.23, -0.11), (-0.13, 0.47, 0.09), (0.1, 0.32, 0.07))):
+        pose = np.eye(4, dtype=np.float32)
+        pose[:3, :3] = Rotation.from_euler("xyz", angles).as_matrix()
+        pose[:3, 3] = [frame, 0.2 * frame, 0.3 * frame]
+        camera = CameraModel(projection, (100, 200), torch.from_numpy(pose))
+        camera_boxes = world_box.copy()
+        camera_boxes[:, :3] = (np.linalg.inv(pose) @ np.r_[world_box[0, :3], 1])[:3]
+        camera_boxes[:, 3] -= angles[1]
+        image_box = project_box3d(camera_boxes[0], projection.numpy(), camera.image_size)
+        assert image_box is not None
+        sample_id = f"tilted-camera/{frame}"
+        image = Detections(
+            geometry=Boxes(torch.tensor(image_box[None], dtype=torch.float32)),
+            scores=torch.tensor([0.95]),
+            class_ids=torch.tensor([0]),
+            sample_id=sample_id,
+        )
+        visible_3d = camera_boxes[:0] if frame == 1 else camera_boxes
+        spatial = Detections3D(
+            geometry=Boxes3D(torch.tensor(visible_3d, dtype=torch.float32)),
+            scores=torch.full((len(visible_3d),), 0.95),
+            class_ids=torch.zeros(len(visible_3d), dtype=torch.int64),
+            sample_id=sample_id,
+        )
+        result = tracker.update(image, detections_3d=spatial, camera=camera)
+        assert result.image_tracks.track_ids.tolist() == result.spatial_tracks.track_ids.tolist() == [0]
+        assert result.spatial_tracks.detection_indices.tolist() == ([-1] if frame == 1 else [0])
         np.testing.assert_allclose(result.spatial_tracks.geometry.values.numpy(), camera_boxes, atol=3e-5, rtol=0)
         np.testing.assert_allclose(tracker._tracks[0].motion.box, world_box[0], atol=3e-5, rtol=0)
 

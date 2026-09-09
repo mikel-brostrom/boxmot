@@ -212,7 +212,7 @@ class EagerMot(BaseTracker):
             return track.confidence_3d
         return track.confidence_3d / (2.0 * (track.time_since_2d_update + 1 - self.max_age_2d))
 
-    def _results(self, detections: Detections, camera: CameraModel, world_to_camera: np.ndarray) -> MultimodalTracks:
+    def _results(self, detections: Detections, camera: CameraModel) -> MultimodalTracks:
         """Build independent canonical sensor outputs without fabricated masks."""
         current = sorted(
             (track for track in self._tracks if track.time_since_update == 0 and self._confirmed(track)),
@@ -232,7 +232,7 @@ class EagerMot(BaseTracker):
         )
         boxes = np.asarray([track.motion.box for track in current], dtype=np.float64).reshape(-1, 7)
         if camera.camera_to_world is not None:
-            boxes = transform_boxes3d(boxes, world_to_camera)
+            boxes = transform_boxes3d(boxes, camera.camera_to_world.detach().numpy(), inverse=True)
         spatial_tracks = Tracks3D(
             geometry=Boxes3D(torch.from_numpy(np.ascontiguousarray(boxes, dtype=np.float32))),
             track_ids=torch.tensor([track.id for track in current], dtype=torch.int64),
@@ -270,7 +270,6 @@ class EagerMot(BaseTracker):
         if self._uses_world_frame is not None and uses_world_frame != self._uses_world_frame:
             raise ValueError("camera_to_world must be supplied consistently throughout a sequence; reset to change it.")
         pose = camera.camera_to_world.detach().numpy() if uses_world_frame else np.eye(4)
-        world_to_camera = np.linalg.inv(pose)
 
         indices_2d = np.flatnonzero(detections.scores.detach().numpy() >= self.det_thresh)
         indices_3d = np.flatnonzero(detections_3d.scores.detach().numpy() >= self.det_thresh_3d)
@@ -323,7 +322,7 @@ class EagerMot(BaseTracker):
         leftover_tracks = [self._tracks[index] for index in unmatched_tracks]
         predicted_camera_boxes = predictions[unmatched_tracks]
         if uses_world_frame:
-            predicted_camera_boxes = transform_boxes3d(predicted_camera_boxes, world_to_camera)
+            predicted_camera_boxes = transform_boxes3d(predicted_camera_boxes, pose, inverse=True)
         projected_tracks, visible_tracks = self._project(predicted_camera_boxes, camera)
         second_matches = np.empty((0, 2), dtype=np.int64)
         if self.iou_threshold < 1.0:
@@ -356,4 +355,4 @@ class EagerMot(BaseTracker):
             self._tracks.append(track)
 
         self._tracks = [track for track in self._tracks if track.time_since_update < self.max_age]
-        return self._results(detections, camera, world_to_camera)
+        return self._results(detections, camera)

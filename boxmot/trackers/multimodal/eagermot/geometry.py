@@ -47,15 +47,25 @@ def boxes3d_corners(boxes: np.ndarray) -> np.ndarray:
     return corners
 
 
-def transform_boxes3d(boxes: np.ndarray, pose: np.ndarray) -> np.ndarray:
-    """Transform upright boxes by a rigid 4x4 pose that preserves the y axis.
+def transform_boxes3d(boxes: np.ndarray, pose: np.ndarray, *, inverse: bool = False) -> np.ndarray:
+    """Transform centers rigidly and approximate orientation using a +y yaw.
 
-    ``pose`` maps the input box frame into the output frame. General camera
-    extrinsics belong in projection matrices: a tilted cuboid cannot be
-    represented exactly by this upright seven-coordinate box contract.
+    ``pose`` maps camera coordinates into world coordinates. As in EagerMOT,
+    the complete rotation and translation act on bottom centers, dimensions
+    stay fixed, and the pose's XYZ Euler y angle is added to object yaw. Its
+    full-range extension uses the sign of R00 to avoid folding camera turns
+    beyond 90 degrees; it agrees with the source on its usual Euler branch
+    and preserves exact geometry for upright poses. Roll and pitch are not
+    retained as cuboid orientation in the seven-coordinate tracking state.
+
+    ``inverse=True`` maps back through the original pose and subtracts that
+    same yaw. Extracting a new yaw from the inverse rotation would not undo
+    the forward approximation when the pose includes roll and pitch.
     """
     values = _boxes_array(boxes)
     pose = np.asarray(pose, dtype=np.float64)
+    if not isinstance(inverse, bool):
+        raise TypeError("inverse must be bool.")
     if pose.shape != (4, 4) or not np.isfinite(pose).all():
         raise ValueError("pose must be a finite 4x4 rigid transformation.")
     rotation = pose[:3, :3]
@@ -63,12 +73,17 @@ def transform_boxes3d(boxes: np.ndarray, pose: np.ndarray) -> np.ndarray:
         not np.allclose(pose[3], [0, 0, 0, 1], atol=1e-6, rtol=0.0)
         or not np.allclose(rotation.T @ rotation, np.eye(3), atol=1e-5, rtol=0.0)
         or not np.isclose(np.linalg.det(rotation), 1, atol=1e-5, rtol=0.0)
-        or not np.allclose(rotation[:, 1], [0, 1, 0], atol=1e-6, rtol=0.0)
     ):
-        raise ValueError("pose must be rigid and preserve the downward-positive y axis.")
+        raise ValueError("pose must be a homogeneous rigid transform without reflection.")
+    # The signed cosine retains the full yaw range instead of Euler's +/-pi/2 fold.
+    cosine = np.copysign(np.hypot(rotation[0, 0], rotation[1, 0]), rotation[0, 0])
+    angle = np.arctan2(-rotation[2, 0], cosine)
+    if inverse:
+        pose = np.linalg.inv(pose)
+        angle = -angle
     result = values.copy()
-    result[:, :3] = values[:, :3] @ rotation.T + pose[:3, 3]
-    result[:, 3] += np.arctan2(rotation[0, 2], rotation[0, 0])
+    result[:, :3] = values[:, :3] @ pose[:3, :3].T + pose[:3, 3]
+    result[:, 3] += angle
     return result
 
 

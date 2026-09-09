@@ -1,0 +1,159 @@
+"""Exercise the KITTI sensor reader, class presets, CLI, and mask evaluation together."""
+
+from __future__ import annotations
+
+import csv
+import json
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import torch
+from click.testing import CliRunner
+from PIL import Image
+
+from boxmot import EagerMot
+from boxmot.datasets.kitti_fusion import KittiFusionSequence
+from boxmot.engine.cli import boxmot
+from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame
+from boxmot.engine.eval.mots_io import read_mots_results
+
+mask_utils = pytest.importorskip("pycocotools.mask")
+
+
+def _fixture(tmp_path: Path) -> SimpleNamespace:
+    """Write real KITTI inputs with two objects separated by a complete sensor dropout."""
+    root, images, instances = (tmp_path / name for name in ("sensor-inputs", "images", "instances"))
+    for directory in (root / "calib/training/calib", root / "ego_motion", root / "trackrcnn_detections"):
+        directory.mkdir(parents=True)
+    (images / "0002").mkdir(parents=True)
+    (instances / "0002").mkdir(parents=True)
+    (root / "calib/training/calib/0002.txt").write_text("P2: 20 0 24 0 0 20 12 0 0 0 1 0\n")
+    np.save(root / "ego_motion/0002.npy", np.repeat(np.eye(4)[None], 3, axis=0))
+    objects = (
+        (2, "Pedestrian", "results_tracking_ped_cyl_auto_trainval", (26, 8, 34, 15), 5, 1),
+        (1, "Car", "results_tracking_car_auto_t2_train", (14, 8, 23, 15), -5, 4),
+    )
+    detection_rows = []
+    for frame in range(3):
+        labels = np.zeros((24, 48), dtype=np.uint16)
+        Image.fromarray(np.zeros((24, 48, 3), dtype=np.uint8)).save(images / "0002" / f"{frame:06d}.png")
+        for class_id, class_name, variant, bounds, x, length in objects:
+            directory = root / "pointgnn/training" / variant / "0002/data"
+            directory.mkdir(parents=True, exist_ok=True)
+            if frame == 1:
+                # No 2D rows and no PointGNN file: the reader must retain this timestep.
+                continue
+            x1, y1, x2, y2 = bounds
+            labels[y1:y2, x1:x2] = class_id * 1000 + 1
+            encoded = mask_utils.encode(np.asfortranarray(labels == class_id * 1000 + 1, dtype=np.uint8))
+            fields = [frame, *bounds, 0.98, class_id, 24, 48, encoded["counts"].decode("ascii"), *([0] * 128)]
+            detection_rows.append(" ".join(map(str, fields)))
+            row = [class_name, 0, 0, 0, *bounds, 3, 1, length, x, 0, 20, 0, 120]
+            (directory / f"{frame:06d}.txt").write_text(" ".join(map(str, row)) + "\n")
+        Image.fromarray(labels).save(instances / "0002" / f"{frame:06d}.png")
+    (root / "trackrcnn_detections/0002.txt").write_text("\n".join(detection_rows) + "\n")
+    return SimpleNamespace(root=root, images=images, instances=instances, project=tmp_path / "results")
+
+
+def _arguments(data: SimpleNamespace) -> list[str]:
+    """Invoke the registered command with explicit temporary data paths."""
+    return [
+        "eval-eagermot",
+        "--data-root",
+        str(data.root),
+        "--images",
+        str(data.images),
+        "--instances",
+        str(data.instances),
+        "--project",
+        str(data.project),
+        "--sequence",
+        "0002",
+    ]
+
+
+def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_path: Path) -> None:
+    data = _fixture(tmp_path)
+    previous_threads = torch.get_num_threads()
+    invocation = CliRunner().invoke(boxmot, _arguments(data))
+    assert invocation.exit_code == 0, (invocation.output, invocation.exception)
+    assert torch.get_num_threads() == previous_threads
+    output = data.project / "val"
+    metrics = json.loads((output / "metrics.json").read_text())
+    assert set(metrics) == {"car", "pedestrian", "cls_comb_cls_av", "cls_comb_det_av"}
+    for class_name in ("car", "pedestrian"):
+        values = metrics[class_name]
+        assert {key: values[key] for key in ("HOTA", "DetA", "AssA", "MOTA", "IDF1")} == dict.fromkeys(
+            ("HOTA", "DetA", "AssA", "MOTA", "IDF1"), 100
+        )
+        assert values["Frames"] == 3
+        assert values["Dets"] == values["GT_Dets"] == 2
+        assert values["IDs"] == values["GT_IDs"] == 1
+        assert set(values["per_sequence"]) == {"0002"}
+    manifest = json.loads((output / "run.json").read_text())
+    assert manifest["status"] == "complete"
+    assert manifest["split"] == "val"
+    assert manifest["sequences"] == {"0002": 3}
+    assert manifest["pointgnn_car"] == "t2-train"
+    with (output / "metrics.csv").open(newline="") as handle:
+        assert {row["class"] for row in csv.DictReader(handle)} == set(metrics)
+
+    rows = read_mots_results(output / "mots/0002.txt")
+    assert set(rows) == {0, 2}
+    first_ids = {row.class_id: row.track_id for row in rows[0]}
+    assert len(set(first_ids.values())) == 2
+    assert {row.class_id: row.track_id for row in rows[2]} == first_ids
+    originals = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
+    repeated = CliRunner().invoke(boxmot, _arguments(data))
+    assert repeated.exit_code == 0, (repeated.output, repeated.exception)
+    assert (data.project / "val2/metrics.json").is_file()
+    assert all((output / relative).read_bytes() == contents for relative, contents in originals.items())
+
+
+def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_path: Path) -> None:
+    data = _fixture(tmp_path)
+    sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
+    trackers = {class_id: EagerMot(**profile) for class_id, profile in KITTI_PROFILES.items()}
+    first = _track_frame(sequence[0], trackers)
+    assert first.class_ids.tolist() == [1, 2]
+    assert first.detection_indices.tolist() == [1, 0]
+    assert len(first.track_ids.unique()) == 2
+    empty = sequence[1]
+    assert len(empty.detections) == len(empty.detections_3d) == 0
+    assert len(_track_frame(empty, trackers)) == 0
+    assert all(tracker.frame_count == 2 for tracker in trackers.values())
+    recovered = _track_frame(sequence[2], trackers)
+    torch.testing.assert_close(recovered.track_ids, first.track_ids)
+    assert recovered.detection_indices.tolist() == [1, 0]
+    assert all(tracker.frame_count == 3 for tracker in trackers.values())
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        (["--sequence", "0001"], "distinct members of KITTI MOTS val"),
+        (["--sequence", "0002"], "distinct members of KITTI MOTS val"),
+        (["--split", "test"], "Invalid value for '--split'"),
+    ],
+)
+def test_cli_rejects_split_mixing_duplicates_and_unannotated_test_split(
+    tmp_path: Path, options: list[str], message: str
+) -> None:
+    data = _fixture(tmp_path)
+    invocation = CliRunner().invoke(boxmot, [*_arguments(data), *options])
+    assert invocation.exit_code != 0
+    assert message in invocation.output
+    assert not data.project.exists()
+
+
+def test_missing_ground_truth_fails_before_output_and_restores_threads(tmp_path: Path) -> None:
+    data = _fixture(tmp_path)
+    (data.instances / "0002/000002.png").unlink()
+    previous_threads = torch.get_num_threads()
+    invocation = CliRunner().invoke(boxmot, _arguments(data))
+    assert invocation.exit_code == 1
+    assert "Missing KITTI MOTS ground-truth instance PNG" in invocation.output
+    assert not data.project.exists()
+    assert torch.get_num_threads() == previous_threads

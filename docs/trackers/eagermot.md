@@ -25,13 +25,77 @@ class-ID catalog before fusion.
 - `CameraModel.projection` is a CPU-contiguous `float32[3,4]` matrix that projects
   camera coordinates to pixels. `image_size` is `(height, width)`.
 - For a moving camera, supply its current `camera_to_world` rigid transform.
-  This supports translation and upright yaw rotation; roll and pitch are
-  unsupported. Omit the pose only for a stationary camera, and keep pose
-  availability consistent throughout a sequence.
+  Full rotation and translation transform box centers. The tracking state
+  retains yaw-only cuboids, so their roll and pitch are approximated. Omit the
+  pose only for a stationary camera, and keep pose availability consistent
+  throughout a sequence.
 
 The image tracking CLI, `TrackingPipeline`, and cached evaluation/tuning flows
 cannot supply these sensor inputs. They reject `eagermot` before running
 perception. Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot`.
+The dedicated `eval-eagermot` command below supplies KITTI sensor inputs directly.
+
+## Evaluate downloaded KITTI predictions
+
+Run from the repository root with the existing environment and the `mots`
+extra installed. This replays saved detector predictions on CPU and evaluates
+**segmentation tracking** against KITTI MOTS instance PNGs:
+
+```bash
+uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+  --data-root ./eagermot-data \
+  --images ~/Downloads/data_tracking_image_2/training/image_02 \
+  --instances ~/Downloads/instances \
+  --split val \
+  --project runs/eagermot
+```
+
+The sensor root must contain:
+
+```text
+eagermot-data/
+  calib/training/calib/SEQUENCE.txt
+  ego_motion/SEQUENCE.npy
+  trackrcnn_detections/SEQUENCE.txt
+  pointgnn/training/results_tracking_car_auto_t2_train/SEQUENCE/data/FRAME.txt
+  pointgnn/training/results_tracking_ped_cyl_auto_trainval/SEQUENCE/data/FRAME.txt
+```
+
+Sequence names have four digits and frame names have six digits. The default
+MOTS validation split is `0002, 0006, 0007, 0008, 0010, 0013, 0014, 0016, 0018`.
+Add `--sequence 0002` for a smaller run; repeat the option to select several
+sequences. To evaluate all 21 annotated sequences, use
+`--split fulltrain --pointgnn-car t3-trainval`, which selects
+`results_tracking_car_auto_t3_trainval` for cars. Test sequences lack local
+ground truth and are not supported by this evaluation command.
+
+Results are written under `runs/eagermot/val` (then `val2`, and so on):
+
+- `metrics.json`: mask HOTA, DetA, AssA, LocA, CLEAR and Identity metrics,
+  including per-sequence results and class/detection averages. Percentage
+  metrics use the 0–100 scale, with signed CLEAR scores where applicable.
+- `metrics.csv`: combined results for each class and aggregate.
+- `mots/SEQUENCE.txt`: official MOTS predictions with real, disjoint masks.
+- `run.json`: paths, selected sequences, detector variant and tracker presets.
+
+The runner uses the released car and pedestrian presets separately, with
+globally unique output identities. Image confidence resolves overlapping
+masks; empty masks are omitted. Every image frame advances tracking, including
+frames with no TrackR-CNN rows or missing PointGNN files. RGB pixels are not
+needed by EagerMOT; image headers establish the timeline and dimensions.
+
+PointGNN scores can exceed one. The reader maps each nonnegative score `s` to
+`s / (1 + s)` for the canonical score contract. This is a bounded ranking
+score, not a calibrated probability; the KITTI presets retain the zero 3D
+score threshold, so this mapping does not change accepted detections or mask
+association. Ego-motion arrays contain absolute camera-to-world poses and
+are indexed directly, without accumulation.
+
+These results do not reproduce the paper's benchmark setup: the image
+predictions come from TrackR-CNN, detector checkpoint training provenance has
+not been independently verified, and pedestrian detections use the supplied
+`trainval` variant. This command evaluates masks; KITTI 3D box evaluation
+requires separate 3D ground-truth labels and an evaluator.
 
 ## Sensor fusion example
 
@@ -110,12 +174,17 @@ KITTI car preset. `first_matching_method` selects the 3D association metric;
 association. Set `iou_threshold=1.0` to disable that second stage. Image
 association supports `asso_func="iou"` only.
 
-The integration supports one camera per sequence. Dataset loaders, the
-nuScenes multiple-camera workflow, native C++ execution, and OBB image geometry
-are not included. Image association requires at least four box corners in
+The integration supports one camera per sequence and includes the KITTI input
+reader used above. The nuScenes multiple-camera workflow, native C++ execution,
+and OBB image geometry are not included. Image association requires at least four box corners in
 front of the camera, following the upstream nuScenes visibility rule; the
 upstream KITTI projection path handles boxes behind the camera differently.
 Spatial output still retains objects without a valid image projection.
+Full ego poses transform centers exactly, while projection and 3D IoU use
+regenerated yaw-only cuboids rather than separately stored tilted corners.
+The pose yaw convention extends the source's XYZ Euler y angle beyond 90°
+to preserve full camera turns. These choices can change results relative to
+the original implementation.
 
 The upstream MIT license is retained in the implementation
 package; the original checkout and dataset SDKs are not runtime dependencies.

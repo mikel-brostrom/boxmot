@@ -16,6 +16,7 @@ EXPECTED_COMMAND_ORDER = (
     "materialize",
     "time-variant",
     "eval",
+    "eval-eagermot",
     "tune",
     "research",
     "train-reid",

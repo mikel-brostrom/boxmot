@@ -236,7 +236,9 @@ These trackers are not included in the box-only benchmark table above.
 
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It
-returns image and spatial tracks with shared identities.
+returns image and spatial tracks with shared identities. The dedicated
+`boxmot eval-eagermot` command evaluates downloaded KITTI PointGNN and
+TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
 
 Related guides:
 

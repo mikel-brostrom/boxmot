@@ -99,7 +99,7 @@ def test_spatial_metadata_and_selection_are_validated() -> None:
     assert _spatial_tracks().select(torch.tensor([1])).detection_indices.tolist() == [-1]
 
 
-def test_camera_supports_only_explicit_upright_rigid_poses() -> None:
+def test_camera_supports_general_rigid_poses_and_rejects_nonrigid_transforms() -> None:
     camera = _camera()
     pose = torch.tensor([[0.0, 0.0, 1.0, 4.0], [0.0, 1.0, 0.0, 2.0], [-1.0, 0.0, 0.0, -3.0], [0.0, 0.0, 0.0, 1.0]])
     moved = replace(camera, camera_to_world=pose)
@@ -108,8 +108,9 @@ def test_camera_supports_only_explicit_upright_rigid_poses() -> None:
     assert camera.camera_to_world is None
 
     roll = torch.tensor([[0.0, -1.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
-    with pytest.raises(ValueError, match="roll and pitch"):
-        replace(camera, camera_to_world=roll)
+    assert replace(camera, camera_to_world=roll).camera_to_world is roll
+    pitch = torch.tensor([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]])
+    assert replace(camera, camera_to_world=pitch).camera_to_world is pitch
     with pytest.raises(ValueError, match="reflection"):
         replace(camera, camera_to_world=torch.diag(torch.tensor([-1.0, 1.0, 1.0, 1.0])))
     with pytest.raises(ValueError, match="orthonormal"):

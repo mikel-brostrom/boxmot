@@ -201,6 +201,7 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/_options.py",
     "engine/commands/_support.py",
     "engine/commands/build.py",
+    "engine/commands/eagermot.py",
     "engine/commands/eval.py",
     "engine/commands/materialize.py",
     "engine/commands/research.py",

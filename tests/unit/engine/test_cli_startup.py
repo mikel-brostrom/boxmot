@@ -45,6 +45,7 @@ _ROOT_HELP_RUNTIME_MODULES = (
 _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
+    "boxmot.engine.commands.eagermot",
     "boxmot.engine.commands.materialize",
     "boxmot.engine.commands.time_variant",
     "boxmot.engine.commands.research",
@@ -72,6 +73,7 @@ _COMMAND_MODULE_BY_NAME = {
     "materialize": "boxmot.engine.commands.materialize",
     "time-variant": "boxmot.engine.commands.time_variant",
     "eval": "boxmot.engine.commands.eval",
+    "eval-eagermot": "boxmot.engine.commands.eagermot",
     "tune": "boxmot.engine.commands.tune",
     "research": "boxmot.engine.commands.research",
     "train-reid": "boxmot.engine.commands.reid.train",
@@ -308,6 +310,7 @@ def test_command_help_resolves_only_selected_adapter(command_name: str, expected
         "track",
         "materialize",
         "eval",
+        "eval-eagermot",
         "tune",
         "research",
         "train-reid",

@@ -90,12 +90,14 @@ class Detections3D:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class CameraModel:
-    """One pinhole camera's projection, image size, and optional upright pose.
+    """One pinhole camera's projection, image size, and optional rigid pose.
 
     ``projection`` is float32 ``[3,4]`` and maps homogeneous camera-space
     points to pixels after division by depth. ``image_size`` is (height,
     width). Optional float32 ``[4,4]`` ``camera_to_world`` maps these points
-    to a fixed world frame using translation and rotation about +y only.
+    to a fixed world frame using a rigid rotation and translation. Roll and
+    pitch are accepted; a tracker with yaw-only boxes approximates their
+    orientation while transforming box centers with the complete pose.
     None denotes a stationary camera with the identity transform.
     """
 
@@ -107,7 +109,7 @@ class CameraModel:
         self.validate()
 
     def validate(self) -> None:
-        """Reject invalid intrinsics and poses outside the upright box model."""
+        """Reject invalid intrinsics and nonrigid or reflected camera poses."""
         validate_tensor(self.projection, name="CameraModel.projection", dtype=torch.float32, ndim=2)
         if self.projection.shape != (3, 4):
             raise ValueError("CameraModel.projection must have shape [3, 4].")
@@ -133,10 +135,6 @@ class CameraModel:
             raise ValueError("CameraModel.camera_to_world rotation must be orthonormal.")
         if not torch.isclose(torch.linalg.det(rotation), torch.tensor(1.0, dtype=torch.float64), atol=1e-5, rtol=0.0):
             raise ValueError("CameraModel.camera_to_world must preserve orientation, without reflection.")
-        if not torch.allclose(rotation[:, 1], torch.tensor([0.0, 1.0, 0.0], dtype=torch.float64), atol=1e-6, rtol=0.0):
-            raise ValueError(
-                "CameraModel.camera_to_world must preserve the upright +y axis; roll and pitch are unsupported."
-            )
 
 
 @dataclass(frozen=True, slots=True, eq=False)

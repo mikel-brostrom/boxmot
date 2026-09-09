@@ -20,6 +20,8 @@ Mask-aware trackers include [Sam2Mot](trackers/sam2mot.md) and
 appearance for AABB detections with full-frame instance masks and image frames.
 [EagerMot](trackers/eagermot.md) adds 2D/3D sensor fusion through the Python
 tracker API with independent detection batches and camera calibration.
+Use `boxmot eval-eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN
+predictions against KITTI MOTS masks; the tracker page provides the command.
 
 ## Get started
 
