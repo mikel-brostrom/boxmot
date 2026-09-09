@@ -90,12 +90,37 @@ instead of the generic bounding-box smoke command.
 
 ## Release gates
 
-The publish workflow never rebuilds or bumps the package. It publishes the
-exact `24.0.0` wheel and source distribution produced by the reusable wheel
-workflow after the full tests, strict documentation build, native checks, and
-clean-wheel imports on Python 3.10 through 3.13 pass. It also calls the Docker
-workflow in non-pushing mode before PyPI upload. A published `v24.0.0` release
-then invokes that same Docker workflow in pushing mode.
+Start the **Publish to PyPI** workflow on the current branch revision and select
+`patch`, `minor`, or `major` under **Version bump type**. The default is `patch`.
+For example, `24.0.0` becomes `24.0.1`, `24.1.0`, or `25.0.0`, respectively.
+
+Preparation first verifies that `pyproject.toml`, `boxmot/__init__.py`, and the
+local editable `boxmot` record in `uv.lock` agree. It uses
+`uv version --bump <type> --no-sync` to update the project and lockfile, then
+synchronizes the runtime version. The resulting candidate commit is retained
+in the `release-source` bundle artifact without pushing the branch or a tag.
+
+Every release gate restores that exact candidate. The reusable wheel workflow
+runs the full tests, strict documentation build, native checks, and clean-wheel
+imports on Python 3.10 through 3.13. Docker validates all four images without
+pushing them. Package checks compare the requested release version with the
+candidate and installed artifacts; they do not pin a particular version.
+
+After these gates pass, the workflow publishes the checksummed wheel and source
+distribution. Successful **PyPI** publication is followed by an atomic push of
+the tested version commit and its `v<version>` tag, then a GitHub release at that
+commit. The release event starts Docker image publication. **TestPyPI** runs
+the same preparation and validation but leaves the remote branch, tags, and
+GitHub releases unchanged.
+
+Release runs targeting the same package repository are serialized. The workflow
+checks that the branch still points at the selected revision before preparation
+and immediately before publication. It rejects an existing release tag before
+PyPI publication. The final branch push uses a normal fast-forward update. If
+publication succeeds but that push fails,
+recover the tested candidate from the bundle artifact instead of rebuilding or
+force-pushing another commit. PyPI publication requires `RELEASE_PAT` with
+permission to push the version commit and tag and create the release.
 
 The `service-gpu` smoke runs on the `gpu-latest` runner label and requires a
 Linux NVIDIA host with Docker and the NVIDIA Container Toolkit. It exposes the

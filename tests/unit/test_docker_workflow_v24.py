@@ -18,6 +18,7 @@ DOCKER_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "docker.yml"
 DOCKERFILE = REPO_ROOT / "docker" / "Dockerfile"
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 WHEEL_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "wheels.yml"
+CHECKOUT_ACTION = REPO_ROOT / ".github" / "actions" / "checkout-release-source" / "action.yml"
 
 
 def _docker_job() -> dict:
@@ -56,17 +57,19 @@ def test_manual_image_rebuild_is_explicit_and_safe_by_default() -> None:
     assert "description: 'Exact v-prefixed release tag to validate'" in workflow
     assert "push_images:\n        description: 'Push validated images to Docker Hub'" in workflow
     assert "type: boolean\n        default: false" in workflow
-    assert "fetch-depth: 0" in workflow
+    action = yaml.safe_load(CHECKOUT_ACTION.read_text(encoding="utf-8"))
+    checkout = next(step for step in action["runs"]["steps"] if step.get("uses") == "actions/checkout@v4")
+    assert checkout["with"]["fetch-depth"] == 0
     assert "Manual publishing requires $RELEASE_TAG to point at $source_sha" in workflow
 
 
 def test_every_docker_image_checks_the_exact_v24_surface() -> None:
     job = _docker_job()
-    step = next(step for step in job["steps"] if step.get("name") == "Smoke test v24 package and command surface")
+    step = next(step for step in job["steps"] if step.get("name") == "Smoke test release package and command surface")
     script = step["run"]
 
     assert "if:" not in step
-    assert 'python "${python_args[@]}" < tests/ci/release_contract.py' in script
+    assert 'python "${python_args[@]}" --expected-version "${{ env.VERSION }}" < tests/ci/release_contract.py' in script
     assert "--workdir /tmp" in script
 
 
@@ -74,7 +77,7 @@ def test_every_docker_image_checks_the_exact_v24_surface() -> None:
 def test_docker_release_smoke_preserves_each_images_import_context(tmp_path: Path, target: str) -> None:
     """Execute the workflow's Python flags against a source-only package fixture."""
     step = next(
-        step for step in _docker_job()["steps"] if step.get("name") == "Smoke test v24 package and command surface"
+        step for step in _docker_job()["steps"] if step.get("name") == "Smoke test release package and command surface"
     )
     script = step["run"]
     for expression, value in (
@@ -126,11 +129,19 @@ def test_wheel_smoke_uses_shared_checks_without_importing_the_checkout() -> None
     workflow = yaml.safe_load(WHEEL_WORKFLOW.read_text(encoding="utf-8"))
     steps = workflow["jobs"]["clean_wheel_smoke"]["steps"]
     checkout = next(step for step in steps if step.get("name") == "Checkout release checks")
-    smoke = next(step for step in steps if step.get("name") == "Smoke-test v24 imports and CLI")
+    smoke = next(step for step in steps if step.get("name") == "Smoke-test release imports and CLI")
 
-    assert checkout["with"] == {"ref": "${{ github.sha }}", "path": "source"}
+    assert checkout["uses"] == "./.github/actions/checkout-release-source"
+    assert checkout["with"] == {
+        "source_sha": "${{ inputs.source_sha || github.sha }}",
+        "candidate_sha": "${{ inputs.candidate_sha }}",
+        "source_bundle": "${{ inputs.source_bundle }}",
+        "path": "source",
+    }
     assert smoke["working-directory"] == "${{ runner.temp }}"
-    assert 'python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py" --check-cli-help' in smoke["run"]
+    assert smoke["env"]["RELEASE_VERSION"] == "${{ needs.build.outputs.version }}"
+    assert 'python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py"' in smoke["run"]
+    assert '--expected-version "$RELEASE_VERSION" --check-cli-help' in smoke["run"]
     assert "expected_public_api" not in smoke["run"]
     assert "expected_cli_commands" not in smoke["run"]
 
@@ -174,6 +185,34 @@ def test_release_contract_rejects_an_unexpected_package_version(monkeypatch: pyt
 
     with pytest.raises(AssertionError, match="Package version:.*0.0.0"):
         release_contract.check_release_contract()
+
+
+@pytest.mark.parametrize("expected_version", ("25.0.0", "24.1.0", "24.0.1"))
+def test_release_contract_accepts_requested_version_without_installed_metadata(
+    monkeypatch: pytest.MonkeyPatch, expected_version: str
+) -> None:
+    """Source-only service images validate the independently prepared release."""
+    import boxmot
+
+    def missing_metadata(_name: str) -> str:
+        raise release_contract.importlib.metadata.PackageNotFoundError("boxmot")
+
+    monkeypatch.setattr(boxmot, "__version__", expected_version)
+    monkeypatch.setattr(release_contract.importlib.metadata, "version", missing_metadata)
+
+    release_contract.check_release_contract(expected_version=expected_version)
+
+
+def test_release_contract_rejects_mismatched_requested_and_installed_versions(monkeypatch: pytest.MonkeyPatch) -> None:
+    import boxmot
+
+    monkeypatch.setattr(boxmot, "__version__", "24.0.1")
+    monkeypatch.setattr(release_contract.importlib.metadata, "version", lambda _name: "24.0.0")
+
+    with pytest.raises(AssertionError, match="Package version:.*24.0.0.*24.0.1"):
+        release_contract.check_release_contract()
+    with pytest.raises(AssertionError, match="Package version:.*25.0.0.*24.0.1"):
+        release_contract.check_release_contract(expected_version="25.0.0")
 
 
 def test_release_cli_help_checks_every_command_and_reports_failures(monkeypatch: pytest.MonkeyPatch) -> None:

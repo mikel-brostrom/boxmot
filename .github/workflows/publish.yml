@@ -11,36 +11,140 @@ on:
         options:
           - pypi
           - testpypi
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        type: choice
+        default: 'patch'
+        options:
+          - patch
+          - minor
+          - major
+
+# Keep another release from publishing the same next version while this one runs.
+concurrency:
+  group: pypi-release-${{ inputs.pypi }}
+  cancel-in-progress: false
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 jobs:
+  prepare-release:
+    name: Prepare the selected version without changing the remote branch
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      candidate_sha: ${{ steps.candidate.outputs.sha }}
+    steps:
+      - name: Checkout the requested revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Require the current branch revision
+        env:
+          SOURCE_BRANCH: ${{ github.ref_name }}
+          BASE_SHA: ${{ github.sha }}
+          TARGET_REPOSITORY: ${{ inputs.pypi }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != branch ]; then
+            echo "Release dispatch must select a branch." >&2
+            exit 1
+          fi
+          case "$TARGET_REPOSITORY" in
+            pypi|testpypi) ;;
+            *) echo "Unsupported package repository: $TARGET_REPOSITORY" >&2; exit 1 ;;
+          esac
+          remote_sha=$(git ls-remote --exit-code origin "refs/heads/$SOURCE_BRANCH" | cut -f1)
+          if [ "$remote_sha" != "$BASE_SHA" ]; then
+            echo "The selected branch has moved. Start a new release from its current revision." >&2
+            exit 1
+          fi
+
+      - name: Set up Python and uv
+        uses: ./.github/actions/setup-ci-python
+        with:
+          python-version: '3.11'
+
+      - name: Bump project, package, and lockfile versions
+        id: bump
+        env:
+          BUMP_TYPE: ${{ inputs.bump_type }}
+        run: python .github/scripts/bump_release.py --bump "$BUMP_TYPE"
+
+      - name: Preserve the exact candidate commit for every release gate
+        id: candidate
+        env:
+          BASE_SHA: ${{ github.sha }}
+          OLD_VERSION: ${{ steps.bump.outputs.old_version }}
+          RELEASE_VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          git config --local user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config --local user.name 'github-actions[bot]'
+          git checkout -b release-candidate
+          git add pyproject.toml boxmot/__init__.py uv.lock
+          git commit -m "ci: bump version from $OLD_VERSION to $RELEASE_VERSION"
+          git bundle create "$RUNNER_TEMP/release-source.bundle" "$BASE_SHA..refs/heads/release-candidate"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the unpublished release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-source
+          path: ${{ runner.temp }}/release-source.bundle
+          if-no-files-found: error
+          retention-days: 30
+
   release-gates:
-    name: Build and validate the release distributions
+    name: Build and validate the bumped release distributions
+    needs: prepare-release
     uses: ./.github/workflows/wheels.yml
     with:
+      source_sha: ${{ github.sha }}
+      candidate_sha: ${{ needs.prepare-release.outputs.candidate_sha }}
+      source_bundle: release-source
       upload_artifacts: true
 
   docker-gates:
-    name: Smoke-test release Docker images before publication
-    needs: release-gates
+    name: Smoke-test bumped release Docker images before publication
+    needs: [prepare-release, release-gates]
     uses: ./.github/workflows/docker.yml
     with:
-      source_ref: ${{ github.sha }}
+      source_base: ${{ github.sha }}
+      source_ref: ${{ needs.prepare-release.outputs.candidate_sha }}
+      source_bundle: release-source
       release_tag: v${{ needs.release-gates.outputs.version }}
       push_images: false
 
   pypi-upload:
-    name: Publish gated v24 distributions
-    needs: [release-gates, docker-gates]
+    name: Publish gated distributions and record the successful release
+    needs: [prepare-release, release-gates, docker-gates]
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    env:
+      BASE_SHA: ${{ github.sha }}
+      SOURCE_BRANCH: ${{ github.ref_name }}
+      CANDIDATE_SHA: ${{ needs.prepare-release.outputs.candidate_sha }}
+      RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+      TARGET_REPOSITORY: ${{ inputs.pypi }}
     steps:
-      - name: Checkout the gated revision
+      - name: Checkout release orchestration
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.workflow_sha }}
+
+      - name: Restore the candidate that passed every release gate
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ github.sha }}
+          candidate_sha: ${{ needs.prepare-release.outputs.candidate_sha }}
+          source_bundle: release-source
+          token: ${{ secrets.RELEASE_PAT || github.token }}
 
       - name: Set up Python and uv
         uses: ./.github/actions/setup-ci-python
@@ -55,10 +159,11 @@ jobs:
 
       - name: Verify gated artifact checksums and version
         env:
-          RELEASE_VERSION: ${{ needs.release-gates.outputs.version }}
+          GATED_VERSION: ${{ needs.release-gates.outputs.version }}
         run: |
           (cd dist && sha256sum --check SHA256SUMS)
           python - <<'PY'
+          import ast
           import email
           import os
           import pathlib
@@ -67,7 +172,15 @@ jobs:
 
           release_version = os.environ["RELEASE_VERSION"]
           source_version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
-          assert release_version == source_version == "24.0.0"
+          assert release_version == source_version == os.environ["GATED_VERSION"]
+          module = ast.parse(pathlib.Path("boxmot/__init__.py").read_text())
+          package_version = next(
+              ast.literal_eval(node.value)
+              for node in module.body
+              if isinstance(node, ast.Assign)
+              and any(isinstance(target, ast.Name) and target.id == "__version__" for target in node.targets)
+          )
+          assert package_version == release_version
           wheels = list(pathlib.Path("dist").glob("*.whl"))
           assert len(wheels) == 1, f"expected one gated wheel, found {wheels}"
           with zipfile.ZipFile(wheels[0]) as archive:
@@ -76,25 +189,50 @@ jobs:
           assert metadata["Version"] == release_version
           PY
 
-      - name: Publish the gated distributions
+      - name: Check the destination immediately before publication
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
-          if [ "${{ inputs.pypi }}" == "pypi" ]; then
-            uv publish dist/*.whl dist/*.tar.gz --token "${{ secrets.PYPI_TOKEN }}"
-          else
-            uv publish --index testpypi dist/*.whl dist/*.tar.gz --token "${{ secrets.TEST_PYPI_TOKEN }}"
+          if [ "$TARGET_REPOSITORY" = pypi ] && [ -z "$RELEASE_TOKEN" ]; then
+            echo "RELEASE_PAT is required for the version commit, tag, and release." >&2
+            exit 1
+          fi
+          remote_sha=$(git ls-remote --exit-code origin "refs/heads/$SOURCE_BRANCH" | cut -f1)
+          if [ "$remote_sha" != "$BASE_SHA" ]; then
+            echo "The branch changed during validation. No package was published; start a new release." >&2
+            exit 1
+          fi
+          if [ "$TARGET_REPOSITORY" = pypi ]; then
+            existing_tag=$(git ls-remote origin "refs/tags/v$RELEASE_VERSION")
+            if [ -n "$existing_tag" ]; then
+              echo "Release tag v$RELEASE_VERSION already exists. No package was published." >&2
+              exit 1
+            fi
           fi
 
-      - name: Create code release
-        id: create_release
-        uses: actions/create-release@v1
+      - name: Publish the gated distributions
         env:
-          # A PAT is required so the release.published event can start the
-          # release-only Docker workflow; GITHUB_TOKEN suppresses chained runs.
-          GITHUB_TOKEN: ${{ secrets.RELEASE_PAT }}
-        with:
-          tag_name: v${{ needs.release-gates.outputs.version }}
-          release_name: Release v${{ needs.release-gates.outputs.version }}
-          commitish: ${{ github.sha }}
-          draft: false
-          prerelease: false
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          TEST_PYPI_TOKEN: ${{ secrets.TEST_PYPI_TOKEN }}
+        run: |
+          if [ "$TARGET_REPOSITORY" = pypi ]; then
+            UV_PUBLISH_TOKEN="$PYPI_TOKEN" uv publish dist/*.whl dist/*.tar.gz
+          else
+            UV_PUBLISH_TOKEN="$TEST_PYPI_TOKEN" uv publish --index testpypi dist/*.whl dist/*.tar.gz
+          fi
+
+      - name: Push the successful version commit and tag
         if: ${{ success() && inputs.pypi == 'pypi' }}
+        run: |
+          git tag "v$RELEASE_VERSION" "$CANDIDATE_SHA"
+          if ! git push --atomic origin "$CANDIDATE_SHA:refs/heads/$SOURCE_BRANCH" "refs/tags/v$RELEASE_VERSION"; then
+            echo "::error::PyPI publication succeeded, but the release commit and tag could not be pushed. Recover the tested candidate from the release-source artifact; do not rebuild or force-push a different commit."
+            exit 1
+          fi
+
+      - name: Create code release at the published commit
+        if: ${{ success() && inputs.pypi == 'pypi' }}
+        env:
+          # A PAT allows release.published to start the Docker publishing workflow.
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: gh release create "v$RELEASE_VERSION" --verify-tag --title "Release v$RELEASE_VERSION" --notes "Release v$RELEASE_VERSION"

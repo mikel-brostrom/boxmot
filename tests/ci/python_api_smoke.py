@@ -1,4 +1,4 @@
-"""Clean-install smoke tests for the coordinated v24 public cutover."""
+"""Clean-install smoke tests for the public package and command interface."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ def test_python_api_smoke() -> None:
 
     assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
     assert not torch.cuda.is_available()
+    # Compare runtime to installed metadata; refresh editable installs after a bump.
     check_release_contract()
 
     tracker = create_tracker(TrackerSpec("bytetrack"))

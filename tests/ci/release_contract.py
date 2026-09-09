@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import importlib.util
 import subprocess
 
-EXPECTED_VERSION = "24.0.0"
 EXPECTED_PUBLIC_API = (
     "__version__",
     "create_tracker",
@@ -36,16 +36,23 @@ EXPECTED_CLI_COMMANDS = (
 )
 
 
-def check_release_contract() -> None:
-    """Check the independent release expectations through public discovery APIs."""
+def check_release_contract(expected_version: str | None = None) -> None:
+    """Check the requested release or installed version and public discovery APIs.
+
+    Explicit release versions also support source-only service images without
+    distribution metadata. Otherwise, the installed distribution is the version
+    authority; editable installs must be refreshed after source version changes.
+    """
     import click
 
     import boxmot
     from boxmot.engine.cli import boxmot as boxmot_cli
     from boxmot.engine.experiment_config import resolve_experiment_config
 
-    assert boxmot.__version__ == EXPECTED_VERSION, (
-        f"Package version: expected {EXPECTED_VERSION!r}, got {boxmot.__version__!r}"
+    if expected_version is None:
+        expected_version = importlib.metadata.version("boxmot")
+    assert boxmot.__version__ == expected_version, (
+        f"Package version: expected {expected_version!r}, got {boxmot.__version__!r}"
     )
     assert boxmot.__all__ == EXPECTED_PUBLIC_API, (
         f"Public API: expected {EXPECTED_PUBLIC_API!r}, got {boxmot.__all__!r}"
@@ -73,9 +80,13 @@ def check_cli_help() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--expected-version",
+        help="Expected runtime version; defaults to the installed BoxMOT distribution version.",
+    )
     parser.add_argument("--check-cli-help", action="store_true", help="Also exercise every installed command's help.")
     args = parser.parse_args()
-    check_release_contract()
+    check_release_contract(expected_version=args.expected_version)
     if args.check_cli_help:
         check_cli_help()
     print("Release public API, CLI, and packaged configuration checks passed.")

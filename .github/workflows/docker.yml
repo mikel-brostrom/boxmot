@@ -18,6 +18,16 @@ on:
         default: false
   workflow_call:
     inputs:
+      source_base:
+        description: 'Published base revision when source_ref is an unpublished candidate'
+        required: false
+        type: string
+        default: ''
+      source_bundle:
+        description: 'Same-run artifact containing release-source.bundle'
+        required: false
+        type: string
+        default: ''
       source_ref:
         description: 'Commit SHA to build and smoke-test'
         required: true
@@ -73,11 +83,18 @@ jobs:
             timeout_minutes: 120
 
     steps:
-      - name: Checkout repository
+      # Bootstrap from workflow code, including when manually rebuilding older source.
+      - name: Bootstrap release checkout action
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref || github.event.release.tag_name }}
-          fetch-depth: 0
+          ref: ${{ github.workflow_sha }}
+
+      - name: Checkout repository
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ inputs.source_base || inputs.source_ref || github.event.release.tag_name }}
+          candidate_sha: ${{ inputs.source_bundle && inputs.source_ref || '' }}
+          source_bundle: ${{ inputs.source_bundle }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -137,7 +154,7 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
 
-      - name: Smoke test v24 package and command surface
+      - name: Smoke test release package and command surface
         run: |
           python_args=(-I -)
           case "${{ matrix.target }}" in
@@ -146,7 +163,7 @@ jobs:
           esac
           docker run --rm --interactive --workdir /tmp \
             ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python "${python_args[@]}" < tests/ci/release_contract.py
+            python "${python_args[@]}" --expected-version "${{ env.VERSION }}" < tests/ci/release_contract.py
 
       - name: Smoke test CPU CLI image
         if: matrix.target == 'cli-cpu'
