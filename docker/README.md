@@ -51,8 +51,14 @@ uv lock
 
 ## Publish
 
-GitHub Actions builds, smoke-tests, and pushes all four targets when a GitHub
-release is published. The same workflow can be dispatched manually with an
+GitHub Actions builds, smoke-tests, and pushes `cli-gpu`, `cli-cpu`, and
+`service-cpu` when a GitHub release is published. The `service-gpu` target is
+disabled by default. Enable it by setting the repository Actions variable
+`BOXMOT_GPU_SERVICE_CI=true` after registering a `gpu-latest` Linux NVIDIA runner
+with Docker and the NVIDIA Container Toolkit. This also enables its release
+gate and manual-workflow checks.
+
+The same workflow can be dispatched manually with an
 exact commit SHA and `v<version>` release tag; manual runs validate only unless
 `push_images` is explicitly enabled. Pull requests and branch pushes do not
 build or publish images. Each target is pushed only after its smoke test passes,

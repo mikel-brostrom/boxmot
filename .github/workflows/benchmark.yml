@@ -94,10 +94,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install native build dependencies
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: cmake g++ libopencv-dev libeigen3-dev
+
       - name: Install requirements
         run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
           uv sync --locked --no-default-groups --extra cpu --extra yolo
 
       - name: Restore HF benchmark cache

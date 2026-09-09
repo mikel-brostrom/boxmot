@@ -18,6 +18,16 @@ on:
         default: false
   workflow_call:
     inputs:
+      source_base:
+        description: 'Published base revision when source_ref is an unpublished candidate'
+        required: false
+        type: string
+        default: ''
+      source_bundle:
+        description: 'Same-run artifact containing release-source.bundle'
+        required: false
+        type: string
+        default: ''
       source_ref:
         description: 'Commit SHA to build and smoke-test'
         required: true
@@ -42,42 +52,54 @@ on:
     types: [published]
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.images.outputs.matrix }}
+    steps:
+      - name: Select images supported by the configured runners
+        id: images
+        env:
+          ENABLE_GPU_SERVICE: ${{ vars.BOXMOT_GPU_SERVICE_CI }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          images = [
+              {"target": "cli-gpu", "repository": "boxmot/boxmot", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "cli-cpu", "repository": "boxmot/boxmot", "tag_suffix": "-cpu", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "service-cpu", "repository": "boxmot/boxmot-service", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "service-gpu", "repository": "boxmot/boxmot-service", "tag_suffix": "-gpu", "runner": "gpu-latest", "timeout_minutes": 120},
+          ]
+          if os.environ.get("ENABLE_GPU_SERVICE") != "true":
+              images = [image for image in images if image["target"] != "service-gpu"]
+              print("Skipping service-gpu: BOXMOT_GPU_SERVICE_CI is not enabled.")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"matrix={json.dumps({'include': images})}\n")
+          PY
+
   build-and-push:
+    needs: prepare-matrix
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: cli-gpu
-            repository: boxmot/boxmot
-            tag_suffix: ""
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: cli-cpu
-            repository: boxmot/boxmot
-            tag_suffix: -cpu
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: service-cpu
-            repository: boxmot/boxmot-service
-            tag_suffix: ""
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: service-gpu
-            repository: boxmot/boxmot-service
-            tag_suffix: -gpu
-            # This repository label must select a Linux runner with an NVIDIA
-            # GPU, driver, Docker, and the NVIDIA Container Toolkit installed.
-            runner: gpu-latest
-            timeout_minutes: 120
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
     steps:
-      - name: Checkout repository
+      # Bootstrap from workflow code, including when manually rebuilding older source.
+      - name: Bootstrap release checkout action
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.source_ref || github.event.release.tag_name }}
-          fetch-depth: 0
+          ref: ${{ github.workflow_sha }}
+
+      - name: Checkout repository
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ inputs.source_base || inputs.source_ref || github.event.release.tag_name }}
+          candidate_sha: ${{ inputs.source_bundle && inputs.source_ref || '' }}
+          source_bundle: ${{ inputs.source_bundle }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -137,53 +159,16 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.target }}
           cache-to: type=gha,mode=max,scope=${{ matrix.target }}
 
-      - name: Smoke test v24 package and command surface
+      - name: Smoke test release package and command surface
         run: |
-          docker run --rm --interactive \
+          python_args=(-I -)
+          case "${{ matrix.target }}" in
+            # Service images deliberately run their copied source via PYTHONPATH.
+            service-*) python_args=(-) ;;
+          esac
+          docker run --rm --interactive --workdir /tmp \
             ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python - <<'PY'
-          import importlib.util
-
-          import boxmot
-          from boxmot.engine.cli import boxmot as boxmot_cli
-          from boxmot.engine.experiment_config import resolve_experiment_config
-
-          expected_public_api = (
-              "__version__",
-              "create_tracker",
-              "BoostTrack",
-              "BotSort",
-              "ByteTrack",
-              "DeepOcSort",
-              "HybridSort",
-              "OccluBoost",
-              "OcSort",
-              "Sam2Mot",
-              "SFSORT",
-              "StrongSort",
-          )
-          expected_cli_commands = (
-              "track",
-              "materialize",
-              "eval",
-              "tune",
-              "research",
-              "train-reid",
-              "eval-reid",
-              "compare-reid",
-              "export",
-              "build",
-          )
-
-          assert boxmot.__version__ == "24.0.0"
-          assert boxmot.__all__ == expected_public_api
-          assert tuple(boxmot_cli.commands) == expected_cli_commands
-          assert importlib.util.find_spec("boxmot.api") is None
-          assert importlib.util.find_spec("boxmot.data") is None
-          experiment = resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml")
-          assert experiment["detector"]["id"] == "yolox-x-mot17"
-          assert experiment["reid"]["id"] == "lmbn-n-duke"
-          PY
+            python "${python_args[@]}" --expected-version "${{ env.VERSION }}" < tests/ci/release_contract.py
 
       - name: Smoke test CPU CLI image
         if: matrix.target == 'cli-cpu'

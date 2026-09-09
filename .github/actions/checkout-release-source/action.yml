@@ -1,0 +1,97 @@
+name: Check out release source
+description: Check out a published revision or an unpublished, immutable release candidate.
+
+inputs:
+  source_sha:
+    description: Repository revision containing the release candidate's base.
+    required: true
+  candidate_sha:
+    description: Exact unpublished candidate commit to fetch from the bundle.
+    required: false
+    default: ''
+  source_bundle:
+    description: Same-run artifact containing release-source.bundle.
+    required: false
+    default: ''
+  path:
+    description: Checkout directory relative to GITHUB_WORKSPACE.
+    required: false
+    default: '.'
+  token:
+    description: Token used to check out and optionally push the release source.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  sha:
+    description: Verified commit checked out for the release.
+    value: ${{ steps.source.outputs.sha }}
+
+runs:
+  using: composite
+  steps:
+    - name: Validate candidate inputs
+      shell: bash
+      env:
+        CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        SOURCE_BUNDLE: ${{ inputs.source_bundle }}
+      run: |
+        if { [ -n "$CANDIDATE_SHA" ] && [ -z "$SOURCE_BUNDLE" ]; } || \
+           { [ -z "$CANDIDATE_SHA" ] && [ -n "$SOURCE_BUNDLE" ]; }; then
+          echo "candidate_sha and source_bundle must be supplied together" >&2
+          exit 1
+        fi
+
+    - name: Check out base source
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.source_sha }}
+        fetch-depth: 0
+        path: ${{ inputs.path }}
+        token: ${{ inputs.token }}
+
+    - name: Allocate candidate download directory
+      id: bundle-directory
+      if: ${{ inputs.source_bundle != '' }}
+      shell: bash
+      run: |
+        directory=$(mktemp -d "$RUNNER_TEMP/boxmot-release-source.XXXXXX")
+        echo "path=$directory" >> "$GITHUB_OUTPUT"
+
+    - name: Download candidate source
+      if: ${{ inputs.source_bundle != '' }}
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.source_bundle }}
+        path: ${{ steps.bundle-directory.outputs.path }}
+
+    - name: Select and verify release source
+      id: source
+      shell: bash
+      working-directory: ${{ github.workspace }}/${{ inputs.path }}
+      env:
+        CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+        BUNDLE_DIRECTORY: ${{ steps.bundle-directory.outputs.path }}
+      run: |
+        base_sha=$(git rev-parse HEAD)
+        expected_sha=$base_sha
+        if [ -n "$CANDIDATE_SHA" ]; then
+          git fetch --no-tags "$BUNDLE_DIRECTORY/release-source.bundle" refs/heads/release-candidate
+          fetched_sha=$(git rev-parse FETCH_HEAD)
+          if [ "$fetched_sha" != "$CANDIDATE_SHA" ]; then
+            echo "Candidate bundle contains $fetched_sha, expected $CANDIDATE_SHA" >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$base_sha" "$fetched_sha"; then
+            echo "Candidate $fetched_sha does not descend from base $base_sha" >&2
+            exit 1
+          fi
+          git checkout --detach "$fetched_sha"
+          expected_sha=$CANDIDATE_SHA
+        fi
+        actual_sha=$(git rev-parse HEAD)
+        if [ "$actual_sha" != "$expected_sha" ]; then
+          echo "Checked out $actual_sha, expected $expected_sha" >&2
+          exit 1
+        fi
+        echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"

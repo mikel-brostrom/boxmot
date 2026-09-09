@@ -3,6 +3,21 @@ name: Build and Smoke-Test Release Wheel
 on:
   workflow_call:
     inputs:
+      source_sha:
+        description: 'Published base revision; defaults to the triggering commit'
+        required: false
+        type: string
+        default: ''
+      candidate_sha:
+        description: 'Exact unpublished candidate commit in source_bundle'
+        required: false
+        type: string
+        default: ''
+      source_bundle:
+        description: 'Same-run artifact containing release-source.bundle'
+        required: false
+        type: string
+        default: ''
       upload_artifacts:
         description: 'Upload the gated distributions for the calling workflow'
         required: false
@@ -26,19 +41,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      # Load release setup actions from this workflow's revision before selecting source.
+      - name: Bootstrap release checkout action
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.workflow_sha }}
+
+      - name: Install native build dependencies
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: cmake g++ libopencv-dev libeigen3-dev
+
+      - name: Check out release source
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ inputs.source_sha || github.sha }}
+          candidate_sha: ${{ inputs.candidate_sha }}
+          source_bundle: ${{ inputs.source_bundle }}
 
       - name: Set up Python and uv
         uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.11'
-
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes cmake g++ libopencv-dev libeigen3-dev
 
       - name: Install release-gate dependencies
         run: |
@@ -58,15 +82,23 @@ jobs:
         run: uv run --no-sync mkdocs build --strict
 
   build:
-    name: Build v24 distributions once
+    name: Build release distributions once
     needs: source_gates
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.release-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Bootstrap release checkout action
+        uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.workflow_sha }}
+
+      - name: Check out release source
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ inputs.source_sha || github.sha }}
+          candidate_sha: ${{ inputs.candidate_sha }}
+          source_bundle: ${{ inputs.source_bundle }}
 
       - name: Set up Python and uv
         uses: ./.github/actions/setup-ci-python
@@ -88,7 +120,6 @@ jobs:
           import zipfile
 
           version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
-          assert version == "24.0.0", f"release workflow is for v24.0.0, got {version}"
           wheels = list(pathlib.Path("dist").glob("*.whl"))
           sdists = list(pathlib.Path("dist").glob("*.tar.gz"))
           assert len(wheels) == 1, f"expected one wheel, found {wheels}"
@@ -138,6 +169,19 @@ jobs:
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13']
     steps:
+      - name: Bootstrap release checkout action
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.workflow_sha }}
+
+      - name: Checkout release checks
+        uses: ./.github/actions/checkout-release-source
+        with:
+          source_sha: ${{ inputs.source_sha || github.sha }}
+          candidate_sha: ${{ inputs.candidate_sha }}
+          source_bundle: ${{ inputs.source_bundle }}
+          path: source
+
       - uses: actions/download-artifact@v4
         with:
           name: boxmot-release-candidate
@@ -152,36 +196,20 @@ jobs:
           python -m pip install --extra-index-url https://download.pytorch.org/whl/cpu candidate/*.whl
           python -m pip check
 
-      - name: Smoke-test v24 imports and CLI
+      - name: Smoke-test release imports and CLI
         working-directory: ${{ runner.temp }}
+        env:
+          RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
-          python - <<'PY'
-          import importlib.util
+          python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py" \
+            --expected-version "$RELEASE_VERSION" --check-cli-help
+          python -I - <<'PY'
           import sys
 
-          import boxmot
           import boxmot.engine.materialization.workflow
           import boxmot.engine.tracking.sinks
           import boxmot.engine.tracking.sources
 
-          expected = (
-              "__version__",
-              "create_tracker",
-              "BoostTrack",
-              "BotSort",
-              "ByteTrack",
-              "DeepOcSort",
-              "HybridSort",
-              "OccluBoost",
-              "OcSort",
-              "Sam2Mot",
-              "SFSORT",
-              "StrongSort",
-          )
-          assert boxmot.__version__ == "24.0.0"
-          assert boxmot.__all__ == expected
-          assert importlib.util.find_spec("boxmot.api") is None
-          assert importlib.util.find_spec("boxmot.data") is None
           assert "ultralytics" not in sys.modules
           assert not any(name.startswith("boxmot.native.trackers") for name in sys.modules)
           PY
@@ -191,9 +219,6 @@ jobs:
             echo "Removed generate command is still present" >&2
             exit 1
           fi
-          for command in track materialize eval tune research train-reid eval-reid compare-reid export build; do
-            boxmot "$command" --help > "boxmot-$command-help.txt"
-          done
           for module in \
             boxmot.engine.commands.reid.ablation \
             boxmot.engine.commands.reid.human_pretrain \
