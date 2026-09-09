@@ -83,6 +83,7 @@ def test_ensure_not_local_gepa_path_accepts_site_packages():
     ("tracker", "expected_file"),
     (
         ("strongsort", "boxmot/trackers/box/strongsort/tracker.py"),
+        ("maf_hda", "boxmot/trackers/multimodal/maf_hda/tracker.py"),
         ("sam2mot", "boxmot/trackers/multimodal/sam2mot/tracker.py"),
     ),
 )

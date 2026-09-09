@@ -30,6 +30,9 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
     "hybridsort": _TrackerManifestEntry(
         "boxmot.trackers.box.hybridsort.tracker.HybridSort",
     ),
+    "maf_hda": _TrackerManifestEntry(
+        "boxmot.trackers.multimodal.maf_hda.tracker.MafHda",
+    ),
     "occluboost": _TrackerManifestEntry(
         "boxmot.trackers.box.occluboost.tracker.OccluBoost",
         native_class_path="boxmot.trackers.box.occluboost.native.NativeOccluBoostTracker",

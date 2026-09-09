@@ -568,9 +568,12 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+          TRACKERS: "bytetrack sam2mot maf_hda"
         run: |
           source .venv/bin/activate
-          boxmot track --tracker bytetrack --detector "$BOXMOT_CI_SEG_DETECTOR" --source $IMG
+          for tracker in $TRACKERS; do
+            boxmot track --tracker "$tracker" --detector "$BOXMOT_CI_SEG_DETECTOR" --source "$IMG"
+          done
   
   export:
     runs-on: ubuntu-latest

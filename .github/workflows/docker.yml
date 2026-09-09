@@ -156,6 +156,7 @@ jobs:
               "ByteTrack",
               "DeepOcSort",
               "HybridSort",
+              "MafHda",
               "OccluBoost",
               "OcSort",
               "Sam2Mot",

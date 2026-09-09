@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot.structures import Boxes, Detections, Frame, MaskBatch
+from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.box.boosttrack.tracker import BoostTrack
 from boxmot.trackers.box.botsort.tracker import BotSort
@@ -17,6 +17,7 @@ from boxmot.trackers.box.ocsort.tracker import OcSort
 from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.box.strongsort.tracker import StrongSort
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.multimodal.maf_hda.tracker import MafHda
 from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
@@ -128,6 +129,10 @@ def _sam2mot(**kwargs) -> Sam2Mot:
     return Sam2Mot(det_thresh=0.2, new_track_thresh=0.2, min_hits=1, **kwargs)
 
 
+def _maf_hda(**kwargs) -> MafHda:
+    return MafHda(min_hits=1, **kwargs)
+
+
 TRACKER_FACTORIES: dict[str, TrackerFactory] = {
     "strongsort": _strongsort,
     "ocsort": _ocsort,
@@ -139,6 +144,7 @@ TRACKER_FACTORIES: dict[str, TrackerFactory] = {
     "boosttrack": _boosttrack,
     "occluboost": _occluboost,
     "sam2mot": _sam2mot,
+    "maf_hda": _maf_hda,
 }
 
 
@@ -340,7 +346,14 @@ def test_centroid_requirement_is_frozen_for_resolved_tracker(name: str) -> None:
     assert tracker.requirements.frame is True
 
 
-@pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
+@pytest.mark.parametrize(
+    "name",
+    tuple(
+        name
+        for name, definition in TRACKER_DEFINITIONS.items()
+        if GeometryKind.OBB in definition.capabilities.geometry_kinds
+    ),
+)
 @pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou", "centroid"))
 def test_every_registered_tracker_accepts_supported_obb_association_modes(name: str, mode: str) -> None:
     tracker = TRACKER_FACTORIES[name](asso_func=mode, is_obb=True)

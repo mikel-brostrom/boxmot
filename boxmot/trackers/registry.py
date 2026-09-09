@@ -43,6 +43,14 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         accepts_embeddings=True,
         accepts_frame=True,
     ),
+    "maf_hda": TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=frozenset({GeometryKind.AABB}),
+        requires_masks=True,
+        accepts_masks=True,
+        requires_frame=True,
+        accepts_frame=True,
+    ),
     "occluboost": TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=_BOX_GEOMETRIES,

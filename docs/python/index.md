@@ -7,7 +7,7 @@ structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
 The package root deliberately exports only `__version__`, `create_tracker`, and
-the ten lazily loaded tracker classes. Import every other public contract from
+the lazily loaded tracker classes. Import every other public contract from
 its domain package.
 
 ## Canonical values

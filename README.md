@@ -229,6 +229,11 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 
 </div>
 
+Mask-aware trackers also include [Sam2Mot](docs/trackers/sam2mot.md) and
+[MafHda](docs/trackers/maf_hda.md). MafHda is the Python MAF_HDA/GMPHD_MAF port;
+it requires AABB detections, full-frame instance masks, and the current image.
+These trackers are not included in the box-only benchmark table above.
+
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)

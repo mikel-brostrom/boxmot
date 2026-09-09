@@ -572,8 +572,14 @@ def test_factory_merges_options_then_applies_canonical_spec_fields(monkeypatch: 
     assert captured["class_names"] == {0: "person", 2: "car"}
 
 
-@pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize(
+    ("tracker_name", "geometry"),
+    (
+        (name, kind.value)
+        for name, definition in tracker_registry.TRACKER_DEFINITIONS.items()
+        for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
+    ),
+)
 def test_all_python_trackers_consume_canonical_inputs(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry))
     assert isinstance(tracker, Tracker)

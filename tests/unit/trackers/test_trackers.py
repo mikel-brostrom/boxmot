@@ -20,6 +20,11 @@ from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
 TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
+TRACKER_GEOMETRIES = tuple(
+    (name, kind.value)
+    for name, definition in TRACKER_DEFINITIONS.items()
+    for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
+)
 
 
 def _frame(sample_id: str, frame_index: int, *, height: int = 96, width: int = 128) -> Frame:
@@ -117,9 +122,8 @@ def _output_after_hits(tracker: Tracker, rows: np.ndarray, *, attempts: int = 6)
     return result
 
 
-@pytest.mark.parametrize("tracker_name", TRACKER_NAMES)
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
-def test_trackers_emit_structured_rows_for_both_geometry_modes(tracker_name: str, geometry: str) -> None:
+@pytest.mark.parametrize(("tracker_name", "geometry"), TRACKER_GEOMETRIES)
+def test_trackers_emit_structured_rows_for_supported_geometry_modes(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=(("min_hits", 1),)))
     rows = _obb_rows() if geometry == "obb" else _aabb_rows()
 
@@ -135,8 +139,7 @@ def test_trackers_emit_structured_rows_for_both_geometry_modes(tracker_name: str
         assert output.masks.values.shape == (len(output), 96, 128)
 
 
-@pytest.mark.parametrize("tracker_name", TRACKER_NAMES)
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize(("tracker_name", "geometry"), TRACKER_GEOMETRIES)
 def test_trackers_accept_completed_empty_structured_batches(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry))
 

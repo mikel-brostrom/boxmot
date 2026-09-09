@@ -26,6 +26,7 @@ def test_python_api_smoke() -> None:
         "ByteTrack",
         "DeepOcSort",
         "HybridSort",
+        "MafHda",
         "OccluBoost",
         "OcSort",
         "Sam2Mot",

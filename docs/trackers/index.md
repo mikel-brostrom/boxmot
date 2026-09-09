@@ -12,7 +12,7 @@ state, not by every optional cue they consume:
 - `boxmot/trackers/mask`: reserved for trackers whose primary state is an
   instance mask. The namespace currently has no implementation-specific base.
 - `boxmot/trackers/multimodal`: multiple primary representations or model
-  memory are fundamental to the method; Sam2Mot lives here.
+  memory are fundamental to the method; Sam2Mot and MafHda live here.
 
 Each registered implementation also declares immutable geometry and input
 capabilities. The directory communicates ownership; capability metadata is the
@@ -37,6 +37,7 @@ creating a fourth tracker family.
 | OccluBoost | Yes | No | Yes | Yes | Yes |
 | SFSORT | No | No | Yes | Yes | Yes |
 | [Sam2Mot](sam2mot.md) | No | Yes | Yes | No | No |
+| [MafHda](maf_hda.md) | No | Yes | No | No | No |
 
 For every tracker marked **Yes** under **Uses ReID**, its high-level adapter can
 consume attached embeddings or generate missing embeddings from a supplied
@@ -54,7 +55,8 @@ to their model-free C++ libraries. See
 - Start with `bytetrack` when you want a fast motion-only baseline.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
 - Use `sam2mot` when each detection has a row-aligned segmentation mask and you want mask-aware association without ReID.
-- All registered Python trackers accept both AABB and OBB detections.
+- Use `maf_hda` for AABB detections with instance masks and image frames, combining motion with masked correlation-filter appearance.
+- OBB support is listed in the table above; MafHda accepts AABB geometry only.
 - All registered Python trackers expose the same selectable `asso_func`; see
   [tracker configuration](../config/trackers.md#association-function) for the
   supported AABB and OBB choices.

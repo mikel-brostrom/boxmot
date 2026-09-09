@@ -15,6 +15,10 @@ features to their model-free C++ tracker libraries. The engine owns media
 sources, sinks, services, CLI workflows, evaluation, tuning, and resumable
 materialization.
 
+Mask-aware trackers include [Sam2Mot](trackers/sam2mot.md) and
+[MafHda](trackers/maf_hda.md). MafHda combines motion and masked correlation-filter
+appearance for AABB detections with full-frame instance masks and image frames.
+
 ## Get started
 
 ```bash

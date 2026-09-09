@@ -145,6 +145,7 @@ nav:
           - OccluBoost: trackers/occluboost.md
       - Mask-aware:
           - Sam2Mot: trackers/sam2mot.md
+          - MafHda: trackers/maf_hda.md
   - Compare: compare/index.md
   - Data:
       - Config System Overview: config/index.md

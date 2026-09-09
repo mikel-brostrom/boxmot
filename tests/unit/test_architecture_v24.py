@@ -274,6 +274,8 @@ TRACKER_TAXONOMY_LAYOUT = (
     "trackers/box/strongsort/tracker.py",
     "trackers/mask/__init__.py",
     "trackers/multimodal/__init__.py",
+    "trackers/multimodal/maf_hda/__init__.py",
+    "trackers/multimodal/maf_hda/tracker.py",
     "trackers/multimodal/sam2mot/__init__.py",
     "trackers/multimodal/sam2mot/tracker.py",
 )
