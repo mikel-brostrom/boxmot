@@ -7,20 +7,19 @@ import importlib.metadata
 import importlib.util
 import subprocess
 
-EXPECTED_PUBLIC_API = (
-    "__version__",
-    "create_tracker",
-    "BoostTrack",
-    "BotSort",
-    "ByteTrack",
-    "DeepOcSort",
-    "HybridSort",
-    "OccluBoost",
-    "OcSort",
-    "Sam2Mot",
-    "SFSORT",
-    "StrongSort",
+EXPECTED_TRACKERS = (
+    ("boosttrack", "BoostTrack"),
+    ("botsort", "BotSort"),
+    ("bytetrack", "ByteTrack"),
+    ("deepocsort", "DeepOcSort"),
+    ("hybridsort", "HybridSort"),
+    ("occluboost", "OccluBoost"),
+    ("ocsort", "OcSort"),
+    ("sam2mot", "Sam2Mot"),
+    ("sfsort", "SFSORT"),
+    ("strongsort", "StrongSort"),
 )
+EXPECTED_PUBLIC_API = ("__version__", "create_tracker", *(public_name for _, public_name in EXPECTED_TRACKERS))
 EXPECTED_CLI_COMMANDS = (
     "track",
     "materialize",
@@ -78,6 +77,114 @@ def check_cli_help() -> None:
         assert result.returncode == 0, f"boxmot {command} --help failed:\n{result.stdout}\n{result.stderr}"
 
 
+def check_tracker_imports() -> dict[str, type]:
+    """Resolve every public lazy export, so missing implementation files fail."""
+    import boxmot
+
+    classes = {}
+    for name, public_name in EXPECTED_TRACKERS:
+        tracker_class = getattr(boxmot, public_name)
+        assert isinstance(tracker_class, type), f"boxmot.{public_name} is not a tracker class"
+        assert tracker_class.__name__ == public_name, f"boxmot.{public_name} resolves to {tracker_class!r}"
+        assert callable(getattr(tracker_class, "update", None)), f"boxmot.{public_name} has no update method"
+        classes[name] = tracker_class
+    return classes
+
+
+def check_tracker_tracking(name: str, tracker_class: type, geometry: str) -> None:
+    """Exercise installed defaults, empty input, and two identities on CPU."""
+    import numpy as np
+    import torch
+
+    from boxmot import create_tracker
+    from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
+    from boxmot.trackers import TrackerSpec
+
+    tracker = create_tracker(TrackerSpec(name, geometry=geometry))
+    label = f"{name}/{geometry}"
+    assert type(tracker) is tracker_class, f"{label}: factory returned {type(tracker)!r}"
+    is_obb = geometry == "obb"
+    geometry_type = OrientedBoxes if is_obb else Boxes
+    values = torch.tensor(
+        [[27, 35, 26, 27, 0.2], [75, 47, 26, 39, -0.3]]
+        if is_obb else [[14, 21, 40, 48], [62, 28, 88, 67]],
+        dtype=torch.float32,
+    )
+    height, width = 240, 320
+    image = torch.from_numpy(np.random.default_rng(0).integers(0, 256, (3, height, width), dtype=np.uint8))
+    masks = torch.zeros((2, height, width), dtype=torch.bool)
+    masks[0, 21:48, 14:40] = True
+    masks[1, 28:67, 62:88] = True
+    embeddings = torch.eye(2, 4, dtype=torch.float32)
+    class_ids = torch.tensor([0, 65], dtype=torch.int64)
+
+    def update(frame_index: int, count: int) -> Tracks:
+        """Supply required enrichments explicitly and verify canonical output."""
+        sample_id = f"release-smoke/{frame_index}"
+        detections = Detections(
+            geometry=geometry_type(values[:count].clone()),
+            scores=torch.full((count,), 0.99, dtype=torch.float32),
+            class_ids=class_ids[:count].clone(),
+            sample_id=sample_id,
+            embeddings=embeddings[:count].clone() if tracker.requirements.embeddings else None,
+            masks=MaskBatch(masks[:count].clone()) if tracker.requirements.masks else None,
+        )
+        frame = (
+            Frame(image=image.clone(), sample_id=sample_id, sequence_id="release-smoke", frame_index=frame_index)
+            if tracker.requirements.frame else None
+        )
+        output = tracker.update(detections, frame)
+        assert isinstance(output, Tracks), f"{label}: canonical input did not return Tracks"
+        assert isinstance(output.geometry, geometry_type), f"{label}: incorrect output geometry"
+        assert output.sample_id == sample_id, f"{label}: output belongs to a different frame"
+        rows = output.to_obb_rows() if is_obb else output.to_aabb_rows()
+        assert rows.shape == (len(output), 9 if is_obb else 8), f"{label}: incorrect output layout"
+        assert torch.isfinite(rows).all(), f"{label}: non-finite tracking output"
+        if tracker.requirements.masks:
+            assert output.masks is not None, f"{label}: missing output masks"
+            assert output.masks.values.shape == (len(output), height, width), f"{label}: incorrect mask layout"
+        return output
+
+    assert len(update(0, 0)) == 0, f"{label}: empty initial input produced tracks"
+    previous_ids = None
+    for frame_index in range(1, 7):
+        output = update(frame_index, 2)
+        # Allow the default confirmation period before checking both identities.
+        if frame_index >= 5:
+            assert len(output) == 2, f"{label}: expected two confirmed tracks, got {len(output)}"
+            indices = output.detection_indices
+            assert sorted(indices.tolist()) == [0, 1], f"{label}: incorrect detection associations"
+            assert torch.equal(output.class_ids, class_ids[indices]), f"{label}: class IDs changed"
+            identities = dict(zip(indices.tolist(), output.track_ids.tolist()))
+            assert len(set(identities.values())) == 2, f"{label}: duplicate track IDs"
+            if previous_ids is not None:
+                assert identities == previous_ids, f"{label}: track IDs changed between matching frames"
+            previous_ids = identities
+    print(f"Tracker smoke passed: {label}", flush=True)
+
+
+def check_tracker_api() -> None:
+    """Import and run all shipped Python trackers without fetching any models."""
+    import numpy as np
+
+    from boxmot import ByteTrack
+
+    for name, tracker_class in check_tracker_imports().items():
+        for geometry in ("aabb", "obb"):
+            check_tracker_tracking(name, tracker_class, geometry)
+
+    # Also exercise the direct class constructor and common packed NumPy API.
+    tracker = ByteTrack()
+    detections = np.array([[14, 21, 40, 48, 0.99, 0]], dtype=np.float32)
+    first = tracker.update(detections)
+    second = tracker.update(detections)
+    for output in (first, second):
+        assert isinstance(output, np.ndarray) and output.shape == (1, 8), "ByteTrack: invalid NumPy output"
+        assert output.dtype == np.float64 and output.flags.c_contiguous, "ByteTrack: invalid packed layout"
+        assert np.isfinite(output).all(), "ByteTrack: non-finite NumPy output"
+    np.testing.assert_array_equal(first[:, 4], second[:, 4])
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -85,8 +192,13 @@ if __name__ == "__main__":
         help="Expected runtime version; defaults to the installed BoxMOT distribution version.",
     )
     parser.add_argument("--check-cli-help", action="store_true", help="Also exercise every installed command's help.")
+    parser.add_argument(
+        "--check-trackers", action="store_true", help="Import every public tracker and exercise CPU tracking."
+    )
     args = parser.parse_args()
     check_release_contract(expected_version=args.expected_version)
     if args.check_cli_help:
         check_cli_help()
-    print("Release public API, CLI, and packaged configuration checks passed.")
+    if args.check_trackers:
+        check_tracker_api()
+    print("Requested release contract checks passed.")
