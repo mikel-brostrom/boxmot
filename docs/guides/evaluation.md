@@ -38,8 +38,8 @@ embeddings bypass this geometry-only cache.
 
 Tracker requirements are checked against published artifacts. For example, a
 configuration with `use_embeddings: true` requires embeddings in the build;
-Sam2Mot requires full-frame detection-aligned masks and frames. Missing inputs
-produce an actionable materialization error.
+MafHda requires AABB detections, nonempty full-frame masks, and current frames.
+Missing inputs produce an actionable materialization error.
 
 ## KITTI MOTS evaluation
 

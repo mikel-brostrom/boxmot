@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import click
 import numpy as np
 import torch
 from click.testing import CliRunner
@@ -59,7 +60,6 @@ def test_python_api_smoke() -> None:
         "MafHda",
         "OccluBoost",
         "OcSort",
-        "Sam2Mot",
         "SFSORT",
         "StrongSort",
     )
@@ -84,10 +84,13 @@ def test_cli_command_surface_smoke() -> None:
     result = CliRunner().invoke(boxmot_cli, ["--help"])
 
     assert result.exit_code == 0, result.output
-    for command in (
+    expected_commands = (
         "track",
         "materialize",
+        "time-variant",
         "eval",
+        "eval-trackrcnn",
+        "eval-eagermot",
         "tune",
         "research",
         "train-reid",
@@ -95,6 +98,8 @@ def test_cli_command_surface_smoke() -> None:
         "compare-reid",
         "export",
         "build",
-    ):
+    )
+    assert tuple(boxmot_cli.list_commands(click.Context(boxmot_cli))) == expected_commands
+    for command in expected_commands:
         assert command in result.output
     assert "generate" not in result.output

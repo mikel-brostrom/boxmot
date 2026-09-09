@@ -15,9 +15,9 @@ features to their model-free C++ tracker libraries. The engine owns media
 sources, sinks, services, CLI workflows, evaluation, tuning, and resumable
 materialization.
 
-Mask-aware trackers include [Sam2Mot](trackers/sam2mot.md) and
-[MafHda](trackers/maf_hda.md). MafHda combines motion and masked correlation-filter
-appearance for AABB detections with full-frame instance masks and image frames.
+[MafHda](trackers/maf_hda.md) combines motion and masked correlation-filter
+appearance for AABB detections with nonempty full-frame instance masks and
+current image frames.
 `boxmot eval-trackrcnn --tracker maf_hda` evaluates saved TrackR-CNN predictions
 on KITTI MOTS; see the MAF-HDA tracker page for the required paths.
 [EagerMot](trackers/eagermot.md) adds 2D/3D sensor fusion through the Python

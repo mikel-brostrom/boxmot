@@ -212,7 +212,7 @@ def test_class_separated_tracks_share_one_elapsed_interval() -> None:
     assert tracker.frame_count == 2
 
 
-@pytest.mark.parametrize("name", ["sfsort", "sam2mot"])
+@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
 def test_trackers_without_timed_motion_reject_enabling_variable_dt(name: str) -> None:
     with pytest.raises(ValueError, match="variable_dt"):
         create_tracker(TrackerSpec(name, options=(("variable_dt", True),)))
@@ -330,8 +330,8 @@ def test_failed_tracking_kernel_does_not_consume_capture_timestamp(monkeypatch: 
     assert tracker._prediction_dt == pytest.approx(0.25)
 
 
-@pytest.mark.parametrize("name", ["sfsort", "sam2mot"])
-def test_trackers_without_kalman_motion_ignore_frame_timestamps(name: str) -> None:
+@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
+def test_trackers_without_timed_motion_ignore_frame_timestamps(name: str) -> None:
     tracker = create_tracker(TrackerSpec(name))
 
     _update(tracker, _aabb_rows()[:1], index=0, timestamp_s=10.0)

@@ -568,7 +568,7 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
-          TRACKERS: "bytetrack sam2mot maf_hda"
+          TRACKERS: "bytetrack maf_hda"
         run: |
           source .venv/bin/activate
           for tracker in $TRACKERS; do

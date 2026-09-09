@@ -44,9 +44,6 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
         "boxmot.trackers.box.ocsort.tracker.OcSort",
         native_class_path="boxmot.trackers.box.ocsort.native.NativeOcSortTracker",
     ),
-    "sam2mot": _TrackerManifestEntry(
-        "boxmot.trackers.multimodal.sam2mot.tracker.Sam2Mot",
-    ),
     "sfsort": _TrackerManifestEntry(
         "boxmot.trackers.box.sfsort.tracker.SFSORT",
         native_class_path="boxmot.trackers.box.sfsort.native.NativeSFSORTTracker",

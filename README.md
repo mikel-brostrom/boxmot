@@ -229,12 +229,12 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 
 </div>
 
-Mask-aware trackers also include [Sam2Mot](docs/trackers/sam2mot.md) and
-[MafHda](docs/trackers/maf_hda.md). MafHda is the Python MAF_HDA/GMPHD_MAF port;
-it requires AABB detections, full-frame instance masks, and the current image.
+[MafHda](docs/trackers/maf_hda.md) is the Python MAF_HDA/GMPHD_MAF port for
+mask-aware tracking. It requires AABB detections, nonempty full-frame instance
+masks, and the current image.
 Use `boxmot eval-trackrcnn --tracker maf_hda` to evaluate saved KITTI TrackR-CNN
 predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
-These trackers are not included in the box-only benchmark table above.
+MafHda is not included in the box-only benchmark table above.
 
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It

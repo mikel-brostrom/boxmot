@@ -144,7 +144,6 @@ nav:
           - BoostTrack: trackers/boosttrack.md
           - OccluBoost: trackers/occluboost.md
       - Mask-aware:
-          - Sam2Mot: trackers/sam2mot.md
           - MafHda: trackers/maf_hda.md
       - Sensor fusion:
           - EagerMot: trackers/eagermot.md

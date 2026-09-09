@@ -126,7 +126,7 @@ def test_noise_config_is_immutable():
         config.process_position_scale = 3.0
 
 
-@pytest.mark.parametrize("name, backend", [("bytetrack", "cpp"), ("sfsort", "python"), ("sam2mot", "python")])
+@pytest.mark.parametrize("name, backend", [("bytetrack", "cpp"), ("sfsort", "python"), ("maf_hda", "python")])
 def test_factory_rejects_unsupported_noise_scaling_before_loading_models(name, backend):
     with pytest.raises(ValueError, match="Python Kalman"):
         create_tracker(TrackerSpec(name=name, backend=backend, options=(("kf_process_position_scale", 2.0),)))

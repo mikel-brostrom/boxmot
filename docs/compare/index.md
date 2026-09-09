@@ -12,7 +12,7 @@ portable across detectors, datasets, hardware, or association settings.
 | Abrupt or non-linear motion | OcSort | Observation-centric updates reduce motion-model drift. |
 | Moving camera | BotSort or DeepOcSort | Camera-motion compensation is available. |
 | Crowds and longer occlusions | StrongSort, DeepOcSort, HybridSort, BoostTrack, or OccluBoost | Appearance features can reconnect identities. |
-| Instance masks should affect association | Sam2Mot | Mask overlap participates in matching. |
+| Instance masks and current images are available | MafHda | Combines AABB motion with masked correlation-filter appearance; requires nonempty full-frame masks. |
 | In-process native C++ | BotSort, ByteTrack, OcSort, OccluBoost, or SFSORT | These trackers have registered native live backends; cached workflows stream keyed rows through that same API. |
 
 This is a starting-point guide, not a universal ranking. The

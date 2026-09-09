@@ -51,8 +51,9 @@ pixels. The pipeline adds only missing requirements:
 - Transitive requirements are honored: a mask-aware encoder triggers
   segmentation first.
 
-Sam2Mot requires full-frame detection-aligned foreground masks. Trackers with
-`use_embeddings` consume an upstream payload when available. For a non-empty
+MafHda requires AABB detections, nonempty full-frame masks aligned to those
+detections, and the current image on every update. Trackers with `use_embeddings`
+consume an upstream payload when available. For a non-empty
 batch without embeddings, every ReID-enabled tracker adapter can instead lazily
 generate them from the supplied `Frame`; attached embeddings bypass internal
 inference, and empty batches do not initialize the model. Native adapters pass

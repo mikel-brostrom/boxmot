@@ -72,14 +72,6 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         geometry_kinds=_BOX_GEOMETRIES,
         accepts_frame=True,
     ),
-    "sam2mot": TrackerCapabilities(
-        family=TrackerFamily.MULTIMODAL,
-        geometry_kinds=_BOX_GEOMETRIES,
-        requires_masks=True,
-        accepts_masks=True,
-        requires_frame=True,
-        accepts_frame=True,
-    ),
     "sfsort": TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=_BOX_GEOMETRIES,

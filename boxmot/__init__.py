@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from boxmot.trackers.factory import create_tracker as create_tracker
     from boxmot.trackers.multimodal.eagermot.tracker import EagerMot as EagerMot
     from boxmot.trackers.multimodal.maf_hda.tracker import MafHda as MafHda
-    from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot as Sam2Mot
 
 
 def __getattr__(name: str):

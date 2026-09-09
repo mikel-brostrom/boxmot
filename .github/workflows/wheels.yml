@@ -176,7 +176,6 @@ jobs:
               "MafHda",
               "OccluBoost",
               "OcSort",
-              "Sam2Mot",
               "SFSORT",
               "StrongSort",
           )

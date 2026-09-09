@@ -60,11 +60,14 @@ def test_every_docker_image_checks_the_exact_v24_surface() -> None:
     assert "if:" not in step
     assert 'boxmot.__version__ == "24.0.0"' in script
     assert "boxmot.__all__ == expected_public_api" in script
-    assert "tuple(boxmot_cli.commands) == expected_cli_commands" in script
+    assert "tuple(boxmot_cli.list_commands(click.Context(boxmot_cli))) == expected_cli_commands" in script
     for command in (
         "track",
         "materialize",
+        "time-variant",
         "eval",
+        "eval-trackrcnn",
+        "eval-eagermot",
         "tune",
         "research",
         "train-reid",

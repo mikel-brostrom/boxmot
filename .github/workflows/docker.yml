@@ -144,6 +144,7 @@ jobs:
             python - <<'PY'
           import importlib.util
 
+          import click
           import boxmot
           from boxmot.engine.cli import boxmot as boxmot_cli
           from boxmot.engine.experiment_config import resolve_experiment_config
@@ -160,14 +161,16 @@ jobs:
               "MafHda",
               "OccluBoost",
               "OcSort",
-              "Sam2Mot",
               "SFSORT",
               "StrongSort",
           )
           expected_cli_commands = (
               "track",
               "materialize",
+              "time-variant",
               "eval",
+              "eval-trackrcnn",
+              "eval-eagermot",
               "tune",
               "research",
               "train-reid",
@@ -179,7 +182,7 @@ jobs:
 
           assert boxmot.__version__ == "24.0.0"
           assert boxmot.__all__ == expected_public_api
-          assert tuple(boxmot_cli.commands) == expected_cli_commands
+          assert tuple(boxmot_cli.list_commands(click.Context(boxmot_cli))) == expected_cli_commands
           assert importlib.util.find_spec("boxmot.api") is None
           assert importlib.util.find_spec("boxmot.data") is None
           experiment = resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml")

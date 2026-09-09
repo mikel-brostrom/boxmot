@@ -151,7 +151,7 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
         "detections_3d",
         "camera",
     )
-    for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
+    for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "MafHda"):
         assert not hasattr(public_trackers, implementation_name)
 
 
@@ -626,8 +626,8 @@ def test_embedding_tracker_can_be_resolved_as_geometry_only() -> None:
     assert isinstance(tracker.update(_detections(embeddings=False, masks=False)), Tracks)
 
 
-def test_sam2mot_hard_requires_and_returns_full_frame_boolean_masks() -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot"))
+def test_mask_tracker_requires_and_returns_full_frame_boolean_masks() -> None:
+    tracker = create_tracker(TrackerSpec("maf_hda"))
     assert tracker.requirements == TrackerRequirements(masks=True, frame=True)
     with pytest.raises(ValueError, match="requires full-frame detection masks"):
         tracker.update(_detections(masks=False), _frame())
@@ -638,28 +638,6 @@ def test_sam2mot_hard_requires_and_returns_full_frame_boolean_masks() -> None:
     assert tracks.masks is not None
     assert tracks.masks.values.dtype is torch.bool
     assert tracks.masks.values.shape == (len(tracks), 64, 64)
-
-
-@pytest.mark.parametrize("per_class", (False, True))
-def test_sam2mot_emits_propagated_tracks_with_full_frame_masks(per_class: bool) -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot", per_class=per_class))
-    frame = _frame()
-    first = tracker.update(_detections(), frame)
-    empty = Detections(
-        geometry=Boxes(torch.empty((0, 4), dtype=torch.float32)),
-        scores=torch.empty(0, dtype=torch.float32),
-        class_ids=torch.empty(0, dtype=torch.int64),
-        sample_id=frame.sample_id,
-        masks=MaskBatch(torch.empty((0, 64, 64), dtype=torch.bool)),
-    )
-
-    tracks = tracker.update(empty, frame)
-
-    assert tracks.track_ids.tolist() == first.track_ids.tolist()
-    assert tracks.detection_indices.tolist() == [-1]
-    assert tracks.masks is not None
-    assert tracks.masks.values.shape == (1, 64, 64)
-    torch.testing.assert_close(tracks.masks.values, first.masks.values)
 
 
 def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> None:

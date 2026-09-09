@@ -15,7 +15,6 @@ from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
 from boxmot.trackers.box.hybridsort.tracker import HybridSort
 from boxmot.trackers.box.ocsort.tracker import OcSort
 from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.common.geometry.obb import normalize_angle
 from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
@@ -260,26 +259,8 @@ def test_configured_class_catalog_rejects_unknown_detector_class() -> None:
         tracker.update(detections)
 
 
-def test_sam2mot_preserves_obb_masks_and_detection_alignment() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(("det_thresh", 0.1), ("min_hits", 1), ("new_track_thresh", 0.1)),
-        )
-    )
-
-    output = _update(tracker, _obb_rows(), frame_index=0)
-
-    assert output.to_obb_rows().shape == (2, 9)
-    assert output.masks is not None
-    assert output.masks.values.dtype is torch.bool
-    assert sorted(output.detection_indices.tolist()) == [0, 1]
-    assert output.masks.values.flatten(1).any(dim=1).all()
-
-
-def test_sam2mot_rejects_detection_masks_without_foreground() -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot"))
+def test_mask_tracker_rejects_detection_masks_without_foreground() -> None:
+    tracker = create_tracker(TrackerSpec("maf_hda"))
     sample_id = "sequence/000000"
     rows = _aabb_rows()[:1]
     detections = Detections(
@@ -292,49 +273,6 @@ def test_sam2mot_rejects_detection_masks_without_foreground() -> None:
 
     with pytest.raises(ValueError, match="foreground in every non-empty detection mask"):
         tracker.update(detections, _frame(sample_id, 0))
-
-
-def test_sam2mot_aligns_equivalent_obb_forms_without_an_angle_jump() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(("det_thresh", 0.1), ("min_hits", 1), ("new_track_thresh", 0.1)),
-        )
-    )
-    first_row = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
-    equivalent = np.array([[32, 32, 10, 20, 0.15 + np.pi / 2, 0.95, 0]], dtype=np.float32)
-
-    first = _update(tracker, first_row, frame_index=0)
-    second = _update(tracker, equivalent, frame_index=1)
-
-    assert first.track_ids.item() == second.track_ids.item()
-    torch.testing.assert_close(second.geometry.values[:, 2:4], first.geometry.values[:, 2:4])
-    assert abs(float(second.geometry.values[0, 4] - first.geometry.values[0, 4])) < 1e-5
-
-
-def test_sam2mot_obb_angle_update_is_damped() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(
-                ("det_thresh", 0.1),
-                ("min_hits", 1),
-                ("new_track_thresh", 0.1),
-                ("obb_theta_damping", 0.75),
-            ),
-        )
-    )
-    first_row = np.array([[48, 48, 30, 18, 0.0, 0.95, 0]], dtype=np.float32)
-    rotated = np.array([[48, 48, 30, 18, 0.4, 0.95, 0]], dtype=np.float32)
-
-    first = _update(tracker, first_row, frame_index=0)
-    second = _update(tracker, rotated, frame_index=1)
-
-    tracked_delta = float(normalize_angle(second.geometry.values[0, 4] - first.geometry.values[0, 4]))
-    measured_delta = float(normalize_angle(rotated[0, 4] - first_row[0, 4]))
-    assert tracked_delta == pytest.approx(0.25 * measured_delta, abs=1e-5)
 
 
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))

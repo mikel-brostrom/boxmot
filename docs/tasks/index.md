@@ -28,12 +28,12 @@ Frame -> detector -> optional upstream segmentor/ReID
 ```
 
 The resolved tracker has a fixed AABB or OBB mode. Segmentation masks stay
-aligned through immutable selection and permutation. Use
-`sam2mot` when masks should influence association rather than only accompany
-and visualize box tracks. A ReID-enabled tracker adapter can extract missing
-embeddings privately from the frame; attached upstream embeddings bypass that
-path. Native adapters pass generated or attached embeddings through the typed
-ABI to their model-free C++ tracker libraries.
+aligned through immutable selection and permutation. Use `maf_hda` with AABB
+detections, nonempty full-frame masks, and current images for association using
+motion and masked correlation-filter appearance. A ReID-enabled tracker adapter
+can extract missing embeddings privately from the frame; attached upstream
+embeddings bypass that path. Native adapters pass generated or attached
+embeddings through the typed ABI to their model-free C++ tracker libraries.
 
 ## Pose detectors
 

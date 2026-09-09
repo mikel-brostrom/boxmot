@@ -253,7 +253,7 @@ def test_unfiltered_calibration_records_all_resolved_sequences(monkeypatch, tmp_
     assert json.loads(result.report_path.read_text())["sequences"] == ["seq1", "seq2"]
 
 
-@pytest.mark.parametrize("tracker,backend", [("sam2mot", "python"), ("botsort", "cpp")])
+@pytest.mark.parametrize("tracker,backend", [("maf_hda", "python"), ("botsort", "cpp")])
 def test_unsupported_calibration_rejected(tracker, backend):
     with pytest.raises(ValueError, match="Python tracker with a Kalman filter"):
         validate_kf_calibration(tracker, backend)

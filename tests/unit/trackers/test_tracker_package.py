@@ -134,7 +134,7 @@ assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
 def test_legacy_branded_tracker_aliases_are_not_public() -> None:
     boxmot_module = importlib.import_module("boxmot")
 
-    for legacy_name in ("BoTSORT", "BYTETracker", "DeepOCSort", "HybridSORT", "OCSORT", "SAM2MOT", "StrongSORT"):
+    for legacy_name in ("BoTSORT", "BYTETracker", "DeepOCSort", "HybridSORT", "OCSORT", "StrongSORT"):
         assert not hasattr(boxmot_module, legacy_name)
 
 

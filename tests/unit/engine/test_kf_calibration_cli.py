@@ -60,7 +60,7 @@ def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_o
 @pytest.mark.parametrize("mode", ["eval", "tune"])
 @pytest.mark.parametrize(
     "tracker, backend",
-    [("sfsort", "python"), ("sam2mot", "python"), ("botsort", "cpp")],
+    [("sfsort", "python"), ("maf_hda", "python"), ("botsort", "cpp")],
 )
 def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode, tracker, backend) -> None:
     def unexpected_workflow(*args):

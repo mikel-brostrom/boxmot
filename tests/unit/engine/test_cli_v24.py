@@ -613,7 +613,6 @@ def test_rejects_materialization_device_with_explicit_build(command: str, select
     ("tracker", "publish_masks", "publish_embeddings"),
     (
         ("maf_hda", True, False),
-        ("sam2mot", True, False),
         ("strongsort", False, True),
         ("botsort", False, True),
         ("sfsort", False, False),

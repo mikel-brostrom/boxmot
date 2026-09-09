@@ -127,8 +127,6 @@ REMOVED_V24_FILES = (
     "trackers/bbox/strongsort.py",
     "trackers/hybrid/__init__.py",
     "trackers/hybrid/base.py",
-    "trackers/hybrid/sam2mot/__init__.py",
-    "trackers/hybrid/sam2mot/sam2mot.py",
     "trackers/mask/base.py",
     "trackers/common/track_models/__init__.py",
     "trackers/results.py",
@@ -280,8 +278,6 @@ TRACKER_TAXONOMY_LAYOUT = (
     "trackers/multimodal/eagermot/tracker.py",
     "trackers/multimodal/maf_hda/__init__.py",
     "trackers/multimodal/maf_hda/tracker.py",
-    "trackers/multimodal/sam2mot/__init__.py",
-    "trackers/multimodal/sam2mot/tracker.py",
 )
 
 

@@ -12,7 +12,7 @@ state, not by every optional cue they consume:
 - `boxmot/trackers/mask`: reserved for trackers whose primary state is an
   instance mask. The namespace currently has no implementation-specific base.
 - `boxmot/trackers/multimodal`: multiple primary representations or model
-  memory are fundamental to the method; Sam2Mot, MafHda, and EagerMot live here.
+  memory are fundamental to the method; MafHda and EagerMot live here.
 
 Each registered implementation also declares immutable geometry and input
 capabilities. The directory communicates ownership; capability metadata is the
@@ -36,7 +36,6 @@ creating a fourth tracker family.
 | BoostTrack | Yes | No | Yes | No | No |
 | OccluBoost | Yes | No | Yes | Yes | Yes |
 | SFSORT | No | No | Yes | Yes | Yes |
-| [Sam2Mot](sam2mot.md) | No | Yes | Yes | No | No |
 | [MafHda](maf_hda.md) | No | Yes | No | No | No |
 | [EagerMot](eagermot.md) | No | Optional | No | No | No |
 
@@ -55,8 +54,7 @@ to their model-free C++ libraries. See
 
 - Start with `bytetrack` when you want a fast motion-only baseline.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
-- Use `sam2mot` when each detection has a row-aligned segmentation mask and you want mask-aware association without ReID.
-- Use `maf_hda` for AABB detections with instance masks and image frames, combining motion with masked correlation-filter appearance.
+- Use `maf_hda` for AABB detections with nonempty full-frame instance masks and current image frames, combining motion with masked correlation-filter appearance.
 - Use `eagermot` through Python when 3D detections and camera calibration are available alongside image detections.
 - OBB support is listed in the table above; MafHda and EagerMot accept AABB image geometry only.
 - Image trackers expose the same selectable `asso_func`; see
