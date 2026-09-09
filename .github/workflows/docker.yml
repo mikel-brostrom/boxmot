@@ -161,7 +161,7 @@ jobs:
 
       - name: Smoke test release package and command surface
         run: |
-          python_args=(-I -)
+          python_args=(-I - --check-trackers --check-cli-help)
           case "${{ matrix.target }}" in
             # Service images deliberately run their copied source via PYTHONPATH.
             service-*) python_args=(-) ;;
