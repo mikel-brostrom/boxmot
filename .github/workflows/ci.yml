@@ -67,10 +67,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install native build dependencies
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: cmake g++ libopencv-dev libeigen3-dev
       - name: Configure native trackers
         shell: bash
         run: |
@@ -107,10 +106,9 @@ jobs:
       - uses: ./.github/actions/prepare-ci-assets
       - name: Install native build dependencies (Linux)
         if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ libopencv-dev libeigen3-dev
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: cmake g++ libopencv-dev libeigen3-dev
       - name: Install native build dependencies (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -284,11 +282,14 @@ jobs:
           name: mot17-mini-materialization
           path: ${{ github.workspace }}
 
+      - name: Install metric reporting dependencies
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: jq
+
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
           uv sync --locked --no-default-groups --extra cpu --extra yolo --extra trackeval --group test
 
       - name: Check metric parity with TrackEval

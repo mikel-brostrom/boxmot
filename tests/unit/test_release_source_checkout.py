@@ -157,7 +157,7 @@ def test_reusable_wheel_jobs_all_select_the_same_candidate_source() -> None:
         steps = workflow["jobs"][job]["steps"]
         assert steps[0]["uses"] == "actions/checkout@v4"
         assert steps[0]["with"]["ref"] == "${{ github.workflow_sha }}"
-        selection = steps[1]
+        selection = next(step for step in steps if step.get("uses") == "./.github/actions/checkout-release-source")
         assert selection["uses"] == "./.github/actions/checkout-release-source"
         assert selection["with"]["source_sha"] == "${{ inputs.source_sha || github.sha }}"
         assert selection["with"]["candidate_sha"] == "${{ inputs.candidate_sha }}"

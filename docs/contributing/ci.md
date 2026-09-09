@@ -61,6 +61,13 @@ CI invokes `.venv/bin` commands directly after syncing because uv does not
 persist an activated optional extra. A later plain `uv run` could otherwise
 re-sync without the selected CPU/CUDA profile.
 
+Ubuntu jobs install system dependencies through
+`.github/actions/install-ubuntu-packages`. Both APT update and installation use
+the runner's Ubuntu source file, so unrelated vendor repositories such as
+Google Chrome cannot block native builds or metric reporting. Package hash and
+signature checks remain enabled. Downloads retry up to three times, and an
+Ubuntu repository failure still fails the job.
+
 The `materialize` job creates the MOT17-mini detection and embedding build once
 on Python 3.12. An exact-key Actions cache reuses that build and its resolved
 model artifacts on later runs only when the lockfile, package sources, dataset

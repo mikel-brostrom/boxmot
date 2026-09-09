@@ -1,0 +1,42 @@
+name: Install Ubuntu packages
+description: Install CI dependencies using Ubuntu's package sources without consulting unrelated vendor repositories.
+
+inputs:
+  packages:
+    description: Whitespace-separated Ubuntu package names to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install packages from Ubuntu sources
+      shell: bash
+      env:
+        APT_ETC: /etc/apt
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        ubuntu_sources="$APT_ETC/sources.list.d/ubuntu.sources"
+        if [ ! -s "$ubuntu_sources" ]; then
+          ubuntu_sources="$APT_ETC/sources.list"
+        fi
+        if [ ! -s "$ubuntu_sources" ]; then
+          echo "No Ubuntu APT source file found under $APT_ETC." >&2
+          exit 1
+        fi
+        read -r -a packages <<< "${PACKAGES//$'\n'/ }"
+        if [ "${#packages[@]}" -eq 0 ]; then
+          echo "At least one Ubuntu package is required." >&2
+          exit 1
+        fi
+        # Scope both commands to the runner's Ubuntu repositories. Chrome and
+        # other vendor indexes are unrelated to these CI dependencies.
+        apt_options=(
+          -o "Dir::Etc::sourcelist=$ubuntu_sources"
+          -o "Dir::Etc::sourceparts=/dev/null"
+          -o "APT::Get::List-Cleanup=0"
+          -o "APT::Update::Error-Mode=any"
+          -o "Acquire::Retries=3"
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo apt-get "${apt_options[@]}" install --yes -- "${packages[@]}"

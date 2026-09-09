@@ -41,11 +41,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      # Load the local action from this workflow's revision before selecting source.
+      # Load release setup actions from this workflow's revision before selecting source.
       - name: Bootstrap release checkout action
         uses: actions/checkout@v4
         with:
           ref: ${{ github.workflow_sha }}
+
+      - name: Install native build dependencies
+        uses: ./.github/actions/install-ubuntu-packages
+        with:
+          packages: cmake g++ libopencv-dev libeigen3-dev
 
       - name: Check out release source
         uses: ./.github/actions/checkout-release-source
@@ -58,11 +63,6 @@ jobs:
         uses: ./.github/actions/setup-ci-python
         with:
           python-version: '3.11'
-
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes cmake g++ libopencv-dev libeigen3-dev
 
       - name: Install release-gate dependencies
         run: |
