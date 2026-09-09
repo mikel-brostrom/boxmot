@@ -114,6 +114,17 @@ imports on Python 3.10 through 3.13. Docker validates `cli-cpu`, `cli-gpu`, and
 requested release version with the candidate and installed artifacts; they do
 not pin a particular version.
 
+The installed-wheel smoke resolves every public tracker class and creates each
+tracker through `create_tracker(TrackerSpec(...))` using its packaged defaults.
+It runs a short CPU sequence in AABB and OBB modes, including an initial empty
+batch, and checks output layouts, detection associations, class IDs, and stable
+track IDs. Synthetic embeddings and masks satisfy tracker requirements without
+model downloads. A direct ByteTrack call also checks the packed NumPy API.
+Every public CLI command runs through the installed `boxmot <command> --help`
+entrypoint. These checks run outside the source checkout with isolated Python
+imports, and also run in the full CLI Docker images. Service images retain
+their HTTP request checks with the smaller service dependency set.
+
 After these gates pass, the workflow publishes the checksummed wheel and source
 distribution. Successful **PyPI** publication is followed by an atomic push of
 the tested version commit and its `v<version>` tag, then a GitHub release at that

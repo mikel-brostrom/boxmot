@@ -2,35 +2,21 @@
 
 from __future__ import annotations
 
-import numpy as np
 import torch
 from click.testing import CliRunner
 
-from boxmot import ByteTrack, create_tracker
 from boxmot.engine.cli import boxmot as boxmot_cli
-from boxmot.trackers import TrackerSpec
-from tests.ci.release_contract import EXPECTED_CLI_COMMANDS, check_release_contract
+from tests.ci.release_contract import EXPECTED_CLI_COMMANDS, check_release_contract, check_tracker_api
 
 
 def test_python_api_smoke() -> None:
-    """Exercise direct NumPy tracking through the public API on CPU."""
+    """Exercise all public tracker imports and synthetic tracking on CPU."""
 
     assert torch.version.cuda is None, f"Expected CPU-only PyTorch, got torch {torch.__version__}"
     assert not torch.cuda.is_available()
     # Compare runtime to installed metadata; refresh editable installs after a bump.
     check_release_contract()
-
-    tracker = create_tracker(TrackerSpec("bytetrack"))
-    assert isinstance(tracker, ByteTrack)
-
-    dets = np.array([[100, 200, 300, 400, 0.9, 0]], dtype=np.float32)
-    tracks = tracker.update(dets)
-    next_tracks = tracker.update(dets)
-    assert type(tracks) is np.ndarray
-    assert type(next_tracks) is np.ndarray
-    assert tracks.shape == (1, 8)
-    assert next_tracks.shape == (1, 8)
-    assert next_tracks[:, 4].tolist() == tracks[:, 4].tolist()
+    check_tracker_api()
 
 
 def test_cli_command_surface_smoke() -> None:

@@ -133,8 +133,10 @@ def test_docker_release_smoke_preserves_each_images_import_context(tmp_path: Pat
         "import sys\nimport boxmot\n"
         + (
             "assert sys.flags.isolated == 0\nassert boxmot.source_only_service is True\n"
+            "assert '--check-trackers' not in sys.argv\nassert '--check-cli-help' not in sys.argv\n"
             if target.startswith("service-")
             else "assert sys.flags.isolated == 1\nassert not hasattr(boxmot, 'source_only_service')\n"
+            "assert '--check-trackers' in sys.argv\nassert '--check-cli-help' in sys.argv\n"
         ),
         encoding="utf-8",
     )
@@ -176,7 +178,7 @@ def test_wheel_smoke_uses_shared_checks_without_importing_the_checkout() -> None
     assert smoke["working-directory"] == "${{ runner.temp }}"
     assert smoke["env"]["RELEASE_VERSION"] == "${{ needs.build.outputs.version }}"
     assert 'python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py"' in smoke["run"]
-    assert '--expected-version "$RELEASE_VERSION" --check-cli-help' in smoke["run"]
+    assert '--expected-version "$RELEASE_VERSION" --check-cli-help --check-trackers' in smoke["run"]
     assert "expected_public_api" not in smoke["run"]
     assert "expected_cli_commands" not in smoke["run"]
 
