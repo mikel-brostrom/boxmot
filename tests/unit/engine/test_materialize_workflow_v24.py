@@ -14,15 +14,18 @@ import boxmot.engine.materialization.stages.detect as detect_stage_module
 import boxmot.engine.materialization.stages.embed as embed_stage_module
 import boxmot.engine.materialization.stages.segment as segment_stage_module
 import boxmot.engine.materialization.workflow as workflow
+from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.datasets.manifest import sha256_file
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
+from boxmot.engine.eval.replay import iter_cached_tracks
 from boxmot.engine.experiment_config import resolve_experiment_config
 from boxmot.engine.materialization import SourceSample, StagePlan, fingerprint
 from boxmot.engine.materialization.catalog import SourceCatalog
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.segmentors import SegmentorSpec
-from boxmot.structures import Boxes, Detections, OrientedBoxes
+from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
+from boxmot.trackers import TrackerSpec
 
 
 class _Detector:
@@ -354,6 +357,80 @@ def test_workflow_reuses_detector_cache_across_derived_experiments(monkeypatch, 
     assert first != second
     assert predict_calls == 1
     assert DatasetManifest.load(first).stages[0].fingerprint == DatasetManifest.load(second).stages[0].fingerprint
+
+
+@pytest.mark.parametrize("publish_masks", [False, True])
+def test_kitti_materialization_publishes_masks_only_when_requested(monkeypatch, tmp_path, publish_masks: bool) -> None:
+    """KITTI supports both detection-only builds and masks for optional MOTS replay."""
+    data_root, source_path, resolved = _experiment_case(tmp_path)
+    image_path = source_path.parent.parent / "000000.png"
+    assert cv2.imwrite(str(image_path), np.zeros((8, 10, 3), dtype=np.uint8))
+    resolved["dataset"]["layout"] = "kitti-mots"
+    resolved["dataset"]["splits"]["test"]["has_ground_truth"] = False
+    resolved["dataset"]["classes"] = {"car": {"id": 1, "evaluation": "target"}}
+    resolved["evaluation"]["classes"] = [{"name": "car", "dataset_id": 1, "detector_name": "car", "detector_id": 2}]
+    expected_mask = torch.zeros((1, 8, 10), dtype=torch.bool)
+    expected_mask[0, 2:6, 1] = True
+    expected_mask[0, 5, 1:4] = True
+
+    class MaskDetector(_Detector):
+        capabilities = DetectorCapabilities(provides_masks=True)
+
+        def predict(self, frames: list[Frame]) -> list[Detections]:
+            return [detections.with_masks(MaskBatch(expected_mask.clone())) for detections in super().predict(frames)]
+
+    detector_type = MaskDetector if publish_masks else _Detector
+    detector_spec = DetectorSpec(backend="fixture", geometry_mode="aabb")
+    monkeypatch.setattr(workflow, "resolve_experiment_config", lambda *_args, **_kwargs: resolved)
+    monkeypatch.setattr(
+        workflow,
+        "resolve_detector_spec",
+        lambda _reference, *, geometry: (
+            detector_spec,
+            {"spec": {"backend": "fixture", "geometry_mode": geometry}, "artifact": None},
+        ),
+    )
+    monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: detector_type.capabilities)
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(detect_stage_module, "create_detector", lambda _spec: detector_type())
+    args = SimpleNamespace(
+        experiment="fixture-test-detector",
+        data_root=data_root,
+        device="cpu",
+        materialize_explicit_keys=(),
+        build_root=tmp_path / "builds",
+        plan_path=None,
+        plan_overrides=(),
+        publish_image_refs=True,
+        publish_masks=publish_masks,
+        publish_embeddings=False,
+        tracker="bytetrack",
+        resume=True,
+    )
+
+    output = workflow.materialize(args)
+
+    assert args.publish_masks is publish_masks
+    manifest = DatasetManifest.load(output)
+    assert manifest.metadata["layout"] == "kitti-mots"
+    assert manifest.publish.masks is publish_masks
+    dataset = CachedVisionDataset(output, load_masks=publish_masks)
+    assert len(dataset) == 1
+    assert dataset[0].frame_index == 0
+    assert dataset[0].detections.class_ids.tolist() == [1]
+    if publish_masks:
+        torch.testing.assert_close(dataset[0].detections.masks.values, expected_mask)
+    else:
+        assert dataset[0].detections.masks is None
+    tracker = create_tracker(TrackerSpec(name=args.tracker))
+    assert tracker.requirements.masks is False
+    replayed = list(iter_cached_tracks(dataset, tracker, output_format="mots" if publish_masks else "mot"))
+    assert len(replayed[0].result.tracks) == 1
+    assert replayed[0].result.tracks.detection_indices.tolist() == [0]
+    if publish_masks:
+        torch.testing.assert_close(replayed[0].result.tracks.masks.values, expected_mask)
+    else:
+        assert replayed[0].result.tracks.masks is None
 
 
 def test_mmot_materialization_preserves_native_zero_based_class_ids(monkeypatch, tmp_path) -> None:

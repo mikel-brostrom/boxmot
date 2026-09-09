@@ -26,7 +26,8 @@ if TYPE_CHECKING:
     from boxmot.trackers.box.sfsort.tracker import SFSORT as SFSORT
     from boxmot.trackers.box.strongsort.tracker import StrongSort as StrongSort
     from boxmot.trackers.factory import create_tracker as create_tracker
-    from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot as Sam2Mot
+    from boxmot.trackers.multimodal.eagermot.tracker import EagerMot as EagerMot
+    from boxmot.trackers.multimodal.maf_hda.tracker import MafHda as MafHda
 
 
 def __getattr__(name: str):

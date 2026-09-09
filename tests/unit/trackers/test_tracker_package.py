@@ -11,13 +11,17 @@ from types import SimpleNamespace
 import pytest
 
 from boxmot._tracker_exports import _TRACKER_MANIFEST
+from boxmot.trackers.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.specs import TrackerFamily
 
 _TRACKER_EXPORTS = tuple(
     (tracker_name, entry.class_path.rsplit(".", 1)[1], entry.class_path.rsplit(".", 1)[0])
     for tracker_name, entry in _TRACKER_MANIFEST.items()
 )
 _TRACKER_NAMES = tuple(class_name for _, class_name, _ in _TRACKER_EXPORTS)
-_BOX_TRACKER_NAMES = tuple(name for name in _TRACKER_MANIFEST if name != "sam2mot")
+_BOX_TRACKER_NAMES = tuple(
+    name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.family is TrackerFamily.BOX
+)
 _ALGORITHM_TRACK_MODELS = (
     "boosttrack",
     "botsort",
@@ -103,23 +107,12 @@ import sys
 from importlib import import_module
 
 import boxmot
+from boxmot._tracker_exports import _TRACKER_MANIFEST
 
 assert not any(name.startswith("boxmot.trackers") for name in sys.modules)
 
-for tracker_name in (
-    "boosttrack",
-    "botsort",
-    "bytetrack",
-    "deepocsort",
-    "hybridsort",
-    "occluboost",
-    "ocsort",
-    "sam2mot",
-    "sfsort",
-    "strongsort",
-):
-    family = "multimodal" if tracker_name == "sam2mot" else "box"
-    import_module(f"boxmot.trackers.{family}.{tracker_name}")
+for entry in _TRACKER_MANIFEST.values():
+    import_module(entry.class_path.rsplit(".", 2)[0])
 
 assert not any(
     name.startswith("boxmot.trackers.") and name.endswith(".tracker")
@@ -141,7 +134,7 @@ assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
 def test_legacy_branded_tracker_aliases_are_not_public() -> None:
     boxmot_module = importlib.import_module("boxmot")
 
-    for legacy_name in ("BoTSORT", "BYTETracker", "DeepOCSort", "HybridSORT", "OCSORT", "SAM2MOT", "StrongSORT"):
+    for legacy_name in ("BoTSORT", "BYTETracker", "DeepOCSort", "HybridSORT", "OCSORT", "StrongSORT"):
         assert not hasattr(boxmot_module, legacy_name)
 
 
@@ -155,7 +148,7 @@ def test_occluboost_reports_its_canonical_class_name() -> None:
 
 def test_manifest_uses_representation_first_implementation_paths() -> None:
     for tracker_name, class_name, module_name in _TRACKER_EXPORTS:
-        family = "multimodal" if tracker_name == "sam2mot" else "box"
+        family = TRACKER_DEFINITIONS[tracker_name].capabilities.family.value
         assert module_name == f"boxmot.trackers.{family}.{tracker_name}.tracker"
         assert _TRACKER_MANIFEST[tracker_name].class_path == f"{module_name}.{class_name}"
 

@@ -41,6 +41,8 @@ def test_public_loader_and_sample_contract_is_exact() -> None:
         "CachedVisionDataset",
         "DatasetSample",
         "DatasetManifest",
+        "KittiMotsDataset",
+        "KittiMotsSample",
         "ManifestError",
         "PublishedContent",
         "ShardRecord",

@@ -245,6 +245,9 @@ cu130 = [
 
 trackeval = ["trackeval==1.3.0"]
 
+# COCO RLE encoding and mask overlap for native MOTS evaluation.
+mots = ["pycocotools>=2.0.7,<3.0.0"]
+
 service = [
   "fastapi>=0.135.1,<1.0.0",
   "pydantic>=2.5.0,<2.12.0",

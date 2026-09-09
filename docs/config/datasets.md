@@ -77,5 +77,123 @@ inside, its frame sequences. That path is authoritative for catalog identity
 and evaluation. The MMOT profile uses `test/npy` for raw multispectral frames
 and `test/mot` for the corresponding OBB annotations.
 
+A split may also declare `sequences`, a non-empty list of exact sequence
+directory names. Only those sequences are cataloged; missing names are errors.
+This supports train/validation partitions that share a directory of frames.
+
 `box_type: aabb` selects axis-aligned MOT metrics. `box_type: obb` selects rotated
 IoU; OBB ground truth is expected in 13-column corner format on disk.
+
+## KITTI MOTS instance masks
+
+The `kitti-mots` profile reads the original KITTI tracking images and MOTS
+instance PNGs.
+
+### Download KITTI MOTS data
+
+Download these two archives:
+
+1. **Color images:** On the [KITTI tracking download page](https://www.cvlibs.net/datasets/kitti/eval_tracking.php),
+   select **Download left color images of tracking data set (15 GB)**.
+   The archive is **`data_tracking_image_2.zip`**. KITTI requires
+   [registration and a stated usage purpose](https://www.cvlibs.net/datasets/kitti/user_login.php)
+   before downloading.
+2. **Segmentation masks:** Under **KITTI MOTS** on the
+   [MOTS download page](https://www.vision.rwth-aachen.de/page/mots), select
+   **Annotations in png format (train+val)** to download **`instances.zip`**.
+   These are the ground-truth instance masks used by BoxMOT for both box and
+   segmentation evaluation.
+
+The [MOTS annotations](https://www.vision.rwth-aachen.de/page/mots) are licensed
+under CC BY-NC-SA 3.0 (attribution, noncommercial use, and share-alike).
+
+From the repository root, extract archives downloaded to `~/Downloads`:
+
+```bash
+mkdir -p datasets/KITTI-MOTS/data_tracking_image_2
+unzip ~/Downloads/data_tracking_image_2.zip -d datasets/KITTI-MOTS/data_tracking_image_2
+unzip ~/Downloads/instances.zip -d datasets/KITTI-MOTS
+```
+
+The image archive contains `training/` and `testing/`; the annotation archive
+already contains `instances/`. The resulting layout beneath `--data-root datasets`
+is:
+
+```text
+KITTI-MOTS/
+├── data_tracking_image_2/
+│   ├── training/image_02/0000/000000.png
+│   └── testing/image_02/0000/000000.png
+└── instances/0000/000000.png
+```
+
+For example, use `--data-root datasets` when the dataset is at
+`datasets/KITTI-MOTS`. If both extracted directories already share a directory such as
+`~/Downloads`, copy the dataset YAML, set `storage.root: .`, and use that
+directory as `--data-root`. No conversion of images or labels is required.
+
+### Load and evaluate
+
+The profile provides the official 12-sequence `train` and 9-sequence `val`
+partitions, `fulltrain` for all 21 annotated sequences, and the unannotated
+`test` partition. The sequence selections follow the reference
+[train](https://github.com/VisualComputingInstitute/mots_tools/blob/master/mots_eval/train.seqmap)
+and [validation](https://github.com/VisualComputingInstitute/mots_tools/blob/master/mots_eval/val.seqmap)
+lists. For `layout: kitti-mots`, `annotations` points to the instance directory;
+every selected image must have a matching `<sequence>/<frame>.png` mask.
+Annotation content and dimensions participate in catalog validation and build
+identity. Native frame numbers start at zero, with timestamps at 10 Hz;
+`--fps` uses the existing frame sampling behavior.
+
+Load the raw annotated frames directly in Python:
+
+```python
+from pathlib import Path
+
+from torch.utils.data import DataLoader
+
+from boxmot.datasets import KittiMotsDataset
+from boxmot.datasets.config import load_dataset_config
+
+root = Path.home() / "Downloads"
+profile = load_dataset_config("kitti-mots")
+dataset = KittiMotsDataset(
+    root / "data_tracking_image_2/training/image_02",
+    root / "instances",
+    split="train",
+    sequence_ids=profile["splits"]["train"]["sequences"],
+)
+loader = DataLoader(dataset, batch_size=2, collate_fn=list)
+sample = next(iter(loader))[0]
+frame = sample.frame                 # RGB uint8 [3, H, W]
+truth = sample.ground_truth          # canonical Tracks
+masks = truth.masks.values           # bool [N, H, W]
+track_ids = truth.track_ids          # original encoded instance IDs
+ignore = sample.ignore_mask          # bool [H, W]
+```
+
+Images and masks are decoded per item, so worker processes do not preload the
+dataset. The list collation keeps different image sizes and object counts.
+Omitting `sequence_ids` loads every sequence under the supplied image root;
+`split` labels sample identities and does not select a partition by itself.
+For test images, omit `instances_root`; `ground_truth` and `ignore_mask` are
+then `None`.
+
+The loader preserves native classes (`1` car, `2` pedestrian) and full encoded
+track IDs, including instances numbered zero. Background (`0`) is excluded,
+and ignore pixels (`10000`, class `10`) are returned separately. Boxes tightly
+enclose each mask with exclusive upper coordinates. Empty annotated frames
+return zero-row `Tracks` and masks shaped `[0, H, W]`.
+
+Materialization supports images and detections, with optional prediction masks.
+To publish masks, use `--publish-masks` with a detector that provides masks or
+an experiment that defines a segmentor. Published masks come from these
+perception stages; annotation masks remain ground truth. Map detector class
+names to KITTI names in the experiment, for example
+`class_map: {car: car, pedestrian: person}` for a COCO detector.
+
+The native `eval` and `tune` workflows compute HOTA, CLEAR, Identity, and Count
+using box IoU by default, deriving ground-truth boxes from the instance PNGs.
+Add `--eval-masks` to compute segmentation metrics from predicted masks.
+See [MOTS evaluation](../guides/evaluation.md#kitti-mots-evaluation) for commands,
+dependencies, and output formats.

@@ -11,7 +11,18 @@ import torch
 
 from boxmot.components.timing import timed_component_phase
 from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, normalize_kalman_options
-from boxmot.structures import Boxes, Detections, Frame, Geometry, MaskBatch, OrientedBoxes, Tracks
+from boxmot.structures import (
+    Boxes,
+    CameraModel,
+    Detections,
+    Detections3D,
+    Frame,
+    Geometry,
+    MaskBatch,
+    MultimodalTracks,
+    OrientedBoxes,
+    Tracks,
+)
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.detections import _DetectionBatch
@@ -57,6 +68,8 @@ class BaseTracker(
     _requires_frame = False
     _requires_frame_dimensions_only = False
     _requires_masks = False
+    _requires_detections_3d = False
+    _requires_camera = False
     uses_frame_dimensions_for_association = True
     supports_variable_dt = False
 
@@ -259,6 +272,8 @@ class BaseTracker(
             masks=bool(self._requires_masks),
             frame=bool(self._requires_frame),
             frame_dimensions_only=bool(self._requires_frame_dimensions_only),
+            detections_3d=bool(self._requires_detections_3d),
+            camera=bool(self._requires_camera),
         )
 
     def _resolve_timing(
@@ -296,6 +311,17 @@ class BaseTracker(
 
     @overload
     def update(
+        self,
+        detections: Detections,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        detections_3d: Detections3D,
+        camera: CameraModel,
+        timestamp_s: float | None = None,
+    ) -> MultimodalTracks: ...
+
+    @overload
+    def update(
         self, detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
     ) -> Tracks: ...
 
@@ -310,16 +336,35 @@ class BaseTracker(
         frame: Frame | np.ndarray | None = None,
         *,
         timestamp_s: float | None = None,
-    ) -> Tracks | np.ndarray:
+        detections_3d: Detections3D | None = None,
+        camera: CameraModel | None = None,
+    ) -> Tracks | np.ndarray | MultimodalTracks:
         """Advance one sequence with an optional Frame or uint8 HWC BGR image.
 
         The detection representation determines the output representation.
         With ``variable_dt=True``, derive elapsed seconds from
         ``Frame.timestamp_s`` or the capture timestamp argument. Fixed-step
         prediction is the default even when timestamp metadata is present.
+        Calibrated 2D/3D trackers additionally require explicit independent
+        ``detections_3d`` and ``camera`` inputs and return ``MultimodalTracks``.
         """
         timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
         frame = prepare_frame(frame)
+
+        if (
+            detections_3d is not None
+            or camera is not None
+            or self.requirements.detections_3d
+            or self.requirements.camera
+        ):
+            return self._update_multimodal(
+                detections=detections,
+                detections_3d=detections_3d,
+                camera=camera,
+                frame=frame,
+                timestamp_s=timestamp_s,
+                dt=dt,
+            )
 
         numpy_input = type(detections) is np.ndarray
         canonical_detections = detections if isinstance(detections, Detections) else None
@@ -402,6 +447,87 @@ class BaseTracker(
         )
         self._last_timestamp_s = timestamp_s
         return tracks
+
+    def _update_multimodal(
+        self,
+        *,
+        detections: Detections | np.ndarray,
+        detections_3d: Detections3D | None,
+        camera: CameraModel | None,
+        frame: Frame | np.ndarray | None,
+        timestamp_s: float | None,
+        dt: float | None,
+    ) -> MultimodalTracks:
+        """Validate independent sensor inputs before invoking a canonical kernel."""
+        capabilities = getattr(self, "capabilities", None)
+        requirements = self.requirements
+        for name, value in (("detections_3d", detections_3d), ("camera", camera)):
+            if value is not None and not getattr(capabilities, f"accepts_{name}", False):
+                raise ValueError(f"{self.__class__.__name__} does not accept {name}.")
+            if value is None and getattr(requirements, name):
+                raise ValueError(f"{self.__class__.__name__} requires {name} on every update.")
+        if not isinstance(detections, Detections):
+            raise TypeError("Calibrated 2D/3D tracking requires canonical Detections, not packed NumPy rows.")
+        if not isinstance(detections_3d, Detections3D):
+            raise TypeError("Calibrated 2D/3D tracking requires Detections3D, including explicit empty batches.")
+        if not isinstance(camera, CameraModel):
+            raise TypeError("Calibrated 2D/3D tracking requires a CameraModel.")
+        detections.validate()
+        detections_3d.validate()
+        camera.validate()
+        self._validate_geometry(detections.geometry)
+        if detections.sample_id != detections_3d.sample_id:
+            raise ValueError("2D and 3D detections must identify the same sample.")
+        if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
+            raise ValueError("Frame and detections must identify the same sample.")
+        if frame is not None and frame_image_size(frame) != camera.image_size:
+            raise ValueError("CameraModel.image_size must match the frame spatial size.")
+        if requirements.frame and frame is None:
+            raise ValueError(f"{self.__class__.__name__} requires a frame.")
+        if requirements.embeddings and detections.embeddings is None:
+            raise ValueError(f"{self.__class__.__name__} requires detection embeddings.")
+        if requirements.masks and detections.masks is None:
+            raise ValueError(f"{self.__class__.__name__} requires full-frame detection masks.")
+        if detections.masks is not None:
+            if detections.masks.image_size != camera.image_size:
+                raise ValueError("Detection masks must match CameraModel.image_size.")
+            if requirements.masks and len(detections):
+                if not bool(detections.masks.values.flatten(1).any(dim=1).all()):
+                    raise ValueError(f"{self.__class__.__name__} requires foreground in every detection mask.")
+        self.class_catalog.validate_ids(detections.class_ids.tolist())
+        self.class_catalog.validate_ids(detections_3d.class_ids.tolist())
+
+        self._prediction_dt = dt
+        self._initialize_frame_dimensions(width=camera.image_size[1], height=camera.image_size[0])
+        self._mark_live_reid_updated()
+        output = self._track_multimodal(detections, detections_3d, camera, frame)
+        if not isinstance(output, MultimodalTracks):
+            raise TypeError(f"{self.__class__.__name__} kernel must return MultimodalTracks.")
+        output.validate()
+        if output.sample_id != detections.sample_id:
+            raise ValueError("Multimodal tracker output must identify the current sample.")
+        self._validate_geometry(output.image_tracks.geometry)
+        for result, observations in (
+            (output.image_tracks, detections),
+            (output.spatial_tracks, detections_3d),
+        ):
+            if bool((result.detection_indices >= len(observations)).any()):
+                raise ValueError("Multimodal tracker returned a detection index outside its current sensor batch.")
+            self.class_catalog.validate_ids(result.class_ids.tolist())
+        if output.image_tracks.masks is not None and output.image_tracks.masks.image_size != camera.image_size:
+            raise ValueError("Multimodal tracker output masks must match CameraModel.image_size.")
+        self._last_timestamp_s = timestamp_s
+        return output
+
+    def _track_multimodal(
+        self,
+        detections: Detections,
+        detections_3d: Detections3D,
+        camera: CameraModel,
+        frame: Frame | np.ndarray | None,
+    ) -> MultimodalTracks:
+        """Implement calibrated fusion using independently validated sensor rows."""
+        raise NotImplementedError(f"{self.__class__.__name__} has no calibrated 2D/3D tracking kernel.")
 
     def _update_arrays(
         self,

@@ -16,7 +16,10 @@ EXPECTED_COMMAND_ORDER = (
     "materialize",
     "time-variant",
     "eval",
+    "eval-trackrcnn",
+    "eval-eagermot",
     "tune",
+    "tune-eagermot",
     "research",
     "train-reid",
     "eval-reid",
@@ -275,6 +278,33 @@ def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command
     assert result.exit_code == 0, result.output
     assert captured["args"].sequence_workers == 3
     assert not hasattr(captured["args"], "n_threads")
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("eval_masks", (False, True))
+def test_mask_evaluation_selection_reaches_cached_workflow(monkeypatch, command: str, eval_masks: bool) -> None:
+    captured = {}
+    monkeypatch.setitem(
+        sys.modules,
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=lambda args: captured.setdefault("args", args)),
+    )
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            command,
+            "--dataset",
+            "kitti-mots",
+            "--build",
+            "fixture-build",
+            *(["--eval-masks"] if eval_masks else []),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].eval_masks is eval_masks
+    assert _command_options(command)["eval_masks"].default is False
 
 
 @pytest.mark.parametrize("command", ("eval", "tune"))
@@ -583,13 +613,14 @@ def test_rejects_materialization_device_with_explicit_build(command: str, select
 @pytest.mark.parametrize(
     ("tracker", "publish_masks", "publish_embeddings"),
     (
-        ("sam2mot", True, False),
+        ("maf_hda", True, False),
         ("strongsort", False, True),
         ("botsort", False, True),
         ("sfsort", False, False),
     ),
 )
 @pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("eval_masks", (False, True))
 def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     monkeypatch,
     tmp_path,
@@ -597,9 +628,16 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     tracker: str,
     publish_masks: bool,
     publish_embeddings: bool,
+    eval_masks: bool,
 ) -> None:
     captured = {}
     build_path = tmp_path / "build"
+    experiment_path = tmp_path / "kitti-experiment.yaml"
+    experiment_path.write_text(
+        "dataset:\n  ref: kitti-mots\n  split: train\n"
+        "detector:\n  ref: yolo26n\n  checkpoint: default\n"
+        "evaluation:\n  class_map:\n    car: car\n    pedestrian: person\n"
+    )
 
     def materialize_main(args):
         captured["materialize"] = args
@@ -618,14 +656,47 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
 
     result = CliRunner().invoke(
         boxmot,
-        [command, "--experiment", "fixture-experiment", "--tracker", tracker],
+        [
+            command,
+            "--experiment",
+            str(experiment_path),
+            "--tracker",
+            tracker,
+            *(["--eval-masks"] if eval_masks else []),
+        ],
     )
 
     assert result.exit_code == 0, result.output
     materialize_args = captured["materialize"]
     assert materialize_args.publish_image_refs is True
-    assert materialize_args.publish_masks is publish_masks
+    assert materialize_args.publish_masks is (publish_masks or eval_masks)
     assert materialize_args.publish_embeddings is publish_embeddings
+    assert captured[command].eval_masks is eval_masks
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize(
+    "selection",
+    (
+        ("--experiment", "mot17/ablation-yolox-lmbn.yaml"),
+        ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
+    ),
+)
+def test_mask_evaluation_rejects_other_datasets_before_materialization(
+    monkeypatch, command: str, selection: tuple[str, ...]
+) -> None:
+    calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.materialization.workflow",
+        SimpleNamespace(main=lambda args: calls.append(args)),
+    )
+
+    result = CliRunner().invoke(boxmot, [command, *selection, "--eval-masks"])
+
+    assert result.exit_code == 2
+    assert "--eval-masks requires a KITTI-MOTS dataset" in result.output
+    assert calls == []
 
 
 def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:
@@ -799,3 +870,70 @@ def test_eval_sequence_option_is_repeatable_and_dispatches_in_order(monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert captured["args"].sequence_names == ("data23-1", "data23-2")
+
+
+@pytest.mark.parametrize("tracker", (None, "bytetrack"))
+def test_trackrcnn_evaluation_dispatches_saved_paths_and_class_separated_python_tracker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tracker: str | None
+) -> None:
+    """Saved detector input bypasses perception setup and retains tracker overrides."""
+    captured = {}
+
+    def run(args: SimpleNamespace) -> Path:
+        captured["args"] = args
+        return tmp_path / "results"
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=run))
+    config = tmp_path / "tracker.yaml"
+    config.write_text("det_thresh: 0.75\n", encoding="utf-8")
+    arguments = [
+        "eval-trackrcnn",
+        "--detections",
+        str(tmp_path),
+        "--images",
+        str(tmp_path),
+        "--instances",
+        str(tmp_path),
+        "--tracker-config",
+        str(config),
+        "--sequence",
+        "0006",
+        "--sequence",
+        "0002",
+    ]
+    if tracker is not None:
+        arguments.extend(("--tracker", tracker))
+    result = CliRunner().invoke(boxmot, arguments)
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.tracker == (tracker or "maf_hda")
+    assert args.tracker_backend == "python"
+    assert args.per_class is True
+    assert args.detections == args.images == args.instances == tmp_path
+    assert args.tracker_config == str(config)
+    assert args.sequence_names == ("0006", "0002")
+    assert args.split == "val"
+    assert args.project == Path("runs/trackrcnn")
+    assert f"Results: {tmp_path / 'results'}" in result.output
+
+
+@pytest.mark.parametrize("error_type", (ValueError, FileNotFoundError, ImportError))
+def test_trackrcnn_evaluation_reports_actionable_runner_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error_type: type[Exception]
+) -> None:
+    """Data and capability failures are concise CLI errors instead of tracebacks."""
+    message = "Selected tracker requires unavailable sensor inputs."
+
+    def fail(_args: SimpleNamespace) -> Path:
+        raise error_type(message)
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=fail))
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval-trackrcnn", "--detections", str(tmp_path), "--images", str(tmp_path), "--instances", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: {message}" in result.output
+    assert "Traceback" not in result.output

@@ -21,12 +21,14 @@ from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
 from boxmot.datasets.schema import SAMPLES_ARTIFACT
 from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
+from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
     load_cached_build,
     resolve_build_path,
     validate_build_compatibility,
 )
+from boxmot.engine.tracker_config import validate_image_tracker
 from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec
@@ -97,6 +99,7 @@ class _SequenceReplayTask:
     frame_total: int
     output_path: str
     ordinal: int
+    output_format: str = "mot"
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,14 +143,16 @@ def iter_cached_tracks(
     tracker: Tracker,
     *,
     sequence_ids: frozenset[str] | None = None,
+    output_format: str = "mot",
 ) -> Iterator[ReplayFrame]:
     """Replay an ordered cached dataset with one sequence-local tracker."""
 
+    _validate_output_format(output_format)
     pipeline = TrackingPipeline(
         detector=None,
         tracker=tracker,
         outputs=PipelineOutputs(
-            masks=tracker.requirements.masks,
+            masks=tracker.requirements.masks or output_format == "mots",
             embeddings=tracker.requirements.embeddings,
         ),
     )
@@ -160,7 +165,10 @@ def iter_cached_tracks(
             pipeline.reset()
             active_sequence = sample.sequence_id
         frame = _frame_for_sample(sample, placeholder_images)
-        yield ReplayFrame(sample=sample, result=pipeline.step_detections(frame, sample.detections))
+        result = pipeline.step_detections(frame, sample.detections)
+        if output_format == "mots":
+            result = PipelineResult(result.detections, prepare_mots_tracks(result, sample.image_size))
+        yield ReplayFrame(sample=sample, result=result)
 
 
 def _obb_corners(geometry: torch.Tensor) -> torch.Tensor:
@@ -224,6 +232,23 @@ def _write_rows(handle: TextIO, rows: list[tuple[float | int, ...]]) -> None:
     for row in rows:
         values = [str(value) if isinstance(value, int) else f"{value:.8g}" for value in row]
         handle.write(",".join(values) + "\n")
+
+
+def _validate_output_format(output_format: str) -> None:
+    """Reject unknown tracker output schemas before opening result files."""
+    if output_format not in ("mot", "mots"):
+        raise ValueError("output_format must be 'mot' or 'mots'.")
+
+
+def _write_tracks(handle: TextIO, tracks: Tracks, frame_index: int, output_format: str) -> int:
+    """Serialize one prepared frame and return the number of emitted objects."""
+    if output_format == "mots":
+        mots_rows = tracks_to_mots_rows(tracks, frame_index)
+        write_mots_rows(handle, mots_rows)
+        return len(mots_rows)
+    mot_rows = tracks_to_mot_rows(tracks, frame_index)
+    _write_rows(handle, mot_rows)
+    return len(mot_rows)
 
 
 def _validate_sequence_id(sequence_id: str) -> str:
@@ -395,19 +420,20 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
     try:
         with _owned_tracker(task.tracker_spec) as tracker:
             requirements = tracker.requirements
+            needs_masks = requirements.masks or task.output_format == "mots"
             dataset = CachedVisionDataset._stream_sequence(
                 task.build,
                 sequence_id=task.sequence_id,
                 split=task.split,
                 load_images=requirements.frame_pixels,
-                load_masks=requirements.masks,
+                load_masks=needs_masks,
                 load_embeddings=requirements.embeddings,
             )
             validate_build_compatibility(
                 dataset.manifest,
                 split=task.split,
                 geometry=task.tracker_spec.geometry,
-                require_masks=requirements.masks,
+                require_masks=needs_masks,
                 require_embeddings=requirements.embeddings,
             )
             total = len(dataset)
@@ -433,7 +459,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                 detector=None,
                 tracker=tracker,
                 outputs=PipelineOutputs(
-                    masks=requirements.masks,
+                    masks=needs_masks,
                     embeddings=requirements.embeddings,
                 ),
             )
@@ -442,7 +468,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
             # detection-only samples are cheaper to consume on this thread.
             sample_context = (
                 _prefetch_samples(dataset)
-                if requirements.frame_pixels or requirements.masks or requirements.embeddings
+                if requirements.frame_pixels or needs_masks or requirements.embeddings
                 else nullcontext(iter(dataset))
             )
             with output_path.open("x", encoding="utf-8") as handle, sample_context as samples:
@@ -453,10 +479,14 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                         )
                     frame = _frame_for_sample(sample, placeholder_images)
                     result = pipeline.step_detections(frame, sample.detections)
-                    rows = tracks_to_mot_rows(result.tracks, sample.frame_index)
-                    _write_rows(handle, rows)
+                    tracks = (
+                        prepare_mots_tracks(result, sample.image_size)
+                        if task.output_format == "mots"
+                        else result.tracks
+                    )
+                    row_count = _write_tracks(handle, tracks, sample.frame_index, task.output_format)
                     completed += 1
-                    track_rows += len(rows)
+                    track_rows += row_count
                     _emit_worker_progress(
                         ReplayProgressEvent(
                             sequence_id=task.sequence_id,
@@ -691,28 +721,32 @@ def _replay_with_injected_tracker(
     frame_callback: ReplayFrameCallback | None = None,
     progress_callback: ReplayProgressCallback | None = None,
     sequence_frame_counts: Mapping[str, int] | None = None,
+    output_format: str = "mot",
 ) -> ReplayResult:
     """Preserve the caller-owned, in-process tracker path used by tests and embedding clients."""
 
     requirements = tracker.requirements
+    needs_masks = requirements.masks or output_format == "mots"
     if frame_callback is None:
         dataset = load_cached_build(
             build_path,
             split=split,
             load_images=requirements.frame_pixels,
-            load_masks=requirements.masks,
+            load_masks=needs_masks,
             load_embeddings=requirements.embeddings,
         )
         validate_build_compatibility(
             dataset.manifest,
             split=split,
             geometry=tracker_spec.geometry,
-            require_masks=requirements.masks,
+            require_masks=needs_masks,
             require_embeddings=requirements.embeddings,
         )
     else:
         assert sequence_frame_counts is not None
-        dataset = _callback_samples(build_path, tracker, split=split, frame_counts=sequence_frame_counts)
+        dataset = _callback_samples(
+            build_path, tracker, split=split, frame_counts=sequence_frame_counts, output_format=output_format
+        )
 
     handles: dict[str, TextIO] = {}
     sequence_paths: dict[str, Path] = {}
@@ -750,7 +784,7 @@ def _replay_with_injected_tracker(
 
     for sequence in frame_counts:
         progress(sequence, "queued")
-    replayed_frames = iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences)
+    replayed_frames = iter_cached_tracks(dataset, tracker, sequence_ids=selected_sequences, output_format=output_format)
     active_sequence: str | None = None
     try:
         for replayed in replayed_frames:
@@ -762,12 +796,13 @@ def _replay_with_injected_tracker(
                 path.unlink(missing_ok=True)
                 handles[sequence] = path.open("x", encoding="utf-8")
                 sequence_paths[sequence] = path
-            rows = tracks_to_mot_rows(replayed.result.tracks, replayed.sample.frame_index)
-            _write_rows(handles[sequence], rows)
+            row_count = _write_tracks(
+                handles[sequence], replayed.result.tracks, replayed.sample.frame_index, output_format
+            )
             frames += 1
-            track_rows += len(rows)
+            track_rows += row_count
             completed[sequence] += 1
-            sequence_rows[sequence] += len(rows)
+            sequence_rows[sequence] += row_count
             if frame_callback is not None:
                 frame_callback(replayed)
             progress(sequence, "running", replayed.sample.sample_id)
@@ -809,6 +844,7 @@ def _callback_samples(
     *,
     split: str | None,
     frame_counts: Mapping[str, int],
+    output_format: str = "mot",
 ) -> Iterator[DatasetSample]:
     """Stream selected sequences with real pixels and bounded optional payloads."""
 
@@ -819,7 +855,7 @@ def _callback_samples(
             sequence_id=sequence,
             split=split,
             load_images=True,
-            load_masks=requirements.masks,
+            load_masks=requirements.masks or output_format == "mots",
             load_embeddings=requirements.embeddings,
         )
         if len(dataset) != expected:
@@ -843,6 +879,7 @@ def _replay_with_frame_callback(
     workers: int | None,
     frame_callback: ReplayFrameCallback,
     progress_callback: ReplayProgressCallback | None,
+    output_format: str = "mot",
 ) -> ReplayResult:
     """Keep rendering on the caller's thread and publish only a complete replay."""
 
@@ -867,7 +904,7 @@ def _replay_with_frame_callback(
                 manifest,
                 split=split,
                 geometry=tracker_spec.geometry,
-                require_masks=requirements.masks,
+                require_masks=requirements.masks or output_format == "mots",
                 require_embeddings=requirements.embeddings,
             )
             if not manifest.publish.image_references:
@@ -887,6 +924,7 @@ def _replay_with_frame_callback(
                 sequence_frame_counts=frame_counts,
                 frame_callback=frame_callback,
                 progress_callback=progress_callback,
+                output_format=output_format,
             )
         sequence_paths: list[Path] = []
         for staged in replayed.sequence_files:
@@ -939,6 +977,7 @@ def replay_build(
     workers: int | None = None,
     progress_callback: ReplayProgressCallback | None = None,
     frame_callback: ReplayFrameCallback | None = None,
+    output_format: str = "mot",
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -950,10 +989,14 @@ def replay_build(
     A ``frame_callback`` also selects serial replay on the caller's thread and
     receives each result with its decoded source frame and original timestamp.
     Callback failures propagate without publishing partial MOT result files.
+    ``output_format='mots'`` requires published detection masks and writes
+    zero-based KITTI MOTS segmentation rows with deterministic, disjoint masks.
     """
 
+    _validate_output_format(output_format)
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
+    validate_image_tracker(tracker_spec.name)
     if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
         raise ValueError("split must be a non-empty canonical string or None")
     if frame_callback is not None and not callable(frame_callback):
@@ -973,16 +1016,32 @@ def replay_build(
             workers=workers,
             frame_callback=frame_callback,
             progress_callback=progress_callback,
+            output_format=output_format,
         )
     if tracker is not None:
-        return _replay_with_injected_tracker(
-            build_path,
-            tracker_spec,
-            split=split,
-            destination=destination,
-            tracker=tracker,
-            sequence_ids=sequence_ids,
+        staging_context = (
+            tempfile.TemporaryDirectory(prefix=".replay-", dir=destination)
+            if output_format == "mots"
+            else nullcontext(str(destination))
         )
+        with staging_context as staged_dir:
+            replayed = _replay_with_injected_tracker(
+                build_path,
+                tracker_spec,
+                split=split,
+                destination=Path(staged_dir),
+                tracker=tracker,
+                sequence_ids=sequence_ids,
+                output_format=output_format,
+            )
+            if output_format == "mot":
+                return replayed
+            sequence_paths = []
+            for staged in replayed.sequence_files:
+                path = destination / staged.name
+                os.replace(staged, path)
+                sequence_paths.append(path)
+        return ReplayResult(build_path, destination, tuple(sequence_paths), replayed.frames, replayed.track_rows)
 
     manifest = DatasetManifest.load(build_path)
     with _owned_tracker(tracker_spec) as probe:
@@ -991,7 +1050,7 @@ def replay_build(
             manifest,
             split=split,
             geometry=tracker_spec.geometry,
-            require_masks=requirements.masks,
+            require_masks=requirements.masks or output_format == "mots",
             require_embeddings=requirements.embeddings,
         )
         if requirements.frame_pixels and not manifest.publish.image_references:
@@ -1030,6 +1089,7 @@ def replay_build(
                 frame_total=frame_counts[sequence_id],
                 output_path=str(staging / f"part-{ordinal:05d}.txt"),
                 ordinal=ordinal,
+                output_format=output_format,
             )
             for ordinal, sequence_id in enumerate(selected)
         )

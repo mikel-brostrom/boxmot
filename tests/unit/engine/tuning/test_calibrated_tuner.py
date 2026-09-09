@@ -414,6 +414,78 @@ def test_resuming_calibrated_run_loads_saved_units_and_frozen_values_without_ref
         assert all(config[key] == expected for config in captured["trial_configs"])
 
 
+@pytest.mark.parametrize("eval_masks", [False, True])
+def test_tuning_persists_evaluation_mode_and_resumes_with_matching_trial_geometry(
+    fake_tuning: SimpleNamespace, eval_masks: bool
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(calibrate_kf=False, eval_masks=eval_masks, evaluation_config={"layout": "kitti-mots"})
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+
+    assert json.loads((tune_dir / "evaluation.json").read_text()) == {"eval_masks": eval_masks}
+    assert captured["trial_args"].eval_masks is eval_masks
+    captured["restore_enabled"] = True
+    tuner_module.Tuner(
+        fake_tuning.args(
+            calibrate_kf=False,
+            eval_masks=eval_masks,
+            resume_tune=tune_dir,
+            evaluation_config={"layout": "kitti-mots"},
+        )
+    ).fit()
+
+    assert captured["trial_args"].eval_masks is eval_masks
+    assert captured["events"].count("restore") == 1
+    assert captured["events"].count("fit") == 2
+
+
+@pytest.mark.parametrize("saved_masks", [False, True])
+def test_tuning_rejects_changed_evaluation_mode_before_starting_resume_runtime(
+    fake_tuning: SimpleNamespace, saved_masks: bool
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(calibrate_kf=False, eval_masks=saved_masks, evaluation_config={"layout": "kitti-mots"})
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+    captured["restore_enabled"] = True
+    captured["events"].clear()
+
+    with pytest.raises(ValueError, match="same evaluation mode"):
+        tuner_module.Tuner(
+            fake_tuning.args(
+                calibrate_kf=False,
+                eval_masks=not saved_masks,
+                resume_tune=tune_dir,
+                evaluation_config={"layout": "kitti-mots"},
+            )
+        ).fit()
+
+    assert captured["events"] == ["eval_setup"]
+    assert json.loads((tune_dir / "evaluation.json").read_text())["eval_masks"] is saved_masks
+
+
+@pytest.mark.parametrize("contents", [None, "{", "[]", '{"eval_masks": 1}', '{"eval_masks": "false"}'])
+def test_tuning_rejects_missing_or_corrupt_evaluation_mode_on_resume(
+    fake_tuning: SimpleNamespace, contents: str | None
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(calibrate_kf=False, evaluation_config={"layout": "kitti-mots"})
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+    path = tune_dir / "evaluation.json"
+    if contents is None:
+        path.unlink()
+    else:
+        path.write_text(contents)
+    captured["restore_enabled"] = True
+    captured["events"].clear()
+
+    with pytest.raises(ValueError, match="evaluation mode metadata"):
+        tuner_module.Tuner(
+            fake_tuning.args(calibrate_kf=False, resume_tune=tune_dir, evaluation_config={"layout": "kitti-mots"})
+        ).fit()
+
+    assert captured["events"] == ["eval_setup"]
+
+
 @pytest.mark.parametrize("search_alg", ["optuna", "random"])
 def test_direct_calibration_preserves_small_and_large_covariances_as_exact_constants(
     fake_tuning: SimpleNamespace, search_alg: str

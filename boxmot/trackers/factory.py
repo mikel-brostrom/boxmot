@@ -72,7 +72,7 @@ def _bind_and_validate_capabilities(tracker: Tracker, capabilities: TrackerCapab
     if not isinstance(requirements, TrackerRequirements):
         raise TypeError("A tracker factory result must expose immutable TrackerRequirements.")
 
-    for input_name in ("embeddings", "masks", "frame"):
+    for input_name in ("embeddings", "masks", "frame", "detections_3d", "camera"):
         required = getattr(requirements, input_name)
         accepts = getattr(capabilities, f"accepts_{input_name}")
         always_required = getattr(capabilities, f"requires_{input_name}")

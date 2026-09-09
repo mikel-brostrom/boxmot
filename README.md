@@ -229,6 +229,22 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 
 </div>
 
+[MafHda](docs/trackers/maf_hda.md) is the Python MAF_HDA/GMPHD_MAF port for
+mask-aware tracking. It requires AABB detections, nonempty full-frame instance
+masks, and the current image.
+Use `boxmot eval-trackrcnn --tracker maf_hda` to evaluate saved KITTI TrackR-CNN
+predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
+MafHda is not included in the box-only benchmark table above.
+
+[EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
+Python API using independent detection batches and camera calibration. It
+returns image and spatial tracks with shared identities. The dedicated
+`boxmot eval-eagermot` command evaluates downloaded KITTI PointGNN and
+TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
+Use [`boxmot tune-eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
+to optimize separate car and pedestrian profiles together for class-average
+mask HOTA, then evaluate `best.yaml` with `eval-eagermot --class-config`.
+
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
@@ -257,6 +273,12 @@ boxmot eval \
 
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
+
+For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
+reads original instance PNGs into canonical frames, track IDs, masks, and ignore
+regions. The `kitti-mots` profile supports materialization, evaluation, and
+tuning with the official sequence splits. [MOTS evaluation](docs/guides/evaluation.md#kitti-mots-evaluation)
+uses box IoU by default; add `--eval-masks` for segmentation HOTA, CLEAR, and Identity.
 
 Use NumPy detections and BGR images directly:
 

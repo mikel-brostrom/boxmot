@@ -445,6 +445,17 @@ def tracker_config_option(func: Callable) -> Callable:
     )(func)
 
 
+def eval_masks_option(func: Callable) -> Callable:
+    """Select segmentation scoring for KITTI-MOTS evaluation and tuning."""
+
+    return click.option(
+        "--eval-masks",
+        is_flag=True,
+        default=False,
+        help="Evaluate KITTI-MOTS with mask IoU; requires published masks. Default: evaluate bounding boxes.",
+    )(func)
+
+
 def kalman_calibration_option(*, mode: str) -> Callable:
     """Expose direct covariance calibration before evaluation or tracker tuning."""
     outcome = {
@@ -483,6 +494,7 @@ __all__ = (
     "data_root_option",
     "dataset_fps_option",
     "dataset_option",
+    "eval_masks_option",
     "experiment_option",
     "kalman_calibration_option",
     "replay_build_options",

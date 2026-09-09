@@ -29,6 +29,11 @@ def _validated_requirements(tracker: Tracker) -> TrackerRequirements:
     requirements = getattr(tracker, "requirements", None)
     if not isinstance(requirements, TrackerRequirements):
         raise TypeError("tracker.requirements must be a TrackerRequirements object.")
+    if requirements.detections_3d or requirements.camera:
+        raise ValueError(
+            "TrackingPipeline cannot supply 3D detections or a CameraModel; "
+            "use the tracker Python update() API with those inputs."
+        )
     if not callable(getattr(tracker, "update", None)):
         raise TypeError("tracker must implement update().")
     if not callable(getattr(tracker, "reset", None)):

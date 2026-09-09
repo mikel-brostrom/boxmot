@@ -1,0 +1,36 @@
+id: kitti-mots
+
+format:
+  layout: kitti-mots
+  box_type: aabb
+
+storage:
+  root: KITTI-MOTS
+
+default_split: train
+
+splits:
+  train:
+    path: data_tracking_image_2/training/image_02
+    annotations: instances
+    has_ground_truth: true
+    sequences: ["0000", "0001", "0003", "0004", "0005", "0009", "0011", "0012", "0015", "0017", "0019", "0020"]
+  val:
+    path: data_tracking_image_2/training/image_02
+    annotations: instances
+    has_ground_truth: true
+    sequences: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
+  fulltrain:
+    path: data_tracking_image_2/training/image_02
+    annotations: instances
+    has_ground_truth: true
+  test:
+    path: data_tracking_image_2/testing/image_02
+    has_ground_truth: false
+
+classes:
+  target:
+    car: 1
+    pedestrian: 2
+  ignore:
+    ignore: 10

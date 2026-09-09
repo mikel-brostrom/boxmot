@@ -7,7 +7,7 @@ structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
 The package root deliberately exports only `__version__`, `create_tracker`, and
-the ten lazily loaded tracker classes. Import every other public contract from
+the lazily loaded tracker classes. Import every other public contract from
 its domain package.
 
 ## Canonical values
@@ -48,6 +48,11 @@ immutable values. Use `to_aabb_rows()` or `to_obb_rows()` only when a file or
 wire boundary requires the legacy 6/7- or 8/9-column representation.
 
 ## Tracker factory
+
+For calibrated 2D/3D sensor fusion, see [EagerMot](../trackers/eagermot.md).
+Its extended update interface consumes independent `Detections3D` and a
+`CameraModel` and returns `MultimodalTracks` with separate image and spatial
+collections. The image-only interfaces below apply to the other trackers.
 
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every

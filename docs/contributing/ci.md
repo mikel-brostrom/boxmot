@@ -116,10 +116,12 @@ not pin a particular version.
 
 The installed-wheel smoke resolves every public tracker class and creates each
 tracker through `create_tracker(TrackerSpec(...))` using its packaged defaults.
-It runs a short CPU sequence in AABB and OBB modes, including an initial empty
-batch, and checks output layouts, detection associations, class IDs, and stable
-track IDs. Synthetic embeddings and masks satisfy tracker requirements without
-model downloads. A direct ByteTrack call also checks the packed NumPy API.
+It runs a short CPU sequence in each supported AABB and OBB mode, including an
+initial empty batch, and checks output layouts, detection associations, class
+IDs, and stable track IDs. EagerMOT uses synthetic 2D/3D detections and camera
+calibration to check sensor fusion. Synthetic embeddings and masks satisfy
+tracker requirements without model downloads. A direct ByteTrack call also
+checks the packed NumPy API.
 Every public CLI command runs through the installed `boxmot <command> --help`
 entrypoint. These checks run outside the source checkout with isolated Python
 imports, and also run in the full CLI Docker images. Service images retain

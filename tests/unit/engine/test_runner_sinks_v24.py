@@ -17,7 +17,7 @@ from boxmot.engine.ui.core.ui import capture_renderable
 from boxmot.engine.ui.reporters.track import TrackWorkflowReporter
 from boxmot.pipelines import PipelineResult
 from boxmot.reid import ReIDEncoderSpec
-from boxmot.structures import Boxes, Detections, Frame, Tracks
+from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Frame, Tracks, Tracks3D
 from boxmot.trackers import TrackerRequirements
 
 
@@ -270,6 +270,51 @@ def test_rendering_sink_exposes_a_boundary_image_without_mutating_frame() -> Non
 
     assert rendered[0].shape == (8, 10, 3)
     assert torch.equal(frame.image, original)
+
+
+def _spatial_result(sample_id: str) -> Tracks3D:
+    """One camera-space estimate sharing an image track's identity."""
+    return Tracks3D(
+        geometry=Boxes3D(torch.tensor([[0, 1, 8, 0, 2, 2, 2]], dtype=torch.float32)),
+        track_ids=torch.tensor([3], dtype=torch.int64),
+        scores=torch.tensor([0.8], dtype=torch.float32),
+        class_ids=torch.tensor([2], dtype=torch.int64),
+        detection_indices=torch.tensor([-1], dtype=torch.int64),
+        sample_id=sample_id,
+    )
+
+
+def test_spatial_overlay_changes_only_rendered_pixels() -> None:
+    frame = _frame("sample", "sequence", 0)
+    result = _result(frame)
+    spatial = _spatial_result(frame.sample_id)
+    original = spatial.geometry.values.clone()
+    camera = CameraModel(torch.tensor([[8, 0, 5, 0], [0, 8, 4, 0], [0, 0, 1, 0]], dtype=torch.float32), (8, 10))
+    plain = sink_module.render_result(frame, result)
+
+    rendered = sink_module.render_result(frame, result, spatial_tracks=spatial, camera=camera)
+
+    assert np.any(rendered != plain)
+    assert not bool(frame.image.any())
+    torch.testing.assert_close(spatial.geometry.values, original)
+    assert result.tracks.track_ids.tolist() == spatial.track_ids.tolist()
+
+
+@pytest.mark.parametrize("mismatch", ["missing_camera", "missing_tracks", "sample", "dimensions"])
+def test_spatial_overlay_rejects_missing_or_misaligned_camera_inputs(mismatch: str) -> None:
+    frame = _frame("sample", "sequence", 0)
+    spatial = _spatial_result("different" if mismatch == "sample" else frame.sample_id)
+    camera = CameraModel(
+        torch.tensor([[8, 0, 5, 0], [0, 8, 4, 0], [0, 0, 1, 0]], dtype=torch.float32),
+        (10, 10) if mismatch == "dimensions" else (8, 10),
+    )
+    with pytest.raises(ValueError):
+        sink_module.render_result(
+            frame,
+            _result(frame),
+            spatial_tracks=None if mismatch == "missing_tracks" else spatial,
+            camera=None if mismatch == "missing_camera" else camera,
+        )
 
 
 def test_live_workflow_composes_injected_components_through_runner() -> None:

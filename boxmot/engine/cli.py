@@ -37,7 +37,16 @@ _COMMAND_SPECS = (
         "Derive a timestamped frame-loss dataset from a build",
     ),
     _CommandSpec("eval", "boxmot.engine.commands.eval", "eval", "Evaluate tracker performance on MOT dataset"),
+    _CommandSpec(
+        "eval-trackrcnn", "boxmot.engine.commands.trackrcnn", "eval_trackrcnn", "Evaluate saved KITTI TrackR-CNN masks"
+    ),
+    _CommandSpec(
+        "eval-eagermot", "boxmot.engine.commands.eagermot", "eval_eagermot", "Evaluate KITTI EagerMOT sensor fusion"
+    ),
     _CommandSpec("tune", "boxmot.engine.commands.tune", "tune", "Optimize tracker hyperparameters"),
+    _CommandSpec(
+        "tune-eagermot", "boxmot.engine.commands.eagermot", "tune_eagermot", "Tune KITTI EagerMOT class profiles"
+    ),
     _CommandSpec(
         "research",
         "boxmot.engine.commands.research",

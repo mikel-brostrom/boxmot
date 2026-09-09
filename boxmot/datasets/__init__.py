@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .cached import CachedVisionDataset, DatasetSample
+    from .kitti_mots import KittiMotsDataset, KittiMotsSample
     from .manifest import ArtifactRecord, DatasetManifest, ManifestError, PublishedContent, ShardRecord, StageProvenance
 
 __all__ = (
@@ -14,6 +15,8 @@ __all__ = (
     "CachedVisionDataset",
     "DatasetSample",
     "DatasetManifest",
+    "KittiMotsDataset",
+    "KittiMotsSample",
     "ManifestError",
     "PublishedContent",
     "ShardRecord",
@@ -25,6 +28,8 @@ _EXPORTS = {
     "CachedVisionDataset": ("boxmot.datasets.cached", "CachedVisionDataset"),
     "DatasetSample": ("boxmot.datasets.cached", "DatasetSample"),
     "DatasetManifest": ("boxmot.datasets.manifest", "DatasetManifest"),
+    "KittiMotsDataset": ("boxmot.datasets.kitti_mots", "KittiMotsDataset"),
+    "KittiMotsSample": ("boxmot.datasets.kitti_mots", "KittiMotsSample"),
     "ManifestError": ("boxmot.datasets.manifest", "ManifestError"),
     "PublishedContent": ("boxmot.datasets.manifest", "PublishedContent"),
     "ShardRecord": ("boxmot.datasets.manifest", "ShardRecord"),

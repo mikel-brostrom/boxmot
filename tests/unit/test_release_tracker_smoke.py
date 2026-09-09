@@ -73,8 +73,14 @@ def test_tracker_smoke_requires_packaged_tracker_defaults(
 
 
 @pytest.mark.usefixtures("forbid_reid_loading")
-@pytest.mark.parametrize(("name", "public_name"), release_contract.EXPECTED_TRACKERS)
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize(
+    ("name", "public_name", "geometry"),
+    [
+        (name, public_name, geometry)
+        for name, public_name in release_contract.EXPECTED_TRACKERS
+        for geometry in (("aabb",) if name in {"eagermot", "maf_hda"} else ("aabb", "obb"))
+    ],
+)
 def test_tracker_smoke_runs_real_default_trackers_without_models(name: str, public_name: str, geometry: str) -> None:
     release_contract.check_tracker_tracking(name, getattr(boxmot, public_name), geometry)
 
@@ -95,5 +101,5 @@ def test_tracker_api_smoke_covers_every_geometry_and_runs_the_packed_api(
     assert calls == [
         (name, getattr(boxmot, public_name), geometry)
         for name, public_name in release_contract.EXPECTED_TRACKERS
-        for geometry in ("aabb", "obb")
+        for geometry in (("aabb",) if name in {"eagermot", "maf_hda"} else ("aabb", "obb"))
     ]

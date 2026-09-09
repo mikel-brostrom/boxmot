@@ -35,9 +35,12 @@ from boxmot.trackers.common.tracking.track import (
     sync_track_meta,
 )
 from boxmot.trackers.registry import TRACKER_DEFINITIONS, get_tracker_class
+from boxmot.trackers.specs import TrackerFamily
 
 TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
-BOX_TRACKER_NAMES = tuple(name for name in TRACKER_NAMES if name != "sam2mot")
+BOX_TRACKER_NAMES = tuple(
+    name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.family is TrackerFamily.BOX
+)
 
 
 def _frame(sample_id: str, frame_index: int = 0) -> Frame:

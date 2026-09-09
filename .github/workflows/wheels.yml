@@ -71,6 +71,7 @@ jobs:
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra mots \
             --group dev \
             --group test \
             --group docs

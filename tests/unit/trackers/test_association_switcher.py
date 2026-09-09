@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot.structures import Boxes, Detections, Frame, MaskBatch
+from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch
 from boxmot.trackers.base import BaseTracker
 from boxmot.trackers.box.boosttrack.tracker import BoostTrack
 from boxmot.trackers.box.botsort.tracker import BotSort
@@ -17,7 +17,7 @@ from boxmot.trackers.box.ocsort.tracker import OcSort
 from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.box.strongsort.tracker import StrongSort
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.multimodal.sam2mot.tracker import Sam2Mot
+from boxmot.trackers.multimodal.maf_hda.tracker import MafHda
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
 TrackerFactory = Callable[..., BaseTracker]
@@ -124,8 +124,8 @@ def _strongsort(**kwargs) -> StrongSort:
     return StrongSort(min_hits=1, **kwargs)
 
 
-def _sam2mot(**kwargs) -> Sam2Mot:
-    return Sam2Mot(det_thresh=0.2, new_track_thresh=0.2, min_hits=1, **kwargs)
+def _maf_hda(**kwargs) -> MafHda:
+    return MafHda(min_hits=1, **kwargs)
 
 
 TRACKER_FACTORIES: dict[str, TrackerFactory] = {
@@ -138,7 +138,7 @@ TRACKER_FACTORIES: dict[str, TrackerFactory] = {
     "hybridsort": _hybridsort,
     "boosttrack": _boosttrack,
     "occluboost": _occluboost,
-    "sam2mot": _sam2mot,
+    "maf_hda": _maf_hda,
 }
 
 
@@ -209,23 +209,6 @@ def _exercise_core_association(name: str, tracker: BaseTracker, spy: _Similarity
         tracker.asso_func = spy
         tracker._association_cost(tracks, detections)
         return
-    if name == "sam2mot":
-        tracker.asso_func = spy
-        track = SimpleNamespace(
-            bbox=np.array([10, 10, 30, 30], dtype=np.float32),
-            velocity=np.zeros(4, dtype=np.float32),
-            last_matched_bbox=np.array([10, 10, 30, 30], dtype=np.float32),
-            mask=None,
-        )
-        tracker._association_similarity(
-            _aabb_dets()[:, :4],
-            [track],
-            [0],
-            [0],
-            det_masks=None,
-            det_obbs=None,
-        )
-        return
 
     # Prime the track lifecycle before replacing the configured metric with a
     # spy. The second frame must invoke the same callable slot in core matching.
@@ -235,8 +218,10 @@ def _exercise_core_association(name: str, tracker: BaseTracker, spy: _Similarity
 
 
 @pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
-def test_every_registered_python_tracker_uses_selected_geometry_in_core_matching(name: str) -> None:
-    assert set(TRACKER_FACTORIES) == set(TRACKER_DEFINITIONS)
+def test_image_trackers_use_selected_geometry_in_core_matching(name: str) -> None:
+    assert set(TRACKER_FACTORIES) == {
+        key for key, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d
+    }
     tracker = TRACKER_FACTORIES[name](asso_func="giou")
     expected = AssociationFunction.giou_batch(_aabb_dets()[:, :4], _aabb_dets()[:, :4])
     np.testing.assert_allclose(tracker.association_similarity(_aabb_dets(), _aabb_dets()), expected)
@@ -294,31 +279,6 @@ def test_strongsort_fallback_uses_selected_geometry_and_keeps_stale_gate() -> No
     assert cost[1, 0] > tracker.max_iou_dist
 
 
-@pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou", "centroid"))
-def test_sam2mot_canonicalizes_inverted_extrapolated_boxes(mode: str) -> None:
-    tracker = _sam2mot(asso_func=mode)
-    if mode == "centroid":
-        tracker._initialize_frame_context(_img())
-    track = SimpleNamespace(
-        bbox=np.array([0, 0, 10, 10], dtype=np.float32),
-        velocity=np.array([0, 0, -20, 0], dtype=np.float32),
-        last_matched_bbox=np.array([0, 0, 10, 10], dtype=np.float32),
-        mask=None,
-    )
-
-    similarity = tracker._association_similarity(
-        np.array([[0, 0, 10, 10]], dtype=np.float32),
-        [track],
-        [0],
-        [0],
-        det_masks=None,
-        det_obbs=None,
-    )
-
-    assert similarity.shape == (1, 1)
-    assert np.isfinite(similarity).all()
-
-
 @pytest.mark.parametrize(
     "name",
     (
@@ -340,7 +300,14 @@ def test_centroid_requirement_is_frozen_for_resolved_tracker(name: str) -> None:
     assert tracker.requirements.frame is True
 
 
-@pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
+@pytest.mark.parametrize(
+    "name",
+    tuple(
+        name
+        for name, definition in TRACKER_DEFINITIONS.items()
+        if GeometryKind.OBB in definition.capabilities.geometry_kinds
+    ),
+)
 @pytest.mark.parametrize("mode", ("iou", "giou", "diou", "ciou", "hmiou", "centroid"))
 def test_every_registered_tracker_accepts_supported_obb_association_modes(name: str, mode: str) -> None:
     tracker = TRACKER_FACTORIES[name](asso_func=mode, is_obb=True)

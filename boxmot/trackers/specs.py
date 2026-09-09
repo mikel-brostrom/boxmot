@@ -48,6 +48,10 @@ class TrackerCapabilities:
     accepts_masks: bool = False
     requires_frame: bool = False
     accepts_frame: bool = False
+    requires_detections_3d: bool = False
+    accepts_detections_3d: bool = False
+    requires_camera: bool = False
+    accepts_camera: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.family, TrackerFamily):
@@ -59,7 +63,7 @@ class TrackerCapabilities:
         if any(not isinstance(kind, GeometryKind) for kind in self.geometry_kinds):
             raise TypeError("TrackerCapabilities.geometry_kinds must contain only GeometryKind values.")
 
-        for input_name in ("embeddings", "masks", "frame"):
+        for input_name in ("embeddings", "masks", "frame", "detections_3d", "camera"):
             requires = getattr(self, f"requires_{input_name}")
             accepts = getattr(self, f"accepts_{input_name}")
             if not isinstance(requires, bool):

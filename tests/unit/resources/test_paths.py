@@ -26,3 +26,11 @@ def test_resolve_model_path_matches_existing_name_case_insensitively(tmp_path: P
 
     assert resolved.exists()
     assert resolved.samefile(existing)
+
+
+def test_resolve_model_path_preserves_selector_under_existing_file(tmp_path: Path) -> None:
+    profile = tmp_path / "detector.yaml"
+    profile.write_text("id: detector\n", encoding="utf-8")
+    selector = profile / "default"
+
+    assert resolve_model_path(selector, default_dir=tmp_path / "models") == selector

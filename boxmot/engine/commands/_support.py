@@ -78,6 +78,14 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
     printing a second traceback.
     """
 
+    if getattr(args, "tracker", None) is not None:
+        from boxmot.engine.tracker_config import validate_image_tracker
+
+        try:
+            validate_image_tracker(str(args.tracker))
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
+
     with _workflow_setup(_WORKFLOW_SETUP_TITLES.get(module_name), "Preparing workflow…"):
         try:
             module = importlib.import_module(module_name)
@@ -153,12 +161,23 @@ def _prepare_replay_build(
     split: str | None,
     tracker: str,
     fps: float | None,
+    eval_masks: bool = False,
     allow_noncanonical_build: bool = False,
 ) -> tuple[str | None, str | None, str | Path]:
     """Resolve replay inputs and reuse or create one canonical build before dispatch."""
 
-    from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
+    from boxmot.engine.experiment_config import (
+        ConfigurationError,
+        resolve_experiment_config,
+        resolve_matching_experiment_path,
+    )
+    from boxmot.engine.tracker_config import validate_image_tracker
     from boxmot.trackers.registry import get_tracker_definition
+
+    try:
+        validate_image_tracker(tracker)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
 
     components = tuple(name for name, value in (("--detector", detector), ("--reid", reid)) if value)
     if experiment and components:
@@ -196,6 +215,14 @@ def _prepare_replay_build(
     if build_ref is not None:
         return experiment, dataset, build_ref
 
+    if eval_masks:
+        try:
+            resolved = resolve_experiment_config(str(experiment), split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        if resolved["dataset"]["layout"] != "kitti-mots":
+            raise click.UsageError("--eval-masks requires a KITTI-MOTS dataset.")
+
     capabilities = get_tracker_definition(tracker).capabilities
     materialize_args = _build_cli_namespace(
         ctx,
@@ -207,7 +234,7 @@ def _prepare_replay_build(
             "device": device,
             "fps": fps,
             "publish_image_refs": True,
-            "publish_masks": capabilities.requires_masks,
+            "publish_masks": capabilities.requires_masks or eval_masks,
             "publish_embeddings": capabilities.accepts_embeddings,
             "plan_path": None,
             "plan_overrides": (),

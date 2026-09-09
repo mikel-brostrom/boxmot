@@ -37,7 +37,7 @@ from boxmot.engine.materialization.catalog import (
     resolve_dataset_annotation_root,
     resolve_dataset_split_root,
 )
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.tracker_config import resolve_tracker_options, validate_image_tracker
 from boxmot.engine.ui.reporters.eval import (
     EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
@@ -199,7 +199,17 @@ def _split_root(dataset: Mapping[str, Any], data_root: str | Path | None) -> Pat
 def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     """Resolve and validate raw ground truth plus one explicit immutable build."""
 
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     dataset, experiment = _resolve_selection(args)
+    is_mots = dataset["layout"] == "kitti-mots"
+    eval_masks = bool(getattr(args, "eval_masks", False))
+    if eval_masks and not is_mots:
+        raise ValueError("--eval-masks requires a KITTI MOTS dataset with instance PNG ground truth.")
+    if is_mots and getattr(args, "calibrate_kf", False):
+        raise ValueError(
+            "Kalman calibration does not support KITTI MOTS mask ground truth. Run evaluation without --calibrate-kf."
+        )
     split = str(dataset["split"])
     status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
     build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
@@ -245,6 +255,7 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         source_catalog_digest=catalog.fingerprint,
         class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
         component_fingerprints=component_fingerprints,
+        require_masks=eval_masks,
     )
     if experiment is not None and manifest.metadata.get("experiment_id") != experiment["id"]:
         raise ValueError(
@@ -254,8 +265,10 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
 
     class_ids, class_names = _target_classes(dataset, experiment)
     sequence_lengths: dict[str, int] = {}
+    sequence_frame_counts: dict[str, int] = {}
     for sample in catalog.samples:
         sequence = sample.sequence_id
+        sequence_frame_counts[sequence] = sequence_frame_counts.get(sequence, 0) + 1
         sequence_lengths[sequence] = max(
             sequence_lengths.get(sequence, 0),
             sample.frame_index + 1,
@@ -267,12 +280,13 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         if missing:
             raise ValueError(f"Unknown evaluation sequence(s): {', '.join(missing)}")
         sequence_lengths = {name: sequence_lengths[name] for name in requested}
+        sequence_frame_counts = {name: sequence_frame_counts[name] for name in requested}
         args.sequence_names = requested
     else:
         args.sequence_names = None
     split_root = _split_root(dataset, getattr(args, "data_root", None))
     gt_folder = resolve_dataset_annotation_root(dataset, split, getattr(args, "data_root", None))
-    if args.fps is not None:
+    if args.fps is not None and not is_mots:
         if status_callback is not None:
             status_callback(f"Aligning ground truth to {args.fps:g} FPS…")
         variant_key = fingerprint({"catalog": catalog.fingerprint, "root": catalog.source_root.as_uri()})
@@ -298,15 +312,31 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     args.gt_folder = gt_folder
     args.seq_paths = tuple(sequence_paths)
     args.seq_info = sequence_lengths
+    args.sequence_frame_counts = sequence_frame_counts
     args.evaluation_config = {
         "id": dataset["id"],
         "layout": dataset["layout"],
         "box_type": dataset["box_type"],
         "classes": dataset["classes"],
         "annotation_layout": (
-            "flat" if split_config.get("annotations") is not None or dataset["layout"] == "visdrone" else "sequence"
+            "mots_png"
+            if is_mots
+            else "flat"
+            if split_config.get("annotations") is not None or dataset["layout"] == "visdrone"
+            else "sequence"
         ),
     }
+    if is_mots:
+        # Use the catalog's exact image references: FPS selection renumbers
+        # evaluation frames while original PNG filenames remain unchanged.
+        gt_frames: dict[str, list[tuple[int, str, int, int]]] = {name: [] for name in sequence_lengths}
+        for sample in catalog.samples:
+            if sample.sequence_id in gt_frames:
+                if sample.image_ref is None:
+                    raise ValueError("KITTI MOTS catalog samples require an image reference.")
+                annotation = gt_folder / sample.sequence_id / Path(sample.image_ref).name
+                gt_frames[sample.sequence_id].append((sample.frame_index, str(annotation), *sample.image_size))
+        args.evaluation_config["mots_gt_frames"] = gt_frames
     args.remapped_class_ids = list(class_ids)
     args.remapped_class_names = [name.lower() for _, name in class_names]
     args.tracker_class_ids = class_ids
@@ -351,10 +381,20 @@ def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | N
 
 
 def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict[str, Any]:
-    """Evaluate already-replayed MOT files against adapter-owned ground truth."""
+    """Evaluate replayed MOT or MOTS files against adapter-owned ground truth."""
 
     _ensure_setup(args)
-    results = _run_motmetrics(
+    evaluate = _run_motmetrics
+    if getattr(args, "evaluation_config", {}).get("layout") == "kitti-mots":
+        if bool(getattr(args, "eval_masks", False)):
+            from boxmot.engine.eval.mots import run_mots_metrics
+
+            evaluate = run_mots_metrics
+        else:
+            from boxmot.engine.eval.kitti_boxes import run_kitti_box_metrics
+
+            evaluate = run_kitti_box_metrics
+    results = evaluate(
         args,
         tuple(Path(value) for value in args.seq_paths),
         Path(args.exp_dir),
@@ -415,12 +455,14 @@ def run_eval(
     if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
         presenter = EvalSequenceProgressPresenter(
             pipeline.callback(),
-            args.seq_info,
+            getattr(args, "sequence_frame_counts", args.seq_info),
         )
     started = time.perf_counter()
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
+        if bool(getattr(args, "eval_masks", False)):
+            replay_callbacks["output_format"] = "mots"
         if presenter is not None:
             replay_callbacks["progress_callback"] = contexts.enter_context(presenter)
         if bool(getattr(args, "show", False)) or bool(getattr(args, "save", False)):
@@ -441,7 +483,7 @@ def run_eval(
             split=args.split,
             output_dir=output_dir,
             sequence_ids=args.sequence_names,
-            sequence_frame_counts=args.seq_info,
+            sequence_frame_counts=getattr(args, "sequence_frame_counts", args.seq_info),
             workers=int(getattr(args, "sequence_workers", 1)),
             **replay_callbacks,
         )

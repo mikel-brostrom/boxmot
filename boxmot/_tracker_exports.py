@@ -27,8 +27,14 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
     "deepocsort": _TrackerManifestEntry(
         "boxmot.trackers.box.deepocsort.tracker.DeepOcSort",
     ),
+    "eagermot": _TrackerManifestEntry(
+        "boxmot.trackers.multimodal.eagermot.tracker.EagerMot",
+    ),
     "hybridsort": _TrackerManifestEntry(
         "boxmot.trackers.box.hybridsort.tracker.HybridSort",
+    ),
+    "maf_hda": _TrackerManifestEntry(
+        "boxmot.trackers.multimodal.maf_hda.tracker.MafHda",
     ),
     "occluboost": _TrackerManifestEntry(
         "boxmot.trackers.box.occluboost.tracker.OccluBoost",
@@ -37,9 +43,6 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
     "ocsort": _TrackerManifestEntry(
         "boxmot.trackers.box.ocsort.tracker.OcSort",
         native_class_path="boxmot.trackers.box.ocsort.native.NativeOcSortTracker",
-    ),
-    "sam2mot": _TrackerManifestEntry(
-        "boxmot.trackers.multimodal.sam2mot.tracker.Sam2Mot",
     ),
     "sfsort": _TrackerManifestEntry(
         "boxmot.trackers.box.sfsort.tracker.SFSORT",
