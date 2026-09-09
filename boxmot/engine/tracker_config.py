@@ -8,6 +8,19 @@ from typing import Any
 from boxmot.trackers.config import load_tracker_config
 
 
+def validate_image_tracker(tracker_name: str) -> None:
+    """Reject tracker inputs that current image-only engine workflows cannot supply."""
+    from boxmot.trackers.registry import get_tracker_definition
+
+    capabilities = get_tracker_definition(tracker_name).capabilities
+    if capabilities.requires_detections_3d or capabilities.requires_camera:
+        raise ValueError(
+            f"Tracker {tracker_name!r} requires 3D detections and a CameraModel. "
+            "Image tracking and cached replay workflows cannot supply these inputs; "
+            "use the tracker Python update() API."
+        )
+
+
 def resolve_tracker_options(
     args: Any,
     overrides: Mapping[str, Any] | None = None,
@@ -22,6 +35,8 @@ def resolve_tracker_options(
     defaults may leave the units unspecified until their timing mode is chosen.
     """
     tracker_name = getattr(args, "tracker", None)
+    if tracker_name is not None:
+        validate_image_tracker(str(tracker_name))
     reference = getattr(args, "tracker_config", None)
     options = (
         load_tracker_config(str(tracker_name), reference, overrides)

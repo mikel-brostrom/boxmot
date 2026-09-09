@@ -9,7 +9,36 @@ from click.testing import CliRunner
 import boxmot
 from boxmot import ByteTrack, create_tracker
 from boxmot.engine.cli import boxmot as boxmot_cli
+from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MultimodalTracks
 from boxmot.trackers import TrackerSpec
+
+
+def test_eagermot_sensor_fusion_python_api_smoke() -> None:
+    """Exercise the installed factory and canonical 2D/3D update without SDKs."""
+    tracker = create_tracker(TrackerSpec("eagermot"))
+    detections = Detections(
+        geometry=Boxes(torch.tensor([[78, 39, 122, 62]], dtype=torch.float32)),
+        scores=torch.tensor([0.95]),
+        class_ids=torch.tensor([0]),
+        sample_id="smoke:0",
+    )
+    spatial = Detections3D(
+        geometry=Boxes3D(torch.tensor([[0, 1, 10, 0, 4, 2, 2]], dtype=torch.float32)),
+        scores=torch.tensor([0.9]),
+        class_ids=torch.tensor([0]),
+        sample_id=detections.sample_id,
+    )
+    camera = CameraModel(
+        projection=torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32),
+        image_size=(100, 200),
+    )
+
+    result = tracker.update(detections, detections_3d=spatial, camera=camera)
+
+    assert isinstance(result, MultimodalTracks)
+    assert len(result.image_tracks) == len(result.spatial_tracks) == 1
+    torch.testing.assert_close(result.image_tracks.track_ids, result.spatial_tracks.track_ids)
+    torch.testing.assert_close(result.spatial_tracks.geometry.values, spatial.geometry.values)
 
 
 def test_python_api_smoke() -> None:
@@ -25,6 +54,7 @@ def test_python_api_smoke() -> None:
         "BotSort",
         "ByteTrack",
         "DeepOcSort",
+        "EagerMot",
         "HybridSort",
         "MafHda",
         "OccluBoost",

@@ -28,6 +28,7 @@ from boxmot.engine.materialization.builds import (
     resolve_build_path,
     validate_build_compatibility,
 )
+from boxmot.engine.tracker_config import validate_image_tracker
 from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec
@@ -995,6 +996,7 @@ def replay_build(
     _validate_output_format(output_format)
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
+    validate_image_tracker(tracker_spec.name)
     if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
         raise ValueError("split must be a non-empty canonical string or None")
     if frame_callback is not None and not callable(frame_callback):

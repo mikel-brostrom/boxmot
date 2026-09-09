@@ -234,6 +234,10 @@ Mask-aware trackers also include [Sam2Mot](docs/trackers/sam2mot.md) and
 it requires AABB detections, full-frame instance masks, and the current image.
 These trackers are not included in the box-only benchmark table above.
 
+[EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
+Python API using independent detection batches and camera calibration. It
+returns image and spatial tracks with shared identities.
+
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)

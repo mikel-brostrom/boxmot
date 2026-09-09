@@ -19,10 +19,13 @@ from boxmot.trackers.common.geometry.obb import normalize_angle
 from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
 from boxmot.trackers.registry import TRACKER_DEFINITIONS
 
-TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
+TRACKER_NAMES = tuple(
+    name for name, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d
+)
 TRACKER_GEOMETRIES = tuple(
     (name, kind.value)
     for name, definition in TRACKER_DEFINITIONS.items()
+    if not definition.capabilities.requires_detections_3d
     for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
 )
 

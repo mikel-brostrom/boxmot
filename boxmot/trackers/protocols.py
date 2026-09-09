@@ -8,7 +8,7 @@ from typing import Protocol, overload, runtime_checkable
 import numpy as np
 
 from boxmot.reid.specs import ReIDEncoderSpec
-from boxmot.structures import Detections, Frame, Tracks
+from boxmot.structures import CameraModel, Detections, Detections3D, Frame, MultimodalTracks, Tracks
 from boxmot.trackers.specs import TrackerCapabilities
 
 
@@ -20,9 +20,11 @@ class TrackerRequirements:
     masks: bool = False
     frame: bool = False
     frame_dimensions_only: bool = False
+    detections_3d: bool = False
+    camera: bool = False
 
     def __post_init__(self) -> None:
-        for name in ("embeddings", "masks", "frame", "frame_dimensions_only"):
+        for name in ("embeddings", "masks", "frame", "frame_dimensions_only", "detections_3d", "camera"):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"TrackerRequirements.{name} must be bool.")
         if self.frame_dimensions_only and not self.frame:
@@ -66,6 +68,19 @@ class Tracker(Protocol):
 
     @overload
     def update(
+        self,
+        detections: Detections,
+        frame: Frame | np.ndarray | None = None,
+        *,
+        detections_3d: Detections3D,
+        camera: CameraModel,
+        timestamp_s: float | None = None,
+    ) -> MultimodalTracks:
+        """Advance independent 2D/3D observations through calibrated fusion."""
+        ...
+
+    @overload
+    def update(
         self, detections: Detections, frame: Frame | np.ndarray | None = None, *, timestamp_s: float | None = None
     ) -> Tracks:
         """Advance one frame and return canonical tracks."""
@@ -84,7 +99,9 @@ class Tracker(Protocol):
         frame: Frame | np.ndarray | None = None,
         *,
         timestamp_s: float | None = None,
-    ) -> Tracks | np.ndarray:
+        detections_3d: Detections3D | None = None,
+        camera: CameraModel | None = None,
+    ) -> Tracks | np.ndarray | MultimodalTracks:
         """Advance with a Frame or uint8 HWC BGR image; preserve the detection representation."""
         ...
 

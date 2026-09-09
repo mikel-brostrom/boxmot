@@ -27,6 +27,9 @@ _TRACKER_MANIFEST: dict[str, _TrackerManifestEntry] = {
     "deepocsort": _TrackerManifestEntry(
         "boxmot.trackers.box.deepocsort.tracker.DeepOcSort",
     ),
+    "eagermot": _TrackerManifestEntry(
+        "boxmot.trackers.multimodal.eagermot.tracker.EagerMot",
+    ),
     "hybridsort": _TrackerManifestEntry(
         "boxmot.trackers.box.hybridsort.tracker.HybridSort",
     ),

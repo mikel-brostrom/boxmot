@@ -52,6 +52,9 @@ from .proposal import _build_reflection_lm, _import_installed_gepa, _run_instruc
 
 class TrackerResearcher:
     def __init__(self, config: ResearchConfig):
+        from boxmot.engine.tracker_config import validate_image_tracker
+
+        validate_image_tracker(config.tracker)
         self.config = config
         self.build_path = resolve_build_path(config.build, build_root=config.build_root)
         run_name = f"{_slugify(config.tracker)}_{_slugify(config.experiment)}"

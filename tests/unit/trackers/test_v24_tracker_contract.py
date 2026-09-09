@@ -143,7 +143,14 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.TrackerRequirements is TrackerRequirements
     assert public_trackers.TrackerSpec is TrackerSpec
     assert public_trackers.create_tracker is create_tracker
-    assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame", "timestamp_s")
+    assert tuple(inspect.signature(Tracker.update).parameters) == (
+        "self",
+        "detections",
+        "frame",
+        "timestamp_s",
+        "detections_3d",
+        "camera",
+    )
     for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
         assert not hasattr(public_trackers, implementation_name)
 
@@ -233,8 +240,9 @@ def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
     geometry_columns: int,
 ) -> None:
     signature = inspect.signature(BaseTracker.update)
-    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s")
-    assert signature.parameters["timestamp_s"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s", "detections_3d", "camera")
+    for name in ("timestamp_s", "detections_3d", "camera"):
+        assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
 
     tracker = _RecordingTracker(is_obb=is_obb)
     tracks = tracker.update(rows)
@@ -577,10 +585,11 @@ def test_factory_merges_options_then_applies_canonical_spec_fields(monkeypatch: 
     (
         (name, kind.value)
         for name, definition in tracker_registry.TRACKER_DEFINITIONS.items()
+        if not definition.capabilities.requires_detections_3d
         for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
     ),
 )
-def test_all_python_trackers_consume_canonical_inputs(tracker_name: str, geometry: str) -> None:
+def test_image_trackers_consume_canonical_inputs(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry))
     assert isinstance(tracker, Tracker)
     assert isinstance(tracker.requirements, TrackerRequirements)

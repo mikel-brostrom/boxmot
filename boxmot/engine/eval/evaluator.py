@@ -37,7 +37,7 @@ from boxmot.engine.materialization.catalog import (
     resolve_dataset_annotation_root,
     resolve_dataset_split_root,
 )
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.tracker_config import resolve_tracker_options, validate_image_tracker
 from boxmot.engine.ui.reporters.eval import (
     EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
@@ -199,6 +199,8 @@ def _split_root(dataset: Mapping[str, Any], data_root: str | Path | None) -> Pat
 def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     """Resolve and validate raw ground truth plus one explicit immutable build."""
 
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     dataset, experiment = _resolve_selection(args)
     is_mots = dataset["layout"] == "kitti-mots"
     eval_masks = bool(getattr(args, "eval_masks", False))

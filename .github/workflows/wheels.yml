@@ -171,6 +171,7 @@ jobs:
               "BotSort",
               "ByteTrack",
               "DeepOcSort",
+              "EagerMot",
               "HybridSort",
               "MafHda",
               "OccluBoost",

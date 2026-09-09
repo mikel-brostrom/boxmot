@@ -12,7 +12,7 @@ state, not by every optional cue they consume:
 - `boxmot/trackers/mask`: reserved for trackers whose primary state is an
   instance mask. The namespace currently has no implementation-specific base.
 - `boxmot/trackers/multimodal`: multiple primary representations or model
-  memory are fundamental to the method; Sam2Mot and MafHda live here.
+  memory are fundamental to the method; Sam2Mot, MafHda, and EagerMot live here.
 
 Each registered implementation also declares immutable geometry and input
 capabilities. The directory communicates ownership; capability metadata is the
@@ -38,6 +38,7 @@ creating a fourth tracker family.
 | SFSORT | No | No | Yes | Yes | Yes |
 | [Sam2Mot](sam2mot.md) | No | Yes | Yes | No | No |
 | [MafHda](maf_hda.md) | No | Yes | No | No | No |
+| [EagerMot](eagermot.md) | No | Optional | No | No | No |
 
 For every tracker marked **Yes** under **Uses ReID**, its high-level adapter can
 consume attached embeddings or generate missing embeddings from a supplied
@@ -56,10 +57,12 @@ to their model-free C++ libraries. See
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
 - Use `sam2mot` when each detection has a row-aligned segmentation mask and you want mask-aware association without ReID.
 - Use `maf_hda` for AABB detections with instance masks and image frames, combining motion with masked correlation-filter appearance.
-- OBB support is listed in the table above; MafHda accepts AABB geometry only.
-- All registered Python trackers expose the same selectable `asso_func`; see
+- Use `eagermot` through Python when 3D detections and camera calibration are available alongside image detections.
+- OBB support is listed in the table above; MafHda and EagerMot accept AABB image geometry only.
+- Image trackers expose the same selectable `asso_func`; see
   [tracker configuration](../config/trackers.md#association-function) for the
-  supported AABB and OBB choices.
+  supported AABB and OBB choices. EagerMot uses IoU for image association and
+  exposes a separate 3D association metric.
 - Use `--tracker-backend cpp` for native C++ implementations when the selected tracker has a native backend.
 
 ## Config and factory

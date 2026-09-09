@@ -70,7 +70,7 @@ def test_tracker_definition_captures_component_requirements() -> None:
 def test_registered_capabilities_describe_every_tracker_family_and_input() -> None:
     definitions = tracker_registry.TRACKER_DEFINITIONS
     expected_embeddings = {"boosttrack", "botsort", "deepocsort", "hybridsort", "occluboost", "strongsort"}
-    expected_multimodal = {"maf_hda", "sam2mot"}
+    expected_multimodal = {"eagermot", "maf_hda", "sam2mot"}
 
     assert set(definitions) == set(_TRACKER_MANIFEST)
     assert {name for name, item in definitions.items() if item.capabilities.family is TrackerFamily.BOX} == (
@@ -80,12 +80,16 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
         name for name, item in definitions.items() if item.capabilities.family is TrackerFamily.MULTIMODAL
     } == expected_multimodal
     for name, item in definitions.items():
-        expected_geometry = {GeometryKind.AABB} if name == "maf_hda" else {GeometryKind.AABB, GeometryKind.OBB}
+        expected_geometry = (
+            {GeometryKind.AABB} if name in {"eagermot", "maf_hda"} else {GeometryKind.AABB, GeometryKind.OBB}
+        )
         assert item.capabilities.geometry_kinds == expected_geometry
     assert {name for name, item in definitions.items() if item.capabilities.accepts_embeddings} == expected_embeddings
     assert {name for name, item in definitions.items() if item.capabilities.requires_embeddings} == {"strongsort"}
     assert {name for name, item in definitions.items() if item.capabilities.accepts_masks} == expected_multimodal
-    assert {name for name, item in definitions.items() if item.capabilities.requires_masks} == expected_multimodal
+    assert {name for name, item in definitions.items() if item.capabilities.requires_masks} == {"maf_hda", "sam2mot"}
+    for attribute in ("requires_detections_3d", "accepts_detections_3d", "requires_camera", "accepts_camera"):
+        assert {name for name, item in definitions.items() if getattr(item.capabilities, attribute)} == {"eagermot"}
     assert all(item.capabilities.accepts_frame for item in definitions.values())
     assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {
         "maf_hda",
@@ -183,7 +187,8 @@ def test_all_python_configs_expose_canonical_association_choices(tracker_name: s
     association = load_tracker_schema(tracker_name)["asso_func"]
 
     assert association["type"] == "choice"
-    assert association["options"] == ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
+    expected = ["iou"] if tracker_name == "eagermot" else ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
+    assert association["options"] == expected
     assert load_tracker_config(tracker_name)["asso_func"] == association["default"]
 
 

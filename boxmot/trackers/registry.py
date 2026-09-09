@@ -37,6 +37,16 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         accepts_embeddings=True,
         accepts_frame=True,
     ),
+    "eagermot": TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=frozenset({GeometryKind.AABB}),
+        accepts_masks=True,
+        accepts_frame=True,
+        requires_detections_3d=True,
+        accepts_detections_3d=True,
+        requires_camera=True,
+        accepts_camera=True,
+    ),
     "hybridsort": TrackerCapabilities(
         family=TrackerFamily.BOX,
         geometry_kinds=_BOX_GEOMETRIES,

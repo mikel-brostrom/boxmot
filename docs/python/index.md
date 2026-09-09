@@ -49,6 +49,11 @@ wire boundary requires the legacy 6/7- or 8/9-column representation.
 
 ## Tracker factory
 
+For calibrated 2D/3D sensor fusion, see [EagerMot](../trackers/eagermot.md).
+Its extended update interface consumes independent `Detections3D` and a
+`CameraModel` and returns `MultimodalTracks` with separate image and spatial
+collections. The image-only interfaces below apply to the other trackers.
+
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every
 high-level ReID-enabled tracker adapter supports live appearance extraction: it

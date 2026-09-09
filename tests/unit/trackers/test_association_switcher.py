@@ -241,8 +241,10 @@ def _exercise_core_association(name: str, tracker: BaseTracker, spy: _Similarity
 
 
 @pytest.mark.parametrize("name", tuple(TRACKER_FACTORIES))
-def test_every_registered_python_tracker_uses_selected_geometry_in_core_matching(name: str) -> None:
-    assert set(TRACKER_FACTORIES) == set(TRACKER_DEFINITIONS)
+def test_image_trackers_use_selected_geometry_in_core_matching(name: str) -> None:
+    assert set(TRACKER_FACTORIES) == {
+        key for key, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d
+    }
     tracker = TRACKER_FACTORIES[name](asso_func="giou")
     expected = AssociationFunction.giou_batch(_aabb_dets()[:, :4], _aabb_dets()[:, :4])
     np.testing.assert_allclose(tracker.association_similarity(_aabb_dets(), _aabb_dets()), expected)
