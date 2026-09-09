@@ -102,9 +102,10 @@ in the `release-source` bundle artifact without pushing the branch or a tag.
 
 Every release gate restores that exact candidate. The reusable wheel workflow
 runs the full tests, strict documentation build, native checks, and clean-wheel
-imports on Python 3.10 through 3.13. Docker validates all four images without
-pushing them. Package checks compare the requested release version with the
-candidate and installed artifacts; they do not pin a particular version.
+imports on Python 3.10 through 3.13. Docker validates `cli-cpu`, `cli-gpu`, and
+`service-cpu` by default, without pushing them. Package checks compare the
+requested release version with the candidate and installed artifacts; they do
+not pin a particular version.
 
 After these gates pass, the workflow publishes the checksummed wheel and source
 distribution. Successful **PyPI** publication is followed by an atomic push of
@@ -122,9 +123,13 @@ recover the tested candidate from the bundle artifact instead of rebuilding or
 force-pushing another commit. PyPI publication requires `RELEASE_PAT` with
 permission to push the version commit and tag and create the release.
 
-The `service-gpu` smoke runs on the `gpu-latest` runner label and requires a
-Linux NVIDIA host with Docker and the NVIDIA Container Toolkit. It exposes the
-GPU to the container, performs CUDA-backed ReID enrichment through the HTTP
-service, and verifies that the service owns an active CUDA context. The CPU
+The `service-gpu` target is disabled by default so releases can run without a
+GPU runner. To enable its build, smoke test, and image publication, set the
+repository Actions variable `BOXMOT_GPU_SERVICE_CI` to `true` after registering
+a `gpu-latest` Linux NVIDIA runner with Docker and the NVIDIA Container Toolkit.
+This setting applies to release gates, published releases, and manual Docker runs.
+The enabled smoke exposes the GPU to the container, performs CUDA-backed ReID
+enrichment through the HTTP service, and verifies that the service owns an
+active CUDA context. The CPU
 service smoke uses the CPU-only Torch image and exercises the same `/v1`
 request boundary without CUDA.

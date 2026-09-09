@@ -52,35 +52,40 @@ on:
     types: [published]
 
 jobs:
+  prepare-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.images.outputs.matrix }}
+    steps:
+      - name: Select images supported by the configured runners
+        id: images
+        env:
+          ENABLE_GPU_SERVICE: ${{ vars.BOXMOT_GPU_SERVICE_CI }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          images = [
+              {"target": "cli-gpu", "repository": "boxmot/boxmot", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "cli-cpu", "repository": "boxmot/boxmot", "tag_suffix": "-cpu", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "service-cpu", "repository": "boxmot/boxmot-service", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
+              {"target": "service-gpu", "repository": "boxmot/boxmot-service", "tag_suffix": "-gpu", "runner": "gpu-latest", "timeout_minutes": 120},
+          ]
+          if os.environ.get("ENABLE_GPU_SERVICE") != "true":
+              images = [image for image in images if image["target"] != "service-gpu"]
+              print("Skipping service-gpu: BOXMOT_GPU_SERVICE_CI is not enabled.")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"matrix={json.dumps({'include': images})}\n")
+          PY
+
   build-and-push:
+    needs: prepare-matrix
     runs-on: ${{ matrix.runner }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: cli-gpu
-            repository: boxmot/boxmot
-            tag_suffix: ""
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: cli-cpu
-            repository: boxmot/boxmot
-            tag_suffix: -cpu
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: service-cpu
-            repository: boxmot/boxmot-service
-            tag_suffix: ""
-            runner: ubuntu-latest
-            timeout_minutes: 90
-          - target: service-gpu
-            repository: boxmot/boxmot-service
-            tag_suffix: -gpu
-            # This repository label must select a Linux runner with an NVIDIA
-            # GPU, driver, Docker, and the NVIDIA Container Toolkit installed.
-            runner: gpu-latest
-            timeout_minutes: 120
+      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
 
     steps:
       # Bootstrap from workflow code, including when manually rebuilding older source.

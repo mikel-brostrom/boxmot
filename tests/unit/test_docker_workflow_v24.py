@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -32,10 +33,44 @@ def _docker_stage(name: str) -> str:
     return dockerfile.split(marker, 1)[1].split("\nFROM ", 1)[0]
 
 
-def test_docker_matrix_covers_every_v24_image_with_bounded_jobs() -> None:
-    job = _docker_job()
-    matrix = job["strategy"]["matrix"]["include"]
+def _selected_images(tmp_path: Path, enabled: str | None) -> list[dict]:
+    """Execute the workflow's matrix selection without scheduling any runners."""
+    workflow = yaml.safe_load(DOCKER_WORKFLOW.read_text(encoding="utf-8"))
+    selection = workflow["jobs"]["prepare-matrix"]
+    step = next(step for step in selection["steps"] if step.get("id") == "images")
+    assert selection["runs-on"] == "ubuntu-latest"
+    assert step["env"]["ENABLE_GPU_SERVICE"] == "${{ vars.BOXMOT_GPU_SERVICE_CI }}"
+    env = {key: value for key, value in os.environ.items() if key != "ENABLE_GPU_SERVICE"}
+    if enabled is not None:
+        env["ENABLE_GPU_SERVICE"] = enabled
+    output = tmp_path / "matrix-output"
+    env["GITHUB_OUTPUT"] = str(output)
+    result = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    name, _, value = output.read_text(encoding="utf-8").strip().partition("=")
+    assert name == "matrix"
+    return json.loads(value)["include"]
 
+
+@pytest.mark.parametrize("enabled", (None, "", "false"))
+def test_docker_defaults_schedule_only_available_hosted_runners(tmp_path: Path, enabled: str | None) -> None:
+    matrix = _selected_images(tmp_path, enabled)
+    assert {entry["target"] for entry in matrix} == {"cli-gpu", "cli-cpu", "service-cpu"}
+    assert {entry["runner"] for entry in matrix} == {"ubuntu-latest"}
+
+
+def test_enabled_gpu_matrix_covers_every_image_with_bounded_jobs(tmp_path: Path) -> None:
+    job = _docker_job()
+    matrix = _selected_images(tmp_path, "true")
+
+    assert job["needs"] == "prepare-matrix"
+    assert job["strategy"]["matrix"] == "${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}"
     assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
     assert {(entry["target"], entry["repository"], entry["tag_suffix"]) for entry in matrix} == {
         ("cli-gpu", "boxmot/boxmot", ""),
