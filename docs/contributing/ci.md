@@ -109,8 +109,8 @@ in the `release-source` bundle artifact without pushing the branch or a tag.
 
 Every release gate restores that exact candidate. The reusable wheel workflow
 runs the full tests, strict documentation build, native checks, and clean-wheel
-imports on Python 3.10 through 3.13. Docker validates `cli-cpu`, `cli-gpu`, and
-`service-cpu` by default, without pushing them. Package checks compare the
+imports on Python 3.10 through 3.13. Docker validates `cli-cpu` and
+`service-cpu`, without pushing them. Package checks compare the
 requested release version with the candidate and installed artifacts; they do
 not pin a particular version.
 
@@ -149,13 +149,8 @@ recover the tested candidate from the bundle artifact instead of rebuilding or
 force-pushing another commit. PyPI publication requires `RELEASE_PAT` with
 permission to push the version commit and tag and create the release.
 
-The `service-gpu` target is disabled by default so releases can run without a
-GPU runner. To enable its build, smoke test, and image publication, set the
-repository Actions variable `BOXMOT_GPU_SERVICE_CI` to `true` after registering
-a `gpu-latest` Linux NVIDIA runner with Docker and the NVIDIA Container Toolkit.
-This setting applies to release gates, published releases, and manual Docker runs.
-The enabled smoke exposes the GPU to the container, performs CUDA-backed ReID
-enrichment through the HTTP service, and verifies that the service owns an
-active CUDA context. The CPU
-service smoke uses the CPU-only Torch image and exercises the same `/v1`
-request boundary without CUDA.
+CI builds, validates, and publishes only CPU images. GPU images are built by
+end users with the `cli-gpu` or `service-gpu` Dockerfile target; release gates,
+published releases, and manual workflow runs never schedule GPU image builds.
+The CPU service smoke uses CPU-only Torch and exercises the `/v1` request
+boundary without CUDA.

@@ -52,40 +52,19 @@ on:
     types: [published]
 
 jobs:
-  prepare-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.images.outputs.matrix }}
-    steps:
-      - name: Select images supported by the configured runners
-        id: images
-        env:
-          ENABLE_GPU_SERVICE: ${{ vars.BOXMOT_GPU_SERVICE_CI }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-
-          images = [
-              {"target": "cli-gpu", "repository": "boxmot/boxmot", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
-              {"target": "cli-cpu", "repository": "boxmot/boxmot", "tag_suffix": "-cpu", "runner": "ubuntu-latest", "timeout_minutes": 90},
-              {"target": "service-cpu", "repository": "boxmot/boxmot-service", "tag_suffix": "", "runner": "ubuntu-latest", "timeout_minutes": 90},
-              {"target": "service-gpu", "repository": "boxmot/boxmot-service", "tag_suffix": "-gpu", "runner": "gpu-latest", "timeout_minutes": 120},
-          ]
-          if os.environ.get("ENABLE_GPU_SERVICE") != "true":
-              images = [image for image in images if image["target"] != "service-gpu"]
-              print("Skipping service-gpu: BOXMOT_GPU_SERVICE_CI is not enabled.")
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"matrix={json.dumps({'include': images})}\n")
-          PY
-
   build-and-push:
-    needs: prepare-matrix
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: ${{ matrix.timeout_minutes }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}
+      matrix:
+        include:
+          - target: cli-cpu
+            repository: boxmot/boxmot
+            tag_suffix: -cpu
+          - target: service-cpu
+            repository: boxmot/boxmot-service
+            tag_suffix: ''
 
     steps:
       # Bootstrap from workflow code, including when manually rebuilding older source.
@@ -177,15 +156,8 @@ jobs:
           docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
             python -c 'import torch; assert torch.version.cuda is None, f"expected a CPU-only PyTorch build, got CUDA {torch.version.cuda!r}"'
 
-      - name: Smoke test GPU CLI image
-        if: matrix.target == 'cli-gpu'
-        run: |
-          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} boxmot --help
-          docker run --rm ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python -c 'import torch; assert torch.version.cuda == "13.0", f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"'
-
       - name: Smoke test prebuilt native tracker
-        if: matrix.target == 'cli-cpu' || matrix.target == 'cli-gpu'
+        if: matrix.target == 'cli-cpu'
         run: |
           docker run --rm --interactive --workdir /tmp \
             ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
@@ -277,150 +249,9 @@ jobs:
             --data '{"frame_id":0,"width":640,"height":480,"frame_rate":30,"box_type":"aabb","detections":[[100.0,100.0,200.0,300.0,0.9,0]]}' \
             > /dev/null
 
-      - name: Smoke test GPU service image
-        if: matrix.target == 'service-gpu'
-        run: |
-          nvidia-smi
-          docker run --rm --interactive --gpus all \
-            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python - <<'PY'
-          import importlib.util
-          from pathlib import Path
-
-          import torch
-
-          from boxmot.engine.service.config import ServiceSettings
-          from boxmot.reid.backends.pytorch_backend import PyTorchBackend
-          from boxmot.reid.core import ReID
-          from boxmot.trackers.registry import get_tracker_class
-
-          settings = ServiceSettings.from_env()
-          assert torch.version.cuda == "13.0", (
-              f"expected CUDA 13.0 metadata, got {torch.version.cuda!r}"
-          )
-          assert torch.cuda.is_available(), "CUDA is not exposed inside the service container"
-          assert torch.cuda.device_count() > 0, "no CUDA device is visible inside the service container"
-          probe = torch.arange(8, device="cuda", dtype=torch.float16)
-          assert probe.is_cuda and float(probe.sum().cpu()) == 28.0
-          assert importlib.util.find_spec("ultralytics") is None
-          assert importlib.util.find_spec("yolox") is None
-          assert importlib.util.find_spec("trackeval") is None
-          assert settings.profile == "gpu"
-          assert settings.tracker_type == "botsort"
-          assert settings.device == "0"
-          assert settings.half is True
-          assert settings.max_concurrent_updates == 1
-          assert Path(settings.reid_weights) == Path("/models/osnet_x0_25_msmt17.pt")
-          assert Path("/models").is_dir()
-          assert not Path(settings.reid_weights).exists(), "ReID weights must be mounted at runtime"
-          assert ReID is not None
-          assert PyTorchBackend is not None
-          for tracker_name in (
-              "strongsort",
-              "botsort",
-              "deepocsort",
-              "hybridsort",
-              "boosttrack",
-              "occluboost",
-          ):
-              assert get_tracker_class(tracker_name) is not None
-          PY
-
-          docker rm --force boxmot-service-gpu-smoke || true
-          docker volume rm boxmot-service-gpu-smoke-model || true
-          docker volume create boxmot-service-gpu-smoke-model
-          docker run --rm --interactive --user 0 --gpus all \
-            --volume boxmot-service-gpu-smoke-model:/models \
-            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }} \
-            python - <<'PY'
-          import os
-          from pathlib import Path
-
-          import torch
-
-          from boxmot.reid.core.registry import ReIDModelRegistry
-
-          destination = Path("/models/osnet_x0_25_msmt17.pt")
-          model = ReIDModelRegistry.build_model(
-              "osnet_x0_25",
-              destination,
-              num_classes=1041,
-              pretrained=False,
-              use_gpu=False,
-          )
-          torch.save(
-              {
-                  "model_name": "osnet_x0_25",
-                  "num_classes": 1041,
-                  "state_dict": model.state_dict(),
-              },
-              destination,
-          )
-          os.chmod(destination, 0o444)
-          PY
-
-          docker run --detach \
-            --name boxmot-service-gpu-smoke \
-            --gpus all \
-            --publish 8001:8000 \
-            --volume boxmot-service-gpu-smoke-model:/models:ro \
-            ${{ matrix.repository }}:${{ env.VERSION }}${{ matrix.tag_suffix }}
-          service_ready=false
-          for attempt in {1..60}; do
-            if curl --fail --silent --show-error http://127.0.0.1:8001/healthz > /dev/null; then
-              service_ready=true
-              break
-            fi
-            sleep 1
-          done
-          if [ "$service_ready" != true ]; then
-            docker logs boxmot-service-gpu-smoke
-            exit 1
-          fi
-          curl --fail --silent --show-error http://127.0.0.1:8001/readyz \
-            > gpu-service-ready.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          readiness = json.loads(Path("gpu-service-ready.json").read_text())
-          assert readiness["profile"] == "gpu"
-          assert readiness["device"] == "0"
-          assert readiness["requires_image"] is True
-          PY
-          curl --fail --silent --show-error \
-            --request POST \
-            --url http://127.0.0.1:8001/v1/streams/smoke-camera/sessions/smoke-run/frames \
-            --header 'content-type: application/json' \
-            --data '{"frame_id":0,"frame_rate":30,"box_type":"aabb","detections":[[0.0,0.0,16.0,31.0,0.9,0]],"image_base64":"iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAAJklEQVR4nO3NMQ0AAAwDoPo33arYsQQMkB6LQCAQCAQCgUAg+BIMi1X0pjxKe0gAAAAASUVORK5CYII="}' \
-            > gpu-service-response.json
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          response = json.loads(Path("gpu-service-response.json").read_text())
-          assert response["frame_id"] == 0
-          assert response["next_frame_id"] == 1
-          assert response["box_type"] == "aabb"
-          PY
-          service_host_pid=$(docker inspect --format '{{.State.Pid}}' boxmot-service-gpu-smoke)
-          gpu_process_pids=$(nvidia-smi --query-compute-apps=pid --format=csv,noheader,nounits)
-          if ! grep --fixed-strings --line-regexp "$service_host_pid" <<< "$gpu_process_pids"; then
-            echo "GPU service process $service_host_pid has no active CUDA context after ReID inference" >&2
-            nvidia-smi
-            docker logs boxmot-service-gpu-smoke
-            exit 1
-          fi
-
       - name: Stop CPU service smoke container
         if: always() && matrix.target == 'service-cpu'
         run: docker rm --force boxmot-service-cpu-smoke || true
-
-      - name: Stop GPU service smoke container
-        if: always() && matrix.target == 'service-gpu'
-        run: |
-          docker rm --force boxmot-service-gpu-smoke || true
-          docker volume rm boxmot-service-gpu-smoke-model || true
 
       - name: Push ${{ matrix.target }} image tags
         if: success() && (github.event_name == 'release' || inputs.push_images)
