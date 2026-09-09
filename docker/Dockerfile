@@ -23,18 +23,23 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/boxmot
 
-# The root project owns the CPU/CUDA profiles and the single lockfile used by
-# local development, CI, and Docker. Copy metadata first for dependency-layer
-# cache reuse; package source is added only after third-party dependencies.
-COPY pyproject.toml uv.lock README.md LICENSE ./
+
+# Only this inexpensive stage reads version-bearing project metadata. Its
+# output preserves every dependency constraint, source, and locked artifact,
+# with the local project's version normalized for dependency cache reuse.
+FROM build-base AS dependency-manifests
+
+COPY docker/dependency_manifest.py /docker/dependency_manifest.py
+COPY pyproject.toml uv.lock ./
+RUN python /docker/dependency_manifest.py --output /opt/boxmot-dependencies
 
 
 FROM build-base AS cli-build-base
 
 # YOLOX compiles its fast_cocoeval extension when the yolo extra is selected.
 # The compiler remains in CLI builders and is not copied into runtime images.
-# Wheel smoke tests load the prebuilt native libraries in these builders, so
-# they need the same OpenCV runtime dependencies as the final CLI images.
+# This stage and native compilation have no project metadata ancestors, so
+# Python dependency changes and release bumps do not rebuild system packages.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         g++ \
@@ -74,7 +79,9 @@ RUN cmake \
     && cmake --install /tmp/boxmot-native-build --strip
 
 
-FROM cli-build-base AS cli-gpu-builder
+FROM cli-build-base AS cli-gpu-dependencies
+
+COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
@@ -85,23 +92,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra trackeval \
         --extra cu130
 
-COPY boxmot ./boxmot
-COPY --from=native-cli-builder /opt/boxmot-native/boxmot/native/cpp/ ./boxmot/native/cpp/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync \
-        --locked \
-        --no-dev \
-        --no-editable \
-        --reinstall-package boxmot \
-        --extra yolo \
-        --extra trackeval \
-        --extra cu130 \
-    && cd /tmp \
-    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
+FROM cli-build-base AS cli-cpu-dependencies
 
-
-FROM cli-build-base AS cli-cpu-builder
+COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
@@ -112,23 +106,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra trackeval \
         --extra cpu
 
-COPY boxmot ./boxmot
-COPY --from=native-cli-builder /opt/boxmot-native/boxmot/native/cpp/ ./boxmot/native/cpp/
 
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync \
-        --locked \
-        --no-dev \
-        --no-editable \
-        --reinstall-package boxmot \
-        --extra yolo \
-        --extra trackeval \
-        --extra cpu \
-    && cd /tmp \
-    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
+FROM build-base AS service-cpu-dependencies
 
-
-FROM build-base AS service-cpu-builder
+COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync \
@@ -137,10 +118,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --no-install-package boxmot \
         --only-group service-runtime
 
-COPY boxmot ./boxmot
 
+FROM build-base AS service-gpu-dependencies
 
-FROM build-base AS service-gpu-builder
+COPY --from=dependency-manifests /opt/boxmot-dependencies/ ./
 
 # The root runtime plus service extras supply HTTP/tracker/ReID dependencies;
 # cu130 activates the locked CUDA PyTorch source. BoxMOT runs from copied source.
@@ -153,7 +134,17 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         --extra service-gpu \
         --extra cu130
 
+
+# Both CLI profiles use the same BoxMOT wheel. Build it from the actual release
+# metadata, independently of the much larger Python dependency environments.
+FROM build-base AS cli-wheel-builder
+
+COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY boxmot ./boxmot
+COPY --from=native-cli-builder /opt/boxmot-native/boxmot/native/cpp/ ./boxmot/native/cpp/
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv build --wheel --no-sources --out-dir /wheels
 
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS cli-runtime
@@ -194,7 +185,14 @@ CMD ["bash"]
 # the PyTorch CPU wheel index selected by the `cpu` extra.
 FROM cli-runtime AS cli-cpu
 
-COPY --from=cli-cpu-builder /opt/boxmot/.venv /opt/boxmot/.venv
+# Preserve the dependency environment as its own runtime layer. Only BoxMOT's
+# wheel installation changes when application source or its version changes.
+COPY --from=cli-cpu-dependencies /opt/boxmot/.venv /opt/boxmot/.venv
+
+RUN --mount=type=bind,from=cli-wheel-builder,source=/wheels,target=/wheels \
+    uv pip install --no-cache --no-deps --python /opt/boxmot/.venv/bin/python /wheels/*.whl \
+    && cd /tmp \
+    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
 
 
 # Shared non-root, headless service runtime. Individual CPU/GPU targets copy
@@ -239,8 +237,8 @@ FROM service-runtime AS service-cpu
 ENV BOXMOT_SERVICE_PROFILE=cpu \
     BOXMOT_SERVICE_TRACKER=bytetrack
 
-COPY --from=service-cpu-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
-COPY --from=service-cpu-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
+COPY --from=service-cpu-dependencies --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
+COPY --chown=boxmot:boxmot boxmot /opt/boxmot/boxmot
 
 
 # CUDA ReID service. The model is not baked into the image: mount the expected
@@ -259,8 +257,8 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends libgl1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
-COPY --from=service-gpu-builder --chown=boxmot:boxmot /opt/boxmot/boxmot /opt/boxmot/boxmot
+COPY --from=service-gpu-dependencies --chown=boxmot:boxmot /opt/boxmot/.venv /opt/boxmot/.venv
+COPY --chown=boxmot:boxmot boxmot /opt/boxmot/boxmot
 
 USER boxmot
 
@@ -269,7 +267,12 @@ USER boxmot
 # their matching runtime libraries, avoiding a second CUDA stack in the base.
 FROM cli-runtime AS cli-gpu
 
-COPY --from=cli-gpu-builder /opt/boxmot/.venv /opt/boxmot/.venv
+COPY --from=cli-gpu-dependencies /opt/boxmot/.venv /opt/boxmot/.venv
+
+RUN --mount=type=bind,from=cli-wheel-builder,source=/wheels,target=/wheels \
+    uv pip install --no-cache --no-deps --python /opt/boxmot/.venv/bin/python /wheels/*.whl \
+    && cd /tmp \
+    && python -I -c "import ctypes; from boxmot.native import _common; names = ('reid', 'botsort', 'bytetrack', 'occluboost', 'ocsort', 'sfsort'); paths = [_common.installed_library_candidates(name, _common.library_filename(name))[0] for name in names]; assert all(path.is_file() for path in paths), paths; [ctypes.CDLL(str(path)) for path in paths]"
 
 
 # Preserve the familiar no-target build as an alias for the full CUDA image.

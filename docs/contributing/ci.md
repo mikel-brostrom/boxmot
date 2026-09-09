@@ -125,6 +125,14 @@ entrypoint. These checks run outside the source checkout with isolated Python
 imports, and also run in the full CLI Docker images. Service images retain
 their HTTP request checks with the smaller service dependency set.
 
+Docker builds cache system packages and native compilation independently of
+project metadata. Dependency stages use temporary copies of the canonical
+project and lock files with only BoxMOT's own version normalized, so a
+version-only bump does not reinstall third-party packages. CLI images copy
+the dependency environment before installing the separately built BoxMOT wheel;
+the wheel always retains the actual release version. See the repository's
+`docker/README.md` for the cache layout and invalidation rules.
+
 After these gates pass, the workflow publishes the checksummed wheel and source
 distribution. Successful **PyPI** publication is followed by an atomic push of
 the tested version commit and its `v<version>` tag, then a GitHub release at that

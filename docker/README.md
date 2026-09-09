@@ -49,6 +49,33 @@ Dockerfile's bootstrap uv version aligned with it:
 uv lock
 ```
 
+## Build cache
+
+System packages, native compilation, Python dependencies, and BoxMOT installation
+have separate build layers. Changes to Python code, README, or the release
+version leave the system and native layers reusable. Native source changes
+rebuild the shared native libraries and the CLI wheel.
+
+The dependency preparation stage copies the canonical `pyproject.toml` and
+`uv.lock`, verifies their BoxMOT versions agree, and normalizes only the local
+project version in those temporary copies. CPU and CUDA dependency stages
+consume those copies with `uv sync --locked`; all dependency constraints,
+markers, sources, and artifact hashes are preserved. Version-only releases
+therefore reuse the same dependency inputs. Actual dependency changes still
+invalidate the corresponding layers.
+
+The CLI wheel is built separately from the original release metadata. Each CLI
+runtime first copies its dependency environment, then installs only that wheel
+with `--no-deps`. Updating BoxMOT changes the application layer without copying
+the complete CUDA environment again. Service images likewise copy dependencies
+and application source separately. Published package versions are unchanged by
+dependency preparation.
+
+GitHub Actions exports intermediate layers with `mode=max` and a separate cache
+scope per image target. Reuse still depends on an accessible, retained cache;
+the first build needs to populate it. The uv cache mounts speed up repeated
+commands within a builder but are not exported as download caches between jobs.
+
 ## Publish
 
 GitHub Actions builds, smoke-tests, and pushes `cli-gpu`, `cli-cpu`, and

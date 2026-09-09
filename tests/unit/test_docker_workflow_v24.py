@@ -300,7 +300,7 @@ def test_cli_images_smoke_prebuilt_native_tracker_without_toolchain() -> None:
 
 
 def test_cpu_service_uses_its_locked_cpu_torch_group() -> None:
-    service_builder = _docker_stage("service-cpu-builder")
+    service_builder = _docker_stage("service-cpu-dependencies")
     pyproject = PYPROJECT.read_text(encoding="utf-8")
 
     assert "--only-group service-runtime" in service_builder
@@ -318,14 +318,13 @@ def test_cpu_service_uses_its_locked_cpu_torch_group() -> None:
 def test_cli_images_package_native_libraries_without_runtime_build_tools() -> None:
     native_builder = _docker_stage("native-cli-builder")
     cli_runtime = _docker_stage("cli-runtime")
-    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    wheel_builder = _docker_stage("cli-wheel-builder")
 
     for dependency in ("cmake", "libeigen3-dev", "libopencv-dev", "ninja-build"):
         assert dependency in native_builder
         assert dependency not in cli_runtime
     assert "-DBOXMOT_INSTALL_NATIVE=ON" in native_builder
-    assert dockerfile.count("COPY --from=native-cli-builder") == 2
-    assert dockerfile.count("ctypes.CDLL") == 2
+    assert "COPY --from=native-cli-builder" in wheel_builder
     for runtime_library in (
         "libopencv-calib3d406",
         "libopencv-core406",

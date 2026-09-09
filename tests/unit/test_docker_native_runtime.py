@@ -51,7 +51,7 @@ def _packages_at_end(stages: dict[str, tuple[str, list[str]]], name: str) -> set
 
 
 def test_native_library_smokes_have_opencv_before_loading() -> None:
-    """A later runtime stage cannot satisfy a builder's earlier ctypes smoke."""
+    """Both final CLI environments load native libraries after their apt install."""
     stages = _stages()
     checked = []
     for name, (parent, instructions) in stages.items():
@@ -63,7 +63,7 @@ def test_native_library_smokes_have_opencv_before_loading() -> None:
                 missing = OPENCV_RUNTIME_PACKAGES - packages
                 assert not missing, f"{name} loads native libraries without runtime packages: {sorted(missing)}"
                 checked.append(name)
-    assert checked, "Retain native-library load validation in CLI wheel builders."
+    assert set(checked) == {"cli-cpu", "cli-gpu"}, "Validate native libraries in both final CLI environments."
 
 
 @pytest.mark.parametrize("target", ("cli-cpu", "cli-gpu", "default"))
