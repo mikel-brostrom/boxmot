@@ -622,27 +622,29 @@ logits, descriptor, and BN statistics are never modified.
 This corrected activity-masked objective is implementation version 2. Its
 version is stored in hparams and resumable checkpoints, so an older
 multilevel-suppression run cannot be resumed under different loss semantics.
-The launcher therefore defaults to the distinct run name
+The example below uses the distinct run name
 `class_cam_q15_v2_seed0`.
 
 Suppression starts at epoch 20, ramps to a loss weight of 0.2 and a ratio of
 0.15 by epoch 50, begins decaying at epoch 140, and is disabled after epoch
 170. The ratio is rounded up to a whole spatial location within each stripe,
 so the recorded erase fraction can be slightly above the requested value.
-Because the underlying V20 pose-teacher recipe is unchanged, the launcher
+Because the underlying V20 pose-teacher recipe is unchanged, training
 requires the same PAV metadata:
 
 ```bash
-MARKET1501_DIR=/data/Market-1501-v15.09.15 \
-PAV_METADATA_DIR=/data/Market-1501-pav-metadata-clean \
-  ./train_csl_tinyvit_7m_multilevel_suppression.sh
+uv run --no-sync python -m boxmot.engine.cli train-reid \
+  --recipe csl_tinyvit_7m_multilevel_suppression \
+  --data-dir /data/Market-1501-v15.09.15 \
+  --anatomical-metadata-dir /data/Market-1501-pav-metadata-clean \
+  --project runs/csl_tinyvit_7m_multilevel_suppression \
+  --name class_cam_q15_v2_seed0 \
+  --device 0 \
+  --num-workers 4
 ```
 
-To customize the output without editing the recipe, set
-`MULTILEVEL_SUPPRESSION_PROJECT`, `MULTILEVEL_SUPPRESSION_NAME`,
-`MULTILEVEL_SUPPRESSION_DEVICE`, or `MULTILEVEL_SUPPRESSION_NUM_WORKERS`.
-Set `VALIDATE_ONLY=1` to check the two input roots and print the resolved
-command without starting training. Epoch metrics record the scheduled ratio,
+Customize the run with `--project`, `--name`, `--device`, and `--num-workers`
+without editing the recipe. Epoch metrics record the scheduled ratio,
 actual coarse/fine erase fractions, and both CAM-active fractions so degenerate
 or ineffective masks are visible during the run.
 

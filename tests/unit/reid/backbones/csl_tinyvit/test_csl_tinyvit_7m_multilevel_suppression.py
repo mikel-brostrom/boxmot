@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -16,44 +13,8 @@ from boxmot.engine.cli import boxmot
 from boxmot.engine.commands.reid import train as train_command
 from boxmot.reid.training.config import ReIDTrainConfig, trainer_kwargs_from_args
 from boxmot.reid.training.presets import TRAINING_RECIPES_DIR, list_training_recipes, load_training_recipe
-from tests._paths import REPO_ROOT
 
 RECIPE_NAME = "csl_tinyvit_7m_multilevel_suppression"
-LAUNCHER = REPO_ROOT / "train_csl_tinyvit_7m_multilevel_suppression.sh"
-
-
-def _write_launcher_inputs(tmp_path: Path) -> tuple[Path, Path]:
-    market_dir = tmp_path / "market1501"
-    filenames = {
-        "bounding_box_train": "0001_c1s1_000001_00.jpg",
-        "query": "0001_c1s1_000002_00.jpg",
-        "bounding_box_test": "0001_c2s1_000003_00.jpg",
-    }
-    for split, filename in filenames.items():
-        split_dir = market_dir / split
-        split_dir.mkdir(parents=True)
-        (split_dir / filename).write_bytes(b"image")
-
-    metadata_dir = tmp_path / "pav"
-    mask_path = metadata_dir / "person" / "bounding_box_train" / "0001_c1s1_000001_00.png"
-    mask_path.parent.mkdir(parents=True)
-    mask_path.write_bytes(b"mask")
-    (metadata_dir / "metadata.json").write_text(
-        json.dumps(
-            {
-                "images": {
-                    "bounding_box_train/0001_c1s1_000001_00.jpg": {
-                        "keypoints": [[1.0, 1.0, 1.0]] * 17,
-                        "person_mask": (
-                            "person/bounding_box_train/0001_c1s1_000001_00.png"
-                        ),
-                    }
-                }
-            }
-        ),
-        encoding="utf-8",
-    )
-    return market_dir, metadata_dir
 
 
 def test_multilevel_suppression_recipe_is_exact_v20_training_delta() -> None:
@@ -103,8 +64,15 @@ def test_multilevel_suppression_recipe_is_exact_v20_training_delta() -> None:
     assert treatment_raw["derived"]["n_params"] == 7_165_011
 
 
-def test_multilevel_suppression_recipe_resolves_through_train_cli(monkeypatch) -> None:
-    """Exercise the same named-recipe path as the user-facing launcher."""
+def test_multilevel_suppression_recipe_resolves_through_train_cli(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Resolve the documented recipe, metadata, and run options without training."""
+    market_dir = tmp_path / "market1501"
+    metadata_dir = tmp_path / "pav"
+    market_dir.mkdir()
+    metadata_dir.mkdir()
+    project = tmp_path / "runs" / RECIPE_NAME
     captured = {}
 
     def fake_main(args) -> None:
@@ -113,11 +81,33 @@ def test_multilevel_suppression_recipe_resolves_through_train_cli(monkeypatch) -
     monkeypatch.setattr(train_command, "main", fake_main)
     result = CliRunner().invoke(
         boxmot,
-        ["train-reid", "--recipe", RECIPE_NAME, "--data-dir", "."],
+        [
+            "train-reid",
+            "--recipe",
+            RECIPE_NAME,
+            "--data-dir",
+            str(market_dir),
+            "--anatomical-metadata-dir",
+            str(metadata_dir),
+            "--project",
+            str(project),
+            "--name",
+            "class_cam_q15_v2_seed0",
+            "--device",
+            "0",
+            "--num-workers",
+            "4",
+        ],
     )
 
     assert result.exit_code == 0, result.output
     args = captured["args"]
+    assert Path(args.data_dir) == market_dir
+    assert Path(args.anatomical_metadata_dir) == metadata_dir
+    assert Path(args.project) == project
+    assert args.name == "class_cam_q15_v2_seed0"
+    assert args.device == "0"
+    assert not project.exists()
     assert args.model == "csl_tinyvit_7m_v20"
     assert args.num_workers == 4
     assert args.reid_adapter_stages == ()
@@ -144,96 +134,3 @@ def test_multilevel_suppression_recipe_resolves_through_train_cli(monkeypatch) -
     assert config.loss.multilevel_suppression_ramp_end_epoch == 50
     assert config.loss.multilevel_suppression_decay_start_epoch == 140
     assert config.loss.multilevel_suppression_decay_end_epoch == 170
-
-
-def test_multilevel_suppression_launcher_contract() -> None:
-    """Keep the launcher executable and pointed at the controlled recipe."""
-    launcher = LAUNCHER.read_text(encoding="utf-8")
-
-    assert os.access(LAUNCHER, os.X_OK)
-    assert f"--recipe {RECIPE_NAME}" in launcher
-    assert "runs/csl_tinyvit_7m_multilevel_suppression" in launcher
-    assert "class_cam_q15_v2_seed0" in launcher
-    assert "MARKET1501_DIR" in launcher
-    assert "PAV_METADATA_DIR" in launcher
-    assert "VALIDATE_ONLY" in launcher
-
-
-def test_multilevel_suppression_launcher_validate_only_cannot_train(
-    tmp_path: Path,
-) -> None:
-    """Make launcher validation terminate before invoking the trainer."""
-    market_dir, metadata_dir = _write_launcher_inputs(tmp_path)
-    project = tmp_path / "runs"
-    environment = {
-        **os.environ,
-        "MARKET1501_DIR": str(market_dir),
-        "PAV_METADATA_DIR": str(metadata_dir),
-        "MULTILEVEL_SUPPRESSION_PROJECT": str(project),
-        "VALIDATE_ONLY": "1",
-    }
-
-    result = subprocess.run(
-        ["bash", str(LAUNCHER)],
-        cwd=REPO_ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert "Validated multilevel-suppression inputs" in result.stdout
-    assert not project.exists()
-
-
-def test_multilevel_suppression_launcher_rejects_incomplete_market1501(
-    tmp_path: Path,
-) -> None:
-    market_dir, metadata_dir = _write_launcher_inputs(tmp_path)
-    for path in (market_dir / "query").iterdir():
-        path.unlink()
-
-    result = subprocess.run(
-        ["bash", str(LAUNCHER)],
-        cwd=REPO_ROOT,
-        env={
-            **os.environ,
-            "MARKET1501_DIR": str(market_dir),
-            "PAV_METADATA_DIR": str(metadata_dir),
-            "VALIDATE_ONLY": "1",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 2
-    assert "query split contains no valid JPEG images" in result.stderr
-
-
-def test_multilevel_suppression_launcher_rejects_empty_metadata(
-    tmp_path: Path,
-) -> None:
-    market_dir, metadata_dir = _write_launcher_inputs(tmp_path)
-    (metadata_dir / "metadata.json").write_text(
-        json.dumps({"images": {}}),
-        encoding="utf-8",
-    )
-
-    result = subprocess.run(
-        ["bash", str(LAUNCHER)],
-        cwd=REPO_ROOT,
-        env={
-            **os.environ,
-            "MARKET1501_DIR": str(market_dir),
-            "PAV_METADATA_DIR": str(metadata_dir),
-            "VALIDATE_ONLY": "1",
-        },
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 2
-    assert "does not match any Market-1501 training image" in result.stderr
