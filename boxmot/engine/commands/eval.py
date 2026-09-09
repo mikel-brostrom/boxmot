@@ -12,6 +12,7 @@ from boxmot.engine.commands._options import (
     association_function_option,
     data_root_option,
     dataset_fps_option,
+    eval_masks_option,
     kalman_calibration_option,
     replay_build_options,
     replay_options,
@@ -32,6 +33,7 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
 @data_root_option
 @split_option
 @dataset_fps_option
+@eval_masks_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option
 @association_function_option
@@ -86,6 +88,7 @@ def eval(
     sequence_names: tuple[str, ...],
     allow_noncanonical_build: bool,
     compare_trackeval: bool,
+    eval_masks: bool,
     calibrate_kf: bool,
     **kwargs: Any,
 ) -> None:
@@ -123,6 +126,7 @@ def eval(
         split=split,
         tracker=str(kwargs["tracker"]),
         fps=kwargs.get("fps"),
+        eval_masks=eval_masks,
         allow_noncanonical_build=allow_noncanonical_build,
     )
 
@@ -144,6 +148,7 @@ def eval(
             "sequence_names": sequence_names,
             "allow_noncanonical_build": allow_noncanonical_build,
             "compare_trackeval": compare_trackeval,
+            "eval_masks": eval_masks,
             "calibrate_kf": calibrate_kf,
         },
     )

@@ -60,6 +60,27 @@ def resolve_dataset_config_path(reference: str | Path) -> Path:
     return resolve_config_path(DATASET_CONFIGS_DIR, reference, "dataset")
 
 
+def validate_sequence_names(value: Any) -> tuple[str, ...]:
+    """Validate an explicit, non-empty selection of sequence directory names."""
+
+    if not isinstance(value, (list, tuple)) or not value:
+        raise ConfigurationError("Split sequences must be a non-empty list of directory names.")
+    for name in value:
+        if (
+            not isinstance(name, str)
+            or not name
+            or name != name.strip()
+            or name in {".", ".."}
+            or "/" in name
+            or "\\" in name
+            or ":" in name
+        ):
+            raise ConfigurationError("Split sequences must contain canonical directory names without path components.")
+    if len(set(value)) != len(value):
+        raise ConfigurationError("Split sequences must not contain duplicate directory names.")
+    return tuple(value)
+
+
 def load_dataset_config(reference: str | Path) -> dict[str, Any]:
     """Load and validate one model-free dataset profile."""
     path = resolve_dataset_config_path(reference)
@@ -90,6 +111,8 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
     box_type = _required_text(format_config, "box_type", context).lower()
     if box_type not in {"aabb", "obb"}:
         raise ConfigurationError(f'{context} box_type must be "aabb" or "obb", got "{box_type}".')
+    if layout == "kitti-mots" and box_type != "aabb":
+        raise ConfigurationError(f'{context} KITTI MOTS masks require box_type "aabb".')
     root = _safe_relative_path(storage_config, "root", f"{context} storage")
 
     splits: dict[str, dict[str, Any]] = {}
@@ -112,6 +135,10 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
                 "annotations",
                 split_context,
             )
+        if "sequences" in split_value:
+            normalized_split["sequences"] = list(validate_sequence_names(split_value["sequences"]))
+        if layout == "kitti-mots" and has_ground_truth != (split_value.get("annotations") is not None):
+            raise ConfigurationError(f"{split_context} must declare annotations exactly when has_ground_truth is true.")
         splits[str(split_name)] = normalized_split
 
     default_split = str(raw.get("default_split") or next(iter(splits)))
@@ -163,4 +190,5 @@ __all__ = (
     "iter_dataset_config_paths",
     "load_dataset_config",
     "resolve_dataset_config_path",
+    "validate_sequence_names",
 )

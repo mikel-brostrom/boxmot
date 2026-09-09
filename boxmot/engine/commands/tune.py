@@ -11,6 +11,7 @@ import click
 from boxmot.engine.commands._options import (
     data_root_option,
     dataset_fps_option,
+    eval_masks_option,
     kalman_calibration_option,
     replay_build_options,
     replay_options,
@@ -158,6 +159,7 @@ def _tune_options(func):
 @data_root_option
 @split_option
 @dataset_fps_option
+@eval_masks_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
 @tracker_config_option
 @replay_options(mode="tune", parallel=True)
@@ -176,6 +178,7 @@ def tune(
     data_root: Path | None,
     split: str | None,
     calibrate_kf: bool,
+    eval_masks: bool,
     **kwargs: Any,
 ) -> None:
     """Prepare one reusable perception build, then tune tracker parameters."""
@@ -213,6 +216,7 @@ def tune(
         split=split,
         tracker=str(kwargs["tracker"]),
         fps=kwargs.get("fps"),
+        eval_masks=eval_masks,
     )
     _dispatch_cli_workflow(
         ctx,
@@ -221,6 +225,7 @@ def tune(
         {
             **kwargs,
             "calibrate_kf": calibrate_kf,
+            "eval_masks": eval_masks,
             "experiment": experiment,
             "dataset": dataset,
             "build": build_ref,

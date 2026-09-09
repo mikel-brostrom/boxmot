@@ -278,6 +278,33 @@ def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command
 
 
 @pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("eval_masks", (False, True))
+def test_mask_evaluation_selection_reaches_cached_workflow(monkeypatch, command: str, eval_masks: bool) -> None:
+    captured = {}
+    monkeypatch.setitem(
+        sys.modules,
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=lambda args: captured.setdefault("args", args)),
+    )
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            command,
+            "--dataset",
+            "kitti-mots",
+            "--build",
+            "fixture-build",
+            *(["--eval-masks"] if eval_masks else []),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["args"].eval_masks is eval_masks
+    assert _command_options(command)["eval_masks"].default is False
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
 @pytest.mark.parametrize(
     "option, value, error",
     [
@@ -590,6 +617,7 @@ def test_rejects_materialization_device_with_explicit_build(command: str, select
     ),
 )
 @pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("eval_masks", (False, True))
 def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     monkeypatch,
     tmp_path,
@@ -597,9 +625,16 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     tracker: str,
     publish_masks: bool,
     publish_embeddings: bool,
+    eval_masks: bool,
 ) -> None:
     captured = {}
     build_path = tmp_path / "build"
+    experiment_path = tmp_path / "kitti-experiment.yaml"
+    experiment_path.write_text(
+        "dataset:\n  ref: kitti-mots\n  split: train\n"
+        "detector:\n  ref: yolo26n\n  checkpoint: default\n"
+        "evaluation:\n  class_map:\n    car: car\n    pedestrian: person\n"
+    )
 
     def materialize_main(args):
         captured["materialize"] = args
@@ -618,14 +653,47 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
 
     result = CliRunner().invoke(
         boxmot,
-        [command, "--experiment", "fixture-experiment", "--tracker", tracker],
+        [
+            command,
+            "--experiment",
+            str(experiment_path),
+            "--tracker",
+            tracker,
+            *(["--eval-masks"] if eval_masks else []),
+        ],
     )
 
     assert result.exit_code == 0, result.output
     materialize_args = captured["materialize"]
     assert materialize_args.publish_image_refs is True
-    assert materialize_args.publish_masks is publish_masks
+    assert materialize_args.publish_masks is (publish_masks or eval_masks)
     assert materialize_args.publish_embeddings is publish_embeddings
+    assert captured[command].eval_masks is eval_masks
+
+
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize(
+    "selection",
+    (
+        ("--experiment", "mot17/ablation-yolox-lmbn.yaml"),
+        ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
+    ),
+)
+def test_mask_evaluation_rejects_other_datasets_before_materialization(
+    monkeypatch, command: str, selection: tuple[str, ...]
+) -> None:
+    calls = []
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.materialization.workflow",
+        SimpleNamespace(main=lambda args: calls.append(args)),
+    )
+
+    result = CliRunner().invoke(boxmot, [command, *selection, "--eval-masks"])
+
+    assert result.exit_code == 2
+    assert "--eval-masks requires a KITTI-MOTS dataset" in result.output
+    assert calls == []
 
 
 def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:

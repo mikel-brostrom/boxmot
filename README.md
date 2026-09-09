@@ -258,6 +258,12 @@ boxmot eval \
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
 
+For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
+reads original instance PNGs into canonical frames, track IDs, masks, and ignore
+regions. The `kitti-mots` profile supports materialization, evaluation, and
+tuning with the official sequence splits. [MOTS evaluation](docs/guides/evaluation.md#kitti-mots-evaluation)
+uses box IoU by default; add `--eval-masks` for segmentation HOTA, CLEAR, and Identity.
+
 Use NumPy detections and BGR images directly:
 
 ```python

@@ -289,12 +289,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
-          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra trackeval --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra mots --extra trackeval --group test
 
       - name: Check metric parity with TrackEval
         shell: bash
         run: |
-          .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
+          .venv/bin/python -m pytest -q -s \
+            tests/unit/engine/eval/test_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_metrics.py \
+            tests/unit/engine/eval/test_mots_replay.py \
+            tests/unit/engine/eval/test_kitti_boxes_metrics.py \
+            tests/unit/engine/eval/test_kitti_mots.py
 
       - name: Load materialized detections and embeddings
         run: |

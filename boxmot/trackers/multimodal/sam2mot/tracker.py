@@ -363,8 +363,8 @@ class Sam2Mot(BaseTracker):
             track.bbox = xywha_to_xyxy(propagated)[0]
         elif not self.is_obb and len(track.velocity) == 4:
             propagated = np.asarray(track.bbox + track.velocity, dtype=np.float32)
-            x_values = np.sort(propagated[(0, 2)])
-            y_values = np.sort(propagated[(1, 3)])
+            x_values = np.sort(propagated[[0, 2]])
+            y_values = np.sort(propagated[[1, 3]])
             propagated[[0, 2]] = x_values
             propagated[[1, 3]] = y_values
             propagated[2] = max(propagated[2], propagated[0] + 1e-4)

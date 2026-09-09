@@ -8,6 +8,7 @@ Uses Ray Tune with pluggable search backends (Optuna, HyperOpt, random).
 """
 
 import inspect
+import json
 import logging
 import os
 import warnings
@@ -230,6 +231,7 @@ class Tuner:
                     eval_setup(args, pipeline=pipeline)
 
                 tune_dir = self._resolve_tune_dir()
+                self._prepare_evaluation_mode(tune_dir)
                 tune_name = tune_dir.name
                 resume_tune = getattr(args, "resume_tune", None) or None
 
@@ -331,6 +333,33 @@ class Tuner:
                 return result_grid, tune_dir, maximize, minimize
         finally:
             set_tune_progress_workflow(None)
+
+    def _prepare_evaluation_mode(self, tune_dir: Path) -> None:
+        """Keep KITTI box and segmentation scores separate across tuning resumes."""
+        if getattr(self.args, "evaluation_config", {}).get("layout") != "kitti-mots":
+            return
+        path = tune_dir / "evaluation.json"
+        eval_masks = bool(getattr(self.args, "eval_masks", False))
+        if getattr(self.args, "resume_tune", None):
+            if not path.is_file():
+                raise ValueError("Saved tuning run lacks evaluation mode metadata; start a new tuning run.")
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError("Saved tuning evaluation mode metadata is invalid; start a new tuning run.") from exc
+            if not isinstance(saved, dict) or type(saved.get("eval_masks")) is not bool:
+                raise ValueError("Saved tuning evaluation mode metadata is invalid; start a new tuning run.")
+            if saved["eval_masks"] != eval_masks:
+                flag = "include --eval-masks" if saved["eval_masks"] else "omit --eval-masks"
+                raise ValueError(
+                    f"Resuming tuning requires the same evaluation mode as the saved run: {flag}. "
+                    "Start a new tuning run to change between box and mask evaluation."
+                )
+            return
+        tune_dir.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"eval_masks": eval_masks}, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(path)
 
     def _prepare_kalman_calibration(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
         """Fit KF noise once before search, or restore its fixed saved profile."""

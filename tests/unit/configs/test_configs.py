@@ -113,6 +113,50 @@ def test_mot17_dataset_config_uses_canonical_hugging_face_splits() -> None:
     }
 
 
+def test_kitti_mots_dataset_config_uses_native_classes_paths_and_official_splits() -> None:
+    """Keep the packaged profile aligned with the original KITTI MOTS downloads."""
+
+    config = load_dataset_config("kitti-mots")
+
+    assert config["layout"] == "kitti-mots"
+    assert config["root"] == "KITTI-MOTS"
+    assert config["classes"]["car"] == {"id": 1, "evaluation": "target"}
+    assert config["classes"]["pedestrian"] == {"id": 2, "evaluation": "target"}
+    for name in ("train", "val", "fulltrain"):
+        assert config["splits"][name]["path"] == "data_tracking_image_2/training/image_02"
+        assert config["splits"][name]["annotations"] == "instances"
+        assert config["splits"][name]["has_ground_truth"] is True
+    assert config["splits"]["test"]["path"] == "data_tracking_image_2/testing/image_02"
+    assert config["splits"]["test"]["has_ground_truth"] is False
+    assert "annotations" not in config["splits"]["test"]
+    assert "sequences" not in config["splits"]["fulltrain"]
+    assert config["splits"]["train"]["sequences"] == [
+        "0000",
+        "0001",
+        "0003",
+        "0004",
+        "0005",
+        "0009",
+        "0011",
+        "0012",
+        "0015",
+        "0017",
+        "0019",
+        "0020",
+    ]
+    assert config["splits"]["val"]["sequences"] == [
+        "0002",
+        "0006",
+        "0007",
+        "0008",
+        "0010",
+        "0013",
+        "0014",
+        "0016",
+        "0018",
+    ]
+
+
 @pytest.mark.parametrize(("split_path", "annotations"), (("../frames", None), ("test/npy", "../mot")))
 def test_dataset_config_rejects_split_paths_outside_storage_root(tmp_path, split_path, annotations):
     path = _write_dataset_config(

@@ -52,6 +52,44 @@ def test_detector_binary_artifact_is_not_parsed_as_yaml(tmp_path) -> None:
     assert spec.options == ()
 
 
+@pytest.mark.parametrize("relative", [False, True])
+def test_external_detector_profile_checkpoint_selector_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relative: bool
+) -> None:
+    artifact = _artifact(tmp_path, "yolo26n-seg.pt")
+    artifact_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    config = tmp_path / "detector.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "id": "fixture",
+                "box_type": "aabb",
+                "classes": {0: "person", 2: "car"},
+                "inference": {"image_size": [640, 640], "confidence_threshold": 0.25},
+                "checkpoints": {
+                    "unselected": {"path": "missing.pt"},
+                    "default": {"path": artifact.name, "sha256": artifact_hash},
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    profile_path = Path(config.name) if relative else config
+
+    spec, provenance = resolve_detector_spec(f"{profile_path}/default", geometry="aabb", allow_download=False)
+
+    assert spec.backend == "ultralytics"
+    assert spec.artifact == str(artifact.resolve())
+    assert spec.artifact_sha256 == artifact_hash
+    assert spec.option_values() == {
+        "classes": (0, 2),
+        "confidence": 0.25,
+        "image_size": (640, 640),
+    }
+    assert provenance["artifact"]["sha256"] == artifact_hash
+
+
 def test_detector_profile_rejects_malformed_checkpoint_sha256(tmp_path) -> None:
     config = tmp_path / "detector.yaml"
     config.write_text(
