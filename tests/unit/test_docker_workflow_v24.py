@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -33,55 +32,26 @@ def _docker_stage(name: str) -> str:
     return dockerfile.split(marker, 1)[1].split("\nFROM ", 1)[0]
 
 
-def _selected_images(tmp_path: Path, enabled: str | None) -> list[dict]:
-    """Execute the workflow's matrix selection without scheduling any runners."""
-    workflow = yaml.safe_load(DOCKER_WORKFLOW.read_text(encoding="utf-8"))
-    selection = workflow["jobs"]["prepare-matrix"]
-    step = next(step for step in selection["steps"] if step.get("id") == "images")
-    assert selection["runs-on"] == "ubuntu-latest"
-    assert step["env"]["ENABLE_GPU_SERVICE"] == "${{ vars.BOXMOT_GPU_SERVICE_CI }}"
-    env = {key: value for key, value in os.environ.items() if key != "ENABLE_GPU_SERVICE"}
-    if enabled is not None:
-        env["ENABLE_GPU_SERVICE"] = enabled
-    output = tmp_path / "matrix-output"
-    env["GITHUB_OUTPUT"] = str(output)
-    result = subprocess.run(
-        ["bash", "-e", "-o", "pipefail", "-c", step["run"]],
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    name, _, value = output.read_text(encoding="utf-8").strip().partition("=")
-    assert name == "matrix"
-    return json.loads(value)["include"]
-
-
-@pytest.mark.parametrize("enabled", (None, "", "false"))
-def test_docker_defaults_schedule_only_available_hosted_runners(tmp_path: Path, enabled: str | None) -> None:
-    matrix = _selected_images(tmp_path, enabled)
-    assert {entry["target"] for entry in matrix} == {"cli-gpu", "cli-cpu", "service-cpu"}
-    assert {entry["runner"] for entry in matrix} == {"ubuntu-latest"}
-
-
-def test_enabled_gpu_matrix_covers_every_image_with_bounded_jobs(tmp_path: Path) -> None:
+def test_docker_ci_builds_only_cpu_images_on_hosted_runners() -> None:
     job = _docker_job()
-    matrix = _selected_images(tmp_path, "true")
+    matrix = job["strategy"]["matrix"]["include"]
 
-    assert job["needs"] == "prepare-matrix"
-    assert job["strategy"]["matrix"] == "${{ fromJSON(needs.prepare-matrix.outputs.matrix) }}"
-    assert job["timeout-minutes"] == "${{ matrix.timeout_minutes }}"
+    assert job["runs-on"] == "ubuntu-latest"
+    assert job["timeout-minutes"] == 90
     assert {(entry["target"], entry["repository"], entry["tag_suffix"]) for entry in matrix} == {
-        ("cli-gpu", "boxmot/boxmot", ""),
         ("cli-cpu", "boxmot/boxmot", "-cpu"),
         ("service-cpu", "boxmot/boxmot-service", ""),
-        ("service-gpu", "boxmot/boxmot-service", "-gpu"),
     }
-    assert all(isinstance(entry["timeout_minutes"], int) and entry["timeout_minutes"] > 0 for entry in matrix)
-    gpu_service = next(entry for entry in matrix if entry["target"] == "service-gpu")
-    assert gpu_service["runner"] == "gpu-latest"
-    assert gpu_service["timeout_minutes"] >= 120
+
+
+def test_gpu_images_are_available_only_as_local_docker_targets() -> None:
+    workflow = DOCKER_WORKFLOW.read_text(encoding="utf-8")
+    for target in ("cli-gpu", "service-gpu"):
+        assert target not in workflow
+        assert _docker_stage(target)
+    assert "BOXMOT_GPU_SERVICE_CI" not in workflow
+    assert "gpu-latest" not in workflow
+    assert "--gpus" not in workflow
 
 
 def test_manual_image_rebuild_is_explicit_and_safe_by_default() -> None:
@@ -108,7 +78,7 @@ def test_every_docker_image_checks_the_exact_v24_surface() -> None:
     assert "--workdir /tmp" in script
 
 
-@pytest.mark.parametrize("target", ("cli-cpu", "cli-gpu", "service-cpu", "service-gpu"))
+@pytest.mark.parametrize("target", ("cli-cpu", "service-cpu"))
 def test_docker_release_smoke_preserves_each_images_import_context(tmp_path: Path, target: str) -> None:
     """Execute the workflow's Python flags against a source-only package fixture."""
     step = next(
@@ -272,23 +242,12 @@ def test_release_cli_help_checks_every_command_and_reports_failures(monkeypatch:
         release_contract.check_cli_help()
 
 
-def test_service_gpu_smoke_still_executes_cuda_reid_request() -> None:
-    job = _docker_job()
-    step = next(step for step in job["steps"] if step.get("name") == "Smoke test GPU service image")
-    script = step["run"]
-
-    assert "--gpus all" in script
-    assert "torch.cuda.is_available()" in script
-    assert "/v1/streams/smoke-camera/sessions/smoke-run/frames" in script
-    assert "active CUDA context after ReID inference" in script
-
-
 def test_cli_images_smoke_prebuilt_native_tracker_without_toolchain() -> None:
     job = _docker_job()
     step = next(step for step in job["steps"] if step.get("name") == "Smoke test prebuilt native tracker")
     script = step["run"]
 
-    assert step["if"] == "matrix.target == 'cli-cpu' || matrix.target == 'cli-gpu'"
+    assert step["if"] == "matrix.target == 'cli-cpu'"
     assert "python -I -" in script
     assert 'shutil.which("cmake") is None' in script
     assert 'shutil.which("g++") is None' in script
@@ -300,7 +259,7 @@ def test_cli_images_smoke_prebuilt_native_tracker_without_toolchain() -> None:
 
 
 def test_cpu_service_uses_its_locked_cpu_torch_group() -> None:
-    service_builder = _docker_stage("service-cpu-builder")
+    service_builder = _docker_stage("service-cpu-dependencies")
     pyproject = PYPROJECT.read_text(encoding="utf-8")
 
     assert "--only-group service-runtime" in service_builder
@@ -318,14 +277,13 @@ def test_cpu_service_uses_its_locked_cpu_torch_group() -> None:
 def test_cli_images_package_native_libraries_without_runtime_build_tools() -> None:
     native_builder = _docker_stage("native-cli-builder")
     cli_runtime = _docker_stage("cli-runtime")
-    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    wheel_builder = _docker_stage("cli-wheel-builder")
 
     for dependency in ("cmake", "libeigen3-dev", "libopencv-dev", "ninja-build"):
         assert dependency in native_builder
         assert dependency not in cli_runtime
     assert "-DBOXMOT_INSTALL_NATIVE=ON" in native_builder
-    assert dockerfile.count("COPY --from=native-cli-builder") == 2
-    assert dockerfile.count("ctypes.CDLL") == 2
+    assert "COPY --from=native-cli-builder" in wheel_builder
     for runtime_library in (
         "libopencv-calib3d406",
         "libopencv-core406",

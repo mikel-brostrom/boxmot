@@ -1,14 +1,14 @@
 # Docker images
 
 BoxMOT uses one shared multi-stage Dockerfile for four independently built
-images:
+images. CI publishes CPU images; build GPU images locally with the targets below:
 
 | Target | BoxMOT v24 tag | Rolling tag | Contents |
 | --- | --- | --- | --- |
-| `cli-gpu` | `boxmot/boxmot:24.0.0` | `boxmot/boxmot:latest` | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
+| `cli-gpu` | Local build only | — | Full detector, ReID, CLI, and evaluation stack with CUDA 13.0 PyTorch |
 | `cli-cpu` | `boxmot/boxmot:24.0.0-cpu` | `boxmot/boxmot:latest-cpu` | The same full stack with CPU-only PyTorch |
 | `service-cpu` | `boxmot/boxmot-service:24.0.0` | `boxmot/boxmot-service:latest` | Non-root CPU geometry-only detection-to-track HTTP service |
-| `service-gpu` | `boxmot/boxmot-service:24.0.0-gpu` | `boxmot/boxmot-service:latest-gpu` | Non-root CUDA/ReID detection-to-track HTTP service |
+| `service-gpu` | Local build only | — | Non-root CUDA/ReID detection-to-track HTTP service |
 
 The CPU and CUDA selections come from mutually exclusive, lockfile-backed `cpu`
 and `cu130` extras in the root project. Docker, local development, and CI all
@@ -49,14 +49,39 @@ Dockerfile's bootstrap uv version aligned with it:
 uv lock
 ```
 
+## Build cache
+
+System packages, native compilation, Python dependencies, and BoxMOT installation
+have separate build layers. Changes to Python code, README, or the release
+version leave the system and native layers reusable. Native source changes
+rebuild the shared native libraries and the CLI wheel.
+
+The dependency preparation stage copies the canonical `pyproject.toml` and
+`uv.lock`, verifies their BoxMOT versions agree, and normalizes only the local
+project version in those temporary copies. CPU and CUDA dependency stages
+consume those copies with `uv sync --locked`; all dependency constraints,
+markers, sources, and artifact hashes are preserved. Version-only releases
+therefore reuse the same dependency inputs. Actual dependency changes still
+invalidate the corresponding layers.
+
+The CLI wheel is built separately from the original release metadata. Each CLI
+runtime first copies its dependency environment, then installs only that wheel
+with `--no-deps`. Updating BoxMOT changes the application layer without copying
+the complete CUDA environment again. Service images likewise copy dependencies
+and application source separately. Published package versions are unchanged by
+dependency preparation.
+
+GitHub Actions exports intermediate layers with `mode=max` and a separate cache
+scope per image target. Reuse still depends on an accessible, retained cache;
+the first build needs to populate it. The uv cache mounts speed up repeated
+commands within a builder but are not exported as download caches between jobs.
+
 ## Publish
 
-GitHub Actions builds, smoke-tests, and pushes `cli-gpu`, `cli-cpu`, and
-`service-cpu` when a GitHub release is published. The `service-gpu` target is
-disabled by default. Enable it by setting the repository Actions variable
-`BOXMOT_GPU_SERVICE_CI=true` after registering a `gpu-latest` Linux NVIDIA runner
-with Docker and the NVIDIA Container Toolkit. This also enables its release
-gate and manual-workflow checks.
+GitHub Actions builds, smoke-tests, and pushes only `cli-cpu` and `service-cpu`
+when a GitHub release is published. GPU images are built by end users using
+`docker build --target cli-gpu` or `docker build --target service-gpu`; they are
+excluded from release gates, publication, and manual workflow builds.
 
 The same workflow can be dispatched manually with an
 exact commit SHA and `v<version>` release tag; manual runs validate only unless
@@ -101,7 +126,7 @@ docker run --rm --gpus all --ipc=host \
   -v "$PWD/runs/materializations:/materializations" \
   -v "$PWD/models:/opt/boxmot/models" \
   -e BOXMOT_BUILDS_DIR=/materializations \
-  boxmot/boxmot:24.0.0 \
+  boxmot/boxmot:local \
   boxmot materialize \
     --experiment mot17/ablation-yolox-lmbn.yaml \
     --device 0
@@ -118,7 +143,7 @@ docker run --rm --gpus all --ipc=host \
   -v "$PWD/runs/materializations:/materializations:ro" \
   -v "$PWD/models:/opt/boxmot/models:ro" \
   -e BOXMOT_BUILDS_DIR=/materializations \
-  boxmot/boxmot:24.0.0 \
+  boxmot/boxmot:local \
   boxmot eval \
     --experiment mot17/ablation-yolox-lmbn.yaml \
     --build "$BUILD_ID" \
