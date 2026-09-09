@@ -118,7 +118,7 @@ packages = ["boxmot"]
 
 [project]
 name            = "boxmot"
-version         = "24.0.0"
+version         = "25.0.0"
 description     = "BoxMOT: pluggable SOTA tracking modules for segmentation, object detection and pose estimation models"
 readme          = "README.md"
 requires-python = ">=3.10,<3.14"
