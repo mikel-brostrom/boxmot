@@ -16,6 +16,7 @@ EXPECTED_COMMAND_ORDER = (
     "materialize",
     "time-variant",
     "eval",
+    "eval-trackrcnn",
     "eval-eagermot",
     "tune",
     "research",
@@ -869,3 +870,70 @@ def test_eval_sequence_option_is_repeatable_and_dispatches_in_order(monkeypatch)
 
     assert result.exit_code == 0, result.output
     assert captured["args"].sequence_names == ("data23-1", "data23-2")
+
+
+@pytest.mark.parametrize("tracker", (None, "bytetrack"))
+def test_trackrcnn_evaluation_dispatches_saved_paths_and_class_separated_python_tracker(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tracker: str | None
+) -> None:
+    """Saved detector input bypasses perception setup and retains tracker overrides."""
+    captured = {}
+
+    def run(args: SimpleNamespace) -> Path:
+        captured["args"] = args
+        return tmp_path / "results"
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=run))
+    config = tmp_path / "tracker.yaml"
+    config.write_text("det_thresh: 0.75\n", encoding="utf-8")
+    arguments = [
+        "eval-trackrcnn",
+        "--detections",
+        str(tmp_path),
+        "--images",
+        str(tmp_path),
+        "--instances",
+        str(tmp_path),
+        "--tracker-config",
+        str(config),
+        "--sequence",
+        "0006",
+        "--sequence",
+        "0002",
+    ]
+    if tracker is not None:
+        arguments.extend(("--tracker", tracker))
+    result = CliRunner().invoke(boxmot, arguments)
+
+    assert result.exit_code == 0, result.output
+    args = captured["args"]
+    assert args.tracker == (tracker or "maf_hda")
+    assert args.tracker_backend == "python"
+    assert args.per_class is True
+    assert args.detections == args.images == args.instances == tmp_path
+    assert args.tracker_config == str(config)
+    assert args.sequence_names == ("0006", "0002")
+    assert args.split == "val"
+    assert args.project == Path("runs/trackrcnn")
+    assert f"Results: {tmp_path / 'results'}" in result.output
+
+
+@pytest.mark.parametrize("error_type", (ValueError, FileNotFoundError, ImportError))
+def test_trackrcnn_evaluation_reports_actionable_runner_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error_type: type[Exception]
+) -> None:
+    """Data and capability failures are concise CLI errors instead of tracebacks."""
+    message = "Selected tracker requires unavailable sensor inputs."
+
+    def fail(_args: SimpleNamespace) -> Path:
+        raise error_type(message)
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=fail))
+    result = CliRunner().invoke(
+        boxmot,
+        ["eval-trackrcnn", "--detections", str(tmp_path), "--images", str(tmp_path), "--instances", str(tmp_path)],
+    )
+
+    assert result.exit_code == 1
+    assert f"Error: {message}" in result.output
+    assert "Traceback" not in result.output

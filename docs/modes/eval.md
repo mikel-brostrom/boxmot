@@ -84,6 +84,16 @@ and—when applicable—component fingerprints.
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
 
+## Saved TrackR-CNN predictions
+
+For downloaded KITTI TrackR-CNN text predictions, use
+`boxmot eval-trackrcnn --tracker maf_hda` with detection, image, and instance
+annotation directories. This command directly replays the saved boxes and
+masks without materializing a perception build. See the
+[MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
+for the full command. Calibrated 2D/3D tracking uses the separate
+[EagerMOT evaluation command](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
+
 ## View tracking results
 
 Add `--show` to preview annotated tracks, `--save` to write one MP4 per sequence,

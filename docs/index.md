@@ -18,6 +18,8 @@ materialization.
 Mask-aware trackers include [Sam2Mot](trackers/sam2mot.md) and
 [MafHda](trackers/maf_hda.md). MafHda combines motion and masked correlation-filter
 appearance for AABB detections with full-frame instance masks and image frames.
+`boxmot eval-trackrcnn --tracker maf_hda` evaluates saved TrackR-CNN predictions
+on KITTI MOTS; see the MAF-HDA tracker page for the required paths.
 [EagerMot](trackers/eagermot.md) adds 2D/3D sensor fusion through the Python
 tracker API with independent detection batches and camera calibration.
 Use `boxmot eval-eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN

@@ -7,7 +7,8 @@ import pytest
 import torch
 from PIL import Image
 
-from boxmot.datasets.kitti_fusion import KittiFusionSequence, _decode_mask
+from boxmot.datasets.kitti_fusion import KittiFusionSequence
+from boxmot.datasets.trackrcnn import _decode_mask
 
 
 def _pointgnn_row(label: str = "Car", score: str = "103") -> str:

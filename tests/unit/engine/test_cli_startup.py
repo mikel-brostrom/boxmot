@@ -45,6 +45,7 @@ _ROOT_HELP_RUNTIME_MODULES = (
 _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
+    "boxmot.engine.commands.trackrcnn",
     "boxmot.engine.commands.eagermot",
     "boxmot.engine.commands.materialize",
     "boxmot.engine.commands.time_variant",
@@ -73,6 +74,7 @@ _COMMAND_MODULE_BY_NAME = {
     "materialize": "boxmot.engine.commands.materialize",
     "time-variant": "boxmot.engine.commands.time_variant",
     "eval": "boxmot.engine.commands.eval",
+    "eval-trackrcnn": "boxmot.engine.commands.trackrcnn",
     "eval-eagermot": "boxmot.engine.commands.eagermot",
     "tune": "boxmot.engine.commands.tune",
     "research": "boxmot.engine.commands.research",
@@ -141,6 +143,7 @@ def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
         "boxmot.reid.config",
         "boxmot.engine.experiment_config",
         "boxmot.engine.commands.eval",
+        "boxmot.engine.commands.trackrcnn",
     ),
 )
 def test_evaluation_selectors_keep_data_and_model_runtimes_lazy(module_name: str) -> None:
@@ -310,6 +313,7 @@ def test_command_help_resolves_only_selected_adapter(command_name: str, expected
         "track",
         "materialize",
         "eval",
+        "eval-trackrcnn",
         "eval-eagermot",
         "tune",
         "research",

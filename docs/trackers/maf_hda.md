@@ -23,6 +23,43 @@ backend are not supported. Its implementation lives under
 `boxmot/trackers/multimodal/maf_hda` because both geometry and masks are
 fundamental to its state and appearance model.
 
+## Evaluate TrackR-CNN detections on KITTI MOTS
+
+Replay downloaded TrackR-CNN text predictions with their original KITTI images
+and instance annotations:
+
+```bash
+uv run --no-sync python -m boxmot.engine.cli eval-trackrcnn \
+  --tracker maf_hda \
+  --detections eagermot-data/trackrcnn_detections \
+  --images ~/Downloads/data_tracking_image_2/training/image_02 \
+  --instances ~/Downloads/instances \
+  --split val \
+  --project runs/maf-hda
+```
+
+The detection directory contains `0000.txt` through `0020.txt`, with TrackR-CNN's
+138-field rows (frame, box, confidence, class, mask size/RLE, and embeddings).
+The replay uses the boxes and masks plus current RGB images, and does not
+require calibration, ego motion, PointGNN, or ReID weights. Unused TrackR-CNN
+embeddings are discarded. Empty detection masks are removed before MAF-HDA
+updates, and frames with no valid detections still advance the tracker.
+
+`--split val` selects the nine standard MOTS validation sequences. Add
+`--sequence 0002` for a smaller run, or use `--split fulltrain` for all 21
+annotated sequences. Cars and pedestrians are tracked separately using native
+class IDs 1 and 2 and globally unique identities. The default detection
+threshold is `0.7` for both classes; these are the existing MOTS20 tracker
+defaults, not a tuned KITTI preset. `--tracker-config path/to/maf-hda.yaml`
+accepts a scalar parameter mapping to override those defaults.
+
+The command evaluates mask HOTA, DetA, AssA, LocA, CLEAR and Identity metrics.
+It writes `metrics.json`, `metrics.csv`, `mots/SEQUENCE.txt` and a `run.json`
+record of the inputs, effective configuration, and discarded mask counts under
+`runs/maf-hda/val`. Subsequent runs use `val2`, and so on. JSON results include
+per-sequence scores and class/detection averages. This evaluation does not
+establish benchmark parity with the original C++ implementation.
+
 ## Python example
 
 This complete example uses one synthetic instance. Replace the image, boxes,

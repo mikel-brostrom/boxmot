@@ -9,10 +9,9 @@ from typing import overload
 
 import numpy as np
 import torch
-from PIL import Image
 
-from boxmot.datasets.kitti_mots import kitti_mots_frame_paths
-from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch
+from boxmot.datasets.trackrcnn import TrackRcnnSequence
+from boxmot.structures import Boxes3D, CameraModel, Detections, Detections3D
 
 _CAR_VARIANTS = {
     "t2-train": "results_tracking_car_auto_t2_train",
@@ -29,51 +28,6 @@ class KittiFusionFrame:
     detections: Detections
     detections_3d: Detections3D
     camera: CameraModel
-
-
-@dataclass(frozen=True, slots=True)
-class _ImageDetection:
-    """Keep compressed masks until their frame is requested."""
-
-    box: tuple[float, float, float, float]
-    score: float
-    class_id: int
-    counts: bytes
-    line_number: int
-
-
-def _decode_mask(counts: bytes, image_size: tuple[int, int]) -> np.ndarray:
-    """Decode validated compressed COCO runs without calling native code."""
-    runs: list[int] = []
-    pixels = image_size[0] * image_size[1]
-    position = total = 0
-    if not counts:
-        raise ValueError("RLE counts must be non-empty ASCII bytes.")
-    while position < len(counts):
-        run = shift = 0
-        while True:
-            if position >= len(counts):
-                raise ValueError("RLE contains a truncated run.")
-            code = counts[position] - 48
-            position += 1
-            if code < 0 or code > 63 or shift >= 35:
-                raise ValueError("RLE contains invalid compressed counts.")
-            run |= (code & 31) << shift
-            shift += 5
-            if not code & 32:
-                if code & 16:
-                    run |= -1 << shift
-                break
-        if len(runs) > 2:
-            run += runs[-2]
-        if run < 0 or total + run > pixels:
-            raise ValueError("RLE run lengths exceed the mask dimensions or are negative.")
-        runs.append(run)
-        total += run
-    if total != pixels:
-        raise ValueError("RLE run lengths do not sum to the mask dimensions.")
-    values = np.repeat(np.arange(len(runs)) % 2 == 1, runs)
-    return np.ascontiguousarray(values.reshape(image_size, order="F"))
 
 
 def _projection(path: Path) -> torch.Tensor:
@@ -154,33 +108,15 @@ class KittiFusionSequence(Sequence[KittiFusionFrame]):
         *,
         car_variant: str = "t3-trainval",
     ) -> None:
-        if (
-            not isinstance(sequence_id, str)
-            or len(sequence_id) != 4
-            or not sequence_id.isascii()
-            or not sequence_id.isdecimal()
-        ):
-            raise ValueError("KITTI sequence_id must be an exact four-digit sequence name, such as '0000'.")
         if car_variant not in _CAR_VARIANTS:
             raise ValueError(f"KITTI car_variant must be one of {tuple(_CAR_VARIANTS)}.")
         self.data_root = Path(data_root).expanduser().resolve()
         self.image_root = Path(image_root).expanduser().resolve()
         self.sequence_id = sequence_id
         self.car_variant = car_variant
-        self.frame_paths = kitti_mots_frame_paths(self.image_root / sequence_id)
-        if tuple(int(path.stem) for path in self.frame_paths) != tuple(range(len(self.frame_paths))):
-            raise ValueError(
-                f"KITTI fusion images must cover contiguous zero-based frames: {self.image_root / sequence_id}"
-            )
-        self.image_size: tuple[int, int] | None = None
-        for path in self.frame_paths:
-            with Image.open(path) as image:
-                size = (image.height, image.width)
-            if self.image_size is None:
-                self.image_size = size
-            elif size != self.image_size:
-                raise ValueError(f"KITTI image dimensions {size} differ from {self.image_size}: {path}")
-        assert self.image_size is not None
+        self._trackrcnn = TrackRcnnSequence(self.data_root / "trackrcnn_detections", self.image_root, sequence_id)
+        self.frame_paths = self._trackrcnn.frame_paths
+        self.image_size = self._trackrcnn.image_size
         self._projection = _projection(self.data_root / "calib/training/calib" / f"{sequence_id}.txt")
         self._poses = _poses(self.data_root / "ego_motion" / f"{sequence_id}.npy", len(self))
         CameraModel(self._projection, self.image_size, torch.from_numpy(self._poses[0]))
@@ -204,45 +140,6 @@ class KittiFusionSequence(Sequence[KittiFusionFrame]):
                     raise ValueError(f"PointGNN frame {frame_index} has no corresponding image: {path}")
                 available.add(frame_index)
             self.missing_3d_frames[name] = tuple(sorted(set(range(len(self))) - available))
-        self._trackrcnn_path = self.data_root / "trackrcnn_detections" / f"{sequence_id}.txt"
-        self._image_detections = self._read_trackrcnn()
-
-    def _read_trackrcnn(self) -> dict[int, tuple[_ImageDetection, ...]]:
-        """Index 2D predictions by their native frame, keeping only compressed masks."""
-        frames: dict[int, list[_ImageDetection]] = {}
-        with self._trackrcnn_path.open(encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, 1):
-                if not line.strip():
-                    continue
-                try:
-                    fields = line.split()
-                    if len(fields) != 138:
-                        raise ValueError("TrackR-CNN rows must have 138 fields (10 detection/mask + 128 embedding)")
-                    integers = [fields[index] for index in (0, 6, 7, 8)]
-                    if any(not value.isascii() or not value.isdecimal() for value in integers):
-                        raise ValueError("frame, class, mask height and width must be nonnegative integers")
-                    frame_index, class_id, height, width = map(int, integers)
-                    if frame_index >= len(self):
-                        raise ValueError(f"frame {frame_index} has no corresponding image")
-                    if class_id not in {1, 2}:
-                        raise ValueError("TrackR-CNN class must be 1 (car) or 2 (pedestrian)")
-                    if (height, width) != self.image_size:
-                        raise ValueError(f"mask dimensions {(height, width)} differ from images {self.image_size}")
-                    values = np.array(fields[1:6], dtype=np.float64)
-                    if not np.isfinite(values).all() or (np.abs(values) > np.finfo(np.float32).max).any():
-                        raise ValueError("box and score must be finite float32 values")
-                    x1, y1, x2, y2, score = values.astype(np.float32).tolist()
-                    if x2 <= x1 or y2 <= y1 or not 0 <= values[-1] <= 1:
-                        raise ValueError("box must have positive area and score must be between zero and one")
-                    detection = _ImageDetection(
-                        (x1, y1, x2, y2), score, class_id, fields[9].encode("ascii"), line_number
-                    )
-                    frames.setdefault(frame_index, []).append(detection)
-                except (ValueError, UnicodeError) as exc:
-                    raise ValueError(
-                        f"Invalid TrackR-CNN input at {self._trackrcnn_path}:{line_number}: {exc}"
-                    ) from exc
-        return {frame: tuple(rows) for frame, rows in frames.items()}
 
     def _read_pointgnn(self, frame_index: int, sample_id: str) -> Detections3D:
         """Merge camera-space car/pedestrian boxes, retaining empty sensor frames."""
@@ -304,27 +201,13 @@ class KittiFusionSequence(Sequence[KittiFusionFrame]):
             return tuple(self[position] for position in range(*index.indices(len(self))))
         if isinstance(index, bool) or not isinstance(index, int):
             raise TypeError("KITTI fusion indices must be integers or slices.")
-        frame_index = int(self.frame_paths[index].stem)
-        sample_id = f"train:{self.sequence_id}:{frame_index}"
-        rows = self._image_detections.get(frame_index, ())
-        masks = np.empty((len(rows), *self.image_size), dtype=np.bool_)
-        for mask, row in zip(masks, rows, strict=True):
-            try:
-                mask[:] = _decode_mask(row.counts, self.image_size)
-            except ValueError as exc:
-                raise ValueError(f"Invalid TrackR-CNN mask at {self._trackrcnn_path}:{row.line_number}: {exc}") from exc
-        detections = Detections(
-            geometry=Boxes(torch.tensor([row.box for row in rows], dtype=torch.float32).reshape(-1, 4)),
-            scores=torch.tensor([row.score for row in rows], dtype=torch.float32),
-            class_ids=torch.tensor([row.class_id for row in rows], dtype=torch.int64),
-            sample_id=sample_id,
-            masks=MaskBatch(torch.from_numpy(masks)),
-        )
+        sample = self._trackrcnn[index]
+        frame_index = sample.frame_index
         return KittiFusionFrame(
             frame_index=frame_index,
             image_size=self.image_size,
-            detections=detections,
-            detections_3d=self._read_pointgnn(frame_index, sample_id),
+            detections=sample.detections,
+            detections_3d=self._read_pointgnn(frame_index, sample.detections.sample_id),
             camera=CameraModel(self._projection, self.image_size, torch.from_numpy(self._poses[frame_index])),
         )
 

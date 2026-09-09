@@ -2,19 +2,15 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import torch
-import yaml
 
 from boxmot import EagerMot, __version__
-from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets.kitti_fusion import KittiFusionFrame, KittiFusionSequence
-from boxmot.engine.eval.mots import run_mots_metrics
+from boxmot.engine.eval.kitti_mots_replay import evaluate_kitti_mots, kitti_mots_annotations, kitti_mots_sequences
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.eval.output import increment_path
 from boxmot.pipelines import PipelineResult
@@ -37,17 +33,6 @@ KITTI_PROFILES = {
     1: {**_KITTI_SHARED, "det_thresh": 0.0, "min_hits": 1, "distance_threshold": 3.5},
     2: {**_KITTI_SHARED, "det_thresh": 0.9, "min_hits": 2, "distance_threshold": 0.3},
 }
-
-
-def _sequence_names(split: str, selected: tuple[str, ...]) -> tuple[str, ...]:
-    """Resolve the repository's MOTS split, rejecting accidental split mixing."""
-    config = yaml.safe_load((CONFIG_ROOT / "datasets" / "kitti-mots.yaml").read_text(encoding="utf-8"))
-    if split not in {"train", "val", "fulltrain"}:
-        raise ValueError("EagerMOT local evaluation requires split train, val, or fulltrain with ground truth.")
-    available = tuple(config["splits"][split].get("sequences", [f"{index:04d}" for index in range(21)]))
-    if len(set(selected)) != len(selected) or not set(selected).issubset(available):
-        raise ValueError(f"Sequences must be distinct members of KITTI MOTS {split}: {', '.join(available)}")
-    return tuple(name for name in available if not selected or name in selected)
 
 
 def _track_frame(frame: KittiFusionFrame, trackers: dict[int, EagerMot]) -> Tracks:
@@ -96,7 +81,7 @@ def _track_frame(frame: KittiFusionFrame, trackers: dict[int, EagerMot]) -> Trac
 
 def _run(args: Any) -> Path:
     """Validate sequence alignment, replay saved predictions, and persist metrics."""
-    names = _sequence_names(args.split, tuple(args.sequence_names))
+    names = kitti_mots_sequences(args.split, tuple(args.sequence_names))
     image_root = Path(args.images).expanduser().resolve()
     instances_root = Path(args.instances).expanduser().resolve()
     data_root = Path(args.data_root).expanduser().resolve()
@@ -104,14 +89,8 @@ def _run(args: Any) -> Path:
     annotations: dict[str, list[tuple[int, str, int, int]]] = {}
     for name in names:
         sequence = KittiFusionSequence(data_root, image_root, name, car_variant=args.pointgnn_car)
-        entries = []
-        for image_path in sequence.frame_paths:
-            annotation = instances_root / name / image_path.name
-            if not annotation.is_file():
-                raise FileNotFoundError(f"Missing KITTI MOTS ground-truth instance PNG: {annotation}")
-            entries.append((int(image_path.stem), str(annotation), *sequence.image_size))
         sequences[name] = sequence
-        annotations[name] = entries
+        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, instances_root)
 
     output = increment_path(Path(args.project).expanduser().resolve() / args.split, mkdir=True)
     prediction_dir = output / "mots"
@@ -150,25 +129,7 @@ def _run(args: Any) -> Path:
                 if (frame.frame_index + 1) % 200 == 0:
                     LOGGER.info(f"EagerMOT {name}: {frame.frame_index + 1}/{len(sequence)} frames")
 
-    LOGGER.info("Evaluating segmentation tracking against KITTI MOTS instance annotations")
-    results = run_mots_metrics(
-        SimpleNamespace(exp_dir=prediction_dir, evaluation_config={"mots_gt_frames": annotations}),
-        [image_root / name for name in names],
-        output,
-        instances_root,
-        seq_info={name: len(sequence) for name, sequence in sequences.items()},
-    )
-    (output / "metrics.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
-    fields = [key for key in results["car"] if key != "per_sequence"]
-    with (output / "metrics.csv").open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["class", *fields])
-        writer.writeheader()
-        for name, values in results.items():
-            writer.writerow({"class": name, **{key: values[key] for key in fields}})
-            LOGGER.info(
-                f"{name}: HOTA {values['HOTA']:.2f} | DetA {values['DetA']:.2f} | "
-                f"AssA {values['AssA']:.2f} | IDF1 {values['IDF1']:.2f}"
-            )
+    evaluate_kitti_mots(prediction_dir, output, instances_root, annotations)
     manifest["status"] = "complete"
     (output / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return output
