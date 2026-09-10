@@ -16,6 +16,7 @@ from boxmot.trackers.common.association import (
 )
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.ocsort.track import KalmanBoxTracker
 
@@ -104,8 +105,9 @@ class OcSort(BoxTracker):
         trks = np.zeros((len(self.active_tracks), self.detection_layout.box_with_conf_cols))
         to_del = []
         ret = []
+        predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         for t, trk in enumerate(trks):
-            pos = self.active_tracks[t].predict(dt=self._prediction_dt)[0]
+            pos = predictions[t][0]
             trk[:] = [pos[i] for i in range(self.detection_layout.box_cols)] + [0]
             if np.any(np.isnan(pos)):
                 to_del.append(t)
@@ -143,12 +145,12 @@ class OcSort(BoxTracker):
         matched = first_result.matches
         unmatched_dets = first_result.unmatched_dets
         unmatched_trks = first_result.unmatched_tracks
-        for trk_idx, det_idx in matched:
-            self.active_tracks[trk_idx].update(
-                dets[det_idx],
-                high_batch.clss[det_idx],
-                high_batch.det_inds[det_idx],
-            )
+        update_tracks(
+            [self.active_tracks[t] for t, _ in matched],
+            [dets[d] for _, d in matched],
+            [high_batch.clss[d] for _, d in matched],
+            [high_batch.det_inds[d] for _, d in matched],
+        )
 
         """
             Second round of associaton by OCR
@@ -167,15 +169,13 @@ class OcSort(BoxTracker):
                 ),
             )
             low_result = run_association_stage(low_stage, u_trks, dets_second)
-            to_remove_trk_indices = []
-            for trk_rel, det_ind in low_result.matches:
-                trk_ind = unmatched_trks[trk_rel]
-                self.active_tracks[trk_ind].update(
-                    dets_second[det_ind],
-                    second_batch.clss[det_ind],
-                    second_batch.det_inds[det_ind],
-                )
-                to_remove_trk_indices.append(trk_ind)
+            to_remove_trk_indices = [unmatched_trks[t] for t, _ in low_result.matches]
+            update_tracks(
+                [self.active_tracks[t] for t in to_remove_trk_indices],
+                [dets_second[d] for _, d in low_result.matches],
+                [second_batch.clss[d] for _, d in low_result.matches],
+                [second_batch.det_inds[d] for _, d in low_result.matches],
+            )
             unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         if unmatched_dets.shape[0] > 0 and unmatched_trks.shape[0] > 0:
@@ -197,18 +197,14 @@ class OcSort(BoxTracker):
                     ),
                 )
                 rematch_result = run_association_stage(rematch_stage, left_trks, left_dets)
-                to_remove_det_indices = []
-                to_remove_trk_indices = []
-                for trk_rel, det_rel in rematch_result.matches:
-                    det_ind = unmatched_dets[det_rel]
-                    trk_ind = rematch_trk_indices[trk_rel]
-                    self.active_tracks[trk_ind].update(
-                        dets[det_ind],
-                        high_batch.clss[det_ind],
-                        high_batch.det_inds[det_ind],
-                    )
-                    to_remove_det_indices.append(det_ind)
-                    to_remove_trk_indices.append(trk_ind)
+                to_remove_det_indices = [unmatched_dets[d] for _, d in rematch_result.matches]
+                to_remove_trk_indices = [rematch_trk_indices[t] for t, _ in rematch_result.matches]
+                update_tracks(
+                    [self.active_tracks[t] for t in to_remove_trk_indices],
+                    [dets[d] for d in to_remove_det_indices],
+                    [high_batch.clss[d] for d in to_remove_det_indices],
+                    [high_batch.det_inds[d] for d in to_remove_det_indices],
+                )
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 

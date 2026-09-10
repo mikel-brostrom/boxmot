@@ -214,15 +214,13 @@ class StrongSort(BoxTracker):
 
     def _predict_tracks(self) -> None:
         """Propagate all active track states to the current frame."""
-        for track in self.tracks:
-            track.predict(dt=self._prediction_dt)
+        Track.multi_predict(self.tracks, dt=self._prediction_dt)
 
     def _update_tracks(self, detections: list[_Detection]) -> None:
         """Associate detections, update matched tracks, and manage lifecycle state."""
         matches, unmatched_tracks, unmatched_detections = self._match(detections)
 
-        for track_idx, detection_idx in matches:
-            self.tracks[track_idx].update(detections[detection_idx])
+        Track.multi_update((self.tracks[track_idx], detections[detection_idx]) for track_idx, detection_idx in matches)
         for track_idx in unmatched_tracks:
             self.tracks[track_idx].mark_missed()
         for detection_idx in unmatched_detections:

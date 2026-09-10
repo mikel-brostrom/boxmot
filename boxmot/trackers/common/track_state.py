@@ -143,6 +143,10 @@ class BoxTrack(TrackLifecycleMixin):
             self.covariance,
             self._measurement_for_update(new_track),
         )
+        self._finish_reactivate(new_track, frame_id, new_id)
+
+    def _finish_reactivate(self, new_track: "BoxTrack", frame_id: int, new_id: bool) -> None:
+        """Apply lifecycle bookkeeping after scalar or batched correction."""
         self.tracklet_len = 0
         self.state = self._local_tracked_state()
         self.is_activated = True
@@ -156,20 +160,44 @@ class BoxTrack(TrackLifecycleMixin):
 
     def update(self, new_track, frame_id):
         """Update the current track with a matched detection."""
-        self.frame_id = frame_id
-        self.tracklet_len += 1
-
         self.mean, self.covariance = self.kalman_filter.update(
             self.mean,
             self.covariance,
             self._measurement_for_update(new_track),
         )
+        self._finish_update(new_track, frame_id)
+
+    def _finish_update(self, new_track: "BoxTrack", frame_id: int) -> None:
+        """Store the corrected geometry, detection metadata, and lifecycle."""
+        self.frame_id = frame_id
+        self.tracklet_len += 1
         self.state = self._local_tracked_state()
         self.is_activated = True
         self._copy_detection_metadata(self, new_track)
         self._after_update(new_track)
         self._append_current_history()
         sync_track_meta(self, self.common_tracked_state)
+
+    @classmethod
+    def multi_update(cls, pairs, frame_id: int, *, reactivate: bool = False, new_id: bool = False) -> None:
+        """Correct matched track/detection pairs in batches with full lifecycle."""
+        pairs = list(pairs)
+        groups: dict[BaseKalmanFilter, list[tuple[BoxTrack, BoxTrack]]] = {}
+        for track, detection in pairs:
+            groups.setdefault(track.kalman_filter, []).append((track, detection))
+        for kalman, matches in groups.items():
+            mean = np.asarray([track.mean for track, _ in matches])
+            covariance = np.asarray([track.covariance for track, _ in matches])
+            measurement = np.asarray([track._measurement_for_update(detection) for track, detection in matches])
+            mean, covariance = kalman.multi_update(mean, covariance, measurement)
+            for (track, _), state, uncertainty in zip(matches, mean, covariance):
+                track.mean, track.covariance = state, uncertainty
+        # Keep original association order for ID allocation and lifecycle hooks.
+        for track, detection in pairs:
+            if reactivate:
+                track._finish_reactivate(detection, frame_id, new_id)
+            else:
+                track._finish_update(detection, frame_id)
 
     def _append_current_history(self) -> None:
         """Store the post-transition geometry used by trajectory rendering."""

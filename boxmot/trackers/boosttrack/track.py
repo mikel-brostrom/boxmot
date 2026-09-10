@@ -75,20 +75,31 @@ class KalmanBoxTracker(SortBoxTrack):
             return coef ** (n - self.age)
         return coef ** (self.time_since_update - 1)
 
-    def update(self, det: np.ndarray):
+    def update(self, det: np.ndarray) -> None:
+        """Correct geometry and update observation metadata."""
+        measurement = self._prepare_update(det)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(self, det: np.ndarray) -> np.ndarray:
+        """Align the observation before the scalar or batched correction."""
         self.time_since_update = 0
         self.hit_streak += 1
         if self.is_obb:
             aligned = align_obb_measurement(det[:5], self.get_state()[0])
-            self.kf.update(self.motion_model.to_measurement(aligned, column=False))
+            measurement = self.motion_model.to_measurement(aligned, column=False)
             self.conf = float(det[5])
             self.cls = int(det[6])
             self.det_ind = int(det[7])
         else:
-            self.kf.update(self.motion_model.to_measurement(det[:4], column=False))
+            measurement = self.motion_model.to_measurement(det[:4], column=False)
             self.conf = float(det[4])
             self.cls = int(det[5])
             self.det_ind = int(det[6])
+        return measurement
+
+    def _finish_update(self, measurement: np.ndarray) -> None:
+        """Record the corrected geometry after Kalman arithmetic completes."""
         self._append_current_history()
         sync_track_meta(self, TrackState.TRACKED)
 
@@ -141,7 +152,15 @@ class KalmanBoxTracker(SortBoxTrack):
 
     def predict(self, *, dt: float | None = None) -> np.ndarray:
         """Predict geometry over an optional elapsed time interval."""
+        self._prepare_prediction(dt=dt)
         self.kf.predict(dt=dt)
+        return self._finish_prediction()
+
+    def _prepare_prediction(self, *, dt: float | None = None) -> None:
+        """XYHR needs no track-level motion adjustment before prediction."""
+
+    def _finish_prediction(self) -> np.ndarray:
+        """Advance lifecycle counters after scalar or batched prediction."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0

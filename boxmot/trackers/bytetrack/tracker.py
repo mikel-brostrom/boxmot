@@ -137,15 +137,19 @@ class ByteTrack(BoxTracker):
         u_track = first_result.unmatched_tracks
         u_detection = first_result.unmatched_dets
 
+        tracked_pairs = []
+        lost_pairs = []
         for itracked, idet in matches:
             track = strack_pool[itracked]
-            det = detections[idet]
+            pair = (track, detections[idet])
             if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_count)
+                tracked_pairs.append(pair)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                lost_pairs.append(pair)
                 refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
 
         """ Step 3: Second association, with low conf detection boxes"""
         # association the untrack to the low conf detections
@@ -175,15 +179,19 @@ class ByteTrack(BoxTracker):
         )
         matches = second_result.matches
         u_track = second_result.unmatched_tracks
+        tracked_pairs = []
+        lost_pairs = []
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
-            det = detections_second[idet]
+            pair = (track, detections_second[idet])
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_count)
+                tracked_pairs.append(pair)
                 activated_starcks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                lost_pairs.append(pair)
                 refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
 
         for it in u_track:
             track = r_tracked_stracks[it]
@@ -206,9 +214,9 @@ class ByteTrack(BoxTracker):
         matches = unconfirmed_result.matches
         u_unconfirmed = unconfirmed_result.unmatched_tracks
         u_detection = unconfirmed_result.unmatched_dets
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_count)
-            activated_starcks.append(unconfirmed[itracked])
+        pairs = [(unconfirmed[itracked], detections[idet]) for itracked, idet in matches]
+        STrack.multi_update(pairs, self.frame_count)
+        activated_starcks.extend(track for track, _ in pairs)
         for it in u_unconfirmed:
             track = unconfirmed[it]
             track.mark_removed()

@@ -151,6 +151,12 @@ class KalmanBoxTracker(SortBoxTrack):
         """
         Updates the state vector with observed bbox.
         """
+        measurement = self._prepare_update(bbox, cls, det_ind)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(self, bbox, cls, det_ind) -> np.ndarray | None:
+        """Record observation history before a scalar or batched correction."""
         self.det_ind = det_ind
         if bbox is not None:
             bbox = np.asarray(bbox).copy()
@@ -187,19 +193,28 @@ class KalmanBoxTracker(SortBoxTrack):
             self.hits += 1
             self.hit_streak += 1
             if self.is_obb:
-                self.kf.update(self.motion_model.to_measurement(bbox[:5]))
-            else:
-                self.kf.update(self.motion_model.to_measurement(bbox))
+                return self.motion_model.to_measurement(bbox[:5])
+            return self.motion_model.to_measurement(bbox)
+        return None
+
+    def _finish_update(self, measurement: np.ndarray | None) -> None:
+        """Record corrected geometry while retaining missing-frame semantics."""
+        if measurement is not None:
             self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
-            self.kf.update(bbox)
             sync_track_meta(self)
 
     def predict(self, *, dt: float | None = None) -> np.ndarray:
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
+        self._prepare_prediction(dt=dt)
+        self.kf.predict(dt=dt)
+        return self._finish_prediction()
+
+    def _prepare_prediction(self, *, dt: float | None = None) -> None:
+        """Prevent area velocity from producing a negative predicted box."""
         interval = 1.0 if dt is None else dt
         if self.is_obb:
             if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
@@ -208,7 +223,8 @@ class KalmanBoxTracker(SortBoxTrack):
             if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
                 self.kf.x[6] *= 0.0
 
-        self.kf.predict(dt=dt)
+    def _finish_prediction(self) -> np.ndarray:
+        """Advance frame counters and record the predicted box."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0

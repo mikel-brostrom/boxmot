@@ -21,6 +21,7 @@ from boxmot.trackers.common.association.boost import (
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
+from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 
@@ -164,8 +165,9 @@ class BoostTrack(BoxTracker):
         trks_obb = []
         confs = []
 
-        for trk in self.trackers:
-            pos = trk.predict(dt=self._prediction_dt)[0]
+        predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        for trk, prediction in zip(self.trackers, predictions, strict=True):
+            pos = prediction[0]
             conf = trk.get_confidence()
             confs.append(conf)
             assoc_pos = xywha_to_xyxy(pos.reshape(1, 5))[0] if self.is_obb else pos[:4]
@@ -239,8 +241,8 @@ class BoostTrack(BoxTracker):
 
         dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh)
 
+        update_tracks([self.trackers[t] for _, t in matched], [dets[d] for d, _ in matched])
         for m in matched:
-            self.trackers[m[1]].update(dets[m[0], :])
             self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
 
         for i in unmatched_dets:

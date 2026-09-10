@@ -43,6 +43,8 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.geometry.obb import align_obb_measurement, wrap_pi_periodic
+from boxmot.trackers.common.motion.batching import predict_tracks
+from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
 
@@ -236,8 +238,9 @@ class OccluBoost(BoostTrack):
 
         trks = []
         confs = []
-        for trk in self.trackers:
-            pos = trk.predict(dt=self._prediction_dt)[0]
+        predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        for trk, prediction in zip(self.trackers, predictions, strict=True):
+            pos = prediction[0]
             conf = trk.get_confidence()
             confs.append(conf)
             trks.append(np.concatenate([pos, [conf]]))
@@ -306,8 +309,8 @@ class OccluBoost(BoostTrack):
             self.det_thresh,
         )
 
+        self._ams_multi_update([self.trackers[index] for index in matched[:, 1]], dets[matched[:, 0]])
         for m in matched:
-            self._ams_update(self.trackers[m[1]], dets[m[0], :])
             if self.use_embeddings:
                 self.trackers[m[1]].update_emb(dets_embs[m[0]], alpha=dets_alpha[m[0]])
             self._maybe_activate(self.trackers[m[1]])
@@ -342,14 +345,14 @@ class OccluBoost(BoostTrack):
                     row_ind, col_ind = linear_sum_assignment(-gated)
                     matched_dets_set = set()
                     matched_tracks_set = set()
-                    for r, c in zip(row_ind, col_ind):
-                        if gated[r, c] <= 0:
-                            continue
-                        det_global = u_det_idx[r]
-                        trk_global = elig[c]
+                    accepted = [(u_det_idx[r], elig[c]) for r, c in zip(row_ind, col_ind) if gated[r, c] > 0]
+                    self._ams_multi_update(
+                        [self.trackers[t] for _, t in accepted],
+                        dets[[d for d, _ in accepted]],
+                    )
+                    for det_global, trk_global in accepted:
                         matched_dets_set.add(det_global)
                         matched_tracks_set.add(trk_global)
-                        self._ams_update(self.trackers[trk_global], dets[det_global, :])
                         self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
                     if matched_dets_set:
@@ -395,6 +398,7 @@ class OccluBoost(BoostTrack):
                 if (cost < 1.0).any():
                     row_ind, col_ind = linear_sum_assignment(cost)
                     used = set()
+                    accepted = []
                     for r, c in zip(row_ind, col_ind):
                         if cost[r, c] >= 1.0:
                             continue
@@ -402,7 +406,12 @@ class OccluBoost(BoostTrack):
                         if trk_global in used:
                             continue
                         used.add(trk_global)
-                        self._ams_update(self.trackers[trk_global], dets_second[r, :])
+                        accepted.append((r, trk_global))
+                    self._ams_multi_update(
+                        [self.trackers[t] for _, t in accepted],
+                        dets_second[[r for r, _ in accepted]],
+                    )
+                    for r, trk_global in accepted:
                         if self.use_embeddings and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
@@ -556,17 +565,13 @@ class OccluBoost(BoostTrack):
 
         row_ind, col_ind = linear_sum_assignment(-gated)
         matched_dets_set: set[int] = set()
-        for r, c in zip(row_ind, col_ind):
-            if gated[r, c] <= 0:
-                continue
-            det_global = det_with_emb[r]
-            trk_global = elig[c]
+        accepted = [(det_with_emb[r], elig[c]) for r, c in zip(row_ind, col_ind) if gated[r, c] > 0]
+        self._ams_multi_update(
+            [self.trackers[t] for _, t in accepted],
+            dets[[d for d, _ in accepted]],
+        )
+        for det_global, trk_global in accepted:
             matched_dets_set.add(det_global)
-            # Force-update the track with this detection
-            if is_obb:
-                self._ams_update_obb(self.trackers[trk_global], dets[det_global, :])
-            else:
-                self._ams_update(self.trackers[trk_global], dets[det_global, :])
             self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
             self._maybe_activate(self.trackers[trk_global])
 
@@ -892,6 +897,26 @@ class OccluBoost(BoostTrack):
         trk._append_current_history()
         sync_track_meta(trk, TrackState.TRACKED)
 
+    def _ams_multi_update(self, tracks: list[KalmanBoxTracker], detections: np.ndarray) -> None:
+        """Batch one association stage while retaining each track's AMS and history.
+
+        OBB observations retain track-level equivalent-form alignment. Their
+        gain remains unsuppressed, as in the scalar OBB update.
+        """
+        if not tracks:
+            return
+        if len(tracks) == 1:
+            if tracks[0].is_obb:
+                self._ams_update_obb(tracks[0], detections[0])
+            else:
+                self._ams_update(tracks[0], detections[0])
+            return
+        alphas = [self._compute_ams_alpha(track, det[:4]) for track, det in zip(tracks, detections)]
+        measurements = [track._prepare_update(det) for track, det in zip(tracks, detections)]
+        KalmanFilterXYHR.update_many([track.kf for track in tracks], measurements, alpha=alphas)
+        for track, measurement in zip(tracks, measurements):
+            track._finish_update(measurement)
+
     def _suppress_duplicate_emissions(
         self, emitted: list[tuple[KalmanBoxTracker, np.ndarray]]
     ) -> list[tuple[KalmanBoxTracker, np.ndarray]]:
@@ -975,8 +1000,9 @@ class OccluBoost(BoostTrack):
         # Predict all current trackers
         trks_xywha = []
         confs = []
-        for trk in self.trackers:
-            pos = trk.predict(dt=self._prediction_dt)[0]  # [cx, cy, w, h, angle]
+        predictions = predict_tracks(self.trackers, dt=self._prediction_dt)
+        for trk, prediction in zip(self.trackers, predictions, strict=True):
+            pos = prediction[0]  # [cx, cy, w, h, angle]
             trks_xywha.append(pos)
             confs.append(trk.get_confidence())
         trks_xywha = np.vstack(trks_xywha) if len(trks_xywha) > 0 else np.empty((0, 5))
@@ -1048,8 +1074,8 @@ class OccluBoost(BoostTrack):
             unmatched_trks = np.array([i for i in range(n_trks) if i not in matched_t], dtype=int)
 
         # Apply matched updates
+        self._ams_multi_update([self.trackers[index] for index in matched[:, 1]], dets[matched[:, 0]])
         for m in matched:
-            self._ams_update_obb(self.trackers[m[1]], dets[m[0], :])
             if self.use_embeddings:
                 alpha_emb = confidence_aware_alpha(
                     self.detection_layout.confidences(dets)[m[0] : m[0] + 1],
@@ -1083,14 +1109,14 @@ class OccluBoost(BoostTrack):
                     row_ind, col_ind = linear_sum_assignment(-gated)
                     matched_dets_set = set()
                     matched_tracks_set = set()
-                    for r, c in zip(row_ind, col_ind):
-                        if gated[r, c] <= 0:
-                            continue
-                        det_global = u_det_idx[r]
-                        trk_global = elig[c]
+                    accepted = [(u_det_idx[r], elig[c]) for r, c in zip(row_ind, col_ind) if gated[r, c] > 0]
+                    self._ams_multi_update(
+                        [self.trackers[t] for _, t in accepted],
+                        dets[[d for d, _ in accepted]],
+                    )
+                    for det_global, trk_global in accepted:
                         matched_dets_set.add(det_global)
                         matched_tracks_set.add(trk_global)
-                        self._ams_update_obb(self.trackers[trk_global], dets[det_global, :])
                         self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
                     if matched_dets_set:
@@ -1131,6 +1157,7 @@ class OccluBoost(BoostTrack):
                 if (cost2 < 1.0).any():
                     row_ind, col_ind = linear_sum_assignment(cost2)
                     used = set()
+                    accepted = []
                     for r, c in zip(row_ind, col_ind):
                         if cost2[r, c] >= 1.0:
                             continue
@@ -1138,7 +1165,12 @@ class OccluBoost(BoostTrack):
                         if trk_global in used:
                             continue
                         used.add(trk_global)
-                        self._ams_update_obb(self.trackers[trk_global], dets_second[r, :])
+                        accepted.append((r, trk_global))
+                    self._ams_multi_update(
+                        [self.trackers[t] for _, t in accepted],
+                        dets_second[[r for r, _ in accepted]],
+                    )
+                    for r, trk_global in accepted:
                         if self.use_embeddings and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])

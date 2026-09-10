@@ -326,15 +326,19 @@ class BotSort(BoxTracker):
         u_track = first_result.unmatched_tracks
         u_detection = first_result.unmatched_dets
 
+        tracked_pairs = []
+        lost_pairs = []
         for itracked, idet in matches:
             track = strack_pool[itracked]
-            det = detections[idet]
+            pair = (track, detections[idet])
             if track.state == TrackState.Tracked:
-                track.update(detections[idet], self.frame_count)
+                tracked_pairs.append(pair)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                lost_pairs.append(pair)
                 refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
 
         return matches, u_track, u_detection
 
@@ -390,15 +394,19 @@ class BotSort(BoxTracker):
         u_track = second_result.unmatched_tracks
         u_detection = second_result.unmatched_dets
 
+        tracked_pairs = []
+        lost_pairs = []
         for itracked, idet in matches:
             track = r_tracked_stracks[itracked]
-            det = detections_second[idet]
+            pair = (track, detections_second[idet])
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_count)
+                tracked_pairs.append(pair)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                lost_pairs.append(pair)
                 refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
 
         for it in u_track:
             track = r_tracked_stracks[it]
@@ -436,9 +444,9 @@ class BotSort(BoxTracker):
         u_detection = unconfirmed_result.unmatched_dets
 
         # Update matched unconfirmed tracks
-        for itracked, idet in matches:
-            unconfirmed[itracked].update(detections[idet], self.frame_count)
-            activated_stracks.append(unconfirmed[itracked])
+        pairs = [(unconfirmed[itracked], detections[idet]) for itracked, idet in matches]
+        STrack.multi_update(pairs, self.frame_count)
+        activated_stracks.extend(track for track, _ in pairs)
 
         # Mark unmatched unconfirmed tracks as removed
         for it in u_unconfirmed:
@@ -480,15 +488,19 @@ class BotSort(BoxTracker):
         mark_removed=False,
     ):
         # Update or reactivate matched tracks
+        tracked_pairs = []
+        lost_pairs = []
         for itracked, idet in matches:
             track = strack_pool[itracked]
-            det = detections[idet]
+            pair = (track, detections[idet])
             if track.state == TrackState.Tracked:
-                track.update(det, self.frame_count)
+                tracked_pairs.append(pair)
                 activated_stracks.append(track)
             else:
-                track.re_activate(det, self.frame_count, new_id=False)
+                lost_pairs.append(pair)
                 refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
 
         # Mark only unmatched tracks as removed, if mark_removed flag is True
         if mark_removed:

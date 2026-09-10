@@ -299,6 +299,21 @@ class KalmanBoxTracker(SortBoxTrack):
         cls: Optional[int] = None,
         det_ind: Optional[int] = None,
     ):
+        """Correct a box and its appearance using the track's own history."""
+        measurement = self._prepare_update(bbox, id_feature, update_feature=update_feature, cls=cls, det_ind=det_ind)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(
+        self,
+        bbox,
+        id_feature,
+        update_feature: bool = True,
+        *,
+        cls: Optional[int] = None,
+        det_ind: Optional[int] = None,
+    ) -> np.ndarray | None:
+        """Prepare observation and appearance state for a grouped correction."""
         vlt = vrt = vlb = vrb = None
         if bbox is not None:
             if self.last_observation[-1] >= 0:
@@ -335,9 +350,6 @@ class KalmanBoxTracker(SortBoxTrack):
             self.history.clear()
             self.hits += 1
             self.hit_streak += 1
-            self.kf.update(self.motion_model.to_measurement(bbox))
-            self._append_current_history()
-
             # update metadata
             if cls is not None:
                 self.cls = int(cls)
@@ -351,19 +363,32 @@ class KalmanBoxTracker(SortBoxTrack):
                     self.update_features(id_feature)
             self.confidence_pre = self.conf
             self.conf = float(bbox[-1])
+            return self.motion_model.to_measurement(bbox)
+        self.confidence_pre = None
+        return None
+
+    def _finish_update(self, measurement: np.ndarray | None) -> None:
+        """Record corrected geometry after scalar or batched Kalman updates."""
+        if measurement is not None:
+            self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
-            self.kf.update(bbox)
-            self.confidence_pre = None
             sync_track_meta(self)
 
     def predict(self, *, dt: float | None = None) -> tuple[np.ndarray, float, float]:
         """Predict box and score over an optional elapsed time interval."""
+        self._prepare_prediction(dt=dt)
+        self.kf.predict(dt=dt)
+        return self._finish_prediction()
+
+    def _prepare_prediction(self, *, dt: float | None = None) -> None:
+        """Prevent the predicted area from becoming negative."""
         interval = 1.0 if dt is None else dt
         if (interval * self.kf.x[7] + self.kf.x[2]) <= 0:
             self.kf.x[7] *= 0.0
 
-        self.kf.predict(dt=dt)
+    def _finish_prediction(self) -> tuple[np.ndarray, float, float]:
+        """Advance counters and expose box and confidence predictions."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0

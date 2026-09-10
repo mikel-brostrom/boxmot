@@ -152,13 +152,69 @@ class Track:
         self.age += 1
         self.time_since_update += 1
 
+    @staticmethod
+    def _kalman_groups(tracks):
+        """Group stateless filters by numerical policy without sharing owners."""
+        groups = {}
+        for track in tracks:
+            kalman = track.kf
+            key = (
+                type(kalman),
+                kalman.noise_config,
+                kalman.dt,
+                kalman._std_weight_position,
+                kalman._std_weight_velocity,
+                kalman._motion_mat.tobytes(),
+                kalman._update_mat.tobytes(),
+            )
+            groups.setdefault(key, []).append(track)
+        return groups.values()
+
+    @classmethod
+    def multi_predict(cls, tracks, *, dt: float | None = None) -> None:
+        """Predict compatible track states together, retaining track-local ages."""
+        for group in cls._kalman_groups(tracks):
+            mean, covariance = group[0].kf.multi_predict(
+                np.asarray([track.mean for track in group]),
+                np.asarray([track.covariance for track in group]),
+                dt=dt,
+            )
+            for track, state, uncertainty in zip(group, mean, covariance):
+                track.mean, track.covariance = state, uncertainty
+                track.increment_age()
+
+    @classmethod
+    def multi_update(cls, pairs) -> None:
+        """Correct matched states together using each detection's confidence."""
+        pairs = list(pairs)
+        detections = {id(track): detection for track, detection in pairs}
+        for group in cls._kalman_groups(track for track, _ in pairs):
+            observations = [detections[id(track)] for track in group]
+            measurements = np.asarray([detection.to_measurement() for detection in observations])
+            mean, covariance = group[0].kf.multi_update(
+                np.asarray([track.mean for track in group]),
+                np.asarray([track.covariance for track in group]),
+                measurements,
+                np.asarray([detection.conf for detection in observations]),
+            )
+            for track, detection, measurement, state, uncertainty in zip(
+                group, observations, measurements, mean, covariance
+            ):
+                track.mean, track.covariance = state, uncertainty
+                track._finish_update(detection, measurement)
+
     def update(self, detection):
         """Perform Kalman filter measurement update and update the feature cache."""
-        self.bbox = detection.to_measurement()
+        measurement = detection.to_measurement()
+        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, measurement, detection.conf)
+        self._finish_update(detection, measurement)
+
+    def _finish_update(self, detection, measurement: np.ndarray) -> None:
+        """Update observation and appearance history after a correction."""
+        self.bbox = measurement
         self.conf = detection.conf
         self.cls = detection.cls
         self.det_ind = detection.det_ind
-        self.mean, self.covariance = self.kf.update(self.mean, self.covariance, self.bbox, self.conf)
         self._append_current_history()
 
         smooth_feat = ema_update_embedding(

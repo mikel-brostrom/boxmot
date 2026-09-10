@@ -116,6 +116,12 @@ class KalmanBoxTracker(SortBoxTrack):
         Updates the state vector with observed bbox.
         """
 
+        measurement = self._prepare_update(det)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(self, det) -> np.ndarray | None:
+        """Prepare appearance and motion observation history for correction."""
         if det is not None:
             bbox = np.asarray(det[0:5]).copy()
             self.conf = det[4]
@@ -143,12 +149,16 @@ class KalmanBoxTracker(SortBoxTrack):
             self.hits += 1
             self.hit_streak += 1
 
-            self.kf.update(self.bbox_to_z_func(bbox))
+            return self.bbox_to_z_func(bbox)
+        self.frozen = True
+        return None
+
+    def _finish_update(self, measurement: np.ndarray | None) -> None:
+        """Record display geometry after scalar or batched Kalman correction."""
+        if measurement is not None:
             self._append_current_history()
             sync_track_meta(self, TrackState.TRACKED)
         else:
-            self.kf.update(det)
-            self.frozen = True
             sync_track_meta(self)
 
     def update_emb(self, emb, alpha=0.9):
@@ -229,13 +239,18 @@ class KalmanBoxTracker(SortBoxTrack):
         """
         Advances the state vector and returns the predicted bounding box estimate.
         """
-        # Don't allow negative bounding boxes
+        self._prepare_prediction(dt=dt)
+        self.kf.predict(dt=dt)
+        return self._finish_prediction()
+
+    def _prepare_prediction(self, *, dt: float | None = None) -> None:
+        """Prevent the predicted area from becoming negative."""
         interval = 1.0 if dt is None else dt
         if (interval * self.kf.x[6] + self.kf.x[2]) <= 0:
             self.kf.x[6] *= 0.0
-        Q = None
 
-        self.kf.predict(Q=Q, dt=dt)
+    def _finish_prediction(self) -> np.ndarray:
+        """Advance counters after scalar or batched Kalman prediction."""
         self.age += 1
         if self.time_since_update > 0:
             self.hit_streak = 0
@@ -284,12 +299,16 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
         self.frozen = False
 
     def update(self, det):
+        measurement = self._prepare_update(det)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(self, det) -> np.ndarray | None:
+        """Adapt packed oriented detections to the shared OC-SORT lifecycle."""
+        self.frozen = det is None
         if det is None:
-            super().update(None, None, None)
-            self.frozen = True
-            return
-        super().update(det[:6], det[6], det[7])
-        self.frozen = False
+            return super()._prepare_update(None, None, None)
+        return super()._prepare_update(det[:6], det[6], det[7])
 
     def update_emb(self, emb, alpha=0.9):
         self.emb = ema_update_embedding(self.emb, emb, alpha=alpha)

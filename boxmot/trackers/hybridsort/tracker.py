@@ -23,6 +23,7 @@ from boxmot.trackers.common.association.hybrid import (
     confidence_difference,
 )
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.hybridsort.track import KalmanBoxTracker
@@ -226,8 +227,9 @@ class HybridSort(BoxTracker):
         # ---- Predict step for existing tracks
         trks = np.zeros((len(self.active_tracks), 6))
         to_del = []
+        predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         for t in range(len(trks)):
-            pos, kal_score, simple_score = self.active_tracks[t].predict(dt=self._prediction_dt)
+            pos, kal_score, simple_score = predictions[t]
             x1, y1, x2, y2 = pos[0].tolist()
             trks[t] = [x1, y1, x2, y2, kal_score, simple_score]
             if np.any(np.isnan(pos)):
@@ -305,14 +307,13 @@ class HybridSort(BoxTracker):
             unmatched_trks = np.arange(len(trks))
 
         # Update matched (update features here)  —— pass cls & det_ind (safe)
-        for m in matched:
-            det_i = m[0]
-            self.active_tracks[m[1]].update(
-                dets_first[det_i, :],
-                id_feature_keep[det_i, :],
-                cls=_safe_cls(cls_keep[det_i]),
-                det_ind=int(det_inds_keep[det_i]),
-            )
+        update_tracks(
+            [self.active_tracks[t] for _, t in matched],
+            [dets_first[d] for d, _ in matched],
+            [id_feature_keep[d] for d, _ in matched],
+            cls=[_safe_cls(cls_keep[d]) for d, _ in matched],
+            det_ind=[int(det_inds_keep[d]) for d, _ in matched],
+        )
 
         # ===== BYTE / low-score association (optional)
         if self.use_byte and len(dets_low) > 0 and unmatched_trks.shape[0] > 0:
@@ -331,6 +332,7 @@ class HybridSort(BoxTracker):
                 else:
                     matched_indices = solve_assignment(-similarity)
                 to_remove_trk_indices = []
+                accepted_detections = []
                 for mm in matched_indices:
                     det_rel, trk_rel = mm[0], mm[1]
                     trk_ind = unmatched_trks[trk_rel]
@@ -342,15 +344,16 @@ class HybridSort(BoxTracker):
                     else:
                         if threshold_similarity[det_rel, trk_rel] < self.iou_threshold:
                             continue
-                    # do not update features in BYTE pass
-                    self.active_tracks[trk_ind].update(
-                        dets_low[det_rel, :],
-                        id_feature_second[det_rel, :],
-                        update_feature=False,
-                        cls=_safe_cls(cls_second[det_rel]),
-                        det_ind=int(det_inds_second[det_rel]),
-                    )
+                    accepted_detections.append(det_rel)
                     to_remove_trk_indices.append(trk_ind)
+                update_tracks(
+                    [self.active_tracks[t] for t in to_remove_trk_indices],
+                    [dets_low[d] for d in accepted_detections],
+                    [id_feature_second[d] for d in accepted_detections],
+                    update_feature=[False] * len(accepted_detections),
+                    cls=[_safe_cls(cls_second[d]) for d in accepted_detections],
+                    det_ind=[int(det_inds_second[d]) for d in accepted_detections],
+                )
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
         # ===== Final chance: IoU vs last boxes
@@ -368,15 +371,16 @@ class HybridSort(BoxTracker):
                         continue
                     det_abs = unmatched_dets[det_rel]
                     trk_abs = unmatched_trks[trk_rel]
-                    self.active_tracks[trk_abs].update(
-                        dets_first[det_abs, :],
-                        id_feature_keep[det_abs, :],
-                        update_feature=False,
-                        cls=_safe_cls(cls_keep[det_abs]),
-                        det_ind=int(det_inds_keep[det_abs]),
-                    )
                     to_remove_det_indices.append(det_abs)
                     to_remove_trk_indices.append(trk_abs)
+                update_tracks(
+                    [self.active_tracks[t] for t in to_remove_trk_indices],
+                    [dets_first[d] for d in to_remove_det_indices],
+                    [id_feature_keep[d] for d in to_remove_det_indices],
+                    update_feature=[False] * len(to_remove_det_indices),
+                    cls=[_safe_cls(cls_keep[d]) for d in to_remove_det_indices],
+                    det_ind=[int(det_inds_keep[d]) for d in to_remove_det_indices],
+                )
                 unmatched_dets = np.setdiff1d(unmatched_dets, np.array(to_remove_det_indices))
                 unmatched_trks = np.setdiff1d(unmatched_trks, np.array(to_remove_trk_indices))
 
@@ -444,8 +448,9 @@ class HybridSort(BoxTracker):
 
         predicted = []
         valid_tracks = []
-        for track in self.active_tracks:
-            prediction = np.asarray(track.predict(dt=self._prediction_dt)[0][:5], dtype=np.float32)
+        predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
+        for track, state in zip(self.active_tracks, predictions, strict=True):
+            prediction = np.asarray(state[0][:5], dtype=np.float32)
             if np.isfinite(prediction).all():
                 predicted.append(prediction)
                 valid_tracks.append(track)
@@ -475,9 +480,14 @@ class HybridSort(BoxTracker):
                 )
                 if not (poor_geometry and poor_appearance):
                     accepted.append((det_index, track_index))
+            update_tracks(
+                [self.active_tracks[t] for _, t in accepted],
+                [high_dets[d, :6] for d, _ in accepted],
+                [high.clss[d] for d, _ in accepted],
+                [high.det_inds[d] for d, _ in accepted],
+            )
             for det_index, track_index in accepted:
                 track = self.active_tracks[track_index]
-                track.update(high_dets[det_index, :6], high.clss[det_index], high.det_inds[det_index])
                 track.smooth_feat = ema_update_embedding(track.smooth_feat, high_embs[det_index], alpha=self.alpha)
                 track.conf = high.confs[det_index]
             unmatched_dets = np.setdiff1d(unmatched_dets, [pair[0] for pair in accepted])
@@ -487,11 +497,12 @@ class HybridSort(BoxTracker):
             similarity = self.asso_func(low.boxes, predicted[unmatched_tracks])
             pairs = solve_assignment(-similarity)
             accepted = [(d, t) for d, t in pairs if similarity[d, t] >= self.iou_threshold]
-            for det_index, relative_track in accepted:
-                track_index = unmatched_tracks[relative_track]
-                self.active_tracks[track_index].update(
-                    low_dets[det_index, :6], low.clss[det_index], low.det_inds[det_index]
-                )
+            update_tracks(
+                [self.active_tracks[unmatched_tracks[t]] for _, t in accepted],
+                [low_dets[d, :6] for d, _ in accepted],
+                [low.clss[d] for d, _ in accepted],
+                [low.det_inds[d] for d, _ in accepted],
+            )
             unmatched_tracks = np.setdiff1d(unmatched_tracks, [unmatched_tracks[pair[1]] for pair in accepted])
 
         for track_index in unmatched_tracks:
