@@ -67,7 +67,7 @@ def test_visualization_receives_evaluated_masks_ids_and_all_native_frames(
     data = _fixture(tmp_path)
     # Make the first pedestrian mask overlap a car pixel. Final MOTS preparation
     # must resolve it identically for visualization and the written evaluation.
-    detections_path = data.root / "trackrcnn_detections/0002.txt"
+    detections_path = data.reader_paths["detections_2d"]
     lines = detections_path.read_text().splitlines()
     fields = lines[0].split()
     mask = mask_utils.decode({"size": [24, 48], "counts": fields[9].encode("ascii")})
@@ -112,7 +112,7 @@ def test_visualization_receives_evaluated_masks_ids_and_all_native_frames(
         assert sample.frame.timestamp_s == sample.timestamp_s
         assert sample.frame.frame_index == sample.frame_index
         assert sample.frame.sample_id == sample.sample_id == tracks.sample_id
-        assert sample.image_ref == (data.images / "0002" / f"{sample.frame_index:06d}.png").as_uri()
+        assert sample.image_ref == (data.reader_paths["images"] / f"{sample.frame_index:06d}.png").as_uri()
         rows = written.get(sample.frame_index, ())
         assert tracks.track_ids.tolist() == [row.track_id for row in rows]
         assert tracks.class_ids.tolist() == [row.class_id for row in rows]

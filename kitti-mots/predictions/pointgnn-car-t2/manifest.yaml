@@ -1,0 +1,20 @@
+format: pointgnn
+version: 1
+id: pointgnn-car-t2
+classes:
+  1: car
+path: '{partition}/{sequence}'
+sequences:
+  training:
+  - "0002"
+  - "0006"
+  - "0007"
+  - "0008"
+  - "0010"
+  - "0013"
+  - "0014"
+  - "0016"
+  - "0018"
+provenance:
+  source_directory: results_tracking_car_auto_t2_train
+  training: not independently verified

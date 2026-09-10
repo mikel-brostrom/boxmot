@@ -19,7 +19,8 @@ from boxmot.components.resolution import ArtifactResolver, freeze_json
 from boxmot.datasets import DatasetManifest
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import resolve_detector_spec
-from boxmot.engine.dataset_resources import ensure_dataset_split_available
+from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.config.trackers import resolve_tracker_options, validate_image_tracker
 from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
@@ -29,15 +30,14 @@ from boxmot.engine.eval.motmetrics import run_motmetrics as _run_motmetrics
 from boxmot.engine.eval.output import increment_path
 from boxmot.engine.eval.replay import replay_build
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
-from boxmot.engine.experiment_config import resolve_experiment_config
-from boxmot.engine.logging import suppress_boxmot_logs
 from boxmot.engine.materialization import fingerprint
 from boxmot.engine.materialization.builds import resolve_build_path, validate_build_compatibility
 from boxmot.engine.materialization.catalog import (
     resolve_dataset_annotation_root,
     resolve_dataset_split_root,
 )
-from boxmot.engine.tracker_config import resolve_tracker_options, validate_image_tracker
+from boxmot.engine.materialization.resources import ensure_dataset_split_available
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.eval import (
     EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
@@ -525,7 +525,7 @@ def main(args: argparse.Namespace) -> ValidationResult:
         calibration = None
         with suppress_boxmot_logs(True, level="WARNING"):
             if getattr(args, "calibrate_kf", False):
-                from boxmot.engine.tuning.kalman import calibrate_kalman
+                from boxmot.engine.calibration.kalman import calibrate_kalman
 
                 eval_setup(args, pipeline=pipeline)
                 output_dir = _output_directory(args, None)

@@ -14,7 +14,7 @@ from boxmot.engine.commands._options import (
     tracker_config_option,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _is_option_explicit
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 
 def _singular_model_options(func):

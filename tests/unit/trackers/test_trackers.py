@@ -11,12 +11,12 @@ import torch
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.tracker import OcSort
-from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
-from boxmot.trackers.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.common.config import load_tracker_config, load_tracker_defaults
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.deepocsort.tracker import DeepOcSort
+from boxmot.trackers.hybridsort.tracker import HybridSort
+from boxmot.trackers.ocsort.tracker import OcSort
+from boxmot.trackers.sfsort.tracker import SFSORT
 
 TRACKER_NAMES = tuple(
     name for name, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d

@@ -11,7 +11,7 @@ from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import PerceptionPipeline, PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 
 def _frame(

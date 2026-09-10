@@ -125,7 +125,7 @@ jobs:
           source .venv/bin/activate
           boxmot build
           python - <<'PY'
-          from boxmot.trackers.registry import supported_native_trackers
+          from boxmot.trackers.common.registry import supported_native_trackers
           names = supported_native_trackers()
           print("Registered cpp backends:", list(names))
           assert names == ("botsort", "bytetrack", "occluboost", "ocsort", "sfsort")

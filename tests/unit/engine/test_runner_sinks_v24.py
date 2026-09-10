@@ -379,6 +379,8 @@ def test_live_workflow_composes_injected_components_through_runner() -> None:
 
 
 def test_live_component_specs_apply_device_and_reid_precision_controls(monkeypatch) -> None:
+    monkeypatch.setattr(torch.backends.mps, "is_built", lambda: True)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)
     detector_spec = DetectorSpec(
         "fixture",
         device="profile-device",

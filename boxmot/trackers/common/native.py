@@ -10,10 +10,10 @@ import numpy as np
 import torch
 
 from boxmot.components.timing import timed_component_phase
-from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS, normalize_kalman_options
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
+from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.input import (
     frame_image_size,
@@ -21,8 +21,12 @@ from boxmot.trackers.common.input import (
     parse_numpy_detection_rows,
     prepare_frame,
 )
-from boxmot.trackers.config import load_tracker_defaults
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_OPTIONS,
+    KALMAN_TIMING_OPTIONS,
+    normalize_kalman_options,
+)
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 ASSOCIATION_FUNCTIONS = frozenset({"centroid", "ciou", "diou", "giou", "hmiou", "iou"})
 

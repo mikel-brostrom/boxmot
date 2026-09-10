@@ -54,7 +54,7 @@ from boxmot.engine.commands._options import tracker_config_option
 )
 def eval_trackrcnn(**kwargs: Any) -> None:
     """Replay supplied detections and real image frames with class-separated tracking."""
-    from boxmot.engine.config import build_mode_namespace
+    from boxmot.engine.config.runtime import build_mode_namespace
 
     try:
         from boxmot.engine.eval.trackrcnn import run_trackrcnn

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,8 +19,8 @@ from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.datasets.manifest import sha256_file
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
+from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.eval.replay import iter_cached_tracks
-from boxmot.engine.experiment_config import resolve_experiment_config
 from boxmot.engine.materialization import SourceSample, StagePlan, fingerprint
 from boxmot.engine.materialization.catalog import SourceCatalog
 from boxmot.reid import ReIDEncoderSpec
@@ -141,12 +142,24 @@ def test_automatic_component_device_resolves_to_command_default(spec) -> None:
     assert updated_provenance["spec"]["device"] == "cpu"
 
 
+@pytest.mark.parametrize("spec_type", [DetectorSpec, SegmentorSpec, ReIDEncoderSpec])
 @pytest.mark.parametrize(
     ("value", "expected"),
     (("cpu", "cpu"), ("MPS", "mps"), ("0", "cuda:0"), ("cuda", "cuda:0"), ("cuda:02", "cuda:2")),
 )
-def test_materialization_device_normalization(value: str, expected: str) -> None:
-    assert workflow._normalize_device(value) == expected
+def test_authored_component_devices_are_canonical_in_runtime_and_fingerprints(
+    spec_type, value: str, expected: str
+) -> None:
+    spec = spec_type("fixture", device=value)
+    original = {"spec": asdict(spec), "artifact": None}
+
+    updated, provenance = workflow._with_device(spec, original, None)
+    canonical = {"spec": asdict(spec_type("fixture", device=expected)), "artifact": None}
+
+    assert updated.device == expected
+    assert provenance["spec"]["device"] == expected
+    assert fingerprint(provenance) == fingerprint(canonical)
+    assert original["spec"]["device"] == value
 
 
 def test_only_an_explicit_cli_device_overrides_component_configuration() -> None:
@@ -155,6 +168,31 @@ def test_only_an_explicit_cli_device_overrides_component_configuration() -> None
 
     assert workflow._device_override(implicit) is None
     assert workflow._device_override(explicit) == "mps"
+
+
+def test_explicit_unavailable_device_fails_before_source_cataloging(monkeypatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(workflow, "_resolved_inputs", lambda *args, **kwargs: pytest.fail("Unexpected cataloging"))
+
+    with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
+        workflow.materialize(SimpleNamespace(device="2", materialize_explicit_keys=("device",)))
+
+
+def test_authored_unavailable_device_fails_before_component_execution(monkeypatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        workflow,
+        "_resolved_inputs",
+        lambda *args, **kwargs: ("fixture", "aabb", SimpleNamespace(samples=()), "fixture", None, None, {}),
+    )
+    authored = DetectorSpec("fixture", device="2")
+    monkeypatch.setattr(
+        workflow, "resolve_detector_spec", lambda *args, **kwargs: (authored, {"spec": asdict(authored)})
+    )
+    monkeypatch.setattr(workflow, "detector_capabilities", lambda *args: pytest.fail("Unexpected component setup"))
+
+    with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
+        workflow.materialize(SimpleNamespace(device="cpu", materialize_explicit_keys=()))
 
 
 def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeypatch, tmp_path) -> None:
@@ -610,7 +648,7 @@ def test_workflow_does_not_plan_masks_for_builtin_reid(monkeypatch, tmp_path) ->
 
 
 def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(workflow, "_require_available_device", lambda _device: None)
+    monkeypatch.setattr(workflow, "resolve_device", torch.device)
     source_path = tmp_path / "frame.jpg"
     assert cv2.imwrite(str(source_path), np.zeros((8, 10, 3), dtype=np.uint8))
     sample = SourceSample(
@@ -739,7 +777,7 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
             {"spec": {"backend": "fixture", "device": "cpu"}, "artifact": None},
         ),
     )
-    monkeypatch.setattr(workflow, "_require_available_device", lambda _device: None)
+    monkeypatch.setattr(workflow, "resolve_device", torch.device)
     monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: DetectorCapabilities())
     captured = []
 

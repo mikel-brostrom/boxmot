@@ -8,15 +8,15 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-import boxmot.trackers.factory as tracker_factory
-import boxmot.trackers.registry as tracker_registry
-from boxmot._tracker_exports import _TRACKER_MANIFEST
+import boxmot.trackers.common.factory as tracker_factory
+import boxmot.trackers.common.registry as tracker_registry
 from boxmot.structures import GeometryKind
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
-from boxmot.trackers.protocols import TrackerRequirements
-from boxmot.trackers.registry import supported_native_trackers
-from boxmot.trackers.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.common.registry import supported_native_trackers
+from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
 
 
 def test_tracker_public_mappings_are_derived_from_the_lazy_manifest() -> None:
@@ -38,13 +38,13 @@ def test_native_registry_matches_the_lazy_tracker_manifest() -> None:
 def test_native_factory_validates_registered_geometry_modes() -> None:
     definition = tracker_registry.TrackerDefinition(
         name="bytetrack",
-        class_path="boxmot.trackers.box.bytetrack.tracker.ByteTrack",
+        class_path="boxmot.trackers.bytetrack.tracker.ByteTrack",
         capabilities=TrackerCapabilities(
             family=TrackerFamily.BOX,
             geometry_kinds=frozenset({GeometryKind.AABB, GeometryKind.OBB}),
             accepts_frame=True,
         ),
-        native_class_path="boxmot.trackers.box.bytetrack.native.NativeByteTrackTracker",
+        native_class_path="boxmot.trackers.bytetrack.native.NativeByteTrackTracker",
         native_geometry_kinds=frozenset({GeometryKind.AABB}),
     )
 

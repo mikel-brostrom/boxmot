@@ -6,19 +6,19 @@ import pytest
 import torch
 
 from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.box.boosttrack.tracker import BoostTrack
-from boxmot.trackers.box.botsort.tracker import BotSort
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
-from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.occluboost.tracker import OccluBoost
-from boxmot.trackers.box.ocsort.tracker import OcSort
-from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.box.strongsort.tracker import StrongSort
+from boxmot.trackers.boosttrack.tracker import BoostTrack
+from boxmot.trackers.botsort.tracker import BotSort
+from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.multimodal.maf_hda.tracker import MafHda
-from boxmot.trackers.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.deepocsort.tracker import DeepOcSort
+from boxmot.trackers.hybridsort.tracker import HybridSort
+from boxmot.trackers.maf_hda.tracker import MafHda
+from boxmot.trackers.occluboost.tracker import OccluBoost
+from boxmot.trackers.ocsort.tracker import OcSort
+from boxmot.trackers.sfsort.tracker import SFSORT
+from boxmot.trackers.strongsort.tracker import StrongSort
 
 TrackerFactory = Callable[..., BaseTracker]
 

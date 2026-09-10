@@ -12,6 +12,12 @@ PACKAGE_ROOT = Path(__file__).resolve().parents[2] / "boxmot"
 
 DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
     {
+        # Resource downloads reuse shared metadata-only dependency validation;
+        # package installation remains engine-owned.
+        (
+            "boxmot/resources/download.py",
+            "boxmot.utils.dependencies",
+        ),
         # Appearance-enabled tracker adapters intentionally own lazy ReID
         # inference when detections arrive without precomputed embeddings.
         (
@@ -33,7 +39,7 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
         # The optional tracker-owned ReID protocol names the immutable encoder
         # specification accepted by its public configuration boundary.
         (
-            "boxmot/trackers/protocols.py",
+            "boxmot/trackers/common/protocols.py",
             "boxmot.reid.specs",
         ),
     }
@@ -41,6 +47,7 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
 
 REMOVED_V24_MODULES = (
     "boxmot.api",
+    "boxmot.motion",
     "boxmot.core.box_schema",
     "boxmot.data",
     "boxmot.detectors._factory_registry",
@@ -50,11 +57,21 @@ REMOVED_V24_MODULES = (
     "boxmot.engine.sources",
     "boxmot.engine.eval.cache",
     "boxmot.engine.experiments",
+    "boxmot.engine.experiment_config",
+    "boxmot.engine.tracker_config",
+    "boxmot.engine.dataset_resources",
+    "boxmot.engine.frame_timing",
+    "boxmot.engine.logging",
+    "boxmot.engine.dependencies",
     "boxmot.engine.presentation",
     "boxmot.engine.reid",
     "boxmot.engine.commands.reid.base",
     "boxmot.engine.tracking.results",
     "boxmot.engine.tracking.setup_timing",
+    "boxmot.engine.tuning.ground_truth_noise",
+    "boxmot.engine.tuning.kalman",
+    "boxmot.engine.tuning.kalman_data",
+    "boxmot.engine.tuning.kalman_model",
     "boxmot.engine.workflows",
     "boxmot.reid._factory_registry",
     "boxmot.segmentors.registry",
@@ -88,6 +105,13 @@ REMOVED_V24_FILES = (
     "engine/sinks.py",
     "engine/sources.py",
     "engine/eval/cache.py",
+    "engine/config.py",
+    "engine/experiment_config.py",
+    "engine/tracker_config.py",
+    "engine/dataset_resources.py",
+    "engine/frame_timing.py",
+    "engine/logging.py",
+    "engine/dependencies.py",
     "engine/experiments/__init__.py",
     "engine/experiments/artifacts.py",
     "engine/experiments/builds.py",
@@ -100,6 +124,10 @@ REMOVED_V24_FILES = (
     "engine/commands/reid/base.py",
     "engine/tracking/results.py",
     "engine/tracking/setup_timing.py",
+    "engine/tuning/ground_truth_noise.py",
+    "engine/tuning/kalman.py",
+    "engine/tuning/kalman_data.py",
+    "engine/tuning/kalman_model.py",
     "engine/workflows/__init__.py",
     "engine/workflows/materialize_dataset.py",
     "engine/workflows/reid_ablation.py",
@@ -148,6 +176,7 @@ REMOVED_V24_FILES = (
 
 REMOVED_V24_PACKAGES = (
     "boxmot.api",
+    "boxmot.motion",
     "boxmot.core",
     "boxmot.data",
     "boxmot.engine.experiments",
@@ -161,6 +190,7 @@ REMOVED_V24_PACKAGES = (
 )
 
 REMOVED_V24_DIRECTORIES = (
+    "motion",
     "engine/experiments",
     "engine/presentation",
     "engine/workflows",
@@ -171,12 +201,22 @@ REMOVED_V24_DIRECTORIES = (
 )
 
 MOVED_ENGINE_MODULES = (
+    "boxmot.engine.experiment_config",
+    "boxmot.engine.tracker_config",
+    "boxmot.engine.dataset_resources",
+    "boxmot.engine.frame_timing",
+    "boxmot.engine.logging",
+    "boxmot.engine.dependencies",
     "boxmot.engine.artifacts",
     "boxmot.engine.builds",
     "boxmot.engine.catalog",
     "boxmot.engine.component_specs",
     "boxmot.engine.dataset_config",
     "boxmot.engine.experiment",
+    "boxmot.engine.tuning.ground_truth_noise",
+    "boxmot.engine.tuning.kalman",
+    "boxmot.engine.tuning.kalman_data",
+    "boxmot.engine.tuning.kalman_model",
 )
 
 REMOVED_COMPONENT_INFRASTRUCTURE_MODULES = (
@@ -194,6 +234,21 @@ REMOVED_UTILITY_MODULES = (
     "boxmot.utils.timing",
 )
 
+MOVED_TRACKER_SUPPORT_MODULES = (
+    "boxmot.trackers.base",
+    "boxmot.trackers.config",
+    "boxmot.trackers.factory",
+    "boxmot.trackers.protocols",
+    "boxmot.trackers.registry",
+    "boxmot.trackers.specs",
+)
+
+REMOVED_TRACKER_FAMILY_PACKAGES = (
+    "boxmot.trackers.box",
+    "boxmot.trackers.mask",
+    "boxmot.trackers.multimodal",
+)
+
 ENGINE_COMMAND_LAYOUT = (
     "engine/commands/__init__.py",
     "engine/commands/_options.py",
@@ -201,8 +256,10 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/build.py",
     "engine/commands/eagermot.py",
     "engine/commands/eval.py",
+    "engine/commands/install.py",
     "engine/commands/materialize.py",
     "engine/commands/research.py",
+    "engine/commands/sensor_tune.py",
     "engine/commands/time_variant.py",
     "engine/commands/track.py",
     "engine/commands/trackrcnn.py",
@@ -222,14 +279,26 @@ ENGINE_COMMAND_LAYOUT = (
 ENGINE_OWNERSHIP_LAYOUT = (
     "datasets/config.py",
     *ENGINE_COMMAND_LAYOUT,
-    "engine/experiment_config.py",
+    "engine/calibration/__init__.py",
+    "engine/calibration/ground_truth_noise.py",
+    "engine/calibration/kalman.py",
+    "engine/calibration/kalman_data.py",
+    "engine/calibration/kalman_model.py",
+    "engine/config/__init__.py",
+    "engine/config/runtime.py",
+    "engine/config/experiments.py",
+    "engine/config/trackers.py",
     "engine/eval/output.py",
-    "engine/logging.py",
     "engine/materialization/builds.py",
     "engine/materialization/catalog.py",
+    "engine/materialization/resources.py",
     "engine/tracking/timing.py",
+    "engine/tracking/timestamps.py",
+    "engine/tuning/calibration_profile.py",
+    "engine/tuning/eagermot_kitti.py",
     "engine/tuning/results.py",
     "engine/ui/__init__.py",
+    "engine/ui/logging.py",
     "engine/ui/core/ui.py",
     "engine/ui/reporters/materialize.py",
     "engine/ui/reporters/validation.py",
@@ -250,34 +319,50 @@ RESOURCE_OWNERSHIP_LAYOUT = (
     "resources/paths.py",
 )
 
-TRACKER_TAXONOMY_LAYOUT = (
-    "trackers/box/__init__.py",
-    "trackers/box/base.py",
-    "trackers/box/geometry.py",
-    "trackers/box/boosttrack/__init__.py",
-    "trackers/box/boosttrack/tracker.py",
-    "trackers/box/botsort/__init__.py",
-    "trackers/box/botsort/tracker.py",
-    "trackers/box/bytetrack/__init__.py",
-    "trackers/box/bytetrack/tracker.py",
-    "trackers/box/deepocsort/__init__.py",
-    "trackers/box/deepocsort/tracker.py",
-    "trackers/box/hybridsort/__init__.py",
-    "trackers/box/hybridsort/tracker.py",
-    "trackers/box/occluboost/__init__.py",
-    "trackers/box/occluboost/tracker.py",
-    "trackers/box/ocsort/__init__.py",
-    "trackers/box/ocsort/tracker.py",
-    "trackers/box/sfsort/__init__.py",
-    "trackers/box/sfsort/tracker.py",
-    "trackers/box/strongsort/__init__.py",
-    "trackers/box/strongsort/tracker.py",
-    "trackers/mask/__init__.py",
-    "trackers/multimodal/__init__.py",
-    "trackers/multimodal/eagermot/__init__.py",
-    "trackers/multimodal/eagermot/tracker.py",
-    "trackers/multimodal/maf_hda/__init__.py",
-    "trackers/multimodal/maf_hda/tracker.py",
+TRACKER_OWNERSHIP_LAYOUT = (
+    "trackers/common/base.py",
+    "trackers/common/config.py",
+    "trackers/common/factory.py",
+    "trackers/common/manifest.py",
+    "trackers/common/protocols.py",
+    "trackers/common/registry.py",
+    "trackers/common/specs.py",
+    "trackers/common/box/__init__.py",
+    "trackers/common/box/base.py",
+    "trackers/common/box/geometry.py",
+    "trackers/common/motion/__init__.py",
+    "trackers/common/motion/models.py",
+    "trackers/common/motion/tracker.py",
+    "trackers/common/motion/cmc/__init__.py",
+    "trackers/common/motion/cmc/base.py",
+    "trackers/common/motion/cmc/registry.py",
+    "trackers/common/motion/cmc/integration.py",
+    "trackers/common/motion/kalman_filters/__init__.py",
+    "trackers/common/motion/kalman_filters/base.py",
+    "trackers/common/motion/kalman_filters/noise.py",
+    "trackers/common/motion/kalman_filters/fitting.py",
+    "trackers/boosttrack/__init__.py",
+    "trackers/boosttrack/tracker.py",
+    "trackers/botsort/__init__.py",
+    "trackers/botsort/tracker.py",
+    "trackers/bytetrack/__init__.py",
+    "trackers/bytetrack/tracker.py",
+    "trackers/deepocsort/__init__.py",
+    "trackers/deepocsort/tracker.py",
+    "trackers/hybridsort/__init__.py",
+    "trackers/hybridsort/tracker.py",
+    "trackers/occluboost/__init__.py",
+    "trackers/occluboost/tracker.py",
+    "trackers/ocsort/__init__.py",
+    "trackers/ocsort/tracker.py",
+    "trackers/sfsort/__init__.py",
+    "trackers/sfsort/tracker.py",
+    "trackers/strongsort/__init__.py",
+    "trackers/strongsort/tracker.py",
+    "trackers/eagermot/__init__.py",
+    "trackers/eagermot/tracker.py",
+    "trackers/maf_hda/__init__.py",
+    "trackers/maf_hda/tracker.py",
 )
 
 
@@ -331,6 +416,10 @@ def _matches(module: str, forbidden: str) -> bool:
 @pytest.mark.parametrize(
     ("package", "forbidden"),
     [
+        (
+            "boxmot.engine.calibration",
+            {"boxmot.engine.tuning", "ray", "optuna", "hyperopt"},
+        ),
         (
             "boxmot.resources",
             {
@@ -493,6 +582,13 @@ def test_engine_ownership_layout_is_exact() -> None:
     assert missing == []
 
 
+def test_engine_root_contains_only_cli_composition() -> None:
+    """Workflow support belongs beside its owning engine subsystem."""
+
+    engine_files = {path.name for path in (PACKAGE_ROOT / "engine").glob("*.py")}
+    assert engine_files == {"__init__.py", "cli.py"}
+
+
 def test_component_resolution_is_owned_by_domain_packages() -> None:
     missing = [relative for relative in DOMAIN_RESOLUTION_LAYOUT if not (PACKAGE_ROOT / relative).is_file()]
     assert missing == []
@@ -518,9 +614,9 @@ def test_engine_command_adapters_do_not_import_cli_composition_root() -> None:
     assert violations == []
 
 
-def test_engine_config_does_not_import_reid_domain() -> None:
-    path = PACKAGE_ROOT / "engine" / "config.py"
-    imports = _absolute_imports(path, "boxmot.engine")
+def test_engine_runtime_config_does_not_import_reid_domain() -> None:
+    path = PACKAGE_ROOT / "engine" / "config" / "runtime.py"
+    imports = _absolute_imports(path, "boxmot.engine.config")
     assert not any(_matches(imported, "boxmot.reid") for imported in imports)
 
 
@@ -529,14 +625,25 @@ def test_resource_ownership_layout_is_exact() -> None:
     assert missing == []
 
 
-def test_tracker_representation_taxonomy_is_present() -> None:
-    missing = [relative for relative in TRACKER_TAXONOMY_LAYOUT if not (PACKAGE_ROOT / relative).is_file()]
+def test_tracker_shared_support_and_algorithm_ownership_is_present() -> None:
+    missing = [relative for relative in TRACKER_OWNERSHIP_LAYOUT if not (PACKAGE_ROOT / relative).is_file()]
     assert missing == []
 
 
 def test_utils_contains_only_cross_domain_helpers() -> None:
     utility_files = {path.name for path in (PACKAGE_ROOT / "utils").glob("*.py")}
-    assert utility_files == {"__init__.py", "checks.py", "config.py", "torch_utils.py"}
+    assert utility_files == {"__init__.py", "config.py", "dependencies.py", "devices.py"}
+
+
+def test_dependency_validation_has_no_installer_or_legacy_checker_module() -> None:
+    """Runtime validation stays separate from engine-owned installation."""
+
+    dependency_module = PACKAGE_ROOT / "utils" / "dependencies.py"
+    imports = _absolute_imports(dependency_module, "boxmot.utils")
+
+    assert not any(_matches(imported, "subprocess") or _matches(imported, "boxmot") for imported in imports)
+    assert not (PACKAGE_ROOT / "utils" / "checks.py").exists()
+    assert importlib.util.find_spec("boxmot.utils.checks") is None
 
 
 @pytest.mark.parametrize("module_name", MOVED_ENGINE_MODULES)
@@ -557,6 +664,8 @@ def test_moved_utility_modules_are_not_importable(module_name: str) -> None:
 @pytest.mark.parametrize(
     ("relative", "package"),
     [
+        ("engine/calibration/__init__.py", "boxmot.engine.calibration"),
+        ("engine/config/__init__.py", "boxmot.engine.config"),
         ("engine/ui/__init__.py", "boxmot.engine.ui"),
         ("engine/ui/reporters/__init__.py", "boxmot.engine.ui.reporters"),
         ("engine/ui/workflow/__init__.py", "boxmot.engine.ui.workflow"),
@@ -599,6 +708,18 @@ def test_source_tree_never_imports_removed_v24_modules() -> None:
         package = _containing_package(path)
         for imported in sorted(_absolute_imports(path, package)):
             if any(_matches(imported, prefix) for prefix in REMOVED_V24_MODULES):
+                violations.append(f"{path.relative_to(PACKAGE_ROOT.parent)} imports {imported}")
+    assert violations == []
+
+
+def test_source_tree_uses_canonical_tracker_support_and_algorithm_paths() -> None:
+    """Reject callers that retain imports from the previous tracker layout."""
+
+    removed_modules = (*MOVED_TRACKER_SUPPORT_MODULES, *REMOVED_TRACKER_FAMILY_PACKAGES)
+    violations: list[str] = []
+    for path in PACKAGE_ROOT.rglob("*.py"):
+        for imported in sorted(_absolute_imports(path, _containing_package(path))):
+            if any(_matches(imported, prefix) for prefix in removed_modules):
                 violations.append(f"{path.relative_to(PACKAGE_ROOT.parent)} imports {imported}")
     assert violations == []
 

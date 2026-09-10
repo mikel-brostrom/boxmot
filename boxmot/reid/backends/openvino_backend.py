@@ -3,7 +3,7 @@ from pathlib import Path
 import numpy as np
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
-from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
+from boxmot.reid.backends.dependencies import require_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -17,7 +17,7 @@ class OpenVinoBackend(BaseModelBackend):
         self.half = half
 
     def load_model(self, w):
-        ensure_reid_backend_requirements(self.checker, "openvino")
+        require_reid_backend_requirements("openvino")
 
         LOGGER.info(f"Loading {w} for OpenVINO inference...")
         from openvino import Core, Layout

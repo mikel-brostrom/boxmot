@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands import _support
-from boxmot.engine.config import build_mode_namespace
+from boxmot.engine.config.runtime import build_mode_namespace
 
 
 def test_time_variant_dispatch_uses_only_dataset_derivation_options(monkeypatch) -> None:

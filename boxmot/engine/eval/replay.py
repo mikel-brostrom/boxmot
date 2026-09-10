@@ -21,6 +21,7 @@ from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
 from boxmot.datasets.schema import SAMPLES_ARTIFACT
 from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
+from boxmot.engine.config.trackers import validate_image_tracker
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.materialization.builds import (
     BuildCompatibilityError,
@@ -28,7 +29,6 @@ from boxmot.engine.materialization.builds import (
     resolve_build_path,
     validate_build_compatibility,
 )
-from boxmot.engine.tracker_config import validate_image_tracker
 from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec

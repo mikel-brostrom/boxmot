@@ -19,8 +19,8 @@ from boxmot.engine.tuning.search_space import (
     yaml_to_tune_space,
 )
 from boxmot.engine.tuning.tuner import Tuner
-from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
-from boxmot.trackers.config import load_tracker_defaults
+from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])

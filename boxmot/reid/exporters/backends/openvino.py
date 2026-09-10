@@ -4,7 +4,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class OpenVINOExporter(BaseExporter):
-    group = "openvino"
+    extra = "openvino"
 
     def __init__(
         self,

@@ -19,29 +19,27 @@ from boxmot.datasets.kitti_fusion import KittiFusionSequence
 from boxmot.engine.cli import boxmot
 from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame, load_kitti_profiles
 from boxmot.engine.eval.mots_io import read_mots_results
+from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
 mask_utils = pytest.importorskip("pycocotools.mask")
 
 
 def _fixture(tmp_path: Path) -> SimpleNamespace:
     """Write real KITTI inputs with two objects separated by a complete sensor dropout."""
-    root, images, instances = (tmp_path / name for name in ("sensor-inputs", "images", "instances"))
-    for directory in (root / "calib/training/calib", root / "ego_motion", root / "trackrcnn_detections"):
-        directory.mkdir(parents=True)
-    (images / "0002").mkdir(parents=True)
-    (instances / "0002").mkdir(parents=True)
-    (root / "calib/training/calib/0002.txt").write_text("P2: 20 0 24 0 0 20 12 0 0 0 1 0\n")
-    np.save(root / "ego_motion/0002.npy", np.repeat(np.eye(4)[None], 3, axis=0))
+    data = sensor_dataset_fixture(tmp_path)
+    paths = data.reader_paths
+    paths["calibration"].write_text("P2: 20 0 24 0 0 20 12 0 0 0 1 0\n")
+    np.save(paths["poses"], np.repeat(np.eye(4)[None], 3, axis=0))
     objects = (
-        (2, "Pedestrian", "results_tracking_ped_cyl_auto_trainval", (26, 8, 34, 15), 5, 1),
-        (1, "Car", "results_tracking_car_auto_t2_train", (14, 8, 23, 15), -5, 4),
+        (2, "Pedestrian", "pedestrian_detections_3d", (26, 8, 34, 15), 5, 1),
+        (1, "Car", "car_detections_3d", (14, 8, 23, 15), -5, 4),
     )
     detection_rows = []
     for frame in range(3):
         labels = np.zeros((24, 48), dtype=np.uint16)
-        Image.fromarray(np.zeros((24, 48, 3), dtype=np.uint8)).save(images / "0002" / f"{frame:06d}.png")
+        Image.fromarray(np.zeros((24, 48, 3), dtype=np.uint8)).save(paths["images"] / f"{frame:06d}.png")
         for class_id, class_name, variant, bounds, x, length in objects:
-            directory = root / "pointgnn/training" / variant / "0002/data"
+            directory = paths[variant]
             directory.mkdir(parents=True, exist_ok=True)
             if frame == 1:
                 # No 2D rows and no PointGNN file: the reader must retain this timestep.
@@ -53,21 +51,17 @@ def _fixture(tmp_path: Path) -> SimpleNamespace:
             detection_rows.append(" ".join(map(str, fields)))
             row = [class_name, 0, 0, 0, *bounds, 3, 1, length, x, 0, 20, 0, 120]
             (directory / f"{frame:06d}.txt").write_text(" ".join(map(str, row)) + "\n")
-        Image.fromarray(labels).save(instances / "0002" / f"{frame:06d}.png")
-    (root / "trackrcnn_detections/0002.txt").write_text("\n".join(detection_rows) + "\n")
-    return SimpleNamespace(root=root, images=images, instances=instances, project=tmp_path / "results")
+        Image.fromarray(labels).save(data.ground_truth / f"{frame:06d}.png")
+    paths["detections_2d"].write_text("\n".join(detection_rows) + "\n")
+    return data
 
 
 def _arguments(data: SimpleNamespace) -> list[str]:
     """Invoke the registered command with explicit temporary data paths."""
     return [
         "eval-eagermot",
-        "--data-root",
-        str(data.root),
-        "--images",
-        str(data.images),
-        "--instances",
-        str(data.instances),
+        "--dataset",
+        str(data.dataset),
         "--project",
         str(data.project),
         "--sequence",
@@ -97,7 +91,13 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
     assert manifest["status"] == "complete"
     assert manifest["split"] == "val"
     assert manifest["sequences"] == {"0002": 3}
-    assert manifest["pointgnn_car"] == "t2-train"
+    assert manifest["dataset_config"] == str(data.dataset.resolve())
+    assert manifest["dataset_id"] == "kitti-mots-fusion"
+    assert manifest["replay_config"] == str((data.root / "replay.yaml").resolve())
+    assert manifest["prediction_manifests"] == {
+        role: str(path.resolve()) for role, path in data.prediction_manifests.items()
+    }
+    assert manifest["sequence_inputs"]["0002"]["ground_truth"] == str(data.ground_truth.resolve())
     with (output / "metrics.csv").open(newline="") as handle:
         assert {row["class"] for row in csv.DictReader(handle)} == set(metrics)
 
@@ -115,7 +115,7 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
 
 def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
+    sequence = KittiFusionSequence("0002", **data.reader_paths)
     trackers = {class_id: EagerMot(**profile) for class_id, profile in KITTI_PROFILES.items()}
     first = _track_frame(sequence[0], trackers).image_tracks
     assert first.class_ids.tolist() == [1, 2]
@@ -134,8 +134,8 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
 @pytest.mark.parametrize(
     ("options", "message"),
     [
-        (["--sequence", "0001"], "distinct members of KITTI MOTS val"),
-        (["--sequence", "0002"], "distinct members of KITTI MOTS val"),
+        (["--sequence", "0001"], "absent from dataset split"),
+        (["--sequence", "0002"], "duplicate"),
         (["--split", "test"], "Invalid value for '--split'"),
     ],
 )
@@ -151,7 +151,7 @@ def test_cli_rejects_split_mixing_duplicates_and_unannotated_test_split(
 
 def test_missing_ground_truth_fails_before_output_and_restores_threads(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    (data.instances / "0002/000002.png").unlink()
+    (data.ground_truth / "000002.png").unlink()
     previous_threads = torch.get_num_threads()
     invocation = CliRunner().invoke(boxmot, _arguments(data))
     assert invocation.exit_code == 1

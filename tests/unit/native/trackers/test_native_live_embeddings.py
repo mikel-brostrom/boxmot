@@ -10,8 +10,8 @@ import torch
 
 from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
 from boxmot.structures import Detections, Frame, Tracks
-from boxmot.trackers.box.botsort.native import NativeBotSortTracker
-from boxmot.trackers.box.occluboost.native import NativeOccluBoostTracker
+from boxmot.trackers.botsort.native import NativeBotSortTracker
+from boxmot.trackers.occluboost.native import NativeOccluBoostTracker
 
 from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr
 

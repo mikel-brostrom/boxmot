@@ -89,10 +89,23 @@ def _parse_int_tuple(_ctx: click.Context, _param: click.Parameter, value: Any) -
     return tuple(dict.fromkeys(parts))
 
 
+def _parse_device(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+    """Validate one device selector without loading accelerator runtimes for help."""
+
+    if value is None:
+        return None
+    from boxmot.utils.devices import normalize_device
+
+    try:
+        return normalize_device(value)
+    except (TypeError, ValueError) as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+
 def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Callable]:
     """Build the ordered runtime decorators used by tracking and replay commands."""
 
-    from boxmot.trackers.registry import TRACKER_MAPPING
+    from boxmot.trackers.common.registry import TRACKER_MAPPING
 
     tracker_help = ", ".join(TRACKER_MAPPING)
     return {
@@ -122,7 +135,8 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
         "device": click.option(
             "--device",
             default=defaults.device,
-            help="cuda device(s), e.g. 0 or 0,1,2,3, mps, or cpu",
+            callback=_parse_device,
+            help="One device: cpu, mps, cuda:N, or N (e.g. 0). GPU lists are not supported.",
         ),
         "sequence_workers": click.option(
             "--sequence-workers",
@@ -237,7 +251,7 @@ def _apply_core_options(
 def track_options(func: Callable) -> Callable:
     """Attach only runtime options consumed by direct tracking."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     return _apply_core_options(
         func,
@@ -250,7 +264,7 @@ def track_options(func: Callable) -> Callable:
 def replay_options(*, mode: str, parallel: bool = False) -> Callable:
     """Attach tracker/replay controls for a cached workflow mode."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     defaults = getattr(BOXMOT_DEFAULTS, mode)
     option_names = _REPLAY_CORE_OPTION_NAMES
@@ -280,6 +294,18 @@ def split_option(func: Callable) -> Callable:
     )(func)
 
 
+def sequence_option(func: Callable) -> Callable:
+    """Attach a repeatable sequence selection shared by evaluation and tuning."""
+    return click.option(
+        "--sequence",
+        "sequence_names",
+        type=str,
+        multiple=True,
+        metavar="NAME",
+        help="Limit the selected split to one sequence. Repeat to select multiple sequences.",
+    )(func)
+
+
 def experiment_option(func: Callable | None = None, *, required: bool = False) -> Callable:
     """Attach the experiment-config option, optionally making it mandatory."""
 
@@ -296,13 +322,13 @@ def experiment_option(func: Callable | None = None, *, required: bool = False) -
 
 
 def dataset_option(*, default: str | None = None) -> Callable:
-    """Attach the model-free dataset-config option."""
+    """Attach the dataset profile or saved-sensor bundle selection."""
 
     return click.option(
         "--dataset",
         type=str,
         default=default,
-        help="dataset id or YAML file, e.g. mot17 or boxmot/configs/datasets/mot17.yaml",
+        help="Dataset id, YAML file, or sensor dataset folder containing dataset.yaml (tune).",
     )
 
 
@@ -384,7 +410,7 @@ def data_root_option(func: Callable) -> Callable:
 def replay_build_options(*, dataset_default: str | None = None) -> Callable:
     """Attach shared eval/tune inputs for build reuse or automatic materialization."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     def decorator(func: Callable) -> Callable:
         options = (
@@ -409,7 +435,8 @@ def replay_build_options(*, dataset_default: str | None = None) -> Callable:
             click.option(
                 "--device",
                 default=BOXMOT_DEFAULTS.materialize.device,
-                help="Perception device used for automatic materialization, e.g. cpu, mps, cuda:0, or 0.",
+                callback=_parse_device,
+                help="One perception device for automatic materialization: cpu, mps, cuda:N, or N (e.g. 0).",
             ),
         )
         for option in reversed(options):

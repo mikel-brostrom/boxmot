@@ -97,18 +97,20 @@ numeric values into a custom config. The main parameter groups are:
 
 ### Adaptive Kalman Filter (`adaptive_kf`)
 
-When `adaptive_kf: true` is set in the tracker config, the process noise covariance **Q** is estimated online from innovation statistics (Mehra 1970) rather than kept constant. A sliding window (30 frames, warmup 15) accumulates the outer products of the Kalman innovations, and once warmed up the estimated Q is blended (α = 0.7) with the default static Q.
+The Python implementation supports experimental online process-noise estimation
+with `adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
+innovations per track, starts adapting after 15 measurement corrections, and
+blends the estimate with baseline noise (70% adaptive, 30% baseline).
+Initialization and prediction-only updates do not count toward warmup.
+Measurement noise remains configured separately.
 
-**When to use it:**
-
-- Deploying to a new domain where you do not yet have tuned static motion parameters.
-- Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
-- Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
-
-**When NOT to use it:**
-
-- You already have validated static motion parameters — the static solution is cheaper and deterministic.
-- Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
+Consider adaptation for long tracks whose motion predictability changes, then
+compare against validated fixed noise settings. Short tracks may never leave
+warmup; detector, association, and camera-compensation errors can distort the
+estimate. `variable_dt=True` independently handles irregular capture intervals
+and can be combined with adaptation. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios and CLI examples.
 
 Enable it through the structured factory:
 

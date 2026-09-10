@@ -8,7 +8,7 @@ import click
 
 from boxmot.engine.commands._options import build_selection_options, data_root_option, dataset_option
 from boxmot.engine.commands._support import _dispatch_cli_workflow
-from boxmot.engine.config import get_mode_default
+from boxmot.engine.config.runtime import get_mode_default
 
 
 @click.command("time-variant", help="Derive a timestamped frame-loss dataset from an existing perception build")

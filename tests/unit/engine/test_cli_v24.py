@@ -9,7 +9,7 @@ import pytest
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
-from boxmot.engine.experiment_config import EXPERIMENT_CONFIGS_DIR, resolve_experiment_path
+from boxmot.engine.config.experiments import EXPERIMENT_CONFIGS_DIR, resolve_experiment_path
 
 EXPECTED_COMMAND_ORDER = (
     "track",
@@ -26,6 +26,7 @@ EXPECTED_COMMAND_ORDER = (
     "compare-reid",
     "export",
     "build",
+    "install",
 )
 EXPECTED_COMMANDS = set(EXPECTED_COMMAND_ORDER)
 CACHED_WORKFLOW_MODULES = {
@@ -394,7 +395,7 @@ def test_direct_components_materialize_before_replaying_the_matching_authored_ex
     command: str,
     fps: float | None,
 ) -> None:
-    from boxmot.engine import experiment_config
+    from boxmot.engine.config import experiments as experiment_config
 
     build_path = tmp_path / "builds" / ("b" * 64)
     calls = []

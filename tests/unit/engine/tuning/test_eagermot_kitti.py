@@ -26,12 +26,9 @@ tuning = importlib.import_module("boxmot.engine.tuning.eagermot_kitti")
 def _arguments(data: SimpleNamespace, *, n_trials: int = 2) -> SimpleNamespace:
     """Use both classes and the real three-frame saved-sensor fixture."""
     return SimpleNamespace(
-        data_root=data.root,
-        images=data.images,
-        instances=data.instances,
-        split="val",
+        dataset=data.dataset,
+        split=None,
         sequence_names=("0002",),
-        pointgnn_car="t2-train",
         project=data.project,
         class_config=None,
         n_trials=n_trials,

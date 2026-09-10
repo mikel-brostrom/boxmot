@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-import boxmot.engine.tuning.kalman as kalman_module
+import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.search_space import flatten_yaml_config
-from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
     monkeypatch.setattr(tuner_module.TuneWorkflowReporter, "pipeline", lambda *args, **kwargs: pipeline)
     monkeypatch.setattr(tuner_module, "set_tune_progress_workflow", lambda *args: None)
     monkeypatch.setattr(tuner_module.Tuner, "_configure_warning_filters", lambda self: None)
-    monkeypatch.setattr(tuner_module, "_sync_tuning_requirements", lambda **kwargs: None)
+    monkeypatch.setattr(tuner_module, "_require_tuning_requirements", lambda: None)
     monkeypatch.setattr(tuner_module.Tuner, "_inject_callback_into_restored", lambda *args: None)
 
     def setup(args: SimpleNamespace, pipeline: object = None) -> None:

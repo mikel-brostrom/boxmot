@@ -12,7 +12,6 @@ from boxmot.reid.core.preprocessing import get_preprocess_fn
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.resources.paths import resolve_model_path
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import RequirementsChecker
 
 
 class BaseModelBackend:
@@ -70,7 +69,6 @@ class BaseModelBackend:
                     use_gpu=device,
                     **self.model_kwargs,
                 )
-            self.checker = RequirementsChecker()
             self._preprocess_name = preprocess
             self.preprocess_fn = get_preprocess_fn(preprocess)
             self.load_model(self.weights)

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import click
 
 from boxmot import __version__
-from boxmot._tracker_exports import _TRACKER_MANIFEST
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +73,7 @@ _COMMAND_SPECS = (
     ),
     _CommandSpec("export", "boxmot.engine.commands.reid.export", "export", "Export ReID models to different formats"),
     _CommandSpec("build", "boxmot.engine.commands.build", "build", "Build native tracker extensions"),
+    _CommandSpec("install", "boxmot.engine.commands.install", "install", "Install optional dependencies"),
 )
 _COMMAND_SPEC_BY_NAME = {spec.name: spec for spec in _COMMAND_SPECS}
 _TRACKER_HELP = ", ".join(_TRACKER_MANIFEST)
@@ -197,7 +198,8 @@ class CommandFirstGroup(click.Group):
             formatter.write_text("8. Export ReID model:")
             with formatter.indentation():
                 formatter.write_text(
-                    "boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine --dynamic"
+                    "boxmot export --weights osnet_x0_25_msmt17.pt --include onnx --include engine "
+                    "--device cuda:0 --dynamic"
                 )
         formatter.write_paragraph()
 
@@ -219,7 +221,7 @@ def boxmot(ctx: click.Context) -> None:
     """Pluggable object tracking for detection, segmentation, and pose models."""
 
     del ctx
-    from boxmot.engine.logging import configure_engine_logging
+    from boxmot.engine.ui.logging import configure_engine_logging
 
     configure_engine_logging()
 

@@ -6,6 +6,7 @@ logic.
 
 | Mode | Purpose | Required input |
 | --- | --- | --- |
+| [`install`](install.md) | Install missing optional dependencies into the current Python environment | `--extra` or `--requirement` |
 | `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
 | `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
 | `time-variant` | Derive a timestamped frame-loss dataset using cached perception | dataset, sequence, and `--build` |

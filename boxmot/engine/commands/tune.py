@@ -1,4 +1,4 @@
-"""Click adapter for cached tracker hyperparameter tuning."""
+"""Click adapter for tracker tuning from perception builds or sensor datasets."""
 
 from __future__ import annotations
 
@@ -15,12 +15,13 @@ from boxmot.engine.commands._options import (
     kalman_calibration_option,
     replay_build_options,
     replay_options,
+    sequence_option,
     split_option,
     tracker_backend_option,
     tracker_config_option,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _prepare_replay_build, _require_replay_input
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 _TUNE_METRIC_OPTIONS = {"--objectives", "--maximize", "--minimize"}
 
@@ -76,9 +77,15 @@ def _tune_options(func):
     options = (
         click.option(
             "--n-trials",
-            type=int,
+            type=click.IntRange(min=1),
             default=BOXMOT_DEFAULTS.tune.n_trials,
             help="number of hyperparameter optimization trials",
+        ),
+        click.option(
+            "--seed",
+            type=click.IntRange(min=0, max=2**32 - 1),
+            default=None,
+            help="Random seed for parameter sampling. Sensor datasets default to 0.",
         ),
         click.option(
             "--max-concurrent-trials",
@@ -154,10 +161,11 @@ def _tune_options(func):
     return func
 
 
-@click.command(cls=TuneCommand, help="Tune models via evolutionary algorithms")
+@click.command(cls=TuneCommand, help="Tune tracker parameters from a perception build or a saved-sensor dataset.")
 @replay_build_options()
 @data_root_option
 @split_option
+@sequence_option
 @dataset_fps_option
 @eval_masks_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
@@ -181,17 +189,37 @@ def tune(
     eval_masks: bool,
     **kwargs: Any,
 ) -> None:
-    """Prepare one reusable perception build, then tune tracker parameters."""
+    """Resolve dataset inputs, then tune tracker parameters."""
 
     _require_replay_input(experiment, dataset, "tune")
+    from boxmot.engine.commands.sensor_tune import dispatch_sensor_tuning
+
+    if dispatch_sensor_tuning(
+        ctx,
+        {
+            **kwargs,
+            "experiment": experiment,
+            "dataset": dataset,
+            "detector": detector,
+            "reid": reid,
+            "build_ref": build_ref,
+            "build_root": build_root,
+            "device": device,
+            "data_root": data_root,
+            "split": split,
+            "calibrate_kf": calibrate_kf,
+            "eval_masks": eval_masks,
+        },
+    ):
+        return
     if calibrate_kf and kwargs.get("resume_tune"):
         raise click.UsageError(
             "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
         )
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
-        from boxmot.engine.tracker_config import resolve_tracker_options
-        from boxmot.engine.tuning.kalman import validate_kf_calibration
-        from boxmot.trackers.specs import parse_tracker_spec
+        from boxmot.engine.calibration.kalman import validate_kf_calibration
+        from boxmot.engine.config.trackers import resolve_tracker_options
+        from boxmot.trackers.common.specs import parse_tracker_spec
 
         try:
             tracker_spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])

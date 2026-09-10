@@ -11,10 +11,10 @@ import torch
 from boxmot import __version__, create_tracker
 from boxmot.datasets.readers.images import read_rgb_chw_uint8
 from boxmot.datasets.trackrcnn import TrackRcnnSequence
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.kitti_mots_replay import evaluate_kitti_mots, kitti_mots_annotations, kitti_mots_sequences
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.eval.output import increment_path
-from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Frame
 from boxmot.trackers import TrackerSpec
@@ -38,9 +38,11 @@ def _run(args: Any) -> Path:
     sequences = {}
     annotations = {}
     for name in names:
-        sequence = TrackRcnnSequence(detections_root, image_root, name)
+        sequence = TrackRcnnSequence(name, images=image_root / name, detections=detections_root / f"{name}.txt")
         sequences[name] = sequence
-        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, instances_root)
+        annotations[name] = kitti_mots_annotations(
+            name, sequence.frame_paths, sequence.image_size, instances_root / name
+        )
 
     output = increment_path(Path(args.project).expanduser().resolve() / args.split, mkdir=True)
     prediction_dir = output / "mots"

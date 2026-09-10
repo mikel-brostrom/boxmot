@@ -68,8 +68,10 @@ importable `boxmot.datasets` Python package.
 
 Dataset download URIs stay in the dataset config. Detector checkpoint URIs live
 in detector configs, and ReID weight URIs live in ReID configs. Perception
-artifacts are published only as canonical keyed builds. Legacy `.npy`, `.npz`,
-and text-only perception roots remain unsupported.
+artifacts for image tracker replay are published as canonical keyed builds.
+Legacy `.npy`, `.npz`, and text-only perception roots remain unsupported in
+that workflow. [KITTI fusion datasets](#kitti-fusion-datasets) provide the
+independent image and spatial observations required by EagerMOT tuning.
 
 A split may declare an `annotations` directory relative to `storage.root` when
 ground truth is stored as flat `<sequence>.txt` files beside, rather than
@@ -197,3 +199,168 @@ using box IoU by default, deriving ground-truth boxes from the instance PNGs.
 Add `--eval-masks` to compute segmentation metrics from predicted masks.
 See [MOTS evaluation](../guides/evaluation.md#kitti-mots-evaluation) for commands,
 dependencies, and output formats.
+
+## KITTI fusion datasets
+
+`boxmot tune --dataset ./kitti-mots --tracker eagermot` reads sequence data
+and saved predictions from a local dataset. Each sequence owns its images,
+ground-truth masks, calibration, and ego poses. Prediction sets have their own
+manifests, and `replay.yaml` selects which sets to use for each split.
+
+Use `--dataset ./kitti-mots` to select this local directory. The bare name
+`--dataset kitti-mots` selects the built-in image dataset profile described
+above.
+
+```text
+kitti-mots/
+  dataset.yaml
+  replay.yaml
+  sequences/
+    training/0002/
+      images/000000.png
+      ground_truth/000000.png
+      calibration.txt
+      poses.npy
+    testing/0002/
+      images/000000.png
+      calibration.txt
+  predictions/
+    trackrcnn/
+      manifest.yaml
+      training/0002.txt
+    pointgnn-car-t2/
+      manifest.yaml
+      training/0002/000000.txt
+    pointgnn-car-t3/
+      manifest.yaml
+      training/0002/000000.txt
+    pointgnn-pedestrian/
+      manifest.yaml
+      training/0002/000000.txt
+```
+
+Sequence and frame names use four and six digits. The training partition
+contains all 21 annotated KITTI sequences; the testing partition preserves
+the 29 image sequences and calibration files. Store image and annotation
+files in the dataset so it can move independently of the original downloads.
+The [KITTI download instructions](#download-kitti-mots-data) describe the
+source image and instance archives.
+
+### Dataset manifest
+
+`dataset.yaml` defines classes, sequence locations, and official splits:
+
+```yaml
+format: kitti-fusion
+version: 1
+id: kitti-mots
+classes:
+  1: car
+  2: pedestrian
+default_split: val
+replay: replay.yaml
+
+sequence_layout:
+  images: sequences/{partition}/{sequence}/images
+  ground_truth: sequences/{partition}/{sequence}/ground_truth
+  calibration: sequences/{partition}/{sequence}/calibration.txt
+  poses: sequences/{partition}/{sequence}/poses.npy
+
+splits:
+  val:
+    partition: training
+    sequences: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
+  train:
+    partition: training
+    sequences: ["0000", "0001", "0003", "0004", "0005", "0009", "0011", "0012", "0015", "0017", "0019", "0020"]
+  fulltrain:
+    partition: training
+    sequences: ["0000", "0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018", "0019", "0020"]
+```
+
+The `val` and `train` splits select 9 and 12 sequences from `training`;
+`fulltrain` selects all 21. Ground truth, poses, and 2D predictions are
+required for EagerMOT evaluation and tuning. The preserved testing partition
+does not have these inputs and is not an evaluation or tuning split.
+
+### Replay selection
+
+`replay.yaml` connects each dataset split to three prediction manifests:
+
+```yaml
+version: 1
+splits:
+  val:
+    image: predictions/trackrcnn/manifest.yaml
+    car: predictions/pointgnn-car-t2/manifest.yaml
+    pedestrian: predictions/pointgnn-pedestrian/manifest.yaml
+  train:
+    image: predictions/trackrcnn/manifest.yaml
+    car: predictions/pointgnn-car-t3/manifest.yaml
+    pedestrian: predictions/pointgnn-pedestrian/manifest.yaml
+  fulltrain:
+    image: predictions/trackrcnn/manifest.yaml
+    car: predictions/pointgnn-car-t3/manifest.yaml
+    pedestrian: predictions/pointgnn-pedestrian/manifest.yaml
+```
+
+To change detector inputs, add a prediction set and update the relevant
+reference in `replay.yaml`. The dataset's sequence files and split definitions
+stay independent of that choice. T2 car predictions cover the nine validation
+sequences; T3 car predictions cover all 21 training sequences.
+
+### Prediction manifests
+
+Each `predictions/NAME/manifest.yaml` declares its format, classes, file layout,
+sequence coverage, and provenance. For example, the T2 car manifest is:
+
+```yaml
+format: pointgnn
+version: 1
+id: pointgnn-car-t2
+classes:
+  1: car
+path: "{partition}/{sequence}"
+sequences:
+  training: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
+provenance:
+  source_directory: results_tracking_car_auto_t2_train
+  training: not-independently-verified
+```
+
+PointGNN stores one `FRAME.txt` file per frame below the expanded path.
+TrackR-CNN uses `format: trackrcnn` and
+`path: "{partition}/{sequence}.txt"`, with exactly the classes `1: car` and
+`2: pedestrian`. PointGNN car manifests require `1: car`, and the pedestrian
+manifest requires `2: pedestrian`; PointGNN manifests may additionally
+declare `3: cyclist` when present in the source predictions. Each manifest
+must declare the partition and sequence coverage of its prediction files.
+
+Paths resolve from the directory containing each manifest: sequence paths
+from `dataset.yaml`, prediction manifest references from `replay.yaml`, and
+prediction payload paths from their own `manifest.yaml`. The
+`provenance.source_directory` field records the original source; runtime
+replay uses the local payload paths. Prediction training provenance has not
+been independently verified. Testing prediction files can be preserved in
+their respective sets even though the dataset's testing partition is not
+eligible for tuning.
+
+### Tune and evaluate
+
+Install the `mots` and `evolve` extras using the
+[MOTS evaluation setup](../guides/evaluation.md#kitti-mots-evaluation), then
+pass the dataset directory or `dataset.yaml` to the command:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot --n-trials 50 --seed 0
+boxmot tune --dataset /path/to/kitti-mots/dataset.yaml \
+  --tracker eagermot --split val --sequence 0002 --n-trials 1 --seed 0
+boxmot eval-eagermot --dataset ./kitti-mots --split val
+```
+
+`--split` selects a dataset split and `--sequence` selects one of its sequences;
+repeat `--sequence` for several. Fusion tuning replays the selected prediction
+sets and optimizes class-average mask HOTA on CPU. These manifests describe
+the sequence and prediction files used by the fusion workflow. See
+[EagerMOT tuning](../trackers/eagermot.md#tune-separate-class-profiles) for
+supported options and saved profiles.

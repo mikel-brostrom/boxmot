@@ -4,8 +4,8 @@ from dataclasses import asdict, replace
 from types import SimpleNamespace
 
 from boxmot.detectors import DetectorSpec
+from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.eval import evaluator
-from boxmot.engine.experiment_config import resolve_experiment_config
 from boxmot.engine.materialization import fingerprint
 
 

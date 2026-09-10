@@ -14,8 +14,8 @@ import pytest
 import torch
 
 import boxmot.trackers as public_trackers
-import boxmot.trackers.factory as tracker_factory
-import boxmot.trackers.registry as tracker_registry
+import boxmot.trackers.common.factory as tracker_factory
+import boxmot.trackers.common.registry as tracker_registry
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import (
@@ -27,8 +27,8 @@ from boxmot.trackers import (
     TrackerSpec,
     create_tracker,
 )
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.config import TRACKER_CONFIGS_DIR
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR
 
 
 def _frame(sample_id: str = "sequence/000001", *, height: int = 64, width: int = 64) -> Frame:
@@ -213,9 +213,13 @@ def test_package_root_import_does_not_load_tracker_or_heavy_runtimes() -> None:
 import sys
 import boxmot
 
-assert not any(name.startswith("boxmot.trackers") for name in sys.modules)
+assert {name for name in sys.modules if name.startswith("boxmot.trackers")} == {
+    "boxmot.trackers",
+    "boxmot.trackers.common",
+    "boxmot.trackers.common.manifest",
+}
 assert not any(name.startswith("boxmot.native") for name in sys.modules)
-assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
+assert not any(name in sys.modules for name in ("cv2", "numpy", "torch", "yaml"))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],

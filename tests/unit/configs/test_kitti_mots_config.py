@@ -6,7 +6,7 @@ import pytest
 import yaml
 
 from boxmot.datasets.config import ConfigurationError, load_dataset_config, resolve_dataset_config_path
-from boxmot.engine.experiment_config import resolve_experiment_config
+from boxmot.engine.config.experiments import resolve_experiment_config
 
 
 def _write_profile(tmp_path: Path, *, split_changes: dict | None = None, box_type: str = "aabb") -> Path:

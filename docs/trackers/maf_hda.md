@@ -20,8 +20,9 @@ instances. The BoxMOT implementation is a Python port of the
 The tracker supports class-separated tracking through `per_class=True` and
 returns canonical `Tracks` with row-aligned masks. OBB geometry and a native C++
 backend are not supported. Its implementation lives under
-`boxmot/trackers/multimodal/maf_hda` because both geometry and masks are
-fundamental to its state and appearance model.
+`boxmot/trackers/maf_hda`. Its capabilities declare the `multimodal` family
+because both geometry and masks are fundamental to its state and appearance
+model.
 
 ## Evaluate TrackR-CNN detections on KITTI MOTS
 
@@ -32,15 +33,18 @@ with their original KITTI images and instance annotations:
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval-trackrcnn \
   --tracker maf_hda \
-  --detections eagermot-data/trackrcnn_detections \
+  --detections ./kitti-mots/predictions/trackrcnn/training \
   --images ~/Downloads/data_tracking_image_2/training/image_02 \
   --instances ~/Downloads/instances \
   --split val \
   --project runs/maf-hda
 ```
 
-The detection directory contains `0000.txt` through `0020.txt`, with TrackR-CNN's
-138-field rows (frame, box, confidence, class, mask size/RLE, and embeddings).
+This command uses the original KITTI image and instance directory layout in
+`~/Downloads` together with the TrackR-CNN prediction set stored in
+`kitti-mots`. The detection directory contains `0000.txt` through `0020.txt`,
+with TrackR-CNN's 138-field rows (frame, box, confidence, class, mask size/RLE,
+and embeddings).
 The replay uses the boxes and masks plus current RGB images, and does not
 require calibration, ego motion, PointGNN, or ReID weights. Unused TrackR-CNN
 embeddings are discarded. Empty detection masks are removed before MAF-HDA

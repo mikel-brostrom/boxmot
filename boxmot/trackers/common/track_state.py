@@ -5,9 +5,9 @@ from typing import ClassVar
 
 import numpy as np
 
-from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.geometry import xywh2xyxy
 from boxmot.trackers.common.geometry.obb import smooth_obb_corners, xywha_to_xyxy
+from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.tracking.track import (
     TrackIdAllocator,
     TrackLifecycleMixin,

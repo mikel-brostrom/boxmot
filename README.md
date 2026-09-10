@@ -64,6 +64,12 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 `research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
 
+Add optional dependencies explicitly with `boxmot install --extra onnx`
+(repeat `--extra` for multiple workflows). Download helpers, ReID backends,
+exporters, tuning, and research report missing dependencies when used. See
+[Install dependencies](docs/modes/install.md) for interpreter selection and
+package requirements.
+
 ## Benchmark Results
 
 <div align="center" markdown="1">
@@ -241,9 +247,13 @@ Python API using independent detection batches and camera calibration. It
 returns image and spatial tracks with shared identities. The dedicated
 `boxmot eval-eagermot` command evaluates downloaded KITTI PointGNN and
 TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
-Use [`boxmot tune-eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
-to optimize separate car and pedestrian profiles together for class-average
-mask HOTA, then evaluate `best.yaml` with `eval-eagermot --class-config`.
+Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
+with a KITTI fusion dataset to optimize separate car and pedestrian profiles
+together for class-average mask HOTA, then evaluate `best.yaml` with
+`eval-eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
+its images, annotations, calibration, and poses. `dataset.yaml` defines the
+sequences and splits; `replay.yaml` selects prediction sets with their own
+manifests.
 
 Related guides:
 

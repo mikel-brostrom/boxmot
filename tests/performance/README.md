@@ -6,7 +6,7 @@ Functional behavior remains covered under `tests/unit`.
 
 The benchmarks are grouped by domain:
 
-- `motion/benchmark_cmc.py` measures camera-motion compensation on the bundled
+- `trackers/motion/benchmark_cmc.py` measures camera-motion compensation on the bundled
   MOT17 mini frames.
 - `trackers/benchmark_fps.py` measures tracker-update throughput with synthetic
   detections. ReID trackers use precomputed embeddings by default so the timing
@@ -23,7 +23,7 @@ The benchmarks are grouped by domain:
 Run each benchmark as a module from the repository root:
 
 ```bash
-uv run --no-sync python -m tests.performance.motion.benchmark_cmc
+uv run --no-sync python -m tests.performance.trackers.motion.benchmark_cmc
 uv run --no-sync python -m tests.performance.trackers.benchmark_fps
 uv run --no-sync python -m tests.performance.reid.benchmark_inference --weights models/osnet_x0_25_msmt17.pt
 ```

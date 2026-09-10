@@ -13,8 +13,8 @@ from boxmot.engine.cli import boxmot
 
 
 def _sensor_arguments(command: str, root: Path) -> list[str]:
-    """Supply existing input roots without coupling CLI checks to sensor payloads."""
-    return [command, "--data-root", str(root), "--images", str(root), "--instances", str(root)]
+    """Supply an existing dataset path without coupling CLI checks to payloads."""
+    return [command, "--dataset", str(root)]
 
 
 def test_tune_eagermot_dispatches_default_profiles_trial_count_and_cpu_backend(
@@ -35,10 +35,9 @@ def test_tune_eagermot_dispatches_default_profiles_trial_count_and_cpu_backend(
     args = captured["args"]
     assert args.tracker == "eagermot"
     assert args.tracker_backend == "python"
-    assert args.data_root == args.images == args.instances == tmp_path
+    assert args.dataset == tmp_path
     assert args.sequence_names == ()
-    assert args.split == "val"
-    assert args.pointgnn_car == "t2-train"
+    assert args.split is None
     assert args.n_trials == 50
     assert args.seed == 0
     assert args.project == Path("runs/eagermot-tune")
@@ -64,8 +63,6 @@ def test_tune_eagermot_preserves_explicit_sensor_selection_and_sampling_options(
             *_sensor_arguments("tune-eagermot", tmp_path),
             "--split",
             "fulltrain",
-            "--pointgnn-car",
-            "t3-trainval",
             "--sequence",
             "0006",
             "--sequence",
@@ -82,7 +79,6 @@ def test_tune_eagermot_preserves_explicit_sensor_selection_and_sampling_options(
     assert result.exit_code == 0, result.output
     args = captured["args"]
     assert args.split == "fulltrain"
-    assert args.pointgnn_car == "t3-trainval"
     assert args.sequence_names == ("0006", "0002")
     assert args.n_trials == 1
     assert args.seed == 19

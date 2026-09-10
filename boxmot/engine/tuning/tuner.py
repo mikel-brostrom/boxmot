@@ -29,9 +29,8 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
 
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
-from boxmot.engine.logging import suppress_boxmot_logs
-from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
 from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
@@ -50,6 +49,7 @@ from boxmot.engine.tuning.search_space import (
     load_yaml_config,
     normalize_trial_config,
 )
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.tune import (
     TuneSilentReporter,
     TuneWorkflowCallback,
@@ -62,7 +62,7 @@ from boxmot.engine.ui.reporters.tune import (
     set_tune_progress_workflow,
 )
 from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
-from boxmot.motion.kalman_filters.noise import KALMAN_TIMING_OPTIONS, KALMAN_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TIMING_OPTIONS, KALMAN_TRACKER_NAMES
 from boxmot.utils import logger as LOGGER
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
@@ -150,7 +150,7 @@ class Tuner:
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
         self._resolve_metrics()
         if getattr(self.args, "calibrate_kf", False):
-            from boxmot.engine.tuning.kalman import validate_kf_calibration
+            from boxmot.engine.calibration.kalman import validate_kf_calibration
 
             validate_kf_calibration(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
             if getattr(self.args, "resume_tune", None):
@@ -196,6 +196,7 @@ class Tuner:
 
     def _run(self):
         args = self.args
+        _require_tuning_requirements()
         maximize, minimize = self._maximize, self._minimize
 
         args.show_progress = False
@@ -263,7 +264,6 @@ class Tuner:
                 baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
                 self._configure_warning_filters()
-                _sync_tuning_requirements(verbose=bool(getattr(args, "verbose", False)))
 
                 pipeline.update("Initializing Ray...")
                 self._setup_ray()
@@ -363,10 +363,14 @@ class Tuner:
 
     def _prepare_kalman_calibration(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
         """Fit KF noise once before search, or restore its fixed saved profile."""
-        from boxmot.engine.tuning.calibration_profile import CALIBRATED_KF_OPTIONS, load_tuning_calibration
+        from boxmot.engine.tuning.calibration_profile import (
+            CALIBRATED_KF_OPTIONS,
+            load_tuning_calibration,
+            record_tuning_calibration,
+        )
 
         if getattr(self.args, "calibrate_kf", False):
-            from boxmot.engine.tuning.kalman import calibrate_kalman
+            from boxmot.engine.calibration.kalman import calibrate_kalman
 
             calibration = calibrate_kalman(
                 self.args,
@@ -379,7 +383,7 @@ class Tuner:
             self._calibrated_fixed_options = {
                 key: runtime_config[key] for key in CALIBRATED_KF_OPTIONS if key in runtime_config
             }
-            calibration.record_tuning(self._calibrated_fixed_options)
+            record_tuning_calibration(calibration.report_path, self._calibrated_fixed_options)
             self._calibration_config_path = calibration.config_path
             pipeline.update(f"{calibration.description}\nKeeping calibrated KF settings fixed during tracker tuning.")
         elif getattr(self.args, "resume_tune", None):
@@ -757,14 +761,11 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     )
 
 
-def _sync_tuning_requirements(*, verbose: bool) -> None:
-    """Ensure tuning extras are available before running evolve/tune."""
-    try:
-        from boxmot.utils.checks import RequirementsChecker
+def _require_tuning_requirements() -> None:
+    """Require tuning dependencies without installing or hiding missing packages."""
+    from boxmot.utils.dependencies import require_extra
 
-        RequirementsChecker().sync_extra("evolve", verbose=verbose)
-    except Exception as exc:
-        LOGGER.debug(f"Could not sync evolve requirements: {exc}")
+    require_extra("evolve", purpose="Tracker tuning")
 
 
 def _is_ray_pickle_safe(value: Any) -> bool:

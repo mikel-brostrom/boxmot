@@ -33,12 +33,28 @@ _MODEL_RUNTIME_MODULES = (
 
 _CONFIG_RUNTIME_MODULES = (*_HEAVY_RUNTIME_MODULES, *_MODEL_RUNTIME_MODULES, "pyarrow")
 
+_ENGINE_CONFIG_MODULES = (
+    "boxmot.engine.config.runtime",
+    "boxmot.engine.config.experiments",
+    "boxmot.engine.config.trackers",
+)
+
+_CALIBRATION_MODULES = (
+    "boxmot.engine.calibration.ground_truth_noise",
+    "boxmot.engine.calibration.kalman",
+    "boxmot.engine.calibration.kalman_data",
+    "boxmot.engine.calibration.kalman_model",
+)
+
 _ROOT_HELP_RUNTIME_MODULES = (
     "cv2",
+    "numpy",
     "torch",
     "ultralytics",
+    "yaml",
     "boxmot.detectors",
-    "boxmot.trackers",
+    "boxmot.trackers.common.factory",
+    "boxmot.trackers.common.registry",
     "boxmot.reid",
 )
 
@@ -127,11 +143,32 @@ def _imported_heavy_modules(module_name: str) -> list[str]:
     (
         "boxmot.reid.training",
         "boxmot.engine.config",
+        "boxmot.engine.config.runtime",
         "boxmot.engine.cli",
     ),
 )
 def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
     assert _imported_heavy_modules(module_name) == []
+
+
+def test_engine_config_namespace_does_not_eagerly_import_children() -> None:
+    """Loading configuration names must not resolve profiles or runtime defaults."""
+
+    blocked_modules = (*_ENGINE_CONFIG_MODULES, *_CONFIG_RUNTIME_MODULES, "yaml")
+    assert _imported_modules("boxmot.engine.config", blocked_modules) == []
+
+
+def test_calibration_namespace_does_not_eagerly_import_children() -> None:
+    """Importing the namespace must not load data, filter, or model runtimes."""
+
+    assert _imported_modules("boxmot.engine.calibration", (*_CALIBRATION_MODULES, *_CONFIG_RUNTIME_MODULES)) == []
+
+
+@pytest.mark.parametrize("module_name", _CALIBRATION_MODULES)
+def test_calibration_imports_do_not_load_search_dependencies(module_name: str) -> None:
+    """Evaluation can calibrate Kalman filters without installing search extras."""
+
+    assert _imported_modules(module_name, ("boxmot.engine.tuning", "ray", "optuna", "hyperopt")) == []
 
 
 @pytest.mark.parametrize(
@@ -142,7 +179,7 @@ def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
         "boxmot.detectors",
         "boxmot.detectors.config",
         "boxmot.reid.config",
-        "boxmot.engine.experiment_config",
+        "boxmot.engine.config.experiments",
         "boxmot.engine.commands.eval",
         "boxmot.engine.commands.trackrcnn",
     ),

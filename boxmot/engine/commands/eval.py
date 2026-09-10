@@ -16,6 +16,7 @@ from boxmot.engine.commands._options import (
     kalman_calibration_option,
     replay_build_options,
     replay_options,
+    sequence_option,
     split_option,
     tracker_backend_option,
     tracker_config_option,
@@ -25,7 +26,7 @@ from boxmot.engine.commands._support import (
     _prepare_replay_build,
     _require_replay_input,
 )
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 
 @click.command(name="eval", help="Evaluate tracking performance")
@@ -51,14 +52,7 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
     help="Save annotated tracking videos from cached replay, after calibration when --calibrate-kf is enabled.",
 )
 @kalman_calibration_option(mode="eval")
-@click.option(
-    "--sequence",
-    "sequence_names",
-    type=str,
-    multiple=True,
-    metavar="NAME",
-    help="Limit evaluation to one sequence. Repeat to select multiple sequences.",
-)
+@sequence_option
 @click.option(
     "--allow-noncanonical-build",
     is_flag=True,
@@ -96,9 +90,9 @@ def eval(
 
     _require_replay_input(experiment, dataset, "eval")
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
-        from boxmot.engine.tracker_config import resolve_tracker_options
-        from boxmot.engine.tuning.kalman import validate_kf_calibration
-        from boxmot.trackers.specs import parse_tracker_spec
+        from boxmot.engine.calibration.kalman import validate_kf_calibration
+        from boxmot.engine.config.trackers import resolve_tracker_options
+        from boxmot.trackers.common.specs import parse_tracker_spec
 
         try:
             tracker_spec = parse_tracker_spec(

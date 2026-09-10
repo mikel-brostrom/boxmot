@@ -5,7 +5,7 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 import torch
 
-from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections3D, MultimodalTracks, Tracks, Tracks3D
+from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MultimodalTracks, Tracks, Tracks3D
 
 
 def _boxes() -> Boxes3D:
@@ -97,6 +97,36 @@ def test_spatial_metadata_and_selection_are_validated() -> None:
     with pytest.raises(ValueError, match="unmatched"):
         replace(_spatial_tracks(), detection_indices=torch.tensor([-2, -1]))
     assert _spatial_tracks().select(torch.tensor([1])).detection_indices.tolist() == [-1]
+
+
+@pytest.mark.parametrize("collection", ["detections", "tracks"])
+def test_image_collections_reject_camera_space_boxes(collection: str) -> None:
+    """Sharing implementation modules does not make 3D rows valid 2D inputs."""
+
+    tracks = _image_tracks()
+    image_rows = (
+        Detections(tracks.geometry, tracks.scores, tracks.class_ids, tracks.sample_id)
+        if collection == "detections"
+        else tracks
+    )
+
+    with pytest.raises(TypeError, match="geometry must be Boxes or OrientedBoxes"):
+        replace(image_rows, geometry=_boxes().select(torch.tensor([0])))
+
+
+@pytest.mark.parametrize("collection", ["detections", "tracks"])
+def test_spatial_collections_reject_image_space_boxes(collection: str) -> None:
+    """Spatial observations continue to require explicit camera-space geometry."""
+
+    tracks = _spatial_tracks().select(torch.tensor([0]))
+    spatial_rows = (
+        Detections3D(tracks.geometry, tracks.scores, tracks.class_ids, tracks.sample_id)
+        if collection == "detections"
+        else tracks
+    )
+
+    with pytest.raises(TypeError, match="geometry must be Boxes3D"):
+        replace(spatial_rows, geometry=_image_tracks().geometry)
 
 
 def test_camera_supports_general_rigid_poses_and_rejects_nonrigid_transforms() -> None:

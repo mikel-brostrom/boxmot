@@ -73,11 +73,10 @@ def _decode_mask(counts: bytes, image_size: tuple[int, int]) -> np.ndarray:
 class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
     """Read 2D predictions using only TrackR-CNN text files and KITTI images.
 
-    ``detections_root`` contains ``{sequence_id}.txt`` and ``image_root``
-    contains the matching sequence's PNG directory, usually under
-    ``training/image_02``. No camera calibration, ego poses or 3D detections
-    are needed. Images define every time step, including frames with no
-    predictions; their numeric frame indices must be contiguous and zero-based.
+    ``detections`` is the sequence's prediction text file and ``images``
+    directly contains its PNG frames. No camera calibration, ego poses or 3D
+    detections are needed. Images define every time step, including frames
+    with no predictions; their numeric frame indices must be contiguous and zero-based.
 
     Construction indexes image headers and compressed masks without decoding
     RGB pixels. Indexing decodes only that frame's masks. Boxes and masks
@@ -86,7 +85,7 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
     The unused 128-dimensional TrackR-CNN embeddings are discarded.
     """
 
-    def __init__(self, detections_root: str | Path, image_root: str | Path, sequence_id: str) -> None:
+    def __init__(self, sequence_id: str, *, images: Path, detections: Path) -> None:
         if (
             not isinstance(sequence_id, str)
             or len(sequence_id) != 4
@@ -94,12 +93,11 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
             or not sequence_id.isdecimal()
         ):
             raise ValueError("KITTI sequence_id must be an exact four-digit sequence name, such as '0000'.")
-        self.detections_root = Path(detections_root).expanduser().resolve()
-        self.image_root = Path(image_root).expanduser().resolve()
+        self.images = Path(images).expanduser().resolve()
         self.sequence_id = sequence_id
-        self.frame_paths = kitti_mots_frame_paths(self.image_root / sequence_id)
+        self.frame_paths = kitti_mots_frame_paths(self.images)
         if tuple(int(path.stem) for path in self.frame_paths) != tuple(range(len(self.frame_paths))):
-            raise ValueError(f"KITTI images must cover contiguous zero-based frames: {self.image_root / sequence_id}")
+            raise ValueError(f"KITTI images must cover contiguous zero-based frames: {self.images}")
         image_size = None
         for path in self.frame_paths:
             with Image.open(path) as image:
@@ -110,7 +108,7 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
                 raise ValueError(f"KITTI image dimensions {size} differ from {image_size}: {path}")
         assert image_size is not None
         self.image_size = image_size
-        self._detections_path = self.detections_root / f"{sequence_id}.txt"
+        self._detections_path = Path(detections).expanduser().resolve()
         self._image_detections = self._read_detections()
 
     def _read_detections(self) -> dict[int, tuple[_ImageDetection, ...]]:

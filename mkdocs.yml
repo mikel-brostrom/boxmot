@@ -112,6 +112,7 @@ nav:
       - Installation: getting-started/installation.md
   - Modes:
       - Overview: modes/index.md
+      - Install dependencies: modes/install.md
       - Tracking:
           - Track: modes/track.md
       - Benchmarking:

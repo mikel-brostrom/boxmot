@@ -7,6 +7,8 @@ from typing import Any, Callable, TypeVar
 
 import click
 
+from boxmot.engine.commands._options import sequence_option
+
 _Command = TypeVar("_Command", bound=Callable[..., Any])
 
 
@@ -14,38 +16,18 @@ def _sensor_options(command: _Command) -> _Command:
     """Share KITTI sensor and ground-truth selection between evaluation and tuning."""
     options = (
         click.option(
-            "--data-root",
-            type=click.Path(exists=True, file_okay=False, path_type=Path),
-            default=Path("eagermot-data"),
-            show_default=True,
-            help="Folder containing calib, ego_motion, pointgnn, and trackrcnn_detections.",
-        ),
-        click.option(
-            "--images",
-            type=click.Path(exists=True, file_okay=False, path_type=Path),
+            "--dataset",
+            type=click.Path(exists=True, path_type=Path),
             required=True,
-            help="KITTI training/image_02 directory containing sequence PNG folders.",
+            help="KITTI fusion dataset folder or dataset.yaml; replay.yaml selects saved predictions.",
         ),
         click.option(
-            "--instances",
-            type=click.Path(exists=True, file_okay=False, path_type=Path),
-            required=True,
-            help="KITTI MOTS ground-truth instance PNG directory.",
+            "--split",
+            type=click.Choice(["val", "train", "fulltrain"]),
+            default=None,
+            help="Dataset split; defaults to the manifest's default_split.",
         ),
-        click.option("--split", type=click.Choice(["val", "train", "fulltrain"]), default="val", show_default=True),
-        click.option(
-            "--sequence",
-            "sequence_names",
-            multiple=True,
-            help="Restrict the selected split to a sequence. Repeat for multiple sequences.",
-        ),
-        click.option(
-            "--pointgnn-car",
-            type=click.Choice(["t2-train", "t3-trainval"]),
-            default="t2-train",
-            show_default=True,
-            help="Car detection variant. T2 covers validation; T3 covers all training sequences.",
-        ),
+        sequence_option,
     )
     for option in reversed(options):
         command = option(command)
@@ -79,7 +61,7 @@ def eval_eagermot(**kwargs: Any) -> None:
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
         raise click.UsageError("--show-3d requires --show or --save.")
 
-    from boxmot.engine.config import build_mode_namespace
+    from boxmot.engine.config.runtime import build_mode_namespace
 
     args = build_mode_namespace("eval", {**kwargs, "tracker": "eagermot", "tracker_backend": "python"})
     try:
@@ -120,7 +102,7 @@ def eval_eagermot(**kwargs: Any) -> None:
 )
 def tune_eagermot(**kwargs: Any) -> None:
     """Optimize class-specific profiles by jointly replaying both KITTI classes."""
-    from boxmot.engine.config import build_mode_namespace
+    from boxmot.engine.config.runtime import build_mode_namespace
 
     args = build_mode_namespace("tune", {**kwargs, "tracker": "eagermot", "tracker_backend": "python"})
     try:
@@ -128,7 +110,7 @@ def tune_eagermot(**kwargs: Any) -> None:
         from boxmot.engine.tuning.eagermot_kitti import run_eagermot_kitti_tuning
 
         output = run_eagermot_kitti_tuning(args)
-    except (ValueError, FileNotFoundError, ImportError) as exc:
+    except (ValueError, OSError, ImportError) as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"Results: {output}")
     click.echo(f"Best profiles: {output / 'best.yaml'}")

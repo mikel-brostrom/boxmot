@@ -295,7 +295,7 @@ def test_cli_images_package_native_libraries_without_runtime_build_tools() -> No
 
 
 def test_release_contract_rejects_missing_packaged_configs(monkeypatch: pytest.MonkeyPatch) -> None:
-    import boxmot.engine.experiment_config as experiment_config
+    import boxmot.engine.config.experiments as experiment_config
 
     def missing_config(_name: str) -> dict:
         raise FileNotFoundError("Packaged experiment is missing")

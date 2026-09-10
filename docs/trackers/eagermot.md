@@ -6,7 +6,7 @@ EagerMOT associates 3D detections with image detections, tracks objects in 3D,
 and uses remaining image observations to sustain tracks when 3D association
 fails. BoxMOT integrates the
 [authors' Python implementation](https://github.com/aleksandrkim61/EagerMOT)
-under `boxmot/trackers/multimodal/eagermot`.
+under `boxmot/trackers/eagermot`.
 
 ## Required inputs
 
@@ -30,11 +30,13 @@ class-ID catalog before fusion.
   pose only for a stationary camera, and keep pose availability consistent
   throughout a sequence.
 
-The image tracking CLI, `TrackingPipeline`, and cached evaluation/tuning flows
-cannot supply these sensor inputs. They reject `eagermot` before running
-perception. Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot`.
-The dedicated `eval-eagermot` and `tune-eagermot` commands below supply KITTI
-sensor inputs directly.
+Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot` for the
+Python API. `boxmot tune --dataset ./kitti-mots --tracker eagermot` reads
+these inputs from a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets).
+The dedicated `eval-eagermot` and `tune-eagermot` commands also accept
+`--dataset ./kitti-mots`. Image tracking, `TrackingPipeline`, and
+cached perception replay cannot supply the required sensor inputs and reject
+`eagermot` before running perception.
 
 ## Evaluate downloaded KITTI predictions
 
@@ -44,31 +46,43 @@ extra installed. This replays saved detector predictions on CPU and evaluates
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
-  --data-root ./eagermot-data \
-  --images ~/Downloads/data_tracking_image_2/training/image_02 \
-  --instances ~/Downloads/instances \
+  --dataset ./kitti-mots \
   --split val \
   --project runs/eagermot
 ```
 
-The sensor root must contain:
+The dataset stores each sequence's observations together and declares saved
+predictions separately:
 
 ```text
-eagermot-data/
-  calib/training/calib/SEQUENCE.txt
-  ego_motion/SEQUENCE.npy
-  trackrcnn_detections/SEQUENCE.txt
-  pointgnn/training/results_tracking_car_auto_t2_train/SEQUENCE/data/FRAME.txt
-  pointgnn/training/results_tracking_ped_cyl_auto_trainval/SEQUENCE/data/FRAME.txt
+kitti-mots/
+  dataset.yaml
+  replay.yaml
+  sequences/training/0002/
+    images/000000.png
+    ground_truth/000000.png
+    calibration.txt
+    poses.npy
+  predictions/
+    trackrcnn/manifest.yaml
+    trackrcnn/training/0002.txt
+    pointgnn-car-t2/manifest.yaml
+    pointgnn-car-t2/training/0002/000000.txt
+    pointgnn-car-t3/manifest.yaml
+    pointgnn-car-t3/training/0002/000000.txt
+    pointgnn-pedestrian/manifest.yaml
+    pointgnn-pedestrian/training/0002/000000.txt
 ```
 
 Sequence names have four digits and frame names have six digits. The default
 MOTS validation split is `0002, 0006, 0007, 0008, 0010, 0013, 0014, 0016, 0018`.
 Add `--sequence 0002` for a smaller run; repeat the option to select several
-sequences. To evaluate all 21 annotated sequences, use
-`--split fulltrain --pointgnn-car t3-trainval`, which selects
-`results_tracking_car_auto_t3_trainval` for cars. Test sequences lack local
-ground truth and are not supported by this evaluation command.
+sequences. To evaluate all 21 annotated sequences, use `--split fulltrain`.
+The supplied `replay.yaml` selects the T2 car predictions for validation and
+T3 for training or full training. Edit its prediction manifest references to
+change detector inputs. See the [dataset layout and manifests](../config/datasets.md#kitti-fusion-datasets).
+Testing images and calibration are retained, but this partition lacks the
+ground truth, ego poses, and 2D predictions needed for evaluation and tuning.
 
 Results are written under `runs/eagermot/val` (then `val2`, and so on):
 
@@ -78,7 +92,8 @@ Results are written under `runs/eagermot/val` (then `val2`, and so on):
 - `metrics.csv`: combined results for each class and aggregate.
 - `mots/SEQUENCE.txt`: official MOTS predictions with real, disjoint masks.
 - `videos/SEQUENCE.mp4`: annotated video when `--save` is enabled.
-- `run.json`: paths, selected sequences, detector variant and tracker presets.
+- `run.json`: dataset, replay, and prediction manifest paths, selected
+  sequences, and tracker presets.
 
 By default, the runner uses the released car and pedestrian presets separately, with
 globally unique output identities. Image confidence resolves overlapping
@@ -108,9 +123,7 @@ the estimated 3D bounding boxes:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
-  --data-root ./eagermot-data \
-  --images ~/Downloads/data_tracking_image_2/training/image_02 \
-  --instances ~/Downloads/instances \
+  --dataset ./kitti-mots \
   --class-config runs/eagermot-tune/val/best.yaml \
   --sequence 0016 \
   --show \
@@ -142,16 +155,40 @@ remain unchanged.
 
 ## Tune separate class profiles
 
-With the `mots` and `evolve` extras installed, `tune-eagermot` optimizes separate
-car and pedestrian tracker parameters together. Every trial evaluates both
-classes and maximizes their **class-average
-mask HOTA** on the selected sequences. Use the same sensor inputs as evaluation:
+With the `mots` and `evolve` extras installed, tune the `kitti-mots` dataset
+through the main command:
+
+```bash
+boxmot tune \
+  --dataset ./kitti-mots \
+  --tracker eagermot \
+  --n-trials 50 \
+  --seed 0
+```
+
+The [dataset manifests](../config/datasets.md#kitti-fusion-datasets) record
+sequence locations, classes, official splits, and prediction choices. Images
+and ground truth are stored inside the dataset, so it can move independently
+of the original downloads. You can pass
+`--dataset /path/to/kitti-mots/dataset.yaml` from any working directory;
+relative paths remain anchored to their containing manifest.
+
+The dataset's default split is used unless you pass `--split`. `replay.yaml`
+selects the image, car, and pedestrian predictions for each split. Every trial
+evaluates car and pedestrian profiles together and maximizes their
+**class-average mask HOTA**.
+
+The sensor workflow uses serial CPU execution and `--search-alg optuna`.
+Explicit device and concurrency settings must preserve that execution mode,
+and objective selectors must use `HOTA`. Perception and build options,
+`--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
+`--project` changes the results root from `runs/eagermot-tune`.
+
+The standalone command accepts the same dataset:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli tune-eagermot \
-  --data-root ./eagermot-data \
-  --images ~/Downloads/data_tracking_image_2/training/image_02 \
-  --instances ~/Downloads/instances \
+  --dataset ./kitti-mots \
   --split val \
   --n-trials 50 \
   --seed 0 \
@@ -179,9 +216,7 @@ Pass the winning profiles to evaluation using `--class-config`:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
-  --data-root ./eagermot-data \
-  --images ~/Downloads/data_tracking_image_2/training/image_02 \
-  --instances ~/Downloads/instances \
+  --dataset ./kitti-mots \
   --split val \
   --class-config runs/eagermot-tune/val/best.yaml \
   --project runs/eagermot-tuned

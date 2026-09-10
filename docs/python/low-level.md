@@ -1,5 +1,17 @@
 # Component API Reference
 
+## Canonical structures
+
+Import canonical values from `boxmot.structures`. Their implementation modules
+group 2D and 3D values by role:
+
+| Module | Structures |
+| --- | --- |
+| [Geometry](../reference/boxmot/structures/geometry.md) | `Boxes`, `OrientedBoxes`, `Boxes3D` |
+| [Detections](../reference/boxmot/structures/detections.md) | `Detections`, `Detections3D` |
+| [Tracks](../reference/boxmot/structures/tracks.md) | `Tracks`, `Tracks3D`, `MultimodalTracks` |
+| [Camera](../reference/boxmot/structures/camera.md) | `CameraModel` |
+
 ## Detection
 
 ::: boxmot.detectors.protocols.Detector
@@ -30,15 +42,15 @@
 
 ## Tracking
 
-::: boxmot.trackers.protocols.Tracker
+::: boxmot.trackers.common.protocols.Tracker
 
-::: boxmot.trackers.protocols.ReIDConfigurableTracker
+::: boxmot.trackers.common.protocols.ReIDConfigurableTracker
 
-::: boxmot.trackers.protocols.TrackerRequirements
+::: boxmot.trackers.common.protocols.TrackerRequirements
 
-::: boxmot.trackers.specs.TrackerSpec
+::: boxmot.trackers.common.specs.TrackerSpec
 
-::: boxmot.trackers.factory.create_tracker
+::: boxmot.trackers.common.factory.create_tracker
 
 Trackers accept canonical `Detections` or, for standalone box-only calls, exact
 NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be

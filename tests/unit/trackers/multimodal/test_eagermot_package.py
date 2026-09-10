@@ -11,7 +11,7 @@ import torch
 from boxmot import EagerMot
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch, MultimodalTracks
 from boxmot.trackers import TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.base import BaseTracker
+from boxmot.trackers.common.base import BaseTracker
 
 
 def _observations(sample_id: str = "sequence:0") -> tuple[Detections, Detections3D, CameraModel]:
@@ -41,8 +41,8 @@ def _observations(sample_id: str = "sequence:0") -> tuple[Detections, Detections
 def test_eagermot_uses_the_shared_validated_update_boundary() -> None:
     """Public imports and the factory expose the registered domain class."""
     tracker = create_tracker(TrackerSpec("eagermot"))
-    implementation = importlib.import_module("boxmot.trackers.multimodal.eagermot.tracker")
-    package = importlib.import_module("boxmot.trackers.multimodal.eagermot")
+    implementation = importlib.import_module("boxmot.trackers.eagermot.tracker")
+    package = importlib.import_module("boxmot.trackers.eagermot")
 
     assert type(tracker) is EagerMot is implementation.EagerMot
     assert EagerMot.update is BaseTracker.update

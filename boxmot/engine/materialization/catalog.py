@@ -21,9 +21,9 @@ from boxmot.datasets.kitti_mots import kitti_mots_frame_paths
 from boxmot.datasets.manifest import canonical_json_bytes, sha256_file
 from boxmot.datasets.readers.images import NUMPY_IMAGE_EXTENSIONS, probe_numpy_image_size
 from boxmot.engine.dataset_variants.fps import select_sequence_frames, validate_dataset_fps
-from boxmot.engine.frame_timing import SourceTimestamps
 from boxmot.engine.materialization.source import SourceSample
 from boxmot.engine.tracking.sources import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, is_appledouble_file
+from boxmot.engine.tracking.timestamps import SourceTimestamps
 
 STILL_FRAME_EXTENSIONS = IMAGE_EXTENSIONS | NUMPY_IMAGE_EXTENSIONS
 LOCAL_SOURCE_EXTENSIONS = STILL_FRAME_EXTENSIONS | VIDEO_EXTENSIONS

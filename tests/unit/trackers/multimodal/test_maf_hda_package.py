@@ -10,7 +10,7 @@ import torch
 from boxmot import MafHda
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch
 from boxmot.trackers import TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.base import BaseTracker
+from boxmot.trackers.common.base import BaseTracker
 
 
 def _observations(frame_index: int, *, masks: bool = True) -> tuple[Detections, Frame]:
@@ -38,7 +38,7 @@ def _observations(frame_index: int, *, masks: bool = True) -> tuple[Detections, 
 
 def test_maf_hda_uses_the_shared_public_update_boundary() -> None:
     """Lazy public construction resolves to the domain implementation."""
-    implementation = importlib.import_module("boxmot.trackers.multimodal.maf_hda.tracker")
+    implementation = importlib.import_module("boxmot.trackers.maf_hda.tracker")
     tracker = create_tracker(TrackerSpec("maf_hda"))
 
     assert type(tracker) is MafHda is implementation.MafHda

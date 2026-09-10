@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 import pytest
 
-import boxmot.engine.dataset_resources as dataset_resources
+import boxmot.engine.materialization.resources as dataset_resources
 import boxmot.engine.materialization.workflow as materialization_workflow
 from boxmot.engine.eval import evaluator
 

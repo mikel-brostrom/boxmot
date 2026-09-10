@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 import torch
 
+import boxmot.reid.exporters.backends.base as exporter_base
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.exporters.backends.onnx import ONNXExporter
 from boxmot.reid.exporters.backends.openvino import OpenVINOExporter
@@ -20,11 +21,10 @@ from boxmot.reid.exporters.workflow import (
     perform_exports,
     verify_export_parity,
 )
-from boxmot.utils.checks import RequirementsChecker
 
 
-def _disable_dep_sync(monkeypatch):
-    monkeypatch.setattr(RequirementsChecker, "sync_extra", lambda *args, **kwargs: None)
+def _disable_dependency_validation(monkeypatch):
+    monkeypatch.setattr(exporter_base, "require_extra", lambda *args, **kwargs: None)
 
 
 def _install_fake_litert_torch(monkeypatch, convert_impl):
@@ -125,7 +125,7 @@ def test_export_setup_rejects_cpu_tensorrt_fp16(tmp_path):
 
 
 def test_tflite_export_uses_litert_torch_direct_api(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
 
     weights = tmp_path / "osnet_x0_25_msmt17.pt"
     calls = []
@@ -156,7 +156,7 @@ def test_tflite_export_uses_litert_torch_direct_api(monkeypatch, tmp_path):
 
 
 def test_tflite_export_accepts_tuple_sample_inputs(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
 
     weights = tmp_path / "resnet18.pt"
     image = torch.randn(1, 3, 224, 224)
@@ -182,7 +182,7 @@ def test_tflite_export_accepts_tuple_sample_inputs(monkeypatch, tmp_path):
 
 
 def test_tflite_export_replaces_static_adaptive_max_pool2d(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
 
     weights = tmp_path / "adaptive_pool.pt"
     image = torch.randn(1, 3, 8, 4)
@@ -349,7 +349,7 @@ def test_perform_exports_runs_hidden_dependency_without_reporting():
 
 
 def test_tflite_export_quantizes_and_removes_float_intermediate(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
 
     weights = tmp_path / "osnet_x0_25_msmt17.pt"
     image = torch.randn(1, 3, 256, 128)
@@ -405,7 +405,7 @@ def test_tflite_export_quantizes_and_removes_float_intermediate(monkeypatch, tmp
 
 
 def test_tflite_static_quantization_uses_calibration_images(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
 
     import cv2
 

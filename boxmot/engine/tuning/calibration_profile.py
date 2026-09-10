@@ -1,4 +1,4 @@
-"""Validate and restore the fixed KF calibration of a resumed tuning run."""
+"""Record and restore calibrated KF priors held fixed during parameter search."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from boxmot.engine.tracker_config import resolve_tracker_options
-from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
+from boxmot.engine.config.trackers import resolve_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 
 CALIBRATED_KF_OPTIONS = (
     *KALMAN_NOISE_OPTIONS,
@@ -63,6 +63,15 @@ def _validate_metadata(args: Any, report: Mapping[str, Any]) -> None:
     for name, selection in selections.items():
         if _metadata_selection(report.get(name), key=name) != _metadata_selection(selection, key=name):
             raise ValueError(f"Saved tuning calibration {name} differs from this run; start a new tuning run.")
+
+
+def record_tuning_calibration(report_path: Path, fixed_options: Mapping[str, Any]) -> None:
+    """Record calibrated settings that search must preserve when tuning resumes."""
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["tuning"] = {"fixed_options": dict(fixed_options)}
+    temporary = report_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    temporary.replace(report_path)
 
 
 def load_tuning_calibration(
@@ -136,4 +145,4 @@ def load_tuning_calibration(
     return config, fixed
 
 
-__all__ = ("CALIBRATED_KF_OPTIONS", "load_tuning_calibration")
+__all__ = ("CALIBRATED_KF_OPTIONS", "load_tuning_calibration", "record_tuning_calibration")

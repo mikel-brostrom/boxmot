@@ -11,7 +11,7 @@ import torch
 from boxmot.components.timing import timing_event_sink
 from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
-from boxmot.trackers.registry import TRACKER_DEFINITIONS, get_tracker_class
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS, get_tracker_class
 
 REID_TRACKER_NAMES = tuple(
     name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.accepts_embeddings

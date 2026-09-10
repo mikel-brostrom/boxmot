@@ -62,6 +62,8 @@ component keeps its configured device; a configured `auto` resolves to the
 command default (`cpu`). Unavailable explicit accelerators fail before model
 loading with an actionable error. The effective per-component devices are shown
 in the Rich panel and included in the immutable build fingerprint.
+Selectors use the same [device rules as tracking](track.md#device-selection),
+including process-visible CUDA indices and one device per component.
 
 ## Dataset FPS
 

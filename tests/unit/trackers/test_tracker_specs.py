@@ -6,8 +6,8 @@ import pytest
 
 from boxmot import ByteTrack
 from boxmot.structures import GeometryKind
-from boxmot.trackers.registry import TRACKER_CLASS_SPECS
-from boxmot.trackers.specs import (
+from boxmot.trackers.common.registry import TRACKER_CLASS_SPECS
+from boxmot.trackers.common.specs import (
     TrackerCapabilities,
     TrackerFamily,
     TrackerSpec,

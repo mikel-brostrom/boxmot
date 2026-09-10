@@ -37,7 +37,7 @@ def test_class_replay_preserves_shared_ids_and_independent_sensor_row_indices(
     tmp_path: Path, reverse_spatial: bool
 ) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
+    sequence = KittiFusionSequence("0002", **data.reader_paths)
     frame = sequence[0]
     assert frame.detections.class_ids.tolist() == [2, 1]
     assert frame.detections_3d.class_ids.tolist() == [1, 2]
@@ -64,7 +64,7 @@ def test_class_replay_preserves_shared_ids_and_independent_sensor_row_indices(
 
 def test_image_supported_spatial_prediction_preserves_missing_3d_index(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
+    sequence = KittiFusionSequence("0002", **data.reader_paths)
     trackers = _trackers()
     first_frame, empty_frame = sequence[0], sequence[1]
     initial = _track_frame(first_frame, trackers)
@@ -87,7 +87,7 @@ def test_image_supported_spatial_prediction_preserves_missing_3d_index(tmp_path:
 
 def test_spatial_only_support_retains_tracks_without_fabricating_image_masks(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence(data.root, data.images, "0002", car_variant="t2-train")
+    sequence = KittiFusionSequence("0002", **data.reader_paths)
     trackers = _trackers()
     first_frame, empty_frame = sequence[0], sequence[1]
     initial = _track_frame(first_frame, trackers)
@@ -161,12 +161,9 @@ def test_python_show_3d_requires_an_output_mode_before_creating_results(tmp_path
     data = _fixture(tmp_path)
     inputs = prepare_eagermot_kitti(
         SimpleNamespace(
-            data_root=data.root,
-            images=data.images,
-            instances=data.instances,
+            dataset=data.dataset,
             split="val",
             sequence_names=("0002",),
-            pointgnn_car="t2-train",
         )
     )
     output = data.project / "invalid"

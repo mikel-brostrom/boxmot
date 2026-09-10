@@ -19,8 +19,8 @@ from boxmot.structures import (
     Tracks,
     Tracks3D,
 )
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.specs import TrackerCapabilities, TrackerFamily
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 
 
 class _FusionTracker(BaseTracker):

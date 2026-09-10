@@ -50,30 +50,45 @@ replacing the selected PyTorch build with the default one.
 BoxMOT keeps heavier workflow dependencies optional. The source-checkout
 examples below use the CPU profile; replace `cpu` with `cu130` for CUDA 13.0.
 For package installs, first select a PyTorch profile above, then add the listed
-feature extras to the same environment.
+feature extras to the same environment with `boxmot install`. This installs
+unmet dependencies for the existing BoxMOT distribution.
 
-| Workflow | PyPI install | Source checkout with `uv` | Notes |
+| Workflow | Add dependencies to installed BoxMOT | Source checkout with `uv` | Notes |
 | --- | --- | --- | --- |
-| Tracking workflows with common YOLO backends | `pip install "boxmot[yolo]"` | `uv sync --extra cpu --extra yolo` | Preinstalls Ultralytics and YOLOX. |
-| Detector inference with RT-DETR v2 | `pip install "boxmot[rtdetr]"` | `uv sync --extra cpu --extra rtdetr` | Installs the Transformers detector backend. |
+| Tracking workflows with common YOLO backends | `boxmot install --extra yolo` | `uv sync --extra cpu --extra yolo` | Installs Ultralytics and YOLOX. |
+| Detector inference with RT-DETR v2 | `boxmot install --extra rtdetr` | `uv sync --extra cpu --extra rtdetr` | Installs the Transformers detector backend. |
 | `train-reid`, `eval-reid`, and `compare-reid` | No additional extra | `uv sync --extra cpu` | Uses the built-in ReID stack with the selected PyTorch profile. Built-in downloads use `./datasets/reid`; explicit `--data-dir` and `--target` paths remain supported. |
-| `tune` | `pip install "boxmot[evolve]"` | `uv sync --extra cpu --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
-| `research` | `pip install "boxmot[research]"` | `uv sync --extra cpu --extra research` | Installs GEPA for the code-evolution loop. |
-| Detection-to-track HTTP service | `pip install "boxmot[service]"` | `uv sync --extra cpu --extra service` | Installs FastAPI and Uvicorn for `boxmot-service`. |
-| `eval --compare-trackeval` | `pip install "boxmot[trackeval]"` | `uv sync --extra cpu --extra trackeval` | Adds the TrackEval reference comparison for AABB MOTChallenge datasets. |
-| `export --include onnx` | `pip install "boxmot[onnx]"` | `uv sync --extra cpu --extra onnx` | The default export path uses ONNX. |
-| `export --include coreml` | `pip install "boxmot[coreml]"` | `uv sync --extra cpu --extra coreml` | Native FP16 MLProgram export and inference on macOS. |
-| `export --include openvino` | `pip install "boxmot[openvino]"` | `uv sync --extra cpu --extra openvino` | Usually paired with `--include onnx`. |
-| `export --include tflite` | `pip install "boxmot[tflite]"` | `uv sync --extra cpu --extra tflite` | Installs both TFLite export and LiteRT inference packages. |
+| `tune` with Ray | `boxmot install --extra evolve` | `uv sync --extra cpu --extra evolve` | Installs Ray Tune, Optuna, Plotly, and related tuning dependencies. |
+| `research` | `boxmot install --extra research` | `uv sync --extra cpu --extra research` | Installs GEPA for the code-evolution loop. |
+| Detection-to-track HTTP service | `boxmot install --extra service` | `uv sync --extra cpu --extra service` | Installs FastAPI and Uvicorn for `boxmot-service`. |
+| `eval --compare-trackeval` | `boxmot install --extra trackeval` | `uv sync --extra cpu --extra trackeval` | Adds the TrackEval reference comparison for AABB MOTChallenge datasets. |
+| `export --include onnx` | `boxmot install --extra onnx` | `uv sync --extra cpu --extra onnx` | The default export path uses ONNX. |
+| `export --include coreml` | `boxmot install --extra coreml` | `uv sync --extra cpu --extra coreml` | Native FP16 MLProgram export and inference on macOS. |
+| `export --include openvino` | `boxmot install --extra onnx --extra openvino` | `uv sync --extra cpu --extra onnx --extra openvino` | Uses ONNX as an intermediate. |
+| `export --include tflite` | `boxmot install --extra tflite` | `uv sync --extra cpu --extra tflite` | Installs both TFLite export and LiteRT inference packages. |
 
 You can combine extras when needed:
 
 ```bash
 uv sync --extra cpu --extra yolo --extra evolve --extra research
-pip install "boxmot[yolo,evolve,research]"
+boxmot install --extra yolo --extra evolve --extra research
 ```
 
-When an optional ReID runtime is missing, BoxMOT attempts a first-use install with `uv pip install` when `uv` is available, otherwise with the active `python -m pip`. This covers ONNX Runtime, Core ML, OpenVINO, LiteRT, and NVIDIA TensorRT. Native Core ML requires macOS; TensorRT still requires a compatible CUDA/NVIDIA stack for the installed wheel to import and run correctly.
+Download helpers, ReID backends, exporters, tuning, and research validate
+dependencies when used and report an installation command when requirements
+are missing. Install dependencies explicitly in the interpreter that runs your
+application:
+
+```bash
+python -m boxmot.engine.cli install --extra onnx
+```
+
+The `install` command targets that interpreter and checks nested package
+extras as well as version constraints. Use the PyTorch profile commands above
+for `cpu` and `cu130`; those profile extras are not accepted by `boxmot install`.
+See [Install dependencies](../modes/install.md) for custom requirements and
+TensorRT setup. Native Core ML requires macOS; TensorRT requires a compatible
+CUDA/NVIDIA stack.
 
 ## Docker
 

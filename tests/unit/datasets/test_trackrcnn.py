@@ -19,29 +19,28 @@ def _row(frame: int, class_id: int = 1, counts: str = "0<") -> str:
 
 def _fixture(tmp_path: Path) -> tuple[Path, Path]:
     """Provide only 2D detections and images, with no sensor-fusion assets."""
-    detections = tmp_path / "trackrcnn_detections"
-    images = tmp_path / "image_02"
-    detections.mkdir()
-    (images / "0002").mkdir(parents=True)
+    detections = tmp_path / "predictions.txt"
+    images = tmp_path / "camera-images"
+    images.mkdir()
     for index in range(3):
-        Image.new("RGB", (4, 3)).save(images / "0002" / f"{index:06d}.png")
-    (detections / "0002.txt").write_text(_row(0, class_id=2) + _row(2, counts="<"))
+        Image.new("RGB", (4, 3)).save(images / f"{index:06d}.png")
+    detections.write_text(_row(0, class_id=2) + _row(2, counts="<"))
     return detections, images
 
 
 def test_trackrcnn_requires_only_images_and_2d_detector_files(tmp_path: Path) -> None:
     detections, images = _fixture(tmp_path)
 
-    sequence = TrackRcnnSequence(detections, images, "0002")
+    sequence = TrackRcnnSequence("0002", images=images, detections=detections)
     samples = list(sequence)
 
-    assert sorted(path.name for path in tmp_path.iterdir()) == ["image_02", "trackrcnn_detections"]
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["camera-images", "predictions.txt"]
     assert len(sequence) == 3
     assert all(isinstance(sample, TrackRcnnFrame) for sample in samples)
     assert sequence.image_size == (3, 4)
     assert [sample.frame_index for sample in samples] == [0, 1, 2]
     assert [sample.detections.sample_id for sample in samples] == ["train:0002:0", "train:0002:1", "train:0002:2"]
-    assert samples[0].image_path == images / "0002/000000.png"
+    assert samples[0].image_path == images / "000000.png"
     assert samples[0].detections.class_ids.tolist() == [2]
     assert samples[0].detections.geometry.values.tolist() == [[0, 0, 4, 3]]
     assert samples[0].detections.scores.tolist() == [0.75]
@@ -57,9 +56,9 @@ def test_trackrcnn_requires_only_images_and_2d_detector_files(tmp_path: Path) ->
 
 def test_trackrcnn_preserves_an_entirely_empty_prediction_sequence(tmp_path: Path) -> None:
     detections, images = _fixture(tmp_path)
-    (detections / "0002.txt").write_text("")
+    detections.write_text("")
 
-    sequence = TrackRcnnSequence(detections, images, "0002")
+    sequence = TrackRcnnSequence("0002", images=images, detections=detections)
 
     assert len(sequence) == 3
     for frame in sequence:
@@ -70,22 +69,22 @@ def test_trackrcnn_preserves_an_entirely_empty_prediction_sequence(tmp_path: Pat
 
 def test_trackrcnn_decodes_only_requested_masks_and_never_rgb(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     detections, images = _fixture(tmp_path)
-    (detections / "0002.txt").write_text(_row(2, counts="invalid"))
+    detections.write_text(_row(2, counts="invalid"))
 
     def reject_rgb(*args: object, **kwargs: object) -> None:
         raise AssertionError("2D detection reader must not decode RGB pixels")
 
     monkeypatch.setattr(Image.Image, "load", reject_rgb)
-    sequence = TrackRcnnSequence(detections, images, "0002")
+    sequence = TrackRcnnSequence("0002", images=images, detections=detections)
 
     assert len(sequence[0].detections) == 0
-    with pytest.raises(ValueError, match="0002.txt:1: RLE"):
+    with pytest.raises(ValueError, match="predictions.txt:1: RLE"):
         sequence[2]
 
 
 def test_trackrcnn_supports_slices_and_rejects_noninteger_indices(tmp_path: Path) -> None:
     detections, images = _fixture(tmp_path)
-    sequence = TrackRcnnSequence(detections, images, "0002")
+    sequence = TrackRcnnSequence("0002", images=images, detections=detections)
 
     assert [frame.frame_index for frame in sequence[1:]] == [1, 2]
     assert sequence[-1].frame_index == 2
@@ -102,29 +101,29 @@ def test_trackrcnn_rejects_ambiguous_sequence_names(tmp_path: Path, sequence_id:
     detections, images = _fixture(tmp_path)
 
     with pytest.raises(ValueError, match="exact four-digit"):
-        TrackRcnnSequence(detections, images, sequence_id)
+        TrackRcnnSequence(sequence_id, images=images, detections=detections)
 
 
 def test_trackrcnn_rejects_missing_prediction_file(tmp_path: Path) -> None:
     detections, images = _fixture(tmp_path)
-    (detections / "0002.txt").unlink()
+    detections.unlink()
 
-    with pytest.raises(FileNotFoundError, match="0002.txt"):
-        TrackRcnnSequence(detections, images, "0002")
+    with pytest.raises(FileNotFoundError, match="predictions.txt"):
+        TrackRcnnSequence("0002", images=images, detections=detections)
 
 
 @pytest.mark.parametrize("defect", ["gap", "duplicate", "different_size"])
 def test_trackrcnn_rejects_ambiguous_image_timeline(tmp_path: Path, defect: str) -> None:
     detections, images = _fixture(tmp_path)
     if defect == "gap":
-        (images / "0002/000001.png").unlink()
+        (images / "000001.png").unlink()
     elif defect == "duplicate":
-        Image.new("RGB", (4, 3)).save(images / "0002/1.png")
+        Image.new("RGB", (4, 3)).save(images / "1.png")
     else:
-        Image.new("RGB", (5, 3)).save(images / "0002/000001.png")
+        Image.new("RGB", (5, 3)).save(images / "000001.png")
 
     with pytest.raises(ValueError, match="contiguous|duplicate|dimensions"):
-        TrackRcnnSequence(detections, images, "0002")
+        TrackRcnnSequence("0002", images=images, detections=detections)
 
 
 def test_trackrcnn_import_does_not_load_sensor_fusion_modules() -> None:
@@ -134,7 +133,7 @@ def test_trackrcnn_import_does_not_load_sensor_fusion_modules() -> None:
             "-c",
             "import sys; from boxmot.datasets.trackrcnn import TrackRcnnSequence; "
             "assert 'boxmot.datasets.kitti_fusion' not in sys.modules; "
-            "assert 'boxmot.structures.spatial' not in sys.modules",
+            "assert 'boxmot.structures.camera' not in sys.modules",
         ],
         capture_output=True,
         text=True,

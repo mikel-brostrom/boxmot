@@ -3,13 +3,22 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import torch
 
-from boxmot.detectors import DetectorCapabilities
+from boxmot.detectors import DetectorCapabilities, DetectorSpec
 from boxmot.engine.tracking import workflow
 from boxmot.engine.tracking.sinks import NullSink
 from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
+from boxmot.segmentors import SegmentorSpec
 from boxmot.structures import GeometryKind
 from boxmot.trackers import TrackerCapabilities, TrackerFamily, TrackerRequirements
+
+
+@pytest.fixture(autouse=True)
+def _simulate_visible_cuda_devices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake components exercise selectors without requiring real GPUs."""
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 3)
 
 
 class _EmptySource:
@@ -100,6 +109,59 @@ def _args(*, tracker: str = "botsort", tracker_backend: str = "python") -> Simpl
         asso_func=None,
         segmentor=None,
     )
+
+
+def test_live_device_is_validated_before_loading_components(monkeypatch) -> None:
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(workflow, "create_detector", lambda *args: pytest.fail("Unexpected model construction"))
+    args = _args()
+    args.device = "2"
+
+    with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
+        workflow.run_track(args)
+
+
+@pytest.mark.parametrize("authored", ["2", "cuda:02", "auto"])
+def test_authored_live_component_devices_are_resolved_without_a_command_override(monkeypatch, authored: str) -> None:
+    detector = DetectorSpec("fixture", device=authored)
+    reid = ReIDEncoderSpec("fixture", device=authored)
+    monkeypatch.setattr(workflow, "resolve_detector_spec", lambda *args, **kwargs: (detector, {}))
+    monkeypatch.setattr(workflow, "resolve_reid_spec", lambda *args, **kwargs: (reid, {}))
+    args = SimpleNamespace(detector="fixture", reid="fixture", device=None)
+    expected = "cpu" if authored == "auto" else "cuda:2"
+
+    assert workflow._detector_spec(args, "aabb").device == expected
+    assert workflow._reid_spec(args).device == expected
+
+
+def test_live_segmentor_uses_the_same_canonical_device_as_detector_and_reid(monkeypatch) -> None:
+    detector = DetectorSpec("fixture", device="auto")
+    reid = ReIDEncoderSpec("fixture", device="auto")
+    segmentor = SegmentorSpec("fixture", device="auto")
+    monkeypatch.setattr(workflow, "resolve_detector_spec", lambda *args, **kwargs: (detector, {}))
+    monkeypatch.setattr(workflow, "resolve_reid_spec", lambda *args, **kwargs: (reid, {}))
+    monkeypatch.setattr(workflow, "resolve_segmentor_spec", lambda *args, **kwargs: (segmentor, {}))
+    args = _args()
+    args.device = "2"
+    args.detector = "fixture"
+    args.segmentor = "fixture"
+    assert workflow._detector_spec(args, "aabb").device == "cuda:2"
+    assert workflow._reid_spec(args).device == "cuda:2"
+    selected = []
+
+    class SelectedSegmentor(Exception):
+        pass
+
+    def create_segmentor(spec):
+        selected.append(spec)
+        raise SelectedSegmentor
+
+    monkeypatch.setattr(workflow, "create_segmentor", create_segmentor)
+
+    with pytest.raises(SelectedSegmentor):
+        workflow.run_track(args, detector=_Detector(), tracker=_Tracker(generates_embeddings=False), encoder=_Encoder())
+
+    assert selected[0].device == "cuda:2"
 
 
 @pytest.mark.parametrize("tracker_name", _PYTHON_REID_TRACKERS)

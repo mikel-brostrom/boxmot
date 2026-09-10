@@ -5,8 +5,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from boxmot.trackers.multimodal.maf_hda.appearance import MaskedKCF, _lab_histograms
-from boxmot.trackers.multimodal.maf_hda.fhog import fhog
+from boxmot.trackers.maf_hda.appearance import MaskedKCF, _lab_histograms
+from boxmot.trackers.maf_hda.fhog import fhog
 
 
 def _scene() -> tuple[np.ndarray, np.ndarray, np.ndarray]:

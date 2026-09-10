@@ -61,7 +61,7 @@ def run_eagermot_kitti_tuning(args: Any) -> Path:
         raise ValueError("seed must be an integer within [0, 2**32).")
     schema = load_yaml_config("eagermot")
     inputs = prepare_eagermot_kitti(args)
-    output = increment_path(Path(args.project).expanduser().resolve() / args.split, mkdir=True)
+    output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"], mkdir=True)
     manifest = {
         **inputs.manifest,
         "status": "running",

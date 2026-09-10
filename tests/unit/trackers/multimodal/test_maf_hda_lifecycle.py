@@ -8,7 +8,7 @@ import torch
 
 from boxmot import MafHda
 from boxmot.structures import Boxes, Detections, MaskBatch
-from boxmot.trackers.multimodal.maf_hda.association import (
+from boxmot.trackers.maf_hda.association import (
     INITIAL_COVARIANCE,
     MAX_COST,
     fusion_cost,

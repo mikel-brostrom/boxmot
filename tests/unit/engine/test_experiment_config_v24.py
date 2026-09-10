@@ -7,8 +7,8 @@ from typing import IO, Any
 import pytest
 import yaml
 
-import boxmot.engine.experiment_config as experiment_config
-from boxmot.engine.experiment_config import (
+import boxmot.engine.config.experiments as experiment_config
+from boxmot.engine.config.experiments import (
     EXPERIMENT_CONFIGS_DIR,
     ConfigurationError,
     resolve_experiment_config,

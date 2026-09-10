@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,11 +13,11 @@ import yaml
 
 from boxmot import EagerMot, __version__
 from boxmot.datasets.kitti_fusion import KittiFusionFrame, KittiFusionSequence
+from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset
 from boxmot.engine.eval.kitti_mots_replay import (
     GroundTruthEntry,
     evaluate_kitti_mots,
     kitti_mots_annotations,
-    kitti_mots_sequences,
 )
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.eval.output import increment_path
@@ -90,7 +90,7 @@ class KittiReplayInputs:
 
     sequences: dict[str, KittiFusionSequence]
     annotations: dict[str, list[GroundTruthEntry]]
-    instances_root: Path
+    dataset_root: Path
     manifest: dict[str, Any]
 
 
@@ -165,30 +165,38 @@ def _track_frame(frame: KittiFusionFrame, trackers: dict[int, EagerMot]) -> Mult
 
 def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     """Validate alignment and index sensor inputs once for evaluation or tuning."""
-    names = kitti_mots_sequences(args.split, tuple(args.sequence_names))
-    image_root = Path(args.images).expanduser().resolve()
-    instances_root = Path(args.instances).expanduser().resolve()
-    data_root = Path(args.data_root).expanduser().resolve()
+    dataset = load_kitti_fusion_dataset(args.dataset, split=args.split, sequence_names=tuple(args.sequence_names))
     sequences: dict[str, KittiFusionSequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
-    for name in names:
-        sequence = KittiFusionSequence(data_root, image_root, name, car_variant=args.pointgnn_car)
+    for paths in dataset.sequences:
+        name = paths.sequence_id
+        sequence = KittiFusionSequence(
+            name,
+            images=paths.images,
+            detections_2d=paths.detections_2d,
+            calibration=paths.calibration,
+            poses=paths.poses,
+            car_detections_3d=paths.car_detections_3d,
+            pedestrian_detections_3d=paths.pedestrian_detections_3d,
+        )
         sequences[name] = sequence
-        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, instances_root)
+        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, paths.ground_truth)
 
     manifest = {
         "boxmot_version": __version__,
         "tracker": "eagermot",
         "evaluation": "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics",
-        "split": args.split,
+        "split": dataset.split,
         "sequences": {name: len(sequence) for name, sequence in sequences.items()},
         "missing_pointgnn_frames": {name: sequence.missing_3d_frames for name, sequence in sequences.items()},
-        "data_root": str(data_root),
-        "images": str(image_root),
-        "instances": str(instances_root),
-        "pointgnn_car": args.pointgnn_car,
-        "pointgnn_pedestrian": "results_tracking_ped_cyl_auto_trainval",
-        "image_detector": "trackrcnn_detections",
+        "dataset_config": str(dataset.config_path),
+        "dataset_id": dataset.id,
+        "replay_config": str(dataset.replay_path),
+        "prediction_manifests": {role: str(path) for role, path in dataset.predictions.items()},
+        "sequence_inputs": {
+            paths.sequence_id: {key: str(value) for key, value in asdict(paths).items() if key != "sequence_id"}
+            for paths in dataset.sequences
+        },
         "pointgnn_score_mapping": "s / (1 + s); bounded ranking score, not a calibrated probability",
         "limitations": [
             "Detector checkpoint training provenance is not independently verified.",
@@ -196,7 +204,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
             "Full rigid poses transform centers; box orientation remains yaw-only.",
         ],
     }
-    return KittiReplayInputs(sequences, annotations, instances_root, manifest)
+    return KittiReplayInputs(sequences, annotations, dataset.config_path.parent, manifest)
 
 
 def _visualize_frame(
@@ -215,7 +223,7 @@ def _visualize_frame(
 
     image_path = sequence.frame_paths[frame.frame_index]
     image = Frame(
-        image=read_rgb_chw_uint8(image_path.as_uri(), sequence.image_root),
+        image=read_rgb_chw_uint8(image_path.as_uri(), image_path.parent),
         sample_id=frame.detections.sample_id,
         sequence_id=sequence.sequence_id,
         frame_index=frame.frame_index,
@@ -272,7 +280,7 @@ def _replay(
                     )
                 if (frame.frame_index + 1) % 200 == 0:
                     LOGGER.info(f"EagerMOT {name}: {frame.frame_index + 1}/{len(sequence)} frames")
-    return evaluate_kitti_mots(prediction_dir, output, inputs.instances_root, inputs.annotations)
+    return evaluate_kitti_mots(prediction_dir, output, inputs.dataset_root, inputs.annotations)
 
 
 def evaluate_eagermot_kitti(
@@ -325,7 +333,7 @@ def run_eagermot_kitti(args: Any) -> Path:
     """Replay saved sensor predictions with default or saved per-class profiles."""
     profiles = load_kitti_profiles(getattr(args, "class_config", None))
     inputs = prepare_eagermot_kitti(args)
-    output = increment_path(Path(args.project).expanduser().resolve() / args.split)
+    output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"])
     evaluate_eagermot_kitti(
         inputs,
         profiles,

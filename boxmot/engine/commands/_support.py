@@ -65,7 +65,7 @@ def _build_cli_namespace(
 ):
     """Build a normalized engine namespace while retaining explicit CLI provenance."""
 
-    from boxmot.engine.config import build_mode_namespace
+    from boxmot.engine.config.runtime import build_mode_namespace
 
     return build_mode_namespace(mode, payload, explicit_keys=_explicit_cli_keys(ctx))
 
@@ -79,7 +79,7 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
     """
 
     if getattr(args, "tracker", None) is not None:
-        from boxmot.engine.tracker_config import validate_image_tracker
+        from boxmot.engine.config.trackers import validate_image_tracker
 
         try:
             validate_image_tracker(str(args.tracker))
@@ -166,13 +166,13 @@ def _prepare_replay_build(
 ) -> tuple[str | None, str | None, str | Path]:
     """Resolve replay inputs and reuse or create one canonical build before dispatch."""
 
-    from boxmot.engine.experiment_config import (
+    from boxmot.engine.config.experiments import (
         ConfigurationError,
         resolve_experiment_config,
         resolve_matching_experiment_path,
     )
-    from boxmot.engine.tracker_config import validate_image_tracker
-    from boxmot.trackers.registry import get_tracker_definition
+    from boxmot.engine.config.trackers import validate_image_tracker
+    from boxmot.trackers.common.registry import get_tracker_definition
 
     try:
         validate_image_tracker(tracker)

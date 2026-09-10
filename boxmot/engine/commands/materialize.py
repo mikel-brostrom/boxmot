@@ -6,16 +6,17 @@ from pathlib import Path
 
 import click
 
-from boxmot.engine.commands._options import dataset_fps_option, experiment_option
+from boxmot.engine.commands._options import _parse_device, dataset_fps_option, experiment_option
 from boxmot.engine.commands._support import _dispatch_cli_workflow
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 
 @click.command(help="Build an immutable keyed perception dataset")
 @click.option(
     "--device",
     default=BOXMOT_DEFAULTS.materialize.device,
-    help="Single execution device for all perception stages, e.g. cpu, mps, cuda:0, or 0.",
+    callback=_parse_device,
+    help="One device for all perception stages: cpu, mps, cuda:N, or N (e.g. 0). GPU lists are not supported.",
 )
 @experiment_option(required=True)
 @dataset_fps_option

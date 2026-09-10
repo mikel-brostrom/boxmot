@@ -4,8 +4,14 @@ from dataclasses import dataclass, replace
 
 import torch
 
-from ._validation import normalize_row_indices, validate_finite, validate_nonempty_string, validate_tensor
-from .geometry import Boxes, Geometry, OrientedBoxes
+from ._validation import (
+    normalize_row_indices,
+    validate_finite,
+    validate_nonempty_string,
+    validate_scores_and_classes,
+    validate_tensor,
+)
+from .geometry import Boxes, Boxes3D, Geometry, OrientedBoxes
 from .masks import MaskBatch
 
 
@@ -126,4 +132,40 @@ class Detections:
         ).contiguous()
 
 
-__all__ = ("Detections",)
+@dataclass(frozen=True, slots=True, eq=False)
+class Detections3D:
+    """Independent 3D detector rows; their count need not match 2D detections."""
+
+    geometry: Boxes3D
+    scores: torch.Tensor
+    class_ids: torch.Tensor
+    sample_id: str
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def __len__(self) -> int:
+        return len(self.geometry)
+
+    def validate(self) -> None:
+        """Validate aligned spatial geometry, confidence, classes, and sample ID."""
+        if not isinstance(self.geometry, Boxes3D):
+            raise TypeError("Detections3D.geometry must be Boxes3D.")
+        self.geometry.validate()
+        validate_scores_and_classes(self.scores, self.class_ids, owner="Detections3D")
+        validate_nonempty_string(self.sample_id, name="Detections3D.sample_id")
+        if len(self.scores) != len(self) or len(self.class_ids) != len(self):
+            raise ValueError("Detections3D geometry, scores, and class IDs must be aligned.")
+
+    def select(self, indices: torch.Tensor) -> Detections3D:
+        """Select or reorder only this independent detector's rows."""
+        selected = normalize_row_indices(indices, count=len(self))
+        return Detections3D(
+            geometry=self.geometry.select(selected),
+            scores=self.scores.index_select(0, selected),
+            class_ids=self.class_ids.index_select(0, selected),
+            sample_id=self.sample_id,
+        )
+
+
+__all__ = ("Detections", "Detections3D")

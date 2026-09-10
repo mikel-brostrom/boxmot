@@ -169,7 +169,7 @@ def _load_saved_onnx(onnx, path: Path):
 
 
 class ONNXExporter(BaseExporter):
-    group = "onnx"
+    extra = "onnx"
 
     def __init__(self, model, im, file, opset=None, dynamic=False, half=False, simplify=False, verbose=True):
         # keep BaseExporter behavior (optimize handled elsewhere in boxmot)

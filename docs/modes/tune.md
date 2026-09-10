@@ -1,8 +1,10 @@
 # Tune
 
-`tune` prepares or reuses a canonical perception build once, optionally
-calibrates the Kalman filter, and optimizes tracker parameters by replaying
-that same immutable build in every trial:
+`tune` optimizes tracker parameters on a selected dataset. For image trackers,
+it prepares or reuses a canonical perception build once, optionally calibrates
+the Kalman filter, and replays that same immutable build in every trial.
+Prepare Ray tuning dependencies with `boxmot install --extra evolve`; see
+[Install dependencies](install.md).
 
 ```bash
 boxmot tune \
@@ -29,19 +31,48 @@ configuration. See [experiment workflows](../guides/experiments.md).
 
 ## EagerMOT with saved KITTI sensor inputs
 
-Use `boxmot tune-eagermot` for independent 2D/3D detections, calibration and
-ego poses. It tunes separate car and pedestrian profiles together for
-class-average mask HOTA. Trials run serially on CPU, starting with the default
-KITTI profiles, and save `best.yaml` for `boxmot eval-eagermot --class-config`.
+Pass a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets) to
+`--dataset` with `--tracker eagermot`:
+
+```bash
+boxmot tune \
+  --dataset ./kitti-mots \
+  --tracker eagermot \
+  --n-trials 50 \
+  --seed 0
+```
+
+The folder's `dataset.yaml` defines sequence locations, classes, splits, and
+the replay configuration. Each sequence contains images, ground truth,
+calibration, and ego poses. `replay.yaml` selects the saved 2D/3D prediction
+sets for each split. You can also pass `dataset.yaml` itself; an absolute
+`--dataset` path works from any working directory. Keep the `./` prefix when
+selecting the local folder by name; bare `kitti-mots` selects the built-in
+image dataset profile.
+
+With the `mots` and `evolve` extras installed, this runs serial Optuna trials
+on CPU and maximizes class-average mask HOTA across car and pedestrian
+profiles. The first trial uses the default KITTI profiles. Add
+`--sequence 0002` to select one validation sequence, repeat `--sequence` for
+several, or use `--split train` or `--split fulltrain` to select another
+dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
+`best.yaml` for `boxmot eval-eagermot --class-config`.
+
+This sensor workflow reads the dataset and selected predictions directly.
+It supports `--search-alg optuna`; explicit device and concurrency settings must preserve
+serial CPU execution, and objective selectors must use `HOTA`. Perception
+and build options, `--calibrate-kf`, and `--resume-tune` are unavailable for
+fusion datasets. The standalone `boxmot tune-eagermot --dataset ./kitti-mots`
+command uses the same dataset and replay configuration.
 See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
-for input paths, split selection and outputs.
+for inputs and outputs.
 
 ## Build preparation and reuse
 
-When `--build` is omitted, tuning resolves the canonical build from the
-selected experiment, source data, perception settings, and requested frame
-rate. A matching complete build is validated and reused; otherwise,
-materialization runs once before calibration and Ray start. Reuse requires
+For image trackers, when `--build` is omitted, tuning resolves the canonical
+build from the selected experiment, source data, perception settings, and
+requested frame rate. A matching complete build is validated and reused;
+otherwise, materialization runs once before calibration and Ray start. Reuse requires
 matching source and semantic component fingerprints, geometry, class taxonomy,
 and the payloads needed by the tracker. It never selects a latest build.
 
@@ -178,7 +209,7 @@ interface.
     :prog_name: boxmot tune
     :depth: 0
 
-### EagerMOT sensor tuning arguments
+### Standalone EagerMOT tuning arguments
 
 ::: mkdocs-click
     :module: boxmot.engine.commands.eagermot

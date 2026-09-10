@@ -119,6 +119,8 @@ embeddings lazily; the return value remains a NumPy matrix without sample
 metadata. A `detection_index == -1` value identifies a propagated track without
 a current detection.
 
+Use the [tracker input matrix](../trackers/index.md#input-support) to compare
+geometry, embeddings, masks, frames, and sensor inputs across implementations.
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`. For a
 ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
@@ -130,6 +132,10 @@ either attached embeddings or a supplied `Frame` or NumPy image.
 Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
 motion behavior used by established benchmarks and tuning. Timestamps remain
 metadata in this mode; supplying them does not enable variable timing.
+
+Variable timing and online noise adaptation are independent settings. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios, recommended starting points, and configuration examples.
 
 Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
 and OccluBoost offer an experimental seconds-based mode. Enable it explicitly
@@ -309,6 +315,11 @@ encoder = create_reid_encoder(
 Resolve real artifact paths and hashes before creating a materialization plan.
 Backend `options` are sorted tuples of key/value pairs so specs remain
 canonical-JSON serializable.
+
+ReID inference uses the shared [device selectors](../modes/track.md#device-selection):
+for example, `device="0"` and `device="cuda:0"` select the first visible CUDA GPU.
+Select one device supported by the backend; GPU lists are rejected, and device
+selection preserves the process's `CUDA_VISIBLE_DEVICES` setting.
 
 The encoder derives each crop from the supplied detection geometry: AABBs use
 clipped axis-aligned crops and OBBs use the canonical rectified transform.

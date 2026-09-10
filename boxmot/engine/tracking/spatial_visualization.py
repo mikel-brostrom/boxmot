@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import cv2
 import numpy as np
 
-from boxmot.trackers.multimodal.eagermot.geometry import boxes3d_corners
+from boxmot.trackers.eagermot.geometry import boxes3d_corners
 
 if TYPE_CHECKING:
     from boxmot.structures import CameraModel, Tracks3D

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from boxmot.datasets.config import ConfigurationError, load_dataset_config
-from boxmot.engine.config import (
+from boxmot.engine.config.runtime import (
     BOXMOT_DEFAULTS,
     DEFAULT_DETECTOR,
     DEFAULT_REID,
@@ -256,7 +256,7 @@ def test_engine_config_rejects_domain_owned_modes(mode: str):
 
 @pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (4, 4), (32, 8)])
 def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_count, expected_workers):
-    monkeypatch.setattr("boxmot.engine.config.os.cpu_count", lambda: cpu_count)
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
     defaults = get_mode_defaults("eval")
 
     assert defaults["detector"] == DEFAULT_DETECTOR

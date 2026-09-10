@@ -62,7 +62,7 @@ dist/
 site/
 
 # cmc debug images
-boxmot/motion/cmc/*.jpg
+boxmot/trackers/common/motion/cmc/*.jpg
 
 # json outputs
 *_output.json

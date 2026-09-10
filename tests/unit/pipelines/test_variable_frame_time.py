@@ -12,8 +12,8 @@ from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, Tracks
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.bytetrack.tracker import ByteTrack
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 
 def _frame(index: int, timestamp: float | None) -> Frame:

@@ -4,7 +4,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boxmot.engine.experiment_config import resolve_experiment_config
+from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.materialization.catalog import STILL_FRAME_EXTENSIONS, resolve_dataset_root
 from boxmot.engine.tracking.sources import is_appledouble_file
 

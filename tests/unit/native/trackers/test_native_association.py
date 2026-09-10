@@ -12,11 +12,11 @@ from boxmot.native.trackers import occluboost as occluboost_binding
 from boxmot.native.trackers import ocsort as ocsort_binding
 from boxmot.native.trackers import sfsort as sfsort_binding
 from boxmot.structures import MaskBatch
-from boxmot.trackers.box.botsort import native as botsort
-from boxmot.trackers.box.bytetrack import native as bytetrack
-from boxmot.trackers.box.occluboost import native as occluboost
-from boxmot.trackers.box.ocsort import native as ocsort
-from boxmot.trackers.box.sfsort import native as sfsort
+from boxmot.trackers.botsort import native as botsort
+from boxmot.trackers.bytetrack import native as bytetrack
+from boxmot.trackers.occluboost import native as occluboost
+from boxmot.trackers.ocsort import native as ocsort
+from boxmot.trackers.sfsort import native as sfsort
 
 from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr, update_rows
 

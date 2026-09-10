@@ -13,11 +13,6 @@ import torch
 from boxmot.datasets.trackrcnn import TrackRcnnSequence
 from boxmot.structures import Boxes3D, CameraModel, Detections, Detections3D
 
-_CAR_VARIANTS = {
-    "t2-train": "results_tracking_car_auto_t2_train",
-    "t3-trainval": "results_tracking_car_auto_t3_trainval",
-}
-
 
 @dataclass(frozen=True, slots=True)
 class KittiFusionFrame:
@@ -79,19 +74,17 @@ def _poses(path: Path, frame_count: int) -> np.ndarray:
 
 
 class KittiFusionSequence(Sequence[KittiFusionFrame]):
-    """Read a downloaded KITTI training sequence without decoding RGB images.
+    """Read explicitly located KITTI sequence inputs without decoding RGB images.
 
-    ``data_root`` contains ``calib/training/calib``, ``ego_motion``,
-    ``pointgnn/training`` and ``trackrcnn_detections``. ``image_root`` is the
-    directory containing the image sequence folders, usually
-    ``training/image_02``. Every image frame is retained, including frames
-    without 2D predictions or with missing PointGNN files. Missing modality
-    directories are errors. Image frames must be contiguous and zero-based.
+    ``images`` directly contains the sequence's PNG frames. ``detections_2d``,
+    ``calibration``, and ``poses`` select individual TrackR-CNN, KITTI P2, and
+    NumPy camera-to-world files. Both 3D detection directories directly contain
+    six-digit PointGNN frame files. Every image frame is retained, including
+    frames without 2D predictions or with missing PointGNN files. Missing
+    modality directories are errors. Image frames must be contiguous and zero-based.
 
-    PointGNN car inputs are selected with ``car_variant='t3-trainval'`` or
-    ``'t2-train'``. The latter download only contains the nine validation
-    sequences. Car and pedestrian class IDs remain 1 and 2; cyclist rows
-    are excluded because KITTI MOTS does not evaluate that class.
+    Car and pedestrian class IDs remain 1 and 2; cyclist rows are excluded
+    because KITTI MOTS does not evaluate that class.
 
     PointGNN scores are nonnegative but can exceed one. They are mapped with
     ``s / (1 + s)`` to satisfy the canonical structure contract. This preserves
@@ -102,28 +95,24 @@ class KittiFusionSequence(Sequence[KittiFusionFrame]):
 
     def __init__(
         self,
-        data_root: str | Path,
-        image_root: str | Path,
         sequence_id: str,
         *,
-        car_variant: str = "t3-trainval",
+        images: Path,
+        detections_2d: Path,
+        calibration: Path,
+        poses: Path,
+        car_detections_3d: Path,
+        pedestrian_detections_3d: Path,
     ) -> None:
-        if car_variant not in _CAR_VARIANTS:
-            raise ValueError(f"KITTI car_variant must be one of {tuple(_CAR_VARIANTS)}.")
-        self.data_root = Path(data_root).expanduser().resolve()
-        self.image_root = Path(image_root).expanduser().resolve()
         self.sequence_id = sequence_id
-        self.car_variant = car_variant
-        self._trackrcnn = TrackRcnnSequence(self.data_root / "trackrcnn_detections", self.image_root, sequence_id)
+        self._trackrcnn = TrackRcnnSequence(sequence_id, images=images, detections=detections_2d)
         self.frame_paths = self._trackrcnn.frame_paths
         self.image_size = self._trackrcnn.image_size
-        self._projection = _projection(self.data_root / "calib/training/calib" / f"{sequence_id}.txt")
-        self._poses = _poses(self.data_root / "ego_motion" / f"{sequence_id}.npy", len(self))
+        self._projection = _projection(Path(calibration).expanduser().resolve())
+        self._poses = _poses(Path(poses).expanduser().resolve(), len(self))
         CameraModel(self._projection, self.image_size, torch.from_numpy(self._poses[0]))
-        pointgnn_root = self.data_root / "pointgnn/training"
         self._spatial_paths = tuple(
-            pointgnn_root / folder / sequence_id / "data"
-            for folder in (_CAR_VARIANTS[car_variant], "results_tracking_ped_cyl_auto_trainval")
+            Path(directory).expanduser().resolve() for directory in (car_detections_3d, pedestrian_detections_3d)
         )
         self.missing_3d_frames: dict[str, tuple[int, ...]] = {}
         for name, directory in zip(("car", "pedestrian"), self._spatial_paths, strict=True):

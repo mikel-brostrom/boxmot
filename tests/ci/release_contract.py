@@ -36,6 +36,7 @@ EXPECTED_CLI_COMMANDS = (
     "compare-reid",
     "export",
     "build",
+    "install",
 )
 
 
@@ -50,7 +51,7 @@ def check_release_contract(expected_version: str | None = None) -> None:
 
     import boxmot
     from boxmot.engine.cli import boxmot as boxmot_cli
-    from boxmot.engine.experiment_config import resolve_experiment_config
+    from boxmot.engine.config.experiments import resolve_experiment_config
 
     if expected_version is None:
         expected_version = importlib.metadata.version("boxmot")

@@ -1,6 +1,6 @@
 import numpy as np
 
-from boxmot.trackers.box.botsort.track import STrack
+from boxmot.trackers.botsort.track import STrack
 from boxmot.trackers.common.appearance import (
     blend_embeddings,
     confidence_aware_alpha,

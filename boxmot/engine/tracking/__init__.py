@@ -5,6 +5,7 @@ __all__ = (
     "runner",
     "sinks",
     "sources",
+    "timestamps",
     "timing",
     "workflow",
 )

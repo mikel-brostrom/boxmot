@@ -7,10 +7,10 @@ import torch
 
 from boxmot.engine.tuning.search_space import load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
-from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.hybridsort.tracker import HybridSort
+from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
+from boxmot.trackers.sfsort.tracker import SFSORT
 
 
 def _frame(sample_id: str, frame_index: int) -> Frame:

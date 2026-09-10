@@ -7,10 +7,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.structures import Tracks
 from boxmot.trackers import Tracker, TrackerSpec, create_tracker
-from boxmot.trackers.box.bytetrack.native import NativeByteTrackTracker
+from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
+from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from tests.unit.native.trackers.test_native_bytetrack import _FakeLibrary
 from tests.unit.trackers.test_trackers import _aabb_rows, _detections, _empty_rows, _frame, _obb_rows
 

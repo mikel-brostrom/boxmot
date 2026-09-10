@@ -14,7 +14,7 @@ from boxmot.pipelines.perception import (
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.segmentors.protocols import Segmentor
 from boxmot.structures import Detections, Frame, Tracks
-from boxmot.trackers.protocols import Tracker, TrackerRequirements
+from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
 
 
 @dataclass(frozen=True, slots=True)

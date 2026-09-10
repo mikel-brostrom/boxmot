@@ -24,36 +24,36 @@ def _trackrcnn_row(frame: int = 0, **replacements: str) -> str:
     return " ".join(fields) + "\n"
 
 
-def _fixture(tmp_path: Path, frames: int = 3) -> tuple[Path, Path]:
-    """Create aligned downloaded-style files without external data or models."""
-    root = tmp_path / "eagermot-data"
-    images = tmp_path / "training/image_02"
-    image_sequence = images / "0000"
-    image_sequence.mkdir(parents=True)
+def _fixture(tmp_path: Path, frames: int = 3) -> dict[str, Path]:
+    """Create explicit sequence inputs independently of source download folders."""
+    root = tmp_path / "sequences/0000"
+    paths = {
+        "images": root / "images",
+        "detections_2d": root / "detections_2d.txt",
+        "calibration": root / "calibration.txt",
+        "poses": root / "poses.npy",
+        "car_detections_3d": root / "detections_3d/car",
+        "pedestrian_detections_3d": root / "detections_3d/pedestrian",
+    }
+    paths["images"].mkdir(parents=True)
     for frame in range(frames):
-        Image.new("RGB", (4, 3)).save(image_sequence / f"{frame:06d}.png")
-    calibration = root / "calib/training/calib/0000.txt"
-    calibration.parent.mkdir(parents=True)
-    calibration.write_text("P2: 100 0 2 0.4 0 100 1.5 0.2 0 0 1 0.0027\n")
-    poses = root / "ego_motion/0000.npy"
-    poses.parent.mkdir(parents=True)
+        Image.new("RGB", (4, 3)).save(paths["images"] / f"{frame:06d}.png")
+    paths["calibration"].write_text("P2: 100 0 2 0.4 0 100 1.5 0.2 0 0 1 0.0027\n")
     values = np.repeat(np.eye(4)[None], frames, axis=0)
     values[:, 0, 3] = np.arange(frames)
-    np.save(poses, values)
-    for folder in ("results_tracking_car_auto_t3_trainval", "results_tracking_ped_cyl_auto_trainval"):
-        directory = root / "pointgnn/training" / folder / "0000/data"
+    np.save(paths["poses"], values)
+    for key, label in (("car_detections_3d", "Car"), ("pedestrian_detections_3d", "Pedestrian")):
+        directory = paths[key]
         directory.mkdir(parents=True)
         for frame in range(frames):
-            (directory / f"{frame:06d}.txt").write_text(_pointgnn_row("Car" if "car_auto" in folder else "Pedestrian"))
-    trackrcnn = root / "trackrcnn_detections/0000.txt"
-    trackrcnn.parent.mkdir(parents=True)
-    trackrcnn.write_text(_trackrcnn_row())
-    return root, images
+            (directory / f"{frame:06d}.txt").write_text(_pointgnn_row(label))
+    paths["detections_2d"].write_text(_trackrcnn_row())
+    return paths
 
 
 def test_fusion_reorders_geometry_bounds_scores_and_preserves_projection(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    sequence = KittiFusionSequence(root, images, "0000")
+    paths = _fixture(tmp_path)
+    sequence = KittiFusionSequence("0000", **paths)
 
     sample = sequence[0]
 
@@ -73,10 +73,10 @@ def test_fusion_reorders_geometry_bounds_scores_and_preserves_projection(tmp_pat
 
 
 def test_fusion_retains_missing_3d_and_empty_2d_frames(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    for directory in (root / "pointgnn/training").glob("*/0000/data"):
+    paths = _fixture(tmp_path)
+    for directory in (paths["car_detections_3d"], paths["pedestrian_detections_3d"]):
         (directory / "000001.txt").unlink()
-    sequence = KittiFusionSequence(root, images, "0000")
+    sequence = KittiFusionSequence("0000", **paths)
 
     assert sequence.missing_3d_frames == {"car": (1,), "pedestrian": (1,)}
     samples = list(sequence)
@@ -92,27 +92,27 @@ def test_fusion_retains_missing_3d_and_empty_2d_frames(tmp_path: Path) -> None:
 def test_fusion_does_not_decode_rgb_or_decode_masks_before_requested(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    root, images = _fixture(tmp_path)
-    trackrcnn = root / "trackrcnn_detections/0000.txt"
+    paths = _fixture(tmp_path)
+    trackrcnn = paths["detections_2d"]
     trackrcnn.write_text(_trackrcnn_row(2, **{"9": "malformed"}))
 
     def reject_pixels(*args: object, **kwargs: object) -> None:
         raise AssertionError("RGB pixels should never be loaded")
 
     monkeypatch.setattr(Image.Image, "load", reject_pixels)
-    sequence = KittiFusionSequence(root, images, "0000")
+    sequence = KittiFusionSequence("0000", **paths)
     assert len(sequence[0].detections) == 0
-    with pytest.raises(ValueError, match=r"0000.txt:1: RLE"):
+    with pytest.raises(ValueError, match=r"detections_2d.txt:1: RLE"):
         sequence[2]
 
 
 def test_fusion_excludes_cyclists_and_retains_zero_area_masks(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    pedestrian = root / "pointgnn/training/results_tracking_ped_cyl_auto_trainval/0000/data/000000.txt"
+    paths = _fixture(tmp_path)
+    pedestrian = paths["pedestrian_detections_3d"] / "000000.txt"
     pedestrian.write_text(_pointgnn_row("Cyclist"))
-    (root / "trackrcnn_detections/0000.txt").write_text(_trackrcnn_row(**{"9": "<"}))
+    paths["detections_2d"].write_text(_trackrcnn_row(**{"9": "<"}))
 
-    sample = KittiFusionSequence(root, images, "0000")[0]
+    sample = KittiFusionSequence("0000", **paths)[0]
 
     assert sample.detections_3d.class_ids.tolist() == [1]
     assert len(sample.detections) == 1
@@ -121,11 +121,11 @@ def test_fusion_excludes_cyclists_and_retains_zero_area_masks(tmp_path: Path) ->
 
 @pytest.mark.parametrize("raw_score,expected", [("0", 0.0), ("1", 0.5), ("1e308", 1.0)])
 def test_fusion_handles_finite_extreme_pointgnn_scores(tmp_path: Path, raw_score: str, expected: float) -> None:
-    root, images = _fixture(tmp_path)
-    car = root / "pointgnn/training/results_tracking_car_auto_t3_trainval/0000/data/000000.txt"
+    paths = _fixture(tmp_path)
+    car = paths["car_detections_3d"] / "000000.txt"
     car.write_text(_pointgnn_row(score=raw_score))
 
-    sample = KittiFusionSequence(root, images, "0000")[0]
+    sample = KittiFusionSequence("0000", **paths)[0]
 
     assert sample.detections_3d.scores[0].item() == expected
 
@@ -143,10 +143,10 @@ def test_fusion_handles_finite_extreme_pointgnn_scores(tmp_path: Path, raw_score
     ],
 )
 def test_fusion_reports_pointgnn_file_and_line_for_invalid_input(tmp_path: Path, row: str, error: str) -> None:
-    root, images = _fixture(tmp_path)
-    car = root / "pointgnn/training/results_tracking_car_auto_t3_trainval/0000/data/000000.txt"
+    paths = _fixture(tmp_path)
+    car = paths["car_detections_3d"] / "000000.txt"
     car.write_text(row)
-    sequence = KittiFusionSequence(root, images, "0000")
+    sequence = KittiFusionSequence("0000", **paths)
 
     with pytest.raises(ValueError, match=f"000000.txt:1: .*{error}"):
         sequence[0]
@@ -166,19 +166,19 @@ def test_fusion_reports_pointgnn_file_and_line_for_invalid_input(tmp_path: Path,
     ],
 )
 def test_fusion_rejects_unaligned_trackrcnn_rows(tmp_path: Path, fields: dict[str, str], error: str) -> None:
-    root, images = _fixture(tmp_path)
-    (root / "trackrcnn_detections/0000.txt").write_text(_trackrcnn_row(**fields))
+    paths = _fixture(tmp_path)
+    paths["detections_2d"].write_text(_trackrcnn_row(**fields))
 
-    with pytest.raises(ValueError, match=f"0000.txt:1: .*{error}"):
-        KittiFusionSequence(root, images, "0000")
+    with pytest.raises(ValueError, match=f"detections_2d.txt:1: .*{error}"):
+        KittiFusionSequence("0000", **paths)
 
 
 def test_fusion_requires_detector_format_not_ground_truth(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    (root / "trackrcnn_detections/0000.txt").write_text("0 1001 1 3 4 0<\n")
+    paths = _fixture(tmp_path)
+    paths["detections_2d"].write_text("0 1001 1 3 4 0<\n")
 
     with pytest.raises(ValueError, match="138 fields"):
-        KittiFusionSequence(root, images, "0000")
+        KittiFusionSequence("0000", **paths)
 
 
 @pytest.mark.parametrize(
@@ -191,23 +191,23 @@ def test_fusion_requires_detector_format_not_ground_truth(tmp_path: Path) -> Non
     ],
 )
 def test_fusion_reports_invalid_calibration_path(tmp_path: Path, calibration: str, error: str) -> None:
-    root, images = _fixture(tmp_path)
-    (root / "calib/training/calib/0000.txt").write_text(calibration)
+    paths = _fixture(tmp_path)
+    paths["calibration"].write_text(calibration)
 
     with pytest.raises(ValueError, match=error) as caught:
-        KittiFusionSequence(root, images, "0000")
-    assert "calib/0000.txt" in str(caught.value)
+        KittiFusionSequence("0000", **paths)
+    assert str(paths["calibration"]) in str(caught.value)
 
 
 @pytest.mark.parametrize("defect", ["image_gap", "image_size", "pose_count", "reflection", "nonfinite_pose"])
 def test_fusion_rejects_image_or_pose_misalignment(tmp_path: Path, defect: str) -> None:
-    root, images = _fixture(tmp_path)
-    poses_path = root / "ego_motion/0000.npy"
+    paths = _fixture(tmp_path)
+    poses_path = paths["poses"]
     poses = np.load(poses_path)
     if defect == "image_gap":
-        (images / "0000/000001.png").unlink()
+        (paths["images"] / "000001.png").unlink()
     elif defect == "image_size":
-        Image.new("RGB", (5, 3)).save(images / "0000/000001.png")
+        Image.new("RGB", (5, 3)).save(paths["images"] / "000001.png")
     elif defect == "pose_count":
         np.save(poses_path, poses[:2])
     elif defect == "reflection":
@@ -218,20 +218,21 @@ def test_fusion_rejects_image_or_pose_misalignment(tmp_path: Path, defect: str) 
         np.save(poses_path, poses)
 
     with pytest.raises(ValueError, match="images|dimensions|ego motion|pose"):
-        KittiFusionSequence(root, images, "0000")
+        KittiFusionSequence("0000", **paths)
 
 
-def test_fusion_requires_selected_car_variant_and_preserves_native_frame_bounds(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    with pytest.raises(FileNotFoundError, match="results_tracking_car_auto_t2_train"):
-        KittiFusionSequence(root, images, "0000", car_variant="t2-train")
-    base = root / "pointgnn/training"
-    (base / "results_tracking_car_auto_t3_trainval").rename(base / "results_tracking_car_auto_t2_train")
-    sequence = KittiFusionSequence(root, images, "0000", car_variant="t2-train")
+def test_fusion_requires_selected_3d_directory_and_preserves_native_frame_bounds(tmp_path: Path) -> None:
+    paths = _fixture(tmp_path)
+    selected = paths["car_detections_3d"].with_name("selected-car-predictions")
+    selected_paths = {**paths, "car_detections_3d": selected}
+    with pytest.raises(FileNotFoundError, match="selected-car-predictions"):
+        KittiFusionSequence("0000", **selected_paths)
+    paths["car_detections_3d"].rename(selected)
+    sequence = KittiFusionSequence("0000", **selected_paths)
     assert len(sequence[0].detections_3d) == 2
-    (base / "results_tracking_car_auto_t2_train/0000/data/000003.txt").write_text("")
+    (selected / "000003.txt").write_text("")
     with pytest.raises(ValueError, match="no corresponding image"):
-        KittiFusionSequence(root, images, "0000", car_variant="t2-train")
+        KittiFusionSequence("0000", **selected_paths)
 
 
 @pytest.mark.parametrize("counts", [b"", b"P", b"M", b"=", b"11", b"~"])
@@ -253,13 +254,13 @@ def test_compressed_mask_decoder_matches_official_coco_codec() -> None:
 
 
 def test_fusion_preserves_full_rigid_ego_pose(tmp_path: Path) -> None:
-    root, images = _fixture(tmp_path)
-    poses_path = root / "ego_motion/0000.npy"
+    paths = _fixture(tmp_path)
+    poses_path = paths["poses"]
     poses = np.load(poses_path)
     angle = 0.1
     poses[1, :3, :3] = [[1, 0, 0], [0, np.cos(angle), -np.sin(angle)], [0, np.sin(angle), np.cos(angle)]]
     np.save(poses_path, poses)
 
-    sample = KittiFusionSequence(root, images, "0000")[1]
+    sample = KittiFusionSequence("0000", **paths)[1]
 
     np.testing.assert_array_equal(sample.camera.camera_to_world.numpy(), poses[1].astype(np.float32))

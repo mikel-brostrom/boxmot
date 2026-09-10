@@ -91,8 +91,12 @@ For downloaded KITTI TrackR-CNN text predictions, use
 annotation directories. This command directly replays the saved boxes and
 masks without materializing a perception build. See the
 [MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
-for the full command. Calibrated 2D/3D tracking uses the separate
-[EagerMOT evaluation command](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
+for the full command.
+
+For calibrated 2D/3D tracking, use `boxmot eval-eagermot --dataset ./kitti-mots`.
+The dataset supplies sequence images, annotations, calibration, and poses;
+its `replay.yaml` selects the image, car, and pedestrian prediction sets.
+See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
 
 ## View tracking results
 

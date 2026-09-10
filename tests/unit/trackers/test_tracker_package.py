@@ -10,9 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from boxmot._tracker_exports import _TRACKER_MANIFEST
-from boxmot.trackers.registry import TRACKER_DEFINITIONS
-from boxmot.trackers.specs import TrackerFamily
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.common.specs import TrackerFamily
 
 _TRACKER_EXPORTS = tuple(
     (tracker_name, entry.class_path.rsplit(".", 1)[1], entry.class_path.rsplit(".", 1)[0])
@@ -32,6 +33,7 @@ _ALGORITHM_TRACK_MODELS = (
     "strongsort",
 )
 _TRACKERS_ROOT = Path(__file__).resolve().parents[3] / "boxmot" / "trackers"
+_SHARED_SUPPORT_MODULES = ("base", "config", "factory", "manifest", "protocols", "registry", "specs")
 
 
 def _absolute_imports(path: Path) -> set[str]:
@@ -85,7 +87,7 @@ def test_package_root_lazily_loads_and_caches_canonical_class(
 
 def test_package_root_exports_the_registered_tracker_classes() -> None:
     boxmot_module = importlib.import_module("boxmot")
-    registry_module = importlib.import_module("boxmot.trackers.registry")
+    registry_module = importlib.import_module("boxmot.trackers.common.registry")
 
     for registry_name, class_name, _ in _TRACKER_EXPORTS:
         tracker_class = registry_module.get_tracker_class(registry_name)
@@ -95,7 +97,7 @@ def test_package_root_exports_the_registered_tracker_classes() -> None:
 
 def test_package_root_exports_the_canonical_tracker_factory() -> None:
     boxmot_module = importlib.import_module("boxmot")
-    factory_module = importlib.import_module("boxmot.trackers.factory")
+    factory_module = importlib.import_module("boxmot.trackers.common.factory")
 
     assert boxmot_module.create_tracker is factory_module.create_tracker
 
@@ -107,18 +109,25 @@ import sys
 from importlib import import_module
 
 import boxmot
-from boxmot._tracker_exports import _TRACKER_MANIFEST
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 
-assert not any(name.startswith("boxmot.trackers") for name in sys.modules)
+assert {name for name in sys.modules if name.startswith("boxmot.trackers")} == {
+    "boxmot.trackers",
+    "boxmot.trackers.common",
+    "boxmot.trackers.common.manifest",
+}
 
 for entry in _TRACKER_MANIFEST.values():
     import_module(entry.class_path.rsplit(".", 2)[0])
+
+import_module("boxmot.trackers.common")
+import_module("boxmot.trackers.common.box")
 
 assert not any(
     name.startswith("boxmot.trackers.") and name.endswith(".tracker")
     for name in sys.modules
 )
-assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
+assert not any(name in sys.modules for name in ("cv2", "numpy", "torch", "yaml"))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -146,11 +155,13 @@ def test_occluboost_reports_its_canonical_class_name() -> None:
     assert tracker.name == "OccluBoost"
 
 
-def test_manifest_uses_representation_first_implementation_paths() -> None:
+def test_manifest_uses_direct_algorithm_implementation_paths() -> None:
     for tracker_name, class_name, module_name in _TRACKER_EXPORTS:
-        family = TRACKER_DEFINITIONS[tracker_name].capabilities.family.value
-        assert module_name == f"boxmot.trackers.{family}.{tracker_name}.tracker"
+        assert module_name == f"boxmot.trackers.{tracker_name}.tracker"
         assert _TRACKER_MANIFEST[tracker_name].class_path == f"{module_name}.{class_name}"
+        native_path = _TRACKER_MANIFEST[tracker_name].native_class_path
+        if native_path is not None:
+            assert native_path.rsplit(".", 1)[0] == f"boxmot.trackers.{tracker_name}.native"
 
 
 def test_algorithm_track_models_live_with_their_owning_tracker() -> None:
@@ -158,10 +169,10 @@ def test_algorithm_track_models_live_with_their_owning_tracker() -> None:
 
     violations: list[str] = []
     for tracker_name in _ALGORITHM_TRACK_MODELS:
-        owner_module = _TRACKERS_ROOT / "box" / tracker_name / "track.py"
+        owner_module = _TRACKERS_ROOT / tracker_name / "track.py"
         legacy_module = _TRACKERS_ROOT / "common" / "track_models" / f"{tracker_name}.py"
-        tracker_module = _TRACKERS_ROOT / "box" / tracker_name / "tracker.py"
-        expected_import = f"boxmot.trackers.box.{tracker_name}.track"
+        tracker_module = _TRACKERS_ROOT / tracker_name / "tracker.py"
+        expected_import = f"boxmot.trackers.{tracker_name}.track"
 
         if not owner_module.is_file():
             violations.append(f"missing {owner_module.relative_to(_TRACKERS_ROOT.parent.parent)}")
@@ -186,27 +197,49 @@ def test_algorithm_track_models_live_with_their_owning_tracker() -> None:
     assert not (_TRACKERS_ROOT / "common" / "track_models").exists()
 
 
-@pytest.mark.parametrize("package_name", ("bbox", "hybrid", *_BOX_TRACKER_NAMES))
+@pytest.mark.parametrize("package_name", ("bbox", "box", "hybrid", "mask", "multimodal"))
 def test_removed_or_moved_tracker_packages_stay_absent(package_name: str) -> None:
     assert importlib.util.find_spec(f"boxmot.trackers.{package_name}") is None
+    assert not (_TRACKERS_ROOT / package_name).exists()
 
 
-def test_non_implemented_family_namespaces_do_not_reexport_base_classes() -> None:
-    mask_package = importlib.import_module("boxmot.trackers.mask")
-    multimodal_package = importlib.import_module("boxmot.trackers.multimodal")
+@pytest.mark.parametrize("module_name", _SHARED_SUPPORT_MODULES)
+def test_shared_support_has_one_canonical_module_under_common(module_name: str) -> None:
+    """Moving support code must not leave a second importable class identity."""
 
-    assert not hasattr(mask_package, "__all__")
-    assert not hasattr(mask_package, "MaskTracker")
-    assert not hasattr(multimodal_package, "MultimodalTracker")
-    assert not (_TRACKERS_ROOT / "mask" / "base.py").exists()
-    assert not (_TRACKERS_ROOT / "multimodal" / "base.py").exists()
+    assert importlib.util.find_spec(f"boxmot.trackers.common.{module_name}") is not None
+    assert importlib.util.find_spec(f"boxmot.trackers.{module_name}") is None
+    assert not (_TRACKERS_ROOT / f"{module_name}.py").exists()
+
+
+def test_public_tracker_contracts_resolve_to_canonical_common_classes() -> None:
+    """Factory callers and direct tracker users must share contract identities."""
+
+    from boxmot import create_tracker, trackers
+    from boxmot.trackers.common import protocols, specs
+    from boxmot.trackers.common.factory import create_tracker as common_create_tracker
+
+    assert trackers.TrackerSpec is specs.TrackerSpec
+    assert create_tracker is trackers.create_tracker is common_create_tracker
+    for name in ("TrackerCapabilities", "TrackerFamily"):
+        assert getattr(trackers, name) is getattr(specs, name)
+    for name in ("Tracker", "TrackerRequirements", "ReIDConfigurableTracker"):
+        assert getattr(trackers, name) is getattr(protocols, name)
+
+
+def test_all_trackers_inherit_the_canonical_common_base() -> None:
+    """Both box and multimodal trackers retain one validated update boundary."""
+
+    for _, class_name, module_name in _TRACKER_EXPORTS:
+        tracker_class = getattr(importlib.import_module(module_name), class_name)
+        assert issubclass(tracker_class, BaseTracker)
 
 
 def test_box_tracker_implementations_share_the_box_base() -> None:
-    from boxmot.trackers.box.base import BoxTracker
+    from boxmot.trackers.common.box.base import BoxTracker
 
     for tracker_name in _BOX_TRACKER_NAMES:
-        tracker_class = importlib.import_module(f"boxmot.trackers.box.{tracker_name}.tracker").__dict__[
+        tracker_class = importlib.import_module(f"boxmot.trackers.{tracker_name}.tracker").__dict__[
             _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1]
         ]
         assert issubclass(tracker_class, BoxTracker)

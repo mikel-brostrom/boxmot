@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
-from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
+from boxmot.reid.backends.dependencies import require_reid_backend_requirements
 from boxmot.reid.core.artifacts import read_artifact_metadata
 from boxmot.utils import logger as LOGGER
 
@@ -58,7 +58,7 @@ class CoreMLBackend(BaseModelBackend):
     def load_model(self, w) -> None:
         if platform.system() != "Darwin":
             raise RuntimeError("Native Core ML inference is only supported on macOS")
-        ensure_reid_backend_requirements(self.checker, "coreml")
+        require_reid_backend_requirements("coreml")
 
         self._bundle = Path(w)
         manifest = read_artifact_metadata(self._bundle)

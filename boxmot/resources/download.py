@@ -8,8 +8,6 @@ Utility script to download and extract BoxMOT releases and MOT evaluation tools.
 
 import concurrent.futures
 import logging
-import subprocess
-import sys
 import threading
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Any, Callable, Optional
@@ -21,6 +19,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from tqdm.auto import tqdm
 from urllib3.util.retry import Retry
+
+from boxmot.utils.dependencies import require_packages
 
 LOGGER = logging.getLogger("boxmot")
 _download_status_state = threading.local()
@@ -340,7 +340,7 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, statu
     """
     Download a dataset from HuggingFace Hub to the given destination.
 
-    Requires ``huggingface_hub`` to be installed (``pip install huggingface_hub``).
+    Requires ``huggingface-hub>=1.7.1`` when a download is needed.
 
     Args:
         repo_id: HuggingFace dataset repo ID (e.g. "user/dataset").
@@ -360,13 +360,8 @@ def download_hf_dataset(repo_id: str, dest: Path, overwrite: bool = False, statu
         LOGGER.debug(f"HF dataset already present at {dest}")
         return
 
-    try:
-        from huggingface_hub import HfApi, snapshot_download
-    except ImportError:
-        LOGGER.info("Installing huggingface_hub ...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
-        from huggingface_hub import HfApi, snapshot_download
-
+    require_packages(("huggingface-hub>=1.7.1",), purpose="Hugging Face dataset downloads")
+    from huggingface_hub import HfApi, snapshot_download
     from huggingface_hub.hf_api import RepoFile
 
     # Get file list with real sizes upfront
@@ -517,12 +512,8 @@ def snapshot_download_hf_subfolder(
     """Download a Hugging Face dataset subfolder with one aggregated progress task."""
     subfolder = _normalize_hf_subfolder(subfolder)
 
-    try:
-        from huggingface_hub import snapshot_download
-    except ImportError:
-        LOGGER.info("Installing huggingface_hub ...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface_hub"])
-        from huggingface_hub import snapshot_download
+    require_packages(("huggingface-hub>=1.7.1",), purpose="Hugging Face dataset downloads")
+    from huggingface_hub import snapshot_download
 
     snapshot_kwargs = {
         "repo_id": repo_id,

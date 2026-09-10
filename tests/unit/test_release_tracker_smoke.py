@@ -8,7 +8,7 @@ import pytest
 
 import boxmot
 from boxmot.trackers import TrackerSpec
-from boxmot.trackers import config as tracker_config
+from boxmot.trackers.common import config as tracker_config
 from boxmot.trackers.common.appearance.live import LiveReIDMixin
 from tests.ci import release_contract
 

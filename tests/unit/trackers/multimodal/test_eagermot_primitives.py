@@ -9,8 +9,8 @@ from scipy.spatial.transform import Rotation
 
 from boxmot import EagerMot
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D
-from boxmot.trackers.multimodal.eagermot.association import greedy_association, similarity_3d
-from boxmot.trackers.multimodal.eagermot.geometry import (
+from boxmot.trackers.eagermot.association import greedy_association, similarity_3d
+from boxmot.trackers.eagermot.geometry import (
     boxes3d_corners,
     iou2d_matrix,
     iou3d_matrix,
@@ -18,7 +18,7 @@ from boxmot.trackers.multimodal.eagermot.geometry import (
     transform_boxes3d,
     yaw_difference,
 )
-from boxmot.trackers.multimodal.eagermot.motion import Kalman3D
+from boxmot.trackers.eagermot.motion import Kalman3D
 
 
 def _box() -> np.ndarray:
