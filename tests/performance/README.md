@@ -8,6 +8,15 @@ The benchmarks are grouped by domain:
 
 - `trackers/motion/benchmark_cmc.py` measures camera-motion compensation on the bundled
   MOT17 mini frames.
+- `trackers/motion/benchmark_kalman.py` compares scalar and batched prediction and
+  correction for every shared Kalman model and EagerMOT's 3D model. It verifies
+  numerical parity, limits BLAS to one thread, and includes object bookkeeping
+  for stateful filters. Pass `--baseline-root` with a prior checkout to also
+  measure improvements over existing XYAH/XYWH batch prediction.
+- `trackers/benchmark_kitti_kalman.py` compares EagerMOT KITTI evaluation against
+  a saved package snapshot. It holds sequence workers and numerical threads
+  constant, records replay/evaluation timings separately, and checks every
+  tracking file and metric across warmups and measured runs.
 - `trackers/benchmark_fps.py` measures tracker-update throughput with synthetic
   detections. ReID trackers use precomputed embeddings by default so the timing
   isolates tracking; pass `--reid-mode live` to include ReID inference.
@@ -24,6 +33,7 @@ Run each benchmark as a module from the repository root:
 
 ```bash
 uv run --no-sync python -m tests.performance.trackers.motion.benchmark_cmc
+uv run --no-sync python -m tests.performance.trackers.motion.benchmark_kalman --json /tmp/kalman.json
 uv run --no-sync python -m tests.performance.trackers.benchmark_fps
 uv run --no-sync python -m tests.performance.reid.benchmark_inference --weights models/osnet_x0_25_msmt17.pt
 ```

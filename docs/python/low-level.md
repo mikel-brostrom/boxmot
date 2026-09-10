@@ -61,3 +61,27 @@ ReID-enabled tracker adapter can also lazily invoke ReID when its input has no
 embeddings and a `Frame` is supplied. Attached embeddings bypass that internal
 backend. Native adapters then pass the resolved features to their model-free
 C++ tracker libraries.
+
+## Batched Kalman filters
+
+Python trackers automatically batch compatible Kalman predictions and matched
+corrections within each association stage. No CLI option is needed. Each track
+retains its own covariance, calibrated noise, observation history, and adaptive
+noise state.
+
+For direct filter use, XYAH and XYWH provide `multi_predict`, `multi_project`,
+and `multi_update`. Pass means shaped `(N, state_dimensions)` and covariances
+shaped `(N, state_dimensions, state_dimensions)`; corrections also accept
+measurements shaped `(N, measurement_dimensions)` and one confidence per row.
+These methods return arrays without modifying the filter's stored state.
+
+XYSR, XYSCR, and XYHR provide `predict_many(filters, ...)` and
+`update_many(filters, measurements, ...)` for independent stateful filter
+instances. These methods modify each instance while batching the matrix work.
+Use these methods when a filter owns its state, noise, or observation history.
+EagerMOT's `Kalman3D` similarly provides `multi_predict(filters)` and
+`multi_update(filters, boxes)`.
+
+Batching preserves elapsed-time and oriented-box handling. Missing observations
+and observation-centric recovery retain each track's sequential history replay;
+per-track bookkeeping and adaptive-noise updates still run independently.
