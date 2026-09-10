@@ -1,9 +1,12 @@
 # Tracker YAMLs
 
 Each `boxmot/configs/trackers/<tracker>.yaml` file contains both runtime
-defaults and the corresponding tuning search space. Tuned presets remain plain
-scalar overlays under `boxmot/configs/trackers/presets` and declare their owning
-tracker with a top-level `tracker` field.
+defaults and the corresponding tuning search space. Tuned presets live under
+`boxmot/configs/trackers/presets`. Single-profile presets are plain scalar
+overlays and declare their owning tracker with a top-level `tracker` field.
+The EagerMOT `eagermot-kitti-mots-val.yaml` preset contains both `car` and
+`pedestrian` profiles and loads through `--class-config`; see
+[the evaluation example](../trackers/eagermot.md#saved-kitti-mots-validation-preset).
 
 ## Role
 
@@ -20,6 +23,12 @@ code:
 - `track` and `eval` extract each parameter's scalar `default`
 - a preset overlays those defaults
 - `tune` reads `type`, `range`, `options`, `values`, and `activates`
+
+## EagerMOT class profiles
+
+EagerMOT sensor evaluation loads both class profiles from one YAML through
+`--class-config`. The saved `eagermot-kitti-mots-val.yaml` preset contains
+`car` and `pedestrian` mappings; tuning writes the same format to `best.yaml`.
 
 ## Association function
 

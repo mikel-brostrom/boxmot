@@ -119,6 +119,22 @@ not been independently verified, and pedestrian detections use the supplied
 `trainval` variant. This command evaluates masks; KITTI 3D box evaluation
 requires separate 3D ground-truth labels and an evaluator.
 
+## Saved KITTI MOTS validation preset
+
+`boxmot/configs/trackers/presets/eagermot-kitti-mots-val.yaml` contains the
+best saved car and pedestrian profiles from a 200-trial Optuna run. Use both
+profiles together:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --class-config boxmot/configs/trackers/presets/eagermot-kitti-mots-val.yaml
+```
+
+The winning trial scored 67.35 class-average mask HOTA on the nine validation
+sequences (car: 78.57, pedestrian: 56.13). These are scores on the fitting
+split. The YAML comments record the source run, detector inputs and sequences.
+The preset uses the same `car`/`pedestrian` format as tuning's `best.yaml`.
+
 ## Preview or save a sequence
 
 Use `--show` to preview tracked masks, identities and classes, and `--save` to
