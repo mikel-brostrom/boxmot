@@ -84,6 +84,12 @@ class KalmanFilterXYAH(BaseKalmanFilter):
             std_vel.append(1e-5 * np.ones_like(mean[:, 3]))
         return std_pos, std_vel
 
+    def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:
+        """Return independent position and aspect measurement scales."""
+        std = np.full((len(mean), self.dim_z), 1e-1, dtype=float)
+        std[:, (0, 1, 3)] = self._std_weight_position * mean[:, 3, None]
+        return std
+
     @classmethod
     def _enforce_xyah_constraints(cls, mean: np.ndarray, is_obb: bool) -> np.ndarray:
         return cls._enforce_state_geometry(
@@ -143,6 +149,23 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         new_mean = self._enforce_xyah_constraints(new_mean, self._is_obb)
         return new_mean, new_covariance
 
+    def multi_update(
+        self,
+        mean: np.ndarray,
+        covariance: np.ndarray,
+        measurement: np.ndarray,
+        confidence: float | np.ndarray = 0.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Correct a batch with independent angle alignment and confidence."""
+        if self._is_obb:
+            measurement = np.asarray(measurement, dtype=float).copy()
+            measurement[:, 4] = mean[:, 4] + self._wrap_angle(measurement[:, 4] - mean[:, 4])
+        mean, covariance = super().multi_update(mean, covariance, measurement, confidence)
+        mean[:, 2:4] = np.maximum(mean[:, 2:4], 1e-4)
+        if self._is_obb:
+            mean[:, 4] = self._wrap_angle(mean[:, 4])
+        return mean, covariance
+
     def gating_distance(
         self,
         mean: np.ndarray,
@@ -157,10 +180,7 @@ class KalmanFilterXYAH(BaseKalmanFilter):
         projected_mean, projected_cov, measurements = self._prepare_gating_inputs(
             mean, covariance, measurements, self.project
         )
-        measurements[:, 4] = np.array(
-            [self._align_angle_to_reference(angle, projected_mean[4]) for angle in measurements[:, 4]],
-            dtype=float,
-        )
+        measurements[:, 4] = projected_mean[4] + self._wrap_angle(measurements[:, 4] - projected_mean[4])
 
         residuals = measurements - projected_mean
         return self._gating_from_residuals(residuals, projected_cov, metric)

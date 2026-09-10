@@ -5,6 +5,7 @@ from typing import Callable, Optional, Tuple, Union
 import numpy as np
 import scipy.linalg
 
+from boxmot.trackers.common.motion.kalman_filters import batch
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 
 """
@@ -448,18 +449,48 @@ class BaseKalmanFilter:
         dt = self.validate_dt(dt)
         if len(mean) == 0:
             return mean.copy(), covariance.copy()
+        if len(mean) == 1:
+            state, uncertainty = BaseKalmanFilter.predict(self, mean[0], covariance[0], dt=dt)
+            return state[None], uncertainty[None]
         std_pos, std_vel = self._get_multi_process_noise_std(mean)
         sqr = np.square(np.r_[std_pos, std_vel]).T
 
-        motion_cov = [np.diag(sqr[i]) for i in range(len(mean))]
-        motion_cov = np.asarray(motion_cov)
-
+        motion_cov = batch.diagonal(sqr)
         motion_mat, motion_cov = self._elapsed_motion(motion_cov, dt)
-        mean = np.dot(mean, motion_mat.T)
-        left = np.dot(motion_mat, covariance).transpose((1, 0, 2))
-        covariance = np.dot(left, motion_mat.T) + motion_cov
+        return batch.predict(mean, covariance, motion_mat, motion_cov)
 
-        return mean, covariance
+    def _multi_measurement_covariance(self, mean: np.ndarray, confidence: float | np.ndarray) -> np.ndarray:
+        """Build independent confidence-scaled measurement covariances."""
+        std = self._get_multi_measurement_noise_std(mean)
+        confidence = np.broadcast_to(np.asarray(confidence, dtype=float), (len(mean),))
+        return self.noise_config.measurement_covariance(batch.diagonal(np.square(std * (1.0 - confidence[:, None]))))
+
+    def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:
+        """Return measurement standard deviations as an (N, dim_z) array."""
+        raise NotImplementedError
+
+    def multi_project(
+        self, mean: np.ndarray, covariance: np.ndarray, confidence: float | np.ndarray = 0.0
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Project a batch using shared or per-track detection confidences."""
+        noise = self._multi_measurement_covariance(mean, confidence)
+        return mean @ self._update_mat.T, self._update_mat @ covariance @ self._update_mat.T + noise
+
+    def multi_update(
+        self,
+        mean: np.ndarray,
+        covariance: np.ndarray,
+        measurement: np.ndarray,
+        confidence: float | np.ndarray = 0.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Correct independent states using batched Cholesky factorization."""
+        if len(mean) == 1:
+            score = float(np.broadcast_to(np.asarray(confidence), (1,))[0])
+            state, uncertainty = BaseKalmanFilter.update(self, mean[0], covariance[0], measurement[0], score)
+            return state[None], uncertainty[None]
+        noise = self._multi_measurement_covariance(mean, confidence)
+        new_mean, new_covariance, *_ = batch.correct(mean, covariance, measurement, self._update_mat, noise)
+        return new_mean, new_covariance
 
     def update(
         self,

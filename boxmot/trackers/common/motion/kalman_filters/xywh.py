@@ -83,6 +83,30 @@ class KalmanFilterXYWH(BaseKalmanFilter):
             std_vel.append(1e-5 * np.ones_like(mean[:, 2]))
         return std_pos, std_vel
 
+    def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:
+        """Return each box's width/height-scaled measurement deviations."""
+        std = np.full((len(mean), self.dim_z), 1e-1, dtype=float)
+        std[:, :4] = self._std_weight_position * mean[:, (2, 3, 2, 3)]
+        return std
+
+    @classmethod
+    def _align_multi_obb_measurement(cls, measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
+        """Choose the closest equivalent rectangle for every row at once."""
+        aligned = np.asarray(measurement, dtype=float).copy()
+        sizes = np.maximum(aligned[:, 2:4], 1e-6)
+        reference_sizes = np.maximum(reference[:, 2:4], 1e-6)
+        candidate_sizes = np.stack((sizes, sizes, sizes[:, ::-1], sizes[:, ::-1]), axis=1)
+        candidate_angles = aligned[:, 4, None] + np.array((0.0, np.pi, np.pi / 2.0, -np.pi / 2.0))
+        candidate_angles = reference[:, 4, None] + cls._wrap_angle(candidate_angles - reference[:, 4, None])
+        costs = np.abs(candidate_angles - reference[:, 4, None]) + 0.05 * np.abs(
+            np.log(candidate_sizes / reference_sizes[:, None, :])
+        ).sum(axis=2)
+        choices = np.argmin(costs, axis=1)
+        rows = np.arange(len(aligned))
+        aligned[:, 2:4] = candidate_sizes[rows, choices]
+        aligned[:, 4] = candidate_angles[rows, choices]
+        return aligned
+
     @classmethod
     def _align_obb_measurement(cls, measurement: np.ndarray, reference: np.ndarray) -> np.ndarray:
         """
@@ -184,6 +208,23 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         new_mean = self._enforce_xywh_constraints(new_mean, self._is_obb)
         return new_mean, new_covariance
 
+    def multi_update(
+        self,
+        mean: np.ndarray,
+        covariance: np.ndarray,
+        measurement: np.ndarray,
+        confidence: float | np.ndarray = 0.0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Correct a batch, resolving rectangle ambiguity and damping turns."""
+        if self._is_obb:
+            measurement = self._align_multi_obb_measurement(measurement, mean)
+        mean, covariance = super().multi_update(mean, covariance, measurement, confidence)
+        mean[:, 2:4] = np.maximum(mean[:, 2:4], 1e-4)
+        if self._is_obb:
+            mean[:, -1] *= 0.8
+            mean[:, 4] = self._wrap_angle(mean[:, 4])
+        return mean, covariance
+
     def gating_distance(
         self,
         mean: np.ndarray,
@@ -198,8 +239,9 @@ class KalmanFilterXYWH(BaseKalmanFilter):
         projected_mean, projected_cov, measurements = self._prepare_gating_inputs(
             mean, covariance, measurements, self.project
         )
-        for i in range(measurements.shape[0]):
-            measurements[i, :] = self._align_obb_measurement(measurements[i, :], projected_mean)
+        measurements = self._align_multi_obb_measurement(
+            measurements, np.broadcast_to(projected_mean, measurements.shape)
+        )
 
         residuals = measurements - projected_mean
         return self._gating_from_residuals(residuals, projected_cov, metric)

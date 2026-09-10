@@ -1,9 +1,12 @@
+from collections import defaultdict
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Optional, Tuple
 
 import numpy as np
 import scipy.linalg
 
+from boxmot.trackers.common.motion.kalman_filters import batch
 from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 
@@ -355,6 +358,11 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         std_vel_multi = [np.full(n, float(v), dtype=float) for v in std_vel]
         return std_pos_multi, std_vel_multi
 
+    def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:
+        """Broadcast this filter's measurement-noise policy across a state batch."""
+        std = np.sqrt(np.diag(self.cov_update_policy.get_r()))
+        return np.broadcast_to(std, (len(mean), self.dim_z))
+
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         mean = np.zeros((self.dim_x,), dtype=float)
         mean[: self.dim_z] = self._reshape_measurement_vector(measurement)
@@ -404,6 +412,83 @@ class KalmanFilterXYHR(BaseKalmanFilter):
         left = np.dot(motion_mat, covariance).transpose((1, 0, 2))
         covariance = np.dot(left, motion_mat.T) + motion_cov
         return mean, covariance
+
+    @classmethod
+    def predict_many(cls, filters: Sequence["KalmanFilterXYHR"], *, dt: float | None = None) -> None:
+        """Predict independent filters with each track's own adaptive/class noise."""
+        if len(filters) == 1:
+            filters[0].predict(dt=dt)
+            return
+        groups = defaultdict(list)
+        for kf in filters:
+            interval = kf._validate_prediction_dt(dt)
+            transition, noise = kf._elapsed_motion(kf.cov_update_policy.get_q(dt=interval), interval)
+            groups[kf.dim_x, kf.dim_z].append((kf, transition, noise, interval))
+        for group in groups.values():
+            means, covariances = batch.predict(
+                np.stack([kf.x for kf, _, _, _ in group]),
+                np.stack([kf.P for kf, _, _, _ in group]),
+                np.stack([transition for _, transition, _, _ in group]),
+                np.stack([noise for _, _, noise, _ in group]),
+            )
+            means[:, 2:4] = np.maximum(means[:, 2:4], 1e-4)
+            if group[0][0]._is_obb:
+                means[:, 4] = group[0][0]._wrap_angle(means[:, 4])
+            covariances = 0.5 * (covariances + covariances.swapaxes(-1, -2))
+            for index, (kf, transition, noise, interval) in enumerate(group):
+                kf._last_motion_mat = transition
+                kf._last_prediction_dt = interval
+                kf._last_process_noise = noise
+                kf.x, kf.P = means[index].copy(), covariances[index].copy()
+
+    @classmethod
+    def update_many(
+        cls,
+        filters: Sequence["KalmanFilterXYHR"],
+        measurements: Sequence[np.ndarray],
+        *,
+        alpha: float | Sequence[float] = 1.0,
+    ) -> None:
+        """Correct a batch, preserving per-track noise adaptation and gain suppression."""
+        filters, measurements = list(filters), list(measurements)
+        if len(filters) != len(measurements):
+            raise ValueError("Expected one measurement per filter")
+        alphas = np.broadcast_to(np.asarray(alpha, dtype=float), (len(filters),))
+        if len(filters) == 1:
+            filters[0].update(measurements[0], alpha=float(alphas[0]))
+            return
+        groups = defaultdict(list)
+        for kf, z, gain_scale in zip(filters, measurements, alphas):
+            measurement = kf._reshape_measurement_vector(z)
+            if kf._is_obb:
+                measurement[4] = kf._align_angle_to_reference(measurement[4], float(kf.x[4]))
+            noise = kf.noise_config.measurement_covariance(kf.cov_update_policy.get_r())
+            groups[kf.dim_x, kf.dim_z].append((kf, measurement, noise, gain_scale))
+        for group in groups.values():
+            old_means = np.stack([kf.x for kf, _, _, _ in group])
+            means, covariances, gains, innovations, projected, _ = batch.correct(
+                old_means,
+                np.stack([kf.P for kf, _, _, _ in group]),
+                np.stack([measurement for _, measurement, _, _ in group]),
+                np.stack([kf._update_mat for kf, _, _, _ in group]),
+                np.stack([noise for _, _, noise, _ in group]),
+            )
+            scales = np.array([gain_scale for _, _, _, gain_scale in group])
+            means = old_means + scales[:, None] * (gains @ innovations[..., None])[..., 0]
+            for index, (kf, _, _, _) in enumerate(group):
+                kf.cov_update_policy.observe_innovation(
+                    innovations[index],
+                    gains[index],
+                    kf.P,
+                    kf._last_motion_mat,
+                    dt=kf._last_prediction_dt,
+                    process_noise=kf._last_process_noise,
+                    innovation_covariance=projected[index],
+                )
+                kf.x, kf.P = means[index].copy(), covariances[index].copy()
+                if kf._is_obb:
+                    kf.x[kf.dim_z + 4] *= 0.8
+                kf._enforce_state_constraints()
 
     def project(
         self,

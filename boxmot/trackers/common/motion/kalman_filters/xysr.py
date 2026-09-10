@@ -1,4 +1,5 @@
 from collections import deque
+from collections.abc import Sequence
 from copy import deepcopy
 from typing import Optional, Tuple
 
@@ -6,6 +7,7 @@ import numpy as np
 
 from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.stateful import predict_many, update_many
 
 
 class KalmanFilterXYSR(BaseKalmanFilter):
@@ -260,7 +262,9 @@ class KalmanFilterXYSR(BaseKalmanFilter):
         if mean.ndim != 2:
             raise ValueError("Expected mean to have shape (n, dim_x)")
 
-        scales = np.array([self._scale_from_measurement(row) for row in mean], dtype=float)
+        area = np.maximum(mean[:, 2], 1e-6)
+        ratio = np.maximum(np.abs(mean[:, 3]), 1e-6)
+        scales = np.maximum(0.5 * (np.sqrt(area * ratio) + np.sqrt(area / ratio)), 1.0)
         if self._is_obb:
             std_pos = [
                 self._std_weight_position * scales,
@@ -288,6 +292,15 @@ class KalmanFilterXYSR(BaseKalmanFilter):
             self._std_weight_velocity * scales,
         ]
         return std_pos, std_vel
+
+    def _get_multi_measurement_noise_std(self, mean: np.ndarray) -> np.ndarray:
+        """Return scale-based measurement noise for the stateless batch API."""
+        area = np.maximum(mean[:, 2], 1e-6)
+        ratio = np.maximum(np.abs(mean[:, 3]), 1e-6)
+        scales = np.maximum(0.5 * (np.sqrt(area * ratio) + np.sqrt(area / ratio)), 1.0)
+        std = np.full((len(mean), self.dim_z), 1e-1, dtype=float)
+        std[:, :3] = self._std_weight_position * scales[:, None]
+        return std
 
     def initiate(self, measurement: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Initialize xysr state [x, y, s, r, vx, vy, vs] from a measurement."""
@@ -321,6 +334,30 @@ class KalmanFilterXYSR(BaseKalmanFilter):
     def freeze(self) -> None:
         """Save parameters before non-observation forward pass."""
         self.attr_saved = deepcopy(self.__dict__)
+
+    @classmethod
+    def predict_many(
+        cls,
+        filters: Sequence["KalmanFilterXYSR"],
+        *,
+        dt: float | None = None,
+        Q=None,
+        F=None,
+    ) -> None:
+        """Predict independent filters, retaining their own models and histories."""
+        predict_many(filters, dt=dt, Q=Q, F=F)
+
+    @classmethod
+    def update_many(
+        cls,
+        filters: Sequence["KalmanFilterXYSR"],
+        measurements: Sequence[np.ndarray | None],
+        *,
+        R=None,
+        H=None,
+    ) -> None:
+        """Batch matched corrections; replay each recovering track's own history."""
+        update_many(filters, measurements, R=R, H=H)
 
     def unfreeze(self) -> None:
         """
