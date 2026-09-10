@@ -14,6 +14,8 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
+from boxmot.engine.eval.results import ValidationResult
+from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
 
@@ -27,15 +29,38 @@ def _arguments(dataset: Path) -> list[str]:
     return ["tune", "--dataset", str(dataset), "--tracker", "eagermot"]
 
 
+def _result(args: SimpleNamespace, output: Path) -> TuneResult:
+    """Return enough trial metrics to exercise the shared command's final report."""
+    trial = TuneTrialResult(
+        index=1,
+        config={"car": {}, "pedestrian": {}},
+        metrics=ValidationResult(
+            benchmark="kitti-mots-fusion",
+            raw={"cls_comb_cls_av": {"HOTA": 75}},
+            summary_label="cls_comb_cls_av",
+            summary={"HOTA": 75},
+            args=args,
+        ),
+        score=(75,),
+    )
+    return TuneResult(
+        benchmark=trial.benchmark,
+        tracker="eagermot",
+        trials=[trial],
+        best=trial,
+        best_config=trial.config,
+        best_yaml=output / "best.yaml",
+    )
+
+
 def _forbid_perception(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail if bundle routing attempts to build or replay image detections."""
     command = importlib.import_module("boxmot.engine.commands.tune")
 
     def unexpected(*_args: Any, **_kwargs: Any) -> None:
-        pytest.fail("Sensor datasets must be handled before perception preparation or cached replay.")
+        pytest.fail("Sensor datasets must skip perception preparation and cached replay.")
 
     monkeypatch.setattr(command, "_prepare_replay_build", unexpected)
-    monkeypatch.setattr(command, "_dispatch_cli_workflow", unexpected)
 
 
 @pytest.mark.parametrize("use_folder", (False, True))
@@ -50,9 +75,18 @@ def test_bundle_paths_and_defaults_are_independent_of_working_directory(
     _forbid_perception(monkeypatch)
     captured: dict[str, Any] = {}
 
-    def run(args: SimpleNamespace) -> Path:
+    def run(args: SimpleNamespace, *, pipeline: Any = None) -> TuneResult:
         captured["args"] = args
-        return tmp_path / "results"
+        return _result(args, tmp_path / "results")
+
+    command = importlib.import_module("boxmot.engine.commands.tune")
+    dispatch = command._dispatch_cli_workflow
+
+    def shared_dispatch(ctx: Any, mode: str, module: str, payload: dict[str, Any]) -> Any:
+        captured["entrypoint"] = (mode, module)
+        return dispatch(ctx, mode, module, payload)
+
+    monkeypatch.setattr(command, "_dispatch_cli_workflow", shared_dispatch)
 
     monkeypatch.setitem(
         sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
@@ -60,6 +94,7 @@ def test_bundle_paths_and_defaults_are_independent_of_working_directory(
     result = CliRunner().invoke(boxmot, _arguments(manifest.parent if use_folder else manifest))
 
     assert result.exit_code == 0, (result.output, result.exception)
+    assert captured["entrypoint"] == ("tune", "boxmot.engine.tuning.tuner")
     args = captured["args"]
     assert args.split == "val"
     assert args.sequence_names == ("0002",)
@@ -69,6 +104,13 @@ def test_bundle_paths_and_defaults_are_independent_of_working_directory(
     assert args.n_trials == BOXMOT_DEFAULTS.tune.n_trials
     assert args.seed == 0
     assert args.project == Path("runs/eagermot-tune")
+    assert args.device == "cpu"
+    assert args.max_concurrent_trials == 1
+    assert args.sequence_workers == 1
+    assert args.objectives == ("HOTA",)
+    assert args.maximize == ("HOTA",)
+    assert args.per_class is True
+    assert args.eval_masks is True
     assert "best.yaml" in result.output
 
 
@@ -81,9 +123,9 @@ def test_bundle_accepts_explicit_supported_controls(
     _forbid_perception(monkeypatch)
     captured: dict[str, Any] = {}
 
-    def run(args: SimpleNamespace) -> Path:
+    def run(args: SimpleNamespace, *, pipeline: Any = None) -> TuneResult:
         captured["args"] = args
-        return args.project / args.split
+        return _result(args, args.project / args.split)
 
     monkeypatch.setitem(
         sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
@@ -113,11 +155,12 @@ def test_bundle_accepts_explicit_supported_controls(
             "--max-concurrent-trials",
             max_concurrent_trials,
             "--sequence-workers",
-            "1",
+            "8",
             "--device",
             "cpu",
             "--eval-masks",
             "--per-class",
+            "--verbose",
         ],
     )
 
@@ -127,6 +170,61 @@ def test_bundle_accepts_explicit_supported_controls(
     assert args.n_trials == 1
     assert args.seed == 19
     assert args.project == tmp_path / "custom-results"
+    assert args.verbose is True
+    assert args.sequence_workers == 1
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    (
+        ("--n-trials", "0"),
+        ("--n-trials", "-1"),
+        ("--n-trials", "1.5"),
+        ("--seed", "-1"),
+        ("--seed", str(2**32)),
+    ),
+)
+def test_sensor_tune_rejects_invalid_sampling_controls_before_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: str, value: str
+) -> None:
+    """Validate sampling bounds through the same parser as image tuning."""
+    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.tuner", None)
+    result = CliRunner().invoke(boxmot, [*_arguments(tmp_path), option, value])
+
+    assert result.exit_code == 2
+    assert f"Invalid value for '{option}'" in result.output
+
+
+@pytest.mark.parametrize("error_type", (ValueError, FileNotFoundError, ImportError))
+def test_sensor_tune_reports_actionable_runner_errors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error_type: type[Exception]
+) -> None:
+    """The common workflow preserves concise sensor runtime and dependency errors."""
+    manifest = _manifest(tmp_path)
+    message = "Selected sequence lacks KITTI ground truth."
+
+    def fail(_args: SimpleNamespace, *, pipeline: Any = None) -> None:
+        raise error_type(message)
+
+    monkeypatch.setitem(
+        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=fail)
+    )
+    result = CliRunner().invoke(boxmot, _arguments(manifest))
+
+    assert result.exit_code == 1, (result.output, result.exception)
+    assert message in result.output
+    assert not any(line.startswith("Error:") for line in result.output.splitlines())
+    if error_type is ImportError:
+        assert "--extra mots --extra evolve" in result.output
+
+
+def test_tune_help_explains_sensor_class_profiles() -> None:
+    """The common command documents the sensor objective beside its shared controls."""
+    result = CliRunner().invoke(boxmot, ["tune", "--help"], terminal_width=120)
+
+    assert result.exit_code == 0, result.output
+    assert "car and pedestrian" in result.output
+    assert "class-average KITTI mask HOTA" in result.output
 
 
 @pytest.mark.parametrize(
@@ -151,7 +249,7 @@ def test_bundle_accepts_explicit_supported_controls(
         ["--maximize", "IDF1"],
         ["--minimize", "IDSW_rate"],
         ["--max-concurrent-trials", "2"],
-        ["--sequence-workers", "2"],
+        ["--sequence-workers", "0"],
         ["--device", "cuda:0"],
         ["--name", "custom"],
         ["--exist-ok"],

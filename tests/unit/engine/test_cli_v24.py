@@ -17,9 +17,7 @@ EXPECTED_COMMAND_ORDER = (
     "time-variant",
     "eval",
     "eval-trackrcnn",
-    "eval-eagermot",
     "tune",
-    "tune-eagermot",
     "research",
     "train-reid",
     "eval-reid",
@@ -50,6 +48,14 @@ def test_v24_command_set_is_exact() -> None:
     removed = CliRunner().invoke(boxmot, ["generate", "--help"])
     assert removed.exit_code != 0
     assert "No such command 'generate'" in removed.output
+
+    removed_tune = CliRunner().invoke(boxmot, ["tune-eagermot", "--help"])
+    assert removed_tune.exit_code == 2
+    assert "No such command 'tune-eagermot'" in removed_tune.output
+
+    removed_eval = CliRunner().invoke(boxmot, ["eval-eagermot", "--help"])
+    assert removed_eval.exit_code == 2
+    assert "No such command 'eval-eagermot'" in removed_eval.output
 
 
 def test_reid_evaluation_path_options_preserve_their_click_contracts() -> None:

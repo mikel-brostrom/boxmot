@@ -51,21 +51,31 @@ selecting the local folder by name; bare `kitti-mots` selects the built-in
 image dataset profile.
 
 With the `mots` and `evolve` extras installed, this runs serial Optuna trials
-on CPU and maximizes class-average mask HOTA across car and pedestrian
-profiles. The first trial uses the default KITTI profiles. Add
+on CPU, replaying independent sequences in parallel within each trial, and
+maximizes class-average mask HOTA across car and pedestrian profiles.
+The [automatic worker count](eval.md#sequence-parallelism) uses the selected
+sequences and logical CPU count; `--sequence-workers 4` caps it at four workers
+per trial. The first trial uses the default KITTI profiles. Add
 `--sequence 0002` to select one validation sequence, repeat `--sequence` for
 several, or use `--split train` or `--split fulltrain` to select another
 dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
-`best.yaml` for `boxmot eval-eagermot --class-config`.
+`best.yaml` for `boxmot eval --tracker eagermot --class-config`.
+
+The shared Rich tuning panel shows trial and sequence progress, the best HOTA,
+and the saved profile paths. Add `--verbose` to display tracker and Optuna logs.
 
 This sensor workflow reads the dataset and selected predictions directly.
-It supports `--search-alg optuna`; explicit device and concurrency settings must preserve
-serial CPU execution, and objective selectors must use `HOTA`. Perception
-and build options, `--calibrate-kf`, and `--resume-tune` are unavailable for
-fusion datasets. The standalone `boxmot tune-eagermot --dataset ./kitti-mots`
-command uses the same dataset and replay configuration.
+It supports `--search-alg optuna`; an explicit device must be `cpu`.
+`--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial.
+Objective selectors must use `HOTA`. Perception and build options,
+`--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
 See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
 for inputs and outputs.
+
+Python callers use `boxmot.engine.tuning.tuner.run_tune(args)` for both image
+builds and sensor datasets. It returns a `TuneResult` with the completed trials,
+best metrics, and `best_yaml` path. For EagerMOT, `best_config` contains separate
+`car` and `pedestrian` profiles, matching the exported YAML.
 
 ## Build preparation and reuse
 
@@ -108,8 +118,12 @@ Trials run no detector, segmentor, or encoder and cannot select or create
 another build. Worker count and retry policy are execution settings, not
 semantic fingerprints.
 
-`--sequence-workers 4` allows up to four sequence worker processes per trial.
-Use `--max-concurrent-trials` to limit how many trials run at once.
+Each trial uses the [automatic sequence worker count](eval.md#sequence-parallelism)
+unless `--sequence-workers` supplies a positive integer cap. For example,
+`--sequence-workers 4` allows up to four sequence worker processes per trial,
+bounded by the number of selected sequences. Use `--max-concurrent-trials` to
+limit how many image-tracker trials run at once; sequence workers are allocated
+separately to each trial.
 
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
@@ -207,12 +221,4 @@ interface.
     :module: boxmot.engine.commands.tune
     :command: tune
     :prog_name: boxmot tune
-    :depth: 0
-
-### Standalone EagerMOT tuning arguments
-
-::: mkdocs-click
-    :module: boxmot.engine.commands.eagermot
-    :command: tune_eagermot
-    :prog_name: boxmot tune-eagermot
     :depth: 0

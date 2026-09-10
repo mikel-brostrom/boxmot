@@ -33,8 +33,7 @@ class-ID catalog before fusion.
 Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot` for the
 Python API. `boxmot tune --dataset ./kitti-mots --tracker eagermot` reads
 these inputs from a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets).
-The dedicated `eval-eagermot` and `tune-eagermot` commands also accept
-`--dataset ./kitti-mots`. Image tracking, `TrackingPipeline`, and
+The `boxmot eval --tracker eagermot` command also accepts `--dataset ./kitti-mots`. Image tracking, `TrackingPipeline`, and
 cached perception replay cannot supply the required sensor inputs and reject
 `eagermot` before running perception.
 
@@ -45,7 +44,7 @@ extra installed. This replays saved detector predictions on CPU and evaluates
 **segmentation tracking** against KITTI MOTS instance PNGs:
 
 ```bash
-uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+uv run --no-sync python -m boxmot.engine.cli eval --tracker eagermot \
   --dataset ./kitti-mots \
   --split val \
   --project runs/eagermot
@@ -78,6 +77,11 @@ Sequence names have four digits and frame names have six digits. The default
 MOTS validation split is `0002, 0006, 0007, 0008, 0010, 0013, 0014, 0016, 0018`.
 Add `--sequence 0002` for a smaller run; repeat the option to select several
 sequences. To evaluate all 21 annotated sequences, use `--split fulltrain`.
+Sequences replay in parallel. The [automatic worker count](../modes/eval.md#sequence-parallelism)
+uses at most the selected sequence count or the logical CPU count minus two,
+with a minimum of one worker. Set `--sequence-workers N` to override it with a
+positive integer cap, still bounded by the selected sequence count.
+
 The supplied `replay.yaml` selects the T2 car predictions for validation and
 T3 for training or full training. Edit its prediction manifest references to
 change detector inputs. See the [dataset layout and manifests](../config/datasets.md#kitti-fusion-datasets).
@@ -122,7 +126,7 @@ write an annotated MP4 for each selected sequence. Add `--show-3d` to overlay
 the estimated 3D bounding boxes:
 
 ```bash
-uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+uv run --no-sync python -m boxmot.engine.cli eval --tracker eagermot \
   --dataset ./kitti-mots \
   --class-config runs/eagermot-tune/val/best.yaml \
   --sequence 0016 \
@@ -141,6 +145,8 @@ This command writes `runs/eagermot-3d-preview/val/videos/0016.mp4` at 10 FPS alo
 with the normal masks and metrics. Repeated runs create `val2`, and so on.
 Remove `--show` on a headless machine. Press **q** or **Esc** to close the
 preview while evaluation and video saving continue.
+`--show` processes sequences one at a time on the main thread; `--save` alone
+allows workers to render and save their assigned sequences in parallel.
 
 `--show-3d` requires `--show` or `--save`. It projects EagerMOT's current 3D
 track estimates through the sequence's full camera projection matrix. The
@@ -178,22 +184,14 @@ selects the image, car, and pedestrian predictions for each split. Every trial
 evaluates car and pedestrian profiles together and maximizes their
 **class-average mask HOTA**.
 
-The sensor workflow uses serial CPU execution and `--search-alg optuna`.
-Explicit device and concurrency settings must preserve that execution mode,
-and objective selectors must use `HOTA`. Perception and build options,
+The sensor workflow runs one Optuna trial at a time on CPU with
+`--search-alg optuna`. Sequences within each trial replay in parallel using the
+same automatic worker count as evaluation. `--sequence-workers N` sets a
+positive worker cap per trial. An explicit device must be `cpu`.
+`--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial;
+objective selectors must use `HOTA`. Perception and build options,
 `--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
 `--project` changes the results root from `runs/eagermot-tune`.
-
-The standalone command accepts the same dataset:
-
-```bash
-uv run --no-sync python -m boxmot.engine.cli tune-eagermot \
-  --dataset ./kitti-mots \
-  --split val \
-  --n-trials 50 \
-  --seed 0 \
-  --project runs/eagermot-tune
-```
 
 The trial count includes the first trial with the default KITTI car and
 pedestrian profiles. Remaining trials independently sample each class's
@@ -215,7 +213,7 @@ Results go to `runs/eagermot-tune/val`, then `val2`, and so on:
 Pass the winning profiles to evaluation using `--class-config`:
 
 ```bash
-uv run --no-sync python -m boxmot.engine.cli eval-eagermot \
+uv run --no-sync python -m boxmot.engine.cli eval --tracker eagermot \
   --dataset ./kitti-mots \
   --split val \
   --class-config runs/eagermot-tune/val/best.yaml \

@@ -1,4 +1,4 @@
-"""Click adapter for cached tracker evaluation."""
+"""Click adapter for tracker evaluation from perception builds or sensor datasets."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from boxmot.engine.commands._support import (
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 
-@click.command(name="eval", help="Evaluate tracking performance")
+@click.command(name="eval", help="Evaluate tracking performance from a perception build or saved-sensor dataset.")
 @replay_build_options(dataset_default=BOXMOT_DEFAULTS.eval.dataset)
 @data_root_option
 @split_option
@@ -37,19 +37,36 @@ from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 @eval_masks_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option
+@click.option(
+    "--class-config",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="EagerMOT sensor evaluation: YAML containing car and pedestrian profiles, such as tuning's best.yaml.",
+)
 @association_function_option
 @replay_options(mode="eval", parallel=True)
 @click.option(
     "--show",
     is_flag=True,
     default=False,
-    help="Preview tracking at source timing, after calibration when --calibrate-kf is enabled.",
+    help=(
+        "Preview tracking at source timing, after calibration when --calibrate-kf is enabled. "
+        "Sensor replay displays tracked masks, IDs, and classes."
+    ),
 )
 @click.option(
     "--save",
     is_flag=True,
     default=False,
-    help="Save annotated tracking videos from cached replay, after calibration when --calibrate-kf is enabled.",
+    help=(
+        "Save annotated tracking videos from replay, after calibration when --calibrate-kf is enabled. "
+        "EagerMOT writes one MP4 per sequence under results/videos."
+    ),
+)
+@click.option(
+    "--show-3d",
+    is_flag=True,
+    default=False,
+    help="EagerMOT sensor evaluation: overlay estimated tracked 3D cuboids; requires --show or --save.",
 )
 @kalman_calibration_option(mode="eval")
 @sequence_option
@@ -89,6 +106,37 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
+        raise click.UsageError("--show-3d requires --show or --save.")
+
+    from boxmot.engine.commands.sensor_eval import prepare_sensor_evaluation
+
+    sensor_payload = prepare_sensor_evaluation(
+        ctx,
+        {
+            **kwargs,
+            "experiment": experiment,
+            "dataset": dataset,
+            "detector": detector,
+            "reid": reid,
+            "build_ref": build_ref,
+            "build_root": build_root,
+            "device": device,
+            "data_root": data_root,
+            "split": split,
+            "sequence_names": sequence_names,
+            "allow_noncanonical_build": allow_noncanonical_build,
+            "compare_trackeval": compare_trackeval,
+            "eval_masks": eval_masks,
+            "calibrate_kf": calibrate_kf,
+        },
+    )
+    if sensor_payload is not None:
+        _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
+        return
+    if kwargs["class_config"] is not None or kwargs["show_3d"]:
+        raise click.UsageError("--class-config and --show-3d require a KITTI fusion dataset with --tracker eagermot.")
+
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.calibration.kalman import validate_kf_calibration
         from boxmot.engine.config.trackers import resolve_tracker_options

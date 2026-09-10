@@ -350,9 +350,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -410,7 +408,11 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert workflow_state["stopped"] is True
 
 
-def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp_path):
+@pytest.mark.parametrize(("workers", "sequences", "expected"), ((3, 5, 3), (12, 2, 2), (None, 4, 4)))
+def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp_path, workers, sequences, expected):
+    from boxmot.engine.config import runtime
+
+    monkeypatch.setattr(runtime.os, "cpu_count", lambda: 8)
     captured = {}
 
     def fake_require_extra(extra: str, *, purpose: str) -> None:
@@ -553,9 +555,7 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -575,7 +575,8 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        sequence_workers=3,
+        sequence_workers=workers,
+        seq_info={f"seq{index}": 3 for index in range(sequences)},
         n_trials=3,
         project=Path("runs"),
         verbose=False,
@@ -586,9 +587,9 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
 
     assert captured["extra"] == "evolve"
     assert captured["driver_lock_in_trainable_args"] is False
-    assert captured["trial_args"]["sequence_workers"] == 3
+    assert captured["trial_args"]["sequence_workers"] == expected
     assert "n_threads" not in captured["trial_args"]
-    assert captured["trial_resources"] == {"cpu": 3, "gpu": 0}
+    assert captured["trial_resources"] == {"cpu": expected, "gpu": 0}
     assert len(captured["callbacks"]) == 1
     assert captured["callback_has_workflow_lock"] is False
     assert captured["verbose"] == 0
@@ -757,9 +758,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -916,9 +915,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -1153,9 +1150,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,

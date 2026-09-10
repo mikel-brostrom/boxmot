@@ -1,6 +1,7 @@
 # Evaluate
 
-`eval` measures a tracker by streaming an immutable materialized build through
+`eval` measures tracking performance from perception builds or saved sensor
+datasets. For image trackers, it streams an immutable materialized build through
 the live tracker API. Select an authored experiment with `--experiment` or use
 dataset and component flags as shorthand for a matching catalog experiment.
 In either case, `--build` is optional: when omitted, BoxMOT first materializes
@@ -63,7 +64,7 @@ After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest
 directory, or risk replaying another configuration's build.
 
-Pass `--build` to reuse a specific build. Dataset-only evaluation requires
+Pass `--build` to reuse a specific build. Image-dataset evaluation requires
 `--build` when no detector is selected, because the dataset config alone does
 not select the perception components needed for materialization:
 
@@ -93,9 +94,42 @@ masks without materializing a perception build. See the
 [MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
 for the full command.
 
-For calibrated 2D/3D tracking, use `boxmot eval-eagermot --dataset ./kitti-mots`.
+## EagerMOT with saved KITTI sensor inputs
+
+Evaluate a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets)
+through the same command:
+
+```bash
+boxmot eval \
+  --dataset ./kitti-mots \
+  --tracker eagermot \
+  --split val
+```
+
 The dataset supplies sequence images, annotations, calibration, and poses;
 its `replay.yaml` selects the image, car, and pedestrian prediction sets.
+You can pass the folder or its `dataset.yaml` file. Evaluation runs on CPU,
+scores KITTI MOTS masks, and writes a new split directory under `runs/eagermot`.
+Use `--project` to change that root or repeat `--sequence` to select sequences.
+Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
+Set `--sequence-workers 4` to allow at most four sequence workers.
+
+Load tuning's class profiles with `--class-config path/to/best.yaml`. Use
+`--show` or `--save` to preview or record tracks, and add `--show-3d` to overlay
+their estimated 3D cuboids. Saved videos go under the result directory's
+`videos/` folder. `--class-config` and `--show-3d` apply only to this sensor workflow.
+`--show` keeps sensor replay on the main thread, processing one sequence at a
+time. With `--save` alone, each worker writes its sequence's video.
+
+The shared Rich panel shows frame progress for each sequence and the final mask
+metrics. Add `--show-timing` to include replay timing in the result summary, or
+`--verbose` to display tracker diagnostics alongside the panel.
+
+Saved sensor evaluation reads predictions directly. Perception/build options,
+Kalman calibration, and TrackEval comparison are unavailable for these datasets;
+an explicit `--device` must be `cpu`.
+Python callers use `boxmot.engine.eval.evaluator.run_eval(args)` and receive
+the shared `ValidationResult`, including class-average mask metrics and `exp_dir`.
 See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
 
 ## View tracking results
@@ -126,9 +160,10 @@ quantized to a 30 FPS output grid, with one final 1/30-second frame. Sources
 without timestamps use one output frame per input frame. `eval --fps` retains
 its dataset-sampling meaning; it does not change the output video rate.
 
-Visualization decodes source images and replays sequences serially on the main
-thread, regardless of `--sequence-workers`. Reported replay timing includes rendering,
-video writing, and preview pacing; omit these flags for speed benchmarks.
+For image builds, visualization decodes source images and replays sequences
+serially on the main thread, regardless of `--sequence-workers`. Reported replay
+timing includes rendering, video writing, and preview pacing; omit these flags
+for speed benchmarks.
 
 ## Dataset FPS
 
@@ -347,12 +382,22 @@ Elapsed inference time is not a capture timestamp.
 
 ## Sequence parallelism
 
-Evaluation replays each sequence as one isolated spawned-process job. Every
-job constructs its own tracker from the immutable tracker spec, so tracker
-state and native handles never cross sequence or process boundaries.
-`--sequence-workers` sets the maximum number of sequence worker processes. The Rich
-panel reports frame progress separately for every sequence while those jobs
-run.
+Parallel evaluation gives each sequence its own tracker in an isolated
+process. Tracker state and native handles never cross sequence or process
+boundaries.
+By default, the worker count is the smaller of the selected sequence count and
+the logical CPU count minus two, with at least one worker when sequences are
+selected: `min(sequences, max(1, logical_cpus - 2))`. For example, nine selected
+sequences on a machine with eight logical CPUs use six workers.
+
+`--sequence-workers N` overrides automatic sizing with a positive integer cap;
+the active worker count never exceeds the number of selected sequences.
+Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
+reports frame progress separately for every sequence while those jobs run.
+
+Image-build previews and saved videos use serial replay. EagerMOT sensor
+replay runs serially with `--show`; `--save` alone supports parallel video
+writing.
 
 Use `--sequence` to replay only one sequence while diagnosing a run. Repeat
 the option to select more than one sequence:

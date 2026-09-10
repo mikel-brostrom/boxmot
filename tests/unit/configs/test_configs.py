@@ -10,6 +10,7 @@ from boxmot.engine.config.runtime import (
     build_mode_namespace,
     get_mode_default,
     get_mode_defaults,
+    resolve_sequence_workers,
 )
 from boxmot.reid.exporters.config import (
     build_export_namespace,
@@ -254,7 +255,7 @@ def test_engine_config_rejects_domain_owned_modes(mode: str):
         build_mode_namespace(mode, {})
 
 
-@pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (4, 4), (32, 8)])
+@pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (2, 1), (4, 2), (32, 30)])
 def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_count, expected_workers):
     monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
     defaults = get_mode_defaults("eval")
@@ -267,6 +268,31 @@ def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_c
     assert isinstance(defaults["sequence_workers"], int)
     assert defaults["sequence_workers"] == expected_workers
     assert "n_threads" not in defaults
+
+
+@pytest.mark.parametrize(
+    ("sequence_count", "cpu_count", "expected"),
+    [(9, 32, 9), (9, 8, 6), (40, 32, 30), (1, 32, 1), (9, 2, 1), (9, None, 1), (0, 8, 0)],
+)
+def test_sequence_workers_reserve_two_cores_and_limit_to_selected_sequences(
+    monkeypatch, sequence_count, cpu_count, expected
+):
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
+
+    assert resolve_sequence_workers(sequence_count) == expected
+
+
+@pytest.mark.parametrize(("sequence_count", "workers", "expected"), [(9, 3, 3), (2, 8, 2), (0, 3, 0)])
+def test_explicit_sequence_workers_override_the_cpu_default(monkeypatch, sequence_count, workers, expected):
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: 2)
+
+    assert resolve_sequence_workers(sequence_count, workers) == expected
+
+
+@pytest.mark.parametrize("workers", (0, -1, True, 1.5, "2"))
+def test_invalid_sequence_worker_limits_are_rejected(workers):
+    with pytest.raises(ValueError, match="sequence_workers must be a positive integer"):
+        resolve_sequence_workers(9, workers)
 
 
 def test_boxmot_defaults_bundle_exposes_typed_mode_defaults():

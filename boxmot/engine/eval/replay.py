@@ -21,6 +21,7 @@ from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
 from boxmot.datasets.schema import SAMPLES_ARTIFACT
 from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
+from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import validate_image_tracker
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows
 from boxmot.engine.materialization.builds import (
@@ -534,15 +535,6 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
     )
 
 
-def _replay_worker_count(sequence_count: int, cpu_count: int | None = None) -> int:
-    """Bound automatic parallelism by both sequences and logical CPUs."""
-
-    if sequence_count <= 0:
-        return 0
-    available = os.cpu_count() if cpu_count is None else cpu_count
-    return min(sequence_count, 8, max(1, available or 1))
-
-
 def _publish_progress(
     event: ReplayProgressEvent,
     callback: ReplayProgressCallback | None,
@@ -886,7 +878,7 @@ def _replay_with_frame_callback(
     manifest = DatasetManifest.load(build_path)
     actual_counts = dict(_sequence_frame_counts(build_path, manifest, split=split))
     selected = _select_sequence_ids(tuple(actual_counts), sequence_ids)
-    _validated_worker_count(workers, len(selected))
+    resolve_sequence_workers(len(selected), workers)
     if sequence_frame_counts is not None:
         supplied_counts = _validated_sequence_frame_counts(sequence_frame_counts)
         for sequence in selected:
@@ -938,14 +930,6 @@ def _replay_with_frame_callback(
         frames=replayed.frames,
         track_rows=replayed.track_rows,
     )
-
-
-def _validated_worker_count(workers: int | None, sequence_count: int) -> int:
-    if workers is None:
-        return _replay_worker_count(sequence_count)
-    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
-        raise ValueError("workers must be a positive integer or None")
-    return min(workers, sequence_count) if sequence_count else 0
 
 
 def _validated_sequence_frame_counts(
@@ -1068,7 +1052,7 @@ def replay_build(
         else _validated_sequence_frame_counts(sequence_frame_counts)
     )
     selected = _select_sequence_ids(tuple(frame_counts), sequence_ids)
-    worker_count = _validated_worker_count(workers, len(selected))
+    worker_count = resolve_sequence_workers(len(selected), workers)
     if not selected:
         return ReplayResult(
             build=build_path,

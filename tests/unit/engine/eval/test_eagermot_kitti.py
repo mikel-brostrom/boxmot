@@ -59,7 +59,9 @@ def _fixture(tmp_path: Path) -> SimpleNamespace:
 def _arguments(data: SimpleNamespace) -> list[str]:
     """Invoke the registered command with explicit temporary data paths."""
     return [
-        "eval-eagermot",
+        "eval",
+        "--tracker",
+        "eagermot",
         "--dataset",
         str(data.dataset),
         "--project",
@@ -136,7 +138,7 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
     [
         (["--sequence", "0001"], "absent from dataset split"),
         (["--sequence", "0002"], "duplicate"),
-        (["--split", "test"], "Invalid value for '--split'"),
+        (["--split", "test"], "has no split 'test'"),
     ],
 )
 def test_cli_rejects_split_mixing_duplicates_and_unannotated_test_split(

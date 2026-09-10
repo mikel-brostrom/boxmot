@@ -161,7 +161,13 @@ def _tune_options(func):
     return func
 
 
-@click.command(cls=TuneCommand, help="Tune tracker parameters from a perception build or a saved-sensor dataset.")
+@click.command(
+    cls=TuneCommand,
+    help=(
+        "Tune tracker parameters from a perception build or a saved-sensor dataset. "
+        "EagerMOT jointly tunes car and pedestrian profiles for class-average KITTI mask HOTA."
+    ),
+)
 @replay_build_options()
 @data_root_option
 @split_option
@@ -192,9 +198,9 @@ def tune(
     """Resolve dataset inputs, then tune tracker parameters."""
 
     _require_replay_input(experiment, dataset, "tune")
-    from boxmot.engine.commands.sensor_tune import dispatch_sensor_tuning
+    from boxmot.engine.commands.sensor_tune import prepare_sensor_tuning
 
-    if dispatch_sensor_tuning(
+    sensor_payload = prepare_sensor_tuning(
         ctx,
         {
             **kwargs,
@@ -210,7 +216,9 @@ def tune(
             "calibrate_kf": calibrate_kf,
             "eval_masks": eval_masks,
         },
-    ):
+    )
+    if sensor_payload is not None:
+        _dispatch_cli_workflow(ctx, "tune", "boxmot.engine.tuning.tuner", sensor_payload)
         return
     if calibrate_kf and kwargs.get("resume_tune"):
         raise click.UsageError(

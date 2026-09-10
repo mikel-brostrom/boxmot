@@ -142,7 +142,10 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             "--sequence-workers",
             type=click.IntRange(min=1),
             default=defaults.sequence_workers,
-            help="Maximum number of sequence worker processes. During tuning, this limit applies per trial.",
+            help=(
+                "Maximum sequence worker processes. Default: min(sequences, CPU cores - 2), at least 1. "
+                "During tuning, this limit applies per trial."
+            ),
         ),
         "project": click.option(
             "--project",
@@ -328,7 +331,7 @@ def dataset_option(*, default: str | None = None) -> Callable:
         "--dataset",
         type=str,
         default=default,
-        help="Dataset id, YAML file, or sensor dataset folder containing dataset.yaml (tune).",
+        help="Dataset id, YAML file, or sensor dataset folder containing dataset.yaml (eval and tune).",
     )
 
 

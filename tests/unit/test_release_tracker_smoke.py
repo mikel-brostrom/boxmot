@@ -63,9 +63,7 @@ def test_tracker_smoke_propagates_factory_failure(monkeypatch: pytest.MonkeyPatc
         release_contract.check_tracker_api()
 
 
-def test_tracker_smoke_requires_packaged_tracker_defaults(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_tracker_smoke_requires_packaged_tracker_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(tracker_config, "TRACKER_CONFIGS_DIR", tmp_path)
 
     with pytest.raises(FileNotFoundError, match=r"Tracker config not found: .*boosttrack.yaml"):

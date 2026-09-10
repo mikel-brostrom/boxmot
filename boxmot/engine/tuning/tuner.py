@@ -230,6 +230,12 @@ class Tuner:
                 pipeline.update("Preparing evaluation setup...")
                 with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
                     eval_setup(args, pipeline=pipeline)
+                if getattr(args, "seq_info", None) is not None:
+                    from boxmot.engine.config.runtime import resolve_sequence_workers
+
+                    args.sequence_workers = resolve_sequence_workers(
+                        len(args.seq_info), getattr(args, "sequence_workers", None)
+                    )
 
                 tune_dir = self._resolve_tune_dir()
                 self._prepare_evaluation_mode(tune_dir)
@@ -794,8 +800,143 @@ def _ray_pickle_dumps(value: Any) -> bytes:
 # ---------------------------------------------------------------------------
 
 
+def _run_sensor_tuning(
+    args: Any, *, baseline_config: dict | None = None, render_cli: bool = False
+) -> TuneResult | None:
+    """Validate declared sensor inputs before lazily loading their optimizer."""
+    from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    reference = getattr(args, "dataset", None)
+    path = resolve_kitti_fusion_config_path(reference) if reference else None
+    if path is None:
+        return None
+
+    spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
+    if spec.name != "eagermot" or spec.backend != "python":
+        raise ValueError("KITTI fusion tuning requires --tracker eagermot --tracker-backend python.")
+    if baseline_config is not None:
+        raise ValueError("KITTI fusion tuning uses separate class profiles and does not support baseline_config.")
+    unsupported = (
+        "experiment",
+        "build",
+        "build_ref",
+        "build_root",
+        "detector",
+        "reid",
+        "data_root",
+        "tracker_config",
+        "class_config",
+        "calibrate_kf",
+        "resume_tune",
+        "time_budget_s",
+        "fps",
+        "variable_dt",
+    )
+    for name in unsupported:
+        value = getattr(args, name, None)
+        if value is not None and value is not False and value != "":
+            raise ValueError(f"KITTI fusion tuning does not support {name}; inputs come from the dataset manifest.")
+    for name, allowed in {
+        "search_alg": ("optuna",),
+        "max_concurrent_trials": (0, 1),
+        "device": ("cpu",),
+    }.items():
+        value = getattr(args, name, allowed[-1])
+        if value not in allowed:
+            raise ValueError(f"KITTI fusion tuning runs serial Optuna trials on CPU; {name} must be one of {allowed}.")
+    for name in ("objectives", "maximize"):
+        if _parse_metric_names(getattr(args, name, ())) not in ([], ["HOTA"]):
+            raise ValueError(f"KITTI fusion tuning optimizes class-average mask HOTA; {name} must be HOTA.")
+    if _parse_metric_names(getattr(args, "minimize", ())):
+        raise ValueError("KITTI fusion tuning optimizes class-average mask HOTA and does not support minimize.")
+
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, resolve_sequence_workers
+
+    n_trials = getattr(args, "n_trials", BOXMOT_DEFAULTS.tune.n_trials)
+    seed = getattr(args, "seed", None)
+    seed = 0 if seed is None else seed
+    if isinstance(n_trials, bool) or not isinstance(n_trials, int) or n_trials < 1:
+        raise ValueError("n_trials must be an integer >= 1.")
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
+        raise ValueError("seed must be an integer within [0, 2**32).")
+    dataset = load_kitti_fusion_dataset(
+        path,
+        split=getattr(args, "split", None) or None,
+        sequence_names=getattr(args, "sequence_names", ()),
+    )
+    sequence_workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
+    normalized = SimpleNamespace(
+        **{
+            **vars(args),
+            "dataset": dataset.config_path,
+            "dataset_id": dataset.id,
+            "tracker": spec.name,
+            "tracker_backend": spec.backend,
+            "split": dataset.split,
+            "sequence_names": dataset.sequence_names,
+            "n_trials": n_trials,
+            "seed": seed,
+            "project": Path(getattr(args, "project", None) or "runs/eagermot-tune"),
+            "device": "cpu",
+            "sequence_workers": sequence_workers,
+            "max_concurrent_trials": 1,
+            "search_alg": "optuna",
+            "objectives": ("HOTA",),
+            "maximize": ("HOTA",),
+            "minimize": (),
+            "per_class": True,
+            "eval_masks": True,
+        }
+    )
+    if not render_cli:
+        from boxmot.engine.tuning.eagermot_kitti import run_eagermot_kitti_tuning
+
+        return run_eagermot_kitti_tuning(normalized)
+
+    pipeline = TuneWorkflowReporter(normalized, maximize=["HOTA"], minimize=[]).pipeline()
+    with pipeline, suppress_boxmot_logs(enabled=not bool(getattr(normalized, "verbose", False)), level="ERROR"):
+        pipeline.update("Loading KITTI sensor inputs and tuning runtime…")
+        try:
+            from boxmot.engine.tuning.eagermot_kitti import run_eagermot_kitti_tuning
+
+            result = run_eagermot_kitti_tuning(normalized, pipeline=pipeline)
+        except ImportError as exc:
+            raise ImportError(
+                f"KITTI fusion tuning requires the mots and evolve extras: {exc}\n"
+                "Install with: uv sync --extra cpu --extra mots --extra evolve"
+            ) from exc
+        best_renderable = result.best.metrics.renderable(
+            title=CLI_TUNE_BEST_SUMMARY_TITLE,
+            compare_raw=result.baseline.raw,
+            compare_args=result.baseline.args,
+        )
+        artifacts = build_tune_artifacts_renderable(
+            {
+                "best_trial_id": f"trial {result.best.index}",
+                "best_yaml_path": result.best_yaml,
+                "study_path": result.best_yaml.parent / "study.sqlite3",
+                "manifest_path": result.best_yaml.parent / "run.json",
+            }
+        )
+        pipeline.finish(
+            combine_tune_result_renderables(best_renderable, artifacts),
+            exp_dir=result.best_yaml.parent,
+        )
+        result.workflow_rendered = True
+        return result
+
+
 def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     """Run tuning and return a structured TuneResult."""
+    sensor_result = _run_sensor_tuning(args, baseline_config=baseline_config)
+    if sensor_result is not None:
+        return sensor_result
+
+    from boxmot.engine.config.trackers import validate_image_tracker
+
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     tuner = Tuner(args, baseline_config=baseline_config)
     result_grid, tune_dir, maximize, minimize = tuner.fit()
 
@@ -832,8 +973,28 @@ def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     )
 
 
-def main(args):
-    """CLI entry point."""
+def main(args: Any) -> TuneResult | None:
+    """Tune either perception builds or saved sensor inputs through one entry point."""
+    try:
+        sensor_result = _run_sensor_tuning(args, render_cli=True)
+    except ImportError as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(
+            f"KITTI fusion tuning requires the mots and evolve extras: {exc}\n"
+            "Install with: uv sync --extra cpu --extra mots --extra evolve"
+        ) from exc
+    except (ValueError, OSError) as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(str(exc)) from exc
+    if sensor_result is not None:
+        return sensor_result
+
+    from boxmot.engine.config.trackers import validate_image_tracker
+
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     tuner = Tuner(args)
     tuner.fit()
 

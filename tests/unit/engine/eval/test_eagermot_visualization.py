@@ -177,9 +177,9 @@ def test_visualization_failure_closes_renderer_restores_threads_and_marks_failed
 
     invocation = CliRunner().invoke(boxmot, [*_arguments(data), "--show"])
 
-    assert invocation.exit_code != 0
-    assert isinstance(invocation.exception, RuntimeError)
-    assert str(invocation.exception) == "visualization callback failed"
+    assert invocation.exit_code == 1
+    assert "visualization callback failed" in invocation.output
+    assert invocation.output.count("Traceback (most recent call last)") == 1
     assert renderers[0].entered and renderers[0].closed
     assert [event.sample.frame_index for event in renderers[0].frames] == [0, 1]
     assert torch.get_num_threads() == previous_threads

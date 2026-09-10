@@ -78,7 +78,11 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
     printing a second traceback.
     """
 
-    if getattr(args, "tracker", None) is not None:
+    # Evaluation and tuning resolve image builds and sensor datasets themselves.
+    if (
+        module_name not in {"boxmot.engine.eval.evaluator", "boxmot.engine.tuning.tuner"}
+        and getattr(args, "tracker", None) is not None
+    ):
         from boxmot.engine.config.trackers import validate_image_tracker
 
         try:

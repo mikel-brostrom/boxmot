@@ -187,9 +187,11 @@ for fitting and reusing noise settings.
 ## Replay and postprocessing
 
 Cached replay is sequence-parallel: each sequence is handled by a spawned
-process with its own tracker instance. Use `--sequence-workers` to cap the active
-sequence processes; the evaluation UI shows a separate frame-progress row for
-each sequence. Use `--sequence NAME` to limit a diagnostic run to one sequence;
+process with its own tracker instance. Automatic sizing uses the smaller of
+the selected sequence count and the logical CPU count minus two, with at least
+one worker. Use `--sequence-workers N` to set a positive integer cap instead;
+the count stays bounded by the selected sequences. The evaluation UI shows a
+separate frame-progress row for each sequence. Use `--sequence NAME` to limit a diagnostic run to one sequence;
 repeat the option to select several. The parent reuses the frame counts already
 validated during dataset setup and does not reopen perception payloads before
 launch. Each worker reads detections for its assigned sequence and defers keyed

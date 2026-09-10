@@ -22,12 +22,12 @@ current image frames.
 on KITTI MOTS; see the MAF-HDA tracker page for the required paths.
 [EagerMot](trackers/eagermot.md) adds 2D/3D sensor fusion through the Python
 tracker API with independent detection batches and camera calibration.
-Use `boxmot eval-eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN
+Use `boxmot eval --tracker eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN
 predictions against KITTI MOTS masks; the tracker page provides the command.
 [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](trackers/eagermot.md#tune-separate-class-profiles)
 loads a KITTI fusion dataset's `dataset.yaml`, optimizes separate car and
 pedestrian profiles together for class-average mask HOTA, and saves profiles
-for `eval-eagermot --dataset ./kitti-mots --class-config`. Sequence data lives
+for `boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Sequence data lives
 together, while `replay.yaml` selects the prediction sets to use.
 
 ## Get started

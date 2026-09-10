@@ -85,7 +85,7 @@ an Optuna study, per-trial metrics, and resolved input paths in `run.json`.
 Replay a selected profile with:
 
 ```bash
-boxmot eval-eagermot --dataset ./kitti-mots --sequence 0002 \
+boxmot eval --tracker eagermot --dataset ./kitti-mots --sequence 0002 \
   --class-config runs/eagermot-tune/val/best.yaml
 ```
 

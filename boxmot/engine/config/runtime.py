@@ -38,12 +38,21 @@ def _merged_mode_defaults(mode: str) -> dict[str, Any]:
 
 def _resolve_default_value(key: str, value: Any) -> Any:
     if key == "sequence_workers" and str(value).lower() == "auto":
-        return min(8, max(1, os.cpu_count() or 1))
+        return max(1, (os.cpu_count() or 1) - 2)
 
     if key == "project" and value is not None:
         return Path(value)
 
     return value
+
+
+def resolve_sequence_workers(sequence_count: int, workers: int | None = None) -> int:
+    """Limit replay to selected sequences, reserving two CPU cores by default."""
+    if workers is None:
+        workers = _resolve_default_value("sequence_workers", "auto")
+    if isinstance(workers, bool) or not isinstance(workers, int) or workers <= 0:
+        raise ValueError("sequence_workers must be a positive integer or None")
+    return min(workers, max(0, sequence_count))
 
 
 def _normalize_classes(classes: Any) -> list[int] | None:
@@ -383,4 +392,5 @@ __all__ = (
     "build_mode_namespace",
     "get_mode_default",
     "get_mode_defaults",
+    "resolve_sequence_workers",
 )

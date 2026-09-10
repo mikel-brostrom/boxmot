@@ -244,13 +244,13 @@ MafHda is not included in the box-only benchmark table above.
 
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It
-returns image and spatial tracks with shared identities. The dedicated
-`boxmot eval-eagermot` command evaluates downloaded KITTI PointGNN and
+returns image and spatial tracks with shared identities. The
+`boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
 TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
 Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
 with a KITTI fusion dataset to optimize separate car and pedestrian profiles
 together for class-average mask HOTA, then evaluate `best.yaml` with
-`eval-eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
+`boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
 its images, annotations, calibration, and poses. `dataset.yaml` defines the
 sequences and splits; `replay.yaml` selects prediction sets with their own
 manifests.

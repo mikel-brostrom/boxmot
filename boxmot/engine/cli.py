@@ -40,13 +40,7 @@ _COMMAND_SPECS = (
     _CommandSpec(
         "eval-trackrcnn", "boxmot.engine.commands.trackrcnn", "eval_trackrcnn", "Evaluate saved KITTI TrackR-CNN masks"
     ),
-    _CommandSpec(
-        "eval-eagermot", "boxmot.engine.commands.eagermot", "eval_eagermot", "Evaluate KITTI EagerMOT sensor fusion"
-    ),
     _CommandSpec("tune", "boxmot.engine.commands.tune", "tune", "Optimize tracker hyperparameters"),
-    _CommandSpec(
-        "tune-eagermot", "boxmot.engine.commands.eagermot", "tune_eagermot", "Tune KITTI EagerMOT class profiles"
-    ),
     _CommandSpec(
         "research",
         "boxmot.engine.commands.research",

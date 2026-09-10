@@ -27,9 +27,7 @@ EXPECTED_CLI_COMMANDS = (
     "time-variant",
     "eval",
     "eval-trackrcnn",
-    "eval-eagermot",
     "tune",
-    "tune-eagermot",
     "research",
     "train-reid",
     "eval-reid",
@@ -63,9 +61,7 @@ def check_release_contract(expected_version: str | None = None) -> None:
     )
     with click.Context(boxmot_cli) as context:
         commands = tuple(boxmot_cli.list_commands(context))
-    assert commands == EXPECTED_CLI_COMMANDS, (
-        f"CLI commands: expected {EXPECTED_CLI_COMMANDS!r}, got {commands!r}"
-    )
+    assert commands == EXPECTED_CLI_COMMANDS, f"CLI commands: expected {EXPECTED_CLI_COMMANDS!r}, got {commands!r}"
     assert importlib.util.find_spec("boxmot.api") is None
     assert importlib.util.find_spec("boxmot.data") is None
     for name in ("BoxMOT", "Detector", "ReIDModel"):
@@ -122,8 +118,7 @@ def check_tracker_tracking(name: str, tracker_class: type, geometry: str) -> Non
     is_obb = geometry == "obb"
     geometry_type = OrientedBoxes if is_obb else Boxes
     values = torch.tensor(
-        [[27, 35, 26, 27, 0.2], [75, 47, 26, 39, -0.3]]
-        if is_obb else [[14, 21, 40, 48], [62, 28, 88, 67]],
+        [[27, 35, 26, 27, 0.2], [75, 47, 26, 39, -0.3]] if is_obb else [[14, 21, 40, 48], [62, 28, 88, 67]],
         dtype=torch.float32,
     )
     height, width = 240, 320
@@ -132,9 +127,7 @@ def check_tracker_tracking(name: str, tracker_class: type, geometry: str) -> Non
     if tracker.requirements.detections_3d:
         # These image boxes overlap the projected 3D cuboids for sensor fusion.
         values = torch.tensor([[78, 39, 122, 62], [136, 39, 189, 62]], dtype=torch.float32)
-        spatial_values = torch.tensor(
-            [[0, 1, 10, 0, 4, 2, 2], [6, 1, 10, 0, 4, 2, 2]], dtype=torch.float32
-        )
+        spatial_values = torch.tensor([[0, 1, 10, 0, 4, 2, 2], [6, 1, 10, 0, 4, 2, 2]], dtype=torch.float32)
         camera = CameraModel(
             projection=torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32),
             image_size=(height, width),
@@ -160,7 +153,8 @@ def check_tracker_tracking(name: str, tracker_class: type, geometry: str) -> Non
         )
         frame = (
             Frame(image=image.clone(), sample_id=sample_id, sequence_id=sequence_id, frame_index=frame_index)
-            if tracker.requirements.frame else None
+            if tracker.requirements.frame
+            else None
         )
         spatial = (
             Detections3D(
@@ -169,7 +163,8 @@ def check_tracker_tracking(name: str, tracker_class: type, geometry: str) -> Non
                 class_ids=detections.class_ids.clone(),
                 sample_id=sample_id,
             )
-            if spatial_values is not None else None
+            if spatial_values is not None
+            else None
         )
         output = tracker.update(detections, frame, detections_3d=spatial, camera=camera)
         if spatial is not None:

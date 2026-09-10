@@ -355,7 +355,7 @@ pass the dataset directory or `dataset.yaml` to the command:
 boxmot tune --dataset ./kitti-mots --tracker eagermot --n-trials 50 --seed 0
 boxmot tune --dataset /path/to/kitti-mots/dataset.yaml \
   --tracker eagermot --split val --sequence 0002 --n-trials 1 --seed 0
-boxmot eval-eagermot --dataset ./kitti-mots --split val
+boxmot eval --tracker eagermot --dataset ./kitti-mots --split val
 ```
 
 `--split` selects a dataset split and `--sequence` selects one of its sequences;

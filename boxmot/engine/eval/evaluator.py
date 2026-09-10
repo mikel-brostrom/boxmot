@@ -1,6 +1,6 @@
-"""Build-backed tracking evaluation.
+"""Tracking evaluation from perception builds or saved sensor datasets.
 
-Evaluation is intentionally a consumer of an explicit immutable dataset build.
+Evaluation consumes explicit immutable builds or declared saved sensor inputs.
 It never creates detections, masks, or embeddings and never selects a "latest"
 cache. Ground truth follows the dataset adapter's frame selection.
 """
@@ -13,13 +13,17 @@ import time
 from collections.abc import Mapping
 from contextlib import ExitStack
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+
+import click
 
 from boxmot.components.resolution import ArtifactResolver, freeze_json
 from boxmot.datasets import DatasetManifest
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import resolve_tracker_options, validate_image_tracker
 from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
@@ -313,6 +317,9 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     args.seq_paths = tuple(sequence_paths)
     args.seq_info = sequence_lengths
     args.sequence_frame_counts = sequence_frame_counts
+    args.sequence_workers = resolve_sequence_workers(len(sequence_lengths), getattr(args, "sequence_workers", None))
+    if getattr(args, "show", False) or getattr(args, "save", False):
+        args.sequence_workers = 1
     args.evaluation_config = {
         "id": dataset["id"],
         "layout": dataset["layout"],
@@ -423,6 +430,135 @@ def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     }
 
 
+def _validate_image_evaluation_options(args: Any) -> None:
+    """Keep sensor-only profile and 3D visualization controls out of image replay."""
+    for name in ("class_config", "show_3d"):
+        if getattr(args, name, None):
+            option = "--" + name.replace("_", "-")
+            raise ValueError(f"{option} requires an EagerMOT KITTI fusion dataset.")
+
+
+def _run_sensor_evaluation(
+    args: Any,
+    *,
+    evolve_config: Mapping[str, Any] | None = None,
+    setup: bool = True,
+    prepare_cache: bool = False,
+    verbose: bool | None = None,
+    show_progress: bool | None = None,
+    pipeline: Any | None = None,
+    per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
+    output_dir: Path | None = None,
+) -> ValidationResult | None:
+    """Validate saved sensor selections before importing their replay runtime."""
+    from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    reference = getattr(args, "dataset", None)
+    path = resolve_kitti_fusion_config_path(reference) if reference else None
+    if path is None:
+        return None
+    spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
+    if spec.name != "eagermot" or spec.backend != "python":
+        raise ValueError("KITTI fusion evaluation requires --tracker eagermot --tracker-backend python.")
+    for name, value in {
+        "evolve_config": evolve_config,
+        "per_class_configs": per_class_configs,
+        "output_dir": output_dir,
+    }.items():
+        if value is not None:
+            raise ValueError(
+                f"KITTI fusion evaluation does not support {name}; use class_config and project on the namespace."
+            )
+    if not setup:
+        raise ValueError("KITTI fusion evaluation does not support setup=False; each run validates its sensor inputs.")
+    if prepare_cache:
+        raise ValueError("KITTI fusion evaluation does not support prepare_cache; predictions come from the dataset.")
+    for name in (
+        "experiment",
+        "build",
+        "build_ref",
+        "build_root",
+        "detector",
+        "reid",
+        "data_root",
+        "tracker_config",
+        "calibrate_kf",
+        "fps",
+        "variable_dt",
+        "allow_noncanonical_build",
+        "compare_trackeval",
+    ):
+        value = getattr(args, name, None)
+        if value is not None and value is not False and value != "":
+            raise ValueError(f"KITTI fusion evaluation does not support {name}; inputs come from the dataset manifest.")
+    if getattr(args, "device", "cpu") != "cpu":
+        raise ValueError("KITTI fusion evaluation runs on CPU; device must be cpu.")
+    if getattr(args, "show_3d", False) and not (getattr(args, "show", False) or getattr(args, "save", False)):
+        raise ValueError("--show-3d requires --show or --save.")
+    class_config = getattr(args, "class_config", None)
+    if class_config is not None and not Path(class_config).expanduser().is_file():
+        raise ValueError(f"class_config requires an existing file: {class_config}")
+    dataset = load_kitti_fusion_dataset(
+        path,
+        split=getattr(args, "split", None) or None,
+        sequence_names=getattr(args, "sequence_names", ()),
+    )
+    workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
+    normalized = SimpleNamespace(
+        **{
+            **vars(args),
+            "dataset": dataset.config_path,
+            "tracker": spec.name,
+            "tracker_backend": spec.backend,
+            "split": dataset.split,
+            "sequence_names": dataset.sequence_names,
+            "project": Path(getattr(args, "project", None) or "runs/eagermot"),
+            "class_config": None if class_config is None else Path(class_config).expanduser().resolve(),
+            "device": "cpu",
+            "sequence_workers": 1 if getattr(args, "show", False) else workers,
+            "per_class": True,
+            "eval_masks": True,
+        }
+    )
+
+    def replay(sensor_pipeline: Any | None = None) -> ValidationResult:
+        """Load the sensor runtime inside the active workflow and logging scope."""
+        try:
+            from boxmot.engine.eval.eagermot_kitti import run_eagermot_kitti
+        except ImportError as exc:
+            # Include installation guidance in the workflow's own error panel.
+            raise ImportError(
+                f"KITTI fusion evaluation requires the mots extra: {exc}\n"
+                "Install with: uv sync --extra cpu --extra mots"
+            ) from exc
+
+        with suppress_boxmot_logs(enabled=verbose is False, level="WARNING"):
+            if sensor_pipeline is None:
+                return run_eagermot_kitti(normalized)
+            return run_eagermot_kitti(normalized, pipeline=sensor_pipeline, show_progress=show_progress)
+
+    if pipeline is not None:
+        return replay(pipeline)
+    if not show_progress:
+        return replay()
+
+    from rich.console import Group
+    from rich.text import Text
+
+    with EvalWorkflowReporter(normalized).pipeline() as sensor_pipeline:
+        result = replay(sensor_pipeline)
+        details = [
+            result.renderable(include_sequences=False, include_timings=bool(getattr(normalized, "show_timing", False))),
+            Text(f"Results: {result.exp_dir}"),
+        ]
+        if getattr(normalized, "video_paths", ()):
+            details.append(Text("Saved tracking videos:\n" + "\n".join(map(str, normalized.video_paths))))
+        sensor_pipeline.finish(Group(*details), exp_dir=result.exp_dir)
+        result.workflow_rendered = True
+        return result
+
+
 def run_eval(
     args: argparse.Namespace,
     *,
@@ -435,7 +571,22 @@ def run_eval(
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
 ) -> ValidationResult:
-    """Replay one explicit build and evaluate it; perception is never run here."""
+    """Evaluate one perception build or declared sensor dataset without running perception."""
+
+    sensor_result = _run_sensor_evaluation(
+        args,
+        evolve_config=evolve_config,
+        setup=setup,
+        prepare_cache=prepare_cache,
+        verbose=verbose,
+        show_progress=show_progress,
+        pipeline=pipeline,
+        per_class_configs=per_class_configs,
+        output_dir=output_dir,
+    )
+    if sensor_result is not None:
+        return sensor_result
+    _validate_image_evaluation_options(args)
 
     if prepare_cache:
         raise ValueError("Evaluation never materializes implicitly. Run `boxmot materialize ...` and pass --build.")
@@ -484,7 +635,7 @@ def run_eval(
             output_dir=output_dir,
             sequence_ids=args.sequence_names,
             sequence_frame_counts=getattr(args, "sequence_frame_counts", args.seq_info),
-            workers=int(getattr(args, "sequence_workers", 1)),
+            workers=getattr(args, "sequence_workers", None),
             **replay_callbacks,
         )
     args.video_paths = () if visualization is None else tuple(visualization.video_paths)
@@ -518,7 +669,23 @@ def run_eval(
 
 
 def main(args: argparse.Namespace) -> ValidationResult:
-    """CLI entry point for explicit-build evaluation."""
+    """Evaluate perception builds or saved sensor inputs through one entry point."""
+
+    try:
+        sensor_result = _run_sensor_evaluation(args, verbose=bool(getattr(args, "verbose", False)), show_progress=True)
+    except ImportError as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(
+            f"KITTI fusion evaluation requires the mots extra: {exc}\nInstall with: uv sync --extra cpu --extra mots"
+        ) from exc
+    except (ValueError, OSError) as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(str(exc)) from exc
+    if sensor_result is not None:
+        return sensor_result
+    _validate_image_evaluation_options(args)
 
     pipeline = EvalWorkflowReporter(args).pipeline()
     with pipeline:
