@@ -296,10 +296,9 @@ class EagerMot(BaseTracker):
             track.time_since_2d_update += 1
             track.det_ind = -1
             track.det_ind_3d = -1
-            # Prediction must also advance on frames with no 3D detections.
-            track.motion.predict()
 
-        predictions = np.asarray([track.motion.box for track in self._tracks], dtype=np.float64).reshape(-1, 7)
+        # Prediction must also advance on frames with no 3D detections.
+        predictions = Kalman3D.multi_predict([track.motion for track in self._tracks])
         track_classes = np.asarray([track.cls for track in self._tracks], dtype=np.int64)
         threshold = self.iou_3d_threshold if self.first_matching_method == "iou_3d" else -self.distance_threshold
         first_matches, unmatched_3d, unmatched_tracks = greedy_association(
@@ -307,9 +306,12 @@ class EagerMot(BaseTracker):
             threshold,
             allowed=classes_3d[:, None] == track_classes[None, :],
         )
+        Kalman3D.multi_update(
+            [self._tracks[track_index].motion for track_index in first_matches[:, 1]],
+            boxes_3d[first_matches[:, 0]],
+        )
         for detection_index, track_index in first_matches:
             track = self._tracks[track_index]
-            track.motion.update(boxes_3d[detection_index])
             track.det_ind_3d = int(indices_3d[detection_index])
             track.confidence_3d = float(detections_3d.scores[track.det_ind_3d])
             track.time_since_update = 0

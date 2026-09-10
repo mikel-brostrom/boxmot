@@ -6,6 +6,8 @@ See LICENSE in this directory.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 
 from boxmot.trackers.eagermot.geometry import yaw_difference
@@ -66,3 +68,78 @@ class Kalman3D:
         self.covariance = residual @ self.covariance @ residual.T + gain @ self._measurement_noise @ gain.T
         self.covariance = (self.covariance + self.covariance.T) * 0.5
         return self.box
+
+    @staticmethod
+    def _groups(filters: Sequence[Kalman3D]) -> list[list[int]]:
+        """Group compatible state dimensions without sharing filter noise settings."""
+        groups: dict[int, list[int]] = {}
+        for index, model in enumerate(filters):
+            groups.setdefault(len(model.state), []).append(index)
+        return list(groups.values())
+
+    @staticmethod
+    def multi_predict(filters: Sequence[Kalman3D]) -> np.ndarray:
+        """Advance independent filters using batched matrix operations.
+
+        Angular and linear states may be mixed. Each filter retains its own
+        transition, covariance, and process noise; the returned boxes follow
+        input order and do not alias the updated states.
+        """
+        boxes = np.empty((len(filters), 7), dtype=np.float64)
+        for indices in Kalman3D._groups(filters):
+            if len(indices) == 1:
+                index = indices[0]
+                boxes[index] = filters[index].predict()
+                continue
+            models = [filters[index] for index in indices]
+            states = np.stack([model.state for model in models])
+            covariances = np.stack([model.covariance for model in models])
+            transitions = np.stack([model._transition for model in models])
+            process_noise = np.stack([model._process_noise for model in models])
+            states = (transitions @ states[..., None])[..., 0]
+            covariances = transitions @ covariances @ transitions.swapaxes(-1, -2) + process_noise
+            boxes[indices] = states[:, :7]
+            for model, state, covariance in zip(models, states, covariances):
+                model.state = state
+                model.covariance = covariance
+        return boxes
+
+    @staticmethod
+    def multi_update(filters: Sequence[Kalman3D], boxes: np.ndarray) -> np.ndarray:
+        """Correct matched filters in one batch per state size, retaining yaw alignment.
+
+        Measurements must have shape ``(len(filters), 7)``. Validation precedes
+        every mutation, and neither observations nor returned boxes alias the
+        persistent filter states. Each track keeps its own measurement noise.
+        """
+        measurements = np.array(boxes, dtype=np.float64, copy=True)
+        if (
+            measurements.shape != (len(filters), 7)
+            or not np.isfinite(measurements).all()
+            or np.any(measurements[:, 4:] <= 0)
+        ):
+            raise ValueError("Kalman3D requires finite (N, 7) boxes with strictly positive l, w, h.")
+        result = np.empty_like(measurements)
+        for indices in Kalman3D._groups(filters):
+            if len(indices) == 1:
+                index = indices[0]
+                result[index] = filters[index].update(measurements[index])
+                continue
+            models = [filters[index] for index in indices]
+            states = np.stack([model.state for model in models])
+            covariances = np.stack([model.covariance for model in models])
+            noise = np.stack([model._measurement_noise for model in models])
+            observations = measurements[indices]
+            observations[:, 3] = states[:, 3] + yaw_difference(states[:, 3], observations[:, 3])
+            projected = covariances[:, :7, :7] + noise
+            gain = np.linalg.solve(projected, covariances[:, :7, :]).swapaxes(-1, -2)
+            states += (gain @ (observations - states[:, :7])[..., None])[..., 0]
+            residual = np.broadcast_to(np.eye(states.shape[1]), covariances.shape).copy()
+            residual[:, :, :7] -= gain
+            covariances = residual @ covariances @ residual.swapaxes(-1, -2) + gain @ noise @ gain.swapaxes(-1, -2)
+            covariances = (covariances + covariances.swapaxes(-1, -2)) * 0.5
+            result[indices] = states[:, :7]
+            for model, state, covariance in zip(models, states, covariances):
+                model.state = state
+                model.covariance = covariance
+        return result
