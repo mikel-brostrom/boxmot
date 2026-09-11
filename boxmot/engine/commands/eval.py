@@ -39,6 +39,7 @@ _SENSOR_OPTIONS = frozenset(
         "project",
         "class_config",
         "calibrate_kf",
+        "cache_inputs",
         "show",
         "save",
         "show_3d",

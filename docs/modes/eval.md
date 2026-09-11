@@ -93,8 +93,7 @@ without modifying it or creating a replacement.
 
 ## Cache replay inputs for repeated runs
 
-Add `--cache-inputs` to cache frame-ordered detections and embeddings for later
-evaluations or tuning runs:
+Add `--cache-inputs` to reuse the inputs consumed by evaluations or tuning runs:
 
 ```bash
 boxmot eval \
@@ -106,11 +105,15 @@ boxmot eval \
   --cache-inputs
 ```
 
-The first run validates the source Parquet build and prepares mapped NumPy
-arrays. Subsequent runs reuse them, including when switching between CPU, MPS,
-and CUDA. The cache is tied to the build's content, sequence, split, geometry,
-and embedding encoder, rather than the requested execution device. Different
-tracker settings can share the same inputs.
+The first run validates the sources and prepares mapped arrays. Image workflows
+cache AABB or OBB detections, requested embeddings and masks, and decoded image
+pixels when the tracker or visualization needs them. Image references can point
+to image files, NumPy arrays, or video frames. Ground-truth box annotations and
+instance PNG labels also have reusable parsed caches.
+
+The cache is tied to the selected source content, sequence, split, geometry,
+and requested modalities. It is independent of the execution device and tracker
+thresholds. Later runs can reuse it when switching between CPU, MPS, and CUDA.
 
 With the default build layout, these files live under `runs/replay_cache/`.
 For a custom build location, the cache directory sits beside the build-root
@@ -119,16 +122,27 @@ is never rewritten. Incomplete or invalid derived entries are rebuilt from it.
 You can remove the derived cache when no runs are using it to reclaim disk
 space; `--cache-inputs` prepares it again when needed.
 
-The flag defaults to off because preparation takes time and requires extra
-disk space. Use `--no-cache-inputs` to select direct Parquet reads. Those reads
-use a bounded embedding-batch cache and key indices to keep out-of-order
-embedding rows from accumulating for an entire sequence. Neither path caches
-decoded images or tracker state. Image decoding still runs when the tracker
-or visualization needs pixels, and published masks are read separately.
+Saved sensor datasets support the same flag:
 
-This option applies to perception builds, including explicit `--build`
-selection. Saved EagerMOT sensor bundles use a separate input format and do
-not accept `--cache-inputs`.
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --cache-inputs
+```
+
+Sensor caches contain the frame timeline, 2D detections and packed masks, 3D
+detections, calibration, ego poses, and declared ground truth. With
+`--calibrate-kf`, calibration reuses the cached 3D annotations and observations.
+RGB pixels are cached when visualization requests them; ordinary EagerMOT replay
+only needs image dimensions. Masks remain packed on disk and are unpacked one
+frame at a time. Sensor caches live under `<dataset-root>/.boxmot/replay_cache/`;
+separate image-workflow annotation caches use `.boxmot/replay_cache/annotations/`
+near their annotation sources.
+
+The flag defaults to off because preparation takes time and extra disk space.
+Use `--no-cache-inputs` to read the source formats directly. Source changes are
+checked during preparation; an unchanged sensor study uses its prepared input
+snapshot. Changed or incomplete caches are rebuilt. Tracker state, threshold
+decisions, fusion, predictions, and metrics remain fresh for every run.
 
 ## Saved TrackR-CNN predictions
 

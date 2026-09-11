@@ -172,14 +172,15 @@ bounded by the number of selected sequences. Use `--max-concurrent-trials` to
 limit how many image-tracker trials run at once; sequence workers are allocated
 separately to each trial.
 
-For image trackers, each reusable tuning actor keeps its sequence-worker pool
-and reusable input metadata across trials. Every trial still creates fresh
+Each reusable image tuning actor and each sensor study keeps its sequence-worker
+pool across trials. Every trial still creates fresh
 trackers, pipelines, frame cursors, and output files. Worker pools are closed
 when tuning ends; failed worker operations discard the pool before reuse.
-This applies to the supported Ray search backends without an additional flag.
+This applies to image search backends and the sensor Optuna workflow without an
+additional flag.
 
-Add `--cache-inputs` to also reuse mapped detection and embedding arrays on
-disk across tuning sessions and evaluation commands:
+Add `--cache-inputs` to also reuse mapped inputs on disk across tuning sessions
+and evaluation commands:
 
 ```bash
 boxmot tune \
@@ -191,12 +192,21 @@ boxmot tune \
   --cache-inputs
 ```
 
-The optional disk cache is prepared from the selected Parquet build and is
-independent of the inference device. Without the flag, tuning retains worker
-metadata and reads embeddings through the bounded indexed Parquet reader.
+The same flag works with multimodal datasets and per-class KF calibration:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot \
+  --split train --calibrate-kf --cache-inputs --n-trials 50
+```
+
+This requires the [3D ground-truth declaration](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+used by calibration. Omit `--calibrate-kf` when tuning without 3D annotations.
+Sensor caches reuse parsed 2D/3D detections, packed masks, calibration, ego poses,
+and ground truth. Image builds cache requested detections, embeddings, masks,
+and image pixels. Filtering remains inside each trial, so differing detection
+thresholds and association settings reuse the same unfiltered input cache.
 See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
-storage, preparation, and cleanup details. EagerMOT's saved-sensor optimizer
-uses its own replay path and does not accept this Parquet cache flag.
+storage, preparation, and cleanup details.
 
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials

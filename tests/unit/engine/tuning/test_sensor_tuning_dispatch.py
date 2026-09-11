@@ -218,7 +218,6 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
         ({"tracker": "bytetrack"}, "does not use inputs required"),
         ({"tracker_backend": "cpp"}, "has no C\\+\\+ backend"),
         ({"build": "build"}, "does not support build"),
-        ({"cache_inputs": True}, "does not support cache_inputs"),
         ({"experiment": "experiment.yaml"}, "does not support experiment"),
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),

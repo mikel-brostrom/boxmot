@@ -293,8 +293,9 @@ See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 
 For repeated evaluations or tuning, add
 [`--cache-inputs`](docs/modes/eval.md#cache-replay-inputs-for-repeated-runs)
-to reuse mapped detections and embeddings. Image-tracker tuning also reuses
-sequence workers across trials while creating fresh tracker state each time.
+to reuse detections, masks, requested images and embeddings, sensor calibration
+and poses, and ground truth. Image and sensor tuning reuse sequence workers
+across trials while creating fresh tracker state each time.
 
 For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
 reads original instance PNGs into canonical frames, track IDs, masks, and ignore

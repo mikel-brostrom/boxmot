@@ -8,7 +8,7 @@ import pickle
 import time
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -42,6 +42,8 @@ from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTI
 from boxmot.utils import logger as LOGGER
 
 if TYPE_CHECKING:
+    from boxmot.datasets.sensor_cache import SensorReplaySequence
+    from boxmot.engine.eval.session import ReplaySession
     from boxmot.engine.eval.visualization import ReplayVisualization
 
 _KITTI_SHARED = {
@@ -103,13 +105,22 @@ def write_kitti_profiles(path: Path, profiles: dict[int, dict[str, Any]]) -> Non
 
 @dataclass(frozen=True)
 class KittiReplayInputs:
-    """Indexed sensor inputs reused across trials; full masks remain lazy."""
+    """Own indexed or mapped sensor inputs reused across independent trials."""
 
-    sequences: dict[str, MultimodalSequence]
+    sequences: dict[str, MultimodalSequence | SensorReplaySequence]
     annotations: dict[str, list[GroundTruthEntry]]
     dataset_root: Path
     manifest: dict[str, Any]
     fps: float = 10.0
+    cache_inputs: bool = False
+    ground_truth_options: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def close(self) -> None:
+        """Release mapped inputs after the evaluation or entire tuning study."""
+        for sequence in self.sequences.values():
+            close = getattr(sequence, "close", None)
+            if close is not None:
+                close()
 
 
 def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> MultimodalTracks:
@@ -184,14 +195,30 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
 def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     """Validate alignment and index sensor inputs once for evaluation or tuning."""
     dataset = load_sensor_evaluation_inputs(args.dataset, split=args.split, sequence_names=tuple(args.sequence_names))
-    sequences: dict[str, MultimodalSequence] = {}
+    sequences: dict[str, MultimodalSequence | SensorReplaySequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
-    for paths in dataset.sequences:
-        name = paths.sequence_id
-        sequence = MultimodalSequence(paths, classes=dataset.classes, fps=dataset.fps, split=dataset.split)
-        sequences[name] = sequence
-        ground_truth = paths.modalities["ground_truth"].paths[0]
-        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, ground_truth)
+    cache_inputs = bool(getattr(args, "cache_inputs", False))
+    try:
+        for paths in dataset.sequences:
+            name = paths.sequence_id
+            if cache_inputs:
+                from boxmot.datasets.sensor_cache import open_sensor_sequence, prepare_sensor_sequence
+
+                cache_path = prepare_sensor_sequence(
+                    dataset, name, load_images=bool(getattr(args, "show", False) or getattr(args, "save", False))
+                )
+                sequence = open_sensor_sequence(cache_path)
+            else:
+                sequence = MultimodalSequence(paths, classes=dataset.classes, fps=dataset.fps, split=dataset.split)
+            sequences[name] = sequence
+            ground_truth = paths.modalities["ground_truth"].paths[0]
+            annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, ground_truth)
+    except BaseException:
+        for sequence in sequences.values():
+            close = getattr(sequence, "close", None)
+            if close is not None:
+                close()
+        raise
 
     manifest = {
         "boxmot_version": __version__,
@@ -199,6 +226,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         "evaluation": "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics",
         "split": dataset.split,
         "fps": dataset.fps,
+        "cache_inputs": cache_inputs,
         "sequences": {name: len(sequence) for name, sequence in sequences.items()},
         "missing_3d_frames": {name: sequence.missing_3d_frames for name, sequence in sequences.items()},
         "dataset_config": str(dataset.config_path),
@@ -220,14 +248,25 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
             "Full rigid poses transform centers; box orientation remains yaw-only.",
         ],
     }
-    return KittiReplayInputs(sequences, annotations, dataset.root, manifest, dataset.fps)
+    ground_truth_options = {
+        paths.sequence_id: {
+            "ignore_ids": tuple(paths.modalities["ground_truth"].options.get("ignore_ids", ())),
+            "ignore_class_ids": tuple(
+                value["id"] for value in dataset.classes.values() if value["evaluation"] == "ignore"
+            ),
+        }
+        for paths in dataset.sequences
+    }
+    return KittiReplayInputs(
+        sequences, annotations, dataset.root, manifest, dataset.fps, cache_inputs, ground_truth_options
+    )
 
 
 def _visualize_frame(
     visualization: ReplayVisualization,
     frame: SensorFrame,
     tracks: Tracks,
-    sequence: MultimodalSequence,
+    sequence: MultimodalSequence | SensorReplaySequence,
     split: str,
     *,
     spatial_tracks: Tracks3D | None = None,
@@ -239,7 +278,11 @@ def _visualize_frame(
 
     image_path = sequence.frame_paths[frame.frame_index]
     image = Frame(
-        image=read_rgb_chw_uint8(image_path.as_uri(), image_path.parent),
+        image=(
+            sequence.read_image(frame.frame_index)
+            if callable(getattr(sequence, "read_image", None))
+            else read_rgb_chw_uint8(image_path.as_uri(), image_path.parent)
+        ),
         sample_id=frame.detections.sample_id,
         sequence_id=sequence.sequence_id,
         frame_index=frame.frame_index,
@@ -271,13 +314,15 @@ class _KittiSequenceTask:
     """Send indexed inputs and plain replay options to one sequence worker."""
 
     name: str
-    sequence: MultimodalSequence
+    sequence: MultimodalSequence | SensorReplaySequence
     profiles: dict[int, dict[str, Any]]
     output: Path
     split: str
     ordinal: int
     save: bool = False
     show_3d: bool = False
+    run_id: str | None = None
+    report_progress: bool = True
 
 
 @dataclass(frozen=True)
@@ -366,8 +411,18 @@ def _initialize_kitti_worker(progress_queue: Any | None, log_level: int, logs_di
 
 def _replay_kitti_sequence_task(payload: bytes) -> _KittiSequenceResult:
     """Restore a private copy of parent-owned indexes in the sequence worker."""
+    from boxmot.engine.eval import replay
+
     task = pickle.loads(payload)
-    return _replay_kitti_sequence(task, progress_callback=_emit_worker_progress)
+    replay._WORKER_RUN_ID = task.run_id
+    replay._WORKER_REPORT_PROGRESS = task.report_progress
+    torch.set_num_threads(1)
+    try:
+        return _replay_kitti_sequence(task, progress_callback=_emit_worker_progress)
+    finally:
+        close = getattr(task.sequence, "close", None)
+        if close is not None:
+            close()
 
 
 def _shutdown_kitti_pool(executor: concurrent.futures.ProcessPoolExecutor, *, interrupted: bool) -> None:
@@ -396,29 +451,33 @@ def _run_parallel_sequences(
     tasks: tuple[_KittiSequenceTask, ...],
     workers: int,
     progress_callback: ReplayProgressCallback | None,
+    *,
+    _pool: tuple[concurrent.futures.ProcessPoolExecutor, Any, str] | None = None,
 ) -> tuple[_KittiSequenceResult, ...]:
     """Run real spawned processes, delivering progress only in the caller process."""
     context = get_context("spawn")
-    progress_queue = context.Queue() if progress_callback is not None else None
+    progress_queue = _pool[1] if _pool is not None else context.Queue() if progress_callback is not None else None
+    run_id = None if _pool is None else _pool[2]
     latest: dict[int, ReplayProgressEvent] = {}
     results: dict[int, _KittiSequenceResult] = {}
     failures: list[tuple[_KittiSequenceTask, BaseException]] = []
-    executor = None
+    executor = None if _pool is None else _pool[0]
     interrupted = True
     futures: dict[concurrent.futures.Future[_KittiSequenceResult], _KittiSequenceTask] = {}
     try:
         for task in tasks:
             _publish_progress(
-                ReplayProgressEvent(task.name, "queued", 0, len(task.sequence), 0, None, task.ordinal),
+                ReplayProgressEvent(task.name, "queued", 0, len(task.sequence), 0, None, task.ordinal, run_id),
                 progress_callback,
                 latest,
             )
-        executor = concurrent.futures.ProcessPoolExecutor(
-            max_workers=workers,
-            mp_context=context,
-            initializer=_initialize_kitti_worker,
-            initargs=(progress_queue, LOGGER.getEffectiveLevel(), LOGGER.disabled),
-        )
+        if executor is None:
+            executor = concurrent.futures.ProcessPoolExecutor(
+                max_workers=workers,
+                mp_context=context,
+                initializer=_initialize_kitti_worker,
+                initargs=(progress_queue, LOGGER.getEffectiveLevel(), LOGGER.disabled),
+            )
         for task in tasks:
             # Ordinary pickle keeps calibration tensors private to each worker.
             # Passing tensors directly through multiprocessing invokes PyTorch
@@ -430,7 +489,7 @@ def _run_parallel_sequences(
             done, pending = concurrent.futures.wait(
                 pending, timeout=0.1, return_when=concurrent.futures.FIRST_COMPLETED
             )
-            _drain_progress_queue(progress_queue, progress_callback, latest)
+            _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
             for future in done:
                 task = futures[future]
                 try:
@@ -454,6 +513,7 @@ def _run_parallel_sequences(
                                 0 if previous is None else previous.track_rows,
                                 str(exc) or type(exc).__name__,
                                 task.ordinal,
+                                run_id,
                             ),
                             progress_callback,
                             latest,
@@ -462,7 +522,14 @@ def _run_parallel_sequences(
                 results[task.ordinal] = result
                 _publish_progress(
                     ReplayProgressEvent(
-                        task.name, "completed", result.frames, result.frames, result.track_rows, None, task.ordinal
+                        task.name,
+                        "completed",
+                        result.frames,
+                        result.frames,
+                        result.track_rows,
+                        None,
+                        task.ordinal,
+                        run_id,
                     ),
                     progress_callback,
                     latest,
@@ -474,16 +541,16 @@ def _run_parallel_sequences(
         for future in futures:
             future.cancel()
         try:
-            if executor is not None:
+            if executor is not None and _pool is None:
                 _shutdown_kitti_pool(executor, interrupted=interrupted)
         finally:
             try:
                 # Termination can leave a partial message or a held queue lock.
                 # Never read this observational channel after killing writers.
                 if not interrupted:
-                    _drain_progress_queue(progress_queue, progress_callback, latest)
+                    _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
             finally:
-                if progress_queue is not None:
+                if progress_queue is not None and _pool is None:
                     progress_queue.close()
                     progress_queue.join_thread()
     if failures:
@@ -504,6 +571,7 @@ def _replay(
     show_3d: bool = False,
     progress_callback: ReplayProgressCallback | None = None,
     on_evaluate: Callable[[], None] | None = None,
+    replay_session: ReplaySession | None = None,
 ) -> tuple[dict[str, dict[str, Any]], tuple[Path, ...]]:
     """Replay isolated sequences before evaluating all mask identities together."""
     prediction_dir = output / "mots"
@@ -512,7 +580,10 @@ def _replay(
         _KittiSequenceTask(name, sequence, profiles, output, inputs.manifest["split"], ordinal, save, show_3d)
         for ordinal, (name, sequence) in enumerate(inputs.sequences.items())
     )
-    if sequence_workers > 1:
+    if replay_session is not None and sequence_workers > 1 and not show:
+        results = replay_session.run_sensor(tasks, progress_callback=progress_callback)
+        videos = tuple(path for result in results for path in result.videos)
+    elif sequence_workers > 1:
         results = _run_parallel_sequences(tasks, sequence_workers, progress_callback)
         videos = tuple(path for result in results for path in result.videos)
     else:
@@ -536,7 +607,10 @@ def _replay(
             videos = () if visualization is None else visualization.video_paths
     if on_evaluate is not None:
         on_evaluate()
-    metrics = evaluate_kitti_mots(prediction_dir, output, inputs.dataset_root, inputs.annotations)
+    cache_options = {"cached_ground_truth": inputs.sequences} if inputs.cache_inputs else {}
+    if inputs.ground_truth_options:
+        cache_options["ground_truth_options"] = inputs.ground_truth_options
+    metrics = evaluate_kitti_mots(prediction_dir, output, inputs.dataset_root, inputs.annotations, **cache_options)
     return metrics, videos
 
 
@@ -551,6 +625,7 @@ def evaluate_eagermot_kitti(
     show_3d: bool = False,
     progress_callback: ReplayProgressCallback | None = None,
     on_evaluate: Callable[[], None] | None = None,
+    replay_session: ReplaySession | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Evaluate profiles on CPU into a new directory, restoring thread settings."""
     from boxmot.engine.config.runtime import resolve_sequence_workers
@@ -558,6 +633,8 @@ def evaluate_eagermot_kitti(
     workers = resolve_sequence_workers(len(inputs.sequences), sequence_workers)
     if show:
         workers = min(1, len(inputs.sequences))
+    if replay_session is not None and replay_session.workers != workers:
+        raise ValueError("ReplaySession workers must match the resolved sensor sequence workers.")
     if set(profiles) != set(KITTI_CLASSES):
         raise ValueError("EagerMOT KITTI replay requires profiles for both car and pedestrian.")
     if show_3d and not (show or save):
@@ -589,6 +666,7 @@ def evaluate_eagermot_kitti(
                 show_3d=show_3d,
                 progress_callback=progress_callback,
                 on_evaluate=on_evaluate,
+                replay_session=replay_session,
             )
             if show or save:
                 manifest["videos"] = [str(path.relative_to(output)) for path in videos]
@@ -612,90 +690,99 @@ def run_eagermot_kitti(
         pipeline.update("Loading KITTI sensor predictions and ground truth…")
     profiles = load_kitti_profiles(getattr(args, "class_config", None))
     inputs = prepare_eagermot_kitti(args)
-    args.sequence_workers = resolve_sequence_workers(len(inputs.sequences), getattr(args, "sequence_workers", None))
-    if getattr(args, "show", False):
-        args.sequence_workers = min(1, len(inputs.sequences))
-    output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"])
-    calibration = None
-    if getattr(args, "calibrate_kf", False):
-        from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
+    try:
+        args.sequence_workers = resolve_sequence_workers(len(inputs.sequences), getattr(args, "sequence_workers", None))
+        if getattr(args, "show", False):
+            args.sequence_workers = min(1, len(inputs.sequences))
+        output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"])
+        calibration = None
+        if getattr(args, "calibrate_kf", False):
+            from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
 
-        dataset = load_sensor_evaluation_inputs(
-            args.dataset, split=args.split, sequence_names=tuple(args.sequence_names)
-        )
-        calibration = calibrate_sensor_kalman(
-            dataset, profiles, output_dir=output, progress=pipeline.update if pipeline is not None else None
-        )
-        profiles = load_kitti_profiles(calibration.config_path)
-        inputs.manifest["kf_calibration"] = {
-            "config_path": str(calibration.config_path),
-            "report_path": str(calibration.report_path),
+            dataset = load_sensor_evaluation_inputs(
+                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names)
+            )
+            calibration = calibrate_sensor_kalman(
+                dataset,
+                profiles,
+                output_dir=output,
+                progress=pipeline.update if pipeline is not None else None,
+                **({"cached_sequences": inputs.sequences} if inputs.cache_inputs else {}),
+            )
+            profiles = load_kitti_profiles(calibration.config_path)
+            inputs.manifest["kf_calibration"] = {
+                "config_path": str(calibration.config_path),
+                "report_path": str(calibration.report_path),
+            }
+            LOGGER.info(calibration.description)
+        if getattr(args, "class_config", None) is not None:
+            inputs.manifest["class_config"] = str(Path(args.class_config).expanduser().resolve())
+        args.dataset_id = inputs.manifest["dataset_id"]
+        args.seq_info = args.sequence_frame_counts = inputs.manifest["sequences"]
+        args.tracker_class_names = tuple(KITTI_CLASSES.items())
+        if pipeline is not None:
+            from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter, _refresh_eval_pipeline_intro
+
+            _refresh_eval_pipeline_intro(pipeline.workflow, args)
+            pipeline.advance("Replaying saved sensor detections through the tracker…")
+        started = time.perf_counter()
+        tracking_finished = started
+        presenter = None
+        with ExitStack() as contexts:
+            if pipeline is not None and show_progress is not False:
+                presenter = contexts.enter_context(EvalSequenceProgressPresenter(pipeline.callback(), args.seq_info))
+
+            def computing_metrics() -> None:
+                """Finish sequence progress before entering the evaluation stage."""
+                nonlocal tracking_finished
+                tracking_finished = time.perf_counter()
+                if pipeline is not None:
+                    if presenter is not None:
+                        presenter.flush()
+                        pipeline.store_step_info(presenter.renderable)
+                        contexts.close()
+                    pipeline.advance("Computing KITTI mask evaluation metrics…")
+
+            metrics = evaluate_eagermot_kitti(
+                inputs,
+                profiles,
+                output,
+                sequence_workers=args.sequence_workers,
+                show=bool(getattr(args, "show", False)),
+                save=bool(getattr(args, "save", False)),
+                show_3d=bool(getattr(args, "show_3d", False)),
+                progress_callback=presenter,
+                on_evaluate=computing_metrics,
+            )
+        total_ms = (time.perf_counter() - started) * 1000
+        track_ms = (tracking_finished - started) * 1000
+        frames = sum(args.seq_info.values())
+        timings = {
+            "frames": frames,
+            "totals_ms": {"track": track_ms, "eval": total_ms - track_ms, "total": total_ms},
+            "avg_ms": {"track": track_ms / frames if frames else 0.0, "total": total_ms / frames if frames else 0.0},
+            "fps": 1000 * frames / total_ms if total_ms else 0.0,
         }
-        LOGGER.info(calibration.description)
-    if getattr(args, "class_config", None) is not None:
-        inputs.manifest["class_config"] = str(Path(args.class_config).expanduser().resolve())
-    args.dataset_id = inputs.manifest["dataset_id"]
-    args.seq_info = args.sequence_frame_counts = inputs.manifest["sequences"]
-    args.tracker_class_names = tuple(KITTI_CLASSES.items())
-    if pipeline is not None:
-        from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter, _refresh_eval_pipeline_intro
-
-        _refresh_eval_pipeline_intro(pipeline.workflow, args)
-        pipeline.advance("Replaying saved sensor detections through the tracker…")
-    started = time.perf_counter()
-    tracking_finished = started
-    presenter = None
-    with ExitStack() as contexts:
-        if pipeline is not None and show_progress is not False:
-            presenter = contexts.enter_context(EvalSequenceProgressPresenter(pipeline.callback(), args.seq_info))
-
-        def computing_metrics() -> None:
-            """Finish sequence progress before entering the evaluation stage."""
-            nonlocal tracking_finished
-            tracking_finished = time.perf_counter()
-            if pipeline is not None:
-                if presenter is not None:
-                    presenter.flush()
-                    pipeline.store_step_info(presenter.renderable)
-                    contexts.close()
-                pipeline.advance("Computing KITTI mask evaluation metrics…")
-
-        metrics = evaluate_eagermot_kitti(
-            inputs,
-            profiles,
-            output,
-            sequence_workers=args.sequence_workers,
-            show=bool(getattr(args, "show", False)),
-            save=bool(getattr(args, "save", False)),
-            show_3d=bool(getattr(args, "show_3d", False)),
-            progress_callback=presenter,
-            on_evaluate=computing_metrics,
+        args.exp_dir = output
+        manifest = json.loads((output / "run.json").read_text(encoding="utf-8"))
+        args.video_paths = tuple(output / path for path in manifest.get("videos", ()))
+        result = ValidationResult(
+            benchmark=str(inputs.manifest["dataset_id"]),
+            raw=metrics,
+            summary_label="cls_comb_cls_av",
+            summary=dict(metrics["cls_comb_cls_av"]),
+            exp_dir=output,
+            timings=timings,
+            args=args,
+            workflow_rendered=pipeline is not None,
         )
-    total_ms = (time.perf_counter() - started) * 1000
-    track_ms = (tracking_finished - started) * 1000
-    frames = sum(args.seq_info.values())
-    timings = {
-        "frames": frames,
-        "totals_ms": {"track": track_ms, "eval": total_ms - track_ms, "total": total_ms},
-        "avg_ms": {"track": track_ms / frames if frames else 0.0, "total": total_ms / frames if frames else 0.0},
-        "fps": 1000 * frames / total_ms if total_ms else 0.0,
-    }
-    args.exp_dir = output
-    manifest = json.loads((output / "run.json").read_text(encoding="utf-8"))
-    args.video_paths = tuple(output / path for path in manifest.get("videos", ()))
-    result = ValidationResult(
-        benchmark=str(inputs.manifest["dataset_id"]),
-        raw=metrics,
-        summary_label="cls_comb_cls_av",
-        summary=dict(metrics["cls_comb_cls_av"]),
-        exp_dir=output,
-        timings=timings,
-        args=args,
-        workflow_rendered=pipeline is not None,
-    )
-    if calibration is not None:
-        calibration.record_final(result)
-    return result
+        if calibration is not None:
+            calibration.record_final(result)
+        return result
+    finally:
+        close = getattr(inputs, "close", None)
+        if close is not None:
+            close()
 
 
 __all__ = (

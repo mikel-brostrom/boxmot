@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import yaml
@@ -16,6 +16,9 @@ from boxmot.engine.calibration.kalman_sensor_data import load_sensor_calibration
 from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
 
+if TYPE_CHECKING:
+    from boxmot.datasets.sensor_cache import SensorReplaySequence
+
 
 def calibrate_sensor_kalman(
     dataset: DatasetInputs,
@@ -23,6 +26,7 @@ def calibrate_sensor_kalman(
     *,
     output_dir: Path,
     progress: Callable[[str], None] | None = None,
+    cached_sequences: Mapping[str, SensorReplaySequence] | None = None,
 ) -> KalmanCalibrationResult:
     """Fit each class's 3D Q, R and P0 scales with the shared 2D estimators.
 
@@ -42,7 +46,8 @@ def calibrate_sensor_kalman(
         for class_id, profile in profiles.items()
     }
     models = {class_id: CalibrationModel3D(profile) for class_id, profile in baselines.items()}
-    data = load_sensor_calibration_data(dataset, progress=progress)
+    options = {} if cached_sequences is None else {"cached_sequences": cached_sequences}
+    data = load_sensor_calibration_data(dataset, progress=progress, **options)
     if not data.statistics["matched"]:
         raise ValueError("3D KF calibration found no detections matched to target 3D ground truth (IoU >= 0.5).")
     calibrated: dict[str, dict[str, Any]] = {}

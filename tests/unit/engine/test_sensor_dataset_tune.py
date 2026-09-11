@@ -149,6 +149,7 @@ def test_bundle_accepts_explicit_supported_controls(
             "1",
             "--seed",
             "19",
+            "--cache-inputs",
             "--project",
             str(tmp_path / "custom-results"),
             "--search-alg",
@@ -174,6 +175,7 @@ def test_bundle_accepts_explicit_supported_controls(
     assert args.sequence_names == ("0002",)
     assert args.n_trials == 1
     assert args.seed == 19
+    assert args.cache_inputs is True
     assert args.project == tmp_path / "custom-results"
     assert args.verbose is True
     assert args.sequence_workers == 1

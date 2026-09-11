@@ -48,9 +48,13 @@ def _study(output: Path) -> Any:
     return optuna.load_study(study_name=None, storage=f"sqlite:///{(output / 'study.sqlite3').as_uri()}?uri=true")
 
 
-def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_config(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cache_inputs", (False, True))
+def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_config(
+    tmp_path: Path, cache_inputs: bool
+) -> None:
     data = _fixture(tmp_path)
     args = _arguments(data)
+    args.cache_inputs = cache_inputs
     original_threads = torch.get_num_threads()
     result = run_tune(args)
     assert isinstance(result, TuneResult)
@@ -222,9 +226,11 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
     )
     monkeypatch.setattr(evaluation, "prepare_eagermot_kitti", lambda _args: inputs)
     replay_workers = []
+    replay_sessions = []
 
     def evaluate(_inputs: Any, _profiles: Any, _output: Any, **kwargs: Any) -> dict[str, dict[str, float]]:
         replay_workers.append(kwargs["sequence_workers"])
+        replay_sessions.append(kwargs["replay_session"])
         if kwargs.get("on_evaluate") is not None:
             kwargs["on_evaluate"]()
         return {name: {"HOTA": 75.0} for name in ("car", "pedestrian", "cls_comb_cls_av")}
@@ -243,6 +249,8 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
         result = tuner._run_eagermot_tuning(args, pipeline=pipeline)
 
     assert replay_workers == [expected, expected]
+    assert replay_sessions[0] is replay_sessions[1]
+    assert replay_sessions[0]._closed
     assert search_workers == [1]
     assert len(result.trials) == 2
     manifest = json.loads((result.best_yaml.parent / "run.json").read_text())

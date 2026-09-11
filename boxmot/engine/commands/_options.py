@@ -152,8 +152,8 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             default=defaults.cache_inputs,
             show_default=True,
             help=(
-                "Build and reuse mapped detection and embedding caches for repeated eval/tune runs. "
-                "Uses extra disk space; the source Parquet build remains authoritative."
+                "Build and reuse mapped inputs for repeated eval/tune runs, including images, detections, "
+                "embeddings, masks, sensors, and annotations. Uses extra disk space."
             ),
         ),
         "project": click.option(

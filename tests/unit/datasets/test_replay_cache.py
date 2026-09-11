@@ -13,20 +13,31 @@ import torch
 import boxmot.datasets.replay_cache as cache
 from boxmot.datasets import CachedVisionDataset
 from boxmot.datasets.manifest import sha256_file
-from boxmot.datasets.schema import EMBEDDINGS_ARTIFACT, INSTANCES_ARTIFACT, SAMPLES_ARTIFACT
+from boxmot.datasets.masks import MASK_CODEC, pack_mask, packed_mask_size
+from boxmot.datasets.schema import EMBEDDINGS_ARTIFACT, INSTANCES_ARTIFACT, MASKS_ARTIFACT, SAMPLES_ARTIFACT
 from boxmot.datasets.storage import ParquetShardWriter
 from boxmot.datasets.validation import DatasetValidationError
 from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan, finalize_build, fingerprint
 
 
-def _sequence_build(tmp_path: Path, box_type: str) -> Path:
+def _sequence_build(tmp_path: Path, box_type: str, *, payloads: bool = False) -> Path:
     """Publish numeric/lexical frame and detection order, including an empty frame."""
     detect = StagePlan.create("detect", component={"id": "fixture-detector"})
+    stages = [detect]
+    if payloads:
+        stages.append(
+            StagePlan.create(
+                "segment",
+                component={"id": "fixture-segmentor"},
+                depends_on=(detect.name,),
+                upstream_fingerprints=(detect.fingerprint,),
+            )
+        )
     embed = StagePlan.create(
         "embed",
         component={"id": "fixture-encoder"},
-        depends_on=(detect.name,),
-        upstream_fingerprints=(detect.fingerprint,),
+        depends_on=(stages[-1].name,),
+        upstream_fingerprints=(stages[-1].fingerprint,),
     )
     finalize = StagePlan.create("finalize", depends_on=(embed.name,), upstream_fingerprints=(embed.fingerprint,))
     plan = BuildPlan.create(
@@ -34,15 +45,25 @@ def _sequence_build(tmp_path: Path, box_type: str) -> Path:
         dataset_name="fixture",
         box_type=box_type,
         source_fingerprint=fingerprint({"fixture": 1}),
-        publish=PublishOptions(image_references=False, masks=False, embeddings=True),
-        stages=(detect, embed, finalize),
+        publish=PublishOptions(image_references=payloads, masks=payloads, embeddings=True),
+        stages=(*stages, embed, finalize),
+        metadata={"source_root_uri": str(tmp_path)},
     )
     plan.staging_root.mkdir(parents=True)
     writer = ParquetShardWriter(plan.staging_root, box_type=box_type)
-    samples, instances, embeddings = [], [], []
+    samples, instances, embeddings, masks = [], [], [], []
     encoder = fingerprint("fixture-encoder")
     for frame_index, count in ((10, 3), (2, 0), (1, 13)):
         sample_id = f"val:sequence:{frame_index}"
+        height, width = 50 + frame_index, 70 + frame_index
+        image_ref = None
+        if payloads:
+            image_ref = f"frame-{frame_index}.npy"
+            image = np.zeros((height, width, 8), dtype=np.uint8)
+            image[..., 1] = frame_index
+            image[..., 2] = frame_index + 1
+            image[..., 4] = frame_index + 2
+            np.save(tmp_path / image_ref, image)
         samples.append(
             dict(
                 sample_id=sample_id,
@@ -50,9 +71,9 @@ def _sequence_build(tmp_path: Path, box_type: str) -> Path:
                 sequence_id="sequence",
                 frame_index=frame_index,
                 timestamp_s=frame_index / 10,
-                image_ref=None,
-                height=50,
-                width=70,
+                image_ref=image_ref,
+                height=height,
+                width=width,
             )
         )
         for index in reversed(range(count)):
@@ -81,9 +102,24 @@ def _sequence_build(tmp_path: Path, box_type: str) -> Path:
                     values=[float(frame_index), float(index), 1.0],
                 )
             )
+            if payloads:
+                mask = np.zeros((height, width), dtype=bool)
+                mask[index : index + 2, frame_index : frame_index + 3] = True
+                masks.append(
+                    dict(
+                        sample_id=sample_id,
+                        instance_id=instance_id,
+                        height=height,
+                        width=width,
+                        codec=MASK_CODEC,
+                        data=pack_mask(mask),
+                    )
+                )
     writer.write(SAMPLES_ARTIFACT, samples, shard_index=0)
     writer.write(INSTANCES_ARTIFACT, instances, shard_index=0)
     writer.write(EMBEDDINGS_ARTIFACT, embeddings, shard_index=0, embedding_dim=3)
+    if payloads:
+        writer.write(MASKS_ARTIFACT, masks, shard_index=0)
     return finalize_build(plan, embedding_metadata={"encoder_fingerprint": encoder, "dim": 3}, target_shard_rows=8)
 
 
@@ -122,6 +158,37 @@ def test_mapped_replay_preserves_frame_and_detection_order_and_empty_frames(tmp_
             _assert_sample_equal(actual, reference)
         assert list(replay)[1].detections.embeddings.shape == (0, 3)
         replay.validate()
+    finally:
+        replay.close()
+
+
+@pytest.mark.parametrize("box_type", ["aabb", "obb"])
+def test_all_payloads_preserve_variable_frame_sizes_and_empty_masks(tmp_path, monkeypatch, box_type) -> None:
+    import pyarrow.parquet as pq
+
+    import boxmot.datasets.cached as source
+
+    build = _sequence_build(tmp_path, box_type, payloads=True)
+    options = dict(load_images=True, load_masks=True, load_embeddings=True)
+    expected = list(CachedVisionDataset._stream_sequence(build, sequence_id="sequence", **options))
+    path = cache.prepare_replay_sequence(build, sequence_id="sequence", **options)
+    packed = np.load(path / "masks.npy", mmap_mode="r", allow_pickle=False)
+    assert packed.size == sum(len(item.detections) * packed_mask_size(*item.image_size) for item in expected)
+    packed._mmap.close()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Prepared replay must not parse payloads or decode source images.")
+
+    monkeypatch.setattr(pq, "ParquetFile", forbidden)
+    monkeypatch.setattr(source, "read_rgb_chw_uint8", forbidden)
+    assert cache.prepare_replay_sequence(build, sequence_id="sequence", **options) == path
+    replay = cache.open_replay_sequence(path, **options)
+    try:
+        for actual, reference in zip(replay, expected, strict=True):
+            _assert_sample_equal(actual, reference)
+        empty = list(replay)[1]
+        assert empty.detections.masks.values.shape == (0, *empty.image_size)
+        assert empty.frame.image[:, 0, 0].tolist() == [4, 3, 2]
     finally:
         replay.close()
 
@@ -177,8 +244,10 @@ def test_warm_replay_reads_detection_and_embedding_arrays_without_parquet_or_pay
         replay.close()
 
 
-def test_masks_and_images_reuse_cached_detection_metadata(materialized_build, monkeypatch) -> None:
+def test_warm_masks_and_images_do_not_read_source_payloads(materialized_build, monkeypatch) -> None:
     import pyarrow.parquet as pq
+
+    import boxmot.datasets.cached as source
 
     build = materialized_build["root"]
     expected = list(
@@ -186,45 +255,70 @@ def test_masks_and_images_reuse_cached_detection_metadata(materialized_build, mo
             build, sequence_id="seq-a", load_images=True, load_masks=True, load_embeddings=True
         )
     )
-    path = cache.prepare_replay_sequence(build, sequence_id="seq-a")
-    original = pq.ParquetFile
-    opened = []
+    path = cache.prepare_replay_sequence(build, sequence_id="seq-a", load_images=True, load_masks=True)
 
-    def masks_only(path, *args, **kwargs):
-        opened.append(Path(path).parent.name)
-        assert Path(path).parent.name == "masks"
-        return original(path, *args, **kwargs)
+    def forbidden(*args, **kwargs):
+        pytest.fail("Warm replay must use cached pixels and packed masks.")
 
-    monkeypatch.setattr(pq, "ParquetFile", masks_only)
+    monkeypatch.setattr(pq, "ParquetFile", forbidden)
+    monkeypatch.setattr(source, "read_rgb_chw_uint8", forbidden)
+    assert cache.prepare_replay_sequence(build, sequence_id="seq-a", load_images=True, load_masks=True) == path
     replay = cache.open_replay_sequence(path, load_images=True, load_masks=True)
     try:
+        replay.validate()
         for actual, reference in zip(replay, expected, strict=True):
             _assert_sample_equal(actual, reference)
-        assert opened
     finally:
         replay.close()
 
 
-def test_partial_mask_iteration_releases_parquet_resources(materialized_build, monkeypatch) -> None:
-    path = cache.prepare_replay_sequence(materialized_build["root"], sequence_id="seq-a")
-    closed = []
-    original = cache._MaskPayloadStream.close
-
-    def close(stream):
-        closed.append(stream)
-        original(stream)
-
-    monkeypatch.setattr(cache._MaskPayloadStream, "close", close)
-    replay = cache.open_replay_sequence(path, load_masks=True)
-    iterator = iter(replay)
+def test_cached_image_and_mask_mutations_do_not_affect_subsequent_trials(materialized_build) -> None:
+    path = cache.prepare_replay_sequence(
+        materialized_build["root"], sequence_id="seq-a", load_images=True, load_masks=True
+    )
+    replay = cache.open_replay_sequence(path, load_images=True, load_masks=True)
     try:
-        next(iterator)
-        assert not closed
-        iterator.close()
-        assert len(closed) == 1
-        assert closed[0]._buffer == {}
+        first = next(iter(replay))
+        expected = next(iter(replay))
+        first.frame.image.fill_(255)
+        first.detections.masks.values.logical_not_()
+        _assert_sample_equal(next(iter(replay)), expected)
     finally:
-        iterator.close()
+        replay.close()
+    assert expected.frame.image.sum() == 0
+    assert expected.detections.masks.values.sum() == 1
+
+
+@pytest.mark.parametrize("modality", ["images", "masks"])
+def test_requested_payload_requires_preparation(materialized_build, modality) -> None:
+    path = cache.prepare_replay_sequence(materialized_build["root"], sequence_id="seq-a")
+    with pytest.raises(cache.ReplayCacheError, match=f"without {modality}"):
+        cache.open_replay_sequence(path, **{f"load_{modality}": True})
+
+
+def test_changed_external_image_invalidates_only_image_cache(materialized_build) -> None:
+    import cv2
+
+    build = materialized_build["root"]
+    boxes_path = cache.prepare_replay_sequence(build, sequence_id="seq-a")
+    path = cache.prepare_replay_sequence(build, sequence_id="seq-a", load_images=True)
+    replay = cache.open_replay_sequence(path, load_images=True)
+    try:
+        assert next(iter(replay)).frame.image.sum() == 0
+        file = build / "images" / "a.jpg"
+        stat = file.stat()
+        assert cv2.imwrite(str(file), np.full((5, 7, 3), 255, dtype=np.uint8))
+        os.utime(file, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        with pytest.raises(cache.ReplayCacheError, match="source image files changed"):
+            replay.validate()
+        assert cache.prepare_replay_sequence(build, sequence_id="seq-a") == boxes_path
+        assert cache.prepare_replay_sequence(build, sequence_id="seq-a", load_images=True) == path
+        fresh = cache.open_replay_sequence(path, load_images=True)
+        try:
+            assert next(iter(fresh)).frame.image.min() == 255
+        finally:
+            fresh.close()
+    finally:
         replay.close()
 
 
@@ -244,11 +338,13 @@ def test_detection_only_cache_works_without_embeddings(materialized_boxes_only_b
 
 
 @pytest.mark.parametrize(
-    "component", ["geometry.npy", "scores.npy", "embeddings.npy", "index.json", "_SUCCESS", "directory"]
+    "component",
+    ["geometry.npy", "scores.npy", "embeddings.npy", "images.npy", "masks.npy", "index.json", "_SUCCESS", "directory"],
 )
 def test_corrupt_or_incomplete_cache_is_regenerated(materialized_build, component) -> None:
     build = materialized_build["root"]
-    path = cache.prepare_replay_sequence(build, sequence_id="seq-a")
+    options = dict(load_images=True, load_masks=True)
+    path = cache.prepare_replay_sequence(build, sequence_id="seq-a", **options)
     if component == "directory":
         import shutil
 
@@ -258,8 +354,8 @@ def test_corrupt_or_incomplete_cache_is_regenerated(materialized_build, componen
         (path / component).unlink()
     else:
         (path / component).write_bytes(b"invalid")
-    assert cache.prepare_replay_sequence(build, sequence_id="seq-a") == path
-    replay = cache.open_replay_sequence(path)
+    assert cache.prepare_replay_sequence(build, sequence_id="seq-a", **options) == path
+    replay = cache.open_replay_sequence(path, **options)
     try:
         assert next(iter(replay)).detections.embeddings.tolist() == [[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]]
     finally:

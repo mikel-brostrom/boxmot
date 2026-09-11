@@ -17,7 +17,6 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
@@ -33,20 +32,16 @@ from boxmot.engine.eval.motmetrics import (
     _relabel_ids,
     _sequence_names_from_paths,
 )
-from boxmot.engine.eval.mots import GroundTruthFrame, _resolve_class_pairs, _validated_gt_frames
+from boxmot.engine.eval.mots import GroundTruthFrame, _load_gt_labels, _resolve_class_pairs, _validated_gt_frames
 
 _FLOAT_EPS = np.finfo(float).eps
 
 
-def _read_gt_boxes(path: Path, height: int, width: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _read_gt_boxes(
+    path: Path, height: int, width: int, *, cache_inputs: bool = False, cache_root: Path | None = None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Return native instance IDs, exclusive bounds in xywh, and ignore pixels."""
-    labels = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
-    if labels is None:
-        raise ValueError(f"Unable to decode KITTI MOTS instance PNG: {path}")
-    if labels.dtype != np.uint16 or labels.ndim != 2:
-        raise ValueError(
-            f"KITTI MOTS instance PNG must be single-channel uint16, got {labels.shape}, {labels.dtype}: {path}"
-        )
+    labels = _load_gt_labels(path, cache_inputs=cache_inputs, cache_root=cache_root)
     if labels.shape != (height, width):
         raise ValueError(
             f"KITTI MOTS instance PNG dimensions {labels.shape} do not match image dimensions {(height, width)}: {path}"
@@ -153,6 +148,9 @@ def _build_kitti_box_sequence_data(
     tracker_path: Path,
     class_pairs: Sequence[tuple[str, int]],
     num_timesteps: int,
+    *,
+    cache_inputs: bool = False,
+    cache_root: Path | None = None,
 ) -> dict[str, SequenceData]:
     """Decode each PNG once and collect metric-ready box similarities by class."""
     tracker_frames = _read_box_results(tracker_path, {index for index, _, _, _ in gt_frames})
@@ -160,7 +158,8 @@ def _build_kitti_box_sequence_data(
     tracker_ids_by_class = {name: [np.empty(0, dtype=int) for _ in range(num_timesteps)] for name, _ in class_pairs}
     similarities = {name: [np.empty((0, 0), dtype=float) for _ in range(num_timesteps)] for name, _ in class_pairs}
     for frame_index, path, height, width in gt_frames:
-        gt_ids, gt_boxes, ignore_mask = _read_gt_boxes(path, height, width)
+        options = {"cache_inputs": True, "cache_root": cache_root} if cache_inputs else {}
+        gt_ids, gt_boxes, ignore_mask = _read_gt_boxes(path, height, width, **options)
         rows = tracker_frames.pop(frame_index, np.empty((0, 9), dtype=float))
         for name, class_id in class_pairs:
             selected_gt = gt_ids // 1000 == class_id
@@ -204,7 +203,7 @@ def run_kitti_box_metrics(
     dimensions, and zero-based frame indices, including FPS remapping. Result
     files use one-based frames and otherwise retain BoxMOT's AABB9 format.
     """
-    del save_dir, gt_folder
+    del save_dir
     config = _load_eval_cfg(args)
     sequences = _sequence_names_from_paths(seq_paths, seq_info)
     if not sequences:
@@ -218,8 +217,11 @@ def run_kitti_box_metrics(
         if seq_name not in annotations:
             raise ValueError(f"No KITTI ground-truth frame metadata for {seq_name}")
         frames, num_timesteps = _validated_gt_frames(seq_name, annotations[seq_name], num_timesteps)
+        options = {}
+        if getattr(args, "cache_inputs", False):
+            options.update(cache_inputs=True, cache_root=Path(gt_folder) / ".boxmot/replay_cache/annotations")
         sequence_data = _build_kitti_box_sequence_data(
-            seq_name, frames, Path(args.exp_dir) / f"{seq_name}.txt", class_pairs, num_timesteps
+            seq_name, frames, Path(args.exp_dir) / f"{seq_name}.txt", class_pairs, num_timesteps, **options
         )
         for name, data in sequence_data.items():
             per_class_sequence[name][seq_name] = _eval_bundle(data)

@@ -519,7 +519,6 @@ def _run_sensor_evaluation(
         "variable_dt",
         "allow_noncanonical_build",
         "compare_trackeval",
-        "cache_inputs",
     ):
         value = getattr(args, name, None)
         if value is not None and value is not False and value != "":

@@ -957,9 +957,7 @@ def _serial_samples(
             if cache_inputs:
                 from boxmot.datasets.replay_cache import open_replay_sequence, prepare_replay_sequence
 
-                path = prepare_replay_sequence(
-                    build_path, sequence_id=sequence, split=split, load_embeddings=requirements.embeddings
-                )
+                path = prepare_replay_sequence(build_path, sequence_id=sequence, split=split, **options)
                 dataset = open_replay_sequence(path, **options)
                 inputs.callback(dataset.close)
             else:
@@ -1206,6 +1204,8 @@ def replay_build(
                 sequence_id=sequence_id,
                 split=split,
                 load_embeddings=requirements.embeddings,
+                load_images=requirements.frame_pixels,
+                load_masks=requirements.masks or output_format == "mots",
             )
             for sequence_id in selected
         }

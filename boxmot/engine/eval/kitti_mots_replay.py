@@ -7,13 +7,16 @@ import json
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from boxmot.configs import CONFIG_ROOT
 from boxmot.engine.eval.mots import run_mots_metrics
 from boxmot.utils import logger as LOGGER
+
+if TYPE_CHECKING:
+    from boxmot.datasets.sensor_cache import SensorReplaySequence
 
 GroundTruthEntry = tuple[int, str, int, int]
 
@@ -50,15 +53,22 @@ def evaluate_kitti_mots(
     output: Path,
     instances_root: Path,
     annotations: Mapping[str, Sequence[GroundTruthEntry]],
+    *,
+    cached_ground_truth: Mapping[str, SensorReplaySequence] | None = None,
+    ground_truth_options: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Evaluate disjoint predicted masks and write combined/per-sequence reports."""
     LOGGER.info("Evaluating segmentation tracking against KITTI MOTS instance annotations")
+    options = {} if cached_ground_truth is None else {"cached_ground_truth": cached_ground_truth}
+    if ground_truth_options is not None:
+        options["ground_truth_options"] = ground_truth_options
     results = run_mots_metrics(
         SimpleNamespace(exp_dir=prediction_dir, evaluation_config={"mots_gt_frames": annotations}),
         [Path(name) for name in annotations],
         output,
         instances_root,
         seq_info={name: max(entry[0] for entry in entries) + 1 for name, entries in annotations.items()},
+        **options,
     )
     (output / "metrics.json").write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
     fields = [key for key in results["car"] if key != "per_sequence"]

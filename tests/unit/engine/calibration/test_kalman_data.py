@@ -12,6 +12,7 @@ import pytest
 from boxmot.datasets.cached import CachedVisionDataset
 from boxmot.datasets.schema import INSTANCES_ARTIFACT, SAMPLES_ARTIFACT
 from boxmot.datasets.storage import ParquetShardWriter
+from boxmot.engine.calibration import kalman_data
 from boxmot.engine.calibration.kalman_data import _match_detections, load_calibration_data
 from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan, finalize_build, fingerprint
 from boxmot.trackers.common.geometry.obb import xywha_to_corners
@@ -231,4 +232,78 @@ def test_malformed_obb_gt_does_not_fall_back_to_another_annotation(tmp_path):
     gt_path.with_name("gt_obb.txt").write_text(gt_path.read_text())
     gt_path.write_text("1,1,20,20,20,40,1,1,1\n")
     with pytest.raises(ValueError, match="13 MMOT corner columns"):
+        load_calibration_data(args)
+
+
+@pytest.mark.parametrize("geometry,flat", [("aabb", False), ("aabb", True), ("obb", False), ("obb", True)])
+def test_mapped_calibration_reuses_predictions_and_annotations_without_reparsing(tmp_path, monkeypatch, geometry, flat):
+    """Cold/warm caching preserves exact class matching, missing rows, and provenance."""
+    args = _fixture(tmp_path, geometry=geometry, flat=flat)
+    expected = load_calibration_data(args)
+    args.cache_inputs = True
+    cold = load_calibration_data(args)
+
+    def unexpected(*_args, **_kwargs):
+        pytest.fail("Warm calibration must not parse Parquet predictions or ground-truth text again.")
+
+    monkeypatch.setattr(CachedVisionDataset, "_for_sequence", unexpected)
+    monkeypatch.setattr(CachedVisionDataset, "_read_sequence_rows", unexpected)
+    monkeypatch.setattr(kalman_data, "_read_ground_truth", unexpected)
+    warm = load_calibration_data(args)
+    for actual in (cold, warm):
+        assert actual.statistics == expected.statistics
+        assert actual.ground_truth_sources == expected.ground_truth_sources
+        assert len(actual.tracks) == len(expected.tracks)
+        for result, reference in zip(actual.tracks, expected.tracks, strict=True):
+            assert (result.sequence_id, result.class_id, result.track_id) == (
+                reference.sequence_id,
+                reference.class_id,
+                reference.track_id,
+            )
+            for name in ("frame_indices", "timestamps_s", "gt_boxes", "detection_boxes", "scores"):
+                np.testing.assert_array_equal(getattr(result, name), getattr(reference, name))
+
+
+@pytest.mark.parametrize("fail", (False, True))
+def test_mapped_calibration_releases_sequence_mappings_on_success_and_failure(tmp_path, monkeypatch, fail):
+    from boxmot.datasets import replay_cache
+
+    args = _fixture(tmp_path)
+    args.cache_inputs = True
+    captured = []
+    original = replay_cache.open_replay_sequence
+
+    def record(*args, **kwargs):
+        view = original(*args, **kwargs)
+        captured.append(view)
+        return view
+
+    monkeypatch.setattr(replay_cache, "open_replay_sequence", record)
+    if fail:
+
+        def interrupted(*_args, **_kwargs):
+            raise KeyboardInterrupt("cancelled calibration")
+
+        monkeypatch.setattr(kalman_data, "_match_detections", interrupted)
+        with pytest.raises(KeyboardInterrupt, match="cancelled calibration"):
+            load_calibration_data(args)
+    else:
+        load_calibration_data(args)
+    assert captured
+    for view in captured:
+        with pytest.raises(ValueError, match="closed"):
+            view.validate()
+
+
+def test_mapped_calibration_revalidates_changed_annotations(tmp_path):
+    args = _fixture(tmp_path)
+    args.cache_inputs = True
+    first = load_calibration_data(args)
+    gt_path = args.gt_folder / "seq/gt/gt.txt"
+    gt_path.write_text(gt_path.read_text() + "\n")
+    second = load_calibration_data(args)
+    assert first.ground_truth_sources[0]["sha256"] != second.ground_truth_sources[0]["sha256"]
+    assert first.statistics == second.statistics
+    gt_path.write_text("1,1,nan,20,20,40,1,1,1\n")
+    with pytest.raises(ValueError, match="non-finite"):
         load_calibration_data(args)

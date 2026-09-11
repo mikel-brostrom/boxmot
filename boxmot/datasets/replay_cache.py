@@ -2,7 +2,7 @@
 
 ``prepare_replay_sequence`` publishes ``replay_cache/<identity>/`` atomically.
 Each entry contains ``index.json``, ``_SUCCESS`` and read-only mapped geometry,
-score, class and optional embedding ``.npy`` arrays. Parquet remains authoritative;
+score, class, optional embeddings, images and packed masks. Parquet remains authoritative;
 this format is a disposable runtime optimization, never a dataset publication.
 """
 
@@ -14,7 +14,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Iterator
-from contextlib import ExitStack, closing
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +24,10 @@ from filelock import FileLock
 
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 
-from ._parquet import iter_selected_batches
-from .cached import CachedVisionDataset, DatasetSample, _MaskPayloadStream
+from .cached import CachedVisionDataset, DatasetSample
 from .manifest import DatasetManifest, canonical_json_bytes, sha256_file
-from .masks import MASK_CODEC, unpack_mask_batch
-from .readers import read_rgb_chw_uint8
+from .masks import pack_mask_batch, packed_mask_size, unpack_mask_batch
+from .readers.images import _local_image_path
 from .schema import (
     EMBEDDINGS_ARTIFACT,
     INSTANCES_ARTIFACT,
@@ -37,18 +36,19 @@ from .schema import (
     SAMPLES_ARTIFACT,
     SCHEMA_ID,
     SUCCESS_FILENAME,
-    masks_schema,
 )
 from .storage import artifact_files, resolve_artifact_path
 from .validation import DatasetValidationError, validate_published_build
 
-_CACHE_SCHEMA = "boxmot.replay-cache/v1"
+_CACHE_SCHEMA = "boxmot.replay-cache/v2"
 _INDEX = "index.json"
 _ARRAY_DTYPES = {
     "geometry": np.dtype("float32"),
     "scores": np.dtype("float32"),
     "class_ids": np.dtype("int64"),
     "embeddings": np.dtype("float32"),
+    "images": np.dtype("uint8"),
+    "masks": np.dtype("uint8"),
 }
 
 
@@ -120,7 +120,13 @@ def _source_context(build: Path) -> tuple[DatasetManifest, dict[str, list[int]]]
 
 
 def _identity(
-    manifest: DatasetManifest, *, sequence_id: str, split: str | None, load_embeddings: bool
+    manifest: DatasetManifest,
+    *,
+    sequence_id: str,
+    split: str | None,
+    load_embeddings: bool,
+    load_images: bool,
+    load_masks: bool,
 ) -> dict[str, Any]:
     names = [SAMPLES_ARTIFACT, INSTANCES_ARTIFACT]
     if load_embeddings:
@@ -129,6 +135,12 @@ def _identity(
                 "Embeddings were requested, but this dataset build does not publish embeddings."
             )
         names.append(EMBEDDINGS_ARTIFACT)
+    if load_masks:
+        if not manifest.publish.masks:
+            raise DatasetValidationError("Masks were requested, but this dataset build does not publish masks.")
+        names.append(MASKS_ARTIFACT)
+    if load_images and not manifest.publish.image_references:
+        raise DatasetValidationError("Images were requested, but this dataset build does not publish image references.")
     return {
         "schema": _CACHE_SCHEMA,
         "dataset_schema": manifest.schema,
@@ -138,8 +150,24 @@ def _identity(
         "sequence_id": sequence_id,
         "split": split,
         "load_embeddings": load_embeddings,
+        "load_images": load_images,
+        "load_masks": load_masks,
         "artifacts": [manifest.artifact(name).to_dict() for name in names],
     }
+
+
+def _image_signatures(samples: list[dict[str, Any]], image_root: str) -> dict[str, list[int]]:
+    """Track external image, NumPy and video files without decoding their pixels."""
+    result = {}
+    for sample in samples:
+        reference = sample["image_ref"]
+        if not reference:
+            raise DatasetValidationError(f"Sample {sample['sample_id']!r} does not publish an image reference.")
+        path, _ = _local_image_path(reference, image_root)
+        name = str(path)
+        if name not in result:
+            result[name] = _signature(path)
+    return result
 
 
 def _validate_source_once(build: Path, manifest: DatasetManifest, signatures: dict, cache_root: Path) -> None:
@@ -205,6 +233,8 @@ def _load_entry(
                 sequence_id=identity["sequence_id"],
                 split=identity["split"],
                 load_embeddings=identity["load_embeddings"],
+                load_images=identity["load_images"],
+                load_masks=identity["load_masks"],
             )
             != identity
         ):
@@ -213,15 +243,33 @@ def _load_entry(
             raise ReplayCacheError("Replay source files changed after validation.")
         if index["image_root"] != str(manifest.metadata.get("source_root_uri", index["build"])):
             raise ReplayCacheError("Replay source image root changed.")
+        image_signatures = _image_signatures(index["samples"], index["image_root"]) if identity["load_images"] else {}
+        if index["image_signature"] != image_signatures:
+            raise ReplayCacheError("Replay source image files changed after preparation.")
         expected_names = {"geometry", "scores", "class_ids"} | (
             {"embeddings"} if identity["load_embeddings"] else set()
         )
+        expected_names.update(name for name in ("images", "masks") if identity[f"load_{name}"])
         if set(index["arrays"]) != expected_names:
             raise ReplayCacheError("Replay cache array set is invalid.")
         count = index["count"]
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
             raise ReplayCacheError("Replay cache row count is invalid.")
         dimension = int(manifest.artifact(EMBEDDINGS_ARTIFACT).metadata["dim"]) if identity["load_embeddings"] else None
+        payload_counts = {"images": 0, "masks": 0}
+        for sample in index["samples"]:
+            height, width = sample["image_size"]
+            if any(isinstance(value, bool) or not isinstance(value, int) or value <= 0 for value in (height, width)):
+                raise ReplayCacheError("Replay sample dimensions are invalid.")
+            for name, size in (
+                ("images", 3 * height * width),
+                ("masks", len(sample["instance_ids"]) * packed_mask_size(height, width)),
+            ):
+                if identity[f"load_{name}"]:
+                    start = payload_counts[name]
+                    if sample[f"{name}_offset"] != [start, start + size]:
+                        raise ReplayCacheError(f"Replay {name} offsets are invalid.")
+                    payload_counts[name] += size
         for name in sorted(expected_names):
             record = index["arrays"][name]
             file = path / f"{name}.npy"
@@ -232,9 +280,13 @@ def _load_entry(
             array = np.load(file, mmap_mode="r", allow_pickle=False)
             arrays[name] = array
             shape = (
-                (count, 5 if manifest.box_type == "obb" else 4)
-                if name == "geometry"
-                else ((count, dimension) if name == "embeddings" else (count,))
+                (payload_counts[name],)
+                if name in payload_counts
+                else (
+                    (count, 5 if manifest.box_type == "obb" else 4)
+                    if name == "geometry"
+                    else ((count, dimension) if name == "embeddings" else (count,))
+                )
             )
             if (
                 array.shape != shape
@@ -275,16 +327,34 @@ def _load_entry(
 
 def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatures: dict, identity: dict) -> None:
     stream = CachedVisionDataset._stream_sequence(
-        build, sequence_id=identity["sequence_id"], split=identity["split"], load_embeddings=identity["load_embeddings"]
+        build,
+        sequence_id=identity["sequence_id"],
+        split=identity["split"],
+        load_embeddings=identity["load_embeddings"],
+        load_images=identity["load_images"],
+        load_masks=identity["load_masks"],
     )
     dataset = stream._dataset
     count = sum(len(rows) for rows in dataset._instances_by_sample.values())
     shapes = {"geometry": (count, 5 if manifest.box_type == "obb" else 4), "scores": (count,), "class_ids": (count,)}
     if identity["load_embeddings"]:
         shapes["embeddings"] = (count, int(manifest.artifact(EMBEDDINGS_ARTIFACT).metadata["dim"]))
+    if identity["load_images"]:
+        shapes["images"] = (sum(3 * row["height"] * row["width"] for row in dataset._samples),)
+    if identity["load_masks"]:
+        shapes["masks"] = (
+            sum(
+                len(dataset._instances_by_sample.get(row["sample_id"], ()))
+                * packed_mask_size(row["height"], row["width"])
+                for row in dataset._samples
+            ),
+        )
+    image_root = str(manifest.metadata.get("source_root_uri", build))
+    image_signatures = _image_signatures(dataset._samples, image_root) if identity["load_images"] else {}
     arrays = {}
     samples = []
     cursor = 0
+    payload_cursors = {"images": 0, "masks": 0}
     try:
         for name, shape in shapes.items():
             arrays[name] = np.lib.format.open_memmap(
@@ -299,6 +369,20 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
                 arrays["class_ids"][cursor:end] = detections.class_ids.numpy()
                 if identity["load_embeddings"]:
                     arrays["embeddings"][cursor:end] = detections.embeddings.numpy()
+                payload_offsets = {}
+                for name in ("images", "masks"):
+                    if not identity[f"load_{name}"]:
+                        continue
+                    payload = (
+                        sample.frame.image.numpy().reshape(-1)
+                        if name == "images"
+                        else np.frombuffer(b"".join(pack_mask_batch(detections.masks.values)), dtype=np.uint8)
+                    )
+                    payload_start = payload_cursors[name]
+                    payload_end = payload_start + len(payload)
+                    arrays[name][payload_start:payload_end] = payload
+                    payload_offsets[f"{name}_offset"] = [payload_start, payload_end]
+                    payload_cursors[name] = payload_end
                 samples.append(
                     {
                         "sample_id": sample.sample_id,
@@ -313,11 +397,14 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
                             row["detection_index"] for row in dataset._instances_by_sample.get(sample.sample_id, ())
                         ],
                         "offset": [cursor, end],
+                        **payload_offsets,
                     }
                 )
                 cursor = end
         if cursor != count:
             raise DatasetValidationError("Replay stream row count changed during preparation.")
+        if identity["load_images"] and _image_signatures(dataset._samples, image_root) != image_signatures:
+            raise DatasetValidationError("Source image files changed while preparing replay inputs.")
         for array in arrays.values():
             array.flush()
     finally:
@@ -331,7 +418,8 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
     index = {
         "identity": identity,
         "build": str(build),
-        "image_root": str(manifest.metadata.get("source_root_uri", build)),
+        "image_root": image_root,
+        "image_signature": image_signatures,
         "source_signature": signatures,
         "count": count,
         "samples": samples,
@@ -349,9 +437,11 @@ def prepare_replay_sequence(
     sequence_id: str,
     split: str | None = None,
     load_embeddings: bool = True,
+    load_images: bool = False,
+    load_masks: bool = False,
     cache_root: str | Path | None = None,
 ) -> Path:
-    """Prepare detection arrays and optional embeddings for one exact sequence.
+    """Prepare requested detections, embeddings, masks and pixels for one sequence.
 
     The default directory is ``build.parent.parent / 'replay_cache'``. Content
     identities contain no execution device. A process lock serializes builders;
@@ -361,14 +451,22 @@ def prepare_replay_sequence(
         raise ValueError("sequence_id must be a non-empty canonical string.")
     if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
         raise ValueError("split must be a non-empty canonical string or None.")
-    if not isinstance(load_embeddings, bool):
-        raise TypeError("load_embeddings must be a boolean.")
+    for name, value in (("load_images", load_images), ("load_masks", load_masks), ("load_embeddings", load_embeddings)):
+        if not isinstance(value, bool):
+            raise TypeError(f"{name} must be a boolean.")
     build = Path(build).resolve()
     root = (build.parent.parent / "replay_cache") if cache_root is None else Path(cache_root).resolve()
     if root == build or root.is_relative_to(build):
         raise ValueError("Replay cache must be outside the immutable dataset build.")
     manifest, signatures = _source_context(build)
-    identity = _identity(manifest, sequence_id=sequence_id, split=split, load_embeddings=load_embeddings)
+    selection = dict(
+        sequence_id=sequence_id,
+        split=split,
+        load_embeddings=load_embeddings,
+        load_images=load_images,
+        load_masks=load_masks,
+    )
+    identity = _identity(manifest, **selection)
     root.mkdir(parents=True, exist_ok=True)
     path = root / _digest(identity)
     lock_dir = root / ".locks"
@@ -389,11 +487,7 @@ def prepare_replay_sequence(
         try:
             _write_entry(staging, build, manifest, signatures, identity)
             current_manifest, current_signatures = _source_context(build)
-            if (
-                current_signatures != signatures
-                or _identity(current_manifest, sequence_id=sequence_id, split=split, load_embeddings=load_embeddings)
-                != identity
-            ):
+            if current_signatures != signatures or _identity(current_manifest, **selection) != identity:
                 raise DatasetValidationError("Dataset source changed while preparing replay inputs.")
             if path.is_symlink() or path.is_file():
                 path.unlink()
@@ -417,14 +511,9 @@ class ReplaySequence:
             self.build = Path(self._index["build"])
             self.manifest = DatasetManifest.load(self.build)
             self.load_images, self.load_masks, self.load_embeddings = load_images, load_masks, load_embeddings
-            if load_embeddings and "embeddings" not in self._arrays:
-                raise ReplayCacheError("This replay cache was prepared without embeddings.")
-            if load_images and not self.manifest.publish.image_references:
-                raise DatasetValidationError(
-                    "Images were requested, but this dataset build does not publish image references."
-                )
-            if load_masks and not self.manifest.publish.masks:
-                raise DatasetValidationError("Masks were requested, but this dataset build does not publish masks.")
+            for name, requested in (("embeddings", load_embeddings), ("images", load_images), ("masks", load_masks)):
+                if requested and name not in self._arrays:
+                    raise ReplayCacheError(f"This replay cache was prepared without {name}.")
             self.encoder_fingerprint = (
                 str(self.manifest.artifact(EMBEDDINGS_ARTIFACT).metadata["encoder_fingerprint"])
                 if load_embeddings
@@ -460,33 +549,10 @@ class ReplaySequence:
         if index != self._index:
             raise ReplayCacheError("Replay cache was republished after this view was opened.")
 
-    def _iter_selected_batches(self, name: str, **selection: Any) -> Iterator[Any]:
-        """Read keyed masks without reopening detection or sample Parquet."""
-        yield from iter_selected_batches(self.build, self.manifest, name, **selection)
-
     def __iter__(self) -> Iterator[DatasetSample]:
+        """Copy requested per-frame payloads from mappings into private tensors."""
         if self._closed:
             raise ReplayCacheError("Replay sequence is closed.")
-        with ExitStack() as resources:
-            yield from self._iter_samples(resources)
-
-    def _iter_samples(self, resources: ExitStack) -> Iterator[DatasetSample]:
-        """Own optional Parquet handles for exactly one frame iteration."""
-        masks = None
-        if self.load_masks:
-            masks = _MaskPayloadStream(
-                self,
-                name=MASKS_ARTIFACT,
-                sample_ids=set(self.sample_ids),
-                expected_keys=frozenset(
-                    (sample["sample_id"], instance_id)
-                    for sample in self._index["samples"]
-                    for instance_id in sample["instance_ids"]
-                ),
-                expected_schema=masks_schema(),
-                artifact_label="Mask",
-            )
-            resources.callback(masks.close)
         geometry_class = OrientedBoxes if self.manifest.box_type == "obb" else Boxes
         for row in self._index["samples"]:
             if self._closed:
@@ -495,19 +561,16 @@ class ReplaySequence:
             values = {
                 name: torch.from_numpy(array[start:end].copy())
                 for name, array in self._arrays.items()
-                if name != "embeddings" or self.load_embeddings
+                if name in {"geometry", "scores", "class_ids"} or (name == "embeddings" and self.load_embeddings)
             }
             sample_masks = None
-            if masks is not None:
-                rows = masks.take(tuple((row["sample_id"], instance_id) for instance_id in row["instance_ids"]))
+            if self.load_masks:
                 height, width = row["image_size"]
-                if any(
-                    mask["height"] != height or mask["width"] != width or mask["codec"] != MASK_CODEC for mask in rows
-                ):
-                    raise DatasetValidationError(
-                        "Mask rows must use the selected sample dimensions and canonical codec."
-                    )
-                sample_masks = MaskBatch(unpack_mask_batch((mask["data"] for mask in rows), height, width))
+                mask_start, mask_end = row["masks_offset"]
+                packed = self._arrays["masks"][mask_start:mask_end].reshape(
+                    end - start, packed_mask_size(height, width)
+                )
+                sample_masks = MaskBatch(unpack_mask_batch((payload.tobytes() for payload in packed), height, width))
             detections = Detections(
                 geometry=geometry_class(values["geometry"]),
                 scores=values["scores"],
@@ -519,13 +582,10 @@ class ReplaySequence:
             )
             frame = None
             if self.load_images:
-                if not row["image_ref"]:
-                    raise DatasetValidationError(f"Sample {row['sample_id']!r} does not publish an image reference.")
-                image = read_rgb_chw_uint8(row["image_ref"], self._index["image_root"])
-                if tuple(image.shape) != (3, *row["image_size"]):
-                    raise DatasetValidationError(
-                        f"Decoded image for sample {row['sample_id']!r} does not match its dimensions."
-                    )
+                image_start, image_end = row["images_offset"]
+                image = torch.from_numpy(self._arrays["images"][image_start:image_end].copy()).reshape(
+                    3, *row["image_size"]
+                )
                 frame = Frame(
                     image=image,
                     sample_id=row["sample_id"],
@@ -545,8 +605,6 @@ class ReplaySequence:
                 frame=frame,
                 detections=detections,
             )
-        if masks is not None:
-            masks.finish()
 
 
 def open_replay_sequence(

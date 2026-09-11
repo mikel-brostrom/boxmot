@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import uuid4
 
 if TYPE_CHECKING:
+    from boxmot.engine.eval.eagermot_kitti import _KittiSequenceResult, _KittiSequenceTask
     from boxmot.engine.eval.replay import ReplayProgressCallback, _SequenceReplayResult, _SequenceReplayTask
 
 _T = TypeVar("_T")
@@ -127,6 +128,25 @@ class ReplaySession:
         """Execute ordered metric tasks in the existing spawn pool."""
         with self._operation() as executor:
             return list(executor.map(function, values, chunksize=1))
+
+    def run_sensor(
+        self,
+        tasks: tuple[_KittiSequenceTask, ...],
+        *,
+        progress_callback: ReplayProgressCallback | None = None,
+    ) -> tuple[_KittiSequenceResult, ...]:
+        """Replay sensor trials in retained workers with fresh trackers and run IDs."""
+        from boxmot.engine.eval.eagermot_kitti import _run_parallel_sequences
+
+        run_id = uuid4().hex
+        tasks = tuple(replace(task, run_id=run_id, report_progress=progress_callback is not None) for task in tasks)
+        with self._operation() as executor:
+            return _run_parallel_sequences(
+                tasks,
+                self.workers,
+                progress_callback,
+                _pool=(executor, self._progress_queue, run_id),
+            )
 
     @contextmanager
     def metric_execution(self) -> Iterator[None]:

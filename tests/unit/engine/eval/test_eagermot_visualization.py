@@ -62,8 +62,9 @@ def _capture_visualizations(
 
 
 @pytest.mark.parametrize("flags", [("--show",), ("--save",), ("--show", "--save")])
+@pytest.mark.parametrize("cache_inputs", (False, True))
 def test_visualization_receives_evaluated_masks_ids_and_all_native_frames(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: tuple[str, ...]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flags: tuple[str, ...], cache_inputs: bool
 ) -> None:
     data = _fixture(tmp_path)
     # Make the first pedestrian mask overlap a car pixel. Final MOTS preparation
@@ -79,7 +80,9 @@ def test_visualization_receives_evaluated_masks_ids_and_all_native_frames(
     renderers = _capture_visualizations(monkeypatch)
     previous_threads = torch.get_num_threads()
 
-    invocation = CliRunner().invoke(boxmot, [*_arguments(data), *flags])
+    invocation = CliRunner().invoke(
+        boxmot, [*_arguments(data), *flags, "--cache-inputs" if cache_inputs else "--no-cache-inputs"]
+    )
 
     assert invocation.exit_code == 0, (invocation.output, invocation.exception)
     assert torch.get_num_threads() == previous_threads

@@ -202,3 +202,93 @@ def test_provenance_includes_prediction_presence_even_for_empty_frames(tmp_path:
 
     assert before.statistics == after.statistics
     assert before.input_sources != after.input_sources
+
+
+def test_calibration_uses_all_cached_spatial_inputs_without_decoding_masks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cached and direct calibration preserve exact samples and source provenance."""
+    import cv2
+
+    from boxmot.datasets.sensor_cache import open_sensor_sequence, prepare_sensor_sequence
+
+    dataset = _dataset(tmp_path)
+    # Calibration-only dataset: image metadata defines time, spatial annotations
+    # and predictions provide all observations; image masks are not required.
+    modalities = {
+        role: modality
+        for role, modality in dataset.sequences[0].modalities.items()
+        if role not in {"ground_truth", "detections_2d"}
+    }
+    dataset = replace(dataset, sequences=(SequenceInputs("drive", modalities),))
+    for path in (tmp_path / "images").glob("*.png"):
+        assert cv2.imwrite(str(path), np.zeros((3, 4, 3), dtype=np.uint8))
+    expected = load_sensor_calibration_data(dataset)
+    path = prepare_sensor_sequence(dataset, "drive")
+    cached = open_sensor_sequence(path)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Calibration must reuse cached spatial data and source hashes")
+
+    for reader in ("read_camera_to_world_poses", "read_kitti_projection", "read_kitti_tracking_labels", "_file_digest"):
+        monkeypatch.setattr(kalman_sensor_data, reader, unexpected)
+    monkeypatch.setattr(kalman_sensor_data.KittiDetections3D, "read", unexpected)
+    monkeypatch.setattr(type(cached), "__getitem__", unexpected)
+    try:
+        actual = load_sensor_calibration_data(dataset, cached_sequences={"drive": cached})
+        assert actual.statistics == expected.statistics
+        assert actual.ground_truth_sources == expected.ground_truth_sources
+        assert actual.input_sources == expected.input_sources
+        for direct, mapped in zip(expected.tracks, actual.tracks, strict=True):
+            assert (direct.sequence_id, direct.class_id, direct.track_id) == (
+                mapped.sequence_id,
+                mapped.class_id,
+                mapped.track_id,
+            )
+            for field in ("frame_indices", "timestamps_s", "gt_boxes", "detection_boxes", "scores"):
+                np.testing.assert_array_equal(getattr(direct, field), getattr(mapped, field))
+        with pytest.raises(ValueError, match="configuration"):
+            load_sensor_calibration_data(replace(dataset, fps=2.0), cached_sequences={"drive": cached})
+    finally:
+        cached.close()
+
+
+@pytest.mark.parametrize("change", ["add", "remove", "replace", "remove-linked"])
+def test_cached_calibration_provenance_uses_its_immutable_source_snapshot(tmp_path: Path, change: str) -> None:
+    """Live file changes must not alter provenance of already cached observations."""
+    import cv2
+
+    from boxmot.datasets.sensor_cache import open_sensor_sequence, prepare_sensor_sequence
+
+    dataset = _dataset(tmp_path)
+    modalities = {
+        role: modality
+        for role, modality in dataset.sequences[0].modalities.items()
+        if role not in {"ground_truth", "detections_2d"}
+    }
+    dataset = replace(dataset, sequences=(SequenceInputs("drive", modalities),))
+    for path in (tmp_path / "images").glob("*.png"):
+        assert cv2.imwrite(str(path), np.zeros((3, 4, 3), dtype=np.uint8))
+    source = tmp_path / "detections/000000.txt"
+    if change == "remove-linked":
+        target = tmp_path / "prediction-target.txt"
+        source.rename(target)
+        source.symlink_to(target)
+    expected = load_sensor_calibration_data(dataset)
+    cached = open_sensor_sequence(prepare_sensor_sequence(dataset, "drive"))
+    try:
+        if change == "add":
+            (tmp_path / "detections/000001.txt").write_text(_detection(9.5))
+        elif change == "replace":
+            source.write_text(_detection(500))
+        else:
+            source.unlink()
+        actual = load_sensor_calibration_data(dataset, cached_sequences={"drive": cached})
+        assert actual.statistics == expected.statistics
+        assert actual.input_sources == expected.input_sources
+        assert actual.ground_truth_sources == expected.ground_truth_sources
+        for direct, mapped in zip(expected.tracks, actual.tracks, strict=True):
+            for field in ("frame_indices", "timestamps_s", "gt_boxes", "detection_boxes", "scores"):
+                np.testing.assert_array_equal(getattr(direct, field), getattr(mapped, field))
+    finally:
+        cached.close()

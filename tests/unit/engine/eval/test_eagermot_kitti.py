@@ -71,10 +71,12 @@ def _arguments(data: SimpleNamespace) -> list[str]:
     ]
 
 
-def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_path: Path) -> None:
+@pytest.mark.parametrize("cache_inputs", (False, True))
+def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_path: Path, cache_inputs: bool) -> None:
     data = _fixture(tmp_path)
     previous_threads = torch.get_num_threads()
-    invocation = CliRunner().invoke(boxmot, _arguments(data))
+    arguments = [*_arguments(data), "--cache-inputs" if cache_inputs else "--no-cache-inputs"]
+    invocation = CliRunner().invoke(boxmot, arguments)
     assert invocation.exit_code == 0, (invocation.output, invocation.exception)
     assert torch.get_num_threads() == previous_threads
     output = data.project / "val"
@@ -91,6 +93,7 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
         assert set(values["per_sequence"]) == {"0002"}
     manifest = json.loads((output / "run.json").read_text())
     assert manifest["status"] == "complete"
+    assert manifest["cache_inputs"] is cache_inputs
     assert manifest["split"] == "val"
     assert manifest["sequences"] == {"0002": 3}
     assert manifest["dataset_config"] == str(data.dataset.resolve())
@@ -106,7 +109,7 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
     assert len(set(first_ids.values())) == 2
     assert {row.class_id: row.track_id for row in rows[2]} == first_ids
     originals = {path.relative_to(output): path.read_bytes() for path in output.rglob("*") if path.is_file()}
-    repeated = CliRunner().invoke(boxmot, _arguments(data))
+    repeated = CliRunner().invoke(boxmot, arguments)
     assert repeated.exit_code == 0, (repeated.output, repeated.exception)
     assert (data.project / "val2/metrics.json").is_file()
     assert all((output / relative).read_bytes() == contents for relative, contents in originals.items())

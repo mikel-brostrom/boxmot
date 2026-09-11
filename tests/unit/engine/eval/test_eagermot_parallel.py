@@ -18,6 +18,7 @@ from boxmot.datasets.sequence import MultimodalSequence, SensorFrame
 from boxmot.engine.eval import eagermot_kitti as replay
 from boxmot.engine.eval.kitti_mots_replay import kitti_mots_annotations
 from boxmot.engine.eval.replay import ReplayProgressEvent
+from boxmot.engine.eval.session import ReplaySession
 from tests.unit.engine.eval.test_eagermot_kitti import _fixture
 from tests.unit.engine.eval.test_eagermot_visualization import _capture_visualizations
 
@@ -122,6 +123,76 @@ def test_spawned_replay_matches_serial_masks_metrics_and_delivers_parent_progres
     assert metric_stages == [True]
     assert torch.get_num_threads() == original_threads
     assert json.loads((parallel / "run.json").read_text())["sequence_workers"] == 2
+
+
+def test_sensor_session_reuses_processes_and_isolates_trial_progress(tmp_path: Path) -> None:
+    """A retained pool starts fresh identities, filters old progress, and closes after the study."""
+    inputs = _inputs(tmp_path / "inputs")
+    profiles = replay.load_kitti_profiles()
+    expected = replay.evaluate_eagermot_kitti(inputs, profiles, tmp_path / "baseline", sequence_workers=1)
+    _concurrent_readers(inputs, tmp_path / "workers")
+    existing = {child.pid for child in multiprocessing.active_children()}
+    events = []
+    with ReplaySession(2) as session:
+        first = replay.evaluate_eagermot_kitti(
+            inputs,
+            profiles,
+            tmp_path / "first",
+            sequence_workers=2,
+            replay_session=session,
+            progress_callback=events.append,
+        )
+        original_executor = session._executor
+        markers = {path.name for path in (tmp_path / "workers").iterdir()}
+        first_ids = {event.run_id for event in events}
+        assert len(first_ids) == 1 and None not in first_ids
+        assert len({name.split("-")[1] for name in markers}) == 2
+        events.clear()
+        repeated = replay.evaluate_eagermot_kitti(
+            inputs,
+            profiles,
+            tmp_path / "repeat",
+            sequence_workers=2,
+            replay_session=session,
+            progress_callback=events.append,
+        )
+        assert session._executor is original_executor
+        assert {path.name.split("-")[1] for path in (tmp_path / "workers").iterdir()} == {
+            name.split("-")[1] for name in markers
+        }
+        assert first_ids.isdisjoint({event.run_id for event in events})
+        assert len({event.run_id for event in events}) == 1
+    assert session._executor is None
+    assert {child.pid for child in multiprocessing.active_children()} <= existing
+    assert first == repeated == expected
+    for name in inputs.sequences:
+        assert (tmp_path / "first/mots" / f"{name}.txt").read_bytes() == (
+            tmp_path / "repeat/mots" / f"{name}.txt"
+        ).read_bytes()
+
+
+def test_sensor_session_discards_failed_pool_and_can_restart(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path / "inputs")
+    inputs.sequences["0001"].fail_at = 1
+    with ReplaySession(2) as session:
+        with pytest.raises(RuntimeError, match="sequence.*0001"):
+            replay.evaluate_eagermot_kitti(
+                inputs,
+                replay.load_kitti_profiles(),
+                tmp_path / "failed",
+                sequence_workers=2,
+                replay_session=session,
+            )
+        assert session._executor is None
+        inputs.sequences["0001"].fail_at = None
+        result = replay.evaluate_eagermot_kitti(
+            inputs,
+            replay.load_kitti_profiles(),
+            tmp_path / "recovered",
+            sequence_workers=2,
+            replay_session=session,
+        )
+        assert result["cls_comb_cls_av"]["HOTA"] == 100
 
 
 def test_worker_failure_releases_children_restores_threads_and_skips_metrics(tmp_path: Path) -> None:

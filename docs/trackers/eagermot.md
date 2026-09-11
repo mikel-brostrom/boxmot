@@ -299,6 +299,13 @@ advances one frame per image; variable-time prediction is unsupported.
 Loading profiles with `--class-config` also keeps their `is_angular` choices
 fixed. Tuning without either flag can search the angular-motion choice.
 
+Add `--cache-inputs` to reuse all declared sensor observations and annotations
+across trials and later runs. Calibration consumes the same cached 3D inputs.
+The cache stores unfiltered detections and packed masks; each trial still applies
+its own thresholds and starts fresh trackers. Worker processes remain available
+throughout the study. See [input caching](../modes/eval.md#cache-replay-inputs-for-repeated-runs)
+for storage and invalidation behavior.
+
 ## Sensor fusion example
 
 This example supplies one synthetic camera and matching 2D/3D observations.

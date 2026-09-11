@@ -40,6 +40,7 @@ _SENSOR_OPTIONS = frozenset(
         "project",
         "class_config",
         "calibrate_kf",
+        "cache_inputs",
         "search_alg",
         "objectives",
         "maximize",

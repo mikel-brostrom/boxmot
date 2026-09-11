@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import ExitStack
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -238,9 +239,24 @@ def calibrate_kalman(
         dataset = load_dataset_inputs(
             args.dataset, split=getattr(args, "split", None), sequence_names=getattr(args, "sequence_names", ()) or ()
         )
-        return calibrate_sensor_kalman(
-            dataset, load_kitti_profiles(getattr(args, "class_config", None)), output_dir=output_dir, progress=progress
-        )
+        with ExitStack() as resources:
+            options = {}
+            if getattr(args, "cache_inputs", False):
+                from boxmot.datasets.sensor_cache import open_sensor_sequence, prepare_sensor_sequence
+
+                sequences = {}
+                for sequence_id in dataset.sequence_names:
+                    path = prepare_sensor_sequence(dataset, sequence_id, progress=progress)
+                    sequences[sequence_id] = open_sensor_sequence(path)
+                    resources.callback(sequences[sequence_id].close)
+                options["cached_sequences"] = sequences
+            return calibrate_sensor_kalman(
+                dataset,
+                load_kitti_profiles(getattr(args, "class_config", None)),
+                output_dir=output_dir,
+                progress=progress,
+                **options,
+            )
     _ensure_setup(args)
     base_config = resolve_tracker_options(args, tracker_options, include_defaults=True, stamp_timing=True)
     validate_calibration_options(args.tracker, base_config)

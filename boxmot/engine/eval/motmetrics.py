@@ -23,6 +23,7 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
+from boxmot.datasets.annotation_cache import load_cached_annotation
 from boxmot.utils import logger as LOGGER
 
 HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange(0.05, 0.99, 0.05))
@@ -119,6 +120,7 @@ class AABBSequenceEvaluationTask:
     class_pairs: tuple[tuple[str, int], ...]
     num_timesteps: int | None
     distractor_ids: frozenset[int]
+    cache_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,7 @@ class OBBSequenceEvaluationTask:
     class_pairs: tuple[tuple[str, int], ...]
     num_timesteps: int | None
     flat_annotations: bool
+    cache_root: Path | None = None
 
 
 SequenceEvaluationTask = AABBSequenceEvaluationTask | OBBSequenceEvaluationTask
@@ -1218,7 +1221,13 @@ def _evaluate_aabb_sequence_task(task: AABBSequenceEvaluationTask) -> tuple[str,
     indexed_rows = _index_sequence_rows(
         seq_name=task.seq_name,
         seq_info=seq_info,
-        gt=_read_csv_matrix(task.gt_path),
+        gt=(
+            _read_csv_matrix(task.gt_path)
+            if task.cache_root is None
+            else load_cached_annotation(
+                task.gt_path, reader=_read_csv_matrix, format="mot-aabb/v1", cache_root=task.cache_root
+            )
+        ),
         tracker=tracker,
     )
     class_results = {
@@ -1245,7 +1254,13 @@ def _evaluate_obb_sequence_task(task: OBBSequenceEvaluationTask) -> tuple[str, d
 
     def _load_gt(path: Path) -> np.ndarray:
         if path not in gt_matrices:
-            gt_matrices[path] = _load_obb_gt_matrix(path)
+            gt_matrices[path] = (
+                _load_obb_gt_matrix(path)
+                if task.cache_root is None
+                else load_cached_annotation(
+                    path, reader=_load_obb_gt_matrix, format="mot-obb/v1", cache_root=task.cache_root
+                )
+            )
         return gt_matrices[path]
 
     gt_path = _resolve_obb_gt_path(
@@ -1398,6 +1413,11 @@ def run_motmetrics(
     seq_info = _sequence_names_from_paths(seq_paths, seq_info)
     cfg = _load_eval_cfg(args)
     eval_box_type = _resolve_eval_box_type(args, cfg)
+    cache_root = (
+        Path(args.source) / ".boxmot" / "replay_cache" / "annotations"
+        if bool(getattr(args, "cache_inputs", False))
+        else None
+    )
     if eval_box_type == "obb":
         bench_cfg = _benchmark_config(cfg)
         class_pairs = _resolve_obb_eval_class_pairs(args, bench_cfg)
@@ -1413,6 +1433,7 @@ def run_motmetrics(
                 class_pairs=tuple(class_pairs),
                 num_timesteps=seq_info[seq_name],
                 flat_annotations=flat_annotations,
+                cache_root=cache_root,
             )
             for seq_name in sorted(seq_info)
         ]
@@ -1437,6 +1458,7 @@ def run_motmetrics(
             class_pairs=tuple(class_pairs),
             num_timesteps=seq_info[seq_name],
             distractor_ids=frozenset(distractor_ids),
+            cache_root=cache_root,
         )
         for seq_name in sorted(seq_info)
     ]
