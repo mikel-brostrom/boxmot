@@ -21,31 +21,33 @@ _SENSOR_TRACKING_FORMATS = {
 }
 
 
-def _sensor_evaluation_formats(*, eval_3d: bool, calibrate_kf: bool) -> dict[str, str]:
+def _sensor_evaluation_formats(*, eval_3d: bool, eval_ap: bool, calibrate_kf: bool) -> dict[str, str]:
     """Keep tracking inputs separate from the annotations a workflow consumes."""
     formats = dict(_SENSOR_TRACKING_FORMATS)
     if not eval_3d:
         formats["ground_truth"] = "instance-png"
     if eval_3d or calibrate_kf:
         formats["ground_truth_3d"] = "kitti-tracking-labels"
-    if eval_3d:
+    if eval_ap:
         formats["ground_truth_objects"] = "kitti-object-labels"
     return formats
 
 
 def _validate_sensor_3d_ground_truth(
-    modalities: Mapping[str, Mapping[str, Any]], *, eval_3d: bool, calibrate_kf: bool
+    modalities: Mapping[str, Mapping[str, Any]], *, eval_3d: bool, eval_ap: bool, calibrate_kf: bool
 ) -> None:
     """Explain missing spatial annotations before resolving payload paths."""
+    if eval_ap and not eval_3d:
+        raise ValueError("--eval-ap requires --eval-3d.")
     if (eval_3d or calibrate_kf) and modalities.get("ground_truth_3d", {}).get("format") != "kitti-tracking-labels":
         option = "--eval-3d" if eval_3d else "--calibrate-kf"
         raise ValueError(
             f"{option} requires 3D ground truth with track IDs.\n"
             "Add ground_truth_3d with format: kitti-tracking-labels to dataset.yaml."
         )
-    if eval_3d and modalities.get("ground_truth_objects", {}).get("format") != "kitti-object-labels":
+    if eval_ap and modalities.get("ground_truth_objects", {}).get("format") != "kitti-object-labels":
         raise ValueError(
-            "--eval-3d requires per-image KITTI object ground truth aligned to the sequence frames.\n"
+            "--eval-ap requires per-image KITTI object ground truth aligned to the sequence frames.\n"
             "Add ground_truth_objects with format: kitti-object-labels to dataset.yaml."
         )
 
@@ -76,6 +78,7 @@ def validate_sensor_workflow_inputs(
     split: str | None = None,
     calibrate_kf: bool = False,
     eval_3d: bool = False,
+    eval_ap: bool = False,
 ) -> None:
     """Explain unsupported sensor selections before reading payloads or loading models."""
 
@@ -90,7 +93,7 @@ def validate_sensor_workflow_inputs(
     if spec.backend == "cpp" and definition.native_class_path is None:
         raise ValueError(f"Tracker '{spec.name}' has no C++ backend.\nUse --tracker-backend python.")
 
-    formats = _sensor_evaluation_formats(eval_3d=eval_3d, calibrate_kf=calibrate_kf)
+    formats = _sensor_evaluation_formats(eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     missing = [role for role in formats if role not in modalities]
     unused = _unused_sensor_inputs(modalities, definition.capabilities)
     context = f"dataset '{config['id']}' (split '{split_name}')"
@@ -104,7 +107,7 @@ def validate_sensor_workflow_inputs(
         raise ValueError(f"'{spec.name}' does not use inputs required by {context}: {', '.join(unused)}.\n{advice}")
     if spec.name != "eagermot" or spec.backend != "python":
         raise ValueError(f"Saved-sensor {mode} supports only --tracker eagermot --tracker-backend python.")
-    _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, calibrate_kf=calibrate_kf)
+    _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     if missing:
         raise ValueError(
             f"Dataset '{config['id']}' (split '{split_name}') is missing inputs for EagerMOT {mode}: "
@@ -135,6 +138,7 @@ def load_sensor_evaluation_inputs(
     split: str | None = None,
     sequence_names: tuple[str, ...] = (),
     eval_3d: bool = False,
+    eval_ap: bool = False,
     calibrate_kf: bool = False,
 ) -> DatasetInputs:
     """Resolve all tracking inputs and only annotations used by scoring or calibration."""
@@ -142,8 +146,8 @@ def load_sensor_evaluation_inputs(
     config = load_dataset_config(reference)
     split_name = config["default_split"] if split is None else split
     modalities = dataset_modalities(config, split_name)
-    _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, calibrate_kf=calibrate_kf)
-    formats = _sensor_evaluation_formats(eval_3d=eval_3d, calibrate_kf=calibrate_kf)
+    _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
+    formats = _sensor_evaluation_formats(eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     annotation_roles = {"ground_truth", "ground_truth_3d", "ground_truth_objects"}
     roles = tuple(role for role in modalities if role not in annotation_roles or role in formats)
     dataset = resolve_dataset_inputs(config, split=split_name, sequence_names=sequence_names, roles=roles)

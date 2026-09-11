@@ -38,6 +38,7 @@ def test_validation_result_preserves_field_order_slots_and_serialization():
         "reference_raw",
         "reference_name",
         "detection_metrics",
+        "tracking_2d_metrics",
     ]
     assert not hasattr(result, "__dict__")
     assert repr(result) == (

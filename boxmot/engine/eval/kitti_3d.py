@@ -1,4 +1,4 @@
-"""KITTI result export, official object AP, and TrackEval 2D tracking protocols."""
+"""Volumetric 3D tracking metrics with optional official KITTI object scoring."""
 
 from __future__ import annotations
 
@@ -14,13 +14,21 @@ import numpy as np
 
 from boxmot.datasets.readers.boxes3d import KittiObjectLabels, TrackingLabels3D
 from boxmot.engine.eval.kitti_object_backend import evaluate_kitti_objects, resolve_kitti_object_backend
+from boxmot.engine.eval.motmetrics import (
+    SequenceData,
+    _combine_bundles,
+    _combine_bundles_class_averaged,
+    _eval_bundle,
+    _relabel_ids,
+    _summary_from_bundle,
+)
 from boxmot.engine.eval.trackeval_reference import (
     evaluate_trackeval_kitti,
     normalize_kitti_tracking_row,
     validate_trackeval_kitti_dependencies,
 )
 from boxmot.structures import CameraModel, Tracks3D
-from boxmot.trackers.eagermot.geometry import project_box3d
+from boxmot.trackers.eagermot.geometry import iou3d_matrix, project_box3d
 from boxmot.utils import logger as LOGGER
 
 KITTI_3D_CLASSES = {1: "car", 2: "pedestrian"}
@@ -133,10 +141,56 @@ def read_kitti_3d_results(path: str | Path, *, frame_count: int) -> dict[int, tu
     return {frame: tuple(rows) for frame, rows in sorted(frames.items())}
 
 
-def validate_kitti_evaluation_dependencies() -> None:
-    """Fail before replay when either official KITTI evaluator is unavailable."""
-    validate_trackeval_kitti_dependencies()
-    resolve_kitti_object_backend()
+def validate_kitti_evaluation_dependencies(*, eval_ap: bool = False) -> None:
+    """Validate optional official evaluators only when AP scoring is requested."""
+    if eval_ap:
+        validate_trackeval_kitti_dependencies()
+        resolve_kitti_object_backend()
+
+
+def _sequence_data(
+    sequence_id: str,
+    annotations: TrackingLabels3D,
+    predictions: Mapping[int, tuple[Kitti3DRow, ...]],
+    frame_count: int,
+    class_id: int,
+) -> SequenceData:
+    """Index volumetric similarities and compact identities within each sequence."""
+    selected = np.flatnonzero(annotations.class_ids == class_id)
+    frame_rows: list[list[int]] = [[] for _ in range(frame_count)]
+    for index in selected:
+        frame_rows[int(annotations.frame_indices[index])].append(int(index))
+    gt_ids, tracker_ids, similarities = [], [], []
+    for frame_index, indices in enumerate(frame_rows):
+        rows = tuple(row for row in predictions.get(frame_index, ()) if row.class_id == class_id)
+        boxes = np.asarray([row.box for row in rows], dtype=np.float64).reshape(-1, 7)
+        gt_ids.append(annotations.track_ids[indices])
+        tracker_ids.append(np.asarray([row.track_id for row in rows], dtype=np.int64))
+        similarities.append(iou3d_matrix(annotations.boxes[indices], boxes))
+    gt_ids, num_gt = _relabel_ids(gt_ids)
+    tracker_ids, num_tracks = _relabel_ids(tracker_ids)
+    return SequenceData(
+        seq=sequence_id,
+        gt_ids=gt_ids,
+        tracker_ids=tracker_ids,
+        similarity_scores=similarities,
+        num_timesteps=frame_count,
+        num_gt_dets=sum(map(len, gt_ids)),
+        num_tracker_dets=sum(map(len, tracker_ids)),
+        num_gt_ids=num_gt,
+        num_tracker_ids=num_tracks,
+    )
+
+
+def _write_tracking_metrics(output: Path, basename: str, results: Mapping[str, Mapping[str, Any]]) -> None:
+    """Persist each tracking protocol independently with the common report schema."""
+    (output / f"{basename}.json").write_text(json.dumps(results, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    fields = [name for name in results["car"] if name != "per_sequence"]
+    with (output / f"{basename}.csv").open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["class", *fields])
+        writer.writeheader()
+        for name, values in results.items():
+            writer.writerow({"class": name, **{key: values[key] for key in fields}})
 
 
 def _validate_tracking_source(fields: list[str], *, sequence_id: str, frame_count: int) -> None:
@@ -238,34 +292,21 @@ def _export_official_inputs(
     return tracking_gt, tracking_predictions, object_gt, object_predictions, frame_ids, provenance
 
 
-def evaluate_kitti_3d(
+def _evaluate_official_protocols(
     prediction_dir: Path,
     output: Path,
     annotations: Mapping[str, TrackingLabels3D],
     frame_counts: Mapping[str, int],
     object_annotations: Mapping[str, KittiObjectLabels],
-) -> dict[str, dict[str, Any]]:
-    """Score spatial outputs with official object AP and KITTI 2D tracking.
-
-    KITTI's object devkit scores 2D/3D AP by difficulty against distinct object
-    annotations. TrackEval scores projected 2D tracking against original tracking
-    annotations, retaining its own distractor and visibility preprocessing.
-    """
-    validate_kitti_evaluation_dependencies()
-    output = Path(output)
+) -> dict[str, Any]:
+    """Write additional official reports without replacing volumetric tracking scores."""
     gt, predictions, object_gt, object_predictions, frame_ids, provenance = _export_official_inputs(
         Path(prediction_dir), output, annotations, frame_counts, object_annotations
     )
     LOGGER.info("Evaluating official KITTI object AP and TrackEval KITTI 2D tracking")
     detection_results = evaluate_kitti_objects(object_gt, object_predictions, frame_ids, output)
-    results = evaluate_trackeval_kitti(gt_folder=gt, tracker_folder=predictions, seq_info=frame_counts)
-    (output / "metrics.json").write_text(json.dumps(results, indent=2, allow_nan=False) + "\n", encoding="utf-8")
-    fields = [name for name in results["car"] if name != "per_sequence"]
-    with (output / "metrics.csv").open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["class", *fields])
-        writer.writeheader()
-        for name, values in results.items():
-            writer.writerow({"class": name, **{key: values[key] for key in fields}})
+    tracking_results = evaluate_trackeval_kitti(gt_folder=gt, tracker_folder=predictions, seq_info=frame_counts)
+    _write_tracking_metrics(output, "tracking_2d_metrics", tracking_results)
     (output / "detection_metrics.json").write_text(
         json.dumps(detection_results, indent=2, allow_nan=False) + "\n", encoding="utf-8"
     )
@@ -276,12 +317,87 @@ def evaluate_kitti_3d(
             for class_name, difficulties in classes.items():
                 for difficulty, value in difficulties.items():
                     writer.writerow([geometry, class_name, difficulty, value])
-    protocol = {
-        "protocol": "kitti-official-object-and-trackeval-tracking",
-        "tracking": {"evaluator": "trackeval==1.3.0", "dataset": "Kitti2DBox", "geometry": "2d"},
+    return {
+        "tracking_2d": {
+            "evaluator": "trackeval==1.3.0",
+            "dataset": "Kitti2DBox",
+            "geometry": "2d",
+            "metrics_file": "tracking_2d_metrics.json",
+        },
         "detection": {"evaluator": "KITTI object devkit", "geometry": ["2d", "3d"], "metric": "AP40"},
         "spatial_prediction_projection": "Existing camera projection of emitted 3D boxes, without tracker changes.",
         **provenance,
     }
+
+
+def evaluate_kitti_3d(
+    prediction_dir: Path,
+    output: Path,
+    annotations: Mapping[str, TrackingLabels3D],
+    frame_counts: Mapping[str, int],
+    object_annotations: Mapping[str, KittiObjectLabels] | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Score volumetric tracking, optionally adding official object and 2D reports.
+
+    HOTA uses 3D IoU thresholds 0.05 through 0.95; CLEAR and Identity use 0.5.
+    All supplied target 3D annotations are scored, without official KITTI
+    visibility, difficulty or DontCare filtering. Exact object annotations
+    enable additional official AP40 and projected TrackEval 2D tracking reports.
+    The returned metrics and primary metrics files always describe 3D tracking.
+    """
+    if not annotations or set(annotations) != set(frame_counts):
+        raise ValueError("KITTI 3D evaluation requires matching nonempty annotation and frame-count sequence sets.")
+    validate_kitti_evaluation_dependencies(eval_ap=object_annotations is not None)
+    LOGGER.info("Evaluating camera-space 3D boxes with volumetric IoU (BoxMOT protocol)")
+    bundles: dict[str, dict[str, Any]] = {name: {} for name in KITTI_3D_CLASSES.values()}
+    prediction_hashes: dict[str, str] = {}
+    for sequence_id, truth in annotations.items():
+        frame_count = frame_counts[sequence_id]
+        _nonnegative_integer(frame_count, "frame count")
+        if not frame_count:
+            raise ValueError("KITTI 3D frame count must be positive.")
+        if np.any((truth.frame_indices < 0) | (truth.frame_indices >= frame_count)):
+            raise ValueError(f"KITTI 3D annotations for {sequence_id!r} exceed its frame bounds.")
+        if not set(truth.class_ids).issubset(KITTI_3D_CLASSES):
+            raise ValueError("KITTI 3D annotations must contain only configured target car/pedestrian classes.")
+        prediction_path = Path(prediction_dir) / f"{sequence_id}.txt"
+        predictions = read_kitti_3d_results(prediction_path, frame_count=frame_count)
+        prediction_hashes[sequence_id] = hashlib.sha256(prediction_path.read_bytes()).hexdigest()
+        for class_id, name in KITTI_3D_CLASSES.items():
+            bundles[name][sequence_id] = _eval_bundle(
+                _sequence_data(sequence_id, truth, predictions, frame_count, class_id)
+            )
+    combined = {name: _combine_bundles(values) for name, values in bundles.items()}
+    results = {
+        name: {
+            **_summary_from_bundle(combined[name]),
+            "per_sequence": {sequence_id: _summary_from_bundle(bundle) for sequence_id, bundle in values.items()},
+        }
+        for name, values in bundles.items()
+    }
+    results["cls_comb_cls_av"] = _summary_from_bundle(_combine_bundles_class_averaged(combined))
+    results["cls_comb_det_av"] = _summary_from_bundle(_combine_bundles(combined))
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    _write_tracking_metrics(output, "metrics", results)
+    protocol = {
+        "protocol": "boxmot-3d-iou-v1",
+        "official_kitti_protocol": False,
+        "tracking": {"evaluator": "BoxMOT", "geometry": "3d", "metrics_file": "metrics.json"},
+        "geometry": "camera-space bottom-center x/y/z/yaw/length/width/height in meters and radians",
+        "similarity": "volumetric 3D IoU",
+        "corner_precision_m": 0.0001,
+        "hota_iou_thresholds": [index / 20 for index in range(1, 20)],
+        "clear_identity_iou_threshold": 0.5,
+        "ground_truth": "All supplied target 3D annotations; configured non-target classes are excluded by the reader.",
+        "limitations": "No official KITTI difficulty, visibility, truncation, or DontCare-region filtering.",
+        "sequences": dict(frame_counts),
+        "ground_truth_sha256": {name: value.source_sha256 for name, value in annotations.items()},
+        "prediction_sha256": prediction_hashes,
+    }
+    if object_annotations is not None:
+        protocol.update(
+            _evaluate_official_protocols(prediction_dir, output, annotations, frame_counts, object_annotations)
+        )
     (output / "evaluation.json").write_text(json.dumps(protocol, indent=2) + "\n", encoding="utf-8")
     return results

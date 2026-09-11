@@ -181,7 +181,7 @@ def test_sensor_eval_rejects_unsupported_controls_before_loading_evaluators(
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("option", ("--class-config", "--show-3d", "--eval-3d"))
+@pytest.mark.parametrize("option", ("--class-config", "--show-3d", "--eval-3d", "--eval-ap"))
 def test_image_eval_rejects_sensor_only_options_before_preparing_a_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: str
 ) -> None:
@@ -190,10 +190,67 @@ def test_image_eval_rejects_sensor_only_options_before_preparing_a_build(
     profile = tmp_path / "best.yaml"
     profile.write_text("car: {}\npedestrian: {}\n", encoding="utf-8")
     flags = [option, str(profile)] if option == "--class-config" else [option, "--show"]
+    if option == "--eval-ap":
+        flags.append("--eval-3d")
     result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17", "--tracker", "bytetrack", *flags])
 
     assert result.exit_code == 2, (result.output, result.exception)
     assert f"{option} requires a sensor dataset with --tracker eagermot" in result.output
+
+
+@pytest.mark.parametrize("eval_ap", (False, True))
+def test_sensor_eval_dispatches_optional_ap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_ap: bool) -> None:
+    """Object annotations are selected only by the explicit AP flag."""
+    from tests.unit.engine.eval.test_sensor_3d_inputs import _declare_3d_labels
+
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    data.ground_truth.rmdir()
+    if not eval_ap:
+        shutil.rmtree(tmp_path / "sequences/training/0002/object_labels")
+    _forbid_perception(monkeypatch)
+    captured: dict[str, Any] = {}
+
+    def run(args: SimpleNamespace, **kwargs: Any) -> ValidationResult:
+        captured["args"] = args
+        return ValidationResult("kitti-mots-fusion", {}, "cls_comb_cls_av", {}, exp_dir=tmp_path / "results", args=args)
+
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.eagermot_kitti", SimpleNamespace(run_eagermot_kitti=run))
+    flags = ["--eval-3d", *(["--eval-ap"] if eval_ap else [])]
+    result = CliRunner().invoke(boxmot, ["eval", "--dataset", str(data.dataset), "--tracker", "eagermot", *flags])
+
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert captured["args"].eval_3d is True
+    assert captured["args"].eval_masks is False
+    assert captured["args"].eval_ap is eval_ap
+
+
+def test_sensor_eval_ap_requires_3d_before_loading_inputs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _forbid_perception(monkeypatch)
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", None)
+    result = CliRunner().invoke(boxmot, [*_arguments(tmp_path), "--eval-ap"])
+
+    assert result.exit_code == 2, (result.output, result.exception)
+    assert "--eval-ap requires --eval-3d" in result.output
+
+
+def test_sensor_eval_ap_reports_missing_object_labels(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tests.unit.engine.eval.test_sensor_3d_inputs import _declare_3d_labels
+
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    config = yaml.safe_load(data.dataset.read_text())
+    del config["modalities"]["ground_truth_objects"]
+    data.dataset.write_text(yaml.safe_dump(config))
+    _forbid_perception(monkeypatch)
+    monkeypatch.setitem(sys.modules, "boxmot.engine.eval.evaluator", None)
+    result = CliRunner().invoke(
+        boxmot, ["eval", "--dataset", str(data.dataset), "--tracker", "eagermot", "--eval-3d", "--eval-ap"]
+    )
+
+    assert result.exit_code == 2, (result.output, result.exception)
+    assert "--eval-ap requires per-image KITTI object ground truth" in result.output
+    assert "Add ground_truth_objects" in result.output
 
 
 def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -299,6 +356,10 @@ def test_sensor_eval_help_describes_preview_and_saved_videos() -> None:
     assert "results/videos" in result.output
     assert "--show-3d" in result.output
     assert "estimated tracked 3D cuboids" in result.output
+    assert "--eval-3d" in result.output
+    assert "3D tracking metrics from KITTI tracking ground truth" in result.output
+    assert "--eval-ap" in result.output
+    assert "Add official KITTI 2D/3D AP40" in result.output
 
 
 @pytest.mark.parametrize("use_directory", (False, True))

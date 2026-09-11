@@ -120,6 +120,7 @@ class ValidationResult:
     reference_raw: dict[str, Any] | None = None
     reference_name: str | None = None
     detection_metrics: dict[str, dict[str, dict[str, float | None]]] | None = None
+    tracking_2d_metrics: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         if self.workflow_rendered:
@@ -149,6 +150,7 @@ class ValidationResult:
             self.raw,
             args=self.args,
             detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=report_title,
             include_sequences=include_sequences,
@@ -178,6 +180,7 @@ class ValidationResult:
             self.raw,
             args=self.args,
             detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=resolved_title,
             include_sequences=include_sequences,
@@ -195,6 +198,7 @@ class ValidationResult:
             self.raw,
             args=self.args,
             detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             title=report_title,
             include_sequences=include_sequences,
         )
@@ -219,6 +223,7 @@ class ValidationResult:
             self.raw,
             args=self.args,
             detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=report_title,
             include_sequences=include_sequences,
@@ -238,6 +243,8 @@ class ValidationResult:
         }
         if self.detection_metrics is not None:
             payload["detection_metrics"] = self.detection_metrics
+        if self.tracking_2d_metrics is not None:
+            payload["tracking_2d_metrics"] = self.tracking_2d_metrics
         if include_raw:
             payload["raw"] = self.raw
             if self.reference_raw is not None:

@@ -166,6 +166,8 @@ def test_official_exports_keep_distinct_object_labels_scores_and_frame_mapping(
     tracking_rows = [_gt(0, large_id), _gt(2, large_id), _gt(0, 4, "Person_sitting", (70, 0, 120, 50))]
     truth = _annotations(tmp_path / "tracking.txt", tracking_rows, 3)
     prediction_rows = [_prediction(tracking_rows[0], large_id + 10), _prediction(tracking_rows[1], large_id + 10)]
+    # Preserve perfect image overlap but move the predicted objects far away in depth.
+    prediction_rows = [" ".join([*row.split()[:15], "1000", *row.split()[16:]]) for row in prediction_rows]
     (predictions / "0000.txt").write_text("\n".join(prediction_rows) + "\n")
     object_row = "Car 0.37 1 0 2 3 44 49 2 2 4 0 2 10 0"
     objects = KittiObjectLabels(frame_rows=((object_row,), (), (object_row,)), source_sha256="b" * 64)
@@ -184,16 +186,24 @@ def test_official_exports_keep_distinct_object_labels_scores_and_frame_mapping(
     monkeypatch.setattr(kitti_3d, "evaluate_kitti_objects", object_backend)
     monkeypatch.setattr(kitti_3d, "resolve_kitti_object_backend", lambda: tmp_path / "backend")
     output = tmp_path / "metrics"
+    baseline = kitti_3d.evaluate_kitti_3d(predictions, tmp_path / "baseline", {"0000": truth}, {"0000": 3})
     results = kitti_3d.evaluate_kitti_3d(predictions, output, {"0000": truth}, {"0000": 3}, {"0000": objects})
 
-    assert results["car"]["HOTA"] == results["car"]["IDF1"] == 100
+    assert results == baseline
+    assert results["car"]["HOTA"] == results["car"]["IDF1"] == 0
     assert results["car"]["GT_Dets"] == 2
     assert json.loads((output / "metrics.json").read_text()) == results
+    assert (output / "metrics.csv").read_bytes() == (tmp_path / "baseline/metrics.csv").read_bytes()
+    projected = json.loads((output / "tracking_2d_metrics.json").read_text())
+    assert projected["car"]["HOTA"] == projected["car"]["IDF1"] == 100
+    assert len((output / "tracking_2d_metrics.csv").read_text().splitlines()) == 5
     assert json.loads((output / "detection_metrics.json").read_text()) == expected_ap
     assert len((output / "detection_metrics.csv").read_text().splitlines()) == 13
     protocol = json.loads((output / "evaluation.json").read_text())
-    assert protocol["tracking"]["geometry"] == "2d"
-    assert protocol["tracking"]["evaluator"] == "trackeval==1.3.0"
+    assert protocol["protocol"] == "boxmot-3d-iou-v1"
+    assert protocol["tracking"]["geometry"] == "3d"
+    assert protocol["tracking_2d"]["geometry"] == "2d"
+    assert protocol["tracking_2d"]["evaluator"] == "trackeval==1.3.0"
     assert protocol["detection"]["geometry"] == ["2d", "3d"]
     assert protocol["detection"]["metric"] == "AP40"
     assert protocol["frames"][-1] == {"id": "000002", "sequence": "0000", "frame_index": 2}
@@ -228,6 +238,8 @@ def test_dependency_preflight_runs_both_official_backends(monkeypatch: pytest.Mo
     monkeypatch.setattr(kitti_3d, "validate_trackeval_kitti_dependencies", lambda: called.append("trackeval"))
     monkeypatch.setattr(kitti_3d, "resolve_kitti_object_backend", lambda: called.append("object"))
     kitti_3d.validate_kitti_evaluation_dependencies()
+    assert called == []
+    kitti_3d.validate_kitti_evaluation_dependencies(eval_ap=True)
     assert called == ["trackeval", "object"]
 
 

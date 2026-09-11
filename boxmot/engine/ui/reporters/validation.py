@@ -40,6 +40,7 @@ CLI_RESULTS_SUMMARY_TITLE = "📊 RESULTS SUMMARY"
 CLI_TUNE_BEST_SUMMARY_TITLE = "📊 BEST TRIAL SUMMARY"
 KITTI_AP_TITLE = "Official KITTI object detection — AP40 (%)"
 KITTI_TRACKING_TITLE = "2D tracking — TrackEval KITTI"
+SPATIAL_TRACKING_TITLE = "3D tracking — volumetric IoU"
 
 
 def _detection_rows(metrics: dict[str, Any]) -> list[tuple[str, ...]]:
@@ -217,6 +218,7 @@ def build_validation_cli_renderable(
     *,
     args: Any = None,
     detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
@@ -246,9 +248,12 @@ def build_validation_cli_renderable(
             (
                 _build_detection_table(detection_metrics),
                 Rule(style=STYLE_RULE),
-                Text(KITTI_TRACKING_TITLE, style=STYLE_TEXT_STRONG),
             )
         )
+    if getattr(args, "eval_3d", False):
+        sections.append(Text(SPATIAL_TRACKING_TITLE, style=STYLE_TEXT_STRONG))
+    elif detection_metrics is not None:
+        sections.append(Text(KITTI_TRACKING_TITLE, style=STYLE_TEXT_STRONG))
 
     if len(primary_keys) > 1:
         sections.append(
@@ -336,6 +341,16 @@ def build_validation_cli_renderable(
             )
         sections.append(Group(*block))
 
+    if tracking_2d_metrics is not None:
+        sections.extend(
+            (
+                Rule(style=STYLE_RULE),
+                build_validation_cli_renderable(
+                    tracking_2d_metrics, title=KITTI_TRACKING_TITLE, include_sequences=include_sequences
+                ),
+            )
+        )
+
     if include_timings:
         timing_renderable = _build_timing_renderable(timings)
         if timing_renderable is not None:
@@ -372,6 +387,7 @@ def format_validation_report(
     *,
     args: Any = None,
     detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
 ) -> str:
@@ -391,9 +407,20 @@ def format_validation_report(
         always_include_combined=True,
         colorize=False,
     )
+    blocks = [tracking_report]
+    if getattr(args, "eval_3d", False):
+        blocks.insert(0, SPATIAL_TRACKING_TITLE)
+    elif detection_metrics is not None:
+        blocks.insert(0, KITTI_TRACKING_TITLE)
     if detection_metrics is not None:
-        return f"{_format_detection_report(detection_metrics)}\n\n{KITTI_TRACKING_TITLE}\n{tracking_report}"
-    return tracking_report
+        blocks.insert(0, _format_detection_report(detection_metrics))
+    if tracking_2d_metrics is not None:
+        blocks.append(
+            format_validation_report(
+                tracking_2d_metrics, title=KITTI_TRACKING_TITLE, include_sequences=include_sequences
+            )
+        )
+    return "\n\n".join(blocks)
 
 
 def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | None:
@@ -419,6 +446,7 @@ def render_validation_cli_report(
     *,
     args: Any = None,
     detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -454,8 +482,21 @@ def render_validation_cli_report(
             colorize=bool(colorize),
         )
     ]
+    if getattr(args, "eval_3d", False):
+        blocks.insert(0, SPATIAL_TRACKING_TITLE)
+    elif detection_metrics is not None:
+        blocks.insert(0, KITTI_TRACKING_TITLE)
     if detection_metrics is not None:
-        blocks[:0] = [_format_detection_report(detection_metrics), "", KITTI_TRACKING_TITLE]
+        blocks[:0] = [_format_detection_report(detection_metrics), ""]
+    if tracking_2d_metrics is not None:
+        blocks.append(
+            render_validation_cli_report(
+                tracking_2d_metrics,
+                title=KITTI_TRACKING_TITLE,
+                include_sequences=include_sequences,
+                colorize=colorize,
+            )
+        )
 
     if include_timings:
         timing_stats = timing_stats_from_snapshot(timings)
@@ -472,6 +513,7 @@ def print_validation_cli_report(
     *,
     args: Any = None,
     detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -488,6 +530,7 @@ def print_validation_cli_report(
         raw,
         args=args,
         detection_metrics=detection_metrics,
+        tracking_2d_metrics=tracking_2d_metrics,
         timings=timings,
         title=title,
         include_sequences=include_sequences,

@@ -38,27 +38,39 @@ def _declare_3d_labels(dataset_path: Path, *, create: bool = True) -> Path:
     return labels
 
 
-@pytest.mark.parametrize(("eval_3d", "calibrate_kf"), ((False, False), (False, True), (True, False), (True, True)))
-def test_sensor_inputs_resolve_only_consumed_annotations(tmp_path: Path, eval_3d: bool, calibrate_kf: bool) -> None:
+@pytest.mark.parametrize(
+    ("eval_3d", "calibrate_kf", "eval_ap"),
+    (
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, False),
+        (True, False, True),
+        (True, True, True),
+    ),
+)
+def test_sensor_inputs_resolve_only_consumed_annotations(
+    tmp_path: Path, eval_3d: bool, calibrate_kf: bool, eval_ap: bool
+) -> None:
     """Missing unused labels cannot block tracking or the selected metric."""
     data = sensor_dataset_fixture(tmp_path)
     _declare_3d_labels(data.dataset, create=eval_3d or calibrate_kf)
     if eval_3d:
         data.ground_truth.rmdir()
-    elif calibrate_kf:
-        (tmp_path / "sequences/training/0002/object_labels").rmdir()
+    if not eval_ap:
+        shutil.rmtree(tmp_path / "sequences/training/0002/object_labels", ignore_errors=True)
 
     validate_sensor_workflow_inputs(
-        data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=eval_3d, calibrate_kf=calibrate_kf
+        data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf
     )
-    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=eval_3d, calibrate_kf=calibrate_kf)
+    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
 
     expected = {"images", "detections_2d", "detections_3d", "calibration", "poses"}
     if not eval_3d:
         expected.add("ground_truth")
     if eval_3d or calibrate_kf:
         expected.add("ground_truth_3d")
-    if eval_3d:
+    if eval_ap:
         expected.add("ground_truth_objects")
     assert set(dataset.sequences[0].modalities) == expected
     assert dataset.sequence_names == ("0002",)
@@ -80,7 +92,7 @@ def test_sensor_spatial_labels_required_only_when_consumed(tmp_path: Path, entry
 
 
 @pytest.mark.parametrize("entrypoint", ("validate", "load"))
-def test_3d_scoring_requires_object_ground_truth_before_payload_validation(tmp_path: Path, entrypoint: str) -> None:
+def test_ap_scoring_requires_object_ground_truth_before_payload_validation(tmp_path: Path, entrypoint: str) -> None:
     data = sensor_dataset_fixture(tmp_path)
     _declare_3d_labels(data.dataset)
     config = yaml.safe_load(data.dataset.read_text())
@@ -88,11 +100,38 @@ def test_3d_scoring_requires_object_ground_truth_before_payload_validation(tmp_p
     data.dataset.write_text(yaml.safe_dump(config))
     data.reader_paths["poses"].unlink()
 
-    with pytest.raises(ValueError, match="--eval-3d requires per-image KITTI object ground truth"):
+    with pytest.raises(ValueError, match="--eval-ap requires per-image KITTI object ground truth"):
         if entrypoint == "validate":
-            validate_sensor_workflow_inputs(data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=True)
+            validate_sensor_workflow_inputs(
+                data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=True, eval_ap=True
+            )
         else:
-            load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
+            load_sensor_evaluation_inputs(data.dataset, eval_3d=True, eval_ap=True)
+
+
+@pytest.mark.parametrize("entrypoint", ("validate", "load"))
+def test_ap_scoring_requires_3d_evaluation(tmp_path: Path, entrypoint: str) -> None:
+    data = sensor_dataset_fixture(tmp_path)
+    with pytest.raises(ValueError, match="--eval-ap requires --eval-3d"):
+        if entrypoint == "validate":
+            validate_sensor_workflow_inputs(data.dataset, TrackerSpec("eagermot"), mode="eval", eval_ap=True)
+        else:
+            load_sensor_evaluation_inputs(data.dataset, eval_ap=True)
+
+
+def test_3d_tracking_accepts_no_object_ground_truth_declaration(tmp_path: Path) -> None:
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    config = yaml.safe_load(data.dataset.read_text())
+    del config["modalities"]["ground_truth_objects"]
+    data.dataset.write_text(yaml.safe_dump(config))
+    shutil.rmtree(tmp_path / "sequences/training/0002/object_labels")
+
+    validate_sensor_workflow_inputs(data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=True)
+    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
+
+    assert "ground_truth_3d" in dataset.sequences[0].modalities
+    assert "ground_truth_objects" not in dataset.sequences[0].modalities
 
 
 @pytest.mark.parametrize("declared_ground_truth", (False, True))
@@ -151,8 +190,9 @@ def test_scoring_selection_keeps_tracking_input_requirements(tmp_path: Path, eva
         load_sensor_evaluation_inputs(data.dataset, eval_3d=eval_3d)
 
 
-def test_cached_3d_scoring_never_reads_unused_instance_annotations(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("eval_ap", (False, True))
+def test_cached_3d_scoring_never_reads_unused_annotations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, eval_ap: bool
 ) -> None:
     """Cache only selected GT while retaining masks carried by tracking detections."""
     import numpy as np
@@ -168,10 +208,13 @@ def test_cached_3d_scoring_never_reads_unused_instance_annotations(
     shutil.rmtree(data.ground_truth)
 
     def unexpected(*_args: Any, **_kwargs: Any) -> None:
-        pytest.fail("3D scoring must not decode unused instance PNG annotations.")
+        pytest.fail("3D scoring must not decode unused annotations.")
 
     monkeypatch.setattr(sensor_cache, "read_instance_png", unexpected)
-    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
+    if not eval_ap:
+        shutil.rmtree(tmp_path / "sequences/training/0002/object_labels")
+        monkeypatch.setattr(sensor_cache, "read_kitti_object_labels", unexpected)
+    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=True, eval_ap=eval_ap)
     path = sensor_cache.prepare_sensor_sequence(dataset, "0002")
     assert sensor_cache.prepare_sensor_sequence(dataset, "0002") == path
     with closing(sensor_cache.open_sensor_sequence(path)) as sequence:
@@ -179,5 +222,8 @@ def test_cached_3d_scoring_never_reads_unused_instance_annotations(
         labels = sequence.ground_truth_3d()
         assert labels is not None
         assert labels.track_ids.tolist() == [0]
-        assert sequence.ground_truth_objects().frame_rows[0][0].split()[1] == "0.25"
+        if eval_ap:
+            assert sequence.ground_truth_objects().frame_rows[0][0].split()[1] == "0.25"
+        else:
+            assert sequence.ground_truth_objects() is None
         assert sequence[0].detections.masks is not None

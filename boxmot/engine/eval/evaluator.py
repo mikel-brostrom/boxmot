@@ -490,7 +490,7 @@ def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def _validate_image_evaluation_options(args: Any) -> None:
     """Keep sensor-only profile and 3D visualization controls out of image replay."""
-    for name in ("class_config", "show_3d", "eval_3d"):
+    for name in ("class_config", "show_3d", "eval_3d", "eval_ap"):
         if getattr(args, name, None):
             option = "--" + name.replace("_", "-")
             raise ValueError(f"{option} requires an EagerMOT sensor dataset.")
@@ -519,6 +519,7 @@ def _run_sensor_evaluation(
     if path is None:
         return None
     eval_3d = bool(getattr(args, "eval_3d", False))
+    eval_ap = bool(getattr(args, "eval_ap", False))
     if eval_3d and getattr(args, "eval_masks", False):
         raise ValueError("Choose either --eval-3d or --eval-masks.")
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
@@ -529,6 +530,7 @@ def _run_sensor_evaluation(
         split=getattr(args, "split", None),
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
         eval_3d=eval_3d,
+        eval_ap=eval_ap,
     )
     for name, value in {
         "evolve_config": evolve_config,
@@ -577,6 +579,7 @@ def _run_sensor_evaluation(
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
         eval_3d=eval_3d,
+        eval_ap=eval_ap,
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
     )
     workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
@@ -595,6 +598,7 @@ def _run_sensor_evaluation(
             "per_class": True,
             "eval_masks": not eval_3d,
             "eval_3d": eval_3d,
+            "eval_ap": eval_ap,
         }
     )
 

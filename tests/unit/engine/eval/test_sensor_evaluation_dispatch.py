@@ -87,6 +87,7 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),
         ({"calibrate_kf": True}, "--calibrate-kf requires 3D ground truth with track IDs"),
         ({"eval_3d": True}, "--eval-3d requires"),
+        ({"eval_ap": True}, "--eval-ap requires --eval-3d"),
         ({"eval_3d": True, "eval_masks": True}, "Choose either --eval-3d or --eval-masks"),
         ({"compare_trackeval": True}, "does not support compare_trackeval"),
         ({"fps": 10}, "does not support fps"),
@@ -149,7 +150,9 @@ def test_main_formats_missing_sensor_dependencies(tmp_path: Path, monkeypatch: p
 
 
 @pytest.mark.parametrize("entrypoint", (evaluator.main, evaluator.run_eval))
-@pytest.mark.parametrize("overrides", ({"class_config": "profiles.yaml"}, {"show_3d": True}, {"eval_3d": True}))
+@pytest.mark.parametrize(
+    "overrides", ({"class_config": "profiles.yaml"}, {"show_3d": True}, {"eval_3d": True}, {"eval_ap": True})
+)
 def test_image_inputs_reject_sensor_options_before_replay(
     monkeypatch: pytest.MonkeyPatch, entrypoint: Any, overrides: dict[str, Any]
 ) -> None:

@@ -208,19 +208,21 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
 def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     """Validate alignment and index sensor inputs once for evaluation or tuning."""
     eval_3d = bool(getattr(args, "eval_3d", False))
+    eval_ap = bool(getattr(args, "eval_ap", False))
     dataset = load_sensor_evaluation_inputs(
         args.dataset,
         split=args.split,
         sequence_names=tuple(args.sequence_names),
         eval_3d=eval_3d,
+        eval_ap=eval_ap,
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
     )
     sequences: dict[str, MultimodalSequence | SensorReplaySequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
     annotations_3d: dict[str, TrackingLabels3D] = {}
     object_annotations: dict[str, KittiObjectLabels] = {}
-    if eval_3d:
-        validate_kitti_evaluation_dependencies()
+    if eval_ap:
+        validate_kitti_evaluation_dependencies(eval_ap=True)
     cache_inputs = bool(getattr(args, "cache_inputs", False))
     try:
         for paths in dataset.sequences:
@@ -250,6 +252,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
                 if labels is None:
                     raise ValueError(f"3D evaluation requires ground_truth_3d for sequence {name!r}.")
                 annotations_3d[name] = labels
+            if eval_ap:
                 objects = (
                     sequence.ground_truth_objects()
                     if cache_inputs
@@ -260,7 +263,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
                 if objects is None:
                     raise ValueError(f"Official KITTI AP requires ground_truth_objects for sequence {name!r}.")
                 object_annotations[name] = objects
-            else:
+            if not eval_3d:
                 ground_truth = paths.modalities["ground_truth"].paths[0]
                 annotations[name] = kitti_mots_annotations(
                     name, sequence.frame_paths, sequence.image_size, ground_truth
@@ -276,11 +279,15 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         "boxmot_version": __version__,
         "tracker": "eagermot",
         "evaluation": (
-            "Official KITTI object AP40 (2D and 3D) and TrackEval KITTI 2D tracking metrics"
+            "Volumetric 3D IoU HOTA, CLEAR, and Identity metrics"
             if eval_3d
             else "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics"
         ),
         "eval_3d": eval_3d,
+        "eval_ap": eval_ap,
+        "additional_evaluation": (
+            "Official KITTI object AP40 (2D and 3D) and projected TrackEval KITTI 2D tracking" if eval_ap else None
+        ),
         "split": dataset.split,
         "fps": dataset.fps,
         "cache_inputs": cache_inputs,
@@ -302,7 +309,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         "limitations": [
             "Detector checkpoint training provenance is not independently verified.",
             (
-                "Official evaluators on the selected local split; not a KITTI leaderboard submission."
+                "Volumetric tracking uses all supplied target GT; no official difficulty or DontCare filtering."
                 if eval_3d
                 else "This evaluates segmentation tracking, not 3D boxes or published EagerMOT benchmark parity."
             ),
@@ -690,7 +697,11 @@ def _replay(
         on_evaluate()
     if eval_3d:
         return evaluate_kitti_3d(
-            prediction_dir, output, inputs.annotations_3d, inputs.manifest["sequences"], inputs.object_annotations
+            prediction_dir,
+            output,
+            inputs.annotations_3d,
+            inputs.manifest["sequences"],
+            inputs.object_annotations if inputs.manifest.get("eval_ap", False) else None,
         ), videos
     cache_options = {"cached_ground_truth": inputs.sequences} if inputs.cache_inputs else {}
     if inputs.ground_truth_options:
@@ -724,8 +735,8 @@ def evaluate_eagermot_kitti(
         raise ValueError("EagerMOT KITTI replay requires profiles for both car and pedestrian.")
     if show_3d and not (show or save):
         raise ValueError("--show-3d requires --show or --save.")
-    if inputs.manifest.get("eval_3d", False):
-        validate_kitti_evaluation_dependencies()
+    if inputs.manifest.get("eval_ap", False):
+        validate_kitti_evaluation_dependencies(eval_ap=True)
     output.mkdir(parents=True, exist_ok=True)
     manifest = {
         **inputs.manifest,
@@ -791,6 +802,7 @@ def run_eagermot_kitti(
                 split=args.split,
                 sequence_names=tuple(args.sequence_names),
                 eval_3d=bool(getattr(args, "eval_3d", False)),
+                eval_ap=bool(getattr(args, "eval_ap", False)),
                 calibrate_kf=True,
             )
             calibration = calibrate_sensor_kalman(
@@ -832,7 +844,9 @@ def run_eagermot_kitti(
                         presenter.flush()
                         pipeline.store_step_info(presenter.renderable)
                         contexts.close()
-                    geometry = "2D/3D AP40 and 2D tracking" if inputs.manifest.get("eval_3d", False) else "mask"
+                    geometry = "volumetric 3D tracking" if inputs.manifest.get("eval_3d", False) else "mask"
+                    if inputs.manifest.get("eval_ap", False):
+                        geometry += ", official AP40 and projected 2D tracking"
                     pipeline.advance(f"Computing KITTI {geometry} evaluation metrics…")
 
             metrics = evaluate_eagermot_kitti(
@@ -869,7 +883,12 @@ def run_eagermot_kitti(
             workflow_rendered=pipeline is not None,
             detection_metrics=(
                 json.loads((output / "detection_metrics.json").read_text(encoding="utf-8"))
-                if inputs.manifest.get("eval_3d", False)
+                if inputs.manifest.get("eval_ap", False)
+                else None
+            ),
+            tracking_2d_metrics=(
+                json.loads((output / "tracking_2d_metrics.json").read_text(encoding="utf-8"))
+                if inputs.manifest.get("eval_ap", False)
                 else None
             ),
         )

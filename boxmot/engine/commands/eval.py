@@ -47,6 +47,7 @@ _SENSOR_OPTIONS = frozenset(
         "sequence_workers",
         "eval_masks",
         "eval_3d",
+        "eval_ap",
         "per_class",
         "verbose",
         "show_timing",
@@ -77,6 +78,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             split=payload.get("split"),
             calibrate_kf=bool(payload.get("calibrate_kf")),
             eval_3d=bool(payload.get("eval_3d")),
+            eval_ap=bool(payload.get("eval_ap")),
         )
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
@@ -95,6 +97,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
             eval_3d=bool(payload.get("eval_3d")),
+            eval_ap=bool(payload.get("eval_ap")),
             calibrate_kf=bool(payload.get("calibrate_kf")),
         )
         workers = resolve_sequence_workers(
@@ -131,7 +134,13 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     "--eval-3d",
     is_flag=True,
     default=False,
-    help="EagerMOT: official KITTI 2D/3D AP40 and 2D tracking; requires exact object and tracking labels.",
+    help="EagerMOT: 3D tracking metrics from KITTI tracking ground truth.",
+)
+@click.option(
+    "--eval-ap",
+    is_flag=True,
+    default=False,
+    help="Add official KITTI 2D/3D AP40; requires --eval-3d and aligned per-image object ground truth.",
 )
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option
@@ -204,6 +213,8 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    if kwargs["eval_ap"] and not kwargs["eval_3d"]:
+        raise click.UsageError("--eval-ap requires --eval-3d.")
     if kwargs["eval_3d"] and eval_masks:
         raise click.UsageError("Choose either --eval-3d or --eval-masks.")
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
@@ -232,7 +243,7 @@ def eval(
     if sensor_payload is not None:
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
         return
-    for name in ("class_config", "show_3d", "eval_3d"):
+    for name in ("class_config", "show_3d", "eval_ap", "eval_3d"):
         if kwargs[name]:
             option = "--" + name.replace("_", "-")
             raise click.UsageError(f"{option} requires a sensor dataset with --tracker eagermot.")

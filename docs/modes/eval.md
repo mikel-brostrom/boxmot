@@ -175,27 +175,32 @@ Use `--project` to change that root or repeat `--sequence` to select sequences.
 Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
 Set `--sequence-workers 4` to allow at most four sequence workers.
 
-To evaluate spatial tracks, configure both
-[`ground_truth_3d` and exact `ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap),
-[install the official evaluators](../trackers/eagermot.md#evaluate-3d-tracks), then run:
+To evaluate spatial tracks, declare `ground_truth_3d` with the existing native
+KITTI tracking labels in `training/label_02`, then run:
 
 ```bash
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
   --split val --eval-3d --project runs/kitti-3d
 ```
 
-The terminal shows **2D/3D AP40 (Easy / Moderate / Hard)** from the official
-KITTI object devkit, followed by a separate **2D tracking HOTA/MOTA/IDF1**
-report from TrackEval's KITTI adapter. Both 2D reports use projections of the
-same spatial tracks. AP is saved in `detection_metrics.json/csv`, tracking in
-`metrics.json/csv`, and predictions in `kitti_3d/<sequence>.txt`.
+The terminal shows **3D tracking HOTA/MOTA/IDF1** using volumetric box IoU.
+Tracking scores are saved in `metrics.json/csv`, and predictions in
+`kitti_3d/<sequence>.txt`. This custom tracking protocol uses all supplied target
+GT; it does not apply official KITTI difficulty or DontCare filtering.
+
+For additional official **2D/3D AP40 (Easy / Moderate / Hard)**, declare
+[`ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap),
+[install the official evaluators](../trackers/eagermot.md#evaluate-3d-tracks),
+and add `--eval-ap` to the command. This writes `detection_metrics.json/csv`
+and separately scores projected 2D tracking into `tracking_2d_metrics.json/csv`.
+The main tracking scores remain volumetric 3D metrics.
 
 Ground-truth masks are neither required nor loaded in this mode. The dataset's
 tracking inputs, including prediction masks, are still consumed.
 `--eval-3d` and `--eval-masks` are mutually exclusive; `--eval-3d` requires an
-EagerMOT sensor dataset and is available only on `eval`. Tracking labels alone
-cannot supply exact fractional truncation for official object AP; missing
-object annotations fail before replay.
+EagerMOT sensor dataset and is available only on `eval`. `--eval-ap` requires
+`--eval-3d` and exact per-image object labels, including fractional truncation.
+Only that additional option requires object annotations and the official evaluators.
 
 For image and box trackers, select the [KITTI 2D dataset](../config/datasets.md#kitti-2d-tracking):
 

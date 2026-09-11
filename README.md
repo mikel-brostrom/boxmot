@@ -255,16 +255,17 @@ returns image and spatial tracks with shared identities. The
 `boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
 TrackR-CNN predictions against MOTS masks by default. Add
 [`--eval-3d`](docs/trackers/eagermot.md#evaluate-3d-tracks) to score spatial tracks
-using official KITTI **2D/3D AP40 (Easy / Moderate / Hard)** and separate
-**2D tracking HOTA/MOTA/IDF1**. Configure exact object labels and tracking labels
-and [install the evaluators](docs/trackers/eagermot.md#evaluate-3d-tracks) first:
+using volumetric **3D HOTA/MOTA/IDF1** from the existing tracking labels.
+Add `--eval-ap` for official KITTI **2D/3D AP40 (Easy / Moderate / Hard)** and
+separate projected **2D tracking** metrics; that option requires exact object labels
+and the [official evaluators](docs/trackers/eagermot.md#evaluate-3d-tracks).
 
 ```bash
 boxmot eval --dataset ./kitti-mots --tracker eagermot --split val \
   --eval-3d --project runs/kitti-3d
 ```
 
-Both 2D reports use projections of the evaluated spatial tracks. Predictions
+The optional 2D reports use projections of the evaluated spatial tracks. Predictions
 are saved in `kitti_3d/<sequence>.txt`; AP and tracking metrics have separate files.
 Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
 with a multimodal sequence dataset to optimize separate car and pedestrian profiles

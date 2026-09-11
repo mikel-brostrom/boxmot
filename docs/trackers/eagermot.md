@@ -149,15 +149,26 @@ not been independently verified, and pedestrian detections use the supplied
 
 ## Evaluate 3D tracks
 
-`--eval-3d` reports official KITTI **2D and 3D AP40**, each with **Easy / Moderate /
-Hard** columns, followed by **2D tracking HOTA/MOTA/IDF1** from TrackEval's KITTI
-adapter. Both 2D reports use camera projections of the same spatial tracks.
+`--eval-3d` reports **3D tracking HOTA/MOTA/IDF1** using volumetric box IoU.
+Declare `ground_truth_3d` with native KITTI tracking labels (`training/label_02`)
+and run:
 
-First declare [`ground_truth_3d` and `ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap).
-The latter requires native per-image object labels for the exact evaluated
-frames, including fractional truncation. KITTI tracking labels alone are
-insufficient; BoxMOT does not infer object labels or match independently
-numbered object and tracking datasets by filename.
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --eval-3d --project runs/kitti-3d
+```
+
+This custom tracking protocol uses all supplied target 3D annotations. HOTA
+uses IoU thresholds 0.05 through 0.95; MOTA and IDF1 use 0.5. Official KITTI
+difficulty, visibility, truncation and DontCare filtering are not applied.
+Per-image object labels and the official evaluator dependencies are unnecessary
+for this mode.
+
+To add official **2D/3D AP40 (Easy / Moderate / Hard)**, declare
+[`ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap).
+These must be native per-image object labels for the exact evaluated frames,
+including fractional truncation. BoxMOT does not infer them from tracking labels
+or match independently numbered datasets by filename.
 
 Download and extract the [official KITTI object devkit](https://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d),
 then install once using a C++17 compiler and Boost headers:
@@ -165,24 +176,26 @@ then install once using a C++17 compiler and Boost headers:
 ```bash
 boxmot install --extra trackeval --kitti-devkit /path/to/devkit_object
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
-  --split val --eval-3d --project runs/kitti-3d
+  --split val --eval-3d --eval-ap --project runs/kitti-3d
 ```
 
 Installation compiles a cached local harness around the external official
 source. Evaluation never downloads or builds dependencies. Missing annotation
-modalities or evaluators fail before replay.
+modalities or evaluators fail before replay when `--eval-ap` is requested.
 
 The new split directory contains:
 
 | Output | Contents |
 | --- | --- |
-| `detection_metrics.json`, `detection_metrics.csv` | Official object AP40 by geometry, class and difficulty |
-| `metrics.json`, `metrics.csv` | TrackEval KITTI 2D tracking metrics, including per-sequence results |
+| `metrics.json`, `metrics.csv` | Volumetric 3D tracking metrics, including per-sequence results |
+| `detection_metrics.json`, `detection_metrics.csv` | With `--eval-ap`: official object AP40 by geometry, class and difficulty |
+| `tracking_2d_metrics.json`, `tracking_2d_metrics.csv` | With `--eval-ap`: projected TrackEval KITTI 2D tracking metrics |
 | `evaluation.json` | Protocol and input provenance |
 | `kitti_3d/<sequence>.txt` | Spatial predictions with projected image boxes |
 
 Official object scoring applies its own difficulty and DontCare rules;
-tracking uses TrackEval's KITTI preprocessing. Results describe the selected
+the additional projected 2D tracking report uses TrackEval's KITTI preprocessing.
+Adding `--eval-ap` leaves the main 3D tracking scores unchanged. Results describe the selected
 local split, not a leaderboard submission. AP is shown as `N/A` for a
 class/difficulty with no eligible ground truth. Short subsets may not span
 all 40 official recall samples.
@@ -191,7 +204,7 @@ Ground-truth mask PNGs are not required or loaded in this mode. The same
 saved sensor observations still drive tracking. `--eval-masks` and `--eval-3d`
 cannot be combined; omitting both retains mask scoring. `tune` continues to
 optimize mask HOTA. Use `--class-config` to evaluate saved per-class profiles,
-and add `--cache-inputs` to reuse observations and both annotation formats.
+and add `--cache-inputs` to reuse observations and the selected annotations.
 
 ## Saved KITTI MOTS validation preset
 

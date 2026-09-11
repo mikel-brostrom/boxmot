@@ -184,8 +184,6 @@ def test_missing_modalities_are_reported_together_before_payload_loading(
 ) -> None:
     payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
     payload["splits"]["val"]["modalities"] = dict.fromkeys(missing)
-    if "ground_truth" in missing:
-        payload["splits"]["val"]["has_ground_truth"] = False
     _replace_manifest(declared_dataset, payload)
 
     result = CliRunner().invoke(boxmot, [mode, "--dataset", str(declared_dataset), "--tracker", "eagermot"])

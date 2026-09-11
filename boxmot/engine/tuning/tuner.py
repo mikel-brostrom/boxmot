@@ -1135,8 +1135,9 @@ def _run_sensor_tuning(
     if path is None:
         return None
 
-    if getattr(args, "eval_3d", False):
-        raise ValueError("eval_3d is available on eval only; sensor tuning optimizes mask HOTA.")
+    for option in ("eval_3d", "eval_ap"):
+        if getattr(args, option, False):
+            raise ValueError(f"{option} is available on eval only; sensor tuning optimizes mask HOTA.")
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
     validate_sensor_workflow_inputs(
         path,

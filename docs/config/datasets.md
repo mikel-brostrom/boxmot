@@ -410,7 +410,8 @@ an incompatibility. Ground truth is consumed separately for scoring or calibrati
 and is never passed to the tracker. `has_ground_truth` must agree with the
 presence of `ground_truth`, `ground_truth_3d`, or `ground_truth_objects`. Evaluation
 requires annotations for the selected metric and split: `ground_truth` for
-masks, or both `ground_truth_3d` and `ground_truth_objects` with `--eval-3d`.
+masks, or `ground_truth_3d` with `--eval-3d`. Adding `--eval-ap` also requires
+`ground_truth_objects` for official object AP.
 Unused scoring annotations are not loaded, even when their modalities remain declared.
 
 Sequence layouts require a finite positive dataset `fps`. This template sets `10`; it
@@ -426,7 +427,7 @@ enable variable-time motion.
 | `ground_truth` / `kitti-tracking-labels` | Native 17-field sequence labels for KITTI 2D image tracking; preserves visibility and ignored boxes, requires no spatial inputs |
 | `ground_truth` / `instance-png` | Matching single-channel uint16 PNGs encoding `class_id * 1000 + instance_id`; the template uses car `1`, pedestrian `2`, background `0`, ignore `10000` |
 | `ground_truth_3d` / `kitti-tracking-labels` | Sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for `eval --eval-3d` or 3D Kalman calibration |
-| `ground_truth_objects` / `kitti-object-labels` | Directory of zero-based six-digit frame text files with exact 15-field KITTI object labels, including fractional truncation; also required for `eval --eval-3d` |
+| `ground_truth_objects` / `kitti-object-labels` | Directory of zero-based six-digit frame text files with exact 15-field KITTI object labels, including fractional truncation; required only for `eval --eval-3d --eval-ap` |
 | `calibration` / `kitti-p2` | `P2:` followed by 12 row-major values of a `3 x 4` camera-to-pixel projection |
 | `poses` / `camera-to-world-npy` | Numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; identity poses for a stationary camera |
 | `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields |
@@ -483,7 +484,9 @@ require or load this modality.
 
 ### Exact object labels for official AP
 
-`eval --eval-3d` also requires `ground_truth_objects`. Uncomment its example
+`eval --eval-3d` uses tracking GT alone for volumetric 3D HOTA/MOTA/IDF1.
+Add `--eval-ap` to request official object AP as well; only that option
+requires `ground_truth_objects`. Uncomment its example
 in the sensor template and provide labels for the **same images**:
 
 ```yaml
@@ -507,19 +510,21 @@ kept separately from tracking labels: KITTI tracking truncation categories
 cannot be converted into exact object truncation fractions. Independently
 numbered object-dataset labels and calibration files cannot be joined to a
 tracking timeline by matching filenames. Annotation alignment is the dataset
-author's responsibility. No object labels are required for mask scoring or
-Kalman calibration.
+author's responsibility. No object labels are required for mask scoring,
+volumetric 3D tracking metrics, or Kalman calibration.
 
 After [installing the evaluators](../trackers/eagermot.md#evaluate-3d-tracks), run:
 
 ```bash
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
-  --split val --eval-3d --project runs/kitti-3d
+  --split val --eval-3d --eval-ap --project runs/kitti-3d
 ```
 
-The result contains official 2D/3D AP40 with Easy / Moderate / Hard tiers and
-separate TrackEval KITTI 2D tracking metrics. Both 2D reports use projections
-of the spatial predictions. Ground-truth instance PNGs are not loaded.
+The result adds official 2D/3D AP40 with Easy / Moderate / Hard tiers in
+`detection_metrics.json/csv` and TrackEval KITTI 2D tracking metrics in
+`tracking_2d_metrics.json/csv`. Both 2D reports use projections of the spatial
+predictions. `metrics.json/csv` continues to contain volumetric 3D tracking.
+Ground-truth instance PNGs are not loaded.
 `--cache-inputs` preserves exact object and tracking rows for repeated runs.
 
 ### Split-specific inputs
@@ -585,7 +590,8 @@ dataset registration or perception build is required.
 Dataset modalities and classes are generic configuration. The current sensor
 `eval` and `tune` consumers use EagerMOT with one calibrated camera per sequence.
 Both default to car and pedestrian mask metrics; `eval --eval-3d` selects
-official object AP and 2D tracking metrics instead. Mask metrics require predicted and ground-truth
+volumetric 3D tracking metrics instead. `--eval-ap` adds official object AP
+and projected 2D tracking reports. Mask metrics require predicted and ground-truth
 masks, although the Python EagerMOT tracker can use image boxes without masks.
 Arbitrary-class metrics and multiple-camera ingestion are not supplied by
 these consumers. Use separate sequences for tuning and evaluation. See
