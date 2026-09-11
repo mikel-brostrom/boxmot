@@ -28,6 +28,11 @@ modalities:
       class_divisor: 1000
       background_id: 0
       ignore_ids: [10000]
+  ground_truth_3d:
+    format: kitti-tracking-labels
+    path: "{partition}/label_02/{sequence}.txt"
+    options:
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
   calibration:
     format: kitti-p2
     path: sequences/{partition}/{sequence}/calibration.txt

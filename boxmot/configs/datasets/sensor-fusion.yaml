@@ -41,7 +41,7 @@ modalities:
   #   format: kitti-tracking-labels
   #   path: annotations/{partition}/{sequence}.txt
   #   options:
-  #     ignore_classes: [DontCare, Van, Truck, Cyclist, Person_sitting, Tram, Misc]
+  #     ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
   calibration:
     format: kitti-p2
     path: sequences/{partition}/{sequence}/calibration.txt

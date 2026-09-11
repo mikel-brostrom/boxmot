@@ -367,7 +367,7 @@ modalities:
     format: kitti-tracking-labels
     path: annotations/{partition}/{sequence}.txt
     options:
-      ignore_classes: [DontCare, Van, Truck, Cyclist, Person_sitting, Tram, Misc]
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
 ```
 
 Each row has exactly 17 whitespace-separated fields, with no detector score:

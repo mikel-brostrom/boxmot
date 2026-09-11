@@ -14,11 +14,25 @@ Run one sequence and one trial to check ingestion:
 boxmot tune --dataset ./kitti-mots --tracker eagermot --sequence 0002 --n-trials 1
 ```
 
+Calibrate the 3D Kalman noise separately for cars and pedestrians on the training
+split, then tune with those fitted values fixed:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot --split train \
+  --calibrate-kf --cache-inputs --n-trials 50
+```
+
+The `ground_truth_3d` declaration reads KITTI tracking labels with frame numbers
+and persistent track IDs from `training/label_02`. Camera calibration and ego
+poses come from the same per-sequence inputs used for tracking.
+
 ## Layout
 
 ```text
 kitti-mots/
   dataset.yaml
+  training/
+    label_02/0002.txt
   sequences/
     training/0002/
       images/000000.png
@@ -64,6 +78,9 @@ there are no links back to `Downloads`.
 - Ground-truth PNGs retain KITTI MOTS instance labels. The configured encoding is
   `class_id * 1000 + instance_id`, with background 0 and ignore label 10000.
   Classes are car (1) and pedestrian (2).
+- 3D tracking ground truth uses the original 17-field KITTI sequence labels.
+  Calibration retains `Car` and `Pedestrian`; the YAML explicitly excludes the
+  remaining classes, including the `Person` labels in sequences 0013 and 0019.
 - `calibration.txt` retains the KITTI `P2` camera projection. `poses.npy` stores
   one absolute camera-to-world 4×4 transform per image frame.
 - TrackR-CNN files retain their original mask/embedding rows. PointGNN directories
@@ -95,6 +112,8 @@ metrics are not implemented.
 
 Tuning writes a new directory under `runs/eagermot-tune/<split>` with `best.yaml`,
 an Optuna study, per-trial metrics, and resolved input paths in `run.json`.
+With `--calibrate-kf`, `kf-tuning/calibrated.yaml` and
+`kf-tuning/calibration.json` contain the fitted class profiles and their evidence.
 Replay a selected profile with:
 
 ```bash
