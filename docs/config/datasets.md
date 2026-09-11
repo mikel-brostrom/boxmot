@@ -108,10 +108,10 @@ per sequence, retaining identities, image bounds, visibility and DontCare
 regions. Only 2D geometry is evaluated; the unused spatial fields can contain
 KITTI's missing-value placeholders. Target classes are car `1` and pedestrian `2`.
 
-Install the evaluator and detector dependencies, then run a supplied experiment:
+Install the detector dependencies, then run a supplied experiment:
 
 ```bash
-boxmot install --extra trackeval --extra yolo
+boxmot install --extra yolo
 boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
   --split val --cache-inputs
 ```
@@ -122,8 +122,9 @@ and explicitly map detector `person` to dataset `pedestrian`. Other perception
 models can be selected through your own experiment YAML. A materialized
 `--build` supplies the same cached detections to evaluation and tuning.
 
-The installed TrackEval KITTI adapter scores **2D HOTA, MOTA and IDF1** using
-its native visibility, distractor and DontCare preprocessing. Results are
+BoxMOT's built-in HOTA, CLEAR, and Identity evaluators score **2D HOTA, MOTA,
+and IDF1**, with KITTI visibility, distractor, and DontCare preprocessing.
+Evaluation and tuning do not require an external TrackEval installation. Results are
 written to `metrics.json/csv`; `evaluation.json` records the protocol and
 selected frame mapping. `--fps`, `--sequence`, `--cache-inputs`, and 2D
 `--calibrate-kf` use that same selected image timeline. Tuning reuses the
@@ -202,6 +203,9 @@ images. Omit it for trackers such as ByteTrack, or when the selected tracker
 configuration disables appearance. `--cache-inputs` reuses parsed detections,
 required image pixels, annotations, and generated ReID features across runs;
 changed inputs or encoder settings invalidate the corresponding cache.
+
+Scoring uses the same built-in 2D metrics and KITTI preprocessing as the
+perception-build workflow above. No TrackEval installation is required.
 
 For an existing folder, copy this YAML into it, set `storage.root: .`, and
 adjust the modality paths. For example, images in the multimodal sequence layout

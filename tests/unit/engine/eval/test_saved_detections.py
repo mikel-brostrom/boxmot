@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -106,9 +107,9 @@ def _stub_encoder(monkeypatch, encoder: _Encoder) -> None:
 
 
 @pytest.fixture(autouse=True)
-def installed_trackeval() -> None:
-    pytest.importorskip("trackeval")
-    saved_detections.validate_trackeval_kitti_dependencies()
+def unavailable_trackeval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default scoring must work even when the optional evaluator cannot import."""
+    monkeypatch.setitem(sys.modules, "trackeval", None)
 
 
 @pytest.mark.parametrize("per_class", (False, True))

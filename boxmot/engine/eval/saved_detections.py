@@ -23,7 +23,6 @@ from boxmot.engine.eval.kitti_tracking import run_kitti_tracking_metrics
 from boxmot.engine.eval.output import increment_path
 from boxmot.engine.eval.replay import ReplayFrame, _write_rows, tracks_to_mot_rows
 from boxmot.engine.eval.results import ValidationResult, _select_plot_metrics_data
-from boxmot.engine.eval.trackeval_reference import validate_trackeval_kitti_dependencies
 from boxmot.engine.eval.visualization import ReplayVisualization
 from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter, EvalWorkflowReporter
 from boxmot.pipelines import TrackingPipeline
@@ -61,7 +60,6 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
         sequence_names=tuple(getattr(args, "sequence_names", ())),
         data_root=getattr(args, "data_root", None),
     )
-    validate_trackeval_kitti_dependencies()
     options = resolve_tracker_options(args, include_defaults=True, factory_options=True)
     spec = TrackerSpec(
         args.tracker,
@@ -123,7 +121,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
             "per_class": spec.per_class,
             "reid": reid_provenance,
             "cache_inputs": cache_inputs,
-            "evaluation": "KITTI 2D tracking; image-box IoU HOTA, CLEAR, and Identity metrics",
+            "evaluation": "KITTI 2D tracking; BoxMOT built-in image-box IoU HOTA, CLEAR, and Identity metrics",
             "fps": dataset.fps,
             "inputs": {
                 sequence.sequence_id: {

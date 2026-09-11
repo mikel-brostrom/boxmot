@@ -9,15 +9,165 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+from scipy.optimize import linear_sum_assignment
+
 from boxmot.datasets.config import validate_sequence_names
 from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
-from boxmot.engine.eval.trackeval_reference import evaluate_trackeval_kitti, normalize_kitti_tracking_row
+from boxmot.engine.eval.motmetrics import (
+    MetricBundle,
+    SequenceData,
+    _combine_bundles,
+    _combine_bundles_class_averaged,
+    _eval_bundle,
+    _relabel_ids,
+    _summary_from_bundle,
+)
+from boxmot.engine.eval.trackeval_reference import normalize_kitti_tracking_row
 
 _INTEGER = re.compile(r"[+-]?[0-9]+")
 _RESULT_LABELS = {1: "Car", 2: "Pedestrian"}
+_FLOAT_EPS = np.finfo(float).eps
+
+
+@dataclass(frozen=True, slots=True)
+class _TrackingBox:
+    """Keep native identities separate from floating-point image geometry."""
+
+    identity: int
+    label: str
+    bounds: tuple[float, ...]
+    truncation: int
+    occlusion: int
+
+
+def _index_kitti_rows(rows: Sequence[str], frame_count: int) -> list[list[_TrackingBox]]:
+    """Index already validated tracking rows without converting identities to floats."""
+    frames: list[list[_TrackingBox]] = [[] for _ in range(frame_count)]
+    for row in rows:
+        fields = row.split()
+        frames[int(fields[0])].append(
+            _TrackingBox(
+                identity=int(fields[1]),
+                label=fields[2].casefold(),
+                bounds=tuple(map(float, fields[6:10])),
+                truncation=int(fields[3]),
+                occlusion=int(fields[4]),
+            )
+        )
+    return frames
+
+
+def _image_overlap(first: np.ndarray, second: np.ndarray, *, ioa: bool = False) -> np.ndarray:
+    """Calculate continuous KITTI image-box IoU or intersection over the first box area."""
+    intersection_edges = np.maximum(
+        0.0, np.minimum(first[:, None, 2:], second[None, :, 2:]) - np.maximum(first[:, None, :2], second[None, :, :2])
+    )
+    intersection = intersection_edges[..., 0] * intersection_edges[..., 1]
+    first_area = (first[:, 2] - first[:, 0]) * (first[:, 3] - first[:, 1])
+    denominator = first_area[:, None]
+    valid = denominator > _FLOAT_EPS
+    if not ioa:
+        second_area = (second[:, 2] - second[:, 0]) * (second[:, 3] - second[:, 1])
+        denominator = denominator + second_area[None, :] - intersection
+        valid = valid & (second_area[None, :] > _FLOAT_EPS) & (denominator > _FLOAT_EPS)
+    return np.divide(intersection, denominator, out=np.zeros_like(intersection), where=valid)
+
+
+def _preprocess_kitti_frame(
+    truth: Sequence[_TrackingBox], predictions: Sequence[_TrackingBox], class_name: str
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Apply KITTI class/visibility matching before unmatched height and DontCare suppression."""
+    distractor = "van" if class_name == "car" else "person"
+    gt = [box for box in truth if box.label in (class_name, distractor)]
+    tracked = [box for box in predictions if box.label == class_name]
+    gt_boxes = np.asarray([box.bounds for box in gt], dtype=float).reshape(-1, 4)
+    tracker_boxes = np.asarray([box.bounds for box in tracked], dtype=float).reshape(-1, 4)
+    similarity = _image_overlap(gt_boxes, tracker_boxes)
+    valid_gt = np.asarray(
+        [box.label == class_name and box.occlusion <= 2 and box.truncation <= 0 for box in gt], dtype=bool
+    )
+    keep_predictions = np.ones(len(tracked), dtype=bool)
+    unmatched = np.ones(len(tracked), dtype=bool)
+    if gt and tracked:
+        matching_scores = similarity.copy()
+        matching_scores[matching_scores < 0.5 - _FLOAT_EPS] = 0.0
+        rows, columns = linear_sum_assignment(-matching_scores)
+        matched = matching_scores[rows, columns] > _FLOAT_EPS
+        rows, columns = rows[matched], columns[matched]
+        unmatched[columns] = False
+        keep_predictions[columns[~valid_gt[rows]]] = False
+    unmatched_indices = np.flatnonzero(unmatched)
+    if len(unmatched_indices):
+        boxes = tracker_boxes[unmatched_indices]
+        too_small = boxes[:, 3] - boxes[:, 1] <= 25 + _FLOAT_EPS
+        ignore_boxes = np.asarray([box.bounds for box in truth if box.label == "dontcare"], dtype=float).reshape(-1, 4)
+        inside_ignore = np.any(_image_overlap(boxes, ignore_boxes, ioa=True) > 0.5 + _FLOAT_EPS, axis=1)
+        keep_predictions[unmatched_indices[too_small | inside_ignore]] = False
+    gt_ids = np.asarray([box.identity for box in gt], dtype=np.int64)[valid_gt]
+    tracker_ids = np.asarray([box.identity for box in tracked], dtype=np.int64)[keep_predictions]
+    return gt_ids, tracker_ids, similarity[valid_gt][:, keep_predictions]
+
+
+def _kitti_sequence_data(
+    sequence_id: str,
+    *,
+    gt_rows: Sequence[str],
+    prediction_rows: Sequence[str],
+    frame_count: int,
+    class_names: Sequence[str],
+) -> dict[str, SequenceData]:
+    """Adapt validated KITTI rows to BoxMOT's HOTA, CLEAR, Identity and Count kernels."""
+    gt_frames = _index_kitti_rows(gt_rows, frame_count)
+    tracker_frames = _index_kitti_rows(prediction_rows, frame_count)
+    results: dict[str, SequenceData] = {}
+    for class_name in class_names:
+        gt_ids, tracker_ids, similarities = [], [], []
+        for truth, predictions in zip(gt_frames, tracker_frames):
+            gt, tracked, similarity = _preprocess_kitti_frame(truth, predictions, class_name)
+            gt_ids.append(gt)
+            tracker_ids.append(tracked)
+            similarities.append(similarity)
+        gt_ids, gt_count = _relabel_ids(gt_ids)
+        tracker_ids, tracker_count = _relabel_ids(tracker_ids)
+        results[class_name] = SequenceData(
+            seq=sequence_id,
+            gt_ids=gt_ids,
+            tracker_ids=tracker_ids,
+            similarity_scores=similarities,
+            num_timesteps=frame_count,
+            num_gt_dets=sum(map(len, gt_ids)),
+            num_tracker_dets=sum(map(len, tracker_ids)),
+            num_gt_ids=gt_count,
+            num_tracker_ids=tracker_count,
+        )
+    return results
+
+
+def _summarize_kitti_metrics(
+    bundles: Mapping[str, Mapping[str, MetricBundle]], *, frame_count: int
+) -> dict[str, dict[str, Any]]:
+    """Combine sequence and class metrics with the existing BoxMOT report contract."""
+    combined = {name: _combine_bundles(values) for name, values in bundles.items()}
+    results = {
+        name: {
+            **_summary_from_bundle(combined[name]),
+            "per_sequence": {sequence: _summary_from_bundle(bundle) for sequence, bundle in values.items()},
+        }
+        for name, values in bundles.items()
+    }
+    for name, combine in (
+        ("cls_comb_cls_av", _combine_bundles_class_averaged),
+        ("cls_comb_det_av", _combine_bundles),
+    ):
+        bundle = combine(combined)
+        bundle["Count"]["Frames"] = frame_count
+        results[name] = _summary_from_bundle(bundle)
+    return results
 
 
 def _evaluation_classes(args: argparse.Namespace, config: Mapping[str, Any]) -> tuple[str, ...]:
@@ -160,7 +310,7 @@ def run_kitti_tracking_metrics(
     *,
     seq_info: Mapping[str, int] | None = None,
 ) -> dict[str, dict[str, Any]]:
-    """Run TrackEval's KITTI adapter on selected image boxes and unfiltered native GT."""
+    """Score selected image boxes using built-in metrics and KITTI tracking preprocessing."""
     del seq_paths, gt_folder
     config = getattr(args, "evaluation_config", {})
     selections = config.get("kitti_gt_sequences")
@@ -176,6 +326,7 @@ def run_kitti_tracking_metrics(
     (native_gt / "label_02").mkdir(parents=True, exist_ok=True)
     native_predictions.mkdir(parents=True, exist_ok=True)
     hashes, predicted_hashes, identity_maps, frame_maps = {}, {}, {}, {}
+    bundles: dict[str, dict[str, MetricBundle]] = {name: {} for name in class_names}
     for sequence_id, selection in selections.items():
         mapping = _frame_map(selection, frame_count=seq_info[sequence_id])
         truth = read_kitti_tracking_labels_2d(
@@ -200,15 +351,22 @@ def run_kitti_tracking_metrics(
             "".join(row + "\n" for row in gt_rows), encoding="utf-8"
         )
         (native_predictions / f"{sequence_id}.txt").write_text("".join(row + "\n" for row in rows), encoding="utf-8")
+        sequence_data = _kitti_sequence_data(
+            sequence_id,
+            gt_rows=gt_rows,
+            prediction_rows=rows,
+            frame_count=seq_info[sequence_id],
+            class_names=class_names,
+        )
+        for name, data in sequence_data.items():
+            bundles[name][sequence_id] = _eval_bundle(data)
         hashes[sequence_id] = truth.source_sha256
         predicted_hashes[sequence_id] = prediction_sha256
         identity_maps[sequence_id] = {"ground_truth": gt_ids, "predictions": predicted_ids}
         frame_maps[sequence_id] = [
             {"frame_index": target, "source_frame_index": source} for source, target in mapping.items()
         ]
-    results = evaluate_trackeval_kitti(
-        gt_folder=native_gt, tracker_folder=native_predictions, seq_info=seq_info, class_names=class_names
-    )
+    results = _summarize_kitti_metrics(bundles, frame_count=sum(seq_info.values()))
     (output / "metrics.json").write_text(json.dumps(results, indent=2, allow_nan=False) + "\n", encoding="utf-8")
     fields = [name for name in results[class_names[0]] if name != "per_sequence"]
     with (output / "metrics.csv").open("w", newline="", encoding="utf-8") as handle:
@@ -217,12 +375,21 @@ def run_kitti_tracking_metrics(
         for name, values in results.items():
             writer.writerow({"class": name, **{key: values[key] for key in fields}})
     protocol = {
-        "protocol": "kitti-trackeval-2d-tracking",
+        "protocol": "kitti-2d-tracking",
         "tracking": {
-            "evaluator": "trackeval==1.3.0",
-            "dataset": "Kitti2DBox",
+            "evaluator": "boxmot",
+            "implementation": "boxmot.engine.eval.motmetrics",
+            "dataset": "KITTI 2D tracking",
             "geometry": "2d",
             "classes": list(class_names),
+            "preprocessing": {
+                "matching_iou": 0.5,
+                "max_occlusion": 2,
+                "max_truncation": 0,
+                "unmatched_min_height": 25,
+                "unmatched_dontcare_ioa": 0.5,
+                "distractor_classes": {"car": "van", "pedestrian": "person"},
+            },
         },
         "prediction_geometry": "Tracked image boxes; unused KITTI 3D fields contain placeholders.",
         "tracking_class_alias": {"Person_sitting": "Person"},

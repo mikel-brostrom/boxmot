@@ -168,7 +168,9 @@ its root and paths to your folder. The config explicitly disables mask loading
 and declares no spatial inputs. This workflow generates ReID features from the
 images when appearance is enabled; `--cache-inputs` caches them together with
 parsed inputs and required image pixels. Omit `--reid` for motion-only tracking.
-The output reports 2D HOTA, MOTA, and IDF1 using native KITTI tracking preprocessing.
+BoxMOT's built-in HOTA, CLEAR, and Identity evaluators report 2D HOTA, MOTA,
+and IDF1 with KITTI visibility, distractor, and DontCare preprocessing.
+No TrackEval installation is required.
 
 Use `--sequence` to restrict the split and `--show` or `--save` for visualization.
 No detector, experiment, or build is required. This workflow uses one sequence
@@ -243,7 +245,8 @@ boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
   --split val --cache-inputs
 ```
 
-It uses native `label_02` image boxes and TrackEval KITTI 2D HOTA/MOTA/IDF1.
+It uses native `label_02` image boxes and BoxMOT's built-in 2D HOTA/MOTA/IDF1
+metrics, including KITTI preprocessing, without an external TrackEval dependency.
 Add `--reid osnet-x0-25-msmt17` when using BoT-SORT's appearance features.
 
 For your own recordings, copy the

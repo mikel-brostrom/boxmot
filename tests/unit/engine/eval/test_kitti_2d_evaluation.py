@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import Namespace
 from pathlib import Path
 from typing import Any
@@ -31,8 +32,8 @@ _BOXES = [[20, 30, 100, 100], [160, 40, 200, 160]]
 
 @pytest.fixture(autouse=True)
 def _isolated_evaluation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Require the optional evaluator and forbid unrelated sensor/mask readers."""
-    pytest.importorskip("trackeval")
+    """Use built-in metrics and forbid unrelated sensor/mask readers."""
+    monkeypatch.setitem(sys.modules, "trackeval", None)
     monkeypatch.setattr(
         catalog_cache, "default_source_metadata_cache_path", lambda _root: tmp_path / "source-cache.json"
     )

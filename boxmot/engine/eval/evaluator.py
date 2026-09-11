@@ -215,12 +215,9 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     is_mots = annotation_format == "instance-png"
     is_kitti_tracking = annotation_format == "kitti-tracking-labels"
     if is_kitti_tracking:
-        from boxmot.engine.eval.trackeval_reference import validate_trackeval_kitti_dependencies
-
         targets = {name: value["id"] for name, value in dataset["classes"].items() if value["evaluation"] == "target"}
         if targets != {"car": 1, "pedestrian": 2}:
             raise ValueError("KITTI 2D tracking evaluation requires classes.target car: 1 and pedestrian: 2.")
-        validate_trackeval_kitti_dependencies()
     if is_mots:
         validate_mots_evaluation_inputs(
             dataset["classes"], dataset_modalities(dataset, str(dataset["split"]))["ground_truth"]["options"]

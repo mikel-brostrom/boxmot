@@ -15,25 +15,26 @@ def _load_trackeval():
         import trackeval
     except ImportError as exc:
         raise RuntimeError(
-            "TrackEval is required for KITTI tracking evaluation and --compare-trackeval. "
+            "TrackEval is required for the requested reference evaluation. "
             "Install it with `boxmot install --extra trackeval`."
         ) from exc
     return trackeval
 
 
 def validate_trackeval_kitti_dependencies() -> None:
-    """Require the installed, pinned evaluator used by KITTI protocol reports."""
+    """Require the installed, pinned evaluator for optional KITTI reference reports."""
     _load_trackeval()
     try:
         installed = version("trackeval")
     except PackageNotFoundError as error:
         raise RuntimeError(
-            "KITTI evaluation requires the installed trackeval==1.3.0 distribution. "
+            "KITTI reference evaluation requires the installed trackeval==1.3.0 distribution. "
             "Run `boxmot install --extra trackeval`."
         ) from error
     if installed != "1.3.0":
         raise RuntimeError(
-            f"KITTI evaluation requires trackeval==1.3.0; found {installed}. Run `boxmot install --extra trackeval`."
+            f"KITTI reference evaluation requires trackeval==1.3.0; found {installed}. "
+            "Run `boxmot install --extra trackeval`."
         )
 
 

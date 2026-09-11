@@ -1,7 +1,8 @@
-"""Image-only KITTI tracking exports and the complete installed scoring pipeline."""
+"""Built-in image-only KITTI scoring and optional installed-reference parity."""
 
 from __future__ import annotations
 
+import builtins
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -62,13 +63,27 @@ def _args(
     )
 
 
+@pytest.fixture(autouse=True)
+def forbid_implicit_trackeval(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every built-in regression must run without importing the optional evaluator."""
+    if "installed_trackeval" in request.fixturenames:
+        return
+    original_import = builtins.__import__
+
+    def guarded_import(name: str, *args: object, **kwargs: object) -> object:
+        if name == "trackeval" or name.startswith("trackeval."):
+            raise AssertionError("Built-in KITTI evaluation must not import TrackEval")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+
 @pytest.fixture
 def installed_trackeval() -> None:
     pytest.importorskip("trackeval")
     validate_trackeval_kitti_dependencies()
 
 
-@pytest.mark.usefixtures("installed_trackeval")
 @pytest.mark.parametrize("cache_inputs", [False, True])
 def test_kitti_2d_metrics_use_official_distractor_visibility_and_dontcare_rules(
     tmp_path: Path, cache_inputs: bool
@@ -107,7 +122,6 @@ def test_kitti_2d_metrics_use_official_distractor_visibility_and_dontcare_rules(
         assert repeated == result
 
 
-@pytest.mark.usefixtures("installed_trackeval")
 def test_kitti_2d_metrics_remap_selected_frames_and_large_identities_losslessly(tmp_path: Path) -> None:
     identity = 2**53
     rows = [
@@ -136,7 +150,6 @@ def test_kitti_2d_metrics_remap_selected_frames_and_large_identities_losslessly(
     assert all(row.split()[10:17] == ["-1", "-1", "-1", "-1000", "-1000", "-1000", "-10"] for row in exported)
 
 
-@pytest.mark.usefixtures("installed_trackeval")
 def test_kitti_2d_metrics_count_identity_switch_and_empty_frames(tmp_path: Path) -> None:
     args = _args(
         tmp_path,
@@ -151,7 +164,6 @@ def test_kitti_2d_metrics_count_identity_switch_and_empty_frames(tmp_path: Path)
     assert result["MOTA"] == result["IDF1"] == 50
 
 
-@pytest.mark.usefixtures("installed_trackeval")
 @pytest.mark.parametrize(
     "class_map", [{"car": "car"}, {"pedestrian": "person"}, {"car": "car", "pedestrian": "person"}]
 )
@@ -190,8 +202,8 @@ def test_kitti_2d_honors_authored_experiment_class_subset(tmp_path: Path, class_
     protocol = json.loads((args.exp_dir / "evaluation.json").read_text())
     assert protocol["tracking"]["classes"] == args.remapped_class_names
     assert len((args.exp_dir / "metrics.csv").read_text().splitlines()) == len(class_map) + 3
-    # Class selection belongs to TrackEval; ignored/distractor GT must still
-    # reach its native preprocessing rather than being filtered at export.
+    # Keep ignored and distractor GT available for native preprocessing; class
+    # selection must not discard those annotations at export.
     exported = (args.exp_dir / "protocol_inputs/tracking/ground_truth/label_02/0000.txt").read_text()
     assert " Car " in exported and " Pedestrian " in exported
 
@@ -249,3 +261,221 @@ def test_kitti_2d_rejects_invalid_frame_mapping(tmp_path: Path, frames: list[tup
     args = _args(tmp_path, [_gt(0, 1)], [], native_count=2, frames=frames)
     with pytest.raises(ValueError, match="(selected frames|chronological)"):
         kitti_tracking.run_kitti_tracking_metrics(args, [], args.exp_dir, tmp_path, seq_info={"0000": 2})
+
+
+def _preprocessing_case(name: str) -> tuple[list[str], list[str], int, int]:
+    """Cases distinguish KITTI preprocessing from filtering before association."""
+    if name == "matched-small-inside-dontcare":
+        bounds = (0, 0, 50, 25)
+        return [_gt(0, 1, bounds=bounds), _gt(0, -1, "DontCare", bounds)], [_prediction(0, 10, bounds=bounds)], 1, 1
+    if name == "unmatched-height-boundary":
+        return (
+            [_gt(0, 1)],
+            [
+                _prediction(0, 10),
+                _prediction(0, 11, bounds=(60, 0, 110, 25)),
+                _prediction(0, 12, bounds=(120, 0, 170, 26)),
+            ],
+            1,
+            2,
+        )
+    if name == "dontcare-ioa-boundary":
+        return (
+            [_gt(0, 1), _gt(0, -1, "DontCare", (100, 0, 125, 50)), _gt(0, -1, "DontCare", (200, 0, 226, 50))],
+            [
+                _prediction(0, 10),
+                _prediction(0, 11, bounds=(100, 0, 150, 50)),
+                _prediction(0, 12, bounds=(200, 0, 250, 50)),
+            ],
+            1,
+            2,
+        )
+    if name == "distractor-iou-boundary":
+        return (
+            [_gt(0, 1), _gt(0, 2, "Van", (100, 0, 130, 60)), _gt(0, 3, "Van", (200, 0, 230, 60))],
+            [
+                _prediction(0, 10),
+                _prediction(0, 11, bounds=(100, 0, 160, 60)),
+                _prediction(0, 12, bounds=(200, 0, 261, 60)),
+            ],
+            1,
+            2,
+        )
+    if name == "distractor-matched-before-removal":
+        return (
+            [_gt(0, 1, bounds=(0, 0, 60, 60)), _gt(0, 2, "Van", (10, 0, 70, 60))],
+            [_prediction(0, 10, bounds=(10, 0, 70, 60))],
+            1,
+            0,
+        )
+    if name == "visibility-boundaries":
+        return (
+            [
+                _gt(0, 1, occlusion=2),
+                _gt(0, 2, bounds=(60, 0, 110, 50), occlusion=3),
+                _gt(0, 3, bounds=(120, 0, 170, 50), truncation=1),
+            ],
+            [
+                _prediction(0, 10),
+                _prediction(0, 11, bounds=(60, 0, 110, 50)),
+                _prediction(0, 12, bounds=(120, 0, 170, 50)),
+            ],
+            1,
+            1,
+        )
+    if name == "wrong-class-neighbor":
+        return (
+            [_gt(0, 1), _gt(0, 2, "Person_sitting", (60, 0, 110, 50))],
+            [_prediction(0, 10), _prediction(0, 11, bounds=(60, 0, 110, 50))],
+            1,
+            2,
+        )
+    if name == "no-ground-truth":
+        return [], [_prediction(0, 10)], 0, 1
+    if name == "no-predictions":
+        return [_gt(0, 1)], [], 1, 0
+    if name == "empty-sequence":
+        return [], [], 0, 0
+    raise AssertionError(f"Unknown preprocessing case: {name}")
+
+
+_PREPROCESSING_CASES = (
+    "matched-small-inside-dontcare",
+    "unmatched-height-boundary",
+    "dontcare-ioa-boundary",
+    "distractor-iou-boundary",
+    "distractor-matched-before-removal",
+    "visibility-boundaries",
+    "wrong-class-neighbor",
+    "no-ground-truth",
+    "no-predictions",
+    "empty-sequence",
+)
+
+
+@pytest.mark.parametrize("case", _PREPROCESSING_CASES)
+def test_builtin_kitti_preprocessing_preserves_matching_order_and_boundaries(tmp_path: Path, case: str) -> None:
+    rows, predictions, gt_count, prediction_count = _preprocessing_case(case)
+    args = _args(tmp_path, rows, predictions)
+
+    result = kitti_tracking.run_kitti_tracking_metrics(args, [], args.exp_dir, tmp_path, seq_info={"0000": 1})
+
+    assert result["car"]["GT_Dets"] == gt_count
+    assert result["car"]["Dets"] == prediction_count
+    assert result["car"]["Frames"] == 1
+    protocol = json.loads((args.exp_dir / "evaluation.json").read_text())
+    assert protocol["tracking"]["evaluator"] == "boxmot"
+    assert protocol["tracking"]["geometry"] == "2d"
+
+
+def _assert_metric_parity(actual: dict, expected: dict) -> None:
+    """Compare metric summaries and per-sequence results with float tolerance."""
+    assert set(expected) <= set(actual)
+    assert set(actual) - set(expected) <= {"IDa", "IDm", "IDt"}
+    for name, expected_value in expected.items():
+        if isinstance(expected_value, dict):
+            _assert_metric_parity(actual[name], expected_value)
+        else:
+            assert actual[name] == pytest.approx(expected_value, rel=1e-10, abs=1e-10), name
+
+
+@pytest.mark.usefixtures("installed_trackeval")
+@pytest.mark.parametrize("case", _PREPROCESSING_CASES)
+def test_builtin_kitti_preprocessing_and_metrics_match_optional_trackeval(tmp_path: Path, case: str) -> None:
+    rows, predictions, _, _ = _preprocessing_case(case)
+    args = _args(tmp_path, rows, predictions)
+    actual = kitti_tracking.run_kitti_tracking_metrics(args, [], args.exp_dir, tmp_path, seq_info={"0000": 1})
+    protocol_root = args.exp_dir / "protocol_inputs" / "tracking"
+
+    reference = evaluate_trackeval_kitti(
+        gt_folder=protocol_root / "ground_truth",
+        tracker_folder=protocol_root / "predictions",
+        seq_info={"0000": 1},
+    )
+
+    _assert_metric_parity(actual, reference)
+
+
+@pytest.mark.usefixtures("installed_trackeval")
+def test_builtin_kitti_identity_metrics_match_optional_trackeval_on_subsampled_frames(tmp_path: Path) -> None:
+    identity = 2**53
+    rows = [
+        _gt(
+            frame,
+            identity + offset,
+            "Car" if offset == 0 else "Pedestrian",
+            bounds=(60 * offset, 0, 60 * offset + 50, 50),
+        )
+        for frame in (0, 1, 3, 4)
+        for offset in (0, 1)
+    ]
+    predictions = [
+        _prediction(
+            frame,
+            identity + offset + (10 if frame < 2 else 20),
+            class_id=offset + 1,
+            bounds=(60 * offset, 0, 60 * offset + 50, 50),
+        )
+        for frame in (0, 2, 3)
+        for offset in (0, 1)
+    ]
+    args = _args(tmp_path, rows, predictions, native_count=5, frames=[(0, 0), (1, 2), (2, 3), (3, 4)])
+    actual = kitti_tracking.run_kitti_tracking_metrics(args, [], args.exp_dir, tmp_path, seq_info={"0000": 4})
+    protocol_root = args.exp_dir / "protocol_inputs" / "tracking"
+    reference = evaluate_trackeval_kitti(
+        gt_folder=protocol_root / "ground_truth", tracker_folder=protocol_root / "predictions", seq_info={"0000": 4}
+    )
+
+    _assert_metric_parity(actual, reference)
+    assert actual["car"]["IDSW"] == actual["pedestrian"]["IDSW"] == 1
+
+
+def _multi_sequence_args(tmp_path: Path) -> SimpleNamespace:
+    """Make unequal class sizes distinguish class and detection weighted metrics."""
+    args = _args(
+        tmp_path,
+        [_gt(0, 1), _gt(1, 1)],
+        [_prediction(0, 10), _prediction(1, 10)],
+        native_count=2,
+        frames=[(0, 0), (1, 1)],
+    )
+    second_truth = tmp_path / "second-source.txt"
+    second_truth.write_text("\n".join(_gt(frame, 1, "Pedestrian") for frame in range(3)) + "\n", encoding="utf-8")
+    (args.exp_dir / "0001.txt").write_text(_prediction(0, 10, class_id=2) + "\n", encoding="utf-8")
+    args.evaluation_config["kitti_gt_sequences"]["0001"] = {
+        "path": str(second_truth),
+        "frame_count": 3,
+        "frames": [(0, 0), (1, 1), (2, 2)],
+    }
+    return args
+
+
+def test_builtin_kitti_combines_sequences_and_weights_classes_without_double_counting_frames(tmp_path: Path) -> None:
+    args = _multi_sequence_args(tmp_path)
+    result = kitti_tracking.run_kitti_tracking_metrics(
+        args, [], args.exp_dir, tmp_path, seq_info={"0000": 2, "0001": 3}
+    )
+
+    assert result["car"]["MOTA"] == 100
+    assert result["pedestrian"]["MOTA"] == pytest.approx(100 / 3)
+    assert result["cls_comb_cls_av"]["MOTA"] == pytest.approx(200 / 3)
+    assert result["cls_comb_det_av"]["MOTA"] == 60
+    for name in ("cls_comb_cls_av", "cls_comb_det_av"):
+        assert result[name]["GT_Dets"] == 5
+        assert result[name]["Dets"] == 3
+        assert result[name]["GT_IDs"] == result[name]["IDs"] == 2
+    for values in result.values():
+        assert values["Frames"] == 5
+
+
+@pytest.mark.usefixtures("installed_trackeval")
+def test_builtin_kitti_multiple_sequence_aggregation_matches_optional_trackeval(tmp_path: Path) -> None:
+    args = _multi_sequence_args(tmp_path)
+    counts = {"0000": 2, "0001": 3}
+    actual = kitti_tracking.run_kitti_tracking_metrics(args, [], args.exp_dir, tmp_path, seq_info=counts)
+    protocol_root = args.exp_dir / "protocol_inputs" / "tracking"
+    reference = evaluate_trackeval_kitti(
+        gt_folder=protocol_root / "ground_truth", tracker_folder=protocol_root / "predictions", seq_info=counts
+    )
+
+    _assert_metric_parity(actual, reference)

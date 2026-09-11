@@ -39,8 +39,10 @@ boxmot tune --dataset kitti-2d --tracker bytetrack --detector yolo26n \
   --split train --n-trials 50 --cache-inputs
 ```
 
-Install `--extra trackeval` alongside the detector and tuning extras. Use
-`--calibrate-kf` to fit 2D filter noise before searching tracking parameters.
+Install the detector and tuning extras (`--extra yolo --extra evolve`). KITTI
+2D tuning uses BoxMOT's built-in metrics with KITTI preprocessing; no TrackEval
+installation is required. Use `--calibrate-kf` to fit 2D filter noise before
+searching tracking parameters.
 BoT-SORT can use the supplied OSNet experiments by adding
 `--reid osnet-x0-25-msmt17` and selecting `--tracker botsort`.
 

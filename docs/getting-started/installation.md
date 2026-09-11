@@ -67,6 +67,9 @@ unmet dependencies for the existing BoxMOT distribution.
 | `export --include openvino` | `boxmot install --extra onnx --extra openvino` | `uv sync --extra cpu --extra onnx --extra openvino` | Uses ONNX as an intermediate. |
 | `export --include tflite` | `boxmot install --extra tflite` | `uv sync --extra cpu --extra tflite` | Installs both TFLite export and LiteRT inference packages. |
 
+KITTI 2D evaluation and tuning use built-in tracking metrics and do not require
+the `trackeval` extra. This includes evaluation of saved 2D detections.
+
 You can combine extras when needed:
 
 ```bash

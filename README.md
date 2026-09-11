@@ -259,7 +259,8 @@ boxmot eval --dataset kitti-2d-detections --tracker occluboost \
 The [saved-detection YAML](boxmot/configs/datasets/kitti-2d-detections.yaml)
 selects boxes without masks or spatial inputs. Adjust its root and paths for
 your folder; the [dataset guide](docs/config/datasets.md#existing-2d-detections)
-describes the layout.
+describes the layout. Both KITTI 2D workflows use BoxMOT's built-in HOTA, MOTA,
+and IDF1 metrics; no TrackEval installation is required.
 
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It
