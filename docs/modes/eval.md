@@ -188,15 +188,12 @@ Saved sensor evaluation reads predictions directly. Perception/build options,
 Kalman calibration, and TrackEval comparison are unavailable for these datasets;
 an explicit `--device` must be `cpu`.
 
-If the selection is incompatible, the error compares the selected split's
-declared inputs with the registered [Python tracker inputs](../trackers/index.md#input-support)
-and names declared tracking inputs that the tracker marks `Unused`, along with
-any missing required inputs. Every declared tracking input must be consumed;
-silently dropping sensors would change the configured experiment. Ground truth
-is used separately for scoring.
+An incompatible selection reports a short reason and next step. The check uses
+the selected split and registered [tracker inputs](../trackers/index.md#input-support):
+declared tracking inputs marked `Unused` cause rejection. Ground truth is used
+separately for scoring.
 
-Backend availability and workflow restrictions are reported separately. This
-direct saved-sensor workflow currently requires
+The direct saved-sensor workflow currently requires
 `--tracker eagermot --tracker-backend python`. To intentionally evaluate an
 image-only experiment, select only `images` and `ground_truth` in a separate
 dataset config or explicit split override, then select a perception build or

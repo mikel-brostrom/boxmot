@@ -87,15 +87,12 @@ It supports `--search-alg optuna`; an explicit device must be `cpu`.
 Objective selectors must use `HOTA`. Perception and build options,
 `--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
 
-Incompatible selections report the selected split's declared inputs alongside
-the registered [Python tracker inputs](../trackers/index.md#input-support),
-naming declared tracking inputs that the tracker marks `Unused` and any missing
-required inputs. Every declared tracking input must be consumed; silently
-dropping sensors would change the configured experiment. Ground truth is used
+An incompatible selection reports a short reason and next step. The check uses
+the selected split and registered [tracker inputs](../trackers/index.md#input-support):
+declared tracking inputs marked `Unused` cause rejection. Ground truth is used
 separately for the tuning objective.
 
-Backend availability and workflow restrictions are reported separately. Direct
-saved-sensor tuning currently requires
+Direct saved-sensor tuning currently requires
 `--tracker eagermot --tracker-backend python`. To intentionally tune an image-only
 experiment, select only `images` and `ground_truth` in a separate dataset config
 or explicit split override, plus a perception build or detector. Split modality

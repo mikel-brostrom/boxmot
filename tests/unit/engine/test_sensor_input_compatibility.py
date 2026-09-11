@@ -35,15 +35,18 @@ def _replace_manifest(dataset: Path, payload: dict[str, Any]) -> None:
     dataset.write_text(yaml.safe_dump(payload), encoding="utf-8")
 
 
-def _row(message: str, label: str) -> str:
-    """Find a semantic matrix row independently of column widths or borders."""
-    matches = [line for line in message.splitlines() if line.strip(" |\t").startswith(label)]
-    assert len(matches) == 1, message
-    return matches[0]
+def _concise_error(message: str) -> list[str]:
+    """Require one reason and at most one next step, without a capability table."""
+    lines = message.strip().splitlines()
+    assert 1 <= len(lines) <= 2, message
+    assert all(lines), message
+    assert "Dataset declares" not in message
+    assert "Traceback" not in message
+    return lines
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))
-def test_cli_explains_botsort_inputs_and_saved_sensor_workflow_limit(
+def test_cli_names_unused_botsort_inputs_and_one_next_step(
     declared_dataset: Path, mode: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     command = importlib.import_module(f"boxmot.engine.commands.{mode}")
@@ -59,67 +62,39 @@ def test_cli_explains_botsort_inputs_and_saved_sensor_workflow_limit(
     )
 
     assert result.exit_code == 2, (result.output, result.exception)
-    assert f"Saved-sensor {mode} currently supports only --tracker eagermot --tracker-backend python." in result.output
-    assert "botsort" in result.output
-    assert "sensor-fusion" in result.output
-    assert "val" in result.output
-    assert "AABB" in _row(result.output, "2D boxes")
-    assert "Configurable" in _row(result.output, "Images")
-    assert "image-directory" in _row(result.output, "Images")
-    assert "Configurable" in _row(result.output, "ReID embeddings")
-    assert "not exposed" in _row(result.output, "ReID embeddings").lower()
-    assert "trackrcnn" in _row(result.output, "Instance masks")
-    assert "Unused" in _row(result.output, "3D boxes")
-    assert "kitti-detections" in _row(result.output, "3D boxes")
-    assert "Unused" in _row(result.output, "Ego motion (poses)")
-    assert "camera-to-world-npy" in _row(result.output, "Ego motion (poses)")
-    assert "instance-png" in _row(result.output, "Ground-truth masks")
-    mismatch = next(line for line in result.output.splitlines() if line.startswith("Dataset/model input mismatch:"))
-    assert "instance masks (detections_2d)" in mismatch
-    assert "3D boxes (detections_3d)" in mismatch
-    assert "calibration" in mismatch
-    assert "ego motion (poses)" in mismatch
-    assert "ground_truth" not in mismatch
-    assert "Declared tracking inputs must be consumed" in result.output
-    assert result.output.index(mismatch) < result.output.index("Saved-sensor")
-    assert "Extra sensor modalities do not prevent" not in result.output
-    assert "Traceback" not in result.output
+    reason, action = _concise_error(result.output.split("Error: ", 1)[1])
+    assert "'botsort' does not use inputs required by dataset 'sensor-fusion' (split 'val'):" in reason
+    assert "instance masks, 3D boxes, calibration, ego motion." in reason
+    assert "ground_truth" not in reason
+    assert action == "Use --tracker eagermot --tracker-backend python."
 
 
 @pytest.mark.parametrize(
-    ("name", "expected"),
+    ("name", "unused_masks"),
     (
-        ("botsort", {"ReID embeddings": "Configurable", "Images": "Configurable", "3D boxes": "Unused"}),
-        ("bytetrack", {"ReID embeddings": "Unused", "Instance masks": "Unused", "Calibration": "Unused"}),
-        ("strongsort", {"ReID embeddings": "Required", "Images": "Required"}),
-        ("maf_hda", {"Instance masks": "Required", "Images": "Required", "3D boxes": "Unused"}),
-        (
-            "eagermot",
-            {
-                "3D boxes": "Required",
-                "Calibration": "Required",
-                "Ego motion (poses)": "Optional",
-                "Instance masks": "Optional",
-            },
-        ),
+        ("botsort", True),
+        ("bytetrack", True),
+        ("strongsort", True),
+        ("maf_hda", False),
     ),
 )
-def test_matrix_distinguishes_box_appearance_mask_and_sensor_trackers(
-    declared_dataset: Path, name: str, expected: dict[str, str]
+def test_unused_inputs_reflect_box_appearance_and_mask_tracker_contracts(
+    declared_dataset: Path, name: str, unused_masks: bool
 ) -> None:
-    """Required inputs remain distinct from configurable features and unused data."""
-    spec = TrackerSpec(name, backend="cpp" if name == "eagermot" else "python")
+    """Accepted inputs stay out of the rejection for each algorithm family."""
     with pytest.raises(ValueError) as raised:
-        validate_sensor_workflow_inputs(declared_dataset, spec, mode="eval")
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec(name), mode="eval")
 
-    message = str(raised.value)
-    for label, requirement in expected.items():
-        assert requirement in _row(message, label), message
-    assert "instance-png" in _row(message, "Ground-truth masks")
+    reason = _concise_error(str(raised.value))[0]
+    assert "does not use inputs required" in reason
+    assert ("instance masks" in reason) is unused_masks
+    assert "3D boxes, calibration, ego motion" in reason
+    assert "images" not in reason
+    assert "embeddings" not in reason
 
 
-def test_matrix_follows_changed_registry_metadata(declared_dataset: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """New input requirements must appear without a second tracker-specific list."""
+def test_mismatch_follows_changed_registry_metadata(declared_dataset: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """New accepted inputs must stop being rejected without a tracker-specific list."""
     definition = TRACKER_DEFINITIONS["botsort"]
     capabilities = replace(definition.capabilities, requires_masks=True, accepts_masks=True)
     monkeypatch.setitem(TRACKER_DEFINITIONS, "botsort", replace(definition, capabilities=capabilities))
@@ -127,7 +102,9 @@ def test_matrix_follows_changed_registry_metadata(declared_dataset: Path, monkey
     with pytest.raises(ValueError) as raised:
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort"), mode="eval")
 
-    assert "Required" in _row(str(raised.value), "Instance masks")
+    reason = _concise_error(str(raised.value))[0]
+    assert "instance masks" not in reason
+    assert "3D boxes, calibration, ego motion" in reason
 
 
 def test_supported_workflow_rejects_declared_inputs_the_tracker_cannot_consume(
@@ -138,11 +115,12 @@ def test_supported_workflow_rejects_declared_inputs_the_tracker_cannot_consume(
     capabilities = replace(definition.capabilities, accepts_masks=False)
     monkeypatch.setitem(TRACKER_DEFINITIONS, "eagermot", replace(definition, capabilities=capabilities))
 
-    with pytest.raises(ValueError, match="Dataset/model input mismatch:") as raised:
+    with pytest.raises(ValueError, match="does not use inputs required") as raised:
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
 
-    assert "instance masks (detections_2d)" in str(raised.value)
+    assert "instance masks" in _concise_error(str(raised.value))[0]
     assert "supports only" not in str(raised.value)
+    assert "Use --tracker eagermot" not in str(raised.value)
 
 
 def test_unused_input_rejection_respects_split_selection_and_excludes_scoring_labels(declared_dataset: Path) -> None:
@@ -154,13 +132,13 @@ def test_unused_input_rejection_respects_split_selection_and_excludes_scoring_la
     with pytest.raises(ValueError) as raised:
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort"), mode="eval")
 
-    mismatch = next(line for line in str(raised.value).splitlines() if line.startswith("Dataset/model input mismatch:"))
-    assert "3D boxes (detections_3d)" in mismatch
+    mismatch = _concise_error(str(raised.value))[0]
+    assert "3D boxes" in mismatch
     assert "calibration" in mismatch
     assert "poses" not in mismatch
     assert "masks" not in mismatch
     assert "ground_truth" not in mismatch
-    assert "instance-png" in _row(str(raised.value), "Ground-truth masks")
+    assert "ego motion" not in mismatch
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))
@@ -170,9 +148,30 @@ def test_backend_unavailability_is_distinct_from_workflow_support(declared_datas
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec(name, backend="cpp"), mode=mode)
 
     message = str(raised.value)
+    _concise_error(message)
     assert ("has no C++ backend" in message) is (name == "eagermot")
-    assert "Python" in message
-    assert f"Saved-sensor {mode} currently supports only" in message
+    if name == "eagermot":
+        assert message.endswith("Use --tracker-backend python.")
+        assert "does not use inputs required" not in message
+    else:
+        assert "does not use inputs required" in message
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+def test_compatible_inputs_still_require_a_supported_workflow(
+    declared_dataset: Path, mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Algorithm input support does not imply that its replay workflow exists."""
+    definition = TRACKER_DEFINITIONS["botsort"]
+    capabilities = replace(definition.capabilities, accepts_masks=True, accepts_detections_3d=True, accepts_camera=True)
+    monkeypatch.setitem(TRACKER_DEFINITIONS, "botsort", replace(definition, capabilities=capabilities))
+
+    with pytest.raises(ValueError) as raised:
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort", backend="cpp"), mode=mode)
+
+    assert _concise_error(str(raised.value)) == [
+        f"Saved-sensor {mode} supports only --tracker eagermot --tracker-backend python."
+    ]
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))
@@ -192,12 +191,10 @@ def test_missing_modalities_are_reported_together_before_payload_loading(
     result = CliRunner().invoke(boxmot, [mode, "--dataset", str(declared_dataset), "--tracker", "eagermot"])
 
     assert result.exit_code == 2, (result.output, result.exception)
-    reason = next(
-        line for line in result.output.splitlines() if f"Missing modalities for EagerMOT saved-sensor {mode}:" in line
-    )
+    reason, action = _concise_error(result.output.split("Error: ", 1)[1])
+    assert f"Dataset 'sensor-fusion' (split 'val') is missing inputs for EagerMOT {mode}:" in reason
     assert all(role in reason for role in missing), result.output
-    assert result.output.lower().count("not declared") >= len(missing)
-    assert "Traceback" not in result.output
+    assert action == "Add them to dataset.yaml."
 
 
 def test_missing_workflow_modality_is_not_presented_as_a_botsort_requirement(declared_dataset: Path) -> None:
@@ -209,9 +206,12 @@ def test_missing_workflow_modality_is_not_presented_as_a_botsort_requirement(dec
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort"), mode="eval")
 
     message = str(raised.value)
-    assert "Missing modalities for EagerMOT saved-sensor eval: poses." in message
-    assert "Unused" in _row(message, "Ego motion (poses)")
-    assert "not declared" in _row(message, "Ego motion (poses)")
+    reason = _concise_error(message)[0]
+    assert "does not use inputs required" in reason
+    assert "ego motion" not in reason
+    assert "poses" not in reason
+    assert "missing inputs" not in message
+    assert "Use --tracker eagermot" not in message
 
 
 def test_compatibility_uses_selected_split_overrides_and_default(declared_dataset: Path) -> None:
@@ -227,11 +227,9 @@ def test_compatibility_uses_selected_split_overrides_and_default(declared_datase
     with pytest.raises(ValueError) as raised:
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
 
-    message = str(raised.value)
-    assert "val" in message
-    assert "not declared" in _row(message, "Calibration").lower()
-    assert "not declared" in _row(message, "Ego motion (poses)").lower()
-    assert "kitti-p2" not in _row(message, "Calibration")
+    reason = _concise_error(str(raised.value))[0]
+    assert "split 'val'" in reason
+    assert "calibration, poses." in reason
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))
@@ -246,7 +244,7 @@ validate_sensor_workflow_inputs(sys.argv[2], TrackerSpec('eagermot'), mode=sys.a
 try:
     validate_sensor_workflow_inputs(sys.argv[2], TrackerSpec('botsort'), mode=sys.argv[1])
 except ValueError as error:
-    assert 'Saved-sensor' in str(error), error
+    assert 'does not use inputs required' in str(error), error
 else:
     raise AssertionError('BoT-SORT should receive a saved-sensor diagnostic')
 blocked = ('torch', 'numpy', 'cv2', 'PIL', 'optuna', 'ray', 'pyarrow',

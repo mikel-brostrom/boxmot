@@ -215,7 +215,7 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     (
-        ({"tracker": "bytetrack"}, "supports only --tracker eagermot"),
+        ({"tracker": "bytetrack"}, "does not use inputs required"),
         ({"tracker_backend": "cpp"}, "has no C\\+\\+ backend"),
         ({"build": "build"}, "does not support build"),
         ({"cache_inputs": True}, "does not support cache_inputs"),

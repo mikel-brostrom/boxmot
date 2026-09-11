@@ -423,17 +423,16 @@ consumers. Use separate sequences for tuning and evaluation. See
 [EagerMOT tuning](../trackers/eagermot.md#tune-separate-class-profiles) for
 supported options and outputs.
 
-When a tracker selection is incompatible, `eval` and `tune` compare the
-selected split's declared modalities with the registered
-[Python tracker input capabilities](../trackers/index.md#input-support).
-The message names declared tracking inputs that the tracker marks `Unused`,
-as well as missing required inputs. Silently discarding a declared input would
-change the configured experiment. These checks use the configuration; input
-files are validated separately. Ground-truth masks do not substitute for
+When a tracker selection is incompatible, `eval` and `tune` report a short
+reason and next step based on the selected split's declarations and registered
+[tracker inputs](../trackers/index.md#input-support). The message names unused
+tracking inputs, missing required inputs, or an unavailable backend or workflow.
+Silently discarding a declared input would change the configured experiment.
+These checks use the configuration; input files are validated separately.
+Ground-truth masks do not substitute for
 predicted masks, and TrackR-CNN's stored embeddings are not exposed by its reader.
 
-Backend availability and workflow support are checked separately. The current
-direct saved-sensor `eval` and `tune` workflows require
+The current direct saved-sensor `eval` and `tune` workflows require
 `--tracker eagermot --tracker-backend python`.
 
 To intentionally run an image-only experiment, author a separate dataset config
