@@ -38,7 +38,7 @@ def kitti_mots_annotations(
     """Pair image frames with absolute annotation paths from their sequence directory."""
     entries = []
     for image_path in frame_paths:
-        annotation = ground_truth / image_path.name
+        annotation = ground_truth / image_path.with_suffix(".png").name
         if not annotation.is_file():
             raise FileNotFoundError(f"Missing KITTI MOTS ground-truth instance PNG: {annotation}")
         entries.append((int(image_path.stem), str(annotation.resolve()), *image_size))

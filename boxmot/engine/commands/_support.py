@@ -224,7 +224,13 @@ def _prepare_replay_build(
             resolved = resolve_experiment_config(str(experiment), split=split, mode=mode)
         except (ConfigurationError, FileNotFoundError) as exc:
             raise click.UsageError(str(exc)) from exc
-        if resolved["dataset"]["layout"] != "kitti-mots":
+        from boxmot.datasets.config import dataset_modalities
+
+        selected_dataset = resolved["dataset"]
+        if (
+            dataset_modalities(selected_dataset, selected_dataset["split"]).get("ground_truth", {}).get("format")
+            != "instance-png"
+        ):
             raise click.UsageError("--eval-masks requires a KITTI-MOTS dataset.")
 
     capabilities = get_tracker_definition(tracker).capabilities

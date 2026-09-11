@@ -57,17 +57,18 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     if not reference:
         return None
 
-    from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     explicit = _explicit_cli_keys(ctx)
     try:
-        path = resolve_kitti_fusion_config_path(reference)
+        path = resolve_sensor_dataset_config_path(reference, split=payload.get("split"))
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         if spec.name != "eagermot" or spec.backend != "python":
-            raise ValueError("KITTI fusion evaluation requires --tracker eagermot --tracker-backend python.")
+            raise ValueError("Sensor dataset evaluation requires --tracker eagermot --tracker-backend python.")
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
             names = ", ".join(
@@ -76,11 +77,11 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
                 if isinstance(option, click.Option) and option.name in unsupported
             )
             raise click.UsageError(
-                f"KITTI fusion evaluation does not support {names}; inputs come from the dataset manifest."
+                f"Sensor dataset evaluation does not support {names}; inputs come from the dataset manifest."
             )
         if "device" in explicit and payload["device"] != "cpu":
-            raise click.UsageError("KITTI fusion evaluation runs on CPU; --device must be cpu.")
-        dataset = load_kitti_fusion_dataset(
+            raise click.UsageError("Sensor dataset evaluation runs on CPU; --device must be cpu.")
+        dataset = load_sensor_evaluation_inputs(
             path,
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
@@ -213,7 +214,7 @@ def eval(
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
         return
     if kwargs["class_config"] is not None or kwargs["show_3d"]:
-        raise click.UsageError("--class-config and --show-3d require a KITTI fusion dataset with --tracker eagermot.")
+        raise click.UsageError("--class-config and --show-3d require a Sensor dataset dataset with --tracker eagermot.")
 
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.calibration.kalman import validate_kf_calibration

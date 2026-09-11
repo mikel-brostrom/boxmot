@@ -34,6 +34,16 @@ catalog and build orchestration. Capture timestamps belong in
 `engine/tracking/timestamps.py`; `tracking/timing.py` measures execution time.
 Console logging belongs in `engine/ui/logging.py`.
 
+Dataset formats share `boxmot/datasets/config.py` and the `id`, `format`,
+`storage`, `classes`, and `splits` schema. A `sequence` layout declares
+per-modality encodings, paths, and parser options; split overrides select
+different inputs without a separate sensor config hierarchy.
+`boxmot/datasets/inputs.py` resolves those declarations. Add new file encoding
+parsers under `boxmot/datasets/readers` and return canonical observations for
+consumers. Tracker requirements and evaluation restrictions belong to their
+consumers, so a new dataset or detector export does not need tracker-specific
+dataset loading. See the [dataset schema](../config/datasets.md#multimodal-sequence-datasets).
+
 Shared tracker motion code lives under `boxmot/trackers/common/motion/`:
 `models.py` provides motion adapters, `tracker.py` integrates them with
 trackers, and `kalman_filters/` contains filters, noise configuration, and
@@ -45,8 +55,9 @@ modules. Dataset loading and Kalman calibration workflows belong in
 detections and ground truth, while `ground_truth_noise.py` owns
 annotation-based noise estimation.
 
-Hyperparameter search belongs in `boxmot/engine/tuning/`, including search
-backends and `eagermot_kitti.py`'s Optuna trials. Tuning may run calibration
+Hyperparameter search belongs in `boxmot/engine/tuning/`. Its `tuner.py` owns
+perception-build search and sensor-dataset Optuna trials, using shared search
+backends. Tuning may run calibration
 before a search and freeze its results through `calibration_profile.py`.
 Calibration must not import tuning or require search backends.
 

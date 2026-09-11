@@ -9,6 +9,7 @@ from typing import Any
 import numpy as np
 import pytest
 import torch
+import yaml
 from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
@@ -136,6 +137,25 @@ def test_visualization_reloads_selected_class_configuration(tmp_path: Path, monk
     manifest = json.loads((data.project / "val/run.json").read_text())
     assert manifest["tracker_profiles"]["1"]["det_thresh"] == 0.99
     assert manifest["tracker_profiles"]["2"]["det_thresh"] == 0.9
+
+
+def test_visualization_uses_authored_frame_rate_for_timestamps_and_video(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = _fixture(tmp_path)
+    config = yaml.safe_load(data.dataset.read_text())
+    config["fps"] = 25.0
+    data.dataset.write_text(yaml.safe_dump(config), encoding="utf-8")
+    renderers = _capture_visualizations(monkeypatch)
+
+    invocation = CliRunner().invoke(boxmot, [*_arguments(data), "--save"])
+
+    assert invocation.exit_code == 0, (invocation.output, invocation.exception)
+    assert renderers[0].options["video_fps"] == 25.0
+    assert [event.sample.timestamp_s for event in renderers[0].frames] == [0.0, 0.04, 0.08]
+    assert [event.sample.frame.timestamp_s for event in renderers[0].frames] == [0.0, 0.04, 0.08]
+    manifest = json.loads((data.project / "val/run.json").read_text())
+    assert manifest["fps"] == manifest["visualization"]["video_fps"] == 25.0
 
 
 def test_default_evaluation_never_decodes_rgb_or_constructs_visualization(

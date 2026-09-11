@@ -51,12 +51,21 @@ def _dataset_fixture(tmp_path: Path, indices: tuple[int, ...]) -> tuple[Path, np
         yaml.safe_dump(
             {
                 "id": "mots-fixture",
-                "format": {"layout": "kitti-mots", "box_type": "aabb"},
+                "format": {"layout": "sequence", "box_type": "aabb"},
                 "storage": {"root": "KITTI-fixture"},
                 "default_split": "train",
+                "fps": 10,
+                "modalities": {
+                    "images": {"format": "image-directory", "path": "images/{sequence}"},
+                    "ground_truth": {
+                        "format": "instance-png",
+                        "path": "instances/{sequence}",
+                        "options": {"class_divisor": 1000, "background_id": 0, "ignore_ids": [10000]},
+                    },
+                },
                 "splits": {
-                    "train": {"path": "images", "annotations": "instances", "has_ground_truth": True},
-                    "test": {"path": "images", "has_ground_truth": False},
+                    "train": {"partition": "training", "has_ground_truth": True},
+                    "test": {"partition": "testing", "has_ground_truth": False, "modalities": {"ground_truth": None}},
                 },
                 "classes": {"target": {"car": 1, "pedestrian": 2}, "ignore": {"ignore": 10}},
             }

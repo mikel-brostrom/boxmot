@@ -8,7 +8,7 @@ import pickle
 import time
 from collections.abc import Callable
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,8 +17,8 @@ import torch
 import yaml
 
 from boxmot import EagerMot, __version__
-from boxmot.datasets.kitti_fusion import KittiFusionFrame, KittiFusionSequence
-from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset
+from boxmot.datasets.sequence import MultimodalSequence, SensorFrame
+from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
 from boxmot.engine.eval.kitti_mots_replay import (
     GroundTruthEntry,
     evaluate_kitti_mots,
@@ -103,13 +103,14 @@ def write_kitti_profiles(path: Path, profiles: dict[int, dict[str, Any]]) -> Non
 class KittiReplayInputs:
     """Indexed sensor inputs reused across trials; full masks remain lazy."""
 
-    sequences: dict[str, KittiFusionSequence]
+    sequences: dict[str, MultimodalSequence]
     annotations: dict[str, list[GroundTruthEntry]]
     dataset_root: Path
     manifest: dict[str, Any]
+    fps: float = 10.0
 
 
-def _track_frame(frame: KittiFusionFrame, trackers: dict[int, EagerMot]) -> MultimodalTracks:
+def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> MultimodalTracks:
     """Merge class trackers while preserving independent image and spatial rows."""
     outputs: list[Tracks] = []
     spatial_outputs: list[Tracks3D] = []
@@ -180,53 +181,51 @@ def _track_frame(frame: KittiFusionFrame, trackers: dict[int, EagerMot]) -> Mult
 
 def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     """Validate alignment and index sensor inputs once for evaluation or tuning."""
-    dataset = load_kitti_fusion_dataset(args.dataset, split=args.split, sequence_names=tuple(args.sequence_names))
-    sequences: dict[str, KittiFusionSequence] = {}
+    dataset = load_sensor_evaluation_inputs(args.dataset, split=args.split, sequence_names=tuple(args.sequence_names))
+    sequences: dict[str, MultimodalSequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
     for paths in dataset.sequences:
         name = paths.sequence_id
-        sequence = KittiFusionSequence(
-            name,
-            images=paths.images,
-            detections_2d=paths.detections_2d,
-            calibration=paths.calibration,
-            poses=paths.poses,
-            car_detections_3d=paths.car_detections_3d,
-            pedestrian_detections_3d=paths.pedestrian_detections_3d,
-        )
+        sequence = MultimodalSequence(paths, classes=dataset.classes, fps=dataset.fps, split=dataset.split)
         sequences[name] = sequence
-        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, paths.ground_truth)
+        ground_truth = paths.modalities["ground_truth"].paths[0]
+        annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, ground_truth)
 
     manifest = {
         "boxmot_version": __version__,
         "tracker": "eagermot",
         "evaluation": "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics",
         "split": dataset.split,
+        "fps": dataset.fps,
         "sequences": {name: len(sequence) for name, sequence in sequences.items()},
-        "missing_pointgnn_frames": {name: sequence.missing_3d_frames for name, sequence in sequences.items()},
+        "missing_3d_frames": {name: sequence.missing_3d_frames for name, sequence in sequences.items()},
         "dataset_config": str(dataset.config_path),
         "dataset_id": dataset.id,
-        "replay_config": str(dataset.replay_path),
-        "prediction_manifests": {role: str(path) for role, path in dataset.predictions.items()},
         "sequence_inputs": {
-            paths.sequence_id: {key: str(value) for key, value in asdict(paths).items() if key != "sequence_id"}
+            paths.sequence_id: {
+                role: {"format": value.format, "paths": [str(path) for path in value.paths], "options": value.options}
+                for role, value in paths.modalities.items()
+            }
             for paths in dataset.sequences
         },
-        "pointgnn_score_mapping": "s / (1 + s); bounded ranking score, not a calibrated probability",
+        "score_transforms": {
+            item.sequence_id: item.modalities["detections_3d"].options.get("score_transform", "identity")
+            for item in dataset.sequences
+        },
         "limitations": [
             "Detector checkpoint training provenance is not independently verified.",
             "This evaluates segmentation tracking, not 3D boxes or published EagerMOT benchmark parity.",
             "Full rigid poses transform centers; box orientation remains yaw-only.",
         ],
     }
-    return KittiReplayInputs(sequences, annotations, dataset.config_path.parent, manifest)
+    return KittiReplayInputs(sequences, annotations, dataset.root, manifest, dataset.fps)
 
 
 def _visualize_frame(
     visualization: ReplayVisualization,
-    frame: KittiFusionFrame,
+    frame: SensorFrame,
     tracks: Tracks,
-    sequence: KittiFusionSequence,
+    sequence: MultimodalSequence,
     split: str,
     *,
     spatial_tracks: Tracks3D | None = None,
@@ -242,7 +241,7 @@ def _visualize_frame(
         sample_id=frame.detections.sample_id,
         sequence_id=sequence.sequence_id,
         frame_index=frame.frame_index,
-        timestamp_s=frame.frame_index / 10.0,
+        timestamp_s=frame.timestamp_s,
         source_uri=image_path.as_uri(),
     )
     if image.image_size != frame.image_size:
@@ -270,7 +269,7 @@ class _KittiSequenceTask:
     """Send indexed inputs and plain replay options to one sequence worker."""
 
     name: str
-    sequence: KittiFusionSequence
+    sequence: MultimodalSequence
     profiles: dict[int, dict[str, Any]]
     output: Path
     split: str
@@ -315,7 +314,9 @@ def _replay_kitti_sequence(
                 from boxmot.engine.eval.visualization import ReplayVisualization
 
                 visualization = stack.enter_context(
-                    ReplayVisualization(task.output, show=False, save=True, class_names=KITTI_CLASSES, video_fps=10.0)
+                    ReplayVisualization(
+                        task.output, show=False, save=True, class_names=KITTI_CLASSES, video_fps=task.sequence.fps
+                    )
                 )
             trackers = {class_id: EagerMot(**profile) for class_id, profile in task.profiles.items()}
             LOGGER.info("EagerMOT %s: tracking %s frames", task.name, len(task.sequence))
@@ -525,7 +526,7 @@ def _replay(
 
                 # Keep preview dismissal (q/Esc) across sequence boundaries.
                 visualization = stack.enter_context(
-                    ReplayVisualization(output, show=show, save=save, class_names=KITTI_CLASSES, video_fps=10.0)
+                    ReplayVisualization(output, show=show, save=save, class_names=KITTI_CLASSES, video_fps=inputs.fps)
                 )
             for task in tasks:
                 publish(ReplayProgressEvent(task.name, "queued", 0, len(task.sequence), 0, None, task.ordinal))
@@ -564,8 +565,9 @@ def evaluate_eagermot_kitti(
         **inputs.manifest,
         "status": "running",
         "tracker_profiles": profiles,
+        "fps": inputs.fps,
         "sequence_workers": workers,
-        "visualization": {"show": show, "save": save, "show_3d": show_3d, "video_fps": 10.0},
+        "visualization": {"show": show, "save": save, "show_3d": show_3d, "video_fps": inputs.fps},
     }
     (output / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     previous_threads = torch.get_num_threads()

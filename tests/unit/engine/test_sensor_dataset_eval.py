@@ -74,10 +74,6 @@ def test_sensor_eval_resolves_worker_count_for_all_selected_sequences(
     config = yaml.safe_load(data.dataset.read_text())
     config["splits"]["val"]["sequences"] = names
     data.dataset.write_text(yaml.safe_dump(config))
-    for path in data.prediction_manifests.values():
-        manifest = yaml.safe_load(path.read_text())
-        manifest["sequences"]["training"] = names
-        path.write_text(yaml.safe_dump(manifest))
     captured: dict[str, Any] = {}
 
     def run(args: Any, **kwargs: Any) -> ValidationResult:
@@ -198,7 +194,7 @@ def test_image_eval_rejects_sensor_only_options_before_preparing_a_build(
     result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17", "--tracker", "bytetrack", *flags])
 
     assert result.exit_code == 2, (result.output, result.exception)
-    assert "require a KITTI fusion dataset with --tracker eagermot" in result.output
+    assert "require a Sensor dataset dataset with --tracker eagermot" in result.output
 
 
 def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

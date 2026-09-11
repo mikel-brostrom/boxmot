@@ -6,6 +6,7 @@ import json
 import multiprocessing
 import os
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +14,7 @@ import cv2
 import pytest
 import torch
 
-from boxmot.datasets.kitti_fusion import KittiFusionFrame, KittiFusionSequence
+from boxmot.datasets.sequence import MultimodalSequence, SensorFrame
 from boxmot.engine.eval import eagermot_kitti as replay
 from boxmot.engine.eval.kitti_mots_replay import kitti_mots_annotations
 from boxmot.engine.eval.replay import ReplayProgressEvent
@@ -21,14 +22,14 @@ from tests.unit.engine.eval.test_eagermot_kitti import _fixture
 from tests.unit.engine.eval.test_eagermot_visualization import _capture_visualizations
 
 
-class _ObservedSequence(KittiFusionSequence):
+class _ObservedSequence(MultimodalSequence):
     """Record actual reader PIDs and require two readers to run concurrently."""
 
     barrier: Path | None = None
     fail_at: int | None = None
     stall_after_first: bool = False
 
-    def __getitem__(self, index: int) -> KittiFusionFrame:
+    def __getitem__(self, index: int) -> SensorFrame:
         frame = super().__getitem__(index)
         if index == 0 and self.barrier is not None:
             marker = self.barrier / f"{self.sequence_id}-{os.getpid()}"
@@ -45,14 +46,19 @@ class _ObservedSequence(KittiFusionSequence):
         return frame
 
 
-def _inputs(root: Path, count: int = 2) -> replay.KittiReplayInputs:
+def _inputs(root: Path, count: int = 2, *, fps: float = 10.0) -> replay.KittiReplayInputs:
     """Prepare independent real KITTI sequences, retaining lazy frame decoding."""
     sequences = {}
     annotations = {}
     for index in range(count):
         name = f"{index + 1:04d}"
         data = _fixture(root / name)
-        sequence = _ObservedSequence(name, **data.reader_paths)
+        sequence = _ObservedSequence(
+            replace(data.sequence_inputs(), sequence_id=name),
+            classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+            fps=fps,
+            split="val",
+        )
         sequences[name] = sequence
         annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, data.ground_truth)
     return replay.KittiReplayInputs(
@@ -60,6 +66,7 @@ def _inputs(root: Path, count: int = 2) -> replay.KittiReplayInputs:
         annotations,
         root,
         {"split": "val", "sequences": {name: len(sequence) for name, sequence in sequences.items()}},
+        fps=fps,
     )
 
 
@@ -148,7 +155,7 @@ def test_worker_failure_releases_children_restores_threads_and_skips_metrics(tmp
 
 
 def test_parallel_save_closes_sequence_videos_and_keeps_3d_mask_outputs(tmp_path: Path) -> None:
-    inputs = _inputs(tmp_path / "inputs")
+    inputs = _inputs(tmp_path / "inputs", fps=25.0)
     baseline_output = tmp_path / "baseline"
     baseline = replay.evaluate_eagermot_kitti(inputs, replay.load_kitti_profiles(), baseline_output, sequence_workers=1)
     output = tmp_path / "videos"
@@ -159,6 +166,7 @@ def test_parallel_save_closes_sequence_videos_and_keeps_3d_mask_outputs(tmp_path
     manifest = json.loads((output / "run.json").read_text())
     assert manifest["status"] == "complete"
     assert manifest["sequence_workers"] == 2
+    assert manifest["visualization"]["video_fps"] == 25.0
     assert manifest["videos"] == ["videos/0001.mp4", "videos/0002.mp4"]
     assert metrics == baseline
     assert metrics["car"]["HOTA"] == metrics["pedestrian"]["HOTA"] == 100
@@ -169,6 +177,7 @@ def test_parallel_save_closes_sequence_videos_and_keeps_3d_mask_outputs(tmp_path
         try:
             assert capture.isOpened()
             assert int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) == 3
+            assert capture.get(cv2.CAP_PROP_FPS) == pytest.approx(25.0)
         finally:
             capture.release()
 

@@ -139,9 +139,9 @@ masks without materializing a perception build. See the
 [MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
 for the full command.
 
-## EagerMOT with saved KITTI sensor inputs
+## EagerMOT with saved sensor inputs
 
-Evaluate a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets)
+Evaluate a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets)
 through the same command:
 
 ```bash
@@ -151,13 +151,27 @@ boxmot eval \
   --split val
 ```
 
-The dataset supplies sequence images, annotations, calibration, and poses;
-its `replay.yaml` selects the image, car, and pedestrian prediction sets.
+The dataset supplies sequence images, annotations, calibration, poses, and
+saved image/spatial detections through `modalities` in its `dataset.yaml`.
+Each modality selects its encoding and relative paths; split overrides can
+select different prediction sets.
 You can pass the folder or its `dataset.yaml` file. Evaluation runs on CPU,
 scores KITTI MOTS masks, and writes a new split directory under `runs/eagermot`.
 Use `--project` to change that root or repeat `--sequence` to select sequences.
 Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
 Set `--sequence-workers 4` to allow at most four sequence workers.
+
+For your own recordings, copy the
+[sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),
+then supply synchronized images, calibration, absolute camera-to-world poses,
+2D/3D predictions, and ground-truth instance masks. Custom sequence names and
+splits are supported; detector outputs must follow the documented file formats.
+The current metrics cover car and pedestrian masks:
+
+```bash
+boxmot eval --dataset ./my-sensor-dataset --tracker eagermot \
+  --split val --sequence drive-002
+```
 
 Load tuning's class profiles with `--class-config path/to/best.yaml`. Use
 `--show` or `--save` to preview or record tracks, and add `--show-3d` to overlay

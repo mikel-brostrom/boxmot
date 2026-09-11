@@ -321,7 +321,15 @@ def _resolve_experiment(
             "id": dataset["id"],
             "root": dataset["root"],
             "split": split_name,
-            "split_path": split_cfg["path"],
+            **({"split_path": split_cfg["path"]} if "path" in split_cfg else {}),
+            **(
+                {"config_path": dataset["config_path"]}
+                if not Path(dataset["config_path"]).is_relative_to(CONFIG_ROOT / "datasets")
+                else {}
+            ),
+            "fps": dataset["fps"],
+            "modalities": deepcopy(dataset["modalities"]),
+            "default_split": dataset["default_split"],
             "layout": dataset["layout"],
             "box_type": dataset["box_type"],
             "has_ground_truth": split_cfg["has_ground_truth"],

@@ -5,7 +5,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from boxmot.datasets.config import ConfigurationError, load_dataset_config, resolve_dataset_config_path
+from boxmot.datasets.config import (
+    ConfigurationError,
+    dataset_modalities,
+    load_dataset_config,
+    resolve_dataset_config_path,
+)
 from boxmot.engine.config.experiments import resolve_experiment_config
 
 
@@ -29,16 +34,16 @@ def test_dataset_rejects_ambiguous_or_unsafe_sequence_selections(tmp_path: Path,
         load_dataset_config(path)
 
 
-@pytest.mark.parametrize("split_changes", [{"annotations": None}, {"has_ground_truth": False}])
+@pytest.mark.parametrize("split_changes", [{"modalities": {"ground_truth": None}}, {"has_ground_truth": False}])
 def test_kitti_mots_annotations_match_ground_truth_availability(tmp_path: Path, split_changes: dict) -> None:
     path = _write_profile(tmp_path, split_changes=split_changes)
 
-    with pytest.raises(ConfigurationError, match="annotations exactly when has_ground_truth"):
+    with pytest.raises(ConfigurationError, match="has_ground_truth must agree"):
         load_dataset_config(path)
 
 
-def test_kitti_mots_rejects_oriented_box_profile(tmp_path: Path) -> None:
-    with pytest.raises(ConfigurationError, match="require box_type"):
+def test_instance_png_geometry_rejects_oriented_boxes(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match='inputs require box_type "aabb"'):
         load_dataset_config(_write_profile(tmp_path, box_type="obb"))
 
 
@@ -61,7 +66,7 @@ def _write_experiment(tmp_path: Path) -> Path:
 def test_kitti_mots_experiment_preserves_annotations_selection_and_native_class_map(tmp_path: Path) -> None:
     config = resolve_experiment_config(_write_experiment(tmp_path), mode="materialize")
 
-    assert config["dataset"]["splits"]["train"]["annotations"] == "instances"
+    assert dataset_modalities(config["dataset"], "train")["ground_truth"]["paths"] == ["instances/{sequence}"]
     assert len(config["dataset"]["splits"]["train"]["sequences"]) == 12
     assert [(entry["detector_id"], entry["dataset_id"]) for entry in config["evaluation"]["classes"]] == [
         (2, 1),
@@ -73,5 +78,5 @@ def test_kitti_mots_experiment_preserves_annotations_selection_and_native_class_
 def test_kitti_mots_resolves_for_evaluation_and_tuning(tmp_path: Path, mode: str) -> None:
     config = resolve_experiment_config(_write_experiment(tmp_path), mode=mode)
 
-    assert config["dataset"]["layout"] == "kitti-mots"
+    assert config["dataset"]["layout"] == "sequence"
     assert config["dataset"]["has_ground_truth"] is True

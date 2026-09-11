@@ -130,10 +130,10 @@ def test_sensor_missing_inputs_are_reported_before_optional_imports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     args = _arguments(tmp_path)
-    (args.dataset.parent / "replay.yaml").unlink()
+    (args.dataset.parent / "sequences/training/0002/calibration.txt").unlink()
     monkeypatch.setitem(sys.modules, "boxmot.engine.eval.eagermot_kitti", None)
 
-    with pytest.raises(ValueError, match="replay.yaml"):
+    with pytest.raises(ValueError, match="calibration.txt"):
         evaluator.run_eval(args)
 
 
@@ -155,7 +155,7 @@ def test_image_inputs_reject_sensor_options_before_replay(
     monkeypatch.setitem(sys.modules, "boxmot.engine.eval.eagermot_kitti", None)
     monkeypatch.setattr(evaluator, "EvalWorkflowReporter", lambda *_args: pytest.fail("Unexpected image workflow."))
 
-    with pytest.raises(ValueError, match="requires an EagerMOT KITTI fusion dataset"):
+    with pytest.raises(ValueError, match="requires an EagerMOT Sensor dataset dataset"):
         entrypoint(args)
 
 

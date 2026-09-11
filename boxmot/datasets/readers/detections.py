@@ -1,4 +1,4 @@
-"""Lazy KITTI TrackR-CNN detections and masks with an authoritative image timeline."""
+"""Lazy TrackR-CNN detections and masks with an authoritative image timeline."""
 
 from __future__ import annotations
 
@@ -9,9 +9,9 @@ from typing import overload
 
 import numpy as np
 import torch
-from PIL import Image
 
-from boxmot.datasets.kitti_mots import kitti_mots_frame_paths
+from boxmot.datasets.config import validate_sequence_names
+from boxmot.datasets.readers.frames import image_sequence_size, numeric_frame_paths
 from boxmot.structures import Boxes, Detections, MaskBatch
 
 
@@ -71,7 +71,7 @@ def _decode_mask(counts: bytes, image_size: tuple[int, int]) -> np.ndarray:
 
 
 class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
-    """Read 2D predictions using only TrackR-CNN text files and KITTI images.
+    """Read 2D predictions using only TrackR-CNN text files and images.
 
     ``detections`` is the sequence's prediction text file and ``images``
     directly contains its PNG frames. No camera calibration, ego poses or 3D
@@ -81,33 +81,30 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
     Construction indexes image headers and compressed masks without decoding
     RGB pixels. Indexing decodes only that frame's masks. Boxes and masks
     remain aligned, including zero-area masks; filtering is the caller's
-    responsibility. Classes retain KITTI MOTS IDs 1 (car) and 2 (pedestrian).
+    responsibility. Accepted class IDs are configured by the caller; direct format reads default to 1 and 2.
     The unused 128-dimensional TrackR-CNN embeddings are discarded.
     """
 
-    def __init__(self, sequence_id: str, *, images: Path, detections: Path) -> None:
-        if (
-            not isinstance(sequence_id, str)
-            or len(sequence_id) != 4
-            or not sequence_id.isascii()
-            or not sequence_id.isdecimal()
-        ):
-            raise ValueError("KITTI sequence_id must be an exact four-digit sequence name, such as '0000'.")
+    def __init__(
+        self,
+        sequence_id: str,
+        *,
+        images: Path,
+        detections: Path,
+        class_ids: Sequence[int] = (1, 2),
+        split: str = "train",
+    ) -> None:
+        validate_sequence_names([sequence_id])
         self.images = Path(images).expanduser().resolve()
         self.sequence_id = sequence_id
-        self.frame_paths = kitti_mots_frame_paths(self.images)
-        if tuple(int(path.stem) for path in self.frame_paths) != tuple(range(len(self.frame_paths))):
-            raise ValueError(f"KITTI images must cover contiguous zero-based frames: {self.images}")
-        image_size = None
-        for path in self.frame_paths:
-            with Image.open(path) as image:
-                size = (image.height, image.width)
-            if image_size is None:
-                image_size = size
-            elif size != image_size:
-                raise ValueError(f"KITTI image dimensions {size} differ from {image_size}: {path}")
-        assert image_size is not None
-        self.image_size = image_size
+        self.split = split
+        self.class_ids = frozenset(class_ids)
+        if not self.class_ids or any(type(value) is not int or value < 0 for value in self.class_ids):
+            raise ValueError("TrackR-CNN class_ids must contain nonnegative integers.")
+        if not isinstance(split, str) or not split or split != split.strip() or ":" in split:
+            raise ValueError("split must be a non-empty string without surrounding whitespace or ':'.")
+        self.frame_paths = numeric_frame_paths(self.images, contiguous=True)
+        self.image_size = image_sequence_size(self.frame_paths)
         self._detections_path = Path(detections).expanduser().resolve()
         self._image_detections = self._read_detections()
 
@@ -128,8 +125,8 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
                     frame_index, class_id, height, width = map(int, integers)
                     if frame_index >= len(self):
                         raise ValueError(f"frame {frame_index} has no corresponding image")
-                    if class_id not in {1, 2}:
-                        raise ValueError("TrackR-CNN class must be 1 (car) or 2 (pedestrian)")
+                    if class_id not in self.class_ids:
+                        raise ValueError(f"TrackR-CNN class must be one of {sorted(self.class_ids)}")
                     if (height, width) != self.image_size:
                         raise ValueError(f"mask dimensions {(height, width)} differ from images {self.image_size}")
                     values = np.array(fields[1:6], dtype=np.float64)
@@ -179,7 +176,7 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
             geometry=Boxes(torch.tensor([row.box for row in rows], dtype=torch.float32).reshape(-1, 4)),
             scores=torch.tensor([row.score for row in rows], dtype=torch.float32),
             class_ids=torch.tensor([row.class_id for row in rows], dtype=torch.int64),
-            sample_id=f"train:{self.sequence_id}:{frame_index}",
+            sample_id=f"{self.split}:{self.sequence_id}:{frame_index}",
             masks=MaskBatch(torch.from_numpy(masks)),
         )
         return TrackRcnnFrame(

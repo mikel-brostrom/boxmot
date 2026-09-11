@@ -1,15 +1,19 @@
-"""Shared canonical KITTI manifests for CLI and real sensor replay fixtures."""
+"""Shared dataset schema for CLI and real multimodal sequence fixtures."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import yaml
 
+if TYPE_CHECKING:
+    from boxmot.datasets.inputs import SequenceInputs
+
 
 def sensor_dataset_fixture(root: Path) -> SimpleNamespace:
-    """Create manifest-resolved sequence paths without loading any sensor runtime."""
+    """Create one dataset YAML and sequence paths without loading sensor readers."""
     sequence = root / "sequences/training/0002"
     reader_paths = {
         "images": sequence / "images",
@@ -34,56 +38,54 @@ def sensor_dataset_fixture(root: Path) -> SimpleNamespace:
     dataset.write_text(
         yaml.safe_dump(
             {
-                "format": "kitti-fusion",
-                "version": 1,
                 "id": "kitti-mots-fusion",
-                "classes": {1: "car", 2: "pedestrian"},
+                "format": {"layout": "sequence", "box_type": "aabb"},
+                "storage": {"root": "."},
+                "classes": {"target": {"car": 1, "pedestrian": 2}, "ignore": {"ignore": 10}},
+                "fps": 10,
                 "default_split": "val",
-                "replay": "replay.yaml",
-                "sequence_layout": {
-                    "images": "sequences/{partition}/{sequence}/images",
-                    "ground_truth": "sequences/{partition}/{sequence}/ground_truth",
-                    "calibration": "sequences/{partition}/{sequence}/calibration.txt",
-                    "poses": "sequences/{partition}/{sequence}/poses.npy",
+                "modalities": {
+                    "images": {"format": "image-directory", "path": "sequences/{partition}/{sequence}/images"},
+                    "ground_truth": {
+                        "format": "instance-png",
+                        "path": "sequences/{partition}/{sequence}/ground_truth",
+                        "options": {"class_divisor": 1000, "background_id": 0, "ignore_ids": [10000]},
+                    },
+                    "calibration": {
+                        "format": "kitti-p2",
+                        "path": "sequences/{partition}/{sequence}/calibration.txt",
+                    },
+                    "poses": {"format": "camera-to-world-npy", "path": "sequences/{partition}/{sequence}/poses.npy"},
+                    "detections_2d": {
+                        "format": "trackrcnn",
+                        "path": "predictions/trackrcnn/{partition}/{sequence}.txt",
+                    },
+                    "detections_3d": {
+                        "format": "kitti-detections",
+                        "paths": [
+                            "predictions/pointgnn-car/{partition}/{sequence}",
+                            "predictions/pointgnn-pedestrian/{partition}/{sequence}",
+                        ],
+                        "options": {"score_transform": "odds", "ignore_classes": ["Cyclist"]},
+                    },
                 },
-                "splits": {"val": {"partition": "training", "sequences": ["0002"]}},
+                "splits": {"val": {"partition": "training", "sequences": ["0002"], "has_ground_truth": True}},
             }
         ),
         encoding="utf-8",
     )
-    predictions = {}
-    for role, name, classes in (
-        ("image", "trackrcnn", {1: "car", 2: "pedestrian"}),
-        ("car", "pointgnn-car", {1: "car"}),
-        ("pedestrian", "pointgnn-pedestrian", {2: "pedestrian"}),
-    ):
-        manifest = root / "predictions" / name / "manifest.yaml"
-        manifest.write_text(
-            yaml.safe_dump(
-                {
-                    "format": "trackrcnn" if role == "image" else "pointgnn",
-                    "version": 1,
-                    "id": name,
-                    "classes": classes,
-                    "path": "{partition}/{sequence}.txt" if role == "image" else "{partition}/{sequence}",
-                    "sequences": {"training": ["0002"]},
-                    "provenance": {"source_directory": "test-fixture", "training": "synthetic"},
-                }
-            ),
-            encoding="utf-8",
-        )
-        predictions[role] = manifest
-    (root / "replay.yaml").write_text(
-        yaml.safe_dump(
-            {"version": 1, "splits": {"val": {role: str(path.relative_to(root)) for role, path in predictions.items()}}}
-        ),
-        encoding="utf-8",
-    )
+
+    def sequence_inputs() -> SequenceInputs:
+        """Resolve current fixture paths through the shared dataset input loader."""
+        from boxmot.datasets.inputs import load_dataset_inputs
+
+        return load_dataset_inputs(dataset).sequences[0]
+
     return SimpleNamespace(
         root=root,
         dataset=dataset,
         reader_paths=reader_paths,
         ground_truth=ground_truth,
-        prediction_manifests=predictions,
+        sequence_inputs=sequence_inputs,
         project=root / "results",
     )

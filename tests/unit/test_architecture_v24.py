@@ -46,6 +46,10 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
 )
 
 REMOVED_V24_MODULES = (
+    "datasets/kitti_fusion_config.py",
+    "datasets/kitti_fusion.py",
+    "datasets/kitti_mots.py",
+    "datasets/trackrcnn.py",
     "boxmot.api",
     "boxmot.motion",
     "boxmot.core.box_schema",
@@ -69,6 +73,7 @@ REMOVED_V24_MODULES = (
     "boxmot.engine.tracking.results",
     "boxmot.engine.tracking.setup_timing",
     "boxmot.engine.tuning.ground_truth_noise",
+    "boxmot.engine.tuning.eagermot_kitti",
     "boxmot.engine.tuning.kalman",
     "boxmot.engine.tuning.kalman_data",
     "boxmot.engine.tuning.kalman_model",
@@ -274,6 +279,14 @@ ENGINE_COMMAND_LAYOUT = (
 
 ENGINE_OWNERSHIP_LAYOUT = (
     "datasets/config.py",
+    "datasets/inputs.py",
+    "datasets/sequence.py",
+    "datasets/readers/frames.py",
+    "datasets/readers/detections.py",
+    "datasets/readers/masks.py",
+    "datasets/readers/boxes3d.py",
+    "datasets/readers/calibration.py",
+    "datasets/readers/poses.py",
     *ENGINE_COMMAND_LAYOUT,
     "engine/calibration/__init__.py",
     "engine/calibration/ground_truth_noise.py",
@@ -291,7 +304,7 @@ ENGINE_OWNERSHIP_LAYOUT = (
     "engine/tracking/timing.py",
     "engine/tracking/timestamps.py",
     "engine/tuning/calibration_profile.py",
-    "engine/tuning/eagermot_kitti.py",
+    "engine/tuning/tuner.py",
     "engine/tuning/results.py",
     "engine/ui/__init__.py",
     "engine/ui/logging.py",

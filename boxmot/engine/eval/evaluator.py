@@ -20,8 +20,10 @@ import click
 
 from boxmot.components.resolution import ArtifactResolver, freeze_json
 from boxmot.datasets import DatasetManifest
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import dataset_modalities, load_dataset_config
+from boxmot.datasets.inputs import resolve_dataset_inputs
 from boxmot.detectors.config import resolve_detector_spec
+from boxmot.engine.config.datasets import validate_mots_evaluation_inputs
 from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import resolve_tracker_options, validate_image_tracker
@@ -209,7 +211,11 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     if getattr(args, "tracker", None) is not None:
         validate_image_tracker(str(args.tracker))
     dataset, experiment = _resolve_selection(args)
-    is_mots = dataset["layout"] == "kitti-mots"
+    is_mots = dataset_modalities(dataset, str(dataset["split"])).get("ground_truth", {}).get("format") == "instance-png"
+    if is_mots:
+        validate_mots_evaluation_inputs(
+            dataset["classes"], dataset_modalities(dataset, str(dataset["split"]))["ground_truth"]["options"]
+        )
     eval_masks = bool(getattr(args, "eval_masks", False))
     if eval_masks and not is_mots:
         raise ValueError("--eval-masks requires a KITTI MOTS dataset with instance PNG ground truth.")
@@ -303,9 +309,19 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
             Path(getattr(args, "project", None) or "runs") / ".fps-ground-truth" / variant_key,
             data_root=getattr(args, "data_root", None),
         )
+    sequence_inputs = (
+        {
+            item.sequence_id: item
+            for item in resolve_dataset_inputs(
+                dataset, split=split, data_root=getattr(args, "data_root", None), roles=("images", "ground_truth")
+            ).sequences
+        }
+        if dataset["layout"] == "sequence"
+        else {}
+    )
     sequence_paths = []
     for name in sorted(sequence_lengths):
-        path = split_root / name
+        path = sequence_inputs[name].modalities["images"].paths[0] if sequence_inputs else split_root / name
         sequence_paths.append(path / "img1" if (path / "img1").is_dir() else path)
 
     args.build_path = build_path
@@ -344,7 +360,10 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
             if sample.sequence_id in gt_frames:
                 if sample.image_ref is None:
                     raise ValueError("KITTI MOTS catalog samples require an image reference.")
-                annotation = gt_folder / sample.sequence_id / Path(sample.image_ref).name
+                annotation = (
+                    sequence_inputs[sample.sequence_id].modalities["ground_truth"].paths[0]
+                    / Path(sample.image_ref).with_suffix(".png").name
+                )
                 gt_frames[sample.sequence_id].append((sample.frame_index, str(annotation), *sample.image_size))
         args.evaluation_config["mots_gt_frames"] = gt_frames
     args.remapped_class_ids = list(class_ids)
@@ -395,7 +414,7 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict[str, 
 
     _ensure_setup(args)
     evaluate = _run_motmetrics
-    if getattr(args, "evaluation_config", {}).get("layout") == "kitti-mots":
+    if getattr(args, "evaluation_config", {}).get("annotation_layout") == "mots_png":
         if bool(getattr(args, "eval_masks", False)):
             from boxmot.engine.eval.mots import run_mots_metrics
 
@@ -438,7 +457,7 @@ def _validate_image_evaluation_options(args: Any) -> None:
     for name in ("class_config", "show_3d"):
         if getattr(args, name, None):
             option = "--" + name.replace("_", "-")
-            raise ValueError(f"{option} requires an EagerMOT KITTI fusion dataset.")
+            raise ValueError(f"{option} requires an EagerMOT Sensor dataset dataset.")
 
 
 def _run_sensor_evaluation(
@@ -455,16 +474,17 @@ def _run_sensor_evaluation(
     replay_session: ReplaySession | None = None,
 ) -> ValidationResult | None:
     """Validate saved sensor selections before importing their replay runtime."""
-    from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     reference = getattr(args, "dataset", None)
-    path = resolve_kitti_fusion_config_path(reference) if reference else None
+    path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
     if path is None:
         return None
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
     if spec.name != "eagermot" or spec.backend != "python":
-        raise ValueError("KITTI fusion evaluation requires --tracker eagermot --tracker-backend python.")
+        raise ValueError("Sensor dataset evaluation requires --tracker eagermot --tracker-backend python.")
     for name, value in {
         "evolve_config": evolve_config,
         "per_class_configs": per_class_configs,
@@ -473,12 +493,14 @@ def _run_sensor_evaluation(
     }.items():
         if value is not None:
             raise ValueError(
-                f"KITTI fusion evaluation does not support {name}; use class_config and project on the namespace."
+                f"Sensor dataset evaluation does not support {name}; use class_config and project on the namespace."
             )
     if not setup:
-        raise ValueError("KITTI fusion evaluation does not support setup=False; each run validates its sensor inputs.")
+        raise ValueError(
+            "Sensor dataset evaluation does not support setup=False; each run validates its sensor inputs."
+        )
     if prepare_cache:
-        raise ValueError("KITTI fusion evaluation does not support prepare_cache; predictions come from the dataset.")
+        raise ValueError("Sensor dataset evaluation does not support prepare_cache; predictions come from the dataset.")
     for name in (
         "experiment",
         "build",
@@ -497,15 +519,17 @@ def _run_sensor_evaluation(
     ):
         value = getattr(args, name, None)
         if value is not None and value is not False and value != "":
-            raise ValueError(f"KITTI fusion evaluation does not support {name}; inputs come from the dataset manifest.")
+            raise ValueError(
+                f"Sensor dataset evaluation does not support {name}; inputs come from the dataset manifest."
+            )
     if getattr(args, "device", "cpu") != "cpu":
-        raise ValueError("KITTI fusion evaluation runs on CPU; device must be cpu.")
+        raise ValueError("Sensor dataset evaluation runs on CPU; device must be cpu.")
     if getattr(args, "show_3d", False) and not (getattr(args, "show", False) or getattr(args, "save", False)):
         raise ValueError("--show-3d requires --show or --save.")
     class_config = getattr(args, "class_config", None)
     if class_config is not None and not Path(class_config).expanduser().is_file():
         raise ValueError(f"class_config requires an existing file: {class_config}")
-    dataset = load_kitti_fusion_dataset(
+    dataset = load_sensor_evaluation_inputs(
         path,
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
@@ -535,7 +559,7 @@ def _run_sensor_evaluation(
         except ImportError as exc:
             # Include installation guidance in the workflow's own error panel.
             raise ImportError(
-                f"KITTI fusion evaluation requires the mots extra: {exc}\n"
+                f"Sensor dataset evaluation requires the mots extra: {exc}\n"
                 "Install with: uv sync --extra cpu --extra mots"
             ) from exc
 
@@ -690,7 +714,7 @@ def main(args: argparse.Namespace) -> ValidationResult:
         if getattr(exc, "_workflow_rendered_error", False):
             raise
         raise click.ClickException(
-            f"KITTI fusion evaluation requires the mots extra: {exc}\nInstall with: uv sync --extra cpu --extra mots"
+            f"Sensor dataset evaluation requires the mots extra: {exc}\nInstall with: uv sync --extra cpu --extra mots"
         ) from exc
     except (ValueError, OSError) as exc:
         if getattr(exc, "_workflow_rendered_error", False):

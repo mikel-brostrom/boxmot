@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping, TypeVar
 
 from boxmot import __version__
+from boxmot.datasets.config import resolve_dataset_storage_root
 from boxmot.detectors import DetectorSpec
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.detectors.factory import detector_capabilities
@@ -36,7 +37,6 @@ from boxmot.engine.materialization.builds import (
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
-    resolve_dataset_root,
 )
 from boxmot.engine.materialization.progress import MaterializationProgress, MaterializationProgressReporter
 from boxmot.engine.materialization.resources import ensure_dataset_split_available
@@ -131,7 +131,7 @@ def _resolved_inputs(
     resolved = resolve_experiment_config(experiment, **resolve_options)
     dataset = resolved["dataset"]
     data_root = getattr(args, "data_root", None)
-    source_root = resolve_dataset_root(dataset, data_root)
+    source_root = resolve_dataset_storage_root(dataset, data_root)
     ensure_dataset_split_available(
         dataset,
         split=str(dataset["split"]),

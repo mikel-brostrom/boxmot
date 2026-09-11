@@ -429,7 +429,11 @@ def test_tuning_persists_evaluation_mode_and_resumes_with_matching_trial_geometr
     fake_tuning: SimpleNamespace, eval_masks: bool
 ) -> None:
     captured = fake_tuning.captured
-    args = fake_tuning.args(calibrate_kf=False, eval_masks=eval_masks, evaluation_config={"layout": "kitti-mots"})
+    args = fake_tuning.args(
+        calibrate_kf=False,
+        eval_masks=eval_masks,
+        evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+    )
     _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
 
     assert json.loads((tune_dir / "evaluation.json").read_text()) == {"eval_masks": eval_masks}
@@ -440,7 +444,7 @@ def test_tuning_persists_evaluation_mode_and_resumes_with_matching_trial_geometr
             calibrate_kf=False,
             eval_masks=eval_masks,
             resume_tune=tune_dir,
-            evaluation_config={"layout": "kitti-mots"},
+            evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
         )
     ).fit()
 
@@ -454,7 +458,11 @@ def test_tuning_rejects_changed_evaluation_mode_before_starting_resume_runtime(
     fake_tuning: SimpleNamespace, saved_masks: bool
 ) -> None:
     captured = fake_tuning.captured
-    args = fake_tuning.args(calibrate_kf=False, eval_masks=saved_masks, evaluation_config={"layout": "kitti-mots"})
+    args = fake_tuning.args(
+        calibrate_kf=False,
+        eval_masks=saved_masks,
+        evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+    )
     _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
     captured["restore_enabled"] = True
     captured["events"].clear()
@@ -465,7 +473,7 @@ def test_tuning_rejects_changed_evaluation_mode_before_starting_resume_runtime(
                 calibrate_kf=False,
                 eval_masks=not saved_masks,
                 resume_tune=tune_dir,
-                evaluation_config={"layout": "kitti-mots"},
+                evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
             )
         ).fit()
 
@@ -478,7 +486,9 @@ def test_tuning_rejects_missing_or_corrupt_evaluation_mode_on_resume(
     fake_tuning: SimpleNamespace, contents: str | None
 ) -> None:
     captured = fake_tuning.captured
-    args = fake_tuning.args(calibrate_kf=False, evaluation_config={"layout": "kitti-mots"})
+    args = fake_tuning.args(
+        calibrate_kf=False, evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"}
+    )
     _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
     path = tune_dir / "evaluation.json"
     if contents is None:
@@ -490,7 +500,11 @@ def test_tuning_rejects_missing_or_corrupt_evaluation_mode_on_resume(
 
     with pytest.raises(ValueError, match="evaluation mode metadata"):
         tuner_module.Tuner(
-            fake_tuning.args(calibrate_kf=False, resume_tune=tune_dir, evaluation_config={"layout": "kitti-mots"})
+            fake_tuning.args(
+                calibrate_kf=False,
+                resume_tune=tune_dir,
+                evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+            )
         ).fit()
 
     assert captured["events"] == ["eval_setup"]

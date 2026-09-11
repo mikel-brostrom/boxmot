@@ -7,9 +7,9 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from boxmot.datasets.config import resolve_dataset_storage_root
 from boxmot.engine.materialization.catalog import (
     STILL_FRAME_EXTENSIONS,
-    resolve_dataset_root,
     resolve_dataset_split_root,
 )
 from boxmot.engine.tracking.sources import is_appledouble_file
@@ -112,7 +112,7 @@ def ensure_dataset_split_available(
     local-path error.
     """
 
-    dataset_root = resolve_dataset_root(dataset, data_root)
+    dataset_root = resolve_dataset_storage_root(dataset, data_root)
     split_root = resolve_dataset_split_root(dataset, split, data_root)
     lock_path, incomplete_path = _download_state_paths(dataset_root, split)
     if _has_dataset_content(split_root) and not incomplete_path.exists():

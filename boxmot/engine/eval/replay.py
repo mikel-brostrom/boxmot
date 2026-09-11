@@ -19,6 +19,7 @@ import torch
 
 from boxmot import create_tracker
 from boxmot.datasets import CachedVisionDataset, DatasetManifest, DatasetSample
+from boxmot.datasets.config import validate_sequence_names
 from boxmot.datasets.schema import SAMPLES_ARTIFACT
 from boxmot.datasets.storage import read_parquet_artifact, resolve_artifact_path
 from boxmot.engine.config.runtime import resolve_sequence_workers
@@ -264,11 +265,8 @@ def _write_tracks(handle: TextIO, tracks: Tracks, frame_index: int, output_forma
 
 
 def _validate_sequence_id(sequence_id: str) -> str:
-    if not isinstance(sequence_id, str) or not sequence_id:
-        raise ValueError("Sequence identifiers must be non-empty strings.")
-    if any(token in sequence_id for token in ("/", "\\", "..")):
-        raise ValueError(f"Unsafe sequence identifier {sequence_id!r}.")
-    return sequence_id
+    """Use dataset naming rules for replay selection and output filenames."""
+    return validate_sequence_names((sequence_id,))[0]
 
 
 def _sequence_frame_counts(

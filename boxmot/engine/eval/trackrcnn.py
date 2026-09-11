@@ -9,8 +9,8 @@ from typing import Any
 import torch
 
 from boxmot import __version__, create_tracker
+from boxmot.datasets.readers.detections import TrackRcnnSequence
 from boxmot.datasets.readers.images import read_rgb_chw_uint8
-from boxmot.datasets.trackrcnn import TrackRcnnSequence
 from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.kitti_mots_replay import evaluate_kitti_mots, kitti_mots_annotations, kitti_mots_sequences
 from boxmot.engine.eval.mots_io import prepare_mots_tracks, tracks_to_mots_rows, write_mots_rows

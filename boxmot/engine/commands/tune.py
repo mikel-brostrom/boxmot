@@ -63,7 +63,9 @@ def _validate_sensor_options(ctx: click.Context, payload: Mapping[str, Any]) -> 
             for option in ctx.command.params
             if isinstance(option, click.Option) and option.name in unsupported
         )
-        raise click.UsageError(f"KITTI fusion tuning does not support {names}; inputs come from the dataset manifest.")
+        raise click.UsageError(
+            f"Sensor dataset tuning does not support {names}; inputs come from the dataset manifest."
+        )
     required_values = {
         "search_alg": ("optuna",),
         "max_concurrent_trials": (0, 1),
@@ -74,13 +76,15 @@ def _validate_sensor_options(ctx: click.Context, payload: Mapping[str, Any]) -> 
             option = "--" + name.replace("_", "-")
             choices = ", ".join(map(str, allowed))
             raise click.UsageError(
-                f"KITTI fusion tuning runs serial Optuna trials on CPU; {option} must be one of: {choices}."
+                f"Sensor dataset tuning runs serial Optuna trials on CPU; {option} must be one of: {choices}."
             )
     for name in ("objectives", "maximize"):
         if name in explicit:
             metrics = [metric for value in payload[name] for metric in value.replace(",", " ").split()]
             if metrics != ["HOTA"]:
-                raise click.UsageError(f"KITTI fusion tuning optimizes class-average mask HOTA; --{name} must be HOTA.")
+                raise click.UsageError(
+                    f"Sensor dataset tuning optimizes class-average mask HOTA; --{name} must be HOTA."
+                )
 
 
 def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -89,18 +93,19 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
     if not reference:
         return None
 
-    from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     try:
-        path = resolve_kitti_fusion_config_path(reference)
+        path = resolve_sensor_dataset_config_path(reference, split=payload.get("split"))
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         if spec.name != "eagermot" or spec.backend != "python":
-            raise ValueError("KITTI fusion tuning requires --tracker eagermot --tracker-backend python.")
+            raise ValueError("Sensor dataset tuning requires --tracker eagermot --tracker-backend python.")
         _validate_sensor_options(ctx, payload)
-        dataset = load_kitti_fusion_dataset(
+        dataset = load_sensor_evaluation_inputs(
             path,
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),

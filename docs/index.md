@@ -25,10 +25,12 @@ tracker API with independent detection batches and camera calibration.
 Use `boxmot eval --tracker eagermot` to evaluate saved KITTI PointGNN and TrackR-CNN
 predictions against KITTI MOTS masks; the tracker page provides the command.
 [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](trackers/eagermot.md#tune-separate-class-profiles)
-loads a KITTI fusion dataset's `dataset.yaml`, optimizes separate car and
+loads a multimodal sequence `dataset.yaml`, optimizes separate car and
 pedestrian profiles together for class-average mask HOTA, and saves profiles
 for `boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Sequence data lives
-together, while `replay.yaml` selects the prediction sets to use.
+together; the same YAML declares classes, splits, and the encoding and paths
+for each modality. Use the [sensor dataset template](config/datasets.md#bring-your-own-sensor-dataset)
+to supply your own images, 2D/3D detections, calibration, and ego poses.
 
 ## Get started
 

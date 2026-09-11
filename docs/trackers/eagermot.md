@@ -32,10 +32,41 @@ class-ID catalog before fusion.
 
 Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot` for the
 Python API. `boxmot tune --dataset ./kitti-mots --tracker eagermot` reads
-these inputs from a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets).
+these inputs from a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets).
 The `boxmot eval --tracker eagermot` command also accepts `--dataset ./kitti-mots`. Image tracking, `TrackingPipeline`, and
 cached perception replay cannot supply the required sensor inputs and reject
 `eagermot` before running perception.
+
+## Use your own sensor data
+
+Copy the [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset)
+and supply your synchronized images, 2D/3D detections, camera projection,
+absolute camera-to-world poses, and ground-truth instance masks:
+
+```bash
+cp -R examples/datasets/sensor-fusion ./my-sensor-dataset
+# Populate the sequence and prediction files described in the template README.
+boxmot eval --dataset ./my-sensor-dataset --tracker eagermot --split val
+boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
+  --split train --n-trials 50 --seed 0
+```
+
+Dataset splits, partition names, and sequence names such as `drive-001` are
+authored in `dataset.yaml`, using the same schema as the built-in datasets.
+Its `modalities` select encodings and relative paths for images, annotations,
+calibration, poses, and independent 2D/3D detections. Split overrides can
+select other predictions. `trackrcnn` and `kitti-detections` identify file
+encodings, so your own detector can export them. The template documents
+the complete field order, mask encoding, coordinates, and empty-frame rules.
+
+This workflow evaluates car and pedestrian segmentation tracking. Image
+prediction masks and ground-truth instance PNGs are required by evaluation
+and tuning, although masks remain optional for the Python tracker API.
+It supports one camera per sequence, with fixed calibration and synchronized
+sensor observations. Set dataset `fps` to your recording rate; it controls
+timestamps and saved video playback speed. EagerMOT still advances one motion
+step per image. Initial class profiles use the KITTI presets, so tune on your training
+sequences and evaluate the saved `best.yaml` on held-out recordings.
 
 ## Evaluate downloaded KITTI predictions
 
@@ -50,30 +81,25 @@ uv run --no-sync python -m boxmot.engine.cli eval --tracker eagermot \
   --project runs/eagermot
 ```
 
-The dataset stores each sequence's observations together and declares saved
-predictions separately:
+The dataset stores each sequence's observations together and declares all
+input paths and encodings in `dataset.yaml`:
 
 ```text
 kitti-mots/
   dataset.yaml
-  replay.yaml
   sequences/training/0002/
     images/000000.png
     ground_truth/000000.png
     calibration.txt
     poses.npy
   predictions/
-    trackrcnn/manifest.yaml
     trackrcnn/training/0002.txt
-    pointgnn-car-t2/manifest.yaml
     pointgnn-car-t2/training/0002/000000.txt
-    pointgnn-car-t3/manifest.yaml
     pointgnn-car-t3/training/0002/000000.txt
-    pointgnn-pedestrian/manifest.yaml
     pointgnn-pedestrian/training/0002/000000.txt
 ```
 
-Sequence names have four digits and frame names have six digits. The default
+KITTI sequence names have four digits and frame names have six digits. The default
 MOTS validation split is `0002, 0006, 0007, 0008, 0010, 0013, 0014, 0016, 0018`.
 Add `--sequence 0002` for a smaller run; repeat the option to select several
 sequences. To evaluate all 21 annotated sequences, use `--split fulltrain`.
@@ -82,9 +108,9 @@ uses at most the selected sequence count or the logical CPU count minus two,
 with a minimum of one worker. Set `--sequence-workers N` to override it with a
 positive integer cap, still bounded by the selected sequence count.
 
-The supplied `replay.yaml` selects the T2 car predictions for validation and
-T3 for training or full training. Edit its prediction manifest references to
-change detector inputs. See the [dataset layout and manifests](../config/datasets.md#kitti-fusion-datasets).
+In `dataset.yaml`, the validation split can override `detections_3d` to use
+T2 car predictions while training and full training use T3. Edit the modality
+paths to change detector inputs. See the [dataset schema and split overrides](../config/datasets.md#split-specific-inputs).
 Testing images and calibration are retained, but this partition lacks the
 ground truth, ego poses, and 2D predictions needed for evaluation and tuning.
 
@@ -96,8 +122,8 @@ Results are written under `runs/eagermot/val` (then `val2`, and so on):
 - `metrics.csv`: combined results for each class and aggregate.
 - `mots/SEQUENCE.txt`: official MOTS predictions with real, disjoint masks.
 - `videos/SEQUENCE.mp4`: annotated video when `--save` is enabled.
-- `run.json`: dataset, replay, and prediction manifest paths, selected
-  sequences, and tracker presets.
+- `run.json`: dataset config, resolved modality formats/paths/options,
+  selected sequences, and tracker presets.
 
 By default, the runner uses the released car and pedestrian presets separately, with
 globally unique output identities. Image confidence resolves overlapping
@@ -188,15 +214,15 @@ boxmot tune \
   --seed 0
 ```
 
-The [dataset manifests](../config/datasets.md#kitti-fusion-datasets) record
-sequence locations, classes, official splits, and prediction choices. Images
+The [dataset config](../config/datasets.md#multimodal-sequence-datasets) records
+sequence locations, classes, splits, and all modality encodings and paths. Images
 and ground truth are stored inside the dataset, so it can move independently
 of the original downloads. You can pass
 `--dataset /path/to/kitti-mots/dataset.yaml` from any working directory;
-relative paths remain anchored to their containing manifest.
+relative paths remain anchored to `storage.root` beside that YAML.
 
-The dataset's default split is used unless you pass `--split`. `replay.yaml`
-selects the image, car, and pedestrian predictions for each split. Every trial
+The dataset's default split is used unless you pass `--split`. Per-split
+modality overrides can select different image or spatial prediction files. Every trial
 evaluates car and pedestrian profiles together and maximizes their
 **class-average mask HOTA**.
 

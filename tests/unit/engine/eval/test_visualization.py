@@ -86,6 +86,27 @@ def test_missing_times_use_one_output_frame_per_observation(tmp_path, rendering)
     assert rendering.writers[0].frames == [1, 2, 3, 4]
 
 
+def test_saved_video_accepts_authored_dataset_sequence_names(tmp_path: Path, rendering: SimpleNamespace) -> None:
+    """Embedded dots are valid dataset names and must survive the output boundary."""
+    with ReplayVisualization(tmp_path, show=False, save=True) as consumer:
+        consumer(_replay(0, 0.0, sequence="drive..001"))
+
+    assert consumer.video_paths == (tmp_path / "videos" / "drive..001.mp4",)
+    assert rendering.writers[0].frames == [1]
+
+
+@pytest.mark.parametrize("sequence", ["../drive", "drive/name", ".", "..", "drive:name"])
+def test_video_sequence_names_follow_dataset_path_rules(
+    tmp_path: Path, rendering: SimpleNamespace, sequence: str
+) -> None:
+    """Only a directory-name component may become a video filename."""
+    with ReplayVisualization(tmp_path, show=False, save=True) as consumer:
+        with pytest.raises(ValueError, match="canonical directory names"):
+            consumer(_replay(0, 0.0, sequence=sequence))
+
+    assert rendering.writers == []
+
+
 def test_ten_fps_grid_writes_each_kitti_observation_once(tmp_path: Path, rendering: SimpleNamespace) -> None:
     """A matching output rate preserves one video frame per 10 Hz image."""
     with ReplayVisualization(tmp_path, show=False, save=True, video_fps=10.0) as consumer:

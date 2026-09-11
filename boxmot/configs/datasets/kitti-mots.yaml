@@ -1,32 +1,44 @@
 id: kitti-mots
 
 format:
-  layout: kitti-mots
+  layout: sequence
   box_type: aabb
 
 storage:
   root: KITTI-MOTS
 
 default_split: train
+fps: 10
+
+modalities:
+  images:
+    format: image-directory
+    path: data_tracking_image_2/{partition}/image_02/{sequence}
+  ground_truth:
+    format: instance-png
+    path: instances/{sequence}
+    options:
+      class_divisor: 1000
+      background_id: 0
+      ignore_ids: [10000]
 
 splits:
   train:
-    path: data_tracking_image_2/training/image_02
-    annotations: instances
+    partition: training
     has_ground_truth: true
     sequences: ["0000", "0001", "0003", "0004", "0005", "0009", "0011", "0012", "0015", "0017", "0019", "0020"]
   val:
-    path: data_tracking_image_2/training/image_02
-    annotations: instances
+    partition: training
     has_ground_truth: true
     sequences: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
   fulltrain:
-    path: data_tracking_image_2/training/image_02
-    annotations: instances
+    partition: training
     has_ground_truth: true
   test:
-    path: data_tracking_image_2/testing/image_02
+    partition: testing
     has_ground_truth: false
+    modalities:
+      ground_truth: null
 
 classes:
   target:

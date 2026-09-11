@@ -13,7 +13,7 @@ import torch
 from click.testing import CliRunner
 
 from boxmot import EagerMot
-from boxmot.datasets.kitti_fusion import KittiFusionSequence
+from boxmot.datasets.sequence import MultimodalSequence
 from boxmot.engine.cli import boxmot
 from boxmot.engine.eval.eagermot_kitti import (
     KITTI_PROFILES,
@@ -37,7 +37,12 @@ def test_class_replay_preserves_shared_ids_and_independent_sensor_row_indices(
     tmp_path: Path, reverse_spatial: bool
 ) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence("0002", **data.reader_paths)
+    sequence = MultimodalSequence(
+        data.sequence_inputs(),
+        classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+        fps=10.0,
+        split="val",
+    )
     frame = sequence[0]
     assert frame.detections.class_ids.tolist() == [2, 1]
     assert frame.detections_3d.class_ids.tolist() == [1, 2]
@@ -64,7 +69,12 @@ def test_class_replay_preserves_shared_ids_and_independent_sensor_row_indices(
 
 def test_image_supported_spatial_prediction_preserves_missing_3d_index(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence("0002", **data.reader_paths)
+    sequence = MultimodalSequence(
+        data.sequence_inputs(),
+        classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+        fps=10.0,
+        split="val",
+    )
     trackers = _trackers()
     first_frame, empty_frame = sequence[0], sequence[1]
     initial = _track_frame(first_frame, trackers)
@@ -82,12 +92,17 @@ def test_image_supported_spatial_prediction_preserves_missing_3d_index(tmp_path:
     torch.testing.assert_close(recovered.image_tracks.track_ids, initial.image_tracks.track_ids)
     torch.testing.assert_close(recovered.spatial_tracks.track_ids, initial.spatial_tracks.track_ids)
     torch.testing.assert_close(recovered.image_tracks.masks.values, initial.image_tracks.masks.values)
-    assert recovered.sample_id == "train:0002:1"
+    assert recovered.sample_id == "val:0002:1"
 
 
 def test_spatial_only_support_retains_tracks_without_fabricating_image_masks(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence("0002", **data.reader_paths)
+    sequence = MultimodalSequence(
+        data.sequence_inputs(),
+        classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+        fps=10.0,
+        split="val",
+    )
     trackers = _trackers()
     first_frame, empty_frame = sequence[0], sequence[1]
     initial = _track_frame(first_frame, trackers)

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 from contextlib import nullcontext
 from pathlib import Path
@@ -14,18 +13,19 @@ import torch
 import yaml
 
 from boxmot.engine.config import runtime
+from boxmot.engine.eval import eagermot_kitti as evaluation
 from boxmot.engine.eval.eagermot_kitti import (
     KITTI_PROFILES,
     load_kitti_profiles,
     run_eagermot_kitti,
 )
+from boxmot.engine.tuning import tuner
 from boxmot.engine.tuning.results import TuneResult
 from boxmot.engine.tuning.tuner import run_tune
 from boxmot.engine.ui.reporters.tune import TuneWorkflowReporter
 from tests.unit.engine.eval.test_eagermot_kitti import _fixture
 
 optuna = pytest.importorskip("optuna")
-tuning = importlib.import_module("boxmot.engine.tuning.eagermot_kitti")
 
 
 def _arguments(data: SimpleNamespace, *, n_trials: int = 2) -> SimpleNamespace:
@@ -120,12 +120,12 @@ def test_repeated_tuning_allocates_a_new_directory_without_overwriting(tmp_path:
     data = _fixture(tmp_path)
     data.project = tmp_path / project_name
     args = _arguments(data, n_trials=1)
-    first = tuning.run_eagermot_kitti_tuning(args).best_yaml.parent
+    first = run_tune(args).best_yaml.parent
     assert (first / "study.sqlite3").is_file()
     assert _study(first).best_value == pytest.approx(100)
     original_files = {path.relative_to(first): path.read_bytes() for path in first.rglob("*") if path.is_file()}
 
-    second = tuning.run_eagermot_kitti_tuning(args).best_yaml.parent
+    second = run_tune(args).best_yaml.parent
 
     assert second == data.project / "val2"
     assert first != second
@@ -140,7 +140,7 @@ def test_objective_uses_class_average_hota_without_averaging_existing_aggregates
 ) -> None:
     """Distinct result fields catch selection of one class or double aggregation."""
     data = _fixture(tmp_path)
-    evaluate = tuning.evaluate_eagermot_kitti
+    evaluate = evaluation.evaluate_eagermot_kitti
 
     def distinct_metrics(*args: Any, **kwargs: Any) -> dict[str, dict[str, Any]]:
         results = evaluate(*args, **kwargs)
@@ -148,7 +148,7 @@ def test_objective_uses_class_average_hota_without_averaging_existing_aggregates
             results[name]["HOTA"] = value
         return results
 
-    monkeypatch.setattr(tuning, "evaluate_eagermot_kitti", distinct_metrics)
+    monkeypatch.setattr(evaluation, "evaluate_eagermot_kitti", distinct_metrics)
     result = run_tune(_arguments(data, n_trials=1))
     output = result.best_yaml.parent
 
@@ -162,7 +162,6 @@ def test_interrupted_trial_preserves_completed_best_and_restores_threads(
 ) -> None:
     """Interrupt actual replay after the baseline has already been checkpointed."""
     data = _fixture(tmp_path)
-    evaluation = importlib.import_module("boxmot.engine.eval.eagermot_kitti")
     replay = evaluation._replay
     calls = 0
 
@@ -177,7 +176,7 @@ def test_interrupted_trial_preserves_completed_best_and_restores_threads(
     monkeypatch.setattr(evaluation, "_replay", interrupted_replay)
     original_threads = torch.get_num_threads()
     with pytest.raises(KeyboardInterrupt, match="completed baseline"):
-        tuning.run_eagermot_kitti_tuning(_arguments(data))
+        run_tune(_arguments(data))
 
     assert torch.get_num_threads() == original_threads
     output = data.project / "val"
@@ -221,7 +220,7 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
         sequences=sequences,
         manifest={"split": "val", "dataset_id": "kitti-mots-fusion", "sequences": dict.fromkeys(sequences, 3)},
     )
-    monkeypatch.setattr(tuning, "prepare_eagermot_kitti", lambda _args: inputs)
+    monkeypatch.setattr(evaluation, "prepare_eagermot_kitti", lambda _args: inputs)
     replay_workers = []
 
     def evaluate(_inputs: Any, _profiles: Any, _output: Any, **kwargs: Any) -> dict[str, dict[str, float]]:
@@ -230,7 +229,7 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
             kwargs["on_evaluate"]()
         return {name: {"HOTA": 75.0} for name in ("car", "pedestrian", "cls_comb_cls_av")}
 
-    monkeypatch.setattr(tuning, "evaluate_eagermot_kitti", evaluate)
+    monkeypatch.setattr(evaluation, "evaluate_eagermot_kitti", evaluate)
     optimize = optuna.Study.optimize
     search_workers = []
 
@@ -241,7 +240,7 @@ def test_each_serial_optuna_trial_forwards_resolved_sequence_parallelism(
     monkeypatch.setattr(optuna.Study, "optimize", optimize_serial)
     context = TuneWorkflowReporter(args, maximize=["HOTA"], minimize=[]).pipeline() if with_pipeline else nullcontext()
     with context as pipeline:
-        result = tuning.run_eagermot_kitti_tuning(args, pipeline=pipeline)
+        result = tuner._run_eagermot_tuning(args, pipeline=pipeline)
 
     assert replay_workers == [expected, expected]
     assert search_workers == [1]

@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from boxmot.datasets import DatasetManifest
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import load_dataset_config, resolve_dataset_storage_root
 from boxmot.datasets.validation import validate_published_build
 from boxmot.engine.dataset_variants.cache import derive_cached_build
 from boxmot.engine.dataset_variants.sampling import PROFILE, select_bursty_frames, timing_statistics
@@ -26,7 +26,6 @@ from boxmot.engine.materialization.catalog import (
     catalog_mot_dataset,
     default_data_root,
     resolve_dataset_annotation_root,
-    resolve_dataset_root,
     resolve_dataset_split_root,
 )
 from boxmot.engine.materialization.plan import default_build_root
@@ -111,7 +110,7 @@ def create_raw_variant(
     statistics = timing_statistics(timestamps, selection)
     dataset_name = validate_config_id(name or f"{sequence.lower()}-variable-time", path="--name", label="dataset")
     relative_root = f"variants/{dataset_name}"
-    output_root = resolve_dataset_root({"root": relative_root}, data_root)
+    output_root = resolve_dataset_storage_root({"root": relative_root}, data_root)
     if output_root.exists():
         raise FileExistsError(f"Variant already exists: {output_root}. Choose a different --name.")
     source_sequence = resolve_dataset_split_root(dataset, split, data_root) / sequence

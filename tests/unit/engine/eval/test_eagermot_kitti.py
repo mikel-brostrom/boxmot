@@ -15,7 +15,7 @@ from click.testing import CliRunner
 from PIL import Image
 
 from boxmot import EagerMot
-from boxmot.datasets.kitti_fusion import KittiFusionSequence
+from boxmot.datasets.sequence import MultimodalSequence
 from boxmot.engine.cli import boxmot
 from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame, load_kitti_profiles
 from boxmot.engine.eval.mots_io import read_mots_results
@@ -95,11 +95,8 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
     assert manifest["sequences"] == {"0002": 3}
     assert manifest["dataset_config"] == str(data.dataset.resolve())
     assert manifest["dataset_id"] == "kitti-mots-fusion"
-    assert manifest["replay_config"] == str((data.root / "replay.yaml").resolve())
-    assert manifest["prediction_manifests"] == {
-        role: str(path.resolve()) for role, path in data.prediction_manifests.items()
-    }
-    assert manifest["sequence_inputs"]["0002"]["ground_truth"] == str(data.ground_truth.resolve())
+    assert manifest["sequence_inputs"]["0002"]["ground_truth"]["paths"] == [str(data.ground_truth.resolve())]
+    assert manifest["sequence_inputs"]["0002"]["detections_3d"]["format"] == "kitti-detections"
     with (output / "metrics.csv").open(newline="") as handle:
         assert {row["class"] for row in csv.DictReader(handle)} == set(metrics)
 
@@ -117,7 +114,12 @@ def test_cli_evaluates_actual_sensor_inputs_and_preserves_previous_results(tmp_p
 
 def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
-    sequence = KittiFusionSequence("0002", **data.reader_paths)
+    sequence = MultimodalSequence(
+        data.sequence_inputs(),
+        classes={"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}},
+        fps=10.0,
+        split="val",
+    )
     trackers = {class_id: EagerMot(**profile) for class_id, profile in KITTI_PROFILES.items()}
     first = _track_frame(sequence[0], trackers).image_tracks
     assert first.class_ids.tolist() == [1, 2]

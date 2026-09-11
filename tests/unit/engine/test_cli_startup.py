@@ -164,6 +164,17 @@ def test_calibration_imports_do_not_load_search_dependencies(module_name: str) -
     assert _imported_modules(module_name, ("boxmot.engine.tuning", "ray", "optuna", "hyperopt")) == []
 
 
+def test_tuner_keeps_sensor_evaluation_and_search_runtimes_lazy() -> None:
+    """The shared tuner must load its sensor runtime only after selecting sensor inputs."""
+    assert (
+        _imported_modules(
+            "boxmot.engine.tuning.tuner",
+            ("optuna", "ray", "boxmot.engine.eval.eagermot_kitti"),
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize(
     "module_name",
     (

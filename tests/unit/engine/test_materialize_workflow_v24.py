@@ -183,7 +183,9 @@ def test_invalid_device_selector_fails_before_source_cataloging(monkeypatch) -> 
 
 @pytest.mark.parametrize("device_source", ["explicit", "authored"])
 def test_unavailable_device_fails_only_when_missing_outputs_need_inference(
-    monkeypatch: pytest.MonkeyPatch, fps_case: SimpleNamespace, device_source: str
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
+    device_source: str,
 ) -> None:
     """A real cache miss still checks accelerator availability before model execution."""
 
@@ -428,7 +430,13 @@ def test_kitti_materialization_publishes_masks_only_when_requested(monkeypatch, 
     data_root, source_path, resolved = _experiment_case(tmp_path)
     image_path = source_path.parent.parent / "000000.png"
     assert cv2.imwrite(str(image_path), np.zeros((8, 10, 3), dtype=np.uint8))
-    resolved["dataset"]["layout"] = "kitti-mots"
+    resolved["dataset"]["layout"] = "sequence"
+    resolved["dataset"]["fps"] = 10.0
+    resolved["dataset"]["default_split"] = "test"
+    resolved["dataset"]["modalities"] = {
+        "images": {"format": "image-directory", "paths": ["test/{sequence}"], "options": {}}
+    }
+    resolved["dataset"]["splits"]["test"]["partition"] = "testing"
     resolved["dataset"]["splits"]["test"]["has_ground_truth"] = False
     resolved["dataset"]["classes"] = {"car": {"id": 1, "evaluation": "target"}}
     resolved["evaluation"]["classes"] = [{"name": "car", "dataset_id": 1, "detector_name": "car", "detector_id": 2}]
@@ -475,7 +483,7 @@ def test_kitti_materialization_publishes_masks_only_when_requested(monkeypatch, 
 
     assert args.publish_masks is publish_masks
     manifest = DatasetManifest.load(output)
-    assert manifest.metadata["layout"] == "kitti-mots"
+    assert manifest.metadata["layout"] == "sequence"
     assert manifest.publish.masks is publish_masks
     dataset = CachedVisionDataset(output, load_masks=publish_masks)
     assert len(dataset) == 1
@@ -856,7 +864,7 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
 )
 def test_workflow_reuses_prior_release_and_device_without_perception(
     monkeypatch: pytest.MonkeyPatch,
-    fps_case: SimpleNamespace,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
     published_device: str,
     requested_device: str,
 ) -> None:

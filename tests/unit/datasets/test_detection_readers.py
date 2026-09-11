@@ -8,7 +8,7 @@ import pytest
 import torch
 from PIL import Image
 
-from boxmot.datasets.trackrcnn import TrackRcnnFrame, TrackRcnnSequence
+from boxmot.datasets.readers.detections import TrackRcnnFrame, TrackRcnnSequence
 
 
 def _row(frame: int, class_id: int = 1, counts: str = "0<") -> str:
@@ -96,11 +96,21 @@ def test_trackrcnn_supports_slices_and_rejects_noninteger_indices(tmp_path: Path
             sequence[index]
 
 
-@pytest.mark.parametrize("sequence_id", ["2", "../../0002", "０００２", 2])
-def test_trackrcnn_rejects_ambiguous_sequence_names(tmp_path: Path, sequence_id: object) -> None:
+@pytest.mark.parametrize("sequence_id", ["downtown-drive", "drive_02", "2"])
+def test_trackrcnn_accepts_custom_sequence_names(tmp_path: Path, sequence_id: str) -> None:
     detections, images = _fixture(tmp_path)
 
-    with pytest.raises(ValueError, match="exact four-digit"):
+    sequence = TrackRcnnSequence(sequence_id, images=images, detections=detections)
+
+    assert sequence.sequence_id == sequence_id
+    assert sequence[2].detections.sample_id == f"train:{sequence_id}:2"
+
+
+@pytest.mark.parametrize("sequence_id", ["", ".", "..", "../../0002", "drive/02", "drive\\02", "val:02", " 02", 2])
+def test_trackrcnn_rejects_unsafe_sequence_names(tmp_path: Path, sequence_id: object) -> None:
+    detections, images = _fixture(tmp_path)
+
+    with pytest.raises(ValueError, match="canonical directory names"):
         TrackRcnnSequence(sequence_id, images=images, detections=detections)
 
 
@@ -131,8 +141,8 @@ def test_trackrcnn_import_does_not_load_sensor_fusion_modules() -> None:
         [
             sys.executable,
             "-c",
-            "import sys; from boxmot.datasets.trackrcnn import TrackRcnnSequence; "
-            "assert 'boxmot.datasets.kitti_fusion' not in sys.modules; "
+            "import sys; from boxmot.datasets.readers.detections import TrackRcnnSequence; "
+            "assert 'boxmot.datasets.readers.boxes3d' not in sys.modules; "
             "assert 'boxmot.structures.camera' not in sys.modules",
         ],
         capture_output=True,

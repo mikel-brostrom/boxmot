@@ -29,9 +29,9 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
-## EagerMOT with saved KITTI sensor inputs
+## EagerMOT with saved sensor inputs
 
-Pass a [KITTI fusion dataset](../config/datasets.md#kitti-fusion-datasets) to
+Pass a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets) to
 `--dataset` with `--tracker eagermot`:
 
 ```bash
@@ -42,13 +42,30 @@ boxmot tune \
   --seed 0
 ```
 
-The folder's `dataset.yaml` defines sequence locations, classes, splits, and
-the replay configuration. Each sequence contains images, ground truth,
-calibration, and ego poses. `replay.yaml` selects the saved 2D/3D prediction
-sets for each split. You can also pass `dataset.yaml` itself; an absolute
+The folder's `dataset.yaml` defines classes, splits, and `modalities` with
+encodings and paths for images, ground truth, calibration, ego poses, and
+saved 2D/3D detections. Split overrides can select different prediction sets.
+You can also pass `dataset.yaml` itself; an absolute
 `--dataset` path works from any working directory. Keep the `./` prefix when
 selecting the local folder by name; bare `kitti-mots` selects the built-in
 image dataset profile.
+
+For your own synchronized camera and 3D observations, start from the
+[sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset).
+It supports custom split, partition, and sequence names with the documented
+calibration, pose, image, and prediction formats. Supply car/pedestrian
+ground-truth masks and image prediction masks for the tuning objective:
+
+```bash
+boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
+  --split train --n-trials 50 --seed 0
+boxmot eval --dataset ./my-sensor-dataset --tracker eagermot \
+  --split val --class-config runs/eagermot-tune/train/best.yaml
+```
+
+Use the actual `best.yaml` path printed by tuning. The template keeps fitting
+and validation sequences separate; record each detector's model, checkpoint,
+and training data in your dataset README or YAML comments.
 
 With the `mots` and `evolve` extras installed, this runs serial Optuna trials
 on CPU, replaying independent sequences in parallel within each trial, and

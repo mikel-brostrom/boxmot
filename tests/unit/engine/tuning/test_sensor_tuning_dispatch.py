@@ -20,6 +20,15 @@ from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
 
+def _forbid_sensor_tuning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail if rejected or image-only arguments start sensor optimization."""
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("This invocation must not start sensor optimization.")
+
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", unexpected)
+
+
 def _arguments(tmp_path: Path, **overrides: Any) -> SimpleNamespace:
     """Use portable declared inputs with the minimal public API selection."""
     dataset = sensor_dataset_fixture(tmp_path / "dataset").dataset
@@ -59,16 +68,13 @@ def _three_sequence_dataset(root: Path) -> Path:
     data.dataset.write_text(yaml.safe_dump(payload))
     for name in names[1:]:
         copytree(root / "sequences/training/0002", root / "sequences/training" / name)
-    for manifest in data.prediction_manifests.values():
-        payload = yaml.safe_load(manifest.read_text())
-        payload["sequences"]["training"] = list(names)
-        manifest.write_text(yaml.safe_dump(payload))
+    for key in ("detections_2d", "car_detections_3d", "pedestrian_detections_3d"):
+        source = data.reader_paths[key]
         for name in names[1:]:
-            directory = manifest.parent / "training"
-            if payload["format"] == "trackrcnn":
-                copy2(directory / "0002.txt", directory / f"{name}.txt")
+            if source.is_file():
+                copy2(source, source.with_name(f"{name}.txt"))
             else:
-                copytree(directory / "0002", directory / name)
+                copytree(source, source.with_name(name))
     return data.dataset
 
 
@@ -104,9 +110,7 @@ def test_sensor_tune_resolves_workers_after_sequence_selection(
             pipeline.advance()
         return _result(args)
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", run)
     project = tmp_path / "results"
     if entrypoint == "python":
         tuner.run_tune(
@@ -150,9 +154,7 @@ def test_sensor_cli_honors_configured_worker_cap_and_explicit_override(
             pipeline.advance()
         return _result(args)
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", run)
     arguments = ["tune", "--dataset", str(dataset), "--tracker", "eagermot", "--project", str(tmp_path / "results")]
     if explicit is not None:
         arguments.extend(("--sequence-workers", str(explicit)))
@@ -180,9 +182,7 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
         return captured["result"]
 
     monkeypatch.setitem(sys.modules, "ray", None)
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", run)
     monkeypatch.setattr(tuner, "Tuner", lambda *_args, **_kwargs: pytest.fail("Sensor tuning must not initialize Ray."))
 
     result = entrypoint(args)
@@ -243,7 +243,7 @@ def test_python_sensor_controls_are_validated_before_optional_imports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overrides: dict[str, Any], message: str
 ) -> None:
     args = _arguments(tmp_path, **overrides)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    _forbid_sensor_tuning(monkeypatch)
 
     with pytest.raises(ValueError, match=message):
         tuner.run_tune(args)
@@ -253,7 +253,7 @@ def test_sensor_baseline_override_is_rejected_before_optional_imports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     args = _arguments(tmp_path)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    _forbid_sensor_tuning(monkeypatch)
 
     with pytest.raises(ValueError, match="does not support baseline_config"):
         tuner.run_tune(args, baseline_config={"min_hits": 1})
@@ -263,16 +263,16 @@ def test_sensor_missing_inputs_are_reported_before_optional_imports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     args = _arguments(tmp_path)
-    (args.dataset.parent / "replay.yaml").unlink()
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    (args.dataset.parent / "sequences/training/0002/calibration.txt").unlink()
+    _forbid_sensor_tuning(monkeypatch)
 
-    with pytest.raises(ValueError, match="replay.yaml"):
+    with pytest.raises(ValueError, match="calibration.txt"):
         tuner.run_tune(args)
 
 
 def test_main_formats_missing_sensor_dependencies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     args = _arguments(tmp_path)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    monkeypatch.setitem(sys.modules, "optuna", None)
 
     with pytest.raises(ImportError, match="uv sync --extra cpu --extra mots --extra evolve") as raised:
         tuner.main(args)
@@ -282,7 +282,7 @@ def test_main_formats_missing_sensor_dependencies(tmp_path: Path, monkeypatch: p
 def test_image_main_keeps_existing_tuner_execution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     args = SimpleNamespace(tracker="bytetrack", dataset="mot17", build=tmp_path / "build")
     calls: list[Any] = []
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    _forbid_sensor_tuning(monkeypatch)
     monkeypatch.setattr(tuner, "Tuner", lambda received: SimpleNamespace(fit=lambda: calls.append(received)))
 
     assert tuner.main(args) is None

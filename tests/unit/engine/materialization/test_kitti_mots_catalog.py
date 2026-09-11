@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytest
 
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import dataset_modalities, load_dataset_config
 from boxmot.engine.materialization.catalog import catalog_mot_dataset, inspect_catalog_file
 
 
@@ -36,13 +36,15 @@ def _write_frame(
 
     split_config = config["splits"][split]
     root = data_root / config["root"]
-    image_path = root / split_config["path"] / sequence / f"{frame_index:06d}.png"
+    modalities = dataset_modalities(config, split)
+    substitutions = {"partition": split_config["partition"], "split": split, "sequence": sequence}
+    image_path = root / modalities["images"]["paths"][0].format(**substitutions) / f"{frame_index:06d}.png"
     image_path.parent.mkdir(parents=True, exist_ok=True)
     image = np.full((4, 6, 3), frame_index % 256, dtype=np.uint8)
     assert cv2.imwrite(str(image_path), image)
     mask_path = None
     if split_config["has_ground_truth"]:
-        mask_path = root / split_config["annotations"] / sequence / image_path.name
+        mask_path = root / modalities["ground_truth"]["paths"][0].format(**substitutions) / image_path.name
         mask_path.parent.mkdir(parents=True, exist_ok=True)
         mask = np.zeros(mask_size, dtype=np.uint16)
         mask[1:3, 2:4] = 1000
@@ -80,7 +82,7 @@ def test_kitti_catalog_uses_headers_and_hashes_without_decoding_pixels(
     assert (image_path, True) in inspected
     assert (mask_path, True) in inspected
     assert catalog.metadata["dataset_id"] == "kitti-mots"
-    assert catalog.metadata["layout"] == "kitti-mots"
+    assert catalog.metadata["layout"] == "sequence"
     assert len(catalog.metadata["ground_truth_digest"]) == 64
 
 
@@ -165,7 +167,7 @@ def test_kitti_catalog_reports_missing_configured_sequences(tmp_path: Path, kitt
     _write_frame(tmp_path, kitti_config)
     kitti_config["splits"]["train"]["sequences"] = ["0000", "0001"]
 
-    with pytest.raises(FileNotFoundError, match="0001"):
+    with pytest.raises(ValueError, match="0001"):
         catalog_mot_dataset(kitti_config, split="train", data_root=tmp_path)
 
 

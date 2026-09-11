@@ -16,9 +16,10 @@ from typing import Any, BinaryIO, Mapping
 
 import cv2
 
-from boxmot.datasets.config import validate_sequence_names
-from boxmot.datasets.kitti_mots import kitti_mots_frame_paths
+from boxmot.datasets.config import dataset_modalities, resolve_dataset_storage_root, validate_sequence_names
+from boxmot.datasets.inputs import resolve_dataset_inputs
 from boxmot.datasets.manifest import canonical_json_bytes, sha256_file
+from boxmot.datasets.readers.frames import numeric_frame_paths
 from boxmot.datasets.readers.images import NUMPY_IMAGE_EXTENSIONS, probe_numpy_image_size
 from boxmot.engine.dataset_variants.fps import select_sequence_frames, validate_dataset_fps
 from boxmot.engine.materialization.source import SourceSample
@@ -66,31 +67,6 @@ def default_data_root(explicit: str | Path | None = None) -> Path:
     return (Path("datasets") / "mot").resolve()
 
 
-def resolve_dataset_root(config: Mapping[str, Any], data_root: str | Path | None = None) -> Path:
-    """Resolve one canonical dataset storage path beneath the selected data root."""
-
-    configured = str(config.get("root") or "")
-    relative = PurePosixPath(configured)
-    windows_path = PureWindowsPath(configured)
-    if (
-        not configured
-        or "\\" in configured
-        or relative.is_absolute()
-        or windows_path.is_absolute()
-        or bool(windows_path.drive)
-        or bool(windows_path.root)
-        or ".." in relative.parts
-    ):
-        raise ValueError("Dataset storage.root must be a safe path relative to the configured data root.")
-    base = default_data_root(data_root)
-    resolved = base.joinpath(*relative.parts).resolve()
-    try:
-        resolved.relative_to(base)
-    except ValueError as exc:
-        raise ValueError("Dataset storage.root must remain beneath the configured data root.") from exc
-    return resolved
-
-
 def _resolve_dataset_child(root: Path, value: Any, *, description: str) -> Path:
     """Resolve one configured POSIX path while containing symlink traversal."""
 
@@ -128,6 +104,21 @@ def _dataset_split_config(config: Mapping[str, Any], split: str) -> Mapping[str,
     return split_config
 
 
+def _modality_root(config: Mapping[str, Any], split: str, role: str, data_root: str | Path | None) -> Path:
+    """Resolve the configured prefix shared by sequence-specific modality paths."""
+    root = resolve_dataset_storage_root(config, data_root)
+    source = dataset_modalities(config, split).get(role)
+    if source is None:
+        return root
+    selection = config["splits"][split]
+    template = source["paths"][0]
+    marker = "__BOXMOT_SEQUENCE_NAME__"
+    expanded = template.format(partition=selection.get("partition", split), split=split, sequence=marker)
+    parts = PurePosixPath(expanded).parts
+    component = next((index for index, part in enumerate(parts) if marker in part), len(parts))
+    return root.joinpath(*parts[:component])
+
+
 def resolve_dataset_split_root(
     config: Mapping[str, Any],
     split: str,
@@ -135,8 +126,10 @@ def resolve_dataset_split_root(
 ) -> Path:
     """Resolve the configured frame root for one dataset split."""
 
-    dataset_root = resolve_dataset_root(config, data_root)
+    dataset_root = resolve_dataset_storage_root(config, data_root)
     split_config = _dataset_split_config(config, split)
+    if config.get("layout") == "sequence":
+        return _modality_root(config, split, "images", data_root)
     return _resolve_dataset_child(dataset_root, split_config.get("path"), description="split")
 
 
@@ -147,8 +140,10 @@ def resolve_dataset_annotation_root(
 ) -> Path:
     """Resolve the ground-truth root for one dataset split."""
 
-    dataset_root = resolve_dataset_root(config, data_root)
+    dataset_root = resolve_dataset_storage_root(config, data_root)
     split_config = _dataset_split_config(config, split)
+    if config.get("layout") == "sequence":
+        return _modality_root(config, split, "ground_truth", data_root)
     annotations = split_config.get("annotations")
     if annotations is not None:
         return _resolve_dataset_child(dataset_root, annotations, description="annotation")
@@ -619,18 +614,18 @@ def catalog_mot_dataset(
     precedence over ``seqinfo.ini`` frame rate and participates in content identity.
     ``fps`` keeps the first frame in each occupied sampling interval, retains its
     capture timestamp, and numbers selected frames contiguously for cache/GT use.
-    KITTI MOTS uses native zero-based PNG frame numbers at 10 Hz and pairs
-    each image with a 16-bit instance PNG beneath the annotation root.
+    Configured sequence modalities preserve numeric frame indices and use
+    authored FPS, image paths, and optional paired instance annotations.
     """
 
     if fps is not None:
         fps = validate_dataset_fps(fps)
     layout = str(config.get("layout") or "")
-    if layout not in {"mot", "visdrone", "kitti-mots"}:
-        raise ValueError(f"Unsupported dataset layout {layout!r}; expected 'mot', 'visdrone', or 'kitti-mots'.")
-    is_kitti_mots = layout == "kitti-mots"
+    if layout not in {"mot", "visdrone", "sequence"}:
+        raise ValueError(f"Unsupported dataset layout {layout!r}; expected 'mot', 'visdrone', or 'sequence'.")
+    is_sequence = layout == "sequence"
     split_name = str(split or config.get("default_split") or "")
-    dataset_root = resolve_dataset_root(config, data_root)
+    dataset_root = resolve_dataset_storage_root(config, data_root)
     split_config = _dataset_split_config(config, split_name)
     split_root = resolve_dataset_split_root(config, split_name, data_root)
     if not split_root.is_dir():
@@ -638,9 +633,7 @@ def catalog_mot_dataset(
             f"Dataset split does not exist: {split_root}. Set --data-root explicitly to use another dataset root."
         )
     annotations_root = None
-    if is_kitti_mots and bool(split_config.get("has_ground_truth")) != (split_config.get("annotations") is not None):
-        raise ValueError("KITTI MOTS splits must declare annotations exactly when has_ground_truth is true.")
-    if split_config.get("annotations") is not None:
+    if not is_sequence and split_config.get("annotations") is not None:
         annotations_root = resolve_dataset_annotation_root(config, split_name, data_root)
         if not annotations_root.is_dir():
             raise FileNotFoundError(f"Dataset annotation directory does not exist: {annotations_root}.")
@@ -651,33 +644,45 @@ def catalog_mot_dataset(
     timestamp_sources: list[dict[str, Any]] = []
     frame_sampling: dict[str, list[int]] = {}
     resolve_metadata = metadata_resolver or inspect_catalog_file
-    sequence_roots = sorted(item for item in split_root.iterdir() if item.is_dir() and not is_appledouble_file(item))
-    if is_kitti_mots:
-        sequence_roots = [path for path in sequence_roots if not path.name.startswith(".")]
-    if "sequences" in split_config:
-        selected_sequences = set(validate_sequence_names(split_config["sequences"]))
-        missing_sequences = selected_sequences - {path.name for path in sequence_roots}
-        if missing_sequences:
-            missing = ", ".join(sorted(missing_sequences))
-            raise FileNotFoundError(f"Dataset sequence directories do not exist: {missing}.")
-        sequence_roots = [path for path in sequence_roots if path.name in selected_sequences]
-    for sequence_root in sequence_roots:
+    if is_sequence:
+        inputs = resolve_dataset_inputs(config, split=split_name, data_root=data_root, roles=("images", "ground_truth"))
+        sequence_entries = [
+            (
+                item.sequence_id,
+                item.modalities["images"].paths[0],
+                item.modalities["ground_truth"].paths[0] if "ground_truth" in item.modalities else None,
+            )
+            for item in inputs.sequences
+        ]
+    else:
+        sequence_roots = sorted(
+            item for item in split_root.iterdir() if item.is_dir() and not is_appledouble_file(item)
+        )
+        if "sequences" in split_config:
+            selected_sequences = set(validate_sequence_names(split_config["sequences"]))
+            missing_sequences = selected_sequences - {path.name for path in sequence_roots}
+            if missing_sequences:
+                missing = ", ".join(sorted(missing_sequences))
+                raise FileNotFoundError(f"Dataset sequence directories do not exist: {missing}.")
+            sequence_roots = [path for path in sequence_roots if path.name in selected_sequences]
+        sequence_entries = [(path.name, path, None) for path in sequence_roots]
+    for sequence_name, sequence_root, instance_root in sequence_entries:
         image_root = sequence_root / "img1"
         if not image_root.is_dir():
             image_root = sequence_root
         image_paths = (
-            list(kitti_mots_frame_paths(sequence_root))
-            if is_kitti_mots
+            list(numeric_frame_paths(sequence_root))
+            if is_sequence
             else sorted(
                 item
                 for item in image_root.iterdir()
                 if item.is_file() and not is_appledouble_file(item) and item.suffix.lower() in STILL_FRAME_EXTENSIONS
             )
         )
-        native_indices = [int(path.stem) for path in image_paths] if is_kitti_mots else list(range(len(image_paths)))
+        native_indices = [int(path.stem) for path in image_paths] if is_sequence else list(range(len(image_paths)))
         timestamp_path = sequence_root / "timestamps.csv"
         timestamps = None
-        if timestamp_path.exists() or timestamp_path.is_symlink():
+        if not is_sequence and (timestamp_path.exists() or timestamp_path.is_symlink()):
             timestamp_ref = timestamp_path.relative_to(dataset_root).as_posix()
             resolved_timestamp_path = _resolve_dataset_child(dataset_root, timestamp_ref, description="timestamp")
             if not resolved_timestamp_path.is_file():
@@ -690,9 +695,7 @@ def catalog_mot_dataset(
             }
             sources.append(timestamp_record)
             timestamp_sources.append(timestamp_record)
-        frame_rate = _sequence_rate(sequence_root) if timestamps is None else None
-        if is_kitti_mots and timestamps is None and frame_rate is None:
-            frame_rate = 10.0
+        frame_rate = inputs.fps if is_sequence else _sequence_rate(sequence_root) if timestamps is None else None
         sequence_timestamps = (
             timestamps
             if timestamps is not None
@@ -701,15 +704,15 @@ def catalog_mot_dataset(
         selected_indices = (
             tuple(range(len(image_paths)))
             if fps is None
-            else select_sequence_frames(sequence_timestamps, fps=fps, sequence_id=sequence_root.name)
+            else select_sequence_frames(sequence_timestamps, fps=fps, sequence_id=sequence_name)
         )
         if fps is not None:
-            frame_sampling[sequence_root.name] = [native_indices[index] + 1 for index in selected_indices]
+            frame_sampling[sequence_name] = [native_indices[index] + 1 for index in selected_indices]
         for frame_index, source_index in enumerate(selected_indices):
             image_path = image_paths[source_index]
-            if is_kitti_mots and fps is None:
+            if is_sequence and fps is None:
                 frame_index = native_indices[source_index]
-            sample_id = f"{split_name}:{sequence_root.name}:{frame_index}"
+            sample_id = f"{split_name}:{sequence_name}:{frame_index}"
             image_ref = _relative_ref(image_path, dataset_root)
             file_metadata = resolve_metadata(image_path, True)
             if file_metadata.image_size is None:
@@ -718,7 +721,7 @@ def catalog_mot_dataset(
                 SourceSample(
                     sample_id=sample_id,
                     split=split_name,
-                    sequence_id=sequence_root.name,
+                    sequence_id=sequence_name,
                     frame_index=frame_index,
                     timestamp_s=sequence_timestamps[source_index],
                     image_size=file_metadata.image_size,
@@ -734,14 +737,14 @@ def catalog_mot_dataset(
                     "size_bytes": file_metadata.size_bytes,
                 }
             )
-            if is_kitti_mots and annotations_root is not None:
-                annotation_path = annotations_root / sequence_root.name / image_path.name
+            if instance_root is not None:
+                annotation_path = instance_root / image_path.with_suffix(".png").name
                 if not annotation_path.is_file():
-                    raise FileNotFoundError(f"KITTI MOTS instance annotation does not exist: {annotation_path}.")
+                    raise FileNotFoundError(f"Instance annotation does not exist: {annotation_path}.")
                 annotation_metadata = resolve_metadata(annotation_path, True)
                 if annotation_metadata.image_size != file_metadata.image_size:
                     raise ValueError(
-                        f"KITTI MOTS annotation dimensions do not match image dimensions: {annotation_path}."
+                        f"Instance annotation dimensions do not match image dimensions: {annotation_path}."
                     )
                 annotation_record = {
                     "ref": _relative_ref(annotation_path, dataset_root),
@@ -750,17 +753,17 @@ def catalog_mot_dataset(
                 }
                 sources.append(annotation_record)
                 ground_truth_sources.append(annotation_record)
-        metadata_files = [sequence_root / "seqinfo.ini"]
+        metadata_files = [] if is_sequence else [sequence_root / "seqinfo.ini"]
         metadata_files.extend(
             sorted(path for path in (sequence_root / "gt").glob("*") if not is_appledouble_file(path))
-            if (sequence_root / "gt").is_dir()
+            if not is_sequence and (sequence_root / "gt").is_dir()
             else []
         )
-        if annotations_root is not None and not is_kitti_mots:
-            annotation_path = annotations_root / f"{sequence_root.name}.txt"
+        if annotations_root is not None and not is_sequence:
+            annotation_path = annotations_root / f"{sequence_name}.txt"
             if not annotation_path.is_file():
                 raise FileNotFoundError(
-                    f"Dataset annotation for sequence {sequence_root.name!r} does not exist: {annotation_path}."
+                    f"Dataset annotation for sequence {sequence_name!r} does not exist: {annotation_path}."
                 )
             annotation_metadata = resolve_metadata(annotation_path, False)
             annotation_record = {
@@ -771,7 +774,7 @@ def catalog_mot_dataset(
             sources.append(annotation_record)
             ground_truth_sources.append(annotation_record)
         if layout == "visdrone" and annotations_root is None:
-            metadata_files.append(dataset_root / "annotations" / f"{sequence_root.name}.txt")
+            metadata_files.append(dataset_root / "annotations" / f"{sequence_name}.txt")
         for metadata_path in metadata_files:
             if not metadata_path.is_file():
                 continue
@@ -797,6 +800,18 @@ def catalog_mot_dataset(
             "dataset_id": str(config.get("id") or ""),
             "split": split_name,
             "layout": layout,
+            **(
+                {
+                    "native_fps": inputs.fps,
+                    "modalities": {
+                        role: {"format": source["format"], "options": source["options"]}
+                        for role, source in dataset_modalities(config, split_name).items()
+                        if role in {"images", "ground_truth"}
+                    },
+                }
+                if is_sequence
+                else {}
+            ),
             "class_taxonomy_digest": hashlib.sha256(canonical_json_bytes(class_taxonomy)).hexdigest(),
             "ground_truth_digest": hashlib.sha256(
                 canonical_json_bytes(
@@ -824,6 +839,5 @@ __all__ = (
     "default_data_root",
     "inspect_catalog_file",
     "resolve_dataset_annotation_root",
-    "resolve_dataset_root",
     "resolve_dataset_split_root",
 )

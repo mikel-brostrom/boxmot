@@ -1,10 +1,9 @@
-"""Ingest portable KITTI fusion bundles through the standard tuning command."""
+"""Ingest portable Sensor dataset bundles through the standard tuning command."""
 
 from __future__ import annotations
 
 import importlib
 import json
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -15,6 +14,7 @@ from click.testing import CliRunner
 from boxmot.engine.cli import boxmot
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 from boxmot.engine.eval.results import ValidationResult
+from boxmot.engine.tuning import tuner
 from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
@@ -63,6 +63,15 @@ def _forbid_perception(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(command, "_prepare_replay_build", unexpected)
 
 
+def _forbid_sensor_tuning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail if rejected arguments reach the sensor tuning implementation."""
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("Invalid sensor tuning arguments must not start optimization.")
+
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", unexpected)
+
+
 @pytest.mark.parametrize("use_folder", (False, True))
 def test_bundle_paths_and_defaults_are_independent_of_working_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_folder: bool
@@ -88,9 +97,7 @@ def test_bundle_paths_and_defaults_are_independent_of_working_directory(
 
     monkeypatch.setattr(command, "_dispatch_cli_workflow", shared_dispatch)
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", run)
     result = CliRunner().invoke(boxmot, _arguments(manifest.parent if use_folder else manifest))
 
     assert result.exit_code == 0, (result.output, result.exception)
@@ -127,9 +134,7 @@ def test_bundle_accepts_explicit_supported_controls(
         captured["args"] = args
         return _result(args, args.project / args.split)
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=run)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", run)
     result = CliRunner().invoke(
         boxmot,
         [
@@ -188,7 +193,7 @@ def test_sensor_tune_rejects_invalid_sampling_controls_before_dispatch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: str, value: str
 ) -> None:
     """Validate sampling bounds through the same parser as image tuning."""
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.tuner", None)
+    _forbid_sensor_tuning(monkeypatch)
     result = CliRunner().invoke(boxmot, [*_arguments(tmp_path), option, value])
 
     assert result.exit_code == 2
@@ -206,9 +211,7 @@ def test_sensor_tune_reports_actionable_runner_errors(
     def fail(_args: SimpleNamespace, *, pipeline: Any = None) -> None:
         raise error_type(message)
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.engine.tuning.eagermot_kitti", SimpleNamespace(run_eagermot_kitti_tuning=fail)
-    )
+    monkeypatch.setattr(tuner, "_run_eagermot_tuning", fail)
     result = CliRunner().invoke(boxmot, _arguments(manifest))
 
     assert result.exit_code == 1, (result.output, result.exception)
@@ -261,8 +264,7 @@ def test_bundle_rejects_unsupported_explicit_options_before_loading_tuners(
     """Never silently ignore options or load a tuner for an invalid invocation."""
     manifest = _manifest(tmp_path)
     _forbid_perception(monkeypatch)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.tuner", None)
+    _forbid_sensor_tuning(monkeypatch)
 
     result = CliRunner().invoke(boxmot, [*_arguments(manifest), *options])
 
@@ -275,12 +277,10 @@ def test_bundle_rejects_unsupported_explicit_options_before_loading_tuners(
     "missing",
     (
         "dataset.yaml",
-        "replay.yaml",
         "sequences/training/0002/images",
         "sequences/training/0002/ground_truth",
         "sequences/training/0002/calibration.txt",
         "sequences/training/0002/poses.npy",
-        "predictions/trackrcnn/manifest.yaml",
         "predictions/trackrcnn/training/0002.txt",
     ),
 )
@@ -292,7 +292,7 @@ def test_bundle_reports_missing_manifest_or_input_root_before_starting_work(
     target = tmp_path / missing
     target.unlink() if target.is_file() else target.rmdir()
     _forbid_perception(monkeypatch)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    _forbid_sensor_tuning(monkeypatch)
 
     result = CliRunner().invoke(boxmot, _arguments(tmp_path))
 
@@ -317,7 +317,7 @@ def test_ordinary_dataset_with_build_retains_cached_tuning_dispatch(
 
     monkeypatch.setattr(command, "_prepare_replay_build", prepare)
     monkeypatch.setattr(command, "_dispatch_cli_workflow", dispatch)
-    monkeypatch.setitem(sys.modules, "boxmot.engine.tuning.eagermot_kitti", None)
+    _forbid_sensor_tuning(monkeypatch)
 
     result = CliRunner().invoke(
         boxmot,
@@ -366,10 +366,11 @@ def test_standard_tune_replays_bundle_and_saves_best_profiles_with_dataset_prove
     assert run["sequences"] == {"0002": 3}
     assert run["dataset_id"] == "kitti-mots-fusion"
     assert run["dataset_config"] == str(manifest.resolve())
-    assert run["replay_config"] == str(relocated / "replay.yaml")
-    assert set(run["prediction_manifests"]) == {"image", "car", "pedestrian"}
-    assert all(Path(path).is_relative_to(relocated) for path in run["prediction_manifests"].values())
-    assert all(Path(path).is_relative_to(relocated) for path in run["sequence_inputs"]["0002"].values())
+    assert all(
+        Path(path).is_relative_to(relocated)
+        for source in run["sequence_inputs"]["0002"].values()
+        for path in source["paths"]
+    )
     assert load_kitti_profiles(output / "best.yaml") == KITTI_PROFILES
     metrics = json.loads((output / "trials/0000/metrics.json").read_text())
     assert metrics["cls_comb_cls_av"]["HOTA"] == pytest.approx(100)

@@ -227,7 +227,7 @@ def test_resolve_experiment_runtime_resolves_only_dataset_identity(monkeypatch, 
             "benchmark": {},
         },
     )
-    monkeypatch.setattr(benchmarks_module, "resolve_dataset_root", lambda *_args: source_dir.parent)
+    monkeypatch.setattr(benchmarks_module, "resolve_dataset_storage_root", lambda *_args: source_dir.parent)
 
     source_root, experiment_id, dataset_id, benchmark, cfg = _resolve_experiment_runtime("mot17-mini")
 

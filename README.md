@@ -248,12 +248,16 @@ returns image and spatial tracks with shared identities. The
 `boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
 TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
 Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
-with a KITTI fusion dataset to optimize separate car and pedestrian profiles
+with a multimodal sequence dataset to optimize separate car and pedestrian profiles
 together for class-average mask HOTA, then evaluate `best.yaml` with
 `boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
 its images, annotations, calibration, and poses. `dataset.yaml` defines the
-sequences and splits; `replay.yaml` selects prediction sets with their own
-manifests.
+sequences, splits, classes, and per-modality encodings and paths in the same
+schema used by built-in datasets.
+For your own multimodal recordings and detector outputs, start from the
+[sensor dataset template](examples/datasets/sensor-fusion/README.md). It defines
+portable paths, custom sequence/split names, frame timing, and the required
+image, 2D/3D detection, calibration, and ego-pose formats.
 
 Related guides:
 

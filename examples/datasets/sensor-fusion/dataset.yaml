@@ -1,0 +1,54 @@
+# Copy this folder, supply your own payloads, and edit this dataset config.
+id: my-sensor-dataset
+format:
+  layout: sequence
+  box_type: aabb
+storage:
+  root: .
+classes:
+  target:
+    car: 1
+    pedestrian: 2
+  ignore:
+    ignore: 10
+fps: 10
+default_split: val
+
+splits:
+  train:
+    partition: recordings
+    sequences: [drive-001]
+    has_ground_truth: true
+  val:
+    partition: recordings
+    sequences: [drive-002]
+    has_ground_truth: true
+
+modalities:
+  images:
+    format: image-directory
+    path: sequences/{partition}/{sequence}/images
+  ground_truth:
+    format: instance-png
+    path: sequences/{partition}/{sequence}/ground_truth
+    options:
+      class_divisor: 1000
+      background_id: 0
+      ignore_ids: [10000]
+  calibration:
+    format: kitti-p2
+    path: sequences/{partition}/{sequence}/calibration.txt
+  poses:
+    format: camera-to-world-npy
+    path: sequences/{partition}/{sequence}/poses.npy
+  detections_2d:
+    format: trackrcnn
+    path: predictions/image/{partition}/{sequence}.txt
+  detections_3d:
+    format: kitti-detections
+    paths:
+      - predictions/car/{partition}/{sequence}
+      - predictions/pedestrian/{partition}/{sequence}
+    options:
+      score_transform: odds
+      ignore_classes: [Cyclist]

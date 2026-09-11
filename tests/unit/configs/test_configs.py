@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from boxmot.datasets.config import ConfigurationError, load_dataset_config
+from boxmot.datasets.config import ConfigurationError, dataset_modalities, load_dataset_config
 from boxmot.engine.config.runtime import (
     BOXMOT_DEFAULTS,
     DEFAULT_DETECTOR,
@@ -119,17 +119,21 @@ def test_kitti_mots_dataset_config_uses_native_classes_paths_and_official_splits
 
     config = load_dataset_config("kitti-mots")
 
-    assert config["layout"] == "kitti-mots"
+    assert config["layout"] == "sequence"
     assert config["root"] == "KITTI-MOTS"
+    assert config["fps"] == 10.0
     assert config["classes"]["car"] == {"id": 1, "evaluation": "target"}
     assert config["classes"]["pedestrian"] == {"id": 2, "evaluation": "target"}
     for name in ("train", "val", "fulltrain"):
-        assert config["splits"][name]["path"] == "data_tracking_image_2/training/image_02"
-        assert config["splits"][name]["annotations"] == "instances"
+        assert config["splits"][name]["partition"] == "training"
+        assert dataset_modalities(config, name)["images"]["paths"] == [
+            "data_tracking_image_2/{partition}/image_02/{sequence}"
+        ]
+        assert dataset_modalities(config, name)["ground_truth"]["paths"] == ["instances/{sequence}"]
         assert config["splits"][name]["has_ground_truth"] is True
-    assert config["splits"]["test"]["path"] == "data_tracking_image_2/testing/image_02"
+    assert config["splits"]["test"]["partition"] == "testing"
     assert config["splits"]["test"]["has_ground_truth"] is False
-    assert "annotations" not in config["splits"]["test"]
+    assert "ground_truth" not in dataset_modalities(config, "test")
     assert "sequences" not in config["splits"]["fulltrain"]
     assert config["splits"]["train"]["sequences"] == [
         "0000",
