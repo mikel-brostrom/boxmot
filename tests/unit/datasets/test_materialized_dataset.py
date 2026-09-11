@@ -11,7 +11,8 @@ import torch
 
 import boxmot.datasets as datasets
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
-from boxmot.datasets.cached import DatasetSample, _row_group_may_contain_key
+from boxmot.datasets._parquet import row_group_may_contain_key
+from boxmot.datasets.cached import DatasetSample
 from boxmot.datasets.masks import MASK_CODEC, MaskCodecError, pack_mask, unpack_mask, unpack_mask_batch
 from boxmot.datasets.readers import attach_masks, read_detection_batches
 from boxmot.datasets.readers.images import ImageDecodeError, read_rgb_chw_uint8
@@ -248,9 +249,7 @@ def test_sequence_worker_loader_reads_only_the_selected_sequence(materialized_bu
 
     assert dataset.sample_ids == ("sample-b",)
     assert dataset[0].sequence_id == "seq-b"
-    assert dataset[0].detections.instance_ids == (
-        f"{dataset.manifest.build_id}:sample-b:0",
-    )
+    assert dataset[0].detections.instance_ids == (f"{dataset.manifest.build_id}:sample-b:0",)
     assert dataset[0].detections.masks is not None
     assert dataset[0].detections.embeddings is not None
     assert dataset[0].detections.embeddings.tolist() == [[1.0, 0.0, 0.0]]
@@ -286,8 +285,17 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
     materialized_build,
     monkeypatch,
 ) -> None:
+    import pyarrow.parquet as pq
+
     streamed: list[tuple[str, tuple[str, ...] | None]] = []
+    embedding_columns: list[tuple[str, ...]] = []
     original_iter = CachedVisionDataset._iter_selected_batches
+    original_batches = pq.ParquetFile.iter_batches
+
+    def recording_batches(self, **kwargs):
+        if "values" in self.schema_arrow.names:
+            embedding_columns.append(tuple(kwargs["columns"]))
+        yield from original_batches(self, **kwargs)
 
     def recording_iter(self, name, *, sample_ids, expected_schema, columns=None, batch_size=128):
         streamed.append((name, columns))
@@ -301,6 +309,7 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
         )
 
     monkeypatch.setattr(CachedVisionDataset, "_iter_selected_batches", recording_iter)
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", recording_batches)
 
     dataset = CachedVisionDataset._stream_sequence(
         materialized_build["root"],
@@ -313,14 +322,17 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
     assert len(dataset) == 1
     assert dataset.sample_ids == ("sample-a",)
     assert streamed == []
+    assert embedding_columns == []
 
     sample = next(iter(dataset))
 
     assert streamed == [
         (MASKS_ARTIFACT, ("sample_id", "instance_id")),
-        (EMBEDDINGS_ARTIFACT, ("sample_id", "instance_id")),
         (MASKS_ARTIFACT, None),
-        (EMBEDDINGS_ARTIFACT, None),
+    ]
+    assert embedding_columns == [
+        ("sample_id", "instance_id", "encoder_fingerprint", "dim"),
+        ("values",),
     ]
     assert sample.detections.masks is not None
     assert sample.detections.embeddings is not None
@@ -331,6 +343,12 @@ def test_sequence_stream_key_joins_independently_reordered_payloads(
     monkeypatch,
 ) -> None:
     import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    for path in (materialized_build["root"] / "embeddings").glob("*.parquet"):
+        table = pq.read_table(path)
+        reordered = table.take(pa.array(list(reversed(range(table.num_rows))), type=pa.int64()))
+        pq.write_table(reordered, path, compression="zstd", row_group_size=1)
 
     original_iter = CachedVisionDataset._iter_selected_batches
 
@@ -381,47 +399,24 @@ def test_sequence_stream_key_joins_independently_reordered_payloads(
         ("missing", "match selected instance keys exactly once"),
     ],
 )
-def test_sequence_stream_validates_all_embedding_keys_by_eof(
+def test_sequence_stream_validates_all_embedding_keys_before_first_sample(
     materialized_build,
-    monkeypatch,
     mode,
     message,
 ) -> None:
     import pyarrow as pa
+    import pyarrow.parquet as pq
 
-    original_iter = CachedVisionDataset._iter_selected_batches
-
-    def altered_iter(self, name, *, sample_ids, expected_schema, columns=None, batch_size=128):
-        batches = tuple(
-            original_iter(
-                self,
-                name,
-                sample_ids=sample_ids,
-                expected_schema=expected_schema,
-                columns=columns,
-                batch_size=batch_size,
-            )
-        )
-        if name != EMBEDDINGS_ARTIFACT:
-            yield from batches
-            return
-        table = pa.Table.from_batches(batches)
-        if mode == "missing":
-            table = table.slice(0, table.num_rows - 1)
-        yield from table.to_batches()
-        if mode == "duplicate":
-            yield from table.slice(0, 1).to_batches()
-        elif mode == "foreign":
-            foreign = table.slice(0, 1)
-            instance_index = foreign.schema.get_field_index("instance_id")
-            foreign = foreign.set_column(
-                instance_index,
-                "instance_id",
-                pa.array(["foreign-instance"], type=pa.string()),
-            )
-            yield from foreign.to_batches()
-
-    monkeypatch.setattr(CachedVisionDataset, "_iter_selected_batches", altered_iter)
+    path = sorted((materialized_build["root"] / "embeddings").glob("*.parquet"))[0]
+    table = pq.read_table(path)
+    rows = table.to_pylist()
+    if mode == "missing":
+        rows.pop()
+    elif mode == "duplicate":
+        rows.append(dict(rows[0]))
+    else:
+        rows.append({**rows[0], "instance_id": "foreign-instance"})
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), path, compression="zstd", row_group_size=1)
     iterator = iter(
         CachedVisionDataset._stream_sequence(
             materialized_build["root"],
@@ -439,26 +434,19 @@ def test_sequence_stream_skips_heavy_tail_after_prevalidated_keys(
     materialized_build,
     monkeypatch,
 ) -> None:
-    original_iter = CachedVisionDataset._iter_selected_batches
+    import pyarrow.parquet as pq
 
-    def guarded_iter(self, name, *, sample_ids, expected_schema, columns=None, batch_size=128):
-        batches = iter(
-            original_iter(
-                self,
-                name,
-                sample_ids=sample_ids,
-                expected_schema=expected_schema,
-                columns=columns,
-                batch_size=batch_size,
-            )
-        )
-        if columns is not None or name != EMBEDDINGS_ARTIFACT:
+    original_iter = pq.ParquetFile.iter_batches
+
+    def guarded_iter(self, **kwargs):
+        batches = iter(original_iter(self, **kwargs))
+        if kwargs.get("columns") != ["values"]:
             yield from batches
             return
         yield next(batches)
         raise AssertionError("the embedding payload tail should not be requested")
 
-    monkeypatch.setattr(CachedVisionDataset, "_iter_selected_batches", guarded_iter)
+    monkeypatch.setattr(pq.ParquetFile, "iter_batches", guarded_iter)
 
     samples = tuple(
         CachedVisionDataset._stream_sequence(
@@ -485,8 +473,8 @@ def test_selected_artifact_row_group_pruning_is_conservative(tmp_path) -> None:
     )
     parquet = pq.ParquetFile(path)
 
-    assert not _row_group_may_contain_key(parquet, 0, column_name="sample_id", keys=("m",))
-    assert _row_group_may_contain_key(parquet, 1, column_name="sample_id", keys=("m",))
+    assert not row_group_may_contain_key(parquet, 0, column_name="sample_id", keys=("m",))
+    assert row_group_may_contain_key(parquet, 1, column_name="sample_id", keys=("m",))
 
 
 def test_sequence_worker_rejects_duplicate_instance_keys(materialized_build, monkeypatch) -> None:
@@ -769,9 +757,7 @@ def test_validation_rejects_non_zstd_parquet_shard(materialized_build) -> None:
     replacement = describe_parquet_artifact(root, name="samples", relative_path="samples")
     modified = replace(
         manifest,
-        artifacts=tuple(
-            replacement if artifact.name == "samples" else artifact for artifact in manifest.artifacts
-        ),
+        artifacts=tuple(replacement if artifact.name == "samples" else artifact for artifact in manifest.artifacts),
     )
 
     with pytest.raises(DatasetValidationError, match="zstd compression"):
@@ -799,8 +785,7 @@ def test_validation_checks_encoder_fingerprint_on_every_embedding_shard(material
     modified = replace(
         manifest,
         artifacts=tuple(
-            replacement if artifact.name == EMBEDDINGS_ARTIFACT else artifact
-            for artifact in manifest.artifacts
+            replacement if artifact.name == EMBEDDINGS_ARTIFACT else artifact for artifact in manifest.artifacts
         ),
     )
 
@@ -827,8 +812,7 @@ def test_validation_checks_each_manifest_shard_row_count(materialized_build) -> 
     bad_manifest = replace(
         manifest,
         artifacts=tuple(
-            modified if artifact.name == EMBEDDINGS_ARTIFACT else artifact
-            for artifact in manifest.artifacts
+            modified if artifact.name == EMBEDDINGS_ARTIFACT else artifact for artifact in manifest.artifacts
         ),
     )
 
@@ -869,9 +853,7 @@ def test_validation_rejects_duplicate_sequence_frame_identity(materialized_build
     replacement = describe_parquet_artifact(root, name="samples", relative_path="samples")
     modified = replace(
         manifest,
-        artifacts=tuple(
-            replacement if artifact.name == "samples" else artifact for artifact in manifest.artifacts
-        ),
+        artifacts=tuple(replacement if artifact.name == "samples" else artifact for artifact in manifest.artifacts),
     )
 
     with pytest.raises(DatasetValidationError, match="unique.*sequence_id.*frame_index"):
