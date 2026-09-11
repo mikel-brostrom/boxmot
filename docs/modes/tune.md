@@ -180,6 +180,12 @@ Trials run no detector, segmentor, or encoder and cannot select or create
 another build. Worker count and retry policy are execution settings, not
 semantic fingerprints.
 
+Automatic preparation caches embeddings when the baseline uses them or the
+search can enable `use_embeddings`. A scalar `--tracker-config` sets the
+baseline; searchable parameters can still change in trials. To omit embeddings
+throughout tuning, both the baseline and search must keep appearance disabled.
+Appearance-enabled trials require cached embeddings rather than live ReID inference.
+
 Each trial uses the [automatic sequence worker count](eval.md#sequence-parallelism)
 unless `--sequence-workers` supplies a positive integer cap. For example,
 `--sequence-workers 4` allows up to four sequence worker processes per trial,

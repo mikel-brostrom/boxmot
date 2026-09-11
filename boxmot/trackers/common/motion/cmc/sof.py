@@ -72,9 +72,11 @@ class SOF(BaseCMC):
                 self.initialized = False
                 return H
 
-            # optional refinement for stability
-            term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
-            cv2.cornerSubPix(frame_gray, kps, winSize=(5, 5), zeroZone=(-1, -1), criteria=term_crit)
+            # OpenCV needs 2 * window + 5 pixels per dimension for refinement.
+            # Smaller frames retain their valid, unrefined feature locations.
+            if min(frame_gray.shape[:2]) >= 15:
+                term_crit = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 30, 0.01)
+                cv2.cornerSubPix(frame_gray, kps, winSize=(5, 5), zeroZone=(-1, -1), criteria=term_crit)
 
             self.prev_frame = frame_gray.copy()
             self.prev_keypoints = kps.copy()

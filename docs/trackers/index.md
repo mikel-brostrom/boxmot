@@ -24,49 +24,62 @@ capabilities, which factories and pipelines use for validation. Selecting
 
 ## Input support
 
-The matrix describes the registered **Python tracker** inputs. **Required**
-means the input must be available; **Configurable** means it is required when
-the corresponding feature is enabled. **Unused** means the tracker does not
-use that field for tracking, even if an adapter accepts it on `Detections`.
-The last column indicates whether a separate native backend is available.
+The matrix describes **Python tracker** inputs. **Required** applies across
+supported configurations; **Configurable** depends on enabled features;
+**Optional** is consumed when supplied. **Unused** fields are rejected at the
+tracking boundary unless a configured appearance encoder consumes them.
+Ground truth used for scoring or calibration is separate from these tracking
+inputs.
 
-| Tracker | 2D geometry | ReID embeddings | Instance masks | Frame requirement | 3D detections + camera | Variable timing | Native C++ |
+| Tracker | 2D geometry | ReID embeddings | Instance masks | Image input | 3D boxes | Calibration | Ego poses |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [ByteTrack](bytetrack.md) | AABB, OBB | Unused | Unused | Optional | No | Yes | Yes |
-| [BotSort](botsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID | No | Yes | Yes |
-| [StrongSort](strongsort.md) | AABB, OBB | Required | Unused | Required | No | Yes | No |
-| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Optional | No | Yes | Yes |
-| [DeepOcSort](deepocsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID | No | Yes | No |
-| [HybridSort](hybridsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID | No | Yes | No |
-| [BoostTrack](boosttrack.md) | AABB, OBB | Configurable | Unused | CMC / live ReID | No | Yes | No |
-| [OccluBoost](occluboost.md) | AABB, OBB | Configurable | Unused | CMC / live ReID | No | Yes | Yes |
-| [SFSORT](sfsort.md) | AABB, OBB | Unused | Unused | Dimensions | No | No | Yes |
-| [MafHda](maf_hda.md) | AABB | Unused | Required | Required | No | No | No |
-| [EagerMot](eagermot.md) | AABB | Unused | Optional | Optional | Required | No | No |
+| [ByteTrack](bytetrack.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
+| [BotSort](botsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
+| [StrongSort](strongsort.md) | AABB, OBB | Required | Unused | Required: ECC pixels | Unused | Unused | Unused |
+| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
+| [DeepOcSort](deepocsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
+| [HybridSort](hybridsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
+| [BoostTrack](boosttrack.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
+| [OccluBoost](occluboost.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
+| [SFSORT](sfsort.md) | AABB, OBB | Unused | Unused | Dimensions or configured size | Unused | Unused | Unused |
+| [MafHda](maf_hda.md) | AABB | Unused | Required | Configurable: appearance / centroid | Unused | Unused | Unused |
+| [EagerMot](eagermot.md) | AABB | Unused | Optional | Optional metadata; pixels unused | Required | Required | Optional |
 
-- **ReID:** Configurable trackers use embeddings when `use_embeddings=True`.
-  Required embeddings can be attached to detections or generated from a frame
-  by the tracker; they do not have to be precomputed by the caller.
-- **Frames:** All listed trackers accept a canonical `Frame` or a `uint8` BGR
-  NumPy image. CMC / live ReID requires pixels when camera-motion compensation
-  is enabled or missing embeddings must be generated. StrongSort and MafHda
-  require pixels on every update, including empty detection batches.
-- **Dimensions:** SFSORT needs image dimensions but does not use image pixels.
-  Supply a frame on each update or configure both `frame_width` and
-  `frame_height`. Selecting centroid association on other box trackers can
-  also make a frame required, even when it is optional in the table.
+- **ReID:** `use_embeddings=True` enables appearance on configurable trackers.
+  Supply embeddings or let the tracker generate them from image pixels.
+  Cached embeddings remove this pixel requirement but do not disable CMC.
+  StrongSort always uses appearance and ECC; it still needs pixels with cached
+  embeddings. With appearance disabled, supplied embeddings are unused.
+- **Pixels and dimensions:** CMC and live ReID need actual pixels. Centroid
+  association needs dimensions only, including when CMC and ReID are disabled.
+  ByteTrack and OcSort never use image pixels. SFSORT needs dimensions for its
+  regions and optional centroid association; provide a frame or configure both
+  `frame_width` and `frame_height`.
+- **MafHda:** Its default appearance stages need pixels, including empty
+  detection updates. Setting both `s2ta_mode: motion` and `t2ta_mode: motion`
+  removes that requirement. Centroid association still needs dimensions.
 - **Masks:** MafHda requires full-frame boolean masks aligned with its AABB
   detections, with foreground in every nonempty detection row. Supply an
   empty mask batch with empty detections. EagerMot accepts masks and preserves
   them on matched image-track outputs; its association uses box geometry.
+  A ReID encoder that requires masks may consume them when generating missing
+  embeddings for a box tracker; this does not enable mask association.
 - **3D and calibration:** EagerMot requires `Detections3D` and `CameraModel`
   on every update alongside canonical 2D `Detections`. Either detection batch
   can be explicitly empty. A 3D observation initializes a track; later 2D
   observations can sustain it. Camera image size supplies dimensions when no
-  frame is passed.
-- **Timing:** Yes means `variable_dt=True` is supported. It remains opt-in and
-  then requires a capture timestamp on every update through `Frame.timestamp_s`
-  or `timestamp_s=`. See [choosing Kalman timing and
+  frame is passed. Saved-sensor `eval --eval-3d` can omit `detections_2d` and
+  supplies empty image detections; mask scoring still needs predicted masks.
+- **Ego motion:** EagerMot optionally consumes absolute camera-to-world poses
+  through `CameraModel.camera_to_world`. With poses it tracks motion in world
+  coordinates; without them it uses camera coordinates. Keep pose availability
+  consistent throughout a sequence. Calibration projection remains required.
+- **Timing:** Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort,
+  HybridSort, BoostTrack, and OccluBoost support `variable_dt=True`. This then
+  requires a capture timestamp on every update through `Frame.timestamp_s`
+  or `timestamp_s=`. Otherwise timestamps are metadata and prediction uses
+  fixed frame intervals. MafHda, EagerMot, SFSORT, and native backends use fixed
+  intervals. See [choosing Kalman timing and
   adaptation](../modes/track.md#choose-kalman-timing-and-adaptation).
 
 ### Input representations
@@ -108,13 +121,14 @@ print(tracker.requirements)  # Requirements for this configuration.
 
 ### Native input differences
 
-The five C++ adapters support both AABB and OBB, canonical detections, and
+ByteTrack, BotSort, OcSort, OccluBoost, and SFSORT have C++ adapters supporting
+both AABB and OBB, canonical detections, and
 packed NumPy rows. BotSort and OccluBoost accept embeddings or generate them
 through their Python adapter. Native trackers do not support masks, 3D sensor
 inputs, or variable timing, and their outputs do not preserve masks.
 
-Native frame requirements are fixed at construction: a frame is required on
-every update when CMC or centroid association is enabled. SFSORT likewise
+Native frame requirements are fixed at construction: CMC needs pixels;
+centroid association without CMC needs dimensions only. SFSORT likewise
 requires a frame for dimensions unless both dimensions are configured.
 Live ReID additionally needs real pixels when embeddings are missing. See
 [native capabilities and requirements](../native/index.md#capabilities-and-requirements)
@@ -124,7 +138,7 @@ for backend details.
 
 - Start with `bytetrack` when you want a fast motion-only baseline.
 - Use `botsort`, `strongsort`, `deepocsort`, `hybridsort`, `boosttrack`, or `occluboost` when appearance cues matter.
-- Use `maf_hda` for AABB detections with nonempty full-frame instance masks and current image frames, combining motion with masked correlation-filter appearance.
+- Use `maf_hda` for AABB detections with full-frame instance masks; its default appearance stages also use current image pixels.
 - Use `eagermot` through Python when 3D detections and camera calibration are available alongside image detections.
 - OBB support is listed in the table above; MafHda and EagerMot accept AABB image geometry only.
 - Image trackers expose the same selectable `asso_func`; see

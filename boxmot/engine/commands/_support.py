@@ -165,6 +165,7 @@ def _prepare_replay_build(
     split: str | None,
     tracker: str,
     fps: float | None,
+    tracker_config: str | Path | None = None,
     eval_masks: bool = False,
     allow_noncanonical_build: bool = False,
 ) -> tuple[str | None, str | None, str | Path]:
@@ -234,6 +235,24 @@ def _prepare_replay_build(
             raise click.UsageError("--eval-masks requires a KITTI-MOTS dataset.")
 
     capabilities = get_tracker_definition(tracker).capabilities
+    publish_embeddings = capabilities.requires_embeddings
+    if capabilities.accepts_embeddings and not publish_embeddings:
+        from boxmot.trackers.common.config import load_tracker_config
+
+        try:
+            options = load_tracker_config(tracker, tracker_config)
+            publish_embeddings = options.get("use_embeddings", False)
+            if not isinstance(publish_embeddings, bool):
+                raise ValueError("use_embeddings must be a bool.")
+            if mode == "tune" and not publish_embeddings:
+                from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
+
+                # A scalar profile sets the baseline; searchable settings can
+                # still enable appearance in later trials, using cached features.
+                schema = flatten_yaml_config(load_yaml_config(tracker))
+                publish_embeddings = True in schema.get("use_embeddings", {}).get("options", ())
+        except (TypeError, ValueError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
     materialize_args = _build_cli_namespace(
         ctx,
         "materialize",
@@ -245,7 +264,7 @@ def _prepare_replay_build(
             "fps": fps,
             "publish_image_refs": True,
             "publish_masks": capabilities.requires_masks or eval_masks,
-            "publish_embeddings": capabilities.accepts_embeddings,
+            "publish_embeddings": publish_embeddings,
             "plan_path": None,
             "plan_overrides": (),
             "resume": True,

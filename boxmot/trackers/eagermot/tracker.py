@@ -72,6 +72,10 @@ class EagerMot(BaseTracker):
     current 3D estimates in ``spatial_tracks``, sharing the same track IDs.
     Optional segmentation masks are preserved on image tracks. The two output
     collections have independent row counts and detection indices.
+    RGB pixels and ReID embeddings are unused. Camera projection is required;
+    camera-to-world ego poses are optional but must be provided consistently
+    throughout a sequence. Prediction advances once per update, using fixed
+    frame steps rather than capture timestamps.
 
     Defaults reproduce the released KITTI car association/lifecycle profile.
     Classes are always associated separately, including when ``per_class`` is
@@ -87,6 +91,7 @@ class EagerMot(BaseTracker):
         accepts_detections_3d=True,
         requires_camera=True,
         accepts_camera=True,
+        accepts_ego_motion=True,
     )
     _requires_detections_3d = True
     _requires_camera = True

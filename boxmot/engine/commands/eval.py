@@ -279,6 +279,7 @@ def eval(
         split=split,
         tracker=str(kwargs["tracker"]),
         fps=kwargs.get("fps"),
+        tracker_config=kwargs.get("tracker_config"),
         eval_masks=eval_masks,
         allow_noncanonical_build=allow_noncanonical_build,
     )

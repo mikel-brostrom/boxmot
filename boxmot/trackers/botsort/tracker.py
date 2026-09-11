@@ -128,9 +128,13 @@ class BotSort(BoxTracker):
             raise TypeError("use_embeddings must be bool.")
         self.use_embeddings = use_embeddings
 
+        if not isinstance(use_cmc, bool):
+            raise TypeError("use_cmc must be bool.")
         self.cmc = create_cmc(cmc_method, enabled=use_cmc)
         self.fuse_first_associate = fuse_first_associate
         self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
     def _detection_boxes(self, dets: np.ndarray) -> np.ndarray:
         return self.detection_layout.boxes(dets)

@@ -100,11 +100,15 @@ class DeepOcSort(BoxTracker):
         if not isinstance(use_embeddings, bool):
             raise TypeError("use_embeddings must be bool.")
         self.use_embeddings = use_embeddings
+        if not isinstance(cmc_off, bool):
+            raise TypeError("cmc_off must be bool.")
         self.cmc_off = cmc_off
         self.aw_off = aw_off
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
         self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
     def _track_detections(
         self,

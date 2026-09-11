@@ -90,11 +90,26 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
     assert {name for name, item in definitions.items() if item.capabilities.requires_masks} == {"maf_hda"}
     for attribute in ("requires_detections_3d", "accepts_detections_3d", "requires_camera", "accepts_camera"):
         assert {name for name, item in definitions.items() if getattr(item.capabilities, attribute)} == {"eagermot"}
+    assert {name for name, item in definitions.items() if item.capabilities.accepts_ego_motion} == {"eagermot"}
+    assert not any(item.capabilities.requires_ego_motion for item in definitions.values())
     assert all(item.capabilities.accepts_frame for item in definitions.values())
-    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {
-        "maf_hda",
-        "strongsort",
-    }
+    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {"strongsort"}
+
+
+def test_configurable_maf_frames_and_optional_ego_poses_match_static_requirements() -> None:
+    maf_class = tracker_registry.get_tracker_class("maf_hda")
+    maf = maf_class(s2ta_mode="motion", t2ta_mode="motion")
+    assert maf.capabilities.accepts_frame
+    assert not maf.capabilities.requires_frame
+    assert not maf.requirements.frame
+    assert maf_class().requirements.frame_pixels
+
+    eager = tracker_registry.get_tracker_class("eagermot")()
+    assert eager.capabilities.requires_camera
+    assert eager.capabilities.accepts_ego_motion
+    assert not eager.capabilities.requires_ego_motion
+    assert eager.requirements.camera
+    assert not eager.requirements.ego_motion
 
 
 @pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
@@ -150,6 +165,18 @@ def test_factory_checks_resolved_requirements_against_static_capabilities() -> N
         tracker_factory._bind_and_validate_capabilities(
             SimpleNamespace(requirements=TrackerRequirements()),
             always_required,
+        )
+
+
+def test_factory_validates_ego_motion_independently_of_camera_projection() -> None:
+    camera_only = TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=frozenset({GeometryKind.AABB}),
+        accepts_camera=True,
+    )
+    with pytest.raises(ValueError, match="static capabilities do not accept ego_motion"):
+        tracker_factory._bind_and_validate_capabilities(
+            SimpleNamespace(requirements=TrackerRequirements(camera=True, ego_motion=True)), camera_only
         )
 
 

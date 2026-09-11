@@ -45,7 +45,10 @@ def _data():
         tracks,
         {"matched": 24, "trajectories": 4},
         ({"sequence_id": "0000", "path": "gt.txt", "sha256": "gt-hash"},),
-        input_sources=({"sequence_id": "0000", "role": "poses", "path": "poses.npy", "sha256": "pose-hash"},),
+        input_sources=(
+            {"sequence_id": "0000", "role": "poses", "path": "poses.npy", "sha256": "pose-hash"},
+            {"sequence_id": "0000", "role": "coordinate_frame", "value": "world", "sha256": "world-hash"},
+        ),
     )
 
 
@@ -142,6 +145,7 @@ def test_class_profiles_fit_separately_preserve_other_settings_and_record_source
     assert report["classes"]["car"]["state_dimensions"] == 10
     assert report["classes"]["pedestrian"]["state_dimensions"] == 11
     assert report["coordinates"] == "world"
+    assert report["coordinate_frames"] == {"0000": "world"}
     assert report["matching"]["coordinates"] == "camera"
     assert report["score_scope"] == "calibrated_on_selected_split"
     assert progress[-1] == "KF calibration complete: 10/10 3D scales fitted."
@@ -161,6 +165,20 @@ def test_sparse_or_absent_class_evidence_retains_supplied_scales(monkeypatch, tm
     report = json.loads(result.report_path.read_text())
     assert report["classes"]["pedestrian"]["statistics"]["ground_truth"] == 0
     assert all(value["status"] == "retained" for value in report["classes"]["pedestrian"]["parameters"].values())
+
+
+def test_calibration_report_identifies_camera_coordinates_without_ego_poses(monkeypatch, tmp_path):
+    data = replace(
+        _data(),
+        input_sources=(
+            {"sequence_id": "0000", "role": "coordinate_frame", "value": "camera", "sha256": "camera-hash"},
+        ),
+    )
+    monkeypatch.setattr(kalman_sensor, "load_sensor_calibration_data", lambda *a, **kw: data)
+    result = kalman_sensor.calibrate_sensor_kalman(_dataset(tmp_path), load_kitti_profiles(), output_dir=tmp_path)
+    report = json.loads(result.report_path.read_text())
+    assert report["coordinates"] == "camera"
+    assert report["coordinate_frames"] == {"0000": "camera"}
 
 
 def test_no_matches_fail_without_publishing_artifacts(monkeypatch, tmp_path):

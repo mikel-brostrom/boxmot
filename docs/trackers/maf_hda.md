@@ -11,8 +11,11 @@ instances. The BoxMOT implementation is a Python port of the
 ## What BoxMOT needs
 
 - Axis-aligned boxes with a nonempty, full-frame instance mask for each detection.
-- The current image on every update, including frames without detections. The
-  tracker extracts masked HOG and Lab features for its correlation filters.
+- The current image on every update when either association stage uses appearance,
+  including frames without detections. The tracker extracts masked HOG and Lab
+  features for its correlation filters. Setting both `s2ta_mode: motion` and
+  `t2ta_mode: motion` removes the pixel requirement; centroid association still
+  requires frame dimensions.
 - Canonical `Detections` input, since packed NumPy box rows cannot carry masks.
 - No ReID weights or additional model downloads. Generate masks upstream with
   an instance segmentation detector or a standalone segmentor.

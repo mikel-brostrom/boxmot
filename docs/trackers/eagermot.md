@@ -16,8 +16,10 @@ but their rows and lengths are independent. Pass an explicitly empty batch
 when either detector has no observations. Map both detectors into the same
 class-ID catalog before fusion.
 
-- Image detections use AABB geometry. Instance masks and a `Frame` are optional;
-  the algorithm does not require image pixels or ReID embeddings.
+- Image detections use AABB geometry and may be empty. A nonempty 3D observation
+  is needed to create a track; 2D observations can then sustain it through depth
+  dropouts. Optional masks are retained on image outputs. An optional `Frame`
+  supplies sample and dimension checks; RGB pixels and ReID embeddings are unused.
 - `Boxes3D` stores CPU-contiguous `float32[N,7]` values in the order
   `(x, y, z, yaw, length, width, height)`. Position is the bottom-face center,
   dimensions are meters, and yaw is radians. Camera axes are x right, y down,
@@ -26,9 +28,9 @@ class-ID catalog before fusion.
   camera coordinates to pixels. `image_size` is `(height, width)`.
 - For a moving camera, supply its current `camera_to_world` rigid transform.
   Full rotation and translation transform box centers. The tracking state
-  retains yaw-only cuboids, so their roll and pitch are approximated. Omit the
-  pose only for a stationary camera, and keep pose availability consistent
-  throughout a sequence.
+  retains yaw-only cuboids, so their roll and pitch are approximated. Poses are
+  optional: without them, motion is modeled in camera coordinates and includes
+  any camera movement. Keep pose availability consistent throughout a sequence.
 
 Use `create_tracker(TrackerSpec("eagermot"))` or `boxmot.EagerMot` for the
 Python API. `boxmot tune --dataset ./kitti-mots --tracker eagermot` reads
@@ -40,8 +42,9 @@ cached perception replay cannot supply the required sensor inputs and reject
 ## Use your own sensor data
 
 Copy the [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset)
-and supply your synchronized images, 2D/3D detections, camera projection,
-absolute camera-to-world poses, and ground-truth instance masks:
+and supply synchronized images, 3D detections, camera projection, and evaluation
+annotations. Default mask evaluation also needs 2D detections with instance masks.
+Declare absolute camera-to-world poses when supplying ego-motion compensation:
 
 ```bash
 mkdir -p ./my-sensor-dataset
@@ -63,7 +66,9 @@ the complete field order, mask encoding, coordinates, and empty-frame rules.
 This workflow evaluates car and pedestrian segmentation tracking by default.
 Image prediction masks and ground-truth instance PNGs are required for mask
 evaluation and tuning. For [3D evaluation](#evaluate-3d-tracks), provide 3D
-tracking annotations instead of instance PNG ground truth. Masks remain
+tracking annotations instead of instance PNG ground truth; the `detections_2d`
+modality is optional in that mode. Omit `poses` from the modalities when no
+ego-motion data is available. Every declared input must still exist. Masks remain
 optional for the Python tracker API.
 It supports one camera per sequence, with fixed calibration and synchronized
 sensor observations. Set dataset `fps` to your recording rate; it controls
@@ -114,8 +119,8 @@ positive integer cap, still bounded by the selected sequence count.
 In `dataset.yaml`, the validation split can override `detections_3d` to use
 T2 car predictions while training and full training use T3. Edit the modality
 paths to change detector inputs. See the [dataset schema and split overrides](../config/datasets.md#split-specific-inputs).
-Testing images and calibration are retained, but this partition lacks the
-ground truth, ego poses, and 2D predictions needed for evaluation and tuning.
+Testing images and calibration are retained, but this partition lacks evaluation
+ground truth and the 2D predictions needed for mask evaluation and tuning.
 
 Results are written under `runs/eagermot/val` (then `val2`, and so on):
 
@@ -162,7 +167,9 @@ This custom tracking protocol uses all supplied target 3D annotations. HOTA
 uses IoU thresholds 0.05 through 0.95; MOTA and IDF1 use 0.5. Official KITTI
 difficulty, visibility, truncation and DontCare filtering are not applied.
 Per-image object labels and the official evaluator dependencies are unnecessary
-for this mode.
+for this mode. `detections_2d` and `poses` may be omitted; image files still define
+frame alignment and dimensions, and camera projection remains required. Any 2D
+observations and ego poses that are declared are consumed during tracking.
 
 To add official **2D/3D AP40 (Easy / Moderate / Hard)**, declare
 [`ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap).
@@ -335,7 +342,7 @@ It requires 3D annotations with stable object identities; instance masks alone
 cannot provide the required 3D trajectories. `kitti-mots/dataset.yaml` reads
 `{partition}/label_02/{sequence}.txt`, such as `training/label_02/0000.txt`.
 Download KITTI tracking labels separately if these files are absent. The dataset
-continues to use its sequence calibration files and ego poses:
+continues to use its sequence calibration files and any declared ego poses:
 
 ```bash
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
@@ -345,7 +352,8 @@ boxmot eval --dataset ./kitti-mots --tracker eagermot \
 ```
 
 Calibration matches 3D detections to annotations by class and 3D IoU, then
-transforms both into world coordinates with the supplied ego poses. It fits
+uses the same coordinates as tracking: world coordinates with declared ego poses,
+or camera coordinates without them. It fits
 the same five covariance multipliers as [2D Kalman calibration](../modes/eval.md#kalman-calibration),
 separately for cars and pedestrians. Process and initial covariance distinguish
 the seven measured box coordinates from their modeled velocities; measurement
@@ -353,7 +361,8 @@ noise has one shared multiplier. The values scale covariance, not standard
 deviation. Ego poses remain fixed, and pose uncertainty is not fitted.
 
 Each run saves complete class profiles in `kf-tuning/calibrated.yaml` and
-calibration evidence in `kf-tuning/calibration.json`. Reuse the profiles with
+calibration evidence in `kf-tuning/calibration.json`, including each sequence's
+camera or world coordinate frame. Reuse the profiles with
 `--class-config` in `eval` or `tune`. `tune --calibrate-kf` calibrates once before
 Optuna starts; the fitted scales and each class's `is_angular` setting stay
 fixed throughout the search and are included in `best.yaml`. Prediction still

@@ -375,6 +375,7 @@ def tune(
         split=split,
         tracker=str(kwargs["tracker"]),
         fps=kwargs.get("fps"),
+        tracker_config=kwargs.get("tracker_config"),
         eval_masks=eval_masks,
     )
     _dispatch_cli_workflow(

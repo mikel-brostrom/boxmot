@@ -22,6 +22,11 @@ def _resolve_tracker_config(options: dict[str, Any] | None) -> dict[str, Any]:
     cfg.setdefault("use_cmc", True)
     cfg.setdefault("cmc_method", "sof")
     cfg.setdefault("max_obs", 50)
+    for option in ("use_cmc", "use_embeddings"):
+        if not isinstance(cfg[option], bool):
+            raise TypeError(f"{option} must be bool.")
+    if cfg["use_cmc"] and cfg["cmc_method"] not in {"ecc", "sof"}:
+        raise ValueError("Native OccluBoost supports cmc_method 'ecc' or 'sof'; disable CMC with use_cmc=False.")
     return cfg
 
 
@@ -50,6 +55,7 @@ class NativeOccluBoostTracker(NativeTrackerAdapter):
             geometry=geometry,
             use_embeddings=bool(cfg["use_embeddings"]),
             requires_frame=bool(cfg["use_cmc"]) or association_requires_frame(cfg),
+            frame_dimensions_only=not cfg["use_cmc"] and association_requires_frame(cfg),
             reid_model=reid_model,
             reid_weights=reid_weights,
             device=device,

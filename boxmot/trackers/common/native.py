@@ -227,6 +227,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
             # Canonical dataclasses are frozen, but their tensor storage remains
             # mutable. Revalidate before exposing that storage to ctypes.
             detections.validate()
+            self._validate_detection_inputs(detections)
             if detections.is_obb != is_obb:
                 raise ValueError(f"Native {self._native_display_name} is fixed to {self.geometry.upper()} geometry.")
             if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:

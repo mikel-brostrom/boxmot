@@ -22,9 +22,20 @@ class TrackerRequirements:
     frame_dimensions_only: bool = False
     detections_3d: bool = False
     camera: bool = False
+    ego_motion: bool = False
+    timestamp: bool = False
 
     def __post_init__(self) -> None:
-        for name in ("embeddings", "masks", "frame", "frame_dimensions_only", "detections_3d", "camera"):
+        for name in (
+            "embeddings",
+            "masks",
+            "frame",
+            "frame_dimensions_only",
+            "detections_3d",
+            "camera",
+            "ego_motion",
+            "timestamp",
+        ):
             if not isinstance(getattr(self, name), bool):
                 raise TypeError(f"TrackerRequirements.{name} must be bool.")
         if self.frame_dimensions_only and not self.frame:

@@ -362,16 +362,23 @@ def test_storage_root_symlink_cannot_escape_its_selected_base(tmp_path: Path) ->
         load_dataset_inputs(path)
 
 
-def test_sensor_routing_uses_only_the_selected_split_modalities(tmp_path: Path) -> None:
+@pytest.mark.parametrize("keep_saved_2d", (False, True))
+def test_sensor_routing_uses_only_the_selected_split_modalities(tmp_path: Path, keep_saved_2d: bool) -> None:
     path = _fixture(tmp_path)
     _change(
         path,
         ("splits", "test", "modalities"),
-        {"ground_truth": None, "detections_3d": None, "calibration": None, "poses": None},
+        {
+            "ground_truth": None,
+            "detections_3d": None,
+            "calibration": None,
+            "poses": None,
+            **({} if keep_saved_2d else {"detections_2d": None}),
+        },
     )
 
     assert resolve_sensor_dataset_config_path(path) == path.resolve()
-    assert resolve_sensor_dataset_config_path(path, split="test") is None
+    assert resolve_sensor_dataset_config_path(path, split="test") == (path.resolve() if keep_saved_2d else None)
 
 
 def test_external_input_symlinks_resolve_and_broken_links_report_their_location(tmp_path: Path) -> None:

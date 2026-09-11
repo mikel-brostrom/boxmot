@@ -182,12 +182,81 @@ def test_3d_scoring_requires_the_replay_class_profiles(tmp_path: Path, targets: 
 
 @pytest.mark.parametrize("eval_3d", (False, True))
 def test_scoring_selection_keeps_tracking_input_requirements(tmp_path: Path, eval_3d: bool) -> None:
+    """An optional modality must still resolve correctly when explicitly declared."""
     data = sensor_dataset_fixture(tmp_path)
     _declare_3d_labels(data.dataset)
     data.reader_paths["poses"].unlink()
 
     with pytest.raises(ValueError, match="poses.npy"):
         load_sensor_evaluation_inputs(data.dataset, eval_3d=eval_3d)
+
+
+@pytest.mark.parametrize("eval_3d", (False, True))
+@pytest.mark.parametrize("calibrate_kf", (False, True))
+def test_sensor_loading_allows_camera_coordinates_without_ego_poses(
+    tmp_path: Path, eval_3d: bool, calibrate_kf: bool
+) -> None:
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    config = yaml.safe_load(data.dataset.read_text())
+    del config["modalities"]["poses"]
+    data.dataset.write_text(yaml.safe_dump(config))
+    data.reader_paths["poses"].unlink()
+
+    validate_sensor_workflow_inputs(
+        data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=eval_3d, calibrate_kf=calibrate_kf
+    )
+    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=eval_3d, calibrate_kf=calibrate_kf)
+    assert "poses" not in dataset.sequences[0].modalities
+    assert "calibration" in dataset.sequences[0].modalities
+
+
+@pytest.mark.parametrize("cached", (False, True))
+def test_spatial_sequence_without_image_detections_or_poses_preserves_empty_observations(
+    tmp_path: Path, cached: bool
+) -> None:
+    from PIL import Image
+
+    from boxmot.datasets import sensor_cache
+    from boxmot.datasets.sequence import MultimodalSequence
+
+    data = sensor_dataset_fixture(tmp_path)
+    Image.new("RGB", (48, 24)).save(data.reader_paths["images"] / "000000.png")
+    data.reader_paths["calibration"].write_text("P2: 20 0 24 0 0 20 12 0 0 0 1 0\n")
+    _declare_3d_labels(data.dataset)
+    config = yaml.safe_load(data.dataset.read_text())
+    for role in ("poses", "detections_2d"):
+        del config["modalities"][role]
+        data.reader_paths[role].unlink()
+    data.dataset.write_text(yaml.safe_dump(config))
+
+    dataset = load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
+    if cached:
+        path = sensor_cache.prepare_sensor_sequence(dataset, "0002")
+        with closing(sensor_cache.open_sensor_sequence(path)) as sequence:
+            observation = sequence[0]
+    else:
+        sequence = MultimodalSequence(
+            dataset.sequences[0], classes=dataset.classes, fps=dataset.fps, split=dataset.split
+        )
+        observation = sequence[0]
+
+    assert len(observation.detections) == 0
+    if observation.detections.masks is not None:
+        assert observation.detections.masks.values.shape == (0, 24, 48)
+    assert observation.detections_3d is not None
+    assert observation.camera is not None
+    assert observation.camera.camera_to_world is None
+    assert observation.camera.image_size == (24, 48)
+
+
+def test_declared_image_detections_are_still_required_to_exist_for_spatial_scoring(tmp_path: Path) -> None:
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    data.reader_paths["detections_2d"].unlink()
+
+    with pytest.raises(ValueError, match="0002.txt"):
+        load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
 
 
 @pytest.mark.parametrize("eval_ap", (False, True))

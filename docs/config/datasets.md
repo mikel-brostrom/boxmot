@@ -439,7 +439,7 @@ enable variable-time motion.
 | `ground_truth_3d` / `kitti-tracking-labels` | Sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for `eval --eval-3d` or 3D Kalman calibration |
 | `ground_truth_objects` / `kitti-object-labels` | Directory of zero-based six-digit frame text files with exact 15-field KITTI object labels, including fractional truncation; required only for `eval --eval-3d --eval-ap` |
 | `calibration` / `kitti-p2` | `P2:` followed by 12 row-major values of a `3 x 4` camera-to-pixel projection |
-| `poses` / `camera-to-world-npy` | Numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; identity poses for a stationary camera |
+| `poses` / `camera-to-world-npy` | Optional numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; omit for tracking and calibration in camera coordinates |
 | `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields |
 | `detections_3d` / `kitti-detections` | Six-digit frame text files with 16 KITTI detection fields; dimensions and bottom-face centers in meters, camera x right/y down/z forward, yaw about +y |
 
@@ -486,7 +486,8 @@ ignored `DontCare` rows may use KITTI's placeholder 3D geometry.
 
 Missing object annotations break that object's motion samples; they are not
 interpolated. Calibration transforms matched detections and annotations using
-the supplied absolute ego poses. It fits filter noise, without adjusting those
+absolute ego poses when declared; otherwise it fits in camera coordinates, matching
+tracking without ego compensation. It fits filter noise, without adjusting those
 poses or changing the selected evaluation metric. See
 [EagerMOT calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise) for commands
 and saved profiles. Mask evaluation and tuning without calibration do not
@@ -619,6 +620,10 @@ predicted masks, and TrackR-CNN's stored embeddings are not exposed by its reade
 
 The current direct saved-sensor `eval` and `tune` workflows require
 `--tracker eagermot --tracker-backend python`.
+Datasets declaring only saved TrackR-CNN image predictions also require an
+explicit replay workflow: use `track --detections ... --images ... --instances ...`.
+Perception experiments cannot silently replace those saved predictions with
+a different detector or build.
 
 To intentionally run an image-only experiment, author a separate dataset config
 or explicit split override selecting only `images` and `ground_truth`, then

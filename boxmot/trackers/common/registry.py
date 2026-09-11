@@ -46,6 +46,7 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         accepts_detections_3d=True,
         requires_camera=True,
         accepts_camera=True,
+        accepts_ego_motion=True,
     ),
     "hybridsort": TrackerCapabilities(
         family=TrackerFamily.BOX,
@@ -58,7 +59,6 @@ _TRACKER_CAPABILITIES: dict[str, TrackerCapabilities] = {
         geometry_kinds=frozenset({GeometryKind.AABB}),
         requires_masks=True,
         accepts_masks=True,
-        requires_frame=True,
         accepts_frame=True,
     ),
     "occluboost": TrackerCapabilities(

@@ -445,7 +445,7 @@ def test_private_adapter_initializes_dimensions_without_copying_frame_pixels(fra
         _frame(height=48, width=80) if frame_representation == "canonical" else np.zeros((48, 80, 3), dtype=np.uint8)
     )
 
-    tracker.update(_detections(height=48, width=80), frame)
+    tracker.update(_detections(height=48, width=80, embeddings=False, masks=False), frame)
 
     assert tracker.requirements == TrackerRequirements(frame=True, frame_dimensions_only=True)
     assert tracker.seen["img"] is None
@@ -496,7 +496,7 @@ def test_declared_requirements_are_strict(
 
 
 def test_frame_identity_and_mask_spatial_shape_are_strict() -> None:
-    tracker = _RecordingTracker()
+    tracker = _RecordingTracker(needs_embeddings=True, needs_masks=True)
     with pytest.raises(ValueError, match="same sample"):
         tracker.update(_detections(), _frame("sequence/000002"))
     with pytest.raises(ValueError, match="must match the frame spatial size"):
@@ -634,11 +634,11 @@ def test_mask_tracker_requires_and_returns_full_frame_boolean_masks() -> None:
     tracker = create_tracker(TrackerSpec("maf_hda"))
     assert tracker.requirements == TrackerRequirements(masks=True, frame=True)
     with pytest.raises(ValueError, match="requires full-frame detection masks"):
-        tracker.update(_detections(masks=False), _frame())
+        tracker.update(_detections(masks=False, embeddings=False), _frame())
     with pytest.raises(ValueError, match="requires a frame"):
-        tracker.update(_detections(), None)
+        tracker.update(_detections(embeddings=False), None)
 
-    tracks = tracker.update(_detections(), _frame())
+    tracks = tracker.update(_detections(embeddings=False), _frame())
     assert tracks.masks is not None
     assert tracks.masks.values.dtype is torch.bool
     assert tracks.masks.values.shape == (len(tracks), 64, 64)

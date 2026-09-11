@@ -108,6 +108,8 @@ class BoostTrack(BoxTracker):
         self.trackers: List[KalmanBoxTracker] = []
 
         # Parameters for BoostTrack (these can be tuned as needed)
+        if not isinstance(use_cmc, bool):
+            raise TypeError("use_cmc must be bool.")
         self.use_cmc = use_cmc  # use camera motion compensation
         self.min_box_area = min_box_area  # minimum box area for detections
         self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
@@ -132,6 +134,8 @@ class BoostTrack(BoxTracker):
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
         self._requires_frame = self._requires_frame or self.cmc is not None
+        if self.cmc is not None:
+            self._requires_frame_dimensions_only = False
 
     def _track_detections(
         self,

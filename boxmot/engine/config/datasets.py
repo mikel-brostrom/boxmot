@@ -21,9 +21,32 @@ _SENSOR_TRACKING_FORMATS = {
 }
 
 
+def _validate_saved_2d_workflow(modalities: Mapping[str, Any], *, dataset_id: str, mode: str) -> None:
+    """Explain the existing replay entry point for image-only saved predictions."""
+    if "detections_2d" in modalities and not {"detections_3d", "calibration", "poses"}.intersection(modalities):
+        raise ValueError(
+            f"Dataset '{dataset_id}' declares saved TrackR-CNN inputs that {mode} cannot replay.\n"
+            "Use boxmot track --detections ... --images ... --instances ... for saved mask predictions."
+        )
+
+
+def validate_perception_dataset_inputs(config: Mapping[str, Any], split: str, *, mode: str) -> None:
+    """Prevent authored perception workflows from discarding saved tracker inputs."""
+    modalities = dataset_modalities(config, split)
+    _validate_saved_2d_workflow(modalities, dataset_id=str(config["id"]), mode=mode)
+    saved = tuple(role for role in _SENSOR_TRACKING_FORMATS if role != "images" and role in modalities)
+    if saved:
+        raise ValueError(
+            f"Perception experiments cannot consume dataset '{config['id']}' inputs: {', '.join(saved)}.\n"
+            "Replay the sensor dataset with --dataset, or explicitly select images and ground truth in another config."
+        )
+
+
 def _sensor_evaluation_formats(*, eval_3d: bool, eval_ap: bool, calibrate_kf: bool) -> dict[str, str]:
-    """Keep tracking inputs separate from the annotations a workflow consumes."""
-    formats = dict(_SENSOR_TRACKING_FORMATS)
+    """Declare required tracking inputs and annotations for the selected score."""
+    formats = {role: encoding for role, encoding in _SENSOR_TRACKING_FORMATS.items() if role != "poses"}
+    if eval_3d:
+        formats.pop("detections_2d")
     if not eval_3d:
         formats["ground_truth"] = "instance-png"
     if eval_3d or calibrate_kf:
@@ -59,7 +82,7 @@ def _unused_sensor_inputs(modalities: Mapping[str, Mapping[str, Any]], capabilit
         ("images", "frame", "images"),
         ("detections_3d", "detections_3d", "3D boxes"),
         ("calibration", "camera", "calibration"),
-        ("poses", "camera", "ego motion"),
+        ("poses", "ego_motion", "ego motion"),
     ]
     if modalities.get("detections_2d", {}).get("format") == "trackrcnn":
         inputs.insert(1, ("detections_2d", "masks", "instance masks"))
@@ -106,6 +129,7 @@ def validate_sensor_workflow_inputs(
         )
         raise ValueError(f"'{spec.name}' does not use inputs required by {context}: {', '.join(unused)}.\n{advice}")
     if spec.name != "eagermot" or spec.backend != "python":
+        _validate_saved_2d_workflow(modalities, dataset_id=str(config["id"]), mode=mode)
         raise ValueError(f"Saved-sensor {mode} supports only --tracker eagermot --tracker-backend python.")
     _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     if missing:
@@ -159,10 +183,14 @@ def load_sensor_evaluation_inputs(
         if targets != {"car": 1, "pedestrian": 2}:
             raise ValueError("EagerMOT 3D evaluation requires classes.target car: 1 and pedestrian: 2.")
     for sequence in dataset.sequences:
-        for role, encoding in formats.items():
+        for role, encoding in (_SENSOR_TRACKING_FORMATS | formats).items():
             source = sequence.modalities.get(role)
             if source is None:
-                raise ValueError(f"EagerMOT {scoring} evaluation requires {role} for sequence {sequence.sequence_id}.")
+                if role in formats:
+                    raise ValueError(
+                        f"EagerMOT {scoring} evaluation requires {role} for sequence {sequence.sequence_id}."
+                    )
+                continue
             if source.format != encoding:
                 raise ValueError(f"EagerMOT {scoring} evaluation requires {role} format {encoding}.")
         if not eval_3d:

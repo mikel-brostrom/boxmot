@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -78,7 +79,9 @@ class _Tracker:
         return self.tracker.validate_timing(frame, timestamp_s=timestamp_s)
 
     def update(self, detections: Detections, frame: Frame | None = None, *, timestamp_s: float | None = None) -> Tracks:
-        tracks = self.tracker.update(detections, frame, timestamp_s=timestamp_s)
+        # This spy consumes appearance to check ordering; ByteTrack consumes boxes.
+        assert detections.embeddings is not None
+        tracks = self.tracker.update(replace(detections, embeddings=None), frame, timestamp_s=timestamp_s)
         self.events.append("track")
         self.received.append((self.tracker._prediction_dt, frame))
         return tracks

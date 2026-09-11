@@ -39,7 +39,7 @@ class HybridSort(BoxTracker):
     """Initialize the HybridSort tracker.
 
     Args:
-        cmc_method (str): Camera-motion compensation method.
+        cmc_method (str | None): Camera-motion compensation method; None disables it.
         use_embeddings (bool): Whether to use appearance embeddings, generating
             them from the frame when absent.
         low_thresh (float): Low-confidence threshold for second-pass matching.
@@ -85,7 +85,7 @@ class HybridSort(BoxTracker):
     def __init__(
         self,
         # ReID & CMC
-        cmc_method: str = "ecc",
+        cmc_method: str | None = "ecc",
         use_embeddings: bool = True,
         # Hybrid-SORT specific
         low_thresh: float = 0.1,
@@ -158,6 +158,7 @@ class HybridSort(BoxTracker):
         # container
         self.active_tracks: List[KalmanBoxTracker] = []
         self._requires_frame = self._requires_frame or self.cmc is not None
+        self._requires_frame_dimensions_only = self._requires_frame_dimensions_only and self.cmc is None
 
     def _track_detections(
         self,

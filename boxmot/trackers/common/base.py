@@ -70,6 +70,7 @@ class BaseTracker(
     _requires_masks = False
     _requires_detections_3d = False
     _requires_camera = False
+    _requires_ego_motion = False
     uses_frame_dimensions_for_association = True
     supports_variable_dt = False
     supports_kalman_noise = False
@@ -226,6 +227,12 @@ class BaseTracker(
             raise ValueError(f"{self.__class__.__name__} does not support OBB geometry.")
         self.asso_func_name = self._resolve_association_mode_name(self._asso_func_base_name)
         self.is_obb = self.detection_layout.is_obb
+        if (
+            not self._requires_frame
+            and self.uses_frame_dimensions_for_association
+            and self.asso_func_name in {"centroid", "centroid_obb"}
+        ):
+            self._requires_frame_dimensions_only = True
         self._requires_frame = bool(
             self._requires_frame
             or (self.uses_frame_dimensions_for_association and self.asso_func_name in {"centroid", "centroid_obb"})
@@ -275,6 +282,8 @@ class BaseTracker(
             frame_dimensions_only=bool(self._requires_frame_dimensions_only),
             detections_3d=bool(self._requires_detections_3d),
             camera=bool(self._requires_camera),
+            ego_motion=bool(self._requires_ego_motion),
+            timestamp=bool(self.variable_dt),
         )
 
     def _resolve_timing(
@@ -373,6 +382,7 @@ class BaseTracker(
         if isinstance(detections, Detections):
             detections.validate()
             self._validate_geometry(detections.geometry)
+            self._validate_detection_inputs(detections)
             if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:
                 raise ValueError(
                     "Frame and detections must identify the same sample, "
@@ -477,6 +487,11 @@ class BaseTracker(
         detections_3d.validate()
         camera.validate()
         self._validate_geometry(detections.geometry)
+        self._validate_detection_inputs(detections)
+        if camera.camera_to_world is not None and not capabilities.accepts_ego_motion:
+            raise ValueError(f"{self.__class__.__name__} does not accept ego motion.")
+        if camera.camera_to_world is None and requirements.ego_motion:
+            raise ValueError(f"{self.__class__.__name__} requires ego motion on every update.")
         if detections.sample_id != detections_3d.sample_id:
             raise ValueError("2D and 3D detections must identify the same sample.")
         if isinstance(frame, Frame) and frame.sample_id != detections.sample_id:

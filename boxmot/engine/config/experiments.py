@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import load_detector_config
+from boxmot.engine.config.datasets import validate_perception_dataset_inputs
 from boxmot.reid.config import load_reid_config
 from boxmot.utils.config import CONFIG_ID_PATTERN, ConfigurationError, iter_config_paths, load_yaml_mapping
 
@@ -320,6 +321,10 @@ def _resolve_experiment(
         )
     effective_mode = mode or experiment.get("mode")
     _validate_evaluation_split(dataset, split_name, effective_mode)
+    try:
+        validate_perception_dataset_inputs(dataset, split_name, mode=effective_mode or "perception experiments")
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
 
     detector, detector_path = _resolve_detector(experiment, dataset)
     reid = _resolve_reid(experiment)
@@ -419,6 +424,10 @@ def resolve_matching_experiment_path(
             f'Dataset "{dataset_config["id"]}" has no split "{split_name}". Available splits: {available}.'
         )
     _validate_evaluation_split(dataset_config, split_name, mode)
+    try:
+        validate_perception_dataset_inputs(dataset_config, split_name, mode=mode)
+    except ValueError as error:
+        raise ConfigurationError(str(error)) from error
     detector_config, explicit_checkpoint = _direct_detector_selection(detector)
     reid_config = None if reid is None else load_reid_config(reid)
     reid_id = None if reid_config is None else str(reid_config["id"])

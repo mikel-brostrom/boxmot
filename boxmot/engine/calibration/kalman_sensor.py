@@ -30,8 +30,8 @@ def calibrate_sensor_kalman(
 ) -> KalmanCalibrationResult:
     """Fit each class's 3D Q, R and P0 scales with the shared 2D estimators.
 
-    Annotations and matched detections use the exact ego-pose transform used
-    by EagerMOT. Poses are treated as supplied inputs: their covariance cannot
+    Annotations and matched detections use EagerMOT's camera coordinates or
+    its world coordinates when ego poses are declared. Pose covariance cannot
     be identified separately from object and annotation errors by this fit.
     Insufficient per-class evidence retains that class's configured scales.
     The resulting YAML is reusable with ``--class-config``.
@@ -80,6 +80,10 @@ def calibrate_sensor_kalman(
     directory = Path(output_dir) / "kf-tuning"
     directory.mkdir(parents=True, exist_ok=True)
     config_path, report_path = directory / "calibrated.yaml", directory / "calibration.json"
+    coordinate_frames = {
+        source["sequence_id"]: source["value"] for source in data.input_sources if source["role"] == "coordinate_frame"
+    }
+    coordinate_values = set(coordinate_frames.values())
     report = {
         "version": 2,
         "status": "complete",
@@ -87,7 +91,12 @@ def calibrate_sensor_kalman(
         "score_scope": "calibrated_on_selected_split",
         "tracker": "eagermot",
         "geometry": "box3d",
-        "coordinates": "world",
+        "coordinates": next(iter(coordinate_values))
+        if len(coordinate_values) == 1
+        else "mixed"
+        if coordinate_values
+        else None,
+        "coordinate_frames": coordinate_frames,
         "box_order": ["x", "y", "z", "yaw", "length", "width", "height"],
         "dataset": dataset.id,
         "dataset_config": str(dataset.config_path) if dataset.config_path is not None else None,

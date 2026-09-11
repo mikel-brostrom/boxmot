@@ -1,4 +1,4 @@
-"""Join saved 3D detections to annotated identities in the runtime world frame."""
+"""Join saved 3D detections to annotated identities in the runtime coordinate frame."""
 
 from __future__ import annotations
 
@@ -59,13 +59,15 @@ def load_sensor_calibration_data(
     progress: Callable[[str], None] | None = None,
     cached_sequences: Mapping[str, SensorReplaySequence] | None = None,
 ) -> CalibrationData:
-    """Match explicit 3D GT to predictions, then apply the exact runtime ego poses.
+    """Match explicit 3D GT to predictions in the tracker's motion coordinates.
 
     Ground truth must contain annotated 3D boxes with persistent identities;
     neither detector boxes nor 2D instance masks substitute for annotations.
     Missing detector updates remain NaN rows; missing annotations remain gaps
     in each trajectory's zero-based frame indices. No image or mask pixels are
     decoded, and detector scores receive only their configured reader transform.
+    Declared ego poses transform observations into world coordinates. Without
+    poses, calibration retains camera coordinates, matching EagerMOT runtime.
     """
     if isinstance(dataset.fps, bool) or not np.isfinite(dataset.fps) or dataset.fps <= 0:
         raise ValueError("3D KF calibration requires a positive finite dataset fps.")
@@ -74,7 +76,7 @@ def load_sensor_calibration_data(
     )
     if not target_classes:
         raise ValueError("3D KF calibration requires at least one target ground-truth class.")
-    required = {"images", "ground_truth_3d", "detections_3d", "calibration", "poses"}
+    required = {"images", "ground_truth_3d", "detections_3d", "calibration"}
     for sequence in dataset.sequences:
         missing = required - sequence.modalities.keys()
         if missing:
@@ -117,9 +119,12 @@ def load_sensor_calibration_data(
         frame_count = len(frame_paths)
         gt_path = _single_path(modalities["ground_truth_3d"], "kitti-tracking-labels", "ground_truth_3d")
         projection_path = _single_path(modalities["calibration"], "kitti-p2", "calibration")
-        poses_path = _single_path(modalities["poses"], "camera-to-world-npy", "poses")
+        poses_path = (
+            _single_path(modalities["poses"], "camera-to-world-npy", "poses") if "poses" in modalities else None
+        )
+        coordinate_frame = "camera" if poses_path is None else "world"
         for role in ("images", "calibration", "poses"):
-            if modalities[role].options:
+            if role in modalities and modalities[role].options:
                 raise ValueError(f"3D KF calibration {role} does not support reader options.")
         # Validate projection using the same reader as replay, although matching
         # uses 3D geometry and never projects boxes into the scoring image.
@@ -129,7 +134,7 @@ def load_sensor_calibration_data(
         reader = poses = None
         if cached is None:
             read_kitti_projection(projection_path)
-            poses = read_camera_to_world_poses(poses_path, frame_count)
+            poses = None if poses_path is None else read_camera_to_world_poses(poses_path, frame_count)
             ground_truth = read_kitti_tracking_labels(
                 gt_path, frame_count=frame_count, classes=dataset.classes, options=modalities["ground_truth_3d"].options
             )
@@ -148,15 +153,22 @@ def load_sensor_calibration_data(
             "dataset_id": dataset.id,
             "split": dataset.split,
             "fps": dataset.fps,
+            "coordinate_frame": coordinate_frame,
             "classes": dataset.classes,
             "modalities": {
                 role: {"format": modalities[role].format, "options": modalities[role].options}
-                for role in sorted(required)
+                for role in sorted(required | ({"poses"} if poses_path is not None else set()))
             },
         }
         input_sources.extend(
             (
                 {"sequence_id": sequence_id, "role": "metadata", "sha256": _digest_json(metadata)},
+                {
+                    "sequence_id": sequence_id,
+                    "role": "coordinate_frame",
+                    "value": coordinate_frame,
+                    "sha256": _digest_json(coordinate_frame),
+                },
                 {
                     "sequence_id": sequence_id,
                     "role": "images",
@@ -166,6 +178,8 @@ def load_sensor_calibration_data(
             )
         )
         for role, path in (("calibration", projection_path), ("poses", poses_path)):
+            if path is None:
+                continue
             input_sources.append(
                 {"sequence_id": sequence_id, "role": role, "path": str(path.resolve()), "sha256": source_digest(path)}
             )
@@ -200,13 +214,17 @@ def load_sensor_calibration_data(
         for frame_index in range(frame_count):
             if cached is None:
                 detected = reader.read(frame_index, f"{dataset.split}:{sequence_id}:{frame_index}")
-                pose = poses[frame_index]
+                pose = None if poses is None else poses[frame_index]
             else:
                 detected = cached.read_spatial(frame_index)
                 camera = cached.read_camera(frame_index)
-                if camera is None or camera.camera_to_world is None:
-                    raise ValueError(f"Cached sequence {sequence_id!r} has no ego pose for frame {frame_index}.")
-                pose = camera.camera_to_world.numpy()
+                if camera is None:
+                    raise ValueError(
+                        f"Cached sequence {sequence_id!r} has no camera calibration for frame {frame_index}."
+                    )
+                if (camera.camera_to_world is not None) != (poses_path is not None):
+                    raise ValueError(f"Cached sequence {sequence_id!r} ego poses disagree with the declared inputs.")
+                pose = None if camera.camera_to_world is None else camera.camera_to_world.numpy()
             detected_boxes = detected.geometry.values.numpy().astype(np.float64)
             detected_classes = detected.class_ids.numpy()
             scores = detected.scores.numpy().astype(np.float64)
@@ -219,8 +237,8 @@ def load_sensor_calibration_data(
             identities = ground_truth.track_ids[gt_indices]
             # Match before the runtime's upright yaw approximation discards
             # roll/pitch; transform both sides only after camera-space matching.
-            world_gt = transform_boxes3d(gt_boxes, pose)
-            world_detections = transform_boxes3d(detected_boxes, pose)
+            state_gt = gt_boxes if pose is None else transform_boxes3d(gt_boxes, pose)
+            state_detections = detected_boxes if pose is None else transform_boxes3d(detected_boxes, pose)
             for class_id in target_classes:
                 class_gt = np.flatnonzero(gt_classes == class_id)
                 class_detected = np.flatnonzero(detected_classes == class_id)
@@ -229,10 +247,10 @@ def load_sensor_calibration_data(
                 statistics["matched"] += len(matched)
                 for gt_index in class_gt:
                     detection_index = matched.get(gt_index)
-                    detected_box = np.full(7, np.nan) if detection_index is None else world_detections[detection_index]
+                    detected_box = np.full(7, np.nan) if detection_index is None else state_detections[detection_index]
                     score = np.nan if detection_index is None else scores[detection_index]
                     observations[(class_id, int(identities[gt_index]))].append(
-                        (frame_index, world_gt[gt_index], detected_box, score)
+                        (frame_index, state_gt[gt_index], detected_box, score)
                     )
         for (class_id, track_id), records in sorted(observations.items()):
             indices = np.asarray([record[0] for record in records], dtype=np.int64)

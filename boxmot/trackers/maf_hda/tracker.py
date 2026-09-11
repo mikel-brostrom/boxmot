@@ -68,7 +68,9 @@ class _Track:
 class MafHda(BaseTracker):
     """Track instance masks using GMPHD motion, masked KCF appearance, and HDA.
 
-    Inputs are AABB ``Detections`` with full-frame boolean masks and an image.
+    Inputs are AABB ``Detections`` with full-frame boolean masks. An image is
+    required when either association stage uses appearance; both stages can
+    run with ``motion`` alone without image pixels.
     Only observed, confirmed tracks are emitted. Missing tracks retain their
     appearance and trajectory for ``max_age`` frames of track-to-track recovery.
 
@@ -94,11 +96,9 @@ class MafHda(BaseTracker):
         geometry_kinds=frozenset({GeometryKind.AABB}),
         requires_masks=True,
         accepts_masks=True,
-        requires_frame=True,
         accepts_frame=True,
     )
     _requires_masks = True
-    _requires_frame = True
 
     def __init__(
         self,
@@ -145,6 +145,7 @@ class MafHda(BaseTracker):
         for name, mode in (("s2ta_mode", s2ta_mode), ("t2ta_mode", t2ta_mode)):
             if mode not in {"motion", "appearance", "maf"}:
                 raise ValueError(f"{name} must be 'motion', 'appearance', or 'maf'.")
+        self._requires_frame = s2ta_mode != "motion" or t2ta_mode != "motion"
         super().__init__(
             det_thresh=det_thresh,
             max_age=max_age,
@@ -195,7 +196,7 @@ class MafHda(BaseTracker):
             observation.weight = observation.conf / total if total > 0 else 1.0 / len(merged)
         return merged
 
-    def _new_track(self, observation: _Observation, image: np.ndarray) -> _Track:
+    def _new_track(self, observation: _Observation, image: np.ndarray | None) -> _Track:
         """Create a birth component with the source motion and appearance priors."""
         appearance = None
         if self.s2ta_mode != "motion" or self.t2ta_mode != "motion":
@@ -222,7 +223,7 @@ class MafHda(BaseTracker):
         self,
         tracks: list[_Track],
         observations: list[_Observation],
-        image: np.ndarray,
+        image: np.ndarray | None,
         *,
         candidates: list[_Track] | None = None,
     ) -> tuple[np.ndarray, list[np.ndarray], np.ndarray]:
@@ -293,7 +294,7 @@ class MafHda(BaseTracker):
         observation: _Observation,
         covariance: np.ndarray,
         weight: float,
-        image: np.ndarray,
+        image: np.ndarray | None,
     ) -> None:
         """Commit a matched observation; candidate scoring never updates a filter."""
         predicted_center = (track.bbox[:2] + track.bbox[2:]) * 0.5 + track.velocity
@@ -315,7 +316,7 @@ class MafHda(BaseTracker):
             # S2TA match (APPEARANCE_STRICT_UPDATE_ON=0).
             track.appearance = MaskedKCF(image, track.bbox, track.mask, template_size=self.template_size)
 
-    def _merge_tracks(self, tracks: list[_Track], image: np.ndarray) -> list[_Track]:
+    def _merge_tracks(self, tracks: list[_Track], image: np.ndarray | None) -> list[_Track]:
         """Merge current duplicate masks, retaining the oldest identity."""
         groups = mask_merge_groups(
             [track.mask for track in tracks], [track.cls for track in tracks], self.merge_iou_thresh
@@ -337,7 +338,7 @@ class MafHda(BaseTracker):
     def _track_detections(
         self,
         dets: np.ndarray,
-        img: np.ndarray,
+        img: np.ndarray | None,
         embs: np.ndarray | None = None,
         masks: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray]:
@@ -407,6 +408,6 @@ class MafHda(BaseTracker):
         output_masks = (
             np.stack([track.mask for track in self.active_tracks])
             if rows
-            else np.empty((0, *img.shape[:2]), dtype=bool)
+            else np.empty((0, *masks.shape[1:]), dtype=bool)
         )
         return self.format_output_rows(rows), output_masks

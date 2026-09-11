@@ -8,9 +8,11 @@ In either case, `--build` is optional: when omitted, BoxMOT first materializes
 (or reuses) a canonical build compatible with the selected tracker and then
 evaluates it. Detector, segmentor, and appearance-encoder inference happens only
 during that preparation step, never during replay. Automatic preparation
-publishes image references, embeddings for appearance-capable trackers, and
-masks when the selected tracker requires them. Motion-only trackers such as
-SFSORT skip the embedding stage entirely.
+publishes image references, embeddings when the resolved tracker configuration
+uses appearance, and masks when the selected tracker or scoring requires them.
+Setting `use_embeddings: false` in `--tracker-config` skips the embedding stage,
+as do motion-only trackers such as SFSORT. Appearance-enabled replay requires
+cached embeddings; the live API's image-to-ReID fallback does not run during replay.
 
 Matching complete builds are reused across BoxMOT releases and CPU, MPS, or
 CUDA devices. Source data, weights, precision, preprocessing, class mapping,
@@ -129,8 +131,8 @@ boxmot eval --dataset ./kitti-mots --tracker eagermot \
   --split val --cache-inputs
 ```
 
-Sensor caches contain the frame timeline, 2D detections and packed masks, 3D
-detections, calibration, ego poses, and the ground truth selected for scoring. With
+Sensor caches contain the frame timeline, declared 2D detections and packed masks,
+3D detections, calibration, optional ego poses, and the ground truth selected for scoring. With
 `--calibrate-kf`, calibration reuses the cached 3D annotations and observations.
 RGB pixels are cached when visualization requests them; ordinary EagerMOT replay
 only needs image dimensions. Masks remain packed on disk and are unpacked one
@@ -165,8 +167,9 @@ boxmot eval \
   --split val
 ```
 
-The dataset supplies sequence images, annotations, calibration, poses, and
-saved image/spatial detections through `modalities` in its `dataset.yaml`.
+The dataset supplies sequence images, annotations, calibration, saved spatial
+detections, and optional ego poses through `modalities` in its `dataset.yaml`.
+Default mask evaluation also requires saved image detections with instance masks.
 Each modality selects its encoding and relative paths; split overrides can
 select different prediction sets.
 You can pass the folder or its `dataset.yaml` file. Evaluation runs on CPU,
@@ -195,8 +198,11 @@ and add `--eval-ap` to the command. This writes `detection_metrics.json/csv`
 and separately scores projected 2D tracking into `tracking_2d_metrics.json/csv`.
 The main tracking scores remain volumetric 3D metrics.
 
-Ground-truth masks are neither required nor loaded in this mode. The dataset's
-tracking inputs, including prediction masks, are still consumed.
+Ground-truth masks are neither required nor loaded in this mode. `detections_2d`
+can be omitted for tracking from 3D observations alone. Ego poses are optional;
+without them, the tracker models motion in camera coordinates. Images still
+provide the frame timeline and dimensions, and calibration remains required.
+Declared tracking inputs, including any image predictions and ego poses, are consumed.
 `--eval-3d` and `--eval-masks` are mutually exclusive; `--eval-3d` requires an
 EagerMOT sensor dataset and is available only on `eval`. `--eval-ap` requires
 `--eval-3d` and exact per-image object labels, including fractional truncation.
@@ -214,8 +220,9 @@ Add `--reid osnet-x0-25-msmt17` when using BoT-SORT's appearance features.
 
 For your own recordings, copy the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),
-then supply synchronized images, calibration, absolute camera-to-world poses,
-2D/3D predictions, and ground truth for the selected metric. Custom sequence names and
+then supply synchronized images, calibration, 3D predictions, and ground truth
+for the selected metric. Add ego poses when available and 2D mask predictions
+for default mask evaluation. Custom sequence names and
 splits are supported; detector outputs must follow the documented file formats.
 The default evaluates car and pedestrian masks:
 
@@ -238,7 +245,8 @@ metrics. Add `--show-timing` to include replay timing in the result summary, or
 With [3D annotations](../config/datasets.md#3d-ground-truth-for-kalman-calibration),
 add `--calibrate-kf` to fit EagerMOT's five covariance scales per class before
 evaluation. Reuse `<run>/kf-tuning/calibrated.yaml` with `--class-config`.
-Calibration uses fixed camera-to-world poses and one motion step per image;
+Calibration uses world coordinates when ego poses are declared, or camera
+coordinates without them, matching tracking. Prediction advances one step per image;
 see [3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
 
 Saved sensor evaluation reads predictions directly. Perception/build options

@@ -96,6 +96,19 @@ def test_sof_uses_detection_mask_for_keypoints(monkeypatch):
     assert mask[10, 10] == 255
 
 
+@pytest.mark.parametrize("shape", ((64, 96), (96, 64), (96, 96), (128, 128)))
+def test_sof_tracks_small_textured_frames_without_invalid_refinement(shape: tuple[int, int]) -> None:
+    """Real feature extraction and optical flow must accept downscaled images below 15px."""
+    image = np.random.default_rng(17).integers(0, 256, (*shape, 3), dtype=np.uint8)
+    sof = SOF()
+
+    for _ in range(3):
+        transform = sof.apply(image)
+        assert sof.initialized
+        assert len(sof.prev_keypoints) >= 4
+        np.testing.assert_allclose(transform, np.eye(2, 3), atol=1e-3)
+
+
 def test_sof_rejects_weak_ransac_estimate(monkeypatch):
     sof = SOF(scale=1.0, min_inliers=3, min_inlier_ratio=0.75)
     img = np.zeros((20, 20, 3), dtype=np.uint8)

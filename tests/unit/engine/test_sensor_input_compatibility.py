@@ -16,6 +16,7 @@ from click.testing import CliRunner
 
 from boxmot.engine.cli import boxmot
 from boxmot.engine.config.datasets import validate_sensor_workflow_inputs
+from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
 from boxmot.trackers.common.specs import TrackerSpec
 from tests._paths import REPO_ROOT
@@ -163,7 +164,13 @@ def test_compatible_inputs_still_require_a_supported_workflow(
 ) -> None:
     """Algorithm input support does not imply that its replay workflow exists."""
     definition = TRACKER_DEFINITIONS["botsort"]
-    capabilities = replace(definition.capabilities, accepts_masks=True, accepts_detections_3d=True, accepts_camera=True)
+    capabilities = replace(
+        definition.capabilities,
+        accepts_masks=True,
+        accepts_detections_3d=True,
+        accepts_camera=True,
+        accepts_ego_motion=True,
+    )
     monkeypatch.setitem(TRACKER_DEFINITIONS, "botsort", replace(definition, capabilities=capabilities))
 
     with pytest.raises(ValueError) as raised:
@@ -174,13 +181,37 @@ def test_compatible_inputs_still_require_a_supported_workflow(
     ]
 
 
+def test_calibration_acceptance_does_not_imply_ego_motion_support(
+    declared_dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    definition = TRACKER_DEFINITIONS["eagermot"]
+    capabilities = replace(definition.capabilities, accepts_ego_motion=False)
+    monkeypatch.setitem(TRACKER_DEFINITIONS, "eagermot", replace(definition, capabilities=capabilities))
+
+    with pytest.raises(ValueError) as raised:
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
+
+    reason = _concise_error(str(raised.value))[0]
+    assert reason.endswith("ego motion.")
+    assert "calibration" not in reason
+
+    payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
+    payload["modalities"].pop("poses")
+    _replace_manifest(declared_dataset, payload)
+    validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
+
+
 @pytest.mark.parametrize("mode", ("eval", "tune"))
 @pytest.mark.parametrize(
-    "missing",
-    (("calibration", "poses"), ("detections_2d", "ground_truth"), ("images", "detections_3d")),
+    ("missing", "required"),
+    (
+        (("calibration", "poses"), ("calibration",)),
+        (("detections_2d", "ground_truth"), ("detections_2d", "ground_truth")),
+        (("images", "detections_3d"), ("images", "detections_3d")),
+    ),
 )
 def test_missing_modalities_are_reported_together_before_payload_loading(
-    declared_dataset: Path, mode: str, missing: tuple[str, ...]
+    declared_dataset: Path, mode: str, missing: tuple[str, ...], required: tuple[str, ...]
 ) -> None:
     payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
     payload["splits"]["val"]["modalities"] = dict.fromkeys(missing)
@@ -191,11 +222,12 @@ def test_missing_modalities_are_reported_together_before_payload_loading(
     assert result.exit_code == 2, (result.output, result.exception)
     reason, action = _concise_error(result.output.split("Error: ", 1)[1])
     assert f"Dataset 'sensor-fusion' (split 'val') is missing inputs for EagerMOT {mode}:" in reason
-    assert all(role in reason for role in missing), result.output
+    assert all(role in reason for role in required), result.output
+    assert "poses" not in reason
     assert action == "Add them to dataset.yaml."
 
 
-def test_missing_workflow_modality_is_not_presented_as_a_botsort_requirement(declared_dataset: Path) -> None:
+def test_optional_poses_do_not_prevent_recommending_a_compatible_tracker(declared_dataset: Path) -> None:
     payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
     payload["modalities"].pop("poses")
     _replace_manifest(declared_dataset, payload)
@@ -209,7 +241,7 @@ def test_missing_workflow_modality_is_not_presented_as_a_botsort_requirement(dec
     assert "ego motion" not in reason
     assert "poses" not in reason
     assert "missing inputs" not in message
-    assert "Use --tracker eagermot" not in message
+    assert message.endswith("Use --tracker eagermot --tracker-backend python.")
 
 
 def test_compatibility_uses_selected_split_overrides_and_default(declared_dataset: Path) -> None:
@@ -227,7 +259,127 @@ def test_compatibility_uses_selected_split_overrides_and_default(declared_datase
 
     reason = _concise_error(str(raised.value))[0]
     assert "split 'val'" in reason
-    assert "calibration, poses." in reason
+    assert "calibration." in reason
+    assert "poses" not in reason
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+@pytest.mark.parametrize("calibrate_kf", (False, True))
+def test_sensor_workflows_accept_no_declared_ego_poses(
+    declared_dataset: Path, mode: str, calibrate_kf: bool
+) -> None:
+    payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
+    payload["modalities"].pop("poses")
+    _replace_manifest(declared_dataset, payload)
+
+    validate_sensor_workflow_inputs(
+        declared_dataset, TrackerSpec("eagermot"), mode=mode, calibrate_kf=calibrate_kf
+    )
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+def test_spatial_scoring_accepts_no_declared_image_detections(declared_dataset: Path, mode: str) -> None:
+    payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
+    payload["splits"]["val"]["modalities"] = {"detections_2d": None, "poses": None}
+    _replace_manifest(declared_dataset, payload)
+
+    validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode=mode, eval_3d=True)
+    with pytest.raises(ValueError, match="missing inputs.*detections_2d"):
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode=mode)
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+@pytest.mark.parametrize("build", (False, True))
+def test_saved_mask_only_dataset_is_not_silently_routed_to_perception(
+    declared_dataset: Path, mode: str, build: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+
+    payload = yaml.safe_load(declared_dataset.read_text())
+    for role in ("detections_3d", "calibration", "poses"):
+        payload["modalities"].pop(role)
+    _replace_manifest(declared_dataset, payload)
+    assert resolve_sensor_dataset_config_path(declared_dataset) == declared_dataset
+
+    def unexpected(*_args: Any, **_kwargs: Any) -> None:
+        pytest.fail("Declared saved detections must be validated before resolving a perception build.")
+
+    command = importlib.import_module(f"boxmot.engine.commands.{mode}")
+    monkeypatch.setattr(command, "_prepare_replay_build", unexpected)
+    monkeypatch.setattr(command, "_dispatch_cli_workflow", unexpected)
+    options = ["--build", "unused-build"] if build else []
+    result = CliRunner().invoke(
+        boxmot, [mode, "--dataset", str(declared_dataset), "--tracker", "maf_hda", *options]
+    )
+
+    assert result.exit_code == 2, (result.output, result.exception)
+    reason, action = _concise_error(result.output.split("Error: ", 1)[1])
+    assert f"saved TrackR-CNN inputs that {mode} cannot replay" in reason
+    assert "boxmot track --detections ... --images ... --instances ..." in action
+    assert "eagermot" not in result.output
+
+
+def test_eagermot_with_only_image_detections_reports_its_missing_sensor_inputs(declared_dataset: Path) -> None:
+    payload = yaml.safe_load(declared_dataset.read_text())
+    for role in ("detections_3d", "calibration", "poses"):
+        payload["modalities"].pop(role)
+    _replace_manifest(declared_dataset, payload)
+
+    with pytest.raises(ValueError) as raised:
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
+
+    reason, action = _concise_error(str(raised.value))
+    assert "missing inputs for EagerMOT eval: detections_3d, calibration." in reason
+    assert action == "Add them to dataset.yaml."
+    assert "boxmot track" not in str(raised.value)
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+@pytest.mark.parametrize("spatial", (False, True))
+def test_perception_experiments_cannot_discard_declared_saved_tracking_inputs(
+    declared_dataset: Path, mode: str, spatial: bool
+) -> None:
+    payload = yaml.safe_load(declared_dataset.read_text())
+    if not spatial:
+        for role in ("detections_3d", "calibration", "poses"):
+            payload["modalities"].pop(role)
+        _replace_manifest(declared_dataset, payload)
+    experiment = declared_dataset.parent / "saved-inputs.yaml"
+    experiment.write_text(
+        yaml.safe_dump({"dataset": {"ref": "dataset.yaml", "split": "val"}, "detector": {"ref": "unloaded"}})
+    )
+
+    with pytest.raises(ValueError) as raised:
+        resolve_experiment_config(experiment, mode=mode)
+    reason, action = _concise_error(str(raised.value))
+    if spatial:
+        assert "Perception experiments cannot consume" in reason
+        assert "detections_3d" in reason
+        assert "--dataset" in action
+    else:
+        assert "saved TrackR-CNN inputs" in reason
+        assert "boxmot track --detections" in action
+
+
+def test_saved_input_routing_and_experiments_respect_image_only_split_overrides(declared_dataset: Path) -> None:
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+
+    payload = yaml.safe_load(declared_dataset.read_text())
+    payload["splits"]["val"]["modalities"] = dict.fromkeys(("detections_2d", "detections_3d", "calibration", "poses"))
+    _replace_manifest(declared_dataset, payload)
+    assert resolve_sensor_dataset_config_path(declared_dataset, split="train") == declared_dataset
+    assert resolve_sensor_dataset_config_path(declared_dataset, split="val") is None
+    experiment = declared_dataset.parent / "image-only.yaml"
+    experiment.write_text(
+        yaml.safe_dump(
+            {
+                "dataset": {"ref": "dataset.yaml", "split": "val"},
+                "detector": {"ref": "yolo26n", "checkpoint": "default"},
+                "evaluation": {"class_map": {"car": "car", "pedestrian": "person"}},
+            }
+        )
+    )
+    assert resolve_experiment_config(experiment, mode="eval")["dataset"]["split"] == "val"
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))

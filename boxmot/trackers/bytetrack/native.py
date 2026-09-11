@@ -40,6 +40,7 @@ class NativeByteTrackTracker(NativeTrackerAdapter):
             geometry=geometry,
             use_embeddings=False,
             requires_frame=association_requires_frame(cfg),
+            frame_dimensions_only=association_requires_frame(cfg),
         )
 
 

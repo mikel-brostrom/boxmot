@@ -18,7 +18,7 @@ from boxmot.datasets.config import (
     validate_sequence_names,
 )
 
-_SENSOR_ROLES = frozenset({"detections_3d", "calibration", "poses"})
+_SENSOR_ROLES = frozenset({"detections_2d", "detections_3d", "calibration", "poses"})
 _DIRECTORY_FORMATS = frozenset({"image-directory", "instance-png", "kitti-detections", "kitti-object-labels"})
 _FILE_FORMATS = frozenset({"trackrcnn", "kitti-p2", "camera-to-world-npy", "kitti-tracking-labels"})
 

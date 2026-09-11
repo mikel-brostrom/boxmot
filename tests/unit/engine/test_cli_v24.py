@@ -696,6 +696,113 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     assert captured[command].eval_masks is eval_masks
 
 
+@pytest.mark.parametrize(
+    ("tracker", "backend"),
+    (
+        ("boosttrack", "python"),
+        ("botsort", "python"),
+        ("botsort", "cpp"),
+        ("deepocsort", "python"),
+        ("hybridsort", "python"),
+        ("occluboost", "python"),
+        ("occluboost", "cpp"),
+    ),
+)
+@pytest.mark.parametrize("command", ("eval", "tune"))
+@pytest.mark.parametrize("use_embeddings", (False, True))
+def test_automatic_materialization_respects_appearance_profile(
+    monkeypatch, tmp_path, tracker: str, backend: str, command: str, use_embeddings: bool
+) -> None:
+    captured = {}
+    tracker_config = tmp_path / "tracker.yaml"
+    tracker_config.write_text(f"use_embeddings: {str(use_embeddings).lower()}\n")
+
+    def materialize_main(args):
+        captured["materialize"] = args
+        return tmp_path / "build"
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.materialization.workflow",
+        SimpleNamespace(main=materialize_main),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        CACHED_WORKFLOW_MODULES[command],
+        SimpleNamespace(main=lambda args: captured.setdefault(command, args)),
+    )
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            command,
+            "--experiment",
+            "fixture-experiment",
+            "--tracker",
+            tracker,
+            "--tracker-backend",
+            backend,
+            "--tracker-config",
+            str(tracker_config),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    # Tune searches both values even when its starting profile disables ReID.
+    assert captured["materialize"].publish_embeddings is (use_embeddings or command == "tune")
+    assert captured[command].tracker_config == str(tracker_config)
+
+
+@pytest.mark.parametrize("use_embeddings", (False, True))
+@pytest.mark.parametrize("searchable", (False, True))
+def test_automatic_tuning_materialization_respects_disabled_appearance_search(
+    monkeypatch, tmp_path, use_embeddings: bool, searchable: bool
+) -> None:
+    from boxmot.engine.tuning import search_space
+    from boxmot.trackers.common import config as tracker_configs
+
+    schema = tracker_configs.load_tracker_schema("botsort")
+    schema["use_embeddings"] = {"default": False, "activates": schema["use_embeddings"]["activates"]}
+    if searchable:
+        schema["use_embeddings"].update(type="choice", options=[False])
+    monkeypatch.setattr(tracker_configs, "load_tracker_schema", lambda tracker: schema)
+    monkeypatch.setattr(search_space, "load_tracker_schema", lambda tracker: schema)
+    captured = {}
+    tracker_config = tmp_path / "tracker.yaml"
+    tracker_config.write_text(f"use_embeddings: {str(use_embeddings).lower()}\n")
+
+    def materialize_main(args):
+        captured["materialize"] = args
+        return tmp_path / "build"
+
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.materialization.workflow",
+        SimpleNamespace(main=materialize_main),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        CACHED_WORKFLOW_MODULES["tune"],
+        SimpleNamespace(main=lambda args: None),
+    )
+
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--experiment",
+            "fixture-experiment",
+            "--tracker",
+            "botsort",
+            "--tracker-config",
+            str(tracker_config),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["materialize"].publish_embeddings is use_embeddings
+
+
 @pytest.mark.parametrize("command", ("eval", "tune"))
 @pytest.mark.parametrize(
     "selection",

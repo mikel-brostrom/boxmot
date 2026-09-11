@@ -145,7 +145,7 @@ def test_matching_is_one_to_one_class_specific_and_uses_vertical_3d_overlap(tmp_
     assert np.isnan(data.tracks[-1].detection_boxes).all()
 
 
-@pytest.mark.parametrize("missing", ["ground_truth_3d", "poses", "calibration", "detections_3d"])
+@pytest.mark.parametrize("missing", ["ground_truth_3d", "calibration", "detections_3d"])
 def test_missing_calibration_inputs_fail_before_any_sensor_payload_read(tmp_path: Path, missing: str) -> None:
     dataset = _dataset(tmp_path)
     modalities = dict(dataset.sequences[0].modalities)
@@ -204,8 +204,9 @@ def test_provenance_includes_prediction_presence_even_for_empty_frames(tmp_path:
     assert before.input_sources != after.input_sources
 
 
+@pytest.mark.parametrize("with_poses", [False, True])
 def test_calibration_uses_all_cached_spatial_inputs_without_decoding_masks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, with_poses: bool
 ) -> None:
     """Cached and direct calibration preserve exact samples and source provenance."""
     import cv2
@@ -218,12 +219,18 @@ def test_calibration_uses_all_cached_spatial_inputs_without_decoding_masks(
     modalities = {
         role: modality
         for role, modality in dataset.sequences[0].modalities.items()
-        if role not in {"ground_truth", "detections_2d"}
+        if role not in {"ground_truth", "detections_2d"} and (with_poses or role != "poses")
     }
+    if not with_poses:
+        (tmp_path / "poses.npy").unlink()
     dataset = replace(dataset, sequences=(SequenceInputs("drive", modalities),))
     for path in (tmp_path / "images").glob("*.png"):
         assert cv2.imwrite(str(path), np.zeros((3, 4, 3), dtype=np.uint8))
     expected = load_sensor_calibration_data(dataset)
+    np.testing.assert_allclose(expected.tracks[0].gt_boxes[:, 0], [10, 10, 10] if with_poses else [10, 9, 7])
+    coordinates = next(source for source in expected.input_sources if source["role"] == "coordinate_frame")
+    assert coordinates["value"] == ("world" if with_poses else "camera")
+    assert any(source["role"] == "poses" for source in expected.input_sources) == with_poses
     path = prepare_sensor_sequence(dataset, "drive")
     cached = open_sensor_sequence(path)
 
@@ -249,8 +256,24 @@ def test_calibration_uses_all_cached_spatial_inputs_without_decoding_masks(
                 np.testing.assert_array_equal(getattr(direct, field), getattr(mapped, field))
         with pytest.raises(ValueError, match="configuration"):
             load_sensor_calibration_data(replace(dataset, fps=2.0), cached_sequences={"drive": cached})
+        changed = dict(modalities)
+        if with_poses:
+            del changed["poses"]
+        else:
+            changed["poses"] = ModalityInput("camera-to-world-npy", (tmp_path / "poses.npy",), {})
+        with pytest.raises(ValueError, match="configuration"):
+            load_sensor_calibration_data(
+                replace(dataset, sequences=(SequenceInputs("drive", changed),)), cached_sequences={"drive": cached}
+            )
     finally:
         cached.close()
+
+
+def test_declared_ego_poses_cannot_be_silently_omitted_from_calibration(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    (tmp_path / "poses.npy").unlink()
+    with pytest.raises(FileNotFoundError, match="poses.npy"):
+        load_sensor_calibration_data(dataset)
 
 
 @pytest.mark.parametrize("change", ["add", "remove", "replace", "remove-linked"])

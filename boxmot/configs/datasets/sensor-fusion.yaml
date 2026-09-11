@@ -51,9 +51,11 @@ modalities:
   calibration:
     format: kitti-p2
     path: sequences/{partition}/{sequence}/calibration.txt
+  # Optional: omit this modality to track and calibrate in camera coordinates.
   poses:
     format: camera-to-world-npy
     path: sequences/{partition}/{sequence}/poses.npy
+  # Required for mask scoring; can be omitted for --eval-3d.
   detections_2d:
     format: trackrcnn
     path: predictions/image/{partition}/{sequence}.txt
