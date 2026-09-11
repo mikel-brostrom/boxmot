@@ -95,6 +95,33 @@ def test_image_supported_spatial_prediction_preserves_missing_3d_index(tmp_path:
     assert recovered.sample_id == "val:0002:1"
 
 
+def test_spatial_replay_accepts_saved_boxes_without_decoding_masks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = _fixture(tmp_path)
+    inputs = data.sequence_inputs()
+    classes = {"car": {"id": 1, "evaluation": "target"}, "pedestrian": {"id": 2, "evaluation": "target"}}
+    baseline_sequence = MultimodalSequence(inputs, classes=classes, fps=10, split="val")
+    baseline_trackers = _trackers()
+    expected = [_track_frame(frame, baseline_trackers) for frame in baseline_sequence]
+    inputs.modalities["detections_2d"].options["load_masks"] = False
+
+    def reject_masks(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Box-only 3D replay must never decode masks")
+
+    monkeypatch.setattr("boxmot.datasets.readers.detections._decode_mask", reject_masks)
+    sequence = MultimodalSequence(inputs, classes=classes, fps=10, split="val")
+    trackers = _trackers()
+    actual = [_track_frame(frame, trackers) for frame in sequence]
+
+    for baseline, box_only in zip(expected, actual, strict=True):
+        assert box_only.image_tracks.masks is None
+        torch.testing.assert_close(box_only.image_tracks.geometry.values, baseline.image_tracks.geometry.values)
+        torch.testing.assert_close(box_only.image_tracks.track_ids, baseline.image_tracks.track_ids)
+        torch.testing.assert_close(box_only.spatial_tracks.geometry.values, baseline.spatial_tracks.geometry.values)
+        torch.testing.assert_close(box_only.spatial_tracks.track_ids, baseline.spatial_tracks.track_ids)
+
+
 def test_spatial_only_support_retains_tracks_without_fabricating_image_masks(tmp_path: Path) -> None:
     data = _fixture(tmp_path)
     sequence = MultimodalSequence(

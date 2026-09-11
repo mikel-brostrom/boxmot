@@ -249,6 +249,18 @@ trackers with native tracking annotations. For example:
 boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n --split val
 ```
 
+To reuse saved TrackR-CNN 2D boxes with images and generate appearance features:
+
+```bash
+boxmot eval --dataset kitti-2d-detections --tracker occluboost \
+  --reid osnet-x0-25-msmt17 --split val --cache-inputs
+```
+
+The [saved-detection YAML](boxmot/configs/datasets/kitti-2d-detections.yaml)
+selects boxes without masks or spatial inputs. Adjust its root and paths for
+your folder; the [dataset guide](docs/config/datasets.md#existing-2d-detections)
+describes the layout.
+
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It
 returns image and spatial tracks with shared identities. The

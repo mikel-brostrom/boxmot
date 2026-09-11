@@ -82,6 +82,34 @@ def test_trackrcnn_decodes_only_requested_masks_and_never_rgb(tmp_path: Path, mo
         sequence[2]
 
 
+def test_trackrcnn_box_selection_never_decodes_or_exposes_masks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    detections, images = _fixture(tmp_path)
+    detections.write_text(_row(0, class_id=2, counts="invalid") + _row(2))
+
+    def reject_decode(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Unselected masks and RGB pixels must not be decoded")
+
+    monkeypatch.setattr(Image.Image, "load", reject_decode)
+    monkeypatch.setattr("boxmot.datasets.readers.detections._decode_mask", reject_decode)
+    sequence = TrackRcnnSequence("0002", images=images, detections=detections, load_masks=False, split="val")
+    samples = list(sequence)
+
+    assert [len(sample.detections) for sample in samples] == [1, 0, 1]
+    assert all(sample.detections.masks is None and sample.detections.embeddings is None for sample in samples)
+    assert [sample.detections.sample_id for sample in samples] == [f"val:0002:{index}" for index in range(3)]
+    assert samples[0].detections.class_ids.tolist() == [2]
+    assert samples[0].detections.geometry.values.tolist() == [[0, 0, 4, 3]]
+    assert samples[0].detections.scores.tolist() == [0.75]
+
+
+@pytest.mark.parametrize("load_masks", (None, 0, 1, "false", [], {}))
+def test_trackrcnn_rejects_nonboolean_mask_option_before_opening_files(tmp_path: Path, load_masks: object) -> None:
+    with pytest.raises(TypeError, match="load_masks must be a boolean"):
+        TrackRcnnSequence("0002", images=tmp_path / "missing", detections=tmp_path / "missing", load_masks=load_masks)
+
+
 def test_trackrcnn_supports_slices_and_rejects_noninteger_indices(tmp_path: Path) -> None:
     detections, images = _fixture(tmp_path)
     sequence = TrackRcnnSequence("0002", images=images, detections=detections)

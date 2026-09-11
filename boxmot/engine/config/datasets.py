@@ -21,9 +21,53 @@ _SENSOR_TRACKING_FORMATS = {
 }
 
 
+def is_saved_2d_dataset(config: Mapping[str, Any], split: str | None = None) -> bool:
+    """Identify an explicit boxes-only view of saved image detections."""
+    modalities = dataset_modalities(config, split or config["default_split"])
+    detections = modalities.get("detections_2d", {})
+    return (
+        detections.get("format") == "trackrcnn"
+        and detections.get("options", {}).get("load_masks", True) is False
+        and not {"detections_3d", "calibration", "poses"}.intersection(modalities)
+    )
+
+
+def load_saved_2d_evaluation_inputs(
+    reference: str | Path,
+    *,
+    split: str | None = None,
+    sequence_names: tuple[str, ...] = (),
+    data_root: str | Path | None = None,
+) -> DatasetInputs:
+    """Resolve declared image observations and native KITTI box annotations."""
+    config = load_dataset_config(reference)
+    split_name = split or config["default_split"]
+    if not is_saved_2d_dataset(config, split_name):
+        raise ValueError("Saved 2D evaluation requires detections_2d with format: trackrcnn and load_masks: false.")
+    modalities = dataset_modalities(config, split_name)
+    for role, encoding in {
+        "images": "image-directory",
+        "ground_truth": "kitti-tracking-labels",
+    }.items():
+        if modalities.get(role, {}).get("format") != encoding:
+            raise ValueError(f"Saved 2D evaluation requires {role} with format: {encoding}.")
+    return resolve_dataset_inputs(
+        config,
+        split=split_name,
+        sequence_names=sequence_names,
+        data_root=data_root,
+        roles=("images", "detections_2d", "ground_truth"),
+    )
+
+
 def _validate_saved_2d_workflow(modalities: Mapping[str, Any], *, dataset_id: str, mode: str) -> None:
     """Explain the existing replay entry point for image-only saved predictions."""
     if "detections_2d" in modalities and not {"detections_3d", "calibration", "poses"}.intersection(modalities):
+        if modalities["detections_2d"].get("options", {}).get("load_masks", True) is False:
+            raise ValueError(
+                f"Dataset '{dataset_id}' declares saved 2D boxes.\n"
+                "Use boxmot eval --dataset DATASET_YAML to replay them; detector experiments cannot replace them."
+            )
         raise ValueError(
             f"Dataset '{dataset_id}' declares saved TrackR-CNN inputs that {mode} cannot replay.\n"
             "Use boxmot track --detections ... --images ... --instances ... for saved mask predictions."
@@ -84,7 +128,9 @@ def _unused_sensor_inputs(modalities: Mapping[str, Mapping[str, Any]], capabilit
         ("calibration", "camera", "calibration"),
         ("poses", "ego_motion", "ego motion"),
     ]
-    if modalities.get("detections_2d", {}).get("format") == "trackrcnn":
+    if modalities.get("detections_2d", {}).get("format") == "trackrcnn" and modalities["detections_2d"].get(
+        "options", {}
+    ).get("load_masks", True):
         inputs.insert(1, ("detections_2d", "masks", "instance masks"))
     return [
         label
@@ -193,6 +239,8 @@ def load_sensor_evaluation_inputs(
                 continue
             if source.format != encoding:
                 raise ValueError(f"EagerMOT {scoring} evaluation requires {role} format {encoding}.")
+            if role == "detections_2d" and not eval_3d and source.options.get("load_masks", True) is False:
+                raise ValueError("EagerMOT mask evaluation requires detections_2d with load_masks: true.")
         if not eval_3d:
             validate_mots_evaluation_inputs(dataset.classes, sequence.modalities["ground_truth"].options)
     return dataset

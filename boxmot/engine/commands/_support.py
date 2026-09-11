@@ -14,6 +14,7 @@ from click.core import ParameterSource
 _WORKFLOW_SETUP_TITLES = {
     "boxmot.engine.materialization.workflow": "Dataset Materialization",
     "boxmot.engine.eval.evaluator": "Evaluation",
+    "boxmot.engine.eval.saved_detections": "Evaluation",
 }
 
 

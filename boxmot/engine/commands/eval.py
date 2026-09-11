@@ -55,6 +55,94 @@ _SENSOR_OPTIONS = frozenset(
 )
 
 
+def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Validate a saved box dataset before importing replay or appearance models."""
+    reference = payload.get("dataset")
+    if not reference:
+        return None
+
+    from boxmot.datasets.config import load_dataset_config
+    from boxmot.engine.config.datasets import is_saved_2d_dataset, load_saved_2d_evaluation_inputs
+    from boxmot.engine.config.trackers import resolve_tracker_options
+    from boxmot.trackers.common.config import load_tracker_config
+    from boxmot.trackers.common.registry import get_tracker_definition
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    explicit = _explicit_cli_keys(ctx)
+    try:
+        config = load_dataset_config(reference)
+        if not is_saved_2d_dataset(config, payload.get("split")):
+            return None
+        spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
+        definition = get_tracker_definition(spec.name)
+        if spec.backend == "cpp" and definition.native_class_path is None:
+            raise ValueError(f"Tracker '{spec.name}' has no C++ backend.")
+        if definition.capabilities.requires_masks:
+            raise ValueError(
+                f"Tracker '{spec.name}' requires instance masks; this dataset explicitly selects only boxes."
+            )
+        options = resolve_tracker_options(SimpleNamespace(**dict(payload)), include_defaults=True, factory_options=True)
+        allowed = {
+            "dataset",
+            "data_root",
+            "tracker",
+            "tracker_backend",
+            "tracker_config",
+            "reid",
+            "device",
+            "split",
+            "sequence_names",
+            "project",
+            "cache_inputs",
+            "asso_func",
+            "variable_dt",
+            "per_class",
+            "sequence_workers",
+            "show",
+            "save",
+            "verbose",
+            "show_timing",
+        }
+        unsupported = explicit - allowed
+        if unsupported:
+            names = ", ".join(
+                option.opts[0]
+                for option in ctx.command.params
+                if isinstance(option, click.Option) and option.name in unsupported
+            )
+            raise ValueError(f"Saved 2D evaluation does not support {names}; predictions come from the dataset YAML.")
+        if "sequence_workers" in explicit and payload.get("sequence_workers") != 1:
+            raise ValueError("Saved 2D evaluation currently requires --sequence-workers 1.")
+        if spec.backend == "cpp" and payload.get("per_class"):
+            raise ValueError("Native trackers do not support --per-class.")
+        effective_options = load_tracker_config(definition.config_name or spec.name, None, options)
+        needs_embeddings = definition.capabilities.requires_embeddings or effective_options.get("use_embeddings", False)
+        if needs_embeddings and not payload.get("reid"):
+            raise ValueError(
+                f"Tracker '{spec.name}' requires appearance. Add --reid PROFILE to encode the saved boxes."
+            )
+        if not needs_embeddings and payload.get("reid"):
+            raise ValueError(f"Tracker '{spec.name}' does not use embeddings in this configuration; omit --reid.")
+        dataset = load_saved_2d_evaluation_inputs(
+            reference,
+            split=payload.get("split"),
+            sequence_names=payload.get("sequence_names", ()),
+            data_root=payload.get("data_root"),
+        )
+    except (TypeError, ValueError, OSError) as exc:
+        raise click.UsageError(str(exc)) from exc
+    return {
+        **payload,
+        "dataset": dataset.config_path,
+        "split": dataset.split,
+        "sequence_names": dataset.sequence_names,
+        "tracker": spec.name,
+        "tracker_backend": spec.backend,
+        "sequence_workers": 1,
+        "saved_detections": True,
+    }
+
+
 def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a declared sensor dataset before dispatch through the shared evaluator."""
     reference = payload.get("dataset")
@@ -220,26 +308,28 @@ def eval(
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
         raise click.UsageError("--show-3d requires --show or --save.")
 
-    sensor_payload = _prepare_sensor_evaluation(
-        ctx,
-        {
-            **kwargs,
-            "experiment": experiment,
-            "dataset": dataset,
-            "detector": detector,
-            "reid": reid,
-            "build_ref": build_ref,
-            "build_root": build_root,
-            "device": device,
-            "data_root": data_root,
-            "split": split,
-            "sequence_names": sequence_names,
-            "allow_noncanonical_build": allow_noncanonical_build,
-            "compare_trackeval": compare_trackeval,
-            "eval_masks": eval_masks,
-            "calibrate_kf": calibrate_kf,
-        },
-    )
+    dataset_payload = {
+        **kwargs,
+        "experiment": experiment,
+        "dataset": dataset,
+        "detector": detector,
+        "reid": reid,
+        "build_ref": build_ref,
+        "build_root": build_root,
+        "device": device,
+        "data_root": data_root,
+        "split": split,
+        "sequence_names": sequence_names,
+        "allow_noncanonical_build": allow_noncanonical_build,
+        "compare_trackeval": compare_trackeval,
+        "eval_masks": eval_masks,
+        "calibrate_kf": calibrate_kf,
+    }
+    saved_2d_payload = _prepare_saved_2d_evaluation(ctx, dataset_payload)
+    if saved_2d_payload is not None:
+        _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.saved_detections", saved_2d_payload)
+        return
+    sensor_payload = _prepare_sensor_evaluation(ctx, dataset_payload)
     if sensor_payload is not None:
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
         return

@@ -125,7 +125,8 @@ def build_mode_namespace(
             values["reid"] = values.get("reid", DEFAULT_REID)
         else:
             values.pop("detector", None)
-            values.pop("reid", None)
+            if not (normalized_mode == "eval" and values.get("saved_detections")):
+                values.pop("reid", None)
         tracker_spec = parse_tracker_spec(
             values.get("tracker") or get_mode_default(normalized_mode, "tracker"),
             default_backend=str(values.get("tracker_backend", "python")),

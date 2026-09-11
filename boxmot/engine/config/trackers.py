@@ -27,19 +27,27 @@ def resolve_tracker_options(
     *,
     include_defaults: bool = False,
     stamp_timing: bool = False,
+    factory_options: bool = False,
 ) -> dict[str, Any]:
     """Apply configuration and explicit flags, then validate the final time basis.
 
     Saved calibration files contain concrete units, so a conflicting timing
     override fails here, before replay or model initialization. Uncalibrated
     defaults may leave the units unspecified until their timing mode is chosen.
+    ``factory_options=True`` keeps native construction options sparse: their
+    factory owns defaults, and unsupported Python defaults must not become
+    explicit native options. Authored overrides are retained for backend
+    validation, even when equal to defaults. Other callers retain full defaults
+    for configuration inspection and tuning metadata when requested.
     """
     tracker_name = getattr(args, "tracker", None)
     if tracker_name is not None:
         validate_image_tracker(str(tracker_name))
+    backend = str(getattr(args, "tracker_backend", "python"))
+    sparse_native = factory_options and backend == "cpp"
     reference = getattr(args, "tracker_config", None)
     options = (
-        load_tracker_config(str(tracker_name), reference, overrides)
+        load_tracker_config(str(tracker_name), reference, overrides, include_defaults=not sparse_native)
         if include_defaults or reference is not None
         else dict(overrides or {})
     )
@@ -53,14 +61,16 @@ def resolve_tracker_options(
     from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES, normalize_kalman_options
 
     effective = (
-        options if include_defaults or reference is not None else load_tracker_config(tracker_name, None, options)
+        options
+        if not sparse_native and (include_defaults or reference is not None)
+        else load_tracker_config(tracker_name, None, options)
     )
     variable_dt = effective.get("variable_dt", False)
     noise = normalize_kalman_options(
         effective,
         variable_dt=variable_dt,
         tracker_name=tracker_name,
-        backend=str(getattr(args, "tracker_backend", "python")),
+        backend=backend,
     )
     if stamp_timing and tracker_name in KALMAN_TRACKER_NAMES:
         options.update(

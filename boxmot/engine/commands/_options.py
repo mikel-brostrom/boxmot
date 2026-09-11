@@ -443,7 +443,10 @@ def replay_build_options(*, dataset_default: str | None = None) -> Callable:
                 "--reid",
                 type=str,
                 default=None,
-                help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
+                help=(
+                    "ReID profile for an authored experiment or for encoding saved 2D detections during eval. "
+                    "Omit when appearance is disabled."
+                ),
             ),
             build_selection_options(required=False),
             click.option(

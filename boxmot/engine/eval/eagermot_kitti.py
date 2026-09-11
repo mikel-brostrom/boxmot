@@ -183,8 +183,11 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
                 sample_id=spatial.sample_id,
             )
         )
-    if any(output.masks is None for output in outputs):
-        raise ValueError("KITTI segmentation evaluation requires TrackR-CNN masks on image tracks.")
+    masks = None
+    if frame.detections.masks is not None:
+        if any(output.masks is None for output in outputs):
+            raise ValueError("KITTI segmentation evaluation requires TrackR-CNN masks on image tracks.")
+        masks = MaskBatch(torch.cat([output.masks.values for output in outputs]))
     image_tracks = Tracks(
         geometry=Boxes(torch.cat([output.geometry.values for output in outputs])),
         track_ids=torch.cat([output.track_ids for output in outputs]),
@@ -192,7 +195,7 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
         class_ids=torch.cat([output.class_ids for output in outputs]),
         detection_indices=torch.cat([output.detection_indices for output in outputs]),
         sample_id=frame.detections.sample_id,
-        masks=MaskBatch(torch.cat([output.masks.values for output in outputs])),
+        masks=masks,
     )
     spatial_tracks = Tracks3D(
         geometry=Boxes3D(torch.cat([output.geometry.values for output in spatial_outputs])),
@@ -449,7 +452,8 @@ def _replay_kitti_sequence(
             with (prediction_dir / f"{task.name}.txt").open("x", encoding="utf-8") as handle:
                 for frame in task.sequence:
                     tracks = _track_frame(frame, trackers)
-                    if not task.eval_3d or visualization is not None:
+                    prepared = tracks.image_tracks
+                    if not task.eval_3d or (visualization is not None and frame.detections.masks is not None):
                         prepared = prepare_mots_tracks(
                             PipelineResult(frame.detections, tracks.image_tracks), frame.image_size
                         )

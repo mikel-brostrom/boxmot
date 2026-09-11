@@ -1,4 +1,4 @@
-"""Lazy TrackR-CNN detections and masks with an authoritative image timeline."""
+"""Lazy TrackR-CNN detections with optional masks and an image timeline."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class _ImageDetection:
     box: tuple[float, float, float, float]
     score: float
     class_id: int
-    counts: bytes
+    counts: bytes | None
     line_number: int
 
 
@@ -79,7 +79,8 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
     with no predictions; their numeric frame indices must be contiguous and zero-based.
 
     Construction indexes image headers and compressed masks without decoding
-    RGB pixels. Indexing decodes only that frame's masks. Boxes and masks
+    RGB pixels. Indexing decodes only that frame's masks when ``load_masks``
+    is enabled; disabling it selects only boxes, scores and class IDs. Boxes and masks
     remain aligned, including zero-area masks; filtering is the caller's
     responsibility. Accepted class IDs are configured by the caller; direct format reads default to 1 and 2.
     The unused 128-dimensional TrackR-CNN embeddings are discarded.
@@ -93,8 +94,12 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
         detections: Path,
         class_ids: Sequence[int] = (1, 2),
         split: str = "train",
+        load_masks: bool = True,
     ) -> None:
         validate_sequence_names([sequence_id])
+        if not isinstance(load_masks, bool):
+            raise TypeError("TrackR-CNN load_masks must be a boolean.")
+        self.load_masks = load_masks
         self.images = Path(images).expanduser().resolve()
         self.sequence_id = sequence_id
         self.split = split
@@ -135,9 +140,8 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
                     x1, y1, x2, y2, score = values.astype(np.float32).tolist()
                     if x2 <= x1 or y2 <= y1 or not 0 <= values[-1] <= 1:
                         raise ValueError("box must have positive area and score must be between zero and one")
-                    detection = _ImageDetection(
-                        (x1, y1, x2, y2), score, class_id, fields[9].encode("ascii"), line_number
-                    )
+                    counts = fields[9].encode("ascii") if self.load_masks else None
+                    detection = _ImageDetection((x1, y1, x2, y2), score, class_id, counts, line_number)
                     frames.setdefault(frame_index, []).append(detection)
                 except (ValueError, UnicodeError) as exc:
                     raise ValueError(
@@ -156,7 +160,7 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
     def __getitem__(self, index: slice) -> tuple[TrackRcnnFrame, ...]: ...
 
     def __getitem__(self, index: int | slice) -> TrackRcnnFrame | tuple[TrackRcnnFrame, ...]:
-        """Decode one frame's masks without loading RGB pixels."""
+        """Load one frame's observations, decoding only explicitly selected masks."""
         if isinstance(index, slice):
             return tuple(self[position] for position in range(*index.indices(len(self))))
         if isinstance(index, bool) or not isinstance(index, int):
@@ -164,20 +168,23 @@ class TrackRcnnSequence(Sequence[TrackRcnnFrame]):
         image_path = self.frame_paths[index]
         frame_index = int(image_path.stem)
         rows = self._image_detections.get(frame_index, ())
-        masks = np.empty((len(rows), *self.image_size), dtype=np.bool_)
-        for mask, row in zip(masks, rows, strict=True):
-            try:
-                mask[:] = _decode_mask(row.counts, self.image_size)
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid TrackR-CNN mask at {self._detections_path}:{row.line_number}: {exc}"
-                ) from exc
+        masks = None
+        if self.load_masks:
+            values = np.empty((len(rows), *self.image_size), dtype=np.bool_)
+            for mask, row in zip(values, rows, strict=True):
+                try:
+                    mask[:] = _decode_mask(row.counts, self.image_size)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Invalid TrackR-CNN mask at {self._detections_path}:{row.line_number}: {exc}"
+                    ) from exc
+            masks = MaskBatch(torch.from_numpy(values))
         detections = Detections(
             geometry=Boxes(torch.tensor([row.box for row in rows], dtype=torch.float32).reshape(-1, 4)),
             scores=torch.tensor([row.score for row in rows], dtype=torch.float32),
             class_ids=torch.tensor([row.class_id for row in rows], dtype=torch.int64),
             sample_id=f"{self.split}:{self.sequence_id}:{frame_index}",
-            masks=MaskBatch(torch.from_numpy(masks)),
+            masks=masks,
         )
         return TrackRcnnFrame(
             frame_index=frame_index,

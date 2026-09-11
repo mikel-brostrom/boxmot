@@ -182,6 +182,7 @@ def _validate_modality_options(role: str, encoding: str, options: Mapping[str, A
 
     allowed = {
         "ground_truth": {"class_divisor", "background_id", "ignore_ids"},
+        "detections_2d": {"load_masks"},
         "ground_truth_3d": {
             "class_map",
             "ignore_classes",
@@ -215,6 +216,9 @@ def _validate_modality_options(role: str, encoding: str, options: Mapping[str, A
             isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in ignored
         ):
             raise ConfigurationError(f"{context}.options.ignore_ids must be a list of non-negative integer labels.")
+    elif role == "detections_2d":
+        if "load_masks" in options and not isinstance(options["load_masks"], bool):
+            raise ConfigurationError(f"{context}.options.load_masks must be a boolean.")
     elif role in {"detections_3d", "ground_truth_3d"}:
         for name, allowed_values in {
             "score_transform": ("identity", "odds"),

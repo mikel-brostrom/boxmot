@@ -1,8 +1,9 @@
 # Evaluate
 
-`eval` measures tracking performance from perception builds or saved sensor
-datasets. For image trackers, it streams an immutable materialized build through
-the live tracker API. Select an authored experiment with `--experiment` or use
+`eval` measures tracking performance from perception builds or saved detections.
+For existing KITTI 2D predictions, use the [saved-box workflow](#saved-2d-detections).
+For perception-build evaluation, it streams an immutable materialized build
+through the live tracker API. Select an authored experiment with `--experiment` or use
 dataset and component flags as shorthand for a matching catalog experiment.
 In either case, `--build` is optional: when omitted, BoxMOT first materializes
 (or reuses) a canonical build compatible with the selected tracker and then
@@ -146,7 +147,34 @@ checked during preparation; an unchanged sensor study uses its prepared input
 snapshot. Changed or incomplete caches are rebuilt. Tracker state, threshold
 decisions, fusion, predictions, and metrics remain fresh for every run.
 
-## Saved TrackR-CNN predictions
+## Saved 2D detections
+
+The `kitti-2d-detections` dataset selects existing TrackR-CNN boxes, images,
+and native KITTI tracking ground truth. Evaluate them directly:
+
+```bash
+boxmot eval \
+  --dataset ./kitti-mots/kitti-2d-detections.yaml \
+  --tracker occluboost \
+  --reid osnet-x0-25-msmt17 \
+  --split val \
+  --cache-inputs \
+  --project runs/kitti-2d
+```
+
+Create the local YAML from the
+[saved 2D dataset preset](../config/datasets.md#existing-2d-detections), adjusting
+its root and paths to your folder. The config explicitly disables mask loading
+and declares no spatial inputs. This workflow generates ReID features from the
+images when appearance is enabled; `--cache-inputs` caches them together with
+parsed inputs and required image pixels. Omit `--reid` for motion-only tracking.
+The output reports 2D HOTA, MOTA, and IDF1 using native KITTI tracking preprocessing.
+
+Use `--sequence` to restrict the split and `--show` or `--save` for visualization.
+No detector, experiment, or build is required. This workflow uses one sequence
+worker and does not provide tuning or KF calibration.
+
+## Saved TrackR-CNN masks
 
 For downloaded KITTI TrackR-CNN text predictions, use
 `boxmot track --tracker maf_hda` with `--detections`, `--images`, and `--instances`
@@ -258,9 +286,10 @@ the selected split and registered [tracker inputs](../trackers/index.md#input-su
 declared tracking inputs marked `Unused` cause rejection. Ground truth is used
 separately for scoring.
 
-The direct saved-sensor workflow currently requires
-`--tracker eagermot --tracker-backend python`. To intentionally evaluate an
-image-only experiment, select only `images` and `ground_truth` in a separate
+The direct spatial saved-sensor workflow requires
+`--tracker eagermot --tracker-backend python`. For existing image detections,
+select the [saved 2D dataset](#saved-2d-detections). To intentionally evaluate an
+image-only experiment with a new detector, select only `images` and `ground_truth` in a separate
 dataset config or explicit split override, then select a perception build or
 detector through the ordinary evaluation workflow. Split modality overrides
 set to `null` remove those inputs from the experiment.

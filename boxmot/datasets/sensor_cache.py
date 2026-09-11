@@ -36,7 +36,7 @@ from boxmot.datasets.readers.masks import read_instance_png
 from boxmot.datasets.sequence import MultimodalSequence, SensorFrame, _class_ids, _instance_options, _single_path
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, Frame, MaskBatch
 
-_SCHEMA = "boxmot.sensor-replay-cache/v2"
+_SCHEMA = "boxmot.sensor-replay-cache/v3"
 
 
 class SensorReplayCacheError(ValueError):
@@ -123,6 +123,14 @@ def _source_files(sequence: SequenceInputs, digests: dict[str, str]) -> dict[str
     return result
 
 
+def _loads_detection_masks(context: dict[str, Any]) -> bool:
+    """Preserve an explicitly disabled mask channel in the cached contract."""
+    selected = context["modalities"].get("detections_2d", {}).get("options", {}).get("load_masks", True)
+    if type(selected) is not bool:
+        raise SensorReplayCacheError("Sensor replay mask selection must be boolean.")
+    return selected
+
+
 def _write_json(path: Path, value: Any) -> None:
     with path.open("wb") as handle:
         handle.write(_json_bytes(value))
@@ -197,11 +205,12 @@ def _validate_index(index: dict[str, Any]) -> None:
         "boxes2d": (np.float32, (count2d, 4)),
         "scores2d": (np.float32, (count2d,)),
         "classes2d": (np.int64, (count2d,)),
-        "masks2d": (np.uint8, (count2d, (height * width + 7) // 8)),
         "boxes3d": (np.float32, (count3d, 7)),
         "scores3d": (np.float32, (count3d,)),
         "classes3d": (np.int64, (count3d,)),
     }
+    if _loads_detection_masks(context):
+        expected["masks2d"] = (np.uint8, (count2d, (height * width + 7) // 8))
     modalities = context["modalities"]
     for role, shape in (("calibration", (len(frames), 3, 4)), ("poses", (len(frames), 4, 4))):
         if role in modalities:
@@ -291,11 +300,12 @@ def _write_entry(
         "boxes2d": (np.float32, (4,)),
         "scores2d": (np.float32, ()),
         "classes2d": (np.int64, ()),
-        "masks2d": (np.uint8, (packed_width,)),
         "boxes3d": (np.float32, (7,)),
         "scores3d": (np.float32, ()),
         "classes3d": (np.int64, ()),
     }
+    if _loads_detection_masks(context):
+        formats["masks2d"] = (np.uint8, (packed_width,))
     modalities = sequence_inputs.modalities
     if "calibration" in modalities:
         formats["projection"] = (np.float32, (3, 4))
@@ -324,8 +334,13 @@ def _write_entry(
                 append(f"boxes{suffix}", detections.geometry.values.numpy())
                 append(f"scores{suffix}", detections.scores.numpy())
                 append(f"classes{suffix}", detections.class_ids.numpy())
-            masks = frame.detections.masks.values.numpy()
-            append("masks2d", np.packbits(masks.reshape(len(masks), height * width), axis=1, bitorder="little"))
+            if "masks2d" in formats:
+                if frame.detections.masks is None:
+                    raise SensorReplayCacheError("Sensor replay is missing its declared detection masks.")
+                masks = frame.detections.masks.values.numpy()
+                append("masks2d", np.packbits(masks.reshape(len(masks), height * width), axis=1, bitorder="little"))
+            elif frame.detections.masks is not None:
+                raise SensorReplayCacheError("Sensor replay received masks when their reader channel is disabled.")
             if frame.camera is not None:
                 append("projection", frame.camera.projection.numpy()[None])
                 if frame.camera.camera_to_world is not None:
@@ -552,15 +567,18 @@ class SensorReplaySequence(Sequence[SensorFrame]):
         def tensor(name: str, begin: int, stop: int) -> torch.Tensor:
             return torch.from_numpy(self._arrays[name][begin:stop].copy())
 
-        masks = np.unpackbits(
-            self._arrays["masks2d"][left:right], axis=1, count=int(np.prod(self.image_size)), bitorder="little"
-        ).reshape(right - left, *self.image_size)
+        masks = None
+        if "masks2d" in self._arrays:
+            values = np.unpackbits(
+                self._arrays["masks2d"][left:right], axis=1, count=int(np.prod(self.image_size)), bitorder="little"
+            ).reshape(right - left, *self.image_size)
+            masks = MaskBatch(torch.from_numpy(values.astype(np.bool_)))
         detections = Detections(
             Boxes(tensor("boxes2d", left, right)),
             tensor("scores2d", left, right),
             tensor("classes2d", left, right),
             sample_id,
-            masks=MaskBatch(torch.from_numpy(masks.astype(np.bool_))),
+            masks=masks,
         )
         return SensorFrame(
             frame_index,

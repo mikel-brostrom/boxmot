@@ -47,13 +47,24 @@ def _instance_options(options: Mapping[str, Any]) -> dict[str, Any]:
     return options
 
 
+def _trackrcnn_options(options: Mapping[str, Any]) -> dict[str, bool]:
+    """Select TrackR-CNN channels explicitly without changing the source encoding."""
+    unknown = set(options) - {"load_masks"}
+    if unknown:
+        raise ValueError(f"Unsupported trackrcnn options: {', '.join(sorted(unknown))}.")
+    load_masks = options.get("load_masks", True)
+    if not isinstance(load_masks, bool):
+        raise ValueError("trackrcnn load_masks must be a boolean.")
+    return {"load_masks": load_masks}
+
+
 def _single_path(modality: ModalityInput, expected_format: str, role: str) -> Path:
     """Validate a single-path modality before selecting its format reader."""
     if modality.format != expected_format:
         raise ValueError(f"{role} requires format {expected_format!r}, got {modality.format!r}.")
     if len(modality.paths) != 1:
         raise ValueError(f"{role} requires exactly one input path.")
-    if expected_format not in {"instance-png", "kitti-tracking-labels"} and modality.options:
+    if expected_format not in {"instance-png", "kitti-tracking-labels", "trackrcnn"} and modality.options:
         raise ValueError(f"{expected_format} does not support reader options: {', '.join(sorted(modality.options))}.")
     return Path(modality.paths[0]).expanduser().resolve()
 
@@ -219,6 +230,88 @@ class ImageDataset(Sequence[ImageSample]):
 
 
 @dataclass(frozen=True, slots=True)
+class DetectionFrame:
+    """Saved 2D observations and image metadata at one native time step."""
+
+    frame_index: int
+    image_size: tuple[int, int]
+    image_path: Path
+    detections: Detections
+    timestamp_s: float
+
+
+class DetectionSequence(Sequence[DetectionFrame]):
+    """Load declared 2D detections lazily, preserving the complete image timeline.
+
+    Reader options select the input channels; configured target classes select
+    observations. Ground truth remains a separate scoring input and is never
+    read here. RGB pixels are left to the tracking or appearance pipeline.
+    """
+
+    def __init__(
+        self,
+        sequence_inputs: SequenceInputs,
+        *,
+        classes: Mapping[str, Mapping[str, Any]],
+        fps: float,
+        split: str = "train",
+    ) -> None:
+        from boxmot.datasets.readers.detections import TrackRcnnSequence
+
+        self.fps = _validate_fps(fps)
+        self.class_ids = _class_ids(classes)
+        modalities = sequence_inputs.modalities
+        unknown = set(modalities) - {"images", "detections_2d", "ground_truth"}
+        if unknown:
+            raise ValueError(f"Unsupported 2D detection sequence modalities: {', '.join(sorted(unknown))}.")
+        missing = {"images", "detections_2d"} - set(modalities)
+        if missing:
+            raise ValueError(f"2D detection sequences require modalities: {', '.join(sorted(missing))}.")
+        images = _single_path(modalities["images"], "image-directory", "images")
+        modality = modalities["detections_2d"]
+        detections = _single_path(modality, "trackrcnn", "detections_2d")
+        self._detections = TrackRcnnSequence(
+            sequence_inputs.sequence_id,
+            images=images,
+            detections=detections,
+            class_ids=tuple(value["id"] for value in classes.values()),
+            split=split,
+            **_trackrcnn_options(modality.options),
+        )
+        self.sequence_id = self._detections.sequence_id
+        self.split = split
+        self.frame_paths = self._detections.frame_paths
+        self.image_size = self._detections.image_size
+
+    def __len__(self) -> int:
+        """Return every image time step, including empty prediction frames."""
+        return len(self._detections)
+
+    @overload
+    def __getitem__(self, index: int) -> DetectionFrame: ...
+
+    @overload
+    def __getitem__(self, index: slice) -> tuple[DetectionFrame, ...]: ...
+
+    def __getitem__(self, index: int | slice) -> DetectionFrame | tuple[DetectionFrame, ...]:
+        """Read the requested frame's configured channels and target observations."""
+        import torch
+
+        if isinstance(index, slice):
+            return tuple(self[position] for position in range(*index.indices(len(self))))
+        sample = self._detections[index]
+        selected = torch.isin(sample.detections.class_ids, torch.tensor(self.class_ids, dtype=torch.int64))
+        detections = sample.detections.select(selected)
+        return DetectionFrame(
+            frame_index=sample.frame_index,
+            image_size=sample.image_size,
+            image_path=sample.image_path,
+            detections=detections,
+            timestamp_s=sample.frame_index / self.fps,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SensorFrame:
     """Aligned observations and optional camera metadata without decoded pixels."""
 
@@ -256,7 +349,7 @@ class MultimodalSequence(Sequence[SensorFrame]):
         if not isinstance(split, str) or not split or split != split.strip() or ":" in split:
             raise ValueError("split must be a non-empty string without surrounding whitespace or ':'.")
         self.split = split
-        class_ids = _class_ids(classes)
+        self.class_ids = _class_ids(classes)
         modalities = sequence_inputs.modalities
         unknown = set(modalities) - {
             "images",
@@ -279,7 +372,7 @@ class MultimodalSequence(Sequence[SensorFrame]):
                 _single_path(modality, "kitti-tracking-labels", role)
             elif role == "ground_truth_objects":
                 _single_path(modality, "kitti-object-labels", role)
-            elif role != "detections_3d" and modality.options:
+            elif role not in {"detections_2d", "detections_3d"} and modality.options:
                 raise ValueError(
                     f"{modality.format} does not support reader options: {', '.join(sorted(modality.options))}."
                 )
@@ -292,7 +385,12 @@ class MultimodalSequence(Sequence[SensorFrame]):
 
             detections = _single_path(modalities["detections_2d"], "trackrcnn", "detections_2d")
             self._detections = TrackRcnnSequence(
-                self.sequence_id, images=images, detections=detections, class_ids=class_ids, split=split
+                self.sequence_id,
+                images=images,
+                detections=detections,
+                class_ids=tuple(value["id"] for value in classes.values()),
+                split=split,
+                **_trackrcnn_options(modalities["detections_2d"].options),
             )
             self.frame_paths = self._detections.frame_paths
             self.image_size = self._detections.image_size
@@ -359,6 +457,9 @@ class MultimodalSequence(Sequence[SensorFrame]):
                 masks=MaskBatch(torch.empty((0, *self.image_size), dtype=torch.bool)),
             )
         )
+        detections = detections.select(
+            torch.isin(detections.class_ids, torch.tensor(self.class_ids, dtype=torch.int64))
+        )
         detections_3d = (
             self._spatial.read(frame_index, sample_id)
             if self._spatial is not None
@@ -376,4 +477,4 @@ class MultimodalSequence(Sequence[SensorFrame]):
         return SensorFrame(frame_index, self.image_size, detections, detections_3d, camera, frame_index / self.fps)
 
 
-__all__ = ("ImageDataset", "ImageSample", "MultimodalSequence", "SensorFrame")
+__all__ = ("DetectionFrame", "DetectionSequence", "ImageDataset", "ImageSample", "MultimodalSequence", "SensorFrame")

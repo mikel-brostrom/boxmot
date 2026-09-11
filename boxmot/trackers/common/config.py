@@ -163,15 +163,18 @@ def load_tracker_config(
     tracker_name: str,
     tracker_config: str | Path | None = None,
     *overrides: Mapping[str, Any] | None,
+    include_defaults: bool = True,
 ) -> dict[str, Any]:
     """Resolve one tracker config using deterministic overlay precedence.
 
     Built-in defaults are loaded first. ``tracker_config`` may be a partial
     scalar YAML or a built-in preset and overlays those defaults. Additional
-    mappings are then applied from left to right.
+    mappings are then applied from left to right. ``include_defaults=False``
+    returns only authored values and overrides, allowing backend factories to
+    apply their own defaults without treating them as explicit user choices.
     """
 
-    resolved = load_tracker_defaults(tracker_name)
+    resolved = load_tracker_defaults(tracker_name) if include_defaults else {}
     if tracker_config is not None:
         config_path = resolve_tracker_config_path(tracker_config)
         default_path = get_tracker_config_path(tracker_name).resolve()

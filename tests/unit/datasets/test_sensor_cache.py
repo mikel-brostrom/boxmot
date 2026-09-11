@@ -7,6 +7,7 @@ import json
 import pickle
 import shutil
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from dataclasses import replace
 from pathlib import Path
 
@@ -87,6 +88,76 @@ def _dataset(tmp_path: Path, *, frames: int = 3, annotations: bool = True) -> Da
 
 def _prepare(dataset: DatasetInputs, **kwargs) -> Path:
     return prepare_sensor_sequence(dataset, "drive-a", **kwargs)
+
+
+@pytest.mark.parametrize("load_images", [False, True])
+def test_saved_boxes_cache_preserves_absent_masks_and_empty_frames(tmp_path: Path, monkeypatch, load_images) -> None:
+    """A boxes-only declaration must never decode, store or invent mask inputs."""
+    dataset = _dataset(tmp_path)
+    modalities = dataset.sequences[0].modalities
+    dataset = replace(
+        dataset,
+        sequences=(
+            SequenceInputs(
+                "drive-a",
+                {
+                    "images": modalities["images"],
+                    "detections_2d": replace(modalities["detections_2d"], options={"load_masks": False}),
+                },
+            ),
+        ),
+    )
+
+    def forbid_mask_decoding(*args, **kwargs):
+        raise AssertionError("Disabled detection masks must not be decoded.")
+
+    monkeypatch.setattr("boxmot.datasets.readers.detections._decode_mask", forbid_mask_decoding)
+    raw = MultimodalSequence(dataset.sequences[0], classes=dataset.classes, fps=dataset.fps, split=dataset.split)
+    expected = list(raw)
+    path = _prepare(dataset, load_images=load_images)
+    index = json.loads((path / "index.json").read_text())
+    assert "masks2d.bin" not in index["arrays"]
+    assert "ground_truth.bin" not in index["arrays"]
+    assert ("images.bin" in index["arrays"]) is load_images
+
+    def forbid_parsing(*args, **kwargs):
+        raise AssertionError("Warm replay must not parse detections again.")
+
+    monkeypatch.setattr("boxmot.datasets.sensor_cache.MultimodalSequence", forbid_parsing)
+    assert _prepare(dataset, load_images=load_images) == path
+    with closing(open_sensor_sequence(path)) as cached:
+        assert len(cached) == 3
+        for actual, original in zip(cached, expected, strict=True):
+            assert actual.detections.masks is original.detections.masks is None
+            assert actual.detections.sample_id == original.detections.sample_id
+            torch.testing.assert_close(actual.detections.geometry.values, original.detections.geometry.values)
+            torch.testing.assert_close(actual.detections.scores, original.detections.scores)
+            torch.testing.assert_close(actual.detections.class_ids, original.detections.class_ids)
+            assert actual.camera is None
+            assert len(actual.detections_3d) == 0
+        assert [len(frame.detections) for frame in cached] == [1, 0, 0]
+        if load_images:
+            assert cached.read_image(2)[:, 0, 0].tolist() == [7, 10, 20]
+
+
+def test_saved_boxes_cache_invalidates_reader_selection_and_detection_rows(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path, annotations=False)
+    masked_path = _prepare(dataset)
+    modalities = dict(dataset.sequences[0].modalities)
+    modalities["detections_2d"] = replace(modalities["detections_2d"], options={"load_masks": False})
+    boxes_dataset = replace(dataset, sequences=(SequenceInputs("drive-a", modalities),))
+    boxes_path = _prepare(boxes_dataset)
+    assert boxes_path != masked_path
+    source = modalities["detections_2d"].paths[0]
+    source.write_text(source.read_text().replace("0.9", "0.8"))
+    changed_path = _prepare(boxes_dataset)
+    assert changed_path != boxes_path
+    with closing(open_sensor_sequence(changed_path)) as cached:
+        assert cached[0].detections.masks is None
+        assert cached[0].detections.scores.tolist() == pytest.approx([0.8])
+    with closing(open_sensor_sequence(masked_path)) as cached:
+        assert cached[0].detections.masks is not None
+        assert cached[0].detections.scores.tolist() == pytest.approx([0.9])
 
 
 def test_sensor_cache_preserves_all_modalities_and_empty_frames(tmp_path: Path) -> None:

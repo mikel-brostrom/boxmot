@@ -181,6 +181,36 @@ boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n-osnet.yaml \
 Create that experiment by adding `reid: {ref: osnet-x0-25-msmt17}` to the local
 example above. OccluBoost evaluates 2D boxes; omit the sensor-only `--eval-3d` flag.
 
+### Existing 2D detections
+
+Use `boxmot/configs/datasets/kitti-2d-detections.yaml` to evaluate the saved
+TrackR-CNN boxes with image trackers. It adds
+`predictions/trackrcnn/{partition}/{sequence}.txt` to the image and annotation
+layout above. Its `detections_2d.options.load_masks: false` explicitly selects
+boxes, scores, and classes; prediction masks and stored embeddings are not loaded.
+Calibration, ego poses, and 3D boxes are not declared by this config.
+
+```bash
+boxmot eval --dataset kitti-2d-detections --tracker occluboost \
+  --reid osnet-x0-25-msmt17 --split val --cache-inputs \
+  --project runs/kitti-2d
+```
+
+This runs the existing detections without a detector or perception build.
+Appearance-enabled trackers require `--reid` to generate features from the
+images. Omit it for trackers such as ByteTrack, or when the selected tracker
+configuration disables appearance. `--cache-inputs` reuses parsed detections,
+required image pixels, annotations, and generated ReID features across runs;
+changed inputs or encoder settings invalidate the corresponding cache.
+
+For an existing folder, copy this YAML into it, set `storage.root: .`, and
+adjust the modality paths. For example, images in the multimodal sequence layout
+use `path: "sequences/{partition}/{sequence}/images"`. Run it with
+`--dataset ./kitti-mots/kitti-2d-detections.yaml`. Ground truth must be native
+KITTI tracking labels aligned to those images. This saved-box workflow supports
+`eval` with one sequence worker; tuning and KF calibration still use the
+perception-build workflow above.
+
 ## KITTI MOTS instance masks
 
 The `kitti-mots` profile reads the original KITTI tracking images and MOTS
@@ -440,7 +470,7 @@ enable variable-time motion.
 | `ground_truth_objects` / `kitti-object-labels` | Directory of zero-based six-digit frame text files with exact 15-field KITTI object labels, including fractional truncation; required only for `eval --eval-3d --eval-ap` |
 | `calibration` / `kitti-p2` | `P2:` followed by 12 row-major values of a `3 x 4` camera-to-pixel projection |
 | `poses` / `camera-to-world-npy` | Optional numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; omit for tracking and calibration in camera coordinates |
-| `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields |
+| `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields; `options.load_masks: false` loads boxes only, stored embeddings are never exposed |
 | `detections_3d` / `kitti-detections` | Six-digit frame text files with 16 KITTI detection fields; dimensions and bottom-face centers in meters, camera x right/y down/z forward, yaw about +y |
 
 The encoding names specify serialization; predictions can come from your own
@@ -618,10 +648,12 @@ These checks use the configuration; input files are validated separately.
 Ground-truth masks do not substitute for
 predicted masks, and TrackR-CNN's stored embeddings are not exposed by its reader.
 
-The current direct saved-sensor `eval` and `tune` workflows require
+The direct spatial saved-sensor `eval` and `tune` workflows require
 `--tracker eagermot --tracker-backend python`.
-Datasets declaring only saved TrackR-CNN image predictions also require an
-explicit replay workflow: use `track --detections ... --images ... --instances ...`.
+For image trackers, explicitly select saved TrackR-CNN boxes with
+`load_masks: false` and use the [saved 2D evaluation workflow](#existing-2d-detections).
+To replay saved masks with MAF-HDA, use
+`track --detections ... --images ... --instances ...`.
 Perception experiments cannot silently replace those saved predictions with
 a different detector or build.
 
