@@ -89,11 +89,17 @@ Objective selectors must use `HOTA`. Perception and build options,
 
 Incompatible selections report the selected split's declared inputs alongside
 the registered [Python tracker inputs](../trackers/index.md#input-support),
-distinguishing missing modalities and unavailable backends from workflow
-restrictions. Direct saved-sensor tuning currently requires
-`--tracker eagermot --tracker-backend python`. Extra sensors do not make the
-2D subset unusable by other trackers; tune those through an image dataset
-config with `images` and `ground_truth`, plus a perception build or detector.
+naming declared tracking inputs that the tracker marks `Unused` and any missing
+required inputs. Every declared tracking input must be consumed; silently
+dropping sensors would change the configured experiment. Ground truth is used
+separately for the tuning objective.
+
+Backend availability and workflow restrictions are reported separately. Direct
+saved-sensor tuning currently requires
+`--tracker eagermot --tracker-backend python`. To intentionally tune an image-only
+experiment, select only `images` and `ground_truth` in a separate dataset config
+or explicit split override, plus a perception build or detector. Split modality
+overrides set to `null` remove those inputs from the experiment.
 
 See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
 for inputs and outputs.

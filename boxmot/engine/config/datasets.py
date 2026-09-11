@@ -60,6 +60,24 @@ def _sensor_input_matrix(
     return "\n".join("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip() for row in rows)
 
 
+def _unused_sensor_inputs(modalities: Mapping[str, Mapping[str, Any]], capabilities: TrackerCapabilities) -> list[str]:
+    """Find declared tracking inputs the algorithm cannot consume; exclude scoring labels."""
+
+    inputs = [
+        ("images", "frame", "images"),
+        ("detections_3d", "detections_3d", "3D boxes (detections_3d)"),
+        ("calibration", "camera", "calibration"),
+        ("poses", "camera", "ego motion (poses)"),
+    ]
+    if modalities.get("detections_2d", {}).get("format") == "trackrcnn":
+        inputs.insert(1, ("detections_2d", "masks", "instance masks (detections_2d)"))
+    return [
+        label
+        for role, capability, label in inputs
+        if role in modalities and not getattr(capabilities, f"accepts_{capability}")
+    ]
+
+
 def validate_sensor_workflow_inputs(
     reference: str | Path,
     spec: TrackerSpec,
@@ -79,9 +97,17 @@ def validate_sensor_workflow_inputs(
     definition = get_tracker_definition(spec.name)
     supported = spec.name == "eagermot" and spec.backend == "python"
     missing = [role for role in _SENSOR_EVALUATION_FORMATS if role not in modalities]
-    if supported and not missing:
+    unused = _unused_sensor_inputs(modalities, definition.capabilities)
+    if supported and not missing and not unused:
         return
 
+    mismatch = ""
+    if unused:
+        mismatch = (
+            f"Dataset/model input mismatch: '{spec.name}' declares these dataset inputs unused: "
+            f"{', '.join(unused)}.\n"
+            "Declared tracking inputs must be consumed; they will not be silently dropped.\n\n"
+        )
     reasons = []
     if spec.backend == "cpp" and definition.native_class_path is None:
         reasons.append(f"Tracker '{spec.name}' has no C++ backend.")
@@ -104,18 +130,16 @@ def validate_sensor_workflow_inputs(
         )
     if spec.name != "eagermot":
         notes.append(
-            "Extra sensor modalities do not prevent using the image inputs; "
-            "this saved-sensor workflow does not adapt them for the selected tracker."
-        )
-        notes.append(
-            f"For {spec.name}, use an image dataset config (images and ground truth) with a perception build "
-            "(--build), or select --detector to create one. The build must supply the tracker's required inputs."
+            "Choose a tracker that consumes the declared inputs. "
+            f"For an intentional image-only experiment with {spec.name}, explicitly select images and ground truth "
+            "in a separate dataset config and use a compatible perception build (--build) or --detector."
         )
 
     matrix = _sensor_input_matrix(modalities, config["box_type"], spec.name, definition.capabilities)
     raise ValueError(
         f"Cannot run saved-sensor {mode} for dataset '{config['id']}' (split '{split_name}') "
         f"with --tracker {spec.name} --tracker-backend {spec.backend}.\n\n"
+        + mismatch
         + matrix
         + "\n\n"
         + "\n".join(reasons)

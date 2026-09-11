@@ -74,6 +74,15 @@ def test_cli_explains_botsort_inputs_and_saved_sensor_workflow_limit(
     assert "Unused" in _row(result.output, "Ego motion (poses)")
     assert "camera-to-world-npy" in _row(result.output, "Ego motion (poses)")
     assert "instance-png" in _row(result.output, "Ground-truth masks")
+    mismatch = next(line for line in result.output.splitlines() if line.startswith("Dataset/model input mismatch:"))
+    assert "instance masks (detections_2d)" in mismatch
+    assert "3D boxes (detections_3d)" in mismatch
+    assert "calibration" in mismatch
+    assert "ego motion (poses)" in mismatch
+    assert "ground_truth" not in mismatch
+    assert "Declared tracking inputs must be consumed" in result.output
+    assert result.output.index(mismatch) < result.output.index("Saved-sensor")
+    assert "Extra sensor modalities do not prevent" not in result.output
     assert "Traceback" not in result.output
 
 
@@ -119,6 +128,39 @@ def test_matrix_follows_changed_registry_metadata(declared_dataset: Path, monkey
         validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort"), mode="eval")
 
     assert "Required" in _row(str(raised.value), "Instance masks")
+
+
+def test_supported_workflow_rejects_declared_inputs_the_tracker_cannot_consume(
+    declared_dataset: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Workflow availability cannot override the registered algorithm input contract."""
+    definition = TRACKER_DEFINITIONS["eagermot"]
+    capabilities = replace(definition.capabilities, accepts_masks=False)
+    monkeypatch.setitem(TRACKER_DEFINITIONS, "eagermot", replace(definition, capabilities=capabilities))
+
+    with pytest.raises(ValueError, match="Dataset/model input mismatch:") as raised:
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("eagermot"), mode="eval")
+
+    assert "instance masks (detections_2d)" in str(raised.value)
+    assert "supports only" not in str(raised.value)
+
+
+def test_unused_input_rejection_respects_split_selection_and_excludes_scoring_labels(declared_dataset: Path) -> None:
+    """Only tracking inputs retained by the selected split constrain the tracker."""
+    payload = yaml.safe_load(declared_dataset.read_text(encoding="utf-8"))
+    payload["splits"]["val"]["modalities"] = {"detections_2d": None, "poses": None}
+    _replace_manifest(declared_dataset, payload)
+
+    with pytest.raises(ValueError) as raised:
+        validate_sensor_workflow_inputs(declared_dataset, TrackerSpec("botsort"), mode="eval")
+
+    mismatch = next(line for line in str(raised.value).splitlines() if line.startswith("Dataset/model input mismatch:"))
+    assert "3D boxes (detections_3d)" in mismatch
+    assert "calibration" in mismatch
+    assert "poses" not in mismatch
+    assert "masks" not in mismatch
+    assert "ground_truth" not in mismatch
+    assert "instance-png" in _row(str(raised.value), "Ground-truth masks")
 
 
 @pytest.mark.parametrize("mode", ("eval", "tune"))

@@ -206,7 +206,7 @@ dependencies, and output formats.
 
 A local `dataset.yaml` uses the same `id`, `format`, `storage`, `classes`,
 and `splits` schema as the built-in dataset configs. Set
-`format.layout: sequence` and declare the available `modalities`: images,
+`format.layout: sequence` and declare the `modalities` to use: images,
 ground truth, calibration, ego motion, and saved 2D/3D detections. Each modality
 selects its encoding and relative paths. Dataset identity and layout are
 independent of the tracker and detector models.
@@ -319,10 +319,12 @@ Each modality declares `format`, either `path` or `paths`, and optional
 parser `options`. For spatial detections, several directories can feed the
 same modality, or one directory can contain every class. A split's `modalities`
 mapping replaces selected modality declarations; set an entry to `null` to
-omit it for that split. Consumers validate the modalities they need, so
-`eval` can reject a split without ground truth while another reader can use
-its images and detections. `has_ground_truth` must agree with the effective
-ground-truth modality.
+omit it for that split. The resulting declarations select the inputs for the
+experiment. `eval` and `tune` require the selected tracker to consume every
+declared tracking input; an input marked `Unused` in its capability matrix is
+an incompatibility. Ground truth is consumed separately for scoring and is
+never passed to the tracker. `has_ground_truth` must agree with the effective
+ground-truth modality, and evaluation requires annotations for the selected split.
 
 Sequence layouts require a finite positive dataset `fps`. This template sets `10`; it
 sets timestamps (`frame_index / fps`) and saved video playback speed. Tracking
@@ -424,15 +426,18 @@ supported options and outputs.
 When a tracker selection is incompatible, `eval` and `tune` compare the
 selected split's declared modalities with the registered
 [Python tracker input capabilities](../trackers/index.md#input-support).
-The message separates tracker requirements, optional or configurable inputs,
-and evaluation annotations, then identifies missing modalities, an unavailable
-native backend, or a workflow restriction. These checks use the configuration;
-input files are validated separately. Ground-truth masks do not substitute for
+The message names declared tracking inputs that the tracker marks `Unused`,
+as well as missing required inputs. Silently discarding a declared input would
+change the configured experiment. These checks use the configuration; input
+files are validated separately. Ground-truth masks do not substitute for
 predicted masks, and TrackR-CNN's stored embeddings are not exposed by its reader.
 
-Additional sensors do not make a dataset's 2D inputs unsuitable for an image
-tracker such as BotSort. The current direct saved-sensor `eval` and `tune`
-workflows nevertheless require `--tracker eagermot --tracker-backend python`.
-For an image tracker, author an image dataset config containing `images` and
-`ground_truth`, then select a perception build or detector through ordinary
-`eval` or `tune`. This uses the image subset without changing the sensor files.
+Backend availability and workflow support are checked separately. The current
+direct saved-sensor `eval` and `tune` workflows require
+`--tracker eagermot --tracker-backend python`.
+
+To intentionally run an image-only experiment, author a separate dataset config
+or explicit split override selecting only `images` and `ground_truth`, then
+select a perception build or detector through ordinary `eval` or `tune`.
+The payload files can stay in place; the selected configuration must express
+which inputs the experiment uses.

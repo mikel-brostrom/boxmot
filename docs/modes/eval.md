@@ -190,12 +190,18 @@ an explicit `--device` must be `cpu`.
 
 If the selection is incompatible, the error compares the selected split's
 declared inputs with the registered [Python tracker inputs](../trackers/index.md#input-support)
-and explains missing modalities, backend availability, or workflow restrictions.
-Extra sensor inputs do not prevent BotSort or other image trackers from using
-the 2D subset, but this direct saved-sensor workflow currently requires
-`--tracker eagermot --tracker-backend python`. To evaluate an image tracker,
-use an image dataset config with `images` and `ground_truth`, and select a
-perception build or detector through the ordinary evaluation workflow.
+and names declared tracking inputs that the tracker marks `Unused`, along with
+any missing required inputs. Every declared tracking input must be consumed;
+silently dropping sensors would change the configured experiment. Ground truth
+is used separately for scoring.
+
+Backend availability and workflow restrictions are reported separately. This
+direct saved-sensor workflow currently requires
+`--tracker eagermot --tracker-backend python`. To intentionally evaluate an
+image-only experiment, select only `images` and `ground_truth` in a separate
+dataset config or explicit split override, then select a perception build or
+detector through the ordinary evaluation workflow. Split modality overrides
+set to `null` remove those inputs from the experiment.
 
 Python callers use `boxmot.engine.eval.evaluator.run_eval(args)` and receive
 the shared `ValidationResult`, including class-average mask metrics and `exp_dir`.
