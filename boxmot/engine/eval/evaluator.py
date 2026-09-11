@@ -475,7 +475,7 @@ def _run_sensor_evaluation(
 ) -> ValidationResult | None:
     """Validate saved sensor selections before importing their replay runtime."""
     from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     reference = getattr(args, "dataset", None)
@@ -483,8 +483,7 @@ def _run_sensor_evaluation(
     if path is None:
         return None
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
-    if spec.name != "eagermot" or spec.backend != "python":
-        raise ValueError("Sensor dataset evaluation requires --tracker eagermot --tracker-backend python.")
+    validate_sensor_workflow_inputs(path, spec, mode="eval", split=getattr(args, "split", None))
     for name, value in {
         "evolve_config": evolve_config,
         "per_class_configs": per_class_configs,

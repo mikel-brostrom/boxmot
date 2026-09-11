@@ -187,6 +187,16 @@ metrics. Add `--show-timing` to include replay timing in the result summary, or
 Saved sensor evaluation reads predictions directly. Perception/build options,
 Kalman calibration, and TrackEval comparison are unavailable for these datasets;
 an explicit `--device` must be `cpu`.
+
+If the selection is incompatible, the error compares the selected split's
+declared inputs with the registered [Python tracker inputs](../trackers/index.md#input-support)
+and explains missing modalities, backend availability, or workflow restrictions.
+Extra sensor inputs do not prevent BotSort or other image trackers from using
+the 2D subset, but this direct saved-sensor workflow currently requires
+`--tracker eagermot --tracker-backend python`. To evaluate an image tracker,
+use an image dataset config with `images` and `ground_truth`, and select a
+perception build or detector through the ordinary evaluation workflow.
+
 Python callers use `boxmot.engine.eval.evaluator.run_eval(args)` and receive
 the shared `ValidationResult`, including class-average mask metrics and `exp_dir`.
 See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).

@@ -68,7 +68,8 @@ names describe your data; no detector-name directory conventions are required.
 All modality paths resolve beneath `storage.root`, which is `.` relative to
 this local `dataset.yaml`. Selecting the built-in `--dataset sensor-fusion`
 instead resolves `root: .` beneath `datasets/mot` in the working directory;
-use `--data-root ./my-sensor-dataset` to select another payload folder.
+use a local copy of the YAML for another payload folder. Saved sensor `eval`
+and `tune` do not accept `--data-root`.
 Paths use `/`, cannot contain `..` or an absolute
 root, and accept `{partition}` and `{sequence}` placeholders. Keeping actual
 files inside the folder makes the dataset portable. Use a split's `modalities`

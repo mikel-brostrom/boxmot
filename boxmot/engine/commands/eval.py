@@ -58,7 +58,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
         return None
 
     from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     explicit = _explicit_cli_keys(ctx)
@@ -67,8 +67,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
-        if spec.name != "eagermot" or spec.backend != "python":
-            raise ValueError("Sensor dataset evaluation requires --tracker eagermot --tracker-backend python.")
+        validate_sensor_workflow_inputs(path, spec, mode="eval", split=payload.get("split"))
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
             names = ", ".join(

@@ -1064,7 +1064,7 @@ def _run_sensor_tuning(
 ) -> TuneResult | None:
     """Validate declared sensor inputs before lazily loading their optimizer."""
     from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     reference = getattr(args, "dataset", None)
@@ -1073,8 +1073,7 @@ def _run_sensor_tuning(
         return None
 
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
-    if spec.name != "eagermot" or spec.backend != "python":
-        raise ValueError("Sensor dataset tuning requires --tracker eagermot --tracker-backend python.")
+    validate_sensor_workflow_inputs(path, spec, mode="tune", split=getattr(args, "split", None))
     if baseline_config is not None:
         raise ValueError("Sensor dataset tuning uses separate class profiles and does not support baseline_config.")
     unsupported = (

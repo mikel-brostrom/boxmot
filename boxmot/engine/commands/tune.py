@@ -94,7 +94,7 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
         return None
 
     from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     try:
@@ -102,8 +102,7 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
-        if spec.name != "eagermot" or spec.backend != "python":
-            raise ValueError("Sensor dataset tuning requires --tracker eagermot --tracker-backend python.")
+        validate_sensor_workflow_inputs(path, spec, mode="tune", split=payload.get("split"))
         _validate_sensor_options(ctx, payload)
         dataset = load_sensor_evaluation_inputs(
             path,

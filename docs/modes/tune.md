@@ -86,6 +86,15 @@ It supports `--search-alg optuna`; an explicit device must be `cpu`.
 `--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial.
 Objective selectors must use `HOTA`. Perception and build options,
 `--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
+
+Incompatible selections report the selected split's declared inputs alongside
+the registered [Python tracker inputs](../trackers/index.md#input-support),
+distinguishing missing modalities and unavailable backends from workflow
+restrictions. Direct saved-sensor tuning currently requires
+`--tracker eagermot --tracker-backend python`. Extra sensors do not make the
+2D subset unusable by other trackers; tune those through an image dataset
+config with `images` and `ground_truth`, plus a perception build or detector.
+
 See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
 for inputs and outputs.
 

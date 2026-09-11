@@ -79,8 +79,8 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
 @pytest.mark.parametrize(
     ("overrides", "message"),
     (
-        ({"tracker": "bytetrack"}, "requires --tracker eagermot"),
-        ({"tracker_backend": "cpp"}, "requires --tracker eagermot"),
+        ({"tracker": "bytetrack"}, "supports only --tracker eagermot"),
+        ({"tracker_backend": "cpp"}, "has no C\\+\\+ backend"),
         ({"experiment": "experiment.yaml"}, "does not support experiment"),
         ({"build": "build"}, "does not support build"),
         ({"detector": "yolov8n"}, "does not support detector"),

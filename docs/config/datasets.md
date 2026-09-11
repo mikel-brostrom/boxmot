@@ -229,8 +229,9 @@ cp boxmot/configs/datasets/sensor-fusion.yaml ./my-sensor-dataset/dataset.yaml
 
 Edit the copied `dataset.yaml` to set your dataset ID and input paths.
 Selecting the built-in `--dataset sensor-fusion` directly resolves its
-`root: .` beneath `datasets/mot` in the working directory, or beneath an
-explicit `--data-root`. A local copy resolves paths relative to its containing folder.
+`root: .` beneath `datasets/mot` in the working directory. For another payload
+folder, use a local copy: its paths resolve relative to the containing folder.
+Saved sensor `eval` and `tune` do not accept `--data-root`.
 Populate these payloads for both `drive-001` and `drive-002`:
 
 ```text
@@ -419,3 +420,19 @@ ingestion, and 3D ground-truth box evaluation are not supplied by these
 consumers. Use separate sequences for tuning and evaluation. See
 [EagerMOT tuning](../trackers/eagermot.md#tune-separate-class-profiles) for
 supported options and outputs.
+
+When a tracker selection is incompatible, `eval` and `tune` compare the
+selected split's declared modalities with the registered
+[Python tracker input capabilities](../trackers/index.md#input-support).
+The message separates tracker requirements, optional or configurable inputs,
+and evaluation annotations, then identifies missing modalities, an unavailable
+native backend, or a workflow restriction. These checks use the configuration;
+input files are validated separately. Ground-truth masks do not substitute for
+predicted masks, and TrackR-CNN's stored embeddings are not exposed by its reader.
+
+Additional sensors do not make a dataset's 2D inputs unsuitable for an image
+tracker such as BotSort. The current direct saved-sensor `eval` and `tune`
+workflows nevertheless require `--tracker eagermot --tracker-backend python`.
+For an image tracker, author an image dataset config containing `images` and
+`ground_truth`, then select a perception build or detector through ordinary
+`eval` or `tune`. This uses the image subset without changing the sensor files.
