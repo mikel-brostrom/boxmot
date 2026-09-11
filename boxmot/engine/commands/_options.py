@@ -439,7 +439,7 @@ def replay_build_options(*, dataset_default: str | None = None) -> Callable:
                 "--device",
                 default=BOXMOT_DEFAULTS.materialize.device,
                 callback=_parse_device,
-                help="One perception device for automatic materialization: cpu, mps, cuda:N, or N (e.g. 0).",
+                help="One device for uncached perception: cpu, mps, cuda:N, or N (e.g. 0). Matching builds are reused.",
             ),
         )
         for option in reversed(options):

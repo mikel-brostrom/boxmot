@@ -10,6 +10,7 @@ import pytest
 import torch
 
 import boxmot.engine.materialization.metadata_cache as metadata_cache_module
+import boxmot.engine.materialization.plan as plan_module
 import boxmot.engine.materialization.source as source_module
 import boxmot.engine.materialization.stages.detect as detect_stage_module
 import boxmot.engine.materialization.stages.embed as embed_stage_module
@@ -27,6 +28,9 @@ from boxmot.reid import ReIDEncoderSpec
 from boxmot.segmentors import SegmentorSpec
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 from boxmot.trackers import TrackerSpec
+from boxmot.utils.devices import resolve_device
+from tests.unit.engine.test_dataset_fps_workflow import _materialize as materialize_fixture
+from tests.unit.engine.test_dataset_fps_workflow import fps_case as fps_case
 
 
 class _Detector:
@@ -170,29 +174,50 @@ def test_only_an_explicit_cli_device_overrides_component_configuration() -> None
     assert workflow._device_override(explicit) == "mps"
 
 
-def test_explicit_unavailable_device_fails_before_source_cataloging(monkeypatch) -> None:
-    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+def test_invalid_device_selector_fails_before_source_cataloging(monkeypatch) -> None:
     monkeypatch.setattr(workflow, "_resolved_inputs", lambda *args, **kwargs: pytest.fail("Unexpected cataloging"))
 
-    with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
-        workflow.materialize(SimpleNamespace(device="2", materialize_explicit_keys=("device",)))
+    with pytest.raises(ValueError, match="Unsupported device"):
+        workflow.materialize(SimpleNamespace(device="cuda:bad", materialize_explicit_keys=("device",)))
 
 
-def test_authored_unavailable_device_fails_before_component_execution(monkeypatch) -> None:
+@pytest.mark.parametrize("device_source", ["explicit", "authored"])
+def test_unavailable_device_fails_only_when_missing_outputs_need_inference(
+    monkeypatch: pytest.MonkeyPatch, fps_case: SimpleNamespace, device_source: str
+) -> None:
+    """A real cache miss still checks accelerator availability before model execution."""
+
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
-    monkeypatch.setattr(
-        workflow,
-        "_resolved_inputs",
-        lambda *args, **kwargs: ("fixture", "aabb", SimpleNamespace(samples=()), "fixture", None, None, {}),
-    )
-    authored = DetectorSpec("fixture", device="2")
-    monkeypatch.setattr(
-        workflow, "resolve_detector_spec", lambda *args, **kwargs: (authored, {"spec": asdict(authored)})
-    )
-    monkeypatch.setattr(workflow, "detector_capabilities", lambda *args: pytest.fail("Unexpected component setup"))
+    discovered: list[Path | None] = []
+    actual_find = workflow.find_matching_build
+
+    def find_matching(plan, **kwargs):
+        result = actual_find(plan, **kwargs)
+        discovered.append(result)
+        return result
+
+    def construct_detector(spec):
+        assert discovered == [None]
+        resolve_device(spec.device)
+        pytest.fail("An unavailable accelerator must fail before model execution.")
+
+    monkeypatch.setattr(workflow, "find_matching_build", find_matching)
+    monkeypatch.setattr(detect_stage_module, "create_detector", construct_detector)
+    options: dict[str, object] = {}
+    if device_source == "authored":
+        authored = DetectorSpec("fixture", device="cuda:2")
+        monkeypatch.setattr(
+            workflow, "resolve_detector_spec", lambda *args, **kwargs: (authored, {"spec": asdict(authored)})
+        )
+    else:
+        options.update(device="cuda:2", materialize_explicit_keys=("device",))
 
     with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
-        workflow.materialize(SimpleNamespace(device="cpu", materialize_explicit_keys=()))
+        materialize_fixture(fps_case, None, **options)
+
+    assert discovered == [None]
+    assert fps_case.detector.seen == []
+    assert fps_case.encoder.seen == []
 
 
 def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeypatch, tmp_path) -> None:
@@ -648,7 +673,6 @@ def test_workflow_does_not_plan_masks_for_builtin_reid(monkeypatch, tmp_path) ->
 
 
 def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(workflow, "resolve_device", torch.device)
     source_path = tmp_path / "frame.jpg"
     assert cv2.imwrite(str(source_path), np.zeros((8, 10, 3), dtype=np.uint8))
     sample = SourceSample(
@@ -777,7 +801,6 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
             {"spec": {"backend": "fixture", "device": "cpu"}, "artifact": None},
         ),
     )
-    monkeypatch.setattr(workflow, "resolve_device", torch.device)
     monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: DetectorCapabilities())
     captured = []
 
@@ -825,6 +848,59 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
         "segmentor": "mps",
         "reid": "mps",
     }
+
+
+@pytest.mark.parametrize(
+    ("published_device", "requested_device"),
+    [("cpu", "mps"), ("mps", "cuda:0"), ("cuda:0", "cpu")],
+)
+def test_workflow_reuses_prior_release_and_device_without_perception(
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,
+    published_device: str,
+    requested_device: str,
+) -> None:
+    """A complete build is reused even when the newly requested accelerator is absent."""
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with monkeypatch.context() as previous_release:
+        previous_release.setattr(plan_module, "__version__", "0.1.0")
+        previous_release.setattr(workflow, "__version__", "0.1.0")
+        output = materialize_fixture(fps_case, None, device=published_device, materialize_explicit_keys=("device",))
+
+    def snapshot() -> dict[str, tuple[bytes, int]]:
+        return {
+            path.relative_to(output).as_posix(): (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+
+    before = snapshot()
+    calls = list(fps_case.detector.seen), list(fps_case.encoder.seen)
+
+    def forbid_perception(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Matching published outputs must be reused before constructing perception stages or models.")
+
+    for name in ("DetectStage", "EmbedStage", "SegmentStage", "DatasetMaterializer"):
+        monkeypatch.setattr(workflow, name, forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "create_detector", forbid_perception)
+    monkeypatch.setattr(embed_stage_module, "create_reid_encoder", forbid_perception)
+    monkeypatch.setattr(segment_stage_module, "create_segmentor", forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(embed_stage_module, "_WORKER_ENCODERS", {})
+
+    reused = materialize_fixture(fps_case, None, device=requested_device, materialize_explicit_keys=("device",))
+
+    assert reused == output
+    assert snapshot() == before
+    assert (fps_case.detector.seen, fps_case.encoder.seen) == calls
+    manifest = DatasetManifest.load(output)
+    assert manifest.metadata["boxmot_version"] == "0.1.0"
+    assert manifest.metadata["components"]["detector"]["spec"]["device"] == published_device
+    assert manifest.metadata["components"]["reid"]["spec"]["device"] == published_device
+    assert manifest.counts["samples"] == 19
+    assert manifest.counts["embeddings"] == manifest.counts["instances"] == 18
 
 
 def test_published_build_reuse_does_not_construct_perception_models(monkeypatch, tmp_path) -> None:

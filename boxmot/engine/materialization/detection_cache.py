@@ -35,7 +35,7 @@ from boxmot.datasets.storage import (
 from boxmot.datasets.validation import DatasetValidationError, validate_dataset, validate_published_build
 
 from .builds import former_default_build_root
-from .ids import fingerprint
+from .ids import fingerprint, stage_content
 from .plan import BuildPlan, StagePlan
 from .source import SourceSample
 from .stages.base import StageOutcome
@@ -48,8 +48,21 @@ DETECTION_CACHE_SCHEMA = "boxmot.materialization/detect-cache/v1"
 _BUILD_ID = re.compile(r"^[0-9a-f]{64}$")
 
 
+def _detect_provenance(detect_plan: StagePlan) -> StageProvenance:
+    """Describe the original detector contract and its execution provenance."""
+
+    return StageProvenance(
+        name=detect_plan.name,
+        fingerprint=detect_plan.fingerprint,
+        batch_size=detect_plan.batch_size,
+        inputs=detect_plan.depends_on,
+        component=detect_plan.component,
+        config=detect_plan.config,
+    )
+
+
 def make_detection_cache_id(plan: BuildPlan, detect_plan: StagePlan) -> str:
-    """Return detector-output identity without final-build or ReID identity."""
+    """Identify detector outputs by their schema, source, and detector contract."""
 
     if detect_plan.name != "detect":
         raise ValueError("Detection cache identity requires the detect stage plan.")
@@ -58,11 +71,10 @@ def make_detection_cache_id(plan: BuildPlan, detect_plan: StagePlan) -> str:
             "cache_schema": DETECTION_CACHE_SCHEMA,
             "dataset_schema": SCHEMA_ID,
             "dataset_schema_version": SCHEMA_VERSION,
-            "boxmot_version": __version__,
             "dataset_name": plan.dataset_name,
             "source_fingerprint": plan.source_fingerprint,
             "box_type": plan.box_type,
-            "detect_stage_fingerprint": detect_plan.fingerprint,
+            "detect_stage_fingerprint": stage_content((_detect_provenance(detect_plan),))[0].fingerprint,
         }
     )
 
@@ -281,14 +293,7 @@ class DetectionCache:
 
     @property
     def _expected_stage(self) -> StageProvenance:
-        return StageProvenance(
-            name=self.detect_plan.name,
-            fingerprint=self.detect_plan.fingerprint,
-            batch_size=self.detect_plan.batch_size,
-            inputs=self.detect_plan.depends_on,
-            component=self.detect_plan.component,
-            config=self.detect_plan.config,
-        )
+        return _detect_provenance(self.detect_plan)
 
     def lock(self) -> FileLock:
         """Return the cross-build lock guarding this cache identity."""
@@ -392,9 +397,8 @@ class DetectionCache:
             and not manifest.publish.masks
             and not manifest.publish.embeddings
             and set(manifest.artifacts_by_name) == {SAMPLES_ARTIFACT, INSTANCES_ARTIFACT}
-            and manifest.stages == (self._expected_stage,)
+            and stage_content(manifest.stages) == stage_content((self._expected_stage,))
             and metadata.get("cache_schema") == DETECTION_CACHE_SCHEMA
-            and metadata.get("boxmot_version") == __version__
             and metadata.get("dataset_name") == self.plan.dataset_name
             and metadata.get("source_fingerprint") == self.plan.source_fingerprint
             and metadata.get("source_count") == len(self.samples)
@@ -440,8 +444,7 @@ class DetectionCache:
         return (
             success == {"schema": SCHEMA_ID, "build_id": manifest.build_id}
             and manifest.box_type == self.plan.box_type
-            and detect_stages == (self._expected_stage,)
-            and metadata.get("boxmot_version") == __version__
+            and stage_content(detect_stages) == stage_content((self._expected_stage,))
             and metadata.get("dataset_name") == self.plan.dataset_name
             and metadata.get("source_fingerprint") == self.plan.source_fingerprint
             and metadata.get("source_count") == len(self.samples)

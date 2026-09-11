@@ -59,9 +59,10 @@ Use `--device cpu`, `--device mps`, or a CUDA selector such as
 `--device cuda:0` (`--device 0` is equivalent) to override the execution device
 for every perception component in the build. If omitted, each resolved
 component keeps its configured device; a configured `auto` resolves to the
-command default (`cpu`). Unavailable explicit accelerators fail before model
-loading with an actionable error. The effective per-component devices are shown
-in the Rich panel and included in the immutable build fingerprint.
+command default (`cpu`). Device availability is checked when uncached inference
+needs that device. Matching saved outputs can be reused across CPU, MPS, and
+CUDA, including on a machine without the original accelerator. The producing
+device remains recorded in the build's provenance.
 Selectors use the same [device rules as tracking](track.md#device-selection),
 including process-visible CUDA indices and one device per component.
 
@@ -120,7 +121,12 @@ also omitted, the existing catalog identity is preserved.
 `--build-root` overrides `BOXMOT_BUILDS_DIR`; otherwise BoxMOT uses
 `./runs/materializations`. This name distinguishes immutable perception datasets
 from C++ compilation output. A build ID resolves only below that root. An
-already complete identical build is validated and reused without mutation.
+already complete matching build is validated and reused without mutation.
+BoxMOT checks the selected root for the same source data, experiment, model
+weights, precision, preprocessing, class mapping, stage settings, and published
+outputs. A package release or execution-device change alone does not trigger
+inference again. The reused build keeps its original ID and provenance; its
+publication marker and every saved artifact are validated before reuse.
 
 Detector output is cached independently below
 `<selected-build-root>/.cache/detect` (by default,
@@ -131,8 +137,9 @@ build that changes only ReID skips detector inference and runs its remaining
 derived stages, normally embedding and finalization. A compatible published v1
 build can seed a missing cache automatically. With the repository-local default,
 the former platform-cache build root is also searched: an identical complete
-build is imported atomically, while another compatible build can seed detector
-output only. Imported rows are re-keyed to the new build ID, so every published
+build is imported atomically, while a matching build from another release or
+device is reused directly. Other compatible builds can seed detector output.
+Copied detector rows are re-keyed to the new build ID, so every published
 build keeps canonical `build:sample:detection` instance IDs.
 
 The shared cache contains canonical sample metadata and detector instances.
@@ -198,8 +205,9 @@ boxmot research --experiment mot17/ablation-yolox-lmbn.yaml \
 ```
 
 Automatic eval and tune preparation resolve the deterministic build for the
-selected experiment and inputs; reuse requires matching source and component
-fingerprints. Neither command selects a “latest” build. Research does not
+selected experiment and inputs; reuse requires matching source and perception
+settings regardless of the producing release or device. Multiple matching
+builds are considered in deterministic path order. Research does not
 materialize implicitly. Legacy NumPy, NPZ, and text-only cache roots are
 unsupported and are never migrated or deleted.
 

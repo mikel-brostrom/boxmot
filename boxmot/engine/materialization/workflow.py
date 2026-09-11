@@ -28,7 +28,11 @@ from boxmot.engine.materialization import (
     default_source_metadata_cache_path,
     fingerprint,
 )
-from boxmot.engine.materialization.builds import find_fps_parent_build, import_former_default_build
+from boxmot.engine.materialization.builds import (
+    find_fps_parent_build,
+    find_matching_build,
+    import_former_default_build,
+)
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
@@ -44,7 +48,7 @@ from boxmot.reid import ReIDEncoderSpec
 from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors import SegmentorSpec
 from boxmot.segmentors.config import resolve_segmentor_spec
-from boxmot.utils.devices import normalize_device, resolve_device
+from boxmot.utils.devices import normalize_device
 
 _ComponentSpec = TypeVar("_ComponentSpec", DetectorSpec, SegmentorSpec, ReIDEncoderSpec)
 
@@ -206,8 +210,6 @@ def materialize(
     progress = progress or MaterializationProgress()
     device_override = _device_override(args)
     command_device = normalize_device(getattr(args, "device", None) or "cpu")
-    if device_override is not None:
-        resolve_device(device_override)
     progress.setup_status("Cataloging source samples…")
 
     (
@@ -233,7 +235,6 @@ def materialize(
         device_override,
         auto_device=command_device,
     )
-    resolve_device(detector_spec.device)
     class_id_map = {
         int(entry["detector_id"]): int(entry["dataset_id"]) for entry in source_metadata.get("class_bridge", ())
     }
@@ -260,7 +261,6 @@ def materialize(
             device_override,
             auto_device=command_device,
         )
-        resolve_device(encoder_spec.device)
         candidate_dimension = encoder_spec.option_values().get("embedding_dim")
         if candidate_dimension is not None:
             if (
@@ -289,7 +289,6 @@ def materialize(
             device_override,
             auto_device=command_device,
         )
-        resolve_device(segmentor_spec.device)
 
     stage_plans: list[StagePlan] = []
     detect_plan = _stage_plan(
@@ -394,11 +393,17 @@ def materialize(
             },
         },
     )
+    import_former_default_build(plan, status_callback=progress.setup_status)
+    matching_build = find_matching_build(plan, status_callback=progress.setup_status)
+    if matching_build is not None:
+        progress.build_started(replace(plan, build_id=matching_build.name, build_root=matching_build.parent))
+        progress.build_reused(matching_build)
+        return matching_build
+
     if not bool(getattr(args, "resume", True)) and plan.staging_root.exists():
         if plan.staging_root.parent != plan.build_root / ".staging":
             raise RuntimeError("Refusing to discard staging outside the selected build root.")
         shutil.rmtree(plan.staging_root)
-    import_former_default_build(plan, status_callback=progress.setup_status)
 
     def load_native_catalog() -> SourceCatalog:
         """Resolve native frames only when a matching perception build exists."""
@@ -427,14 +432,13 @@ def materialize(
             sample_map=sample_map,
             plan=plan,
             progress=progress,
-            embedding_metadata=embedding_metadata,
             target_shard_rows=int(settings["writer"]["instance_rows_per_shard"]),
         )
 
     # Keep every runtime as its immutable specification until the first pending
     # shard reaches that stage. The stage worker then constructs and caches the
-    # model. Completed stages and published builds therefore never initialize
-    # unused accelerator runtimes merely to validate resumable state.
+    # model and validates its device. Completed stages and published builds
+    # therefore do not require the requested accelerator merely to reuse data.
     source_metadata_cache = FileMetadataCache(
         default_source_metadata_cache_path(catalog.source_root),
     )

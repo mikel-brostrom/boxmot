@@ -12,6 +12,11 @@ publishes image references, embeddings for appearance-capable trackers, and
 masks when the selected tracker requires them. Motion-only trackers such as
 SFSORT skip the embedding stage entirely.
 
+Matching complete builds are reused across BoxMOT releases and CPU, MPS, or
+CUDA devices. Source data, weights, precision, preprocessing, class mapping,
+stage settings, and requested outputs must still match. Reuse validates the
+saved artifacts and keeps the original build ID without rerunning perception.
+
 Preparation caches detector output separately from ReID embeddings. If a
 compatible dataset, detector, geometry, and class mapping have already been
 materialized, changing the ReID model skips detector inference and runs the
@@ -56,8 +61,9 @@ an experiment YAML for a combination absent from the catalog.
 Pass exactly one of `--experiment` or `--dataset`. Direct component selectors
 cannot be combined with `--experiment`.
 
-`--device` selects the detector, segmentor, and ReID execution device for this
-automatic preparation. It is rejected with an explicit `--build`, where no
+`--device` selects the detector, segmentor, and ReID execution device when
+automatic preparation needs new inference. It does not force regeneration of
+matching saved outputs. It is rejected with an explicit `--build`, where no
 perception model runs.
 
 After materialization completes, evaluation consumes the exact path returned
