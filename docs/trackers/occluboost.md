@@ -4,8 +4,7 @@ OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It
 keeps BoostTrack's multi-cue association and confidence boosting, then adds
 tentative-track confirmation, ReID recovery, a guarded low-confidence second
 pass, duplicate suppression, and an **Abnormal Motion Suppression (AMS)**
-Kalman update. The Python implementation can also enable online global
-trajectory association (GTA) for longer appearance-based recovery.
+Kalman update.
 
 ## What's layered on top of BoostTrack
 
@@ -17,7 +16,6 @@ trajectory association (GTA) for longer appearance-based recovery.
 - **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
 - **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
 - **Duplicate suppression.** `duplicate_iou_thresh` controls removal of the younger of two near-identical emitted tracks.
-- **Optional online GTA.** When `gta_enabled` is set, appearance-only recovery can reconnect eligible live tracks, resurrect recently removed tracks from a graveyard, and optionally interpolate and smooth recovered gaps. The built-in tracker config leaves GTA disabled.
 
 ## What BoxMOT Needs For OccluBoost
 
@@ -43,8 +41,8 @@ supports:
 - typed generated or precomputed embeddings for association and recovery through the v2 update ABI
 - model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
-Online GTA and adaptive-Kalman controls are currently Python-only; selecting
-the C++ backend does not enable those two extensions.
+Adaptive-Kalman controls are currently Python-only; selecting the C++ backend
+does not enable adaptive Kalman filtering.
 
 Requirements:
 
@@ -91,7 +89,6 @@ numeric values into a custom config. The main parameter groups are:
 - `recovery_*`, `feat_alpha`, and `use_embeddings` for appearance recovery.
 - `use_second_pass`, `second_*`, and `track_low_thresh` for guarded
   low-confidence association.
-- `gta_*` for the optional Python-only global trajectory association path.
 - `obb_*` for thresholds and lifetimes that intentionally differ in OBB mode.
 - `new_track_thresh` and `max_age` for new-track creation and gap tolerance.
 

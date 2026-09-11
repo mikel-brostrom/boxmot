@@ -39,9 +39,3 @@ ams_threshold: 0.4635757582108918
 ams_buffer_size: 7
 ams_shrink_ratio: 0.5468183661386358
 lambda_emb_multiplier: 2.827028940282541
-gta_enabled: false
-gta_appearance_thresh: 0.7125445489563044
-gta_min_track_length: 7
-gta_smooth_tau: 14.757519908748044
-gta_interpolate: false
-gta_max_gap: 40

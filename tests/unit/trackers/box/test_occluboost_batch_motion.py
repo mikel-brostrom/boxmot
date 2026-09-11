@@ -36,8 +36,6 @@ def _tracker(*, is_obb: bool, adaptive: bool = False) -> OccluBoost:
         second_pass_min_hits=0,
         recovery_iou_thresh=0.0,
         recovery_appearance_thresh=0.9,
-        gta_appearance_thresh=0.9,
-        gta_min_track_length=1,
         use_second_pass=True,
         adaptive_kf=adaptive,
     )
@@ -71,7 +69,7 @@ def _scalar_updates(tracker: OccluBoost, tracks: list[KalmanBoxTracker], detecti
 
 
 @pytest.mark.parametrize("is_obb", [False, True])
-@pytest.mark.parametrize("stage", ["first", "recovery", "second", "gta"])
+@pytest.mark.parametrize("stage", ["first", "recovery", "second"])
 def test_each_association_stage_batches_the_same_updates_as_scalar(
     is_obb: bool, stage: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -89,7 +87,7 @@ def test_each_association_stage_batches_the_same_updates_as_scalar(
 
     monkeypatch.setattr(batched, "_ams_multi_update", record_updates)
     monkeypatch.setattr(scalar, "_ams_multi_update", lambda tracks, dets: _scalar_updates(scalar, tracks, dets))
-    if not is_obb and stage in {"recovery", "gta"}:
+    if not is_obb and stage == "recovery":
 
         def unmatched_first(detections: np.ndarray, tracks: np.ndarray, *args: object, **kwargs: object) -> tuple:
             return np.empty((0, 2), dtype=int), np.arange(len(detections)), np.arange(len(tracks)), None
@@ -97,14 +95,11 @@ def test_each_association_stage_batches_the_same_updates_as_scalar(
         monkeypatch.setattr(occluboost_module, "associate", unmatched_first)
     for frame in range(14):
         detections = _detections(frame, is_obb)
-        if frame and stage in {"recovery", "gta"}:
+        if frame and stage == "recovery":
             for tracker in (batched, scalar):
                 # Tight geometry gate sends all observations to recovery.
                 tracker.iou_threshold = 1.0
                 tracker.obb_iou_threshold = 1.0
-                if stage == "gta":
-                    tracker.recovery_max_age = 0
-                    tracker.obb_recovery_max_age = 0
         if frame and stage == "second":
             detections[:, 5 if is_obb else 4] = 0.2
         dimensions = 5 if is_obb else 4

@@ -78,7 +78,6 @@ def _tracker_options(tracker_name: str) -> dict[str, object]:
                 "use_cmc": False,
                 "use_dlo_boost": False,
                 "use_duo_boost": False,
-                "gta_enabled": False,
                 "instant_confirm_thresh": 0.2,
                 "new_track_thresh": 0.2,
             },

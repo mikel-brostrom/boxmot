@@ -33,17 +33,7 @@ _REID_MODEL_OPTIONS = frozenset(
 _FORBIDDEN_NATIVE_MASK_OPTIONS = frozenset({"masks", "supports_masks", "use_masks"})
 _UNSUPPORTED_NATIVE_OPTIONS = {
     "botsort": frozenset({"removed_stracks_buffer"}),
-    "occluboost": frozenset(
-        {
-            "adaptive_kf",
-            "gta_appearance_thresh",
-            "gta_enabled",
-            "gta_interpolate",
-            "gta_max_gap",
-            "gta_min_track_length",
-            "gta_smooth_tau",
-        }
-    ),
+    "occluboost": frozenset({"adaptive_kf"}),
 }
 
 

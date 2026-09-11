@@ -104,7 +104,6 @@ def _occluboost(**kwargs) -> OccluBoost:
         new_track_thresh=0.2,
         instant_confirm_thresh=0.2,
         iou_threshold=0.1,
-        gta_enabled=False,
         **kwargs,
     )
 

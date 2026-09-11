@@ -42,7 +42,6 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.geometry.obb import align_obb_measurement, wrap_pi_periodic
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
@@ -107,13 +106,6 @@ class OccluBoost(BoostTrack):
         ams_buffer_size: int = 30,
         ams_shrink_ratio: float = 0.75,
         lambda_emb_multiplier: float = 1.5,
-        # ---- Online GTA (Global Track Association) ----
-        gta_enabled: bool = True,
-        gta_appearance_thresh: float = 0.5,
-        gta_min_track_length: int = 5,
-        gta_smooth_tau: float = 5.0,
-        gta_interpolate: bool = True,
-        gta_max_gap: int = 60,
         # ---- Adaptive KF ----
         adaptive_kf: bool = False,
         # ---- OBB-specific operating point ----
@@ -195,26 +187,6 @@ class OccluBoost(BoostTrack):
         self.ams_buffer_size = int(max(ams_buffer_size, 2))
         self.ams_shrink_ratio = float(np.clip(ams_shrink_ratio, 0.0, 1.0))
         self.lambda_emb_multiplier = float(lambda_emb_multiplier)
-        # ---- Online GTA (Global Track Association) ----
-        # When a track dies it is buried in a graveyard with its EMA
-        # embedding.  Before creating a new track from an unmatched
-        # detection, the graveyard is searched for an appearance match.
-        # If found, the new track *reuses* the dead track's ID (so
-        # outputs are immediately correct — no retroactive remapping)
-        # and the gap between death and resurrection is filled with
-        # GP-smoothed linear interpolation.
-        self.gta_enabled = bool(gta_enabled) and self.use_embeddings
-        self.gta_appearance_thresh = float(gta_appearance_thresh)
-        self.gta_min_track_length = max(int(gta_min_track_length), 1)
-        self.gta_smooth_tau = float(gta_smooth_tau)
-        self.gta_interpolate = bool(gta_interpolate)
-        self.gta_max_gap = max(int(gta_max_gap), 1)
-        # Graveyard of recently-dead tracks, keyed by track ID.
-        self._gta_graveyard: dict[int, dict] = {}
-        # Accumulated gap-fill rows in ``[frame, *tracker_output]`` form.
-        # Keeping native tracker geometry here lets the engine apply exactly
-        # the same AABB/OBB MOT conversion as it does for online emissions.
-        self._gta_gap_entries: list[np.ndarray] = []
         # ---- Adaptive KF ----
         self.adaptive_kf = bool(adaptive_kf)
 
@@ -415,26 +387,6 @@ class OccluBoost(BoostTrack):
                         if self.use_embeddings and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
-                    if used:
-                        unmatched_trks = np.array(
-                            [t for t in unmatched_trks if int(t) not in used],
-                            dtype=int,
-                        )
-
-        # ---- GTA: pure-appearance recovery for remaining unmatched dets ----
-        # The IoU-gated recovery above can miss when the KF prediction has
-        # drifted (fast-moving players). This pass matches remaining
-        # unmatched detections against alive-but-unmatched tracks using
-        # ONLY appearance similarity (no IoU gate), recovering the track's
-        # ID without creating a new one. This is the "online windowed GTA".
-        if self.gta_enabled and len(unmatched_dets) > 0 and len(unmatched_trks) > 0:
-            unmatched_dets = self._gta_appearance_recovery(
-                dets, dets_embs, unmatched_dets, unmatched_trks, is_obb=False
-            )
-
-        # ---- GTA: resurrect from graveyard before creating new tracks ----
-        if self.gta_enabled and self.use_embeddings and len(unmatched_dets) > 0:
-            unmatched_dets = self._gta_resurrect(dets, dets_embs, unmatched_dets, is_obb=False)
 
         for i in unmatched_dets:
             if dets[i, 4] >= self.new_track_thresh:
@@ -479,19 +431,12 @@ class OccluBoost(BoostTrack):
         # Lifecycle: confirmed tracks live up to ``max_age`` frames; tentative
         # tracks are dropped after ``tentative_max_age`` to prevent ghost IDs
         # from spurious detections, mirroring BotSort's ``unconfirmed`` pool.
-        surviving = []
-        dead_tracks = []
-        for trk in self.trackers:
-            alive = trk.time_since_update <= self.max_age and (
-                getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age
-            )
-            if alive:
-                surviving.append(trk)
-            else:
-                dead_tracks.append(trk)
-        self._gta_bury_dead(dead_tracks)
-        self._gta_evict_stale()
-        self.trackers = surviving
+        self.trackers = [
+            trk
+            for trk in self.trackers
+            if trk.time_since_update <= self.max_age
+            and (getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age)
+        ]
 
         outputs = self.format_output_rows(outputs, dtype=np.float32)
         return self.filter_outputs(outputs)
@@ -502,306 +447,6 @@ class OccluBoost(BoostTrack):
         if not getattr(trk, "is_activated", True) and trk.hit_streak >= self.confirm_hits:
             trk.is_activated = True
             sync_track_meta(trk)
-
-    # ------------------------------------------------------------------
-    # Online GTA (Global Track Association) methods
-    # ------------------------------------------------------------------
-
-    # ------------------------------------------------------------------
-    # Online GTA: pure-appearance recovery for unmatched detections
-    # ------------------------------------------------------------------
-
-    def _gta_appearance_recovery(
-        self,
-        dets: np.ndarray,
-        dets_embs: np.ndarray,
-        unmatched_dets: np.ndarray,
-        unmatched_trks: np.ndarray,
-        is_obb: bool,
-    ) -> np.ndarray:
-        """Match remaining unmatched detections to alive-but-unmatched tracks
-        using ONLY appearance similarity (no IoU gate).
-
-        This catches cases where the KF prediction has drifted too far for
-        the IoU-gated recovery to fire, but the appearance embedding is
-        still a strong match.  Successfully matched detections are removed
-        from *unmatched_dets* and the existing track is force-updated.
-
-        Returns:
-            Updated ``unmatched_dets`` array with recovered detections removed.
-        """
-        # Build eligible tracks: alive, unmatched, with embeddings,
-        # within gta_max_gap frames of last match.
-        elig = [
-            int(t)
-            for t in unmatched_trks
-            if self.trackers[int(t)].time_since_update <= self.gta_max_gap
-            and self.trackers[int(t)].get_emb() is not None
-            and self.trackers[int(t)].age >= self.gta_min_track_length
-        ]
-        if not elig:
-            return unmatched_dets
-
-        u_det_idx = [int(d) for d in unmatched_dets]
-        if not u_det_idx:
-            return unmatched_dets
-
-        # Filter to detections that have embeddings
-        det_with_emb = [d for d in u_det_idx if dets_embs[d] is not None]
-        if not det_with_emb:
-            return unmatched_dets
-
-        # Compute cosine similarity
-        trk_e = np.stack([self.trackers[t].get_emb() for t in elig], axis=0).reshape(len(elig), -1)
-        det_e = dets_embs[det_with_emb].reshape(len(det_with_emb), -1)
-        sim = det_e @ trk_e.T
-
-        # Gate by appearance threshold
-        gated = sim.copy()
-        gated[sim < self.gta_appearance_thresh] = -1.0
-
-        if not (gated > 0).any():
-            return unmatched_dets
-
-        row_ind, col_ind = linear_sum_assignment(-gated)
-        matched_dets_set: set[int] = set()
-        accepted = [(det_with_emb[r], elig[c]) for r, c in zip(row_ind, col_ind) if gated[r, c] > 0]
-        self._ams_multi_update(
-            [self.trackers[t] for _, t in accepted],
-            dets[[d for d, _ in accepted]],
-        )
-        for det_global, trk_global in accepted:
-            matched_dets_set.add(det_global)
-            self.trackers[trk_global].update_emb(dets_embs[det_global], alpha=self.feat_alpha)
-            self._maybe_activate(self.trackers[trk_global])
-
-        if matched_dets_set:
-            unmatched_dets = np.array(
-                [d for d in unmatched_dets if int(d) not in matched_dets_set],
-                dtype=int,
-            )
-        return unmatched_dets
-
-    def _gta_bury_dead(self, dead_tracks: list[KalmanBoxTracker]) -> None:
-        """Bury recently-dead tracks in the graveyard for future resurrection.
-
-        Only tracks with sufficient age and a valid embedding are interred.
-        """
-        if not self.gta_enabled:
-            return
-        for trk in dead_tracks:
-            if trk.age < self.gta_min_track_length:
-                continue
-            emb = trk.get_emb()
-            if emb is None:
-                continue
-            self._gta_graveyard[trk.id] = {
-                "emb": emb.copy(),
-                "last_box": trk.get_state()[0].copy(),
-                "frame": self.frame_count,
-                "conf": float(trk.conf),
-                "cls": float(trk.cls),
-                "is_obb": bool(getattr(trk, "is_obb", False)),
-            }
-
-    def _gta_evict_stale(self) -> None:
-        """Remove graveyard entries older than ``gta_max_gap`` frames."""
-        if not self._gta_graveyard:
-            return
-        stale = [gid for gid, v in self._gta_graveyard.items() if self.frame_count - v["frame"] > self.gta_max_gap]
-        for gid in stale:
-            del self._gta_graveyard[gid]
-
-    def _gta_resurrect(
-        self,
-        dets: np.ndarray,
-        dets_embs: np.ndarray,
-        unmatched_dets: np.ndarray,
-        is_obb: bool,
-    ) -> np.ndarray:
-        """Try to match unmatched detections against graveyard embeddings.
-
-        If a strong appearance match is found the new track reuses the dead
-        track's ID (so outputs are immediately correct) and the positional gap
-        between death and resurrection is filled with linear interpolation
-        entries stored in ``_gta_gap_entries``.
-
-        Returns:
-            Updated ``unmatched_dets`` with resurrected detections removed.
-        """
-        if not self.gta_enabled or not self._gta_graveyard or len(unmatched_dets) == 0:
-            return unmatched_dets
-
-        grave_ids = list(self._gta_graveyard.keys())
-        grave_embs = np.stack([self._gta_graveyard[gid]["emb"] for gid in grave_ids], axis=0).reshape(
-            len(grave_ids), -1
-        )
-
-        u_det_idx = [int(d) for d in unmatched_dets]
-        det_e = dets_embs[u_det_idx].reshape(len(u_det_idx), -1)
-        sim = det_e @ grave_embs.T
-
-        # Resurrection is identity- and class-preserving.  The graveyard is
-        # shared by the public tracker (including per-class orchestration), so
-        # appearance alone must never let a detection consume another class's
-        # dead ID.
-        cls_col = 6 if is_obb else 5
-        det_classes = dets[u_det_idx, cls_col].astype(np.int64, copy=False)
-        grave_classes = np.asarray(
-            [int(self._gta_graveyard[gid]["cls"]) for gid in grave_ids],
-            dtype=np.int64,
-        )
-
-        # Gate by appearance threshold and detector class.
-        gated = sim.copy()
-        gated[sim < self.gta_appearance_thresh] = -1.0
-        gated[det_classes[:, None] != grave_classes[None, :]] = -1.0
-
-        if not (gated > 0).any():
-            return unmatched_dets
-
-        row_ind, col_ind = linear_sum_assignment(-gated)
-        matched_dets_set: set[int] = set()
-
-        for r, c in zip(row_ind, col_ind):
-            if gated[r, c] <= 0:
-                continue
-            det_global = u_det_idx[r]
-            grave_id = grave_ids[c]
-            grave_entry = self._gta_graveyard[grave_id]
-
-            # Determine the mode-specific confidence and new-track threshold.
-            conf_col = 5 if is_obb else 4
-            new_track_thresh = self.obb_new_track_thresh if is_obb else self.new_track_thresh
-
-            # Only resurrect if detection confidence is high enough
-            if dets[det_global, conf_col] < new_track_thresh:
-                continue
-
-            matched_dets_set.add(det_global)
-
-            # Create a new tracker that reuses the dead track's ID
-            det_emb = dets_embs[det_global] if self.use_embeddings else None
-            new_trk = KalmanBoxTracker(
-                dets[det_global, :],
-                max_obs=self.max_obs,
-                emb=det_emb,
-                is_obb=is_obb,
-                adaptive_kf=self.adaptive_kf,
-                track_id=grave_id,
-                noise_config=self.kalman_noise_config,
-            )
-            new_trk.is_activated = True
-            self.trackers.append(new_trk)
-
-            # ---- Gap interpolation ----
-            if self.gta_interpolate:
-                death_frame = grave_entry["frame"]
-                gap = self.frame_count - death_frame
-                if 1 < gap <= self.gta_max_gap:
-                    last_box = grave_entry["last_box"]  # [x1,y1,x2,y2] or [cx,cy,w,h,a]
-                    cur_box = new_trk.get_state()[0]
-                    if is_obb:
-                        cur_box = align_obb_measurement(cur_box, last_box)
-                        # Interpolate along the shortest pi-periodic rectangle
-                        # orientation rather than through a wrap discontinuity.
-                        cur_box[4] = float(last_box[4]) + wrap_pi_periodic(float(cur_box[4]) - float(last_box[4]))
-                    for t in range(1, gap):
-                        alpha_t = t / gap
-                        interp_box = (1.0 - alpha_t) * last_box + alpha_t * cur_box
-                        frame_id = death_frame + t
-                        track_row = self.format_output_row(
-                            interp_box,
-                            grave_id,
-                            grave_entry["conf"],
-                            grave_entry["cls"],
-                            -1,
-                            dtype=np.float32,
-                        )
-                        self._gta_gap_entries.append(
-                            np.concatenate((np.array([frame_id], dtype=np.float32), track_row))
-                        )
-
-            # Remove from graveyard
-            del self._gta_graveyard[grave_id]
-
-        if matched_dets_set:
-            unmatched_dets = np.array(
-                [d for d in unmatched_dets if int(d) not in matched_dets_set],
-                dtype=int,
-            )
-        return unmatched_dets
-
-    def flush_gta(self) -> np.ndarray:
-        """Return frame-tagged canonical tracker rows and reset GTA state.
-
-        Called once at the end of a sequence by the replay loop.
-
-        Returns:
-            Interpolated rows as ``[frame, *tracker_output]``. The shape is
-            ``(N, 9)`` for AABB and ``(N, 10)`` for OBB. The engine converts
-            these through its normal MOT/MMOT formatter before writing.
-        """
-        if not self._gta_gap_entries:
-            return np.empty((0, self.detection_layout.output_cols + 1), dtype=np.float32)
-
-        entries = list(self._gta_gap_entries)
-
-        # Apply GP smoothing to interpolated segments
-        if self.gta_smooth_tau > 0:
-            entries = self._gta_smooth_all(entries)
-
-        self._gta_gap_entries = []
-        self._gta_graveyard = {}
-        return np.vstack(entries)
-
-    def reset(self) -> None:
-        super().reset()
-        self._gta_graveyard = {}
-        self._gta_gap_entries = []
-
-    def _gta_smooth_all(self, entries: list[np.ndarray]) -> list[np.ndarray]:
-        """Apply GP smoothing to all interpolated segments.
-
-        Groups entries by track_id, then applies RBF-kernel GP regression
-        to each segment's bounding box columns.
-        """
-        if len(entries) < 3:
-            return entries
-
-        try:
-            from sklearn.gaussian_process import GaussianProcessRegressor as GPR
-            from sklearn.gaussian_process.kernels import RBF
-        except ImportError:
-            return entries
-
-        # The frame prefix shifts the native track ID column by one. AABB
-        # entries have 9 columns, OBB entries have 10.
-        id_col = 6 if entries[0].shape[0] == 10 else 5
-        from collections import defaultdict
-
-        groups: dict[int, list[int]] = defaultdict(list)
-        for idx, row in enumerate(entries):
-            groups[int(row[id_col])].append(idx)
-
-        tau = self.gta_smooth_tau
-        for tid, indices in groups.items():
-            if len(indices) < 3:
-                continue
-            frames = np.array([entries[i][0] for i in indices]).reshape(-1, 1)
-            # Smooth the four positional/size coordinates in canonical tracker
-            # geometry. OBB angle interpolation is deliberately left alone so
-            # GP regression cannot create wrap-boundary rotations.
-            boxes = np.array([entries[i][1:5] for i in indices])
-            n = len(indices)
-            length_scale = np.clip(tau * np.log(max(tau**3 / n, 1e-6)), tau**-1, tau**2)
-            kernel = RBF(length_scale, length_scale_bounds="fixed")
-            gpr = GPR(kernel)
-            smoothed = gpr.fit(frames, boxes).predict(frames)
-            for k, idx in enumerate(indices):
-                entries[idx][1:5] = smoothed[k]
-
-        return entries
 
     @staticmethod
     def _xyxy_to_cxcywh(box: np.ndarray) -> np.ndarray:
@@ -1174,19 +819,6 @@ class OccluBoost(BoostTrack):
                         if self.use_embeddings and dets_embs_second.shape[0] > 0:
                             self.trackers[trk_global].update_emb(dets_embs_second[r], alpha=self.feat_alpha)
                         self._maybe_activate(self.trackers[trk_global])
-                    if used:
-                        unmatched_trks = np.array(
-                            [t for t in unmatched_trks if int(t) not in used],
-                            dtype=int,
-                        )
-
-        # ---- GTA: pure-appearance recovery for remaining unmatched dets ----
-        if self.gta_enabled and len(unmatched_dets) > 0 and len(unmatched_trks) > 0:
-            unmatched_dets = self._gta_appearance_recovery(dets, dets_embs, unmatched_dets, unmatched_trks, is_obb=True)
-
-        # ---- GTA: resurrect from graveyard before creating new tracks ----
-        if self.gta_enabled and self.use_embeddings and len(unmatched_dets) > 0:
-            unmatched_dets = self._gta_resurrect(dets, dets_embs, unmatched_dets, is_obb=True)
 
         # ---- New tracks for remaining unmatched high-conf detections ----
         for i in unmatched_dets:
@@ -1224,19 +856,12 @@ class OccluBoost(BoostTrack):
             self.active_tracks.append(trk)
 
         # Lifecycle
-        surviving = []
-        dead_tracks = []
-        for trk in self.trackers:
-            alive = trk.time_since_update <= self.obb_max_age and (
-                getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age
-            )
-            if alive:
-                surviving.append(trk)
-            else:
-                dead_tracks.append(trk)
-        self._gta_bury_dead(dead_tracks)
-        self._gta_evict_stale()
-        self.trackers = surviving
+        self.trackers = [
+            trk
+            for trk in self.trackers
+            if trk.time_since_update <= self.obb_max_age
+            and (getattr(trk, "is_activated", True) or trk.time_since_update <= self.tentative_max_age)
+        ]
 
         outputs = self.format_output_rows(outputs, dtype=np.float32)
         return self.filter_outputs(outputs)

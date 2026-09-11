@@ -22,8 +22,6 @@ BOOL_PARAMS = [
     "use_embeddings",
     "use_second_pass",
     "ams_enabled",
-    "gta_enabled",
-    "gta_interpolate",
 ]
 KEY_CONTINUOUS = [
     "det_thresh",
