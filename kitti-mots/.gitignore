@@ -2,9 +2,3 @@
 !.gitignore
 !README.md
 !dataset.yaml
-!replay.yaml
-!predictions/
-predictions/*
-!predictions/*/
-predictions/*/*
-!predictions/*/manifest.yaml

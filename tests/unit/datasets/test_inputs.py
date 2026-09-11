@@ -413,3 +413,46 @@ def test_input_resolution_imports_no_tensor_readers_or_engine_modules() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+def test_tracked_kitti_bundle_profile_is_self_contained_and_preserves_prediction_selections(tmp_path: Path) -> None:
+    """The root dataset example must load without downloaded payloads or replay manifests."""
+    repository = Path(__file__).resolve().parents[3]
+    authored = (repository / "kitti-mots/dataset.yaml").read_text(encoding="utf-8")
+    relocated = tmp_path / "dataset.yaml"
+    relocated.write_text(authored, encoding="utf-8")
+
+    config = load_dataset_config(tmp_path)
+    builtin = load_dataset_config(repository / "boxmot/configs/datasets/kitti-mots.yaml")
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["dataset.yaml"]
+    assert config["layout"] == "sequence"
+    assert config["box_type"] == "aabb"
+    assert config["default_split"] == "val"
+    assert config["fps"] == builtin["fps"] == 10.0
+    assert config["classes"] == builtin["classes"]
+    assert resolve_dataset_storage_root(config) == tmp_path
+    for split in ("train", "val"):
+        assert config["splits"][split]["sequences"] == builtin["splits"][split]["sequences"]
+    training = set(builtin["splits"]["train"]["sequences"])
+    validation = set(builtin["splits"]["val"]["sequences"])
+    assert training.isdisjoint(validation)
+    assert config["splits"]["fulltrain"]["sequences"] == sorted(training | validation)
+    for split, car_source in (
+        ("val", "pointgnn-car-t2"),
+        ("train", "pointgnn-car-t3"),
+        ("fulltrain", "pointgnn-car-t3"),
+    ):
+        assert config["splits"][split]["partition"] == "training"
+        sources = dataset_modalities(config, split)
+        assert sources["detections_3d"]["format"] == "kitti-detections"
+        assert sources["detections_3d"]["paths"] == [
+            f"predictions/{car_source}/{{partition}}/{{sequence}}",
+            "predictions/pointgnn-pedestrian/{partition}/{sequence}",
+        ]
+        assert sources["detections_3d"]["options"] == {"score_transform": "odds", "ignore_classes": ["Cyclist"]}
+        assert sources["detections_2d"]["paths"] == ["predictions/trackrcnn/{partition}/{sequence}.txt"]
+        assert sources["ground_truth"]["options"] == dataset_modalities(builtin, split)["ground_truth"]["options"]
+        assert all("manifest.yaml" not in path for source in sources.values() for path in source["paths"])
+    assert "replay" not in yaml.safe_load(authored)
+    assert "replay.yaml" not in authored
