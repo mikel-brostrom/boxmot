@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import warnings
+from copy import deepcopy
 from difflib import get_close_matches
 from pathlib import Path
 from types import SimpleNamespace
@@ -298,13 +299,13 @@ class Tuner:
                 pipeline.advance()
                 tune_callback.set_workflow_detail_renderable(format_initial_tune_progress(int(args.n_trials)))
 
-                objective = TrackerObjective(self._make_safe_namespace())
-
-                def tune_wrapper(cfg):
-                    return objective(normalize_trial_config(cfg))
+                from boxmot.engine.tuning.trainable import build_tracker_trainable
 
                 sequence_workers = int(args.sequence_workers)
-                trainable = tune.with_resources(tune_wrapper, {"cpu": sequence_workers, "gpu": 0})
+                trainable = tune.with_resources(
+                    build_tracker_trainable(tune, self._make_safe_namespace()),
+                    {"cpu": sequence_workers, "gpu": 0},
+                )
 
                 # Build or restore the Ray Tuner
                 tuner = self._build_or_restore_tuner(
@@ -477,12 +478,16 @@ class Tuner:
         if "progress_reporter" in sig.parameters:
             run_config_kwargs["progress_reporter"] = TuneSilentReporter()
         run_config_kwargs["failure_config"] = FailureConfig(max_failures=3)
-        run_config_kwargs["checkpoint_config"] = CheckpointConfig(num_to_keep=1)
+        # One step completes the entire evaluation. Ray defaults class actors
+        # to checkpointing at completion, but trackers have no incremental
+        # trial state to restore; interrupted evaluations restart from frame 0.
+        run_config_kwargs["checkpoint_config"] = CheckpointConfig(num_to_keep=1, checkpoint_at_end=False)
 
         tune_config_kwargs: dict[str, Any] = {
             "num_samples": args.n_trials,
             "max_concurrent_trials": max_concurrent,
             "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
+            "reuse_actors": True,
         }
         if search_alg is not None:
             tune_config_kwargs["search_alg"] = search_alg
@@ -708,23 +713,41 @@ class Tuner:
 
 
 class TrackerObjective:
-    def __init__(self, opt):
+    """Evaluate independent trials with one lazily started replay session."""
+
+    def __init__(self, opt: SimpleNamespace) -> None:
         self.opt = opt
+        self._session = None
+
+    def close(self) -> None:
+        """Discard the worker pool and retained inputs on actor cleanup/failure."""
+        session, self._session = self._session, None
+        if session is not None:
+            session.close()
 
     def __call__(self, config: dict) -> dict:
+        from boxmot.engine.eval.session import ReplaySession
+
+        if self._session is None:
+            self._session = ReplaySession(
+                int(self.opt.sequence_workers), cache_inputs=bool(getattr(self.opt, "cache_inputs", False))
+            )
         try:
             with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
                 result = run_eval(
-                    self.opt,
+                    deepcopy(self.opt),
                     evolve_config=config,
                     setup=False,
                     prepare_cache=False,
                     verbose=False,
                     show_progress=False,
+                    replay_session=self._session,
                 )
         except KeyboardInterrupt:
+            self.close()
             raise
         except Exception as exc:
+            self.close()
             LOGGER.debug(f"Trial failed with {type(exc).__name__}: {exc}")
             return {k: 0.0 for k in ALL_TUNE_METRICS}
 
@@ -832,6 +855,7 @@ def _run_sensor_tuning(
         "time_budget_s",
         "fps",
         "variable_dt",
+        "cache_inputs",
     )
     for name in unsupported:
         value = getattr(args, name, None)

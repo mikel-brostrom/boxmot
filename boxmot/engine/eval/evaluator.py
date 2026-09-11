@@ -11,10 +11,10 @@ import argparse
 import json
 import time
 from collections.abc import Mapping
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -51,6 +51,9 @@ from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors.config import resolve_segmentor_spec
 from boxmot.trackers import TrackerSpec
 from boxmot.utils import logger as LOGGER
+
+if TYPE_CHECKING:
+    from boxmot.engine.eval.session import ReplaySession
 
 
 def _detector_reference(resolved: Mapping[str, Any]) -> str:
@@ -449,6 +452,7 @@ def _run_sensor_evaluation(
     pipeline: Any | None = None,
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
+    replay_session: ReplaySession | None = None,
 ) -> ValidationResult | None:
     """Validate saved sensor selections before importing their replay runtime."""
     from boxmot.datasets.kitti_fusion_config import load_kitti_fusion_dataset, resolve_kitti_fusion_config_path
@@ -465,6 +469,7 @@ def _run_sensor_evaluation(
         "evolve_config": evolve_config,
         "per_class_configs": per_class_configs,
         "output_dir": output_dir,
+        "replay_session": replay_session,
     }.items():
         if value is not None:
             raise ValueError(
@@ -488,6 +493,7 @@ def _run_sensor_evaluation(
         "variable_dt",
         "allow_noncanonical_build",
         "compare_trackeval",
+        "cache_inputs",
     ):
         value = getattr(args, name, None)
         if value is not None and value is not False and value != "":
@@ -570,6 +576,7 @@ def run_eval(
     pipeline: Any | None = None,
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
+    replay_session: ReplaySession | None = None,
 ) -> ValidationResult:
     """Evaluate one perception build or declared sensor dataset without running perception."""
 
@@ -583,6 +590,7 @@ def run_eval(
         pipeline=pipeline,
         per_class_configs=per_class_configs,
         output_dir=output_dir,
+        replay_session=replay_session,
     )
     if sensor_result is not None:
         return sensor_result
@@ -612,6 +620,10 @@ def run_eval(
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
+        if replay_session is not None:
+            replay_callbacks["session"] = replay_session
+        if bool(getattr(args, "cache_inputs", False)):
+            replay_callbacks["cache_inputs"] = True
         if bool(getattr(args, "eval_masks", False)):
             replay_callbacks["output_format"] = "mots"
         if presenter is not None:
@@ -645,7 +657,8 @@ def run_eval(
     if pipeline is not None:
         pipeline.advance("Computing evaluation metrics…")
     args.exp_dir = replay.output_dir
-    raw = run_motmetrics(args, verbose=bool(verbose))
+    with replay_session.metric_execution() if replay_session is not None else nullcontext():
+        raw = run_motmetrics(args, verbose=bool(verbose))
     summary_label, summary = _summary(raw)
     timings = {
         "frames": replay.frames,

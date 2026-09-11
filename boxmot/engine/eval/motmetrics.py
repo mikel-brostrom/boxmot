@@ -12,10 +12,12 @@ import argparse
 import math
 import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from multiprocessing.context import BaseContext
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import cv2
 import numpy as np
@@ -27,6 +29,18 @@ HOTA_ALPHA_VALUES: tuple[float, ...] = tuple(float(value) for value in np.arange
 _FLOAT_EPS = np.finfo(float).eps
 AABB_MOT_COLUMNS = 9
 OBB_MOT_COLUMNS = 13
+_METRIC_EXECUTOR: ContextVar[Callable[..., list[Any]] | None] = ContextVar("boxmot_metric_executor", default=None)
+
+
+@contextmanager
+def use_metric_executor(executor: Callable[..., list[Any]]) -> Iterator[None]:
+    """Scope a caller-owned spawn executor to one metrics evaluation."""
+    token = _METRIC_EXECUTOR.set(executor)
+    try:
+        yield
+    finally:
+        _METRIC_EXECUTOR.reset(token)
+
 
 DEFAULT_OBB_CLASS_NAME_TO_ID = {
     "car": 0,
@@ -1295,6 +1309,9 @@ def _evaluate_sequence_tasks(
     tasks: Sequence[SequenceEvaluationTask],
 ) -> list[tuple[str, dict[str, MetricBundle]]]:
     """Evaluate sequence tasks serially or with an ordered process pool."""
+    executor = _METRIC_EXECUTOR.get()
+    if executor is not None:
+        return executor(_evaluate_sequence_task, tasks)
     workers = _metric_worker_count(len(tasks))
     LOGGER.debug(f"Evaluating {len(tasks)} MOT sequence(s) with {max(1, workers)} metric worker process(es)")
     if workers <= 1:

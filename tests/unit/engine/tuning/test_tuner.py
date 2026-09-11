@@ -324,6 +324,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -348,7 +349,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
 
     class _FakeCheckpointConfig:
         def __init__(self, **kwargs):
-            pass
+            captured["checkpoint_config"] = kwargs
 
     monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
@@ -381,6 +382,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     scale = 2.0 if backend == "python" else 1.0
     tuner_module.Tuner(args, baseline_config={"kf_process_position_scale": scale}).fit()
 
+    assert captured["checkpoint_config"] == {"num_to_keep": 1, "checkpoint_at_end": False}
     expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kf_process_position_scale": scale}
     assert all(captured["param_space"][key] == value for key, value in expected_scales.items())
     assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["search_kwargs"]["points_to_evaluate"][0])
@@ -503,13 +505,8 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
             return False
 
         def __init__(self, trainable, param_space, tune_config, run_config):
-            objective = next(
-                cell.cell_contents
-                for cell in trainable.__closure__ or ()
-                if isinstance(cell.cell_contents, tuner_module.TrackerObjective)
-            )
-            captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
-            captured["trial_args"] = vars(objective.opt)
+            captured["driver_lock_in_trainable_args"] = hasattr(trainable.workflow_options, "driver_lock")
+            captured["trial_args"] = vars(trainable.workflow_options)
             captured["callbacks"] = run_config.callbacks
             captured["callback_has_workflow_lock"] = any(
                 hasattr(callback, "_lock") for callback in run_config.callbacks or []
@@ -529,6 +526,7 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=with_resources,
         Callback=object,
@@ -732,6 +730,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -890,6 +889,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -1123,6 +1123,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         uniform=lambda *args: ("uniform", args),

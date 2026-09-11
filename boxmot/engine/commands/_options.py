@@ -147,6 +147,15 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
                 "During tuning, this limit applies per trial."
             ),
         ),
+        "cache_inputs": click.option(
+            "--cache-inputs/--no-cache-inputs",
+            default=defaults.cache_inputs,
+            show_default=True,
+            help=(
+                "Build and reuse mapped detection and embedding caches for repeated eval/tune runs. "
+                "Uses extra disk space; the source Parquet build remains authoritative."
+            ),
+        ),
         "project": click.option(
             "--project",
             type=Path,
@@ -271,6 +280,8 @@ def replay_options(*, mode: str, parallel: bool = False) -> Callable:
 
     defaults = getattr(BOXMOT_DEFAULTS, mode)
     option_names = _REPLAY_CORE_OPTION_NAMES
+    if mode in {"eval", "tune"}:
+        option_names = ("cache_inputs", *option_names)
     if parallel:
         option_names = ("sequence_workers", *option_names)
 

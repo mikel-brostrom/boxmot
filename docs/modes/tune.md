@@ -125,6 +125,32 @@ bounded by the number of selected sequences. Use `--max-concurrent-trials` to
 limit how many image-tracker trials run at once; sequence workers are allocated
 separately to each trial.
 
+For image trackers, each reusable tuning actor keeps its sequence-worker pool
+and reusable input metadata across trials. Every trial still creates fresh
+trackers, pipelines, frame cursors, and output files. Worker pools are closed
+when tuning ends; failed worker operations discard the pool before reuse.
+This applies to the supported Ray search backends without an additional flag.
+
+Add `--cache-inputs` to also reuse mapped detection and embedding arrays on
+disk across tuning sessions and evaluation commands:
+
+```bash
+boxmot tune \
+  --dataset mot17 \
+  --split ablation \
+  --build BUILD_ID \
+  --tracker botsort \
+  --n-trials 200 \
+  --cache-inputs
+```
+
+The optional disk cache is prepared from the selected Parquet build and is
+independent of the inference device. Without the flag, tuning retains worker
+metadata and reads embeddings through the bounded indexed Parquet reader.
+See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
+storage, preparation, and cleanup details. EagerMOT's saved-sensor optimizer
+uses its own replay path and does not accept this Parquet cache flag.
+
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
 start or fail.

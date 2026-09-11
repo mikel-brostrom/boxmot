@@ -44,12 +44,14 @@ time-variant:
   name: null
   seed: 0
 eval:
+  cache_inputs: false
   experiment: null
   dataset: null
   source: null
   benchmark: ''
   split: ''
 tune:
+  cache_inputs: false
   experiment: null
   source: null
   benchmark: ''

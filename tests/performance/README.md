@@ -25,6 +25,10 @@ The benchmarks are grouped by domain:
 - `benchmark_eval.py` times fresh evaluation CLI invocations on an existing
   materialized build, records setup/replay/metrics separately, and verifies
   tracking-file hashes and metrics across repetitions.
+- `benchmark_replay_inputs.py` compares indexed Parquet, mapped inputs and
+  persistent sequence workers on one explicit build. It checks byte-identical
+  tracking files and metrics, worker reuse, and unchanged source artifacts.
+  Pass `--baseline` with a package snapshot to include the previous reader.
 - `benchmark_cli_startup.py` measures launch-to-first-visible-output latency
   through a real terminal on macOS/Linux, without importing workflow modules
   ahead of the CLI. It also records the first Setup and workflow titles.
@@ -68,6 +72,24 @@ a time. Output is redirected to logs, so interactive terminal rendering costs
 can differ. Invocation time includes process startup/shutdown and the small
 checksum/JSON-reporting overhead. Profiled timings include instrumentation
 overhead and should not be used to claim speedups.
+
+To compare replay input strategies without rerunning perception:
+
+```bash
+uv run --no-sync python -m tests.performance.benchmark_replay_inputs \
+  --build runs/materializations/BUILD_ID \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --workers 7 --repeat 3 --rounds 2 \
+  --output runs/replay-benchmark/input-strategies
+```
+
+The first run of each strategy is retained as a warmup and excluded from
+medians. Mapped strategies prepare the optional disk cache if absent, so the
+first mapped warmup includes that preparation cost. Persistent strategies
+keep their workers across repetitions; fresh strategies recreate them.
+Timings include replay and metrics separately, and exclude evaluation setup,
+interpreter startup and final session shutdown. The output directory must be
+new. Alternate rounds reverse strategy order to reduce ordering effects.
 
 For startup and interactive UI measurements, run the command through a PTY:
 

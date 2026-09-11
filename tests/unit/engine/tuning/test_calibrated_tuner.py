@@ -133,6 +133,9 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
             captured["trial_configs"].append(dict(config))
             return {"HOTA": 50.0}
 
+        def close(self) -> None:
+            pass
+
     monkeypatch.setattr(tuner_module, "TrackerObjective", Objective)
 
     class RunConfig:
@@ -142,7 +145,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
 
     class RayTuner:
         def __init__(self, trainable: object, param_space: dict, tune_config: object, run_config: RunConfig) -> None:
-            del tune_config
+            assert tune_config.reuse_actors is True
             captured["events"].append("ray_tuner")
             captured["param_space"] = dict(param_space)
             captured["tune_dir"] = Path(run_config.storage_path) / run_config.name
@@ -178,8 +181,14 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                         for key, value in captured["param_space"].items()
                     }
                     configs.append({**config, **suggestion.params})
-            for config in configs:
-                self.trainable(config)
+            actor = self.trainable()
+            actor.setup(configs[0])
+            try:
+                for config in configs:
+                    assert actor.reset_config(config)
+                    assert actor.step()["done"] is True
+            finally:
+                actor.cleanup()
             captured["saved_results"] = [SimpleNamespace(config=config) for config in configs]
             return []
 
@@ -193,6 +202,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
 
     fake_tune = SimpleNamespace(
         Tuner=RayTuner,
+        Trainable=object,
         TuneConfig=lambda **kwargs: SimpleNamespace(**kwargs),
         with_resources=lambda function, resources: function,
         uniform=lambda low, high: _Domain((low + high) / 2.0),

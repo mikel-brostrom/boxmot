@@ -7,13 +7,13 @@ import logging
 import os
 import queue
 import tempfile
-from collections import Counter
+from collections import Counter, OrderedDict
 from collections.abc import Callable, Iterable, Mapping
-from contextlib import contextmanager, nullcontext
-from dataclasses import dataclass
+from contextlib import ExitStack, contextmanager, nullcontext
+from dataclasses import dataclass, replace
 from multiprocessing import get_context
 from pathlib import Path
-from typing import Any, Iterator, Literal, TextIO
+from typing import TYPE_CHECKING, Any, Iterator, Literal, TextIO
 
 import torch
 
@@ -34,10 +34,17 @@ from boxmot.pipelines import PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec
 
+if TYPE_CHECKING:
+    from boxmot.engine.eval.session import ReplaySession
+
 ReplayProgressStatus = Literal["queued", "running", "completed", "failed"]
 ReplayProgressCallback = Callable[["ReplayProgressEvent"], None]
 
 _WORKER_PROGRESS_QUEUE: Any | None = None
+_WORKER_RUN_ID: str | None = None
+_WORKER_REPORT_PROGRESS = True
+_WORKER_INPUTS: OrderedDict[tuple[Any, ...], Any] = OrderedDict()
+_WORKER_INPUT_LIMIT = 8
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +80,7 @@ class ReplayProgressEvent:
     track_rows: int
     detail: str | None
     ordinal: int
+    run_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.sequence_id, str) or not self.sequence_id:
@@ -101,6 +109,9 @@ class _SequenceReplayTask:
     output_path: str
     ordinal: int
     output_format: str = "mot"
+    input_cache_path: str | None = None
+    run_id: str | None = None
+    report_progress: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +316,10 @@ def _initialize_replay_worker(progress_queue: Any | None) -> None:
     """Bind worker-only state and silence logs that would corrupt parent Rich output."""
 
     global _WORKER_PROGRESS_QUEUE
+    from multiprocessing.util import Finalize
+
+    _clear_worker_inputs()
+    Finalize(None, _clear_worker_inputs, exitpriority=10)
     _WORKER_PROGRESS_QUEUE = progress_queue
     if progress_queue is not None:
         # Progress is lossy/observational and terminal states are also
@@ -319,14 +334,69 @@ def _initialize_replay_worker(progress_queue: Any | None) -> None:
 
 def _emit_worker_progress(event: ReplayProgressEvent) -> None:
     progress_queue = _WORKER_PROGRESS_QUEUE
-    if progress_queue is None:
+    if progress_queue is None or not _WORKER_REPORT_PROGRESS:
         return
     try:
-        progress_queue.put(event)
+        progress_queue.put(replace(event, run_id=_WORKER_RUN_ID))
     except (BrokenPipeError, EOFError, OSError):
         # Progress is observational. A closed parent queue must not invalidate
         # an otherwise deterministic sequence result.
         return
+
+
+def _clear_worker_inputs() -> None:
+    """Release retained sequence metadata and read-only mappings on worker exit."""
+    while _WORKER_INPUTS:
+        _, dataset = _WORKER_INPUTS.popitem(last=False)
+        close = getattr(dataset, "close", None)
+        if callable(close):
+            close()
+
+
+def _worker_inputs(task: _SequenceReplayTask, *, load_images: bool, load_masks: bool, load_embeddings: bool) -> Any:
+    """Retain bounded immutable input backing data, never samples or cursors."""
+    key = (task.input_cache_path or task.build, task.sequence_id, task.split, load_images, load_masks, load_embeddings)
+    retain = task.run_id is not None
+    dataset = _WORKER_INPUTS.pop(key, None) if retain else None
+    if dataset is not None:
+        if task.input_cache_path is not None:
+            from boxmot.datasets.replay_cache import ReplayCacheError
+
+            try:
+                dataset.validate()
+            except ReplayCacheError:
+                dataset.close()
+                dataset = None
+        elif not dataset.source_is_current():
+            dataset = None
+    if dataset is None:
+        if task.input_cache_path is not None:
+            from boxmot.datasets.replay_cache import open_replay_sequence
+
+            dataset = open_replay_sequence(
+                task.input_cache_path,
+                load_images=load_images,
+                load_masks=load_masks,
+                load_embeddings=load_embeddings,
+            )
+        else:
+            dataset = CachedVisionDataset._stream_sequence(
+                task.build,
+                sequence_id=task.sequence_id,
+                split=task.split,
+                load_images=load_images,
+                load_masks=load_masks,
+                load_embeddings=load_embeddings,
+            )
+    if not retain:
+        return dataset
+    _WORKER_INPUTS[key] = dataset
+    while len(_WORKER_INPUTS) > _WORKER_INPUT_LIMIT:
+        _, expired = _WORKER_INPUTS.popitem(last=False)
+        close = getattr(expired, "close", None)
+        if callable(close):
+            close()
+    return dataset
 
 
 @contextmanager
@@ -404,6 +474,9 @@ def _prefetch_samples(dataset: Iterable[DatasetSample]) -> Iterator[Iterator[Dat
 def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
     """Replay exactly one sequence in a spawned process."""
 
+    global _WORKER_RUN_ID, _WORKER_REPORT_PROGRESS
+    _WORKER_RUN_ID = task.run_id
+    _WORKER_REPORT_PROGRESS = task.report_progress
     completed = 0
     total = 0
     track_rows = 0
@@ -419,17 +492,17 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
         )
     )
     try:
-        with _owned_tracker(task.tracker_spec) as tracker:
+        with _owned_tracker(task.tracker_spec) as tracker, ExitStack() as inputs:
             requirements = tracker.requirements
             needs_masks = requirements.masks or task.output_format == "mots"
-            dataset = CachedVisionDataset._stream_sequence(
-                task.build,
-                sequence_id=task.sequence_id,
-                split=task.split,
+            dataset = _worker_inputs(
+                task,
                 load_images=requirements.frame_pixels,
                 load_masks=needs_masks,
                 load_embeddings=requirements.embeddings,
             )
+            if task.run_id is None and callable(getattr(dataset, "close", None)):
+                inputs.callback(dataset.close)
             validate_build_compatibility(
                 dataset.manifest,
                 split=task.split,
@@ -559,6 +632,7 @@ def _drain_progress_queue(
     progress_queue: Any | None,
     callback: ReplayProgressCallback | None,
     latest: dict[int, ReplayProgressEvent],
+    run_id: str | None = None,
 ) -> None:
     if progress_queue is None:
         return
@@ -569,6 +643,8 @@ def _drain_progress_queue(
             return
         if not isinstance(event, ReplayProgressEvent):
             raise TypeError(f"Replay worker emitted unsupported progress {type(event).__name__}.")
+        if run_id is not None and event.run_id != run_id:
+            continue
         _publish_progress(event, callback, latest)
 
 
@@ -577,11 +653,13 @@ def _run_spawned_sequence_tasks(
     *,
     workers: int,
     progress_callback: ReplayProgressCallback | None,
+    _pool: tuple[Any, Any, str] | None = None,
 ) -> tuple[_SequenceReplayResult, ...]:
     """Run sequence tasks in spawn workers and return stable ordinal order."""
 
     context = get_context("spawn")
-    progress_queue = context.Queue() if progress_callback is not None else None
+    progress_queue = (context.Queue() if progress_callback is not None else None) if _pool is None else _pool[1]
+    run_id = None if _pool is None else _pool[2]
     latest: dict[int, ReplayProgressEvent] = {}
     for task in tasks:
         _publish_progress(
@@ -593,16 +671,21 @@ def _run_spawned_sequence_tasks(
                 track_rows=0,
                 detail=None,
                 ordinal=task.ordinal,
+                run_id=run_id,
             ),
             progress_callback,
             latest,
         )
 
-    executor = concurrent.futures.ProcessPoolExecutor(
-        max_workers=workers,
-        mp_context=context,
-        initializer=_initialize_replay_worker,
-        initargs=(progress_queue,),
+    executor = (
+        _pool[0]
+        if _pool is not None
+        else concurrent.futures.ProcessPoolExecutor(
+            max_workers=workers,
+            mp_context=context,
+            initializer=_initialize_replay_worker,
+            initargs=(progress_queue,),
+        )
     )
     futures: dict[concurrent.futures.Future[_SequenceReplayResult], _SequenceReplayTask] = {}
     results: dict[int, _SequenceReplayResult] = {}
@@ -616,13 +699,13 @@ def _run_spawned_sequence_tasks(
                 timeout=0.1,
                 return_when=concurrent.futures.FIRST_COMPLETED,
             )
-            _drain_progress_queue(progress_queue, progress_callback, latest)
+            _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
             for future in done:
                 task = futures[future]
                 try:
                     result = future.result()
                 except BaseException as exc:
-                    _drain_progress_queue(progress_queue, progress_callback, latest)
+                    _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
                     previous = latest.get(task.ordinal)
                     if previous is None or previous.status != "failed":
                         _publish_progress(
@@ -634,6 +717,7 @@ def _run_spawned_sequence_tasks(
                                 track_rows=0 if previous is None else previous.track_rows,
                                 detail=f"{type(exc).__name__}: {exc}",
                                 ordinal=task.ordinal,
+                                run_id=run_id,
                             ),
                             progress_callback,
                             latest,
@@ -660,6 +744,7 @@ def _run_spawned_sequence_tasks(
                             track_rows=result.track_rows,
                             detail="Replay worker returned mismatched task metadata.",
                             ordinal=task.ordinal,
+                            run_id=run_id,
                         ),
                         progress_callback,
                         latest,
@@ -677,6 +762,7 @@ def _run_spawned_sequence_tasks(
                             track_rows=result.track_rows,
                             detail=None,
                             ordinal=result.ordinal,
+                            run_id=run_id,
                         ),
                         progress_callback,
                         latest,
@@ -684,13 +770,15 @@ def _run_spawned_sequence_tasks(
     except BaseException:
         for future in futures:
             future.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
+        if _pool is None:
+            executor.shutdown(wait=True, cancel_futures=True)
         raise
     else:
-        executor.shutdown(wait=True, cancel_futures=False)
+        if _pool is None:
+            executor.shutdown(wait=True, cancel_futures=False)
     finally:
-        _drain_progress_queue(progress_queue, progress_callback, latest)
-        if progress_queue is not None:
+        _drain_progress_queue(progress_queue, progress_callback, latest, run_id)
+        if progress_queue is not None and _pool is None:
             progress_queue.close()
             progress_queue.join_thread()
 
@@ -714,12 +802,13 @@ def _replay_with_injected_tracker(
     progress_callback: ReplayProgressCallback | None = None,
     sequence_frame_counts: Mapping[str, int] | None = None,
     output_format: str = "mot",
+    cache_inputs: bool = False,
 ) -> ReplayResult:
     """Preserve the caller-owned, in-process tracker path used by tests and embedding clients."""
 
     requirements = tracker.requirements
     needs_masks = requirements.masks or output_format == "mots"
-    if frame_callback is None:
+    if frame_callback is None and not cache_inputs:
         dataset = load_cached_build(
             build_path,
             split=split,
@@ -735,9 +824,26 @@ def _replay_with_injected_tracker(
             require_embeddings=requirements.embeddings,
         )
     else:
-        assert sequence_frame_counts is not None
-        dataset = _callback_samples(
-            build_path, tracker, split=split, frame_counts=sequence_frame_counts, output_format=output_format
+        manifest = DatasetManifest.load(build_path)
+        validate_build_compatibility(
+            manifest,
+            split=split,
+            geometry=tracker_spec.geometry,
+            require_masks=needs_masks,
+            require_embeddings=requirements.embeddings,
+        )
+        if sequence_frame_counts is None:
+            counts = dict(_sequence_frame_counts(build_path, manifest, split=split))
+            selected = _select_sequence_ids(tuple(counts), sequence_ids)
+            sequence_frame_counts = {sequence: counts[sequence] for sequence in selected}
+        dataset = _serial_samples(
+            build_path,
+            tracker,
+            split=split,
+            frame_counts=sequence_frame_counts,
+            output_format=output_format,
+            load_images=frame_callback is not None or requirements.frame_pixels,
+            cache_inputs=cache_inputs,
         )
 
     handles: dict[str, TextIO] = {}
@@ -830,33 +936,43 @@ def _replay_with_injected_tracker(
     )
 
 
-def _callback_samples(
+def _serial_samples(
     build_path: Path,
     tracker: Tracker,
     *,
     split: str | None,
     frame_counts: Mapping[str, int],
     output_format: str = "mot",
+    load_images: bool = True,
+    cache_inputs: bool = False,
 ) -> Iterator[DatasetSample]:
-    """Stream selected sequences with real pixels and bounded optional payloads."""
+    """Own one sequence at a time for rendering and caller-owned trackers."""
 
     requirements = tracker.requirements
     for sequence, expected in frame_counts.items():
-        dataset = CachedVisionDataset._stream_sequence(
-            build_path,
-            sequence_id=sequence,
-            split=split,
-            load_images=True,
-            load_masks=requirements.masks or output_format == "mots",
-            load_embeddings=requirements.embeddings,
-        )
-        if len(dataset) != expected:
-            raise RuntimeError(
-                f"Sequence {sequence!r} changed while replay was starting: "
-                f"expected {expected} frames, loaded {len(dataset)}."
+        with ExitStack() as inputs:
+            options = dict(
+                load_images=load_images,
+                load_masks=requirements.masks or output_format == "mots",
+                load_embeddings=requirements.embeddings,
             )
-        with _prefetch_samples(dataset) as samples:
-            yield from samples
+            if cache_inputs:
+                from boxmot.datasets.replay_cache import open_replay_sequence, prepare_replay_sequence
+
+                path = prepare_replay_sequence(
+                    build_path, sequence_id=sequence, split=split, load_embeddings=requirements.embeddings
+                )
+                dataset = open_replay_sequence(path, **options)
+                inputs.callback(dataset.close)
+            else:
+                dataset = CachedVisionDataset._stream_sequence(build_path, sequence_id=sequence, split=split, **options)
+            if len(dataset) != expected:
+                raise RuntimeError(
+                    f"Sequence {sequence!r} changed while replay was starting: "
+                    f"expected {expected} frames, loaded {len(dataset)}."
+                )
+            with _prefetch_samples(dataset) as samples:
+                yield from samples
 
 
 def _replay_with_frame_callback(
@@ -872,6 +988,7 @@ def _replay_with_frame_callback(
     frame_callback: ReplayFrameCallback,
     progress_callback: ReplayProgressCallback | None,
     output_format: str = "mot",
+    cache_inputs: bool = False,
 ) -> ReplayResult:
     """Keep rendering on the caller's thread and publish only a complete replay."""
 
@@ -917,6 +1034,7 @@ def _replay_with_frame_callback(
                 frame_callback=frame_callback,
                 progress_callback=progress_callback,
                 output_format=output_format,
+                cache_inputs=cache_inputs,
             )
         sequence_paths: list[Path] = []
         for staged in replayed.sequence_files:
@@ -962,6 +1080,8 @@ def replay_build(
     progress_callback: ReplayProgressCallback | None = None,
     frame_callback: ReplayFrameCallback | None = None,
     output_format: str = "mot",
+    session: ReplaySession | None = None,
+    cache_inputs: bool = False,
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -978,6 +1098,16 @@ def replay_build(
     """
 
     _validate_output_format(output_format)
+    if not isinstance(cache_inputs, bool):
+        raise TypeError("cache_inputs must be bool.")
+    if session is not None:
+        from boxmot.engine.eval.session import ReplaySession
+
+        if not isinstance(session, ReplaySession):
+            raise TypeError("session must be a ReplaySession or None.")
+        if tracker is not None or frame_callback is not None:
+            raise ValueError("ReplaySession requires worker-owned trackers without frame callbacks.")
+        cache_inputs = cache_inputs or session.cache_inputs
     if not isinstance(tracker_spec, TrackerSpec):
         raise TypeError("tracker_spec must be a TrackerSpec")
     validate_image_tracker(tracker_spec.name)
@@ -986,7 +1116,9 @@ def replay_build(
     if frame_callback is not None and not callable(frame_callback):
         raise TypeError("frame_callback must be callable or None")
     build_path = resolve_build_path(build, build_root=build_root)
-    destination = Path(output_dir)
+    # Retained workers keep their original cwd even if an API caller changes
+    # directories between trials. Send and publish absolute destinations.
+    destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
     if frame_callback is not None:
         return _replay_with_frame_callback(
@@ -1001,6 +1133,7 @@ def replay_build(
             frame_callback=frame_callback,
             progress_callback=progress_callback,
             output_format=output_format,
+            cache_inputs=cache_inputs,
         )
     if tracker is not None:
         staging_context = (
@@ -1017,6 +1150,7 @@ def replay_build(
                 tracker=tracker,
                 sequence_ids=sequence_ids,
                 output_format=output_format,
+                cache_inputs=cache_inputs,
             )
             if output_format == "mot":
                 return replayed
@@ -1053,6 +1187,8 @@ def replay_build(
     )
     selected = _select_sequence_ids(tuple(frame_counts), sequence_ids)
     worker_count = resolve_sequence_workers(len(selected), workers)
+    if session is not None and worker_count != session.workers:
+        raise ValueError("ReplaySession worker count must match the selected replay worker count.")
     if not selected:
         return ReplayResult(
             build=build_path,
@@ -1062,6 +1198,19 @@ def replay_build(
             track_rows=0,
         )
 
+    input_paths: dict[str, Path] = {}
+    if cache_inputs:
+        from boxmot.datasets.replay_cache import prepare_replay_sequence
+
+        input_paths = {
+            sequence_id: prepare_replay_sequence(
+                build_path,
+                sequence_id=sequence_id,
+                split=split,
+                load_embeddings=requirements.embeddings,
+            )
+            for sequence_id in selected
+        }
     with tempfile.TemporaryDirectory(prefix=".replay-", dir=destination) as staging_dir:
         staging = Path(staging_dir)
         tasks = tuple(
@@ -1074,13 +1223,14 @@ def replay_build(
                 output_path=str(staging / f"part-{ordinal:05d}.txt"),
                 ordinal=ordinal,
                 output_format=output_format,
+                input_cache_path=None if sequence_id not in input_paths else str(input_paths[sequence_id]),
             )
             for ordinal, sequence_id in enumerate(selected)
         )
-        replayed = _run_spawned_sequence_tasks(
-            tasks,
-            workers=worker_count,
-            progress_callback=progress_callback,
+        replayed = (
+            _run_spawned_sequence_tasks(tasks, workers=worker_count, progress_callback=progress_callback)
+            if session is None
+            else session.run(tasks, progress_callback=progress_callback)
         )
 
         sequence_paths: list[Path] = []

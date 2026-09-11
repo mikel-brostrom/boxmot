@@ -284,6 +284,11 @@ boxmot eval \
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
 
+For repeated evaluations or tuning, add
+[`--cache-inputs`](docs/modes/eval.md#cache-replay-inputs-for-repeated-runs)
+to reuse mapped detections and embeddings. Image-tracker tuning also reuses
+sequence workers across trials while creating fresh tracker state each time.
+
 For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
 reads original instance PNGs into canonical frames, track IDs, masks, and ignore
 regions. The `kitti-mots` profile supports materialization, evaluation, and

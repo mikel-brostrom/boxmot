@@ -91,6 +91,45 @@ and—when applicable—component fingerprints.
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
 
+## Cache replay inputs for repeated runs
+
+Add `--cache-inputs` to cache frame-ordered detections and embeddings for later
+evaluations or tuning runs:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort \
+  --cache-inputs
+```
+
+The first run validates the source Parquet build and prepares mapped NumPy
+arrays. Subsequent runs reuse them, including when switching between CPU, MPS,
+and CUDA. The cache is tied to the build's content, sequence, split, geometry,
+and embedding encoder, rather than the requested execution device. Different
+tracker settings can share the same inputs.
+
+With the default build layout, these files live under `runs/replay_cache/`.
+For a custom build location, the cache directory sits beside the build-root
+directory. They are derived data: the Parquet build remains authoritative and
+is never rewritten. Incomplete or invalid derived entries are rebuilt from it.
+You can remove the derived cache when no runs are using it to reclaim disk
+space; `--cache-inputs` prepares it again when needed.
+
+The flag defaults to off because preparation takes time and requires extra
+disk space. Use `--no-cache-inputs` to select direct Parquet reads. Those reads
+use a bounded embedding-batch cache and key indices to keep out-of-order
+embedding rows from accumulating for an entire sequence. Neither path caches
+decoded images or tracker state. Image decoding still runs when the tracker
+or visualization needs pixels, and published masks are read separately.
+
+This option applies to perception builds, including explicit `--build`
+selection. Saved EagerMOT sensor bundles use a separate input format and do
+not accept `--cache-inputs`.
+
 ## Saved TrackR-CNN predictions
 
 For downloaded KITTI TrackR-CNN text predictions, use

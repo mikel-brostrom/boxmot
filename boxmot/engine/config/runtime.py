@@ -164,6 +164,7 @@ def _runtime_mode_kwargs(values: Mapping[str, Any]) -> dict[str, Any]:
         "auto_batch": bool(values.get("auto_batch", True)),
         "resume": bool(values.get("resume", True)),
         "sequence_workers": int(values.get("sequence_workers", 1)),
+        "cache_inputs": bool(values.get("cache_inputs", False)),
         "project": Path(values.get("project") or "runs"),
         "name": str(values.get("name", "exp")),
         "exist_ok": bool(values.get("exist_ok", False)),
@@ -206,6 +207,7 @@ class RuntimeModeDefaults:
     auto_batch: bool
     resume: bool
     sequence_workers: int
+    cache_inputs: bool
     project: Path
     name: str
     exist_ok: bool
