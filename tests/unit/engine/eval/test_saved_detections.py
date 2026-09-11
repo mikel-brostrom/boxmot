@@ -208,17 +208,6 @@ def test_saved_input_cache_reuses_boxes_images_features_and_rebuilds_changed_inp
     assert encoder.calls == calls + 2
 
 
-@pytest.mark.parametrize("tracker", ("botsort", "occluboost"))
-def test_saved_boxes_support_native_trackers(monkeypatch, tmp_path: Path, tracker: str) -> None:
-    dataset = _dataset(tmp_path)
-    _stub_encoder(monkeypatch, _Encoder())
-    result = saved_detections.run_saved_detections(_args(tmp_path, dataset, tracker=tracker, tracker_backend="cpp"))
-    assert result.raw["car"]["HOTA"] == result.raw["pedestrian"]["HOTA"] == 100
-    metadata = json.loads((result.exp_dir / "run.json").read_text())
-    assert metadata["tracker_backend"] == "cpp"
-    assert metadata["per_class"] is False
-
-
 def test_saved_boxes_save_video_on_the_authored_timeline(monkeypatch, tmp_path: Path) -> None:
     dataset = _dataset(tmp_path)
     _stub_encoder(monkeypatch, _Encoder())

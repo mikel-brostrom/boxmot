@@ -674,7 +674,9 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     ]
 
 
-def test_shared_segmentor_runs_before_mask_aware_encoder_and_stream_tracker() -> None:
+@pytest.mark.parametrize("tracker_requires_masks", (False, True))
+def test_shared_segmentor_runs_before_mask_aware_encoder_and_stream_tracker(tracker_requires_masks: bool) -> None:
+    """Provide masks to the encoder and pass them to trackers that require them."""
     events: list[str] = []
 
     class _Segmentor:
@@ -695,10 +697,10 @@ def test_shared_segmentor_runs_before_mask_aware_encoder_and_stream_tracker() ->
             return [torch.ones((len(items), 4), dtype=torch.float32) for items in detections]
 
     class _EnrichedTracker(_FakeTracker):
-        requirements = TrackerRequirements(embeddings=True, frame=True)
+        requirements = TrackerRequirements(embeddings=True, masks=tracker_requires_masks, frame=True)
 
         def update(self, detections: Detections, frame: Frame | None = None) -> Tracks:
-            assert detections.masks is not None
+            assert (detections.masks is not None) == tracker_requires_masks
             assert detections.embeddings is not None
             events.append("track")
             return super().update(detections, frame)
