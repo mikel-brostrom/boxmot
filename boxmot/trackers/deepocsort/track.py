@@ -9,13 +9,7 @@ import numpy as np
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
 )
-from boxmot.trackers.common.geometry.obb import (
-    transform_aabb,
-    transform_aabb_kalman_state,
-    transform_obb,
-    transform_obb_kalman_state,
-    transform_points,
-)
+from boxmot.trackers.common.motion.cmc.batching import transform_ocsort_tracks
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_state import SortBoxTrack
@@ -167,73 +161,15 @@ class KalmanBoxTracker(SortBoxTrack):
     def get_emb(self):
         return self.emb
 
-    def camera_update(self, affine):
-        """Apply a camera-motion transform to the track state."""
-        transform = np.asarray(affine, dtype=float)
-        source_center = self.get_state()[0, :2].copy()
-        warped_observations: dict[int, np.ndarray] = {}
+    def camera_update(self, affine: np.ndarray) -> None:
+        """Warp this track's current state and observation histories."""
+        self.multi_camera_update([self], affine)
 
-        def warp_observation_once(observation):
-            identity = id(observation)
-            if identity not in warped_observations:
-                warped_observations[identity] = transform_aabb(observation, transform)
-            return warped_observations[identity]
-
-        # For OCR
-        if self.last_observation[-1] >= 0:
-            self.last_observation[:] = warp_observation_once(self.last_observation)
-
-        # Apply to each box in the range of velocity computation
-        for age, observation in self.observations.items():
-            self.observations[age][:] = warp_observation_once(observation)
-
-        if self.velocity is not None:
-            velocity_xy = np.asarray(self.velocity, dtype=np.float64).reshape(2)[::-1]
-            mapped = transform_points(
-                np.stack((source_center, source_center + velocity_xy)),
-                transform,
-            )
-            transformed_xy = mapped[1] - mapped[0]
-            norm = float(np.linalg.norm(transformed_xy))
-            if np.isfinite(transformed_xy).all() and np.isfinite(norm) and norm > 1e-12:
-                self.velocity = (transformed_xy / norm)[::-1]
-
-        def transform_state(mean, covariance):
-            return transform_aabb_kalman_state(
-                mean,
-                covariance,
-                transform,
-                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
-                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
-                velocity_measurement_indices=(0, 1, 2),
-            )
-
-        def warp_measurement(measurement):
-            if measurement is None:
-                return None
-            original_shape = np.asarray(measurement).shape
-            box = self.motion_model.to_box(measurement)[0]
-            warped = self.motion_model.to_measurement(
-                transform_aabb(box, transform),
-                column=False,
-            )
-            return np.asarray(warped).reshape(original_shape)
-
-        self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
-        self.kf.transform_timed_history(transform_state, warp_measurement)
-        self.kf.history_obs = deque(
-            (warp_measurement(item) for item in self.kf.history_obs),
-            maxlen=self.kf.history_obs.maxlen,
-        )
-        self.kf.last_measurement = warp_measurement(self.kf.last_measurement)
-        if not self.kf.observed and self.kf.attr_saved is not None:
-            saved = self.kf.attr_saved
-            saved["x"], saved["P"] = transform_state(saved["x"], saved["P"])
-            saved["history_obs"] = deque(
-                (warp_measurement(item) for item in saved["history_obs"]),
-                maxlen=saved["history_obs"].maxlen,
-            )
-            saved["last_measurement"] = warp_measurement(saved["last_measurement"])
+    @classmethod
+    def multi_camera_update(cls, tracks, affine: np.ndarray) -> None:
+        """Transform AABB states, observations and recovery histories together."""
+        if tracks:
+            transform_ocsort_tracks(tracks, affine, model=tracks[0].motion_model)
 
     def predict(self, *, dt: float | None = None) -> np.ndarray:
         """
@@ -315,59 +251,3 @@ class DeepOBBKalmanBoxTracker(OBBKalmanBoxTracker):
 
     def get_emb(self):
         return self.emb
-
-    def camera_update(self, affine):
-        """Warp OBB observations plus the complete XYSR state and covariance."""
-        transform = np.asarray(affine, dtype=float)
-        source_center = self.get_state()[0, :2].copy()
-
-        def warp_box(box):
-            return transform_obb(np.asarray(box, dtype=float)[:5], transform)
-
-        def warp_measurement(measurement):
-            if measurement is None:
-                return None
-            box = self.motion_model.to_box(measurement)[0]
-            return self.motion_model.to_measurement(warp_box(box))
-
-        warped_observations: dict[int, np.ndarray] = {}
-
-        def warp_observation_once(observation):
-            identity = id(observation)
-            if identity not in warped_observations:
-                warped_observations[identity] = warp_box(observation)
-            return warped_observations[identity]
-
-        if self.last_observation[-1] >= 0:
-            self.last_observation[:5] = warp_observation_once(self.last_observation)
-        for age, observation in self.observations.items():
-            self.observations[age][:5] = warp_observation_once(observation)
-
-        self._transform_cached_velocity(transform, source_center)
-
-        def transform_state(mean, covariance):
-            return transform_obb_kalman_state(
-                mean,
-                covariance,
-                transform,
-                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
-                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
-                velocity_measurement_indices=(0, 1, 2, 4),
-            )
-
-        self.kf.x, self.kf.P = transform_state(self.kf.x, self.kf.P)
-        self.kf.transform_timed_history(transform_state, warp_measurement)
-        self.kf.history_obs = deque(
-            (warp_measurement(item) for item in self.kf.history_obs),
-            maxlen=self.kf.history_obs.maxlen,
-        )
-        self.kf.last_measurement = warp_measurement(self.kf.last_measurement)
-
-        if not self.kf.observed and self.kf.attr_saved is not None:
-            saved = self.kf.attr_saved
-            saved["x"], saved["P"] = transform_state(saved["x"], saved["P"])
-            saved["history_obs"] = deque(
-                (warp_measurement(item) for item in saved["history_obs"]),
-                maxlen=saved["history_obs"].maxlen,
-            )
-            saved["last_measurement"] = warp_measurement(saved["last_measurement"])

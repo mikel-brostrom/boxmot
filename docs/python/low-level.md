@@ -85,3 +85,34 @@ EagerMOT's `Kalman3D` similarly provides `multi_predict(filters)` and
 Batching preserves elapsed-time and oriented-box handling. Missing observations
 and observation-centric recovery retain each track's sequential history replay;
 per-track bookkeeping and adaptive-noise updates still run independently.
+
+## Batched camera-motion compensation
+
+BoT-SORT, StrongSORT, BoostTrack, OccluBoost, DeepOCSORT, and HybridSORT batch
+camera-motion updates automatically when CMC is enabled. No additional CLI
+option is needed. The shared kernels transform box geometry, numerical
+Jacobians, velocities, and covariances in arrays. Observation-centric trackers
+also batch their retained observations and recovery states, preserving each
+tracker's existing compensation policy.
+
+Camera motion is estimated once per frame. ECC and sparse optical flow already
+use OpenCV array operations; ORB/SIFT match filtering and mask-coordinate
+calculations also use batches. Frame pairs remain sequential. General affine
+and projective OBB fitting still uses one OpenCV rectangle fit per box, and
+mask rasterization retains individual polygon calls to preserve overlaps.
+
+Compare cached replay against a saved package snapshot without rerunning
+detection or ReID:
+
+```bash
+uv run --no-sync python -m tests.performance.trackers.benchmark_cached_cmc \
+  --baseline /path/to/snapshot-containing-boxmot \
+  --build /path/to/existing/materialization \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --workers 7 --repeat 3 \
+  --output /tmp/cmc-comparison
+```
+
+Use `--mode preloaded --sequence MOT17-04-FRCNN --frames 100` to exclude image
+decoding from the measured tracking loop. Both modes check track IDs and
+geometry; complete replay also checks the evaluation metrics.

@@ -27,8 +27,16 @@ def apply_cmc_to_tracks(
         raise ValueError("img is required when camera-motion compensation is enabled")
 
     warp = cmc.apply(img, cmc_detection_boxes(dets, layout))
+    groups = {}
     for track in tracks:
-        track.camera_update(warp)
+        groups.setdefault(type(track), []).append(track)
+    for track_type, group in groups.items():
+        multi_update = getattr(track_type, "multi_camera_update", None)
+        if multi_update is not None:
+            multi_update(group, warp)
+        else:
+            for track in group:
+                track.camera_update(warp)
     return warp
 
 

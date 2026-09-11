@@ -11,8 +11,8 @@ from boxmot.trackers.common.appearance import (
 from boxmot.trackers.common.geometry.obb import (
     align_obb_measurement,
     smooth_obb_corners,
-    transform_obb_kalman_state,
 )
+from boxmot.trackers.common.motion.cmc.state import transform_obb_kalman_states
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 from boxmot.trackers.common.track_state import SortBoxTrack
@@ -112,43 +112,45 @@ class KalmanBoxTracker(SortBoxTrack):
             box = box[:4]
         self.history_observations.append(np.asarray(box, dtype=np.float32).copy())
 
-    def camera_update(self, transform: np.ndarray):
-        """
-        Handle either a 2×3 affine or a 3×3 homography, by
-        promoting the 2×3 to 3×3 [ …; 0 0 1 ].
+    def camera_update(self, transform: np.ndarray) -> None:
+        """Transform this track using its AABB or OBB CMC policy."""
+        self.multi_camera_update([self], transform)
 
-        For OBB tracks, warps the centre and approximates the global affine
-        scale on the box dimensions (rotation is folded into the angle); this
-        keeps OBB CMC behaviour comparable to the AABB path while avoiding a
-        full corner re-fit per track.
-        """
-        # ——— normalize to 3×3 —————
-        wm = np.asarray(transform, dtype=float)
-        if wm.shape == (2, 3):
-            wm = np.vstack([wm, [0.0, 0.0, 1.0]])
-        elif wm.shape != (3, 3):
-            raise ValueError(f"Expected 2×3 or 3×3 matrix, got {wm.shape}")
-
-        if self.is_obb:
-            self.kf.x, self.kf.covariance = transform_obb_kalman_state(
-                self.kf.x,
-                self.kf.covariance,
-                wm,
-                measurement_to_box=lambda values: self.motion_model.to_box(values)[0],
-                box_to_measurement=lambda box: self.motion_model.to_measurement(box, column=False),
-                velocity_measurement_indices=(0, 1, 2, 3, 4),
-            )
-            return
-
-        # Preserve the AABB CMC contract used to tune BoostTrack/OccluBoost:
-        # correct only the measurement mean by warping its diagonal endpoints.
-        # Transforming the full enclosure, velocity, or covariance changes the
-        # subsequent association geometry and fragments established identities.
-        x1, y1, x2, y2 = self.get_state()[0]
-        x1_, y1_, _ = wm @ np.array([x1, y1, 1.0])
-        x2_, y2_, _ = wm @ np.array([x2, y2, 1.0])
-        width, height = x2_ - x1_, y2_ - y1_
-        self.kf.x[:4] = [x1_ + (width / 2), y1_ + (height / 2), height, width / height]
+    @classmethod
+    def multi_camera_update(cls, tracks, transform: np.ndarray) -> None:
+        """Warp OBB states fully and AABB measurement diagonals in batches."""
+        matrix = np.asarray(transform, dtype=float)
+        if matrix.shape == (2, 3):
+            matrix = np.vstack([matrix, [0.0, 0.0, 1.0]])
+        elif matrix.shape != (3, 3):
+            raise ValueError(f"Expected 2×3 or 3×3 matrix, got {matrix.shape}")
+        for is_obb in (False, True):
+            group = [track for track in tracks if track.is_obb == is_obb]
+            if not group:
+                continue
+            model = group[0].motion_model
+            means = np.asarray([track.kf.x for track in group])
+            if is_obb:
+                means, covariances = transform_obb_kalman_states(
+                    means,
+                    np.asarray([track.kf.covariance for track in group]),
+                    matrix,
+                    measurement_to_box=model.to_boxes,
+                    box_to_measurement=model.to_measurements,
+                    velocity_measurement_indices=(0, 1, 2, 3, 4),
+                )
+                for track, mean, covariance in zip(group, means, covariances):
+                    track.kf.x, track.kf.covariance = mean, covariance
+                continue
+            # Retain the measurement-only diagonal endpoint contract used for
+            # tuning BoostTrack/OccluBoost, including its homography policy.
+            endpoints = model.to_boxes(means).reshape(-1, 2, 2)
+            homogeneous = np.concatenate((endpoints, np.ones((*endpoints.shape[:2], 1))), axis=2)
+            warped = (homogeneous @ matrix.T)[..., :2]
+            sizes = warped[:, 1] - warped[:, 0]
+            measurements = np.column_stack((warped[:, 0] + sizes / 2.0, sizes[:, 1], sizes[:, 0] / sizes[:, 1]))
+            for track, measurement in zip(group, measurements):
+                track.kf.x[:4] = measurement
 
     def predict(self, *, dt: float | None = None) -> np.ndarray:
         """Predict geometry over an optional elapsed time interval."""

@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 
 from boxmot.trackers.common.motion.cmc.base import BaseCMC
+from boxmot.trackers.common.motion.cmc.keypoints import draw_keypoint_matches, filter_keypoint_matches
 
 
 class SIFT(BaseCMC):
@@ -80,45 +81,12 @@ class SIFT(BaseCMC):
             self.matches_img = None
             return H
 
-        matches = []
-        spatial_distances = []
-        max_spatial_distance = 0.25 * np.array([w, h], dtype=np.float32)
-
-        for pair in knn:
-            if len(pair) != 2:
-                continue
-            m, n = pair
-            if m.distance >= 0.9 * n.distance:
-                continue
-
-            prev_pt = np.array(self.prev_keypoints[m.queryIdx].pt, dtype=np.float32)
-            curr_pt = np.array(keypoints[m.trainIdx].pt, dtype=np.float32)
-            dxy = prev_pt - curr_pt
-
-            if (abs(dxy[0]) < max_spatial_distance[0]) and (abs(dxy[1]) < max_spatial_distance[1]):
-                spatial_distances.append(dxy)
-                matches.append(m)
-
-        if len(matches) < 4:
-            self._store_state(img_p, keypoints, descriptors, dets)
-            self.prev_img_aligned = None
-            self.matches_img = None
-            return H
-
-        spatial_distances = np.asarray(spatial_distances, dtype=np.float32)
-        mean = spatial_distances.mean(axis=0)
-        std = spatial_distances.std(axis=0) + 1e-6
-        inliers_spatial = np.all(np.abs(spatial_distances - mean) < 2.5 * std, axis=1)
-
-        good_matches = [matches[i] for i in range(len(matches)) if inliers_spatial[i]]
+        good_matches, prev_pts, curr_pts = filter_keypoint_matches(knn, self.prev_keypoints, keypoints, (w, h))
         if len(good_matches) < 4:
             self._store_state(img_p, keypoints, descriptors, dets)
             self.prev_img_aligned = None
             self.matches_img = None
             return H
-
-        prev_pts = np.array([self.prev_keypoints[m.queryIdx].pt for m in good_matches], dtype=np.float32)
-        curr_pts = np.array([keypoints[m.trainIdx].pt for m in good_matches], dtype=np.float32)
 
         H_est, ransac_inliers = cv2.estimateAffinePartial2D(prev_pts, curr_pts, method=cv2.RANSAC)
         if (
@@ -143,13 +111,13 @@ class SIFT(BaseCMC):
             H_est = self.restore_transform_scale(H_est)
 
         if self.draw_keypoint_matches:
-            self.matches_img = ORBLikeDraw.draw(
-                prev=self.prev_img,
-                curr=img_p,
-                prev_kp=self.prev_keypoints,
-                curr_kp=keypoints,
+            self.matches_img = draw_keypoint_matches(
+                previous=self.prev_img,
+                current=img_p,
+                previous_keypoints=self.prev_keypoints,
+                current_keypoints=keypoints,
                 matches=good_matches,
-                dets=dets,
+                detections=dets,
             )
         else:
             self.matches_img = None
@@ -162,28 +130,3 @@ class SIFT(BaseCMC):
         self.prev_keypoints = copy.copy(keypoints)
         self.prev_descriptors = None if descriptors is None else descriptors.copy()
         self.prev_dets = None if dets is None else np.asarray(dets).copy()
-
-
-class ORBLikeDraw:
-    @staticmethod
-    def draw(prev: np.ndarray, curr: np.ndarray, prev_kp, curr_kp, matches, dets):
-        canvas = np.hstack((prev, curr))
-        canvas = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-
-        W = prev.shape[1]
-        for m in matches:
-            p = np.array(prev_kp[m.queryIdx].pt, dtype=np.int32)
-            c = np.array(curr_kp[m.trainIdx].pt, dtype=np.int32)
-            c[0] += W
-            cv2.line(canvas, tuple(p), tuple(c), (255, 255, 255), 1, cv2.LINE_AA)
-            cv2.circle(canvas, tuple(p), 2, (255, 255, 255), -1)
-            cv2.circle(canvas, tuple(c), 2, (255, 255, 255), -1)
-
-        if dets is not None:
-            for det in np.asarray(dets):
-                if len(det) < 4:
-                    continue
-                x1, y1, x2, y2 = det[:4].astype(int).tolist()
-                cv2.rectangle(canvas, (x1 + W, y1), (x2 + W, y2), (0, 0, 255), 2)
-
-        return canvas

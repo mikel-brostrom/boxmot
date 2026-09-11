@@ -10,14 +10,13 @@ import numpy as np
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
 from boxmot.trackers.common.geometry.obb import (
     smooth_obb_corners,
-    transform_aabb,
-    transform_aabb_kalman_state,
-    transform_obb_kalman_state,
+    transform_aabbs,
 )
+from boxmot.trackers.common.motion.cmc.state import transform_aabb_kalman_states, transform_obb_kalman_states
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
-from boxmot.trackers.common.motion.models import xyah_state_to_xyxy, xyxy_to_xyah_measurement
+from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 
 __all__ = ("Track", "TrackState")
 
@@ -114,26 +113,34 @@ class Track:
             raise AttributeError("xywha is only available for OBB tracks")
         return self.mean[:5].copy()
 
-    def camera_update(self, warp_matrix):
-        if self.is_obb:
-            self.mean, self.covariance = transform_obb_kalman_state(
-                self.mean,
-                self.covariance,
+    def camera_update(self, warp_matrix: np.ndarray) -> None:
+        """Transform this track using the shared batched CMC implementation."""
+        self.multi_camera_update([self], warp_matrix)
+
+    @classmethod
+    def multi_camera_update(cls, tracks, warp_matrix: np.ndarray) -> None:
+        """Transform compatible track states and their last AABB measurements."""
+        for is_obb in (False, True):
+            group = [track for track in tracks if track.is_obb == is_obb]
+            if not group:
+                continue
+            model = create_motion_model(MotionModelKind.XYWH if is_obb else MotionModelKind.XYAH, is_obb=is_obb)
+            transform_states = transform_obb_kalman_states if is_obb else transform_aabb_kalman_states
+            means, covariances = transform_states(
+                np.asarray([track.mean for track in group]),
+                np.asarray([track.covariance for track in group]),
                 warp_matrix,
-                measurement_to_box=lambda values: values,
-                box_to_measurement=lambda box: box,
-                velocity_measurement_indices=(0, 1, 2, 3, 4),
+                measurement_to_box=(lambda rows: rows) if is_obb else model.to_boxes,
+                box_to_measurement=(lambda rows: rows) if is_obb else model.to_measurements,
+                velocity_measurement_indices=(0, 1, 2, 3, 4) if is_obb else (0, 1, 2, 3),
             )
-            return
-        self.mean, self.covariance = transform_aabb_kalman_state(
-            self.mean,
-            self.covariance,
-            warp_matrix,
-            measurement_to_box=lambda values: xyah_state_to_xyxy(values)[0],
-            box_to_measurement=xyxy_to_xyah_measurement,
-            velocity_measurement_indices=(0, 1, 2, 3),
-        )
-        self.bbox = xyxy_to_xyah_measurement(transform_aabb(xyah_state_to_xyxy(self.bbox)[0], warp_matrix))
+            for track, mean, covariance in zip(group, means, covariances):
+                track.mean, track.covariance = mean, covariance
+            if not is_obb:
+                boxes = model.to_boxes(np.asarray([track.bbox for track in group]))
+                measurements = model.to_measurements(transform_aabbs(boxes, warp_matrix))
+                for track, measurement in zip(group, measurements):
+                    track.bbox = measurement
 
     def _append_current_history(self) -> None:
         if self.is_obb:

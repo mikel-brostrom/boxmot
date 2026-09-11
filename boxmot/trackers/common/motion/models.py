@@ -61,6 +61,64 @@ class MotionModelAdapter:
     def to_box(self, state: np.ndarray, score: float | None = None) -> np.ndarray:
         return self._box_from_state(state, score)
 
+    def to_measurements(self, boxes: np.ndarray) -> np.ndarray:
+        """Convert rows of boxes using the scalar adapter's geometry policy."""
+        boxes = np.asarray(boxes, dtype=float)
+        if self.is_obb:
+            result = boxes[:, :5].copy()
+            minimum = 1e-4 if self.kind in (MotionModelKind.XYWH, MotionModelKind.XYHR) else 1e-6
+            width = np.maximum(boxes[:, 2], minimum)
+            height = np.maximum(boxes[:, 3], minimum)
+            result[:, 4] = (result[:, 4] + np.pi) % (2 * np.pi) - np.pi
+        else:
+            width = boxes[:, 2] - boxes[:, 0]
+            height = boxes[:, 3] - boxes[:, 1]
+            result = np.empty((len(boxes), self.dim_z), dtype=float)
+            result[:, :2] = boxes[:, :2] + np.column_stack((width, height)) / 2.0
+        if self.kind is MotionModelKind.XYWH:
+            result[:, 2:4] = np.column_stack((width, height))
+        elif self.kind is MotionModelKind.XYAH:
+            height = np.maximum(height, 1e-6)
+            result[:, 2:4] = np.column_stack((width / height, height))
+        elif self.kind is MotionModelKind.XYHR:
+            denominator = height if self.is_obb else height + 1e-6
+            result[:, 2:4] = np.column_stack((height, width / denominator))
+        elif self.kind is MotionModelKind.XYSR:
+            denominator = height if self.is_obb else height + 1e-6
+            result[:, 2:4] = np.column_stack((width * height, width / denominator))
+        else:
+            result[:, 2] = width * height
+            result[:, 3] = boxes[:, 4] if boxes.shape[1] > 4 else 0.0
+            result[:, 4] = width / (height + 1e-6)
+        return result
+
+    def to_boxes(self, states: np.ndarray, *, include_score: bool = False) -> np.ndarray:
+        """Convert state rows to boxes, optionally retaining XYSCR confidence."""
+        values = np.asarray(states, dtype=float)
+        if values.ndim == 3 and values.shape[-1] == 1:
+            values = values[..., 0]
+        if self.kind is MotionModelKind.XYWH:
+            width, height = values[:, 2], values[:, 3]
+        elif self.kind is MotionModelKind.XYAH:
+            width, height = values[:, 2] * values[:, 3], values[:, 3]
+        elif self.kind is MotionModelKind.XYHR:
+            height = values[:, 2]
+            width = height * values[:, 3]
+            if not self.is_obb:
+                width = np.where(values[:, 3] <= 0.0, 0.0, width)
+        else:
+            ratio_index = 4 if self.kind is MotionModelKind.XYSCR else 3
+            width = np.sqrt(np.maximum(values[:, 2] * values[:, ratio_index], 1e-12))
+            height = values[:, 2] / np.maximum(width, 1e-6)
+        if self.is_obb:
+            angles = (values[:, 4] + np.pi) % (2 * np.pi) - np.pi
+            return np.column_stack((values[:, :2], width, height, angles))
+        half_size = np.column_stack((width, height)) / 2.0
+        boxes = np.concatenate((values[:, :2] - half_size, values[:, :2] + half_size), axis=1)
+        if include_score and self.kind is MotionModelKind.XYSCR:
+            boxes = np.column_stack((boxes, values[:, 3]))
+        return boxes
+
 
 def _as_vector(values: np.ndarray) -> np.ndarray:
     return np.asarray(values, dtype=float).reshape(-1)

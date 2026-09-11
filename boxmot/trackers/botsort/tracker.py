@@ -148,8 +148,7 @@ class BotSort(BoxTracker):
     ) -> None:
         """Apply BoT-SORT's axis-aligned camera-motion transform."""
         warp = self.cmc.apply(img, self.cmc_detection_boxes(dets))
-        STrack.multi_gmc(strack_pool, warp)
-        STrack.multi_gmc(unconfirmed, warp)
+        STrack.multi_gmc(strack_pool + unconfirmed, warp)
 
     def _apply_obb_camera_motion_compensation(
         self,
@@ -160,8 +159,7 @@ class BotSort(BoxTracker):
     ) -> None:
         """Apply OBB-specific CMC using oriented masks and state correction."""
         warp = self.cmc.apply(img, self.cmc_detection_boxes(dets))
-        STrack.multi_gmc_obb(strack_pool, warp)
-        STrack.multi_gmc_obb(unconfirmed, warp)
+        STrack.multi_gmc_obb(strack_pool + unconfirmed, warp)
 
     def _apply_camera_motion_compensation(
         self,

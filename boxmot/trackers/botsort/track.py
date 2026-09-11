@@ -7,10 +7,9 @@ import numpy as np
 from boxmot.trackers.common.appearance import ema_update_embedding, normalize_embedding
 from boxmot.trackers.common.geometry import xywh2xyxy, xyxy2xywh
 from boxmot.trackers.common.geometry.obb import (
-    transform_aabb_kalman_state,
-    transform_obb_kalman_state,
     xywha_to_corners,
 )
+from boxmot.trackers.common.motion.cmc.state import transform_aabb_kalman_states, transform_obb_kalman_states
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
@@ -116,17 +115,19 @@ class STrack(BaseTrack):
             return
         if getattr(stracks[0], "is_obb", False):
             return
-        for st in stracks:
-            if st.mean is None or st.covariance is None:
-                continue
-            st.mean, st.covariance = transform_aabb_kalman_state(
-                st.mean,
-                st.covariance,
-                H,
-                measurement_to_box=lambda values: xywh2xyxy(values[:4]),
-                box_to_measurement=lambda box: xyxy2xywh(box[:4]),
-                velocity_measurement_indices=(0, 1, 2, 3),
-            )
+        tracks = [track for track in stracks if track.mean is not None and track.covariance is not None]
+        if not tracks:
+            return
+        means, covariances = transform_aabb_kalman_states(
+            np.asarray([track.mean for track in tracks]),
+            np.asarray([track.covariance for track in tracks]),
+            H,
+            measurement_to_box=xywh2xyxy,
+            box_to_measurement=xyxy2xywh,
+            velocity_measurement_indices=(0, 1, 2, 3),
+        )
+        for track, mean, covariance in zip(tracks, means, covariances):
+            track.mean, track.covariance = mean, covariance
 
     @staticmethod
     def _warp_points(points: np.ndarray, H: np.ndarray) -> np.ndarray:
@@ -178,14 +179,16 @@ class STrack(BaseTrack):
         if not stracks:
             return
 
-        for st in stracks:
-            if st.mean is None or st.covariance is None:
-                continue
-            st.mean, st.covariance = transform_obb_kalman_state(
-                st.mean,
-                st.covariance,
-                H,
-                measurement_to_box=lambda values: values,
-                box_to_measurement=lambda box: box,
-                velocity_measurement_indices=(0, 1, 2, 3, 4),
-            )
+        tracks = [track for track in stracks if track.mean is not None and track.covariance is not None]
+        if not tracks:
+            return
+        means, covariances = transform_obb_kalman_states(
+            np.asarray([track.mean for track in tracks]),
+            np.asarray([track.covariance for track in tracks]),
+            H,
+            measurement_to_box=lambda values: values,
+            box_to_measurement=lambda boxes: boxes,
+            velocity_measurement_indices=(0, 1, 2, 3, 4),
+        )
+        for track, mean, covariance in zip(tracks, means, covariances):
+            track.mean, track.covariance = mean, covariance

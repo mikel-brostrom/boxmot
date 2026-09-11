@@ -83,21 +83,16 @@ class BaseCMC(ABC):
         """
         matrix = np.asarray(transform)
         original_shape = matrix.shape
-        if original_shape == (2, 3):
-            homogeneous = np.vstack([matrix, np.array([0.0, 0.0, 1.0], dtype=matrix.dtype)])
-        elif original_shape == (3, 3):
-            homogeneous = matrix.copy()
-        else:
+        if original_shape not in ((2, 3), (3, 3)):
             raise ValueError(f"Expected a 2x3 affine or 3x3 homography, got {original_shape}")
 
         scale_x, scale_y = getattr(self, "_preprocess_scale", (1.0, 1.0))
         if not np.isfinite((scale_x, scale_y)).all() or scale_x <= 0.0 or scale_y <= 0.0:
             raise ValueError(f"Invalid preprocessing scale {(scale_x, scale_y)}")
 
-        scale_matrix = np.diag([scale_x, scale_y, 1.0]).astype(homogeneous.dtype, copy=False)
-        restored = np.linalg.inv(scale_matrix) @ homogeneous @ scale_matrix
-        if original_shape == (2, 3):
-            restored = restored[:2]
+        scales = np.asarray([scale_x, scale_y, 1.0], dtype=matrix.dtype)
+        inverse_scales = np.ones_like(scales) / scales
+        restored = inverse_scales[: matrix.shape[0], None] * matrix * scales[None, :]
         return restored.astype(matrix.dtype, copy=False)
 
     @staticmethod
@@ -166,40 +161,38 @@ class BaseCMC(ABC):
         # Boxes are either AABB ``xyxy`` rows or OBB ``xywha`` rows in the
         # original image scale. Mask the actual oriented polygon for OBBs so
         # static background inside an enclosing AABB remains available to CMC.
-        is_obb = dets.ndim == 2 and dets.shape[1] == _OBB_GEOMETRY_COLUMNS
-        for det in dets:
-            if len(det) < 4:
-                continue
+        if dets.shape[1] < 4:
+            return mask
 
-            if is_obb:
-                cx, cy, bw, bh, angle = (float(value) for value in det[:5])
-                rect = (
-                    (cx, cy),
-                    (max(bw, 1e-4), max(bh, 1e-4)),
-                    float(np.degrees(angle)),
-                )
-                polygon = cv2.boxPoints(rect)
-                polygon[:, 0] *= scale_x
-                polygon[:, 1] *= scale_y
-                polygon = np.rint(polygon).astype(np.int32)
+        if dets.shape[1] == _OBB_GEOMETRY_COLUMNS:
+            geometry = np.asarray(dets[:, :5], dtype=np.float64)
+            sizes = np.maximum(geometry[:, 2:4], 1e-4)
+            angles = np.degrees(geometry[:, 4])
+            # boxPoints has no batch binding. Retain its float32 corner
+            # construction so rounding masks to pixels remains unchanged.
+            polygons = np.asarray(
+                [
+                    cv2.boxPoints((tuple(center), tuple(size), float(angle)))
+                    for center, size, angle in zip(geometry[:, :2], sizes, angles)
+                ]
+            )
+            polygons *= np.asarray([scale_x, scale_y], dtype=np.float32)
+            polygons = np.rint(polygons).astype(np.int32)
+            # Filling all contours together applies an even-odd rule at
+            # overlaps; individual convex fills preserve the union of masks.
+            for polygon in polygons:
                 cv2.fillConvexPoly(mask, polygon, 0)
-                continue
+            return mask
 
-            # ``det`` can be a view into the caller's float32 detection
-            # array. Copy before scaling so mask generation never mutates the
-            # detections that will subsequently be associated.
-            tlbr = np.array(det[:4], dtype=np.float32, copy=True)
-            tlbr[[0, 2]] *= scale_x
-            tlbr[[1, 3]] *= scale_y
-            tlbr = tlbr.astype(int)
-
-            x1b, y1b, x2b, y2b = tlbr.tolist()
-            x1b = max(0, min(w, x1b))
-            x2b = max(0, min(w, x2b))
-            y1b = max(0, min(h, y1b))
-            y2b = max(0, min(h, y2b))
-
-            if x2b > x1b and y2b > y1b:
-                mask[y1b:y2b, x1b:x2b] = 0
+        # Copy before scaling: detections may be views used later in matching.
+        boxes = np.array(dets[:, :4], dtype=np.float32, copy=True)
+        boxes *= np.asarray([scale_x, scale_y, scale_x, scale_y], dtype=np.float32)
+        bounds = boxes.astype(int)
+        np.clip(bounds, 0, [w, h, w, h], out=bounds)
+        valid = np.all(bounds[:, 2:] > bounds[:, :2], axis=1)
+        # Each slice is already a compiled fill. A boxes x pixels broadcast
+        # would allocate substantially more memory without changing the work.
+        for x1b, y1b, x2b, y2b in bounds[valid]:
+            mask[y1b:y2b, x1b:x2b] = 0
 
         return mask
