@@ -171,6 +171,16 @@ evaluation:
 Run `boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n.yaml --tracker bytetrack`.
 Images remain in place; this YAML describes a separate 2D experiment over them.
 
+For OccluBoost's default appearance features, use the experiment with OSNet:
+
+```bash
+boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n-osnet.yaml \
+  --tracker occluboost --cache-inputs --project runs/kitti-2d
+```
+
+Create that experiment by adding `reid: {ref: osnet-x0-25-msmt17}` to the local
+example above. OccluBoost evaluates 2D boxes; omit the sensor-only `--eval-3d` flag.
+
 ## KITTI MOTS instance masks
 
 The `kitti-mots` profile reads the original KITTI tracking images and MOTS

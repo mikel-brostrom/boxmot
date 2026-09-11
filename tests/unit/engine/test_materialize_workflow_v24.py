@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import pytest
 import torch
+import yaml
 
 import boxmot.engine.materialization.metadata_cache as metadata_cache_module
 import boxmot.engine.materialization.plan as plan_module
@@ -17,6 +18,7 @@ import boxmot.engine.materialization.stages.embed as embed_stage_module
 import boxmot.engine.materialization.stages.segment as segment_stage_module
 import boxmot.engine.materialization.workflow as workflow
 from boxmot import create_tracker
+from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.datasets.manifest import sha256_file
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
@@ -279,6 +281,39 @@ def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeyp
     ]
     assert inspected == [(source_path, True)]
     assert any("1 cached, 0 refreshed" in message for message in messages)
+
+
+@pytest.mark.parametrize("mode", ("materialize", "eval", "tune"))
+def test_local_kitti_experiment_materializes_its_own_images_and_annotations(tmp_path: Path, mode: str) -> None:
+    """A sibling dataset YAML must retain its local root through source cataloging."""
+    dataset = yaml.safe_load((CONFIG_ROOT / "datasets/kitti-2d.yaml").read_text())
+    dataset["storage"]["root"] = "."
+    dataset["modalities"]["images"]["path"] = "frames/{sequence}"
+    dataset["modalities"]["ground_truth"]["path"] = "annotations/{sequence}.txt"
+    dataset["splits"] = {"val": {"partition": "training", "sequences": ["0002"], "has_ground_truth": True}}
+    (tmp_path / "kitti-2d.yaml").write_text(yaml.safe_dump(dataset))
+    image_path = tmp_path / "frames/0002/000000.png"
+    image_path.parent.mkdir(parents=True)
+    assert cv2.imwrite(str(image_path), np.zeros((24, 32, 3), dtype=np.uint8))
+    annotations = tmp_path / "annotations/0002.txt"
+    annotations.parent.mkdir()
+    annotations.write_text("0 1 Car 0 0 -10 1 2 10 20 -1 -1 -1 -1000 -1000 -1000 -10\n")
+    experiment = yaml.safe_load((CONFIG_ROOT / "experiments/kitti-2d/val-yolo26n-osnet.yaml").read_text())
+    experiment["dataset"]["ref"] = "kitti-2d.yaml"
+    experiment_path = tmp_path / "local-kitti.yaml"
+    experiment_path.write_text(yaml.safe_dump(experiment))
+
+    _, geometry, catalog, detector, _, reid, metadata = workflow._resolved_inputs(
+        SimpleNamespace(experiment=experiment_path, materialize_mode=mode)
+    )
+
+    assert catalog.source_root == tmp_path.resolve()
+    assert len(catalog.samples) == 1
+    assert catalog.samples[0].source_uri == image_path.as_uri()
+    assert catalog.samples[0].image_ref == "frames/0002/000000.png"
+    assert geometry == "aabb" and detector == "yolo26n/default"
+    assert reid is not None
+    assert metadata["class_bridge"][1]["detector_name"] == "person"
 
 
 def test_eval_owned_materialization_split_is_forwarded_explicitly(monkeypatch, tmp_path) -> None:

@@ -115,6 +115,22 @@ def _required_text(payload: Mapping[str, Any], key: str, context: str) -> str:
     return str(value)
 
 
+def _resolve_experiment_dataset(reference: str, source_path: Path) -> dict[str, Any]:
+    """Resolve authored dataset paths beside the experiment, then use the catalog."""
+    path = Path(reference).expanduser()
+    if path.is_absolute():
+        return load_dataset_config(path)
+    local = source_path.parent / path
+    if local.exists() or local.is_symlink() or "/" in reference or "\\" in reference or reference in {".", ".."}:
+        return load_dataset_config(local)
+    # A catalog filename must not be replaced by a same-named file in cwd.
+    if path.suffix.lower() in {".yaml", ".yml"}:
+        catalog_path = CONFIG_ROOT / "datasets" / path
+        if catalog_path.is_file():
+            return load_dataset_config(catalog_path)
+    return load_dataset_config(reference)
+
+
 def _resolve_detector_checkpoint(
     detector_ref: str,
     checkpoint_name: str,
@@ -295,7 +311,7 @@ def _resolve_experiment(
     experiment["id"] = experiment_id
     dataset_selection = _required_mapping(experiment, "dataset", context)
     dataset_ref = _required_text(dataset_selection, "ref", context)
-    dataset = load_dataset_config(dataset_ref)
+    dataset = _resolve_experiment_dataset(dataset_ref, source_path)
     split_name = str(split or dataset_selection.get("split") or dataset["default_split"])
     if split_name not in dataset["splits"]:
         available = ", ".join(sorted(dataset["splits"]))

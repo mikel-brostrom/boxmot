@@ -38,6 +38,93 @@ def test_every_built_in_experiment_has_a_materializable_detector() -> None:
             assert "config_path" not in resolved["reid"], path
 
 
+def _write_kitti_2d_dataset(path: Path, *, root: str) -> None:
+    """Write a distinguishable dataset without creating payload images or models."""
+    config = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-2d.yaml")
+    config["storage"]["root"] = root
+    config["modalities"]["images"]["path"] = "sequences/{partition}/{sequence}/images"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+def _write_kitti_2d_experiment(path: Path, dataset_ref: str) -> None:
+    """Use the authored detector and class bridge with a selected dataset path."""
+    config = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "kitti-2d/val-yolo26n-osnet.yaml")
+    config["dataset"]["ref"] = dataset_ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("reference", "location"),
+    (
+        ("kitti-2d.yaml", "kitti-2d.yaml"),
+        ("./kitti-2d.yaml", "kitti-2d.yaml"),
+        ("datasets/kitti-2d.yaml", "datasets/kitti-2d.yaml"),
+        ("../datasets/kitti-2d.yaml", "../datasets/kitti-2d.yaml"),
+        ("kitti-2d", "kitti-2d/dataset.yaml"),
+        (".", "dataset.yaml"),
+        ("absolute", "../datasets/kitti-2d.yaml"),
+    ),
+)
+def test_experiment_dataset_paths_resolve_beside_yaml_independently_of_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str, location: str
+) -> None:
+    experiment = tmp_path / "bundle/experiments/local-kitti.yaml"
+    dataset = (experiment.parent / location).resolve()
+    _write_kitti_2d_dataset(dataset, root="LOCAL-KITTI")
+    _write_kitti_2d_experiment(experiment, str(dataset) if reference == "absolute" else reference)
+    elsewhere = tmp_path / "elsewhere"
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
+    monkeypatch.chdir(elsewhere)
+
+    resolved = resolve_experiment_config(experiment, mode="eval")
+
+    assert Path(resolved["dataset"]["config_path"]) == dataset
+    assert resolved["dataset"]["root"] == "LOCAL-KITTI"
+    assert resolved["dataset"]["modalities"]["images"]["paths"] == ["sequences/{partition}/{sequence}/images"]
+    assert resolved["reid"]["id"] == "osnet-x0-25-msmt17"
+
+
+@pytest.mark.parametrize("reference", ("kitti-2d", "kitti-2d.yaml"))
+def test_experiment_dataset_catalog_fallback_ignores_cwd_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    experiment = tmp_path / "bundle/local-kitti.yaml"
+    _write_kitti_2d_experiment(experiment, reference)
+    elsewhere = tmp_path / "elsewhere"
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d/dataset.yaml", root="WRONG-CWD-FOLDER")
+    monkeypatch.chdir(elsewhere)
+
+    resolved = resolve_experiment_config(experiment, mode="eval")
+
+    assert resolved["dataset"]["root"] == "KITTI"
+    assert "config_path" not in resolved["dataset"]
+
+
+@pytest.mark.parametrize(
+    "reference", ("./kitti-2d.yaml", "datasets/kitti-2d.yaml", "../data/kitti-2d.yaml", "./kitti-2d")
+)
+def test_missing_explicit_dataset_paths_do_not_fall_back_to_cwd_or_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    experiment = tmp_path / "bundle/local-kitti.yaml"
+    _write_kitti_2d_experiment(experiment, reference)
+    elsewhere = tmp_path / "elsewhere/nested"
+    elsewhere.mkdir(parents=True)
+    unrelated = elsewhere / reference
+    if not unrelated.suffix:
+        unrelated /= "dataset.yaml"
+    _write_kitti_2d_dataset(unrelated, root="WRONG-CWD")
+    monkeypatch.chdir(elsewhere)
+
+    with pytest.raises(FileNotFoundError, match="Dataset config path does not exist") as raised:
+        resolve_experiment_config(experiment, mode="eval")
+
+    assert str(experiment.parent) in str(raised.value)
+
+
 @pytest.mark.parametrize("reference", ("test-yolo11l-lmbn", "test-yolo11l-lmbn.yaml"))
 def test_experiment_resolves_unique_bare_filename_or_stem(reference: str) -> None:
     expected = EXPERIMENT_CONFIGS_DIR / "mmot-obb" / "test-yolo11l-lmbn.yaml"
