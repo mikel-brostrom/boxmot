@@ -219,15 +219,19 @@ containing YAML. This template uses `root: .` so the folder can move as a unit.
 
 ### Bring your own sensor dataset
 
-Copy the [sensor dataset template](https://github.com/mikel-brostrom/boxmot/tree/master/examples/datasets/sensor-fusion)
-from the repository root:
+Copy the [sensor dataset config](https://github.com/mikel-brostrom/boxmot/blob/master/boxmot/configs/datasets/sensor-fusion.yaml)
+from `boxmot/configs/datasets` into your dataset folder. From the repository root:
 
 ```bash
-cp -R examples/datasets/sensor-fusion ./my-sensor-dataset
+mkdir -p ./my-sensor-dataset
+cp boxmot/configs/datasets/sensor-fusion.yaml ./my-sensor-dataset/dataset.yaml
 ```
 
-The template contains one `dataset.yaml`. Populate these payloads for both
-`drive-001` and `drive-002`:
+Edit the copied `dataset.yaml` to set your dataset ID and input paths.
+Selecting the built-in `--dataset sensor-fusion` directly resolves its
+`root: .` beneath `datasets/mot` in the working directory, or beneath an
+explicit `--data-root`. A local copy resolves paths relative to its containing folder.
+Populate these payloads for both `drive-001` and `drive-002`:
 
 ```text
 my-sensor-dataset/

@@ -1,9 +1,10 @@
-# Copy this folder, supply your own payloads, and edit this dataset config.
-id: my-sensor-dataset
+# Copy to <your-dataset>/dataset.yaml, supply payloads, and edit this config.
+id: sensor-fusion
 format:
   layout: sequence
   box_type: aabb
 storage:
+  # Relative to a local YAML; built-in presets resolve beneath datasets/mot.
   root: .
 classes:
   target:

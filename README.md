@@ -255,7 +255,8 @@ its images, annotations, calibration, and poses. `dataset.yaml` defines the
 sequences, splits, classes, and per-modality encodings and paths in the same
 schema used by built-in datasets.
 For your own multimodal recordings and detector outputs, start from the
-[sensor dataset template](examples/datasets/sensor-fusion/README.md). It defines
+[sensor dataset config](boxmot/configs/datasets/sensor-fusion.yaml) and follow
+the [setup guide](examples/datasets/sensor-fusion/README.md). The config defines
 portable paths, custom sequence/split names, frame timing, and the required
 image, 2D/3D detection, calibration, and ego-pose formats.
 

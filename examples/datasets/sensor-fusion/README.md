@@ -1,8 +1,9 @@
 # Custom sensor dataset
 
-Copy this template to describe your own synchronized camera and 3D detections
-using BoxMOT's dataset configuration schema. It supplies a single
-`dataset.yaml`: add your images, annotations, calibration, poses, and saved
+Copy the [sensor fusion config](../../../boxmot/configs/datasets/sensor-fusion.yaml)
+to describe your own synchronized camera and 3D detections using BoxMOT's
+dataset configuration schema. Save it as `dataset.yaml`: add your images,
+annotations, calibration, poses, and saved
 predictions before running. `format.layout: sequence` selects explicit
 sequence modalities. Each modality declares its encoding and relative paths.
 The `trackrcnn` and `kitti-detections` names specify encodings; your recordings
@@ -14,7 +15,8 @@ currently use EagerMOT with car and pedestrian segmentation metrics.
 From the repository root:
 
 ```bash
-cp -R examples/datasets/sensor-fusion ./my-sensor-dataset
+mkdir -p ./my-sensor-dataset
+cp boxmot/configs/datasets/sensor-fusion.yaml ./my-sensor-dataset/dataset.yaml
 ```
 
 The supplied config selects `drive-001` for training and `drive-002` for
@@ -64,7 +66,10 @@ one directory or be combined from several, as in this template. Directory
 names describe your data; no detector-name directory conventions are required.
 
 All modality paths resolve beneath `storage.root`, which is `.` relative to
-this local `dataset.yaml`. Paths use `/`, cannot contain `..` or an absolute
+this local `dataset.yaml`. Selecting the built-in `--dataset sensor-fusion`
+instead resolves `root: .` beneath `datasets/mot` in the working directory;
+use `--data-root ./my-sensor-dataset` to select another payload folder.
+Paths use `/`, cannot contain `..` or an absolute
 root, and accept `{partition}` and `{sequence}` placeholders. Keeping actual
 files inside the folder makes the dataset portable. Use a split's `modalities`
 mapping to replace a modality for that split, for example to select predictions

@@ -44,7 +44,8 @@ and supply your synchronized images, 2D/3D detections, camera projection,
 absolute camera-to-world poses, and ground-truth instance masks:
 
 ```bash
-cp -R examples/datasets/sensor-fusion ./my-sensor-dataset
+mkdir -p ./my-sensor-dataset
+cp boxmot/configs/datasets/sensor-fusion.yaml ./my-sensor-dataset/dataset.yaml
 # Populate the sequence and prediction files described in the template README.
 boxmot eval --dataset ./my-sensor-dataset --tracker eagermot --split val
 boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
