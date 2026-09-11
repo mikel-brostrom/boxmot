@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,6 +55,7 @@ class TrackingLabels3D:
     boxes: np.ndarray
     row_count: int
     source_sha256: str
+    source_rows: tuple[str, ...]
 
 
 def read_kitti_tracking_labels(
@@ -82,6 +84,7 @@ def read_kitti_tracking_labels(
     records: list[tuple[int, int, int]] = []
     boxes: list[np.ndarray] = []
     identities: set[tuple[int, int, int]] = set()
+    source_rows: list[str] = []
     row_count = 0
     for line_number, line in enumerate(payload.decode("utf-8-sig").splitlines(), 1):
         if not line.strip():
@@ -94,6 +97,7 @@ def read_kitti_tracking_labels(
             frame_index, track_id = int(fields[0]), int(fields[1])
             if not 0 <= frame_index < frame_count:
                 raise ValueError(f"frame index must be between 0 and {frame_count - 1}")
+            source_rows.append(line.strip())
             label = fields[2].casefold()
             if label in ignored_labels or class_map.get(label) in ignored_ids:
                 continue
@@ -125,7 +129,80 @@ def read_kitti_tracking_labels(
         boxes=np.asarray(boxes, dtype=np.float64).reshape(-1, 7),
         row_count=row_count,
         source_sha256=hashlib.sha256(payload).hexdigest(),
+        source_rows=tuple(source_rows),
     )
+
+
+@dataclass(frozen=True, slots=True)
+class KittiObjectLabels:
+    """Unfiltered native object GT rows aligned to an exact per-sequence image timeline."""
+
+    frame_rows: tuple[tuple[str, ...], ...]
+    source_sha256: str
+
+
+def read_kitti_object_labels(directory: Path, *, frame_count: int) -> KittiObjectLabels:
+    """Read one 15-field object-label file for every zero-based image frame.
+
+    Empty files represent annotated images without objects. Class labels and
+    metadata remain unmodified, including DontCare regions. Tracking labels
+    and their integer truncation categories cannot substitute for object GT.
+    """
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int) or not 0 < frame_count <= 1_000_000:
+        raise ValueError("KITTI object ground truth requires a positive frame count within six-digit filenames.")
+    directory = Path(directory)
+    if not directory.is_dir():
+        raise ValueError(f"Missing KITTI object ground-truth directory: {directory}")
+    names = {path.name for path in directory.glob("*.txt") if not path.name.startswith(".")}
+    expected = {f"{index:06d}.txt" for index in range(frame_count)}
+    if names != expected:
+        missing, unexpected = sorted(expected - names), sorted(names - expected)
+        raise ValueError(
+            f"KITTI object labels must align to every sequence image in {directory}: "
+            f"missing {missing[:5]}, unexpected {unexpected[:5]}."
+        )
+    frames: list[tuple[str, ...]] = []
+    digest = hashlib.sha256()
+    for frame_index in range(frame_count):
+        path = directory / f"{frame_index:06d}.txt"
+        payload = path.read_bytes()
+        digest.update(path.name.encode("utf-8") + len(payload).to_bytes(8, "little") + payload)
+        rows: list[str] = []
+        for line_number, line in enumerate(payload.decode("utf-8-sig").splitlines(), 1):
+            if not line.strip():
+                continue
+            try:
+                fields = line.split()
+                if len(fields) != 15:
+                    raise ValueError("Rows must have 15 KITTI object label fields without frame, identity, or score")
+                if re.fullmatch(r"[A-Za-z_]{1,254}", fields[0]) is None:
+                    raise ValueError("object class labels must contain 1–254 ASCII letters or underscores")
+                if not line.isascii():
+                    raise ValueError("object annotations must use native ASCII text")
+                values = np.asarray(fields[1:], dtype=np.float64)
+                if not np.isfinite(values).all():
+                    raise ValueError("all object annotation numeric fields must be finite")
+                number = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+                if any(re.fullmatch(number, field) is None for field in fields[1:]):
+                    raise ValueError("object annotation numbers must use native ASCII decimal notation")
+                dontcare = fields[0].casefold() == "dontcare"
+                truncation, occlusion = values[:2]
+                if not (0 <= truncation <= 1 or (dontcare and truncation == -1)):
+                    raise ValueError("object truncation must be a fraction in [0, 1]; only DontCare permits -1")
+                if (
+                    re.fullmatch(r"[+-]?[0-9]+", fields[2]) is None
+                    or occlusion not in ((-1, 0, 1, 2, 3) if dontcare else (0, 1, 2, 3))
+                ):
+                    raise ValueError("object occlusion must be an integer in [0, 3]; only DontCare permits -1")
+                if np.any(values[5:7] <= values[3:5]):
+                    raise ValueError("object image bounds must have positive width and height")
+                if not dontcare and np.any(values[7:10] <= 0):
+                    raise ValueError("object 3D dimensions must be positive")
+                rows.append(line.strip())
+            except ValueError as error:
+                raise ValueError(f"Invalid KITTI object ground truth at {path}:{line_number}: {error}") from error
+        frames.append(tuple(rows))
+    return KittiObjectLabels(frame_rows=tuple(frames), source_sha256=digest.hexdigest())
 
 
 class KittiDetections3D:

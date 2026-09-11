@@ -38,6 +38,50 @@ DEFAULT_VALIDATION_REPORT_TITLE = "VAL RESULTS"
 DEFAULT_TUNE_BEST_REPORT_TITLE = "TUNE BEST RESULTS"
 CLI_RESULTS_SUMMARY_TITLE = "📊 RESULTS SUMMARY"
 CLI_TUNE_BEST_SUMMARY_TITLE = "📊 BEST TRIAL SUMMARY"
+KITTI_AP_TITLE = "Official KITTI object detection — AP40 (%)"
+KITTI_TRACKING_TITLE = "2D tracking — TrackEval KITTI"
+
+
+def _detection_rows(metrics: dict[str, Any]) -> list[tuple[str, ...]]:
+    """Order object AP independently of tracking metrics and class averages."""
+    return [
+        (
+            geometry.upper(),
+            class_name,
+            *("N/A" if values.get(level) is None else f"{values[level]:.2f}" for level in ("easy", "moderate", "hard")),
+        )
+        for geometry in ("2d", "3d")
+        for class_name, values in metrics.get(geometry, {}).items()
+    ]
+
+
+def _build_detection_table(metrics: dict[str, Any]) -> Table:
+    """Show official object detection difficulty tiers in the terminal."""
+    table = Table(
+        title=KITTI_AP_TITLE,
+        title_justify="left",
+        expand=True,
+        box=None,
+        header_style=STYLE_TABLE_HEADER,
+        pad_edge=False,
+    )
+    for name in ("Geometry", "Class", "Easy", "Moderate", "Hard"):
+        table.add_column(name, justify="right" if name in ("Easy", "Moderate", "Hard") else "left")
+    for row in _detection_rows(metrics):
+        table.add_row(*row)
+    return table
+
+
+def _format_detection_report(metrics: dict[str, Any]) -> str:
+    """Render a stable AP table for plain text and saved reports."""
+    rows = [("Geometry", "Class", "Easy", "Moderate", "Hard"), *_detection_rows(metrics)]
+    widths = [max(len(row[index]) for row in rows) for index in range(5)]
+    return "\n".join(
+        [
+            KITTI_AP_TITLE,
+            *("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip() for row in rows),
+        ]
+    )
 
 
 def core_summary_metrics(summary: dict[str, Any]) -> dict[str, float]:
@@ -172,6 +216,7 @@ def build_validation_cli_renderable(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
@@ -196,6 +241,14 @@ def build_validation_cli_renderable(
     sections: list[RenderableType] = []
     if title:
         sections.append(Text(title, style=STYLE_ACCENT))
+    if detection_metrics is not None:
+        sections.extend(
+            (
+                _build_detection_table(detection_metrics),
+                Rule(style=STYLE_RULE),
+                Text(KITTI_TRACKING_TITLE, style=STYLE_TEXT_STRONG),
+            )
+        )
 
     if len(primary_keys) > 1:
         sections.append(
@@ -318,6 +371,7 @@ def format_validation_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
 ) -> str:
@@ -328,7 +382,7 @@ def format_validation_report(
         fallback_title = title or "Results"
         return f"{fallback_title}\n{format_core_summary(raw if isinstance(raw, dict) else {})}"
 
-    return render_mot_report(
+    tracking_report = render_mot_report(
         parsed_results,
         args,
         cfg,
@@ -337,6 +391,9 @@ def format_validation_report(
         always_include_combined=True,
         colorize=False,
     )
+    if detection_metrics is not None:
+        return f"{_format_detection_report(detection_metrics)}\n\n{KITTI_TRACKING_TITLE}\n{tracking_report}"
+    return tracking_report
 
 
 def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | None:
@@ -361,6 +418,7 @@ def render_validation_cli_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -396,6 +454,8 @@ def render_validation_cli_report(
             colorize=bool(colorize),
         )
     ]
+    if detection_metrics is not None:
+        blocks[:0] = [_format_detection_report(detection_metrics), "", KITTI_TRACKING_TITLE]
 
     if include_timings:
         timing_stats = timing_stats_from_snapshot(timings)
@@ -411,6 +471,7 @@ def print_validation_cli_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -426,6 +487,7 @@ def print_validation_cli_report(
     report = render_validation_cli_report(
         raw,
         args=args,
+        detection_metrics=detection_metrics,
         timings=timings,
         title=title,
         include_sequences=include_sequences,

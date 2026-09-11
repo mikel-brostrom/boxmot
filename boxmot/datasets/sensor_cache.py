@@ -25,13 +25,18 @@ import torch
 from filelock import FileLock
 
 from boxmot.datasets.inputs import DatasetInputs, SequenceInputs
-from boxmot.datasets.readers.boxes3d import TrackingLabels3D, read_kitti_tracking_labels
+from boxmot.datasets.readers.boxes3d import (
+    KittiObjectLabels,
+    TrackingLabels3D,
+    read_kitti_object_labels,
+    read_kitti_tracking_labels,
+)
 from boxmot.datasets.readers.images import read_rgb_chw_uint8
 from boxmot.datasets.readers.masks import read_instance_png
 from boxmot.datasets.sequence import MultimodalSequence, SensorFrame, _class_ids, _instance_options, _single_path
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, Frame, MaskBatch
 
-_SCHEMA = "boxmot.sensor-replay-cache/v1"
+_SCHEMA = "boxmot.sensor-replay-cache/v2"
 
 
 class SensorReplayCacheError(ValueError):
@@ -210,6 +215,7 @@ def _validate_index(index: dict[str, Any]) -> None:
         expected["gt3d_boxes"] = (np.float64, (rows, 7))
         for field in ("frame_indices", "track_ids", "class_ids"):
             expected[f"gt3d_{field}"] = (np.int64, (rows,))
+        expected["gt3d_source_rows"] = (np.uint8, (count("gt3d_source_rows"),))
         metadata = index["ground_truth_3d"]
         if type(metadata["row_count"]) is not int or metadata["row_count"] < rows:
             raise SensorReplayCacheError("Sensor replay 3D annotation count is invalid.")
@@ -217,6 +223,17 @@ def _validate_index(index: dict[str, Any]) -> None:
             raise SensorReplayCacheError("Sensor replay 3D annotation provenance is invalid.")
     elif index["ground_truth_3d"] is not None:
         raise SensorReplayCacheError("Sensor replay contains undeclared 3D annotations.")
+    if "ground_truth_objects" in modalities:
+        expected["gt_object_rows"] = (np.uint8, (count("gt_object_rows"),))
+        metadata = index["ground_truth_objects"]
+        if metadata["frame_count"] != len(frames) or type(metadata["frame_count"]) is not int:
+            raise SensorReplayCacheError("Sensor replay object annotation timeline is invalid.")
+        if type(metadata["row_count"]) is not int or metadata["row_count"] < 0:
+            raise SensorReplayCacheError("Sensor replay object annotation count is invalid.")
+        if not isinstance(metadata["source_sha256"], str) or len(metadata["source_sha256"]) != 64:
+            raise SensorReplayCacheError("Sensor replay object annotation provenance is invalid.")
+    elif index["ground_truth_objects"] is not None:
+        raise SensorReplayCacheError("Sensor replay contains undeclared object annotations.")
     if set(arrays) != {f"{name}.bin" for name in expected}:
         raise SensorReplayCacheError("Sensor replay arrays differ from its declared modalities.")
     for name, (dtype, shape) in expected.items():
@@ -354,6 +371,17 @@ def _write_entry(
         for handle in handles.values():
             handle.flush()
             os.fsync(handle.fileno())
+
+    def write_annotation_array(name: str, values: np.ndarray) -> None:
+        """Publish numeric or UTF-8 annotation payloads without object serialization."""
+        values = np.ascontiguousarray(values)
+        formats[name] = (values.dtype, values.shape[1:])
+        counts[name] = len(values)
+        with (path / f"{name}.bin").open("wb") as handle:
+            values.tofile(handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+
     ground_truth_3d = None
     if "ground_truth_3d" in modalities:
         declaration = modalities["ground_truth_3d"]
@@ -364,15 +392,25 @@ def _write_entry(
             options=declaration.options,
         )
         for name in ("frame_indices", "track_ids", "class_ids", "boxes"):
-            values = np.ascontiguousarray(getattr(annotations_3d, name))
-            array_name = f"gt3d_{name}"
-            formats[array_name] = (values.dtype, values.shape[1:])
-            counts[array_name] = len(values)
-            with (path / f"{array_name}.bin").open("wb") as handle:
-                values.tofile(handle)
-                handle.flush()
-                os.fsync(handle.fileno())
+            write_annotation_array(f"gt3d_{name}", getattr(annotations_3d, name))
+        write_annotation_array(
+            "gt3d_source_rows", np.frombuffer(_json_bytes(annotations_3d.source_rows), dtype=np.uint8)
+        )
         ground_truth_3d = {"row_count": annotations_3d.row_count, "source_sha256": annotations_3d.source_sha256}
+    ground_truth_objects = None
+    if "ground_truth_objects" in modalities:
+        declaration = modalities["ground_truth_objects"]
+        annotations_objects = read_kitti_object_labels(
+            _single_path(declaration, "kitti-object-labels", "ground_truth_objects"), frame_count=len(sequence)
+        )
+        write_annotation_array(
+            "gt_object_rows", np.frombuffer(_json_bytes(annotations_objects.frame_rows), dtype=np.uint8)
+        )
+        ground_truth_objects = {
+            "frame_count": len(annotations_objects.frame_rows),
+            "row_count": sum(map(len, annotations_objects.frame_rows)),
+            "source_sha256": annotations_objects.source_sha256,
+        }
     if progress is not None:
         progress(f"Input cache: prepared {sequence.sequence_id} ({len(sequence)} frames)")
     source_digests = {name: _file_digest(Path(name)) for name, signature in sources.items() if signature[2] >= 0}
@@ -386,6 +424,7 @@ def _write_entry(
         "missing_3d_frames": sequence.missing_3d_frames,
         "frames": frames,
         "ground_truth_3d": ground_truth_3d,
+        "ground_truth_objects": ground_truth_objects,
         "arrays": {
             f"{name}.bin": {
                 "dtype": np.dtype(dtype).str,
@@ -586,12 +625,39 @@ class SensorReplaySequence(Sequence[SensorFrame]):
         metadata = self._index["ground_truth_3d"]
         if metadata is None:
             return None
+        source_rows = json.loads(self._arrays["gt3d_source_rows"].tobytes())
+        if (
+            not isinstance(source_rows, list)
+            or len(source_rows) != metadata["row_count"]
+            or any(not isinstance(row, str) for row in source_rows)
+        ):
+            raise SensorReplayCacheError("Sensor replay tracking annotation rows are invalid.")
         return TrackingLabels3D(
             **{
                 name: self._arrays[f"gt3d_{name}"].copy()
                 for name in ("frame_indices", "track_ids", "class_ids", "boxes")
             },
+            source_rows=tuple(source_rows),
             **metadata,
+        )
+
+    def ground_truth_objects(self) -> KittiObjectLabels | None:
+        """Return immutable native object labels aligned to every cached frame."""
+        if self._closed:
+            raise SensorReplayCacheError("Sensor replay sequence is closed.")
+        metadata = self._index["ground_truth_objects"]
+        if metadata is None:
+            return None
+        frames = json.loads(self._arrays["gt_object_rows"].tobytes())
+        if (
+            not isinstance(frames, list)
+            or len(frames) != metadata["frame_count"]
+            or any(not isinstance(rows, list) or any(not isinstance(row, str) for row in rows) for rows in frames)
+            or sum(map(len, frames)) != metadata["row_count"]
+        ):
+            raise SensorReplayCacheError("Sensor replay object annotation rows are invalid.")
+        return KittiObjectLabels(
+            frame_rows=tuple(tuple(rows) for rows in frames), source_sha256=metadata["source_sha256"]
         )
 
     def source_sha256(self, path: Path) -> str:

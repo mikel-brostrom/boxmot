@@ -36,6 +36,7 @@ def test_tracking_annotations_reorder_boxes_and_preserve_identity_gaps(tmp_path:
     np.testing.assert_array_equal(labels.boxes, [[5, 6, 20, 0.25, 4, 2, 1.5]] * 3)
     assert labels.source_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert labels.row_count == 3
+    assert labels.source_rows == tuple(path.read_text().splitlines())
 
 
 def test_explicitly_ignored_annotations_may_have_no_3d_geometry(tmp_path: Path) -> None:
@@ -48,6 +49,8 @@ def test_explicitly_ignored_annotations_may_have_no_3d_geometry(tmp_path: Path) 
     assert labels.row_count == 3
     assert labels.class_ids.tolist() == [7]
     assert labels.track_ids.tolist() == [3]
+    assert labels.source_rows == tuple(path.read_text().splitlines())
+    np.testing.assert_array_equal(labels.boxes, [[5, 6, 20, 0.25, 4, 2, 1.5]])
 
 
 @pytest.mark.parametrize(
@@ -106,3 +109,4 @@ def test_empty_ground_truth_has_canonical_empty_arrays(tmp_path: Path) -> None:
     assert labels.boxes.shape == (0, 7)
     assert labels.track_ids.dtype == np.int64
     assert labels.row_count == 0
+    assert labels.source_rows == ()

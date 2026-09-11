@@ -47,7 +47,13 @@ def _dataset(tmp_path: Path, *, frames: int = 3, annotations: bool = True) -> Da
     matrices[:, 0, 3] = np.arange(frames)
     np.save(poses, matrices)
     gt3d = tmp_path / "labels.txt"
-    gt3d.write_text("0 7 Car 0 0 0 0 0 4 3 1.5 2 4 5 6 20 0.25\n")
+    gt3d.write_text(
+        "0 7 Car 0 0 0 0 0 4 3 1.5 2 4 5 6 20 0.25\n0 -1 DontCare -1 -1 -10 0 0 4 3 -1 -1 -1 -1000 -1000 -1000 -10\n"
+    )
+    objects = tmp_path / "object_labels"
+    objects.mkdir()
+    for frame in range(frames):
+        (objects / f"{frame:06d}.txt").write_text("" if frame == 1 else "Car 0.25 1 -0.1 0 0 4 3 1.5 2 4 5 6 20 0.25\n")
     modalities = {
         "images": ModalityInput("image-directory", (images,), {}),
         "detections_2d": ModalityInput("trackrcnn", (detections,), {}),
@@ -60,7 +66,8 @@ def _dataset(tmp_path: Path, *, frames: int = 3, annotations: bool = True) -> Da
             ground_truth=ModalityInput(
                 "instance-png", (masks,), {"class_divisor": 100, "background_id": 0, "ignore_ids": [99]}
             ),
-            ground_truth_3d=ModalityInput("kitti-tracking-labels", (gt3d,), {}),
+            ground_truth_3d=ModalityInput("kitti-tracking-labels", (gt3d,), {"ignore_classes": ["DontCare"]}),
+            ground_truth_objects=ModalityInput("kitti-object-labels", (objects,), {}),
         )
     return DatasetInputs(
         config_path=None,
@@ -111,6 +118,12 @@ def test_sensor_cache_preserves_all_modalities_and_empty_frames(tmp_path: Path) 
         assert labels.frame_indices.tolist() == [0]
         assert labels.track_ids.tolist() == [7]
         np.testing.assert_equal(labels.boxes, [[5, 6, 20, 0.25, 4, 2, 1.5]])
+        assert labels.source_rows == tuple((tmp_path / "labels.txt").read_text().splitlines())
+        assert labels.row_count == 2
+        objects = cached.ground_truth_objects()
+        assert objects.frame_rows[1] == ()
+        assert objects.frame_rows[0][0].split()[1] == "0.25"
+        assert len(objects.source_sha256) == 64
         assert cached.source_sha256(tmp_path / "labels.txt") == labels.source_sha256
     finally:
         cached.close()
@@ -146,6 +159,7 @@ def test_sensor_cache_warm_reuse_and_replay_never_decode_sources(tmp_path: Path,
         "MultimodalSequence",
         "read_instance_png",
         "read_kitti_tracking_labels",
+        "read_kitti_object_labels",
         "read_rgb_chw_uint8",
         "_file_digest",
     ):
@@ -158,6 +172,8 @@ def test_sensor_cache_warm_reuse_and_replay_never_decode_sources(tmp_path: Path,
         assert cached.read_image(0).shape == (3, 3, 4)
         assert cached.ground_truth(0)[0].tolist() == [101, 205]
         assert cached.ground_truth_3d().track_ids.tolist() == [7]
+        assert cached.ground_truth_3d().source_rows[1].split()[2] == "DontCare"
+        assert cached.ground_truth_objects().frame_rows[1] == ()
     finally:
         cached.close()
 
@@ -229,7 +245,17 @@ def test_sensor_cache_pickles_only_path_and_reopens_independent_maps(tmp_path: P
 
 
 @pytest.mark.parametrize(
-    "role", ["images", "detections_2d", "detections_3d", "calibration", "poses", "ground_truth", "ground_truth_3d"]
+    "role",
+    [
+        "images",
+        "detections_2d",
+        "detections_3d",
+        "calibration",
+        "poses",
+        "ground_truth",
+        "ground_truth_3d",
+        "ground_truth_objects",
+    ],
 )
 def test_sensor_cache_invalidates_edited_modality(tmp_path: Path, role: str) -> None:
     dataset = _dataset(tmp_path)
@@ -288,7 +314,18 @@ def test_sensor_cache_authored_context_invalidates_reuse(tmp_path: Path, change:
         cached.close()
 
 
-@pytest.mark.parametrize("filename", ["boxes3d.bin", "masks2d.bin", "ground_truth.bin", "index.json", "_SUCCESS"])
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "boxes3d.bin",
+        "masks2d.bin",
+        "ground_truth.bin",
+        "gt3d_source_rows.bin",
+        "gt_object_rows.bin",
+        "index.json",
+        "_SUCCESS",
+    ],
+)
 def test_sensor_cache_rebuilds_corrupt_entries(tmp_path: Path, filename: str) -> None:
     dataset = _dataset(tmp_path)
     path = _prepare(dataset)
@@ -321,6 +358,7 @@ def test_sensor_cache_optional_modalities_and_rgb_selection(tmp_path: Path, monk
         assert len(frame.detections) == len(frame.detections_3d) == 0
         assert cached.ground_truth(0) is None
         assert cached.ground_truth_3d() is None
+        assert cached.ground_truth_objects() is None
         with pytest.raises(SensorReplayCacheError, match="load_images=True"):
             cached.read_image(0)
     finally:
@@ -333,6 +371,37 @@ def test_sensor_cache_annotation_failure_never_publishes_partial_entry(tmp_path:
     with pytest.raises(ValueError, match="Unable to decode instance PNG"):
         _prepare(dataset)
     assert not list((tmp_path / ".boxmot/replay_cache").glob("*/_SUCCESS"))
+
+
+def test_sensor_cache_requires_object_labels_for_every_image(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    (tmp_path / "object_labels/000001.txt").unlink()
+    with pytest.raises(ValueError, match="align to every sequence image"):
+        _prepare(dataset)
+    assert not list((tmp_path / ".boxmot/replay_cache").glob("*/_SUCCESS"))
+
+
+def test_sensor_cache_preserves_object_metadata_snapshot_across_source_edits(tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    old_path = _prepare(dataset)
+    cached = open_sensor_sequence(old_path)
+    original = cached.ground_truth_objects()
+    source = tmp_path / "object_labels/000000.txt"
+    source.write_text(source.read_text().replace("Car 0.25", "Car 0.75"))
+    new_path = _prepare(dataset)
+    refreshed = open_sensor_sequence(new_path)
+    try:
+        assert new_path != old_path
+        assert cached.ground_truth_objects() == original
+        assert refreshed.ground_truth_objects().frame_rows[0][0].split()[1] == "0.75"
+        assert refreshed.ground_truth_objects().source_sha256 != original.source_sha256
+        assert isinstance(original.frame_rows, tuple) and isinstance(original.frame_rows[0], tuple)
+    finally:
+        cached.close()
+        refreshed.close()
+    assert original.frame_rows[0][0].split()[1] == "0.25"
+    with pytest.raises(SensorReplayCacheError, match="closed"):
+        cached.ground_truth_objects()
 
 
 def test_sensor_cache_concurrent_preparation_publishes_one_complete_entry(tmp_path: Path) -> None:

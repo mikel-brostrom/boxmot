@@ -149,26 +149,49 @@ not been independently verified, and pedestrian detections use the supplied
 
 ## Evaluate 3D tracks
 
-Declare the [`ground_truth_3d` modality](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
-with KITTI tracking labels containing stable object IDs, then run:
+`--eval-3d` reports official KITTI **2D and 3D AP40**, each with **Easy / Moderate /
+Hard** columns, followed by **2D tracking HOTA/MOTA/IDF1** from TrackEval's KITTI
+adapter. Both 2D reports use camera projections of the same spatial tracks.
+
+First declare [`ground_truth_3d` and `ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap).
+The latter requires native per-image object labels for the exact evaluated
+frames, including fractional truncation. KITTI tracking labels alone are
+insufficient; BoxMOT does not infer object labels or match independently
+numbered object and tracking datasets by filename.
+
+Download and extract the [official KITTI object devkit](https://www.cvlibs.net/datasets/kitti/eval_object.php?obj_benchmark=3d),
+then install once using a C++17 compiler and Boost headers:
 
 ```bash
+boxmot install --extra trackeval --kitti-devkit /path/to/devkit_object
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
   --split val --eval-3d --project runs/kitti-3d
 ```
 
-`--eval-3d` scores the camera-space spatial tracks using volumetric IoU HOTA,
-CLEAR, and Identity metrics for car and pedestrian. Results are saved under
-`runs/kitti-3d/val/`, including `metrics.json`, `metrics.csv`, and
-`kitti_3d/<sequence>.txt` predictions. This custom evaluation includes all
-configured target annotations and does not implement the official KITTI
-difficulty, visibility, or DontCare-region protocol.
+Installation compiles a cached local harness around the external official
+source. Evaluation never downloads or builds dependencies. Missing annotation
+modalities or evaluators fail before replay.
 
-Ground-truth mask PNGs are not required or loaded for 3D scoring. The same
+The new split directory contains:
+
+| Output | Contents |
+| --- | --- |
+| `detection_metrics.json`, `detection_metrics.csv` | Official object AP40 by geometry, class and difficulty |
+| `metrics.json`, `metrics.csv` | TrackEval KITTI 2D tracking metrics, including per-sequence results |
+| `evaluation.json` | Protocol and input provenance |
+| `kitti_3d/<sequence>.txt` | Spatial predictions with projected image boxes |
+
+Official object scoring applies its own difficulty and DontCare rules;
+tracking uses TrackEval's KITTI preprocessing. Results describe the selected
+local split, not a leaderboard submission. AP is shown as `N/A` for a
+class/difficulty with no eligible ground truth. Short subsets may not span
+all 40 official recall samples.
+
+Ground-truth mask PNGs are not required or loaded in this mode. The same
 saved sensor observations still drive tracking. `--eval-masks` and `--eval-3d`
 cannot be combined; omitting both retains mask scoring. `tune` continues to
 optimize mask HOTA. Use `--class-config` to evaluate saved per-class profiles,
-and add `--cache-inputs` to reuse the selected observations and 3D annotations.
+and add `--cache-inputs` to reuse observations and both annotation formats.
 
 ## Saved KITTI MOTS validation preset
 

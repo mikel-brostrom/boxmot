@@ -23,6 +23,7 @@ _MODALITY_FORMATS = {
     "images": "image-directory",
     "ground_truth": "instance-png",
     "ground_truth_3d": "kitti-tracking-labels",
+    "ground_truth_objects": "kitti-object-labels",
     "detections_2d": "trackrcnn",
     "detections_3d": "kitti-detections",
     "calibration": "kitti-p2",
@@ -355,7 +356,9 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
                 effective.get(role) is not None for role in ("ground_truth", "detections_2d")
             ):
                 raise ConfigurationError(f'{split_context} instance-png and trackrcnn inputs require box_type "aabb".')
-            has_ground_truth = any(effective.get(role) is not None for role in ("ground_truth", "ground_truth_3d"))
+            has_ground_truth = any(
+                effective.get(role) is not None for role in ("ground_truth", "ground_truth_3d", "ground_truth_objects")
+            )
             if "has_ground_truth" in split_value and (
                 not isinstance(split_value["has_ground_truth"], bool)
                 or split_value["has_ground_truth"] != has_ground_truth

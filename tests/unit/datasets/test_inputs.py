@@ -198,6 +198,53 @@ def test_3d_annotation_schema_requires_one_identity_bearing_source(
         load_dataset_config(path)
 
 
+def test_object_annotations_are_independent_directories_and_mark_split_as_annotated(tmp_path: Path) -> None:
+    path = _fixture(tmp_path)
+    specification = {"format": "kitti-object-labels", "path": "objects/{partition}/{sequence}"}
+    _change(path, ("modalities", "ground_truth_objects"), specification)
+    annotations = tmp_path / "objects/new-recordings/drive-004"
+    annotations.mkdir(parents=True)
+
+    dataset = load_dataset_inputs(path, split="test")
+
+    assert dataset.sequences[0].modalities["ground_truth_objects"].paths == (annotations,)
+    assert load_dataset_config(path)["splits"]["test"]["has_ground_truth"] is True
+    assert "ground_truth" not in dataset.sequences[0].modalities
+    assert "ground_truth_3d" not in dataset.sequences[0].modalities
+    annotations.rmdir()
+    annotations.touch()
+    with pytest.raises(ConfigurationError, match="ground_truth_objects requires a directory"):
+        load_dataset_inputs(path, split="test")
+
+
+@pytest.mark.parametrize(
+    "specification,message",
+    (
+        ({"format": "kitti-tracking-labels", "path": "objects"}, "format must be kitti-object-labels"),
+        ({"format": "kitti-object-labels", "paths": ["first", "second"]}, "exactly one input path"),
+        (
+            {"format": "kitti-object-labels", "path": "objects", "options": {"ignore_classes": ["Van"]}},
+            "unsupported options: ignore_classes",
+        ),
+    ),
+)
+def test_object_annotation_schema_preserves_native_unfiltered_labels(
+    tmp_path: Path, specification: dict[str, Any], message: str
+) -> None:
+    path = _fixture(tmp_path)
+    _change(path, ("modalities", "ground_truth_objects"), specification)
+    with pytest.raises(ConfigurationError, match=message):
+        load_dataset_config(path)
+
+
+def test_sensor_template_declares_generic_tracking_annotations_without_fabricated_object_sources() -> None:
+    config = load_dataset_config("sensor-fusion")
+    assert config["modalities"]["ground_truth_3d"]["paths"] == ["annotations/{partition}/{sequence}.txt"]
+    assert "ground_truth_objects" not in config["modalities"]
+    assert config["splits"]["train"]["sequences"] == ["drive-001"]
+    assert config["splits"]["val"]["sequences"] == ["drive-002"]
+
+
 def test_missing_unselected_inputs_do_not_block_a_selected_sequence_or_role(tmp_path: Path) -> None:
     path = _fixture(tmp_path)
     (tmp_path / "sequences/recordings/drive-003/poses.npy").unlink()

@@ -17,10 +17,19 @@ import torch
 import yaml
 
 from boxmot import EagerMot, __version__
-from boxmot.datasets.readers.boxes3d import TrackingLabels3D, read_kitti_tracking_labels
+from boxmot.datasets.readers.boxes3d import (
+    KittiObjectLabels,
+    TrackingLabels3D,
+    read_kitti_object_labels,
+    read_kitti_tracking_labels,
+)
 from boxmot.datasets.sequence import MultimodalSequence, SensorFrame
 from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
-from boxmot.engine.eval.kitti_3d import evaluate_kitti_3d, write_kitti_3d_rows
+from boxmot.engine.eval.kitti_3d import (
+    evaluate_kitti_3d,
+    validate_kitti_evaluation_dependencies,
+    write_kitti_3d_rows,
+)
 from boxmot.engine.eval.kitti_mots_replay import (
     GroundTruthEntry,
     evaluate_kitti_mots,
@@ -117,6 +126,7 @@ class KittiReplayInputs:
     cache_inputs: bool = False
     ground_truth_options: dict[str, dict[str, Any]] = field(default_factory=dict)
     annotations_3d: dict[str, TrackingLabels3D] = field(default_factory=dict)
+    object_annotations: dict[str, KittiObjectLabels] = field(default_factory=dict)
 
     def close(self) -> None:
         """Release mapped inputs after the evaluation or entire tuning study."""
@@ -208,6 +218,9 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     sequences: dict[str, MultimodalSequence | SensorReplaySequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
     annotations_3d: dict[str, TrackingLabels3D] = {}
+    object_annotations: dict[str, KittiObjectLabels] = {}
+    if eval_3d:
+        validate_kitti_evaluation_dependencies()
     cache_inputs = bool(getattr(args, "cache_inputs", False))
     try:
         for paths in dataset.sequences:
@@ -237,6 +250,16 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
                 if labels is None:
                     raise ValueError(f"3D evaluation requires ground_truth_3d for sequence {name!r}.")
                 annotations_3d[name] = labels
+                objects = (
+                    sequence.ground_truth_objects()
+                    if cache_inputs
+                    else read_kitti_object_labels(
+                        paths.modalities["ground_truth_objects"].paths[0], frame_count=len(sequence)
+                    )
+                )
+                if objects is None:
+                    raise ValueError(f"Official KITTI AP requires ground_truth_objects for sequence {name!r}.")
+                object_annotations[name] = objects
             else:
                 ground_truth = paths.modalities["ground_truth"].paths[0]
                 annotations[name] = kitti_mots_annotations(
@@ -253,7 +276,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         "boxmot_version": __version__,
         "tracker": "eagermot",
         "evaluation": (
-            "3D volumetric IoU HOTA, CLEAR, and Identity metrics"
+            "Official KITTI object AP40 (2D and 3D) and TrackEval KITTI 2D tracking metrics"
             if eval_3d
             else "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics"
         ),
@@ -279,7 +302,7 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         "limitations": [
             "Detector checkpoint training provenance is not independently verified.",
             (
-                "Custom 3D protocol; no official KITTI difficulty or DontCare suppression."
+                "Official evaluators on the selected local split; not a KITTI leaderboard submission."
                 if eval_3d
                 else "This evaluates segmentation tracking, not 3D boxes or published EagerMOT benchmark parity."
             ),
@@ -297,7 +320,15 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         if not eval_3d
     }
     return KittiReplayInputs(
-        sequences, annotations, dataset.root, manifest, dataset.fps, cache_inputs, ground_truth_options, annotations_3d
+        sequences,
+        annotations,
+        dataset.root,
+        manifest,
+        dataset.fps,
+        cache_inputs,
+        ground_truth_options,
+        annotations_3d,
+        object_annotations,
     )
 
 
@@ -658,7 +689,9 @@ def _replay(
     if on_evaluate is not None:
         on_evaluate()
     if eval_3d:
-        return evaluate_kitti_3d(prediction_dir, output, inputs.annotations_3d, inputs.manifest["sequences"]), videos
+        return evaluate_kitti_3d(
+            prediction_dir, output, inputs.annotations_3d, inputs.manifest["sequences"], inputs.object_annotations
+        ), videos
     cache_options = {"cached_ground_truth": inputs.sequences} if inputs.cache_inputs else {}
     if inputs.ground_truth_options:
         cache_options["ground_truth_options"] = inputs.ground_truth_options
@@ -691,6 +724,8 @@ def evaluate_eagermot_kitti(
         raise ValueError("EagerMOT KITTI replay requires profiles for both car and pedestrian.")
     if show_3d and not (show or save):
         raise ValueError("--show-3d requires --show or --save.")
+    if inputs.manifest.get("eval_3d", False):
+        validate_kitti_evaluation_dependencies()
     output.mkdir(parents=True, exist_ok=True)
     manifest = {
         **inputs.manifest,
@@ -797,7 +832,7 @@ def run_eagermot_kitti(
                         presenter.flush()
                         pipeline.store_step_info(presenter.renderable)
                         contexts.close()
-                    geometry = "3D box" if inputs.manifest.get("eval_3d", False) else "mask"
+                    geometry = "2D/3D AP40 and 2D tracking" if inputs.manifest.get("eval_3d", False) else "mask"
                     pipeline.advance(f"Computing KITTI {geometry} evaluation metrics…")
 
             metrics = evaluate_eagermot_kitti(
@@ -832,6 +867,11 @@ def run_eagermot_kitti(
             timings=timings,
             args=args,
             workflow_rendered=pipeline is not None,
+            detection_metrics=(
+                json.loads((output / "detection_metrics.json").read_text(encoding="utf-8"))
+                if inputs.manifest.get("eval_3d", False)
+                else None
+            ),
         )
         if calibration is not None:
             calibration.record_final(result)

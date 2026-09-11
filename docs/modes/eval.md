@@ -175,23 +175,27 @@ Use `--project` to change that root or repeat `--sequence` to select sequences.
 Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
 Set `--sequence-workers 4` to allow at most four sequence workers.
 
-To evaluate spatial tracks, declare
-[`ground_truth_3d`](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
-and select `--eval-3d`:
+To evaluate spatial tracks, configure both
+[`ground_truth_3d` and exact `ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap),
+[install the official evaluators](../trackers/eagermot.md#evaluate-3d-tracks), then run:
 
 ```bash
 boxmot eval --dataset ./kitti-mots --tracker eagermot \
   --split val --eval-3d --project runs/kitti-3d
 ```
 
-This computes car and pedestrian HOTA, CLEAR, and Identity metrics using
-volumetric IoU between camera-space 3D boxes. It is a custom evaluation:
-official KITTI difficulty, visibility, and DontCare-region rules are not applied.
-The run writes `metrics.json`, `metrics.csv`, and `kitti_3d/<sequence>.txt`.
+The terminal shows **2D/3D AP40 (Easy / Moderate / Hard)** from the official
+KITTI object devkit, followed by a separate **2D tracking HOTA/MOTA/IDF1**
+report from TrackEval's KITTI adapter. Both 2D reports use projections of the
+same spatial tracks. AP is saved in `detection_metrics.json/csv`, tracking in
+`metrics.json/csv`, and predictions in `kitti_3d/<sequence>.txt`.
+
 Ground-truth masks are neither required nor loaded in this mode. The dataset's
 tracking inputs, including prediction masks, are still consumed.
 `--eval-3d` and `--eval-masks` are mutually exclusive; `--eval-3d` requires an
-EagerMOT sensor dataset and is available only on `eval`.
+EagerMOT sensor dataset and is available only on `eval`. Tracking labels alone
+cannot supply exact fractional truncation for official object AP; missing
+object annotations fail before replay.
 
 For your own recordings, copy the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),

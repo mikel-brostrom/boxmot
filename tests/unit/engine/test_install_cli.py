@@ -77,6 +77,21 @@ def test_install_errors_are_reported_as_command_errors(monkeypatch) -> None:
     assert "Error: Unknown extra 'invalid'" in result.output
 
 
+def test_kitti_devkit_install_does_not_install_python_packages(monkeypatch, tmp_path) -> None:
+    from boxmot.engine.eval import kitti_object_backend
+
+    calls = []
+    binary = tmp_path / "evaluator"
+    monkeypatch.setattr(install_command, "install_extras", lambda *args, **kwargs: pytest.fail("Unexpected pip"))
+    monkeypatch.setattr(kitti_object_backend, "install_kitti_object_backend", lambda path: calls.append(path) or binary)
+
+    result = CliRunner().invoke(boxmot, ["install", "--kitti-devkit", str(tmp_path)])
+
+    assert result.exit_code == 0, result.output
+    assert calls == [tmp_path]
+    assert str(binary) in result.output
+
+
 def test_install_help_does_not_inspect_dependencies_or_start_an_installer() -> None:
     script = """
 import subprocess

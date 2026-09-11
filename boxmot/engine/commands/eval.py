@@ -131,7 +131,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     "--eval-3d",
     is_flag=True,
     default=False,
-    help="EagerMOT sensor evaluation: score 3D box IoU against ground_truth_3d; export KITTI tracking rows.",
+    help="EagerMOT: official KITTI 2D/3D AP40 and 2D tracking; requires exact object and tracking labels.",
 )
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option

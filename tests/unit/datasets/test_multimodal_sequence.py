@@ -147,6 +147,7 @@ def test_multimodal_replay_never_reads_3d_calibration_annotations(tmp_path: Path
         "ground_truth_3d": ModalityInput(
             "kitti-tracking-labels", (tmp_path / "not-for-tracking.txt",), {"ignore_classes": ["DontCare"]}
         ),
+        "ground_truth_objects": ModalityInput("kitti-object-labels", (tmp_path / "not-for-tracking-objects",), {}),
     }
 
     sequence = MultimodalSequence(SequenceInputs("drive", modalities), classes=_CLASSES, fps=10)

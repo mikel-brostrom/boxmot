@@ -8,7 +8,9 @@ predictions before running. `format.layout: sequence` selects explicit
 sequence modalities. Each modality declares its encoding and relative paths.
 The `trackrcnn` and `kitti-detections` names specify encodings; your recordings
 and detector models do not need to come from KITTI. Evaluation and tuning
-currently use EagerMOT with car and pedestrian segmentation metrics.
+use EagerMOT with car and pedestrian segmentation metrics by default.
+`eval --eval-3d` adds official KITTI object AP40 by difficulty and 2D tracking
+when exact object and tracking annotations are available.
 
 ## Copy and populate
 
@@ -25,6 +27,7 @@ validation. Populate this layout for **both** sequences:
 ```text
 my-sensor-dataset/
 ├── dataset.yaml
+├── annotations/recordings/drive-001.txt, drive-002.txt
 ├── sequences/recordings/
 │   ├── drive-001/
 │   │   ├── images/000000.png, 000001.png, ...
@@ -59,8 +62,9 @@ not imply official KITTI membership.
 
 The config uses the same `id`, `format`, `storage`, `classes`, and `splits`
 fields as BoxMOT's built-in datasets. `modalities` declares the available
-`images`, `ground_truth`, optional `ground_truth_3d`, `calibration`, `poses`, `detections_2d`, and
-`detections_3d`. Each entry selects a `format` and either one `path` or a list
+`images`, `ground_truth`, `ground_truth_3d`, `calibration`, `poses`, `detections_2d`, and
+`detections_3d`, with a commented `ground_truth_objects` example for official AP.
+Each entry selects a `format` and either one `path` or a list
 of `paths`, with parser settings in `options`. Spatial detections can share
 one directory or be combined from several, as in this template. Directory
 names describe your data; no detector-name directory conventions are required.
@@ -113,10 +117,10 @@ sequence. IDs may restart in another sequence. Use an all-zero uint16 PNG
 for an annotated frame without objects. Missing annotations are errors.
 Predicted masks must come from your detector, independently of these labels.
 
-### Optional 3D ground truth
+### 3D ground truth
 
-For `eval --calibrate-kf` or `tune --calibrate-kf`, uncomment the template's
-`ground_truth_3d` modality and supply one `annotations/PARTITION/SEQUENCE.txt`
+For `eval --calibrate-kf`, `tune --calibrate-kf`, or `eval --eval-3d`, the template's
+`ground_truth_3d` modality selects one `annotations/PARTITION/SEQUENCE.txt`
 file per selected sequence. Each row has exactly 17 KITTI tracking label fields:
 
 ```text
@@ -135,6 +139,15 @@ and saved detections transformed with the fixed ego poses. The resulting
 `kf-tuning/calibrated.yaml` can be reused with `--class-config`. Tuning holds
 the fitted noise and angular-motion choice fixed. Ordinary evaluation and
 tuning need only the instance masks above; these 3D labels are optional.
+
+Official object AP also requires the template's commented `ground_truth_objects`
+modality. Supply one 15-field object-label file per exact image at
+`annotations/objects/PARTITION/SEQUENCE/000000.txt`, `000001.txt`, etc.
+Keep native fractional truncation, visibility, classes and DontCare rows.
+Object labels cannot be derived from tracking truncation categories or paired
+with a separately numbered dataset by filename. See the
+[exact object-label contract](../../../docs/config/datasets.md#exact-object-labels-for-official-ap)
+and [evaluator setup](../../../docs/trackers/eagermot.md#evaluate-3d-tracks).
 
 ### Calibration
 

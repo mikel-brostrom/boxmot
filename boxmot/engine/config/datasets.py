@@ -28,6 +28,8 @@ def _sensor_evaluation_formats(*, eval_3d: bool, calibrate_kf: bool) -> dict[str
         formats["ground_truth"] = "instance-png"
     if eval_3d or calibrate_kf:
         formats["ground_truth_3d"] = "kitti-tracking-labels"
+    if eval_3d:
+        formats["ground_truth_objects"] = "kitti-object-labels"
     return formats
 
 
@@ -40,6 +42,11 @@ def _validate_sensor_3d_ground_truth(
         raise ValueError(
             f"{option} requires 3D ground truth with track IDs.\n"
             "Add ground_truth_3d with format: kitti-tracking-labels to dataset.yaml."
+        )
+    if eval_3d and modalities.get("ground_truth_objects", {}).get("format") != "kitti-object-labels":
+        raise ValueError(
+            "--eval-3d requires per-image KITTI object ground truth aligned to the sequence frames.\n"
+            "Add ground_truth_objects with format: kitti-object-labels to dataset.yaml."
         )
 
 
@@ -137,7 +144,8 @@ def load_sensor_evaluation_inputs(
     modalities = dataset_modalities(config, split_name)
     _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, calibrate_kf=calibrate_kf)
     formats = _sensor_evaluation_formats(eval_3d=eval_3d, calibrate_kf=calibrate_kf)
-    roles = tuple(role for role in modalities if role not in {"ground_truth", "ground_truth_3d"} or role in formats)
+    annotation_roles = {"ground_truth", "ground_truth_3d", "ground_truth_objects"}
+    roles = tuple(role for role in modalities if role not in annotation_roles or role in formats)
     dataset = resolve_dataset_inputs(config, split=split_name, sequence_names=sequence_names, roles=roles)
     scoring = "3D" if eval_3d else "mask"
     if eval_3d:

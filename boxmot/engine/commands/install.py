@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Iterable, Sequence
+from pathlib import Path
 
 import click
 
@@ -130,21 +131,35 @@ def install_extras(
     help="Additional package index; repeat as needed.",
 )
 @click.option("--quiet", is_flag=True, help="Suppress installation progress and success messages.")
+@click.option(
+    "--kitti-devkit",
+    type=click.Path(exists=True, file_okay=False, path_type=Path),
+    metavar="PATH",
+    help="Compile the official object evaluator from an extracted KITTI devkit (requires C++17 and Boost headers).",
+)
 def install(
     extras: tuple[str, ...],
     requirements: tuple[str, ...],
     extra_index_urls: tuple[str, ...],
     quiet: bool,
+    kitti_devkit: Path | None,
 ) -> None:
     """Resolve selected requirements and install only missing dependencies."""
 
-    if not extras and not requirements:
-        raise click.UsageError("Provide at least one --extra or --requirement.")
+    if not extras and not requirements and kitti_devkit is None:
+        raise click.UsageError("Provide at least one --extra or --requirement, or --kitti-devkit.")
 
     extra_args = tuple(argument for url in extra_index_urls for argument in ("--extra-index-url", url))
     try:
-        install_extras(extras, requirements=requirements, extra_args=extra_args, verbose=not quiet)
-    except (ImportError, RuntimeError, ValueError) as exc:
+        if extras or requirements:
+            install_extras(extras, requirements=requirements, extra_args=extra_args, verbose=not quiet)
+        if kitti_devkit is not None:
+            from boxmot.engine.eval.kitti_object_backend import install_kitti_object_backend
+
+            binary = install_kitti_object_backend(kitti_devkit)
+            if not quiet:
+                click.echo(f"KITTI object evaluator available at {binary}")
+    except (ImportError, OSError, RuntimeError, ValueError) as exc:
         raise click.ClickException(str(exc)) from exc
     if not quiet:
         click.echo("Requested dependencies are available.")

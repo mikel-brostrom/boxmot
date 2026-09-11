@@ -23,10 +23,18 @@ def _declare_3d_labels(dataset_path: Path, *, create: bool = True) -> Path:
         "format": "kitti-tracking-labels",
         "path": "sequences/{partition}/{sequence}/labels_3d.txt",
     }
+    config["modalities"]["ground_truth_objects"] = {
+        "format": "kitti-object-labels",
+        "path": "sequences/{partition}/{sequence}/object_labels",
+    }
     dataset_path.write_text(yaml.safe_dump(config))
     labels = dataset_path.parent / "sequences/training/0002/labels_3d.txt"
     if create:
         labels.write_text("0 0 Car 0 0 0 14 8 23 15 3 1 4 -5 0 20 0\n")
+        objects = labels.parent / "object_labels"
+        objects.mkdir()
+        for image in (labels.parent / "images").glob("*.png"):
+            (objects / image.with_suffix(".txt").name).write_text("Car 0.25 0 0 14 8 23 15 3 1 4 -5 0 20 0\n")
     return labels
 
 
@@ -37,6 +45,8 @@ def test_sensor_inputs_resolve_only_consumed_annotations(tmp_path: Path, eval_3d
     _declare_3d_labels(data.dataset, create=eval_3d or calibrate_kf)
     if eval_3d:
         data.ground_truth.rmdir()
+    elif calibrate_kf:
+        (tmp_path / "sequences/training/0002/object_labels").rmdir()
 
     validate_sensor_workflow_inputs(
         data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=eval_3d, calibrate_kf=calibrate_kf
@@ -48,6 +58,8 @@ def test_sensor_inputs_resolve_only_consumed_annotations(tmp_path: Path, eval_3d
         expected.add("ground_truth")
     if eval_3d or calibrate_kf:
         expected.add("ground_truth_3d")
+    if eval_3d:
+        expected.add("ground_truth_objects")
     assert set(dataset.sequences[0].modalities) == expected
     assert dataset.sequence_names == ("0002",)
     assert dataset.split == "val"
@@ -65,6 +77,22 @@ def test_sensor_spatial_labels_required_only_when_consumed(tmp_path: Path, entry
             validate_sensor_workflow_inputs(data.dataset, TrackerSpec("eagermot"), mode="eval", **flags)
         else:
             load_sensor_evaluation_inputs(data.dataset, **flags)
+
+
+@pytest.mark.parametrize("entrypoint", ("validate", "load"))
+def test_3d_scoring_requires_object_ground_truth_before_payload_validation(tmp_path: Path, entrypoint: str) -> None:
+    data = sensor_dataset_fixture(tmp_path)
+    _declare_3d_labels(data.dataset)
+    config = yaml.safe_load(data.dataset.read_text())
+    del config["modalities"]["ground_truth_objects"]
+    data.dataset.write_text(yaml.safe_dump(config))
+    data.reader_paths["poses"].unlink()
+
+    with pytest.raises(ValueError, match="--eval-3d requires per-image KITTI object ground truth"):
+        if entrypoint == "validate":
+            validate_sensor_workflow_inputs(data.dataset, TrackerSpec("eagermot"), mode="eval", eval_3d=True)
+        else:
+            load_sensor_evaluation_inputs(data.dataset, eval_3d=True)
 
 
 @pytest.mark.parametrize("declared_ground_truth", (False, True))
@@ -127,10 +155,15 @@ def test_cached_3d_scoring_never_reads_unused_instance_annotations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Cache only selected GT while retaining masks carried by tracking detections."""
-    from boxmot.datasets import sensor_cache
-    from tests.unit.engine.eval.test_eagermot_kitti import _fixture
+    import numpy as np
+    from PIL import Image
 
-    data = _fixture(tmp_path)
+    from boxmot.datasets import sensor_cache
+
+    data = sensor_dataset_fixture(tmp_path)
+    Image.new("RGB", (48, 24)).save(data.reader_paths["images"] / "000000.png")
+    data.reader_paths["calibration"].write_text("P2: 20 0 24 0 0 20 12 0 0 0 1 0\n")
+    np.save(data.reader_paths["poses"], np.eye(4)[None])
     _declare_3d_labels(data.dataset)
     shutil.rmtree(data.ground_truth)
 
@@ -146,4 +179,5 @@ def test_cached_3d_scoring_never_reads_unused_instance_annotations(
         labels = sequence.ground_truth_3d()
         assert labels is not None
         assert labels.track_ids.tolist() == [0]
+        assert sequence.ground_truth_objects().frame_rows[0][0].split()[1] == "0.25"
         assert sequence[0].detections.masks is not None

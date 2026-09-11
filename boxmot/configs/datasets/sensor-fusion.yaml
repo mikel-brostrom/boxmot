@@ -36,12 +36,18 @@ modalities:
       class_divisor: 1000
       background_id: 0
       ignore_ids: [10000]
-  # Optional: supply identity-bearing 3D annotations to use --calibrate-kf.
-  # ground_truth_3d:
-  #   format: kitti-tracking-labels
-  #   path: annotations/{partition}/{sequence}.txt
-  #   options:
-  #     ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
+  # Identity-bearing sequence labels for 3D tracking evaluation and KF calibration.
+  ground_truth_3d:
+    format: kitti-tracking-labels
+    path: annotations/{partition}/{sequence}.txt
+    options:
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
+  # Also required by --eval-3d: native 15-field object labels for these exact images.
+  # Each sequence directory contains 000000.txt, 000001.txt, ...; do not derive
+  # object labels or fractional truncation from 17-field tracking labels.
+  # ground_truth_objects:
+  #   format: kitti-object-labels
+  #   path: annotations/objects/{partition}/{sequence}
   calibration:
     format: kitti-p2
     path: sequences/{partition}/{sequence}/calibration.txt

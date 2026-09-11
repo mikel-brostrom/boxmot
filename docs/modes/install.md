@@ -11,6 +11,17 @@ Download helpers, ReID backends, exporters, tuning, and research validate their
 dependencies when used. Run this command explicitly when a dependency check
 reports missing packages.
 
+For [EagerMOT official KITTI evaluation](../trackers/eagermot.md#evaluate-3d-tracks),
+extract the official object devkit and provide its directory:
+
+```bash
+boxmot install --extra trackeval --kitti-devkit /path/to/devkit_object
+```
+
+This pins TrackEval and compiles the local object evaluation harness using
+a C++17 compiler and Boost headers. The devkit source stays external to BoxMOT;
+evaluation uses the cached executable without downloading dependencies.
+
 ## Extras and requirements
 
 Repeat `--extra` to prepare several workflows:

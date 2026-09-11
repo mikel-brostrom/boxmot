@@ -262,6 +262,7 @@ class MultimodalSequence(Sequence[SensorFrame]):
             "images",
             "ground_truth",
             "ground_truth_3d",
+            "ground_truth_objects",
             "detections_2d",
             "detections_3d",
             "calibration",
@@ -276,6 +277,8 @@ class MultimodalSequence(Sequence[SensorFrame]):
             elif role == "ground_truth_3d":
                 # Calibration annotations never enter tracker observations.
                 _single_path(modality, "kitti-tracking-labels", role)
+            elif role == "ground_truth_objects":
+                _single_path(modality, "kitti-object-labels", role)
             elif role != "detections_3d" and modality.options:
                 raise ValueError(
                     f"{modality.format} does not support reader options: {', '.join(sorted(modality.options))}."
