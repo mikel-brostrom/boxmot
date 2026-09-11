@@ -8,7 +8,7 @@ builds.
 
 ## Select an experiment
 
-`--experiment YAML_FILE` is the only materialization input. The experiment
+`--experiment YAML_FILE` selects the input for a perception build. The experiment
 owns the dataset, split, geometry, detector checkpoint, optional segmentor and
 ReID encoder, and evaluation class map. Materialization does not accept
 command-line replacements for those semantic values. `--fps` optionally
@@ -93,6 +93,27 @@ are supported, and extra frames are never generated.
 `eval` and `tune` infer the rate from an explicitly selected build when `--fps`
 is omitted. Passing `--fps` during replay requires the same value as the build.
 See [dataset FPS](eval.md#dataset-fps) for automatic evaluation preparation.
+
+## Derive a frame-loss dataset
+
+Use `--time-variant` with an existing build to retain selected real frames and
+their original capture timestamps, annotations, detections, and embeddings:
+
+```bash
+boxmot materialize --time-variant \
+  --dataset mot17 \
+  --split ablation \
+  --sequence MOT17-10-FRCNN \
+  --build BUILD_ID \
+  --seed 0
+```
+
+`--sequence` and `--build` are required for this operation. `--name` sets the
+new dataset identifier. Use `--build-root` and `--data-root` for custom storage
+locations. The source build must have complete cached perception and ground
+truth; existing output datasets are refused. See
+[Time-variant dataset](time-variant.md) for the sampling profile, output layout,
+and evaluation examples.
 
 ## Sequence capture timestamps
 

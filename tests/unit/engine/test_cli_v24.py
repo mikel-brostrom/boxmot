@@ -14,9 +14,7 @@ from boxmot.engine.config.experiments import EXPERIMENT_CONFIGS_DIR, resolve_exp
 EXPECTED_COMMAND_ORDER = (
     "track",
     "materialize",
-    "time-variant",
     "eval",
-    "eval-trackrcnn",
     "tune",
     "research",
     "train-reid",
@@ -56,6 +54,11 @@ def test_v24_command_set_is_exact() -> None:
     removed_eval = CliRunner().invoke(boxmot, ["eval-eagermot", "--help"])
     assert removed_eval.exit_code == 2
     assert "No such command 'eval-eagermot'" in removed_eval.output
+
+    for command in ("time-variant", "eval-trackrcnn"):
+        removed = CliRunner().invoke(boxmot, [command, "--help"])
+        assert removed.exit_code == 2
+        assert f"No such command '{command}'" in removed.output
 
 
 def test_reid_evaluation_path_options_preserve_their_click_contracts() -> None:
@@ -132,14 +135,14 @@ def test_train_reid_implicit_click_defaults_do_not_override_an_explicit_model(
     assert args.device == "cpu"
 
 
-def test_materialize_requires_an_experiment() -> None:
+def test_perception_materialization_requires_an_experiment() -> None:
     options = _command_options("materialize")
 
-    assert options["experiment"].required is True
+    assert options["experiment"].required is False
 
     missing = CliRunner().invoke(boxmot, ["materialize"])
     assert missing.exit_code == 2
-    assert "Missing option '--experiment'" in missing.output
+    assert "requires --experiment" in missing.output
 
 
 @pytest.mark.parametrize("command", ("materialize", "eval", "tune", "research"))
@@ -170,12 +173,15 @@ def test_materialize_rejects_non_experiment_semantic_selectors(option: str, valu
     )
 
     assert result.exit_code == 2
-    assert f"No such option '{option}'" in result.output
+    if option in {"--dataset", "--split"}:
+        assert "require --time-variant" in result.output
+    else:
+        assert f"No such option '{option}'" in result.output
 
 
-def test_materialize_option_and_dispatch_contract_is_experiment_only(monkeypatch) -> None:
+def test_perception_materialization_filters_variant_options_from_dispatch(monkeypatch) -> None:
     options = _command_options("materialize")
-    assert set(options) == {
+    perception_options = {
         "build_root",
         "data_root",
         "device",
@@ -187,6 +193,15 @@ def test_materialize_option_and_dispatch_contract_is_experiment_only(monkeypatch
         "publish_image_refs",
         "publish_masks",
         "resume",
+    }
+    assert set(options) == perception_options | {
+        "time_variant",
+        "dataset",
+        "split",
+        "sequence",
+        "build_ref",
+        "name",
+        "seed",
     }
 
     captured = {}
@@ -202,7 +217,7 @@ def test_materialize_option_and_dispatch_contract_is_experiment_only(monkeypatch
     args = captured["args"]
     assert args.experiment == "exp"
     assert set(vars(args)) == {
-        *options,
+        *perception_options,
         "materialize_explicit_keys",
     }
 
@@ -880,7 +895,7 @@ def test_eval_sequence_option_is_repeatable_and_dispatches_in_order(monkeypatch)
 
 
 @pytest.mark.parametrize("tracker", (None, "bytetrack"))
-def test_trackrcnn_evaluation_dispatches_saved_paths_and_class_separated_python_tracker(
+def test_track_dispatches_saved_trackrcnn_paths_and_class_separated_python_tracker(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tracker: str | None
 ) -> None:
     """Saved detector input bypasses perception setup and retains tracker overrides."""
@@ -894,7 +909,7 @@ def test_trackrcnn_evaluation_dispatches_saved_paths_and_class_separated_python_
     config = tmp_path / "tracker.yaml"
     config.write_text("det_thresh: 0.75\n", encoding="utf-8")
     arguments = [
-        "eval-trackrcnn",
+        "track",
         "--detections",
         str(tmp_path),
         "--images",
@@ -922,11 +937,13 @@ def test_trackrcnn_evaluation_dispatches_saved_paths_and_class_separated_python_
     assert args.sequence_names == ("0006", "0002")
     assert args.split == "val"
     assert args.project == Path("runs/trackrcnn")
+    assert args.workflow_mode == "track"
+    assert args.tracker_explicit is (tracker is not None)
     assert f"Results: {tmp_path / 'results'}" in result.output
 
 
 @pytest.mark.parametrize("error_type", (ValueError, FileNotFoundError, ImportError))
-def test_trackrcnn_evaluation_reports_actionable_runner_errors(
+def test_track_reports_actionable_trackrcnn_runner_errors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, error_type: type[Exception]
 ) -> None:
     """Data and capability failures are concise CLI errors instead of tracebacks."""
@@ -938,9 +955,87 @@ def test_trackrcnn_evaluation_reports_actionable_runner_errors(
     monkeypatch.setitem(sys.modules, "boxmot.engine.eval.trackrcnn", SimpleNamespace(run_trackrcnn=fail))
     result = CliRunner().invoke(
         boxmot,
-        ["eval-trackrcnn", "--detections", str(tmp_path), "--images", str(tmp_path), "--instances", str(tmp_path)],
+        ["track", "--detections", str(tmp_path), "--images", str(tmp_path), "--instances", str(tmp_path)],
     )
 
     assert result.exit_code == 1
     assert f"Error: {message}" in result.output
     assert "Traceback" not in result.output
+
+
+@pytest.mark.parametrize("missing", ("images", "instances"))
+def test_track_requires_complete_trackrcnn_inputs(tmp_path: Path, missing: str) -> None:
+    arguments = ["track"]
+    for name in ("detections", "images", "instances"):
+        if name != missing:
+            arguments.extend((f"--{name}", str(tmp_path)))
+    result = CliRunner().invoke(boxmot, arguments)
+
+    assert result.exit_code == 2
+    assert f"Saved TrackR-CNN tracking requires --{missing}" in result.output
+
+
+@pytest.mark.parametrize("option", ("--images", "--instances", "--split", "--sequence"))
+def test_track_requires_detections_for_replay_options(tmp_path: Path, option: str) -> None:
+    value = "val" if option == "--split" else "0002" if option == "--sequence" else str(tmp_path)
+    result = CliRunner().invoke(boxmot, ["track", option, value])
+
+    assert result.exit_code == 2
+    assert "require --detections" in result.output
+
+
+@pytest.mark.parametrize(
+    "option",
+    (
+        ("--source", "0"),
+        ("--detector", "yolov8n"),
+        ("--reid", "osnet_x0_25_msmt17"),
+        ("--segmentor", "sam2"),
+        ("--geometry", "obb"),
+        ("--classes", "1"),
+        ("--fps", "5"),
+        ("--conf", "0.5"),
+        ("--device", "cpu"),
+        ("--show",),
+        ("--save",),
+        ("--save-json",),
+        ("--verbose",),
+    ),
+)
+def test_track_rejects_unsupported_trackrcnn_options(tmp_path: Path, option: tuple[str, ...]) -> None:
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "track",
+            "--detections",
+            str(tmp_path),
+            "--images",
+            str(tmp_path),
+            "--instances",
+            str(tmp_path),
+            *option,
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert f"Saved TrackR-CNN tracking does not support {option[0]}" in result.output
+
+
+def test_track_rejects_cpp_backend_for_trackrcnn(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "track",
+            "--detections",
+            str(tmp_path),
+            "--images",
+            str(tmp_path),
+            "--instances",
+            str(tmp_path),
+            "--tracker-backend",
+            "cpp",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "Saved TrackR-CNN tracking requires --tracker-backend python" in result.output

@@ -18,7 +18,9 @@ def test_time_variant_dispatch_uses_only_dataset_derivation_options(monkeypatch)
         _support, "_run_engine_workflow", lambda module, args: captured.update(module=module, args=args)
     )
 
-    result = CliRunner().invoke(boxmot, ["time-variant", "--sequence", "MOT17-10-FRCNN", "--build", "parent-build"])
+    result = CliRunner().invoke(
+        boxmot, ["materialize", "--time-variant", "--sequence", "MOT17-10-FRCNN", "--build", "parent-build"]
+    )
 
     assert result.exit_code == 0, result.output
     assert captured["module"] == "boxmot.engine.dataset_variants.workflow"
@@ -42,7 +44,8 @@ def test_time_variant_accepts_source_paths_and_reproducible_selection(monkeypatc
     result = CliRunner().invoke(
         boxmot,
         [
-            "time-variant",
+            "materialize",
+            "--time-variant",
             "--dataset",
             str(dataset),
             "--split",
@@ -76,32 +79,97 @@ def test_time_variant_accepts_source_paths_and_reproducible_selection(monkeypatc
 
 @pytest.mark.parametrize("arguments,missing", [([], "--sequence"), (["--sequence", "camera-1"], "--build")])
 def test_time_variant_requires_a_sequence_and_parent_build(arguments, missing) -> None:
-    result = CliRunner().invoke(boxmot, ["time-variant", *arguments])
+    result = CliRunner().invoke(boxmot, ["materialize", "--time-variant", *arguments])
     assert result.exit_code == 2
-    assert f"Missing option '{missing}'" in result.output
+    assert f"requires {missing}" in result.output
 
 
 @pytest.mark.parametrize("seed", ["-1", "1.5"])
 def test_time_variant_rejects_invalid_seeds_before_workflow(monkeypatch, seed) -> None:
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda *args: pytest.fail("invalid CLI reached workflow"))
-    result = CliRunner().invoke(boxmot, ["time-variant", "--sequence", "camera-1", "--build", "parent", "--seed", seed])
+    result = CliRunner().invoke(
+        boxmot, ["materialize", "--time-variant", "--sequence", "camera-1", "--build", "parent", "--seed", seed]
+    )
     assert result.exit_code == 2
     assert "--seed" in result.output
 
 
-@pytest.mark.parametrize("option", ["--detector", "--tracker", "--fps"])
-def test_time_variant_does_not_accept_inference_or_synthetic_timestamp_controls(option) -> None:
+@pytest.mark.parametrize("option", ["--detector", "--tracker"])
+def test_time_variant_does_not_accept_tracking_controls(option) -> None:
     result = CliRunner().invoke(
-        boxmot, ["time-variant", "--sequence", "camera-1", "--build", "parent", option, "value"]
+        boxmot, ["materialize", "--time-variant", "--sequence", "camera-1", "--build", "parent", option, "value"]
     )
     assert result.exit_code == 2
     assert f"No such option '{option}'" in result.output
 
 
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--experiment", "experiment.yaml"],
+        ["--device", "cpu"],
+        ["--fps", "30"],
+        ["--publish-image-refs"],
+        ["--no-publish-image-refs"],
+        ["--publish-masks"],
+        ["--no-publish-masks"],
+        ["--publish-embeddings"],
+        ["--no-publish-embeddings"],
+        ["--set", "detect.batch_size=4"],
+        ["--resume"],
+        ["--no-resume"],
+    ],
+)
+def test_time_variant_rejects_explicit_perception_options(monkeypatch, options) -> None:
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda *args: pytest.fail("invalid CLI reached workflow"))
+    result = CliRunner().invoke(
+        boxmot,
+        ["materialize", "--time-variant", "--sequence", "camera-1", "--build", "parent", *options],
+    )
+
+    assert result.exit_code == 2
+    assert "cannot be combined with --time-variant" in result.output
+    assert options[0] in result.output
+
+
+def test_time_variant_rejects_an_executor_plan(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda *args: pytest.fail("invalid CLI reached workflow"))
+    plan = tmp_path / "plan.yaml"
+    plan.write_text("stages: []", encoding="utf-8")
+    result = CliRunner().invoke(
+        boxmot,
+        ["materialize", "--time-variant", "--sequence", "camera-1", "--build", "parent", "--plan", str(plan)],
+    )
+
+    assert result.exit_code == 2
+    assert "--plan cannot be combined with --time-variant" in result.output
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--dataset", "mot17"],
+        ["--split", "ablation"],
+        ["--sequence", "camera-1"],
+        ["--build", "parent"],
+        ["--name", "variant"],
+        ["--seed", "0"],
+    ],
+)
+def test_perception_materialize_rejects_variant_options_without_flag(monkeypatch, options) -> None:
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda *args: pytest.fail("invalid CLI reached workflow"))
+    result = CliRunner().invoke(boxmot, ["materialize", "--experiment", "experiment.yaml", *options])
+
+    assert result.exit_code == 2
+    assert "require --time-variant" in result.output
+    assert options[0] in result.output
+
+
 def test_time_variant_namespace_filters_shared_tracking_defaults() -> None:
     args = build_mode_namespace(
-        "time-variant",
+        "materialize",
         {
+            "time_variant": True,
             "sequence": "camera-1",
             "build": "parent",
             "data_root": "datasets",

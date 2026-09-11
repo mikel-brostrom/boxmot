@@ -1,7 +1,7 @@
 # Track
 
 `track` runs a source through engine-owned perception, tracking, and output
-sinks.
+sinks. It also replays saved TrackR-CNN detections with their KITTI images.
 
 ```bash
 boxmot track \
@@ -11,6 +11,29 @@ boxmot track \
   --tracker botsort \
   --save
 ```
+
+## Saved TrackR-CNN detections
+
+Pass all three input directories to replay KITTI TrackR-CNN predictions and
+evaluate the resulting tracks against MOTS instance annotations:
+
+```bash
+boxmot track \
+  --tracker maf_hda \
+  --detections ./kitti-mots/predictions/trackrcnn/training \
+  --images ./kitti/training/image_02 \
+  --instances ./kitti/instances \
+  --split val \
+  --sequence 0002
+```
+
+This path defaults to the Python MAF-HDA tracker and tracks cars and pedestrians
+separately. It writes MOTS tracks, metrics, and run metadata under
+`runs/trackrcnn/<split>`; `--project` changes the output root. Live source,
+perception, and display options do not apply to these saved inputs. Install the
+`mots` extra for mask decoding and metrics. See the
+[MAF-HDA example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
+for input layout and tracker configuration details.
 
 ## Device selection
 

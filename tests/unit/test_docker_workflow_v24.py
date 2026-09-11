@@ -163,16 +163,16 @@ def test_release_contract_discovers_commands_without_populating_the_lazy_cache(m
     assert boxmot_cli.commands == {}
 
 
-def test_release_contract_rejects_a_missing_time_variant_command(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_release_contract_rejects_a_missing_materialize_command(monkeypatch: pytest.MonkeyPatch) -> None:
     from boxmot.engine.cli import boxmot as boxmot_cli
 
     monkeypatch.setattr(
         boxmot_cli,
         "list_commands",
-        lambda _context: [name for name in release_contract.EXPECTED_CLI_COMMANDS if name != "time-variant"],
+        lambda _context: [name for name in release_contract.EXPECTED_CLI_COMMANDS if name != "materialize"],
     )
 
-    with pytest.raises(AssertionError, match="CLI commands:.*time-variant"):
+    with pytest.raises(AssertionError, match="CLI commands:.*materialize"):
         release_contract.check_release_contract()
 
 

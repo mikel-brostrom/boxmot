@@ -133,8 +133,8 @@ not accept `--cache-inputs`.
 ## Saved TrackR-CNN predictions
 
 For downloaded KITTI TrackR-CNN text predictions, use
-`boxmot eval-trackrcnn --tracker maf_hda` with detection, image, and instance
-annotation directories. This command directly replays the saved boxes and
+`boxmot track --tracker maf_hda` with `--detections`, `--images`, and `--instances`
+directories. This command directly replays the saved boxes and
 masks without materializing a perception build. See the
 [MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
 for the full command.

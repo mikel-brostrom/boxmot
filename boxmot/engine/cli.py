@@ -23,22 +23,15 @@ class _CommandSpec:
 
 
 _COMMAND_SPECS = (
-    _CommandSpec("track", "boxmot.engine.commands.track", "track", "Track objects in video/webcam stream"),
+    _CommandSpec("track", "boxmot.engine.commands.track", "track", "Track objects in streams or saved detections"),
     _CommandSpec(
         "materialize",
         "boxmot.engine.commands.materialize",
         "materialize",
-        "Build an immutable keyed perception dataset",
+        "Build a perception dataset or derive a frame-loss variant",
     ),
     _CommandSpec(
-        "time-variant",
-        "boxmot.engine.commands.time_variant",
-        "time_variant",
-        "Derive a timestamped frame-loss dataset from a build",
-    ),
-    _CommandSpec("eval", "boxmot.engine.commands.eval", "eval", "Evaluate tracker performance on MOT dataset"),
-    _CommandSpec(
-        "eval-trackrcnn", "boxmot.engine.commands.trackrcnn", "eval_trackrcnn", "Evaluate saved KITTI TrackR-CNN masks"
+        "eval", "boxmot.engine.commands.eval", "eval", "Evaluate trackers on perception builds or sensor data"
     ),
     _CommandSpec("tune", "boxmot.engine.commands.tune", "tune", "Optimize tracker hyperparameters"),
     _CommandSpec(

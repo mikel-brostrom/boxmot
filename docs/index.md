@@ -18,7 +18,7 @@ materialization.
 [MafHda](trackers/maf_hda.md) combines motion and masked correlation-filter
 appearance for AABB detections with nonempty full-frame instance masks and
 current image frames.
-`boxmot eval-trackrcnn --tracker maf_hda` evaluates saved TrackR-CNN predictions
+`boxmot track --tracker maf_hda --detections DIR --images DIR --instances DIR` replays saved TrackR-CNN predictions
 on KITTI MOTS; see the MAF-HDA tracker page for the required paths.
 [EagerMot](trackers/eagermot.md) adds 2D/3D sensor fusion through the Python
 tracker API with independent detection batches and camera calibration.

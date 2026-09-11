@@ -14,7 +14,7 @@ import yaml
 from boxmot.configs import CONFIG_ROOT
 from boxmot.trackers.common.specs import parse_tracker_spec
 
-RUNTIME_MODES = frozenset({"track", "materialize", "time-variant", "eval", "tune", "research"})
+RUNTIME_MODES = frozenset({"track", "materialize", "eval", "tune", "research"})
 RUNTIME_DEFAULTS_PATH = CONFIG_ROOT / "runtime.yaml"
 
 
@@ -92,7 +92,13 @@ def build_mode_namespace(
     values = get_mode_defaults(normalized_mode)
     values.update(dict(payload))
 
-    if normalized_mode == "materialize":
+    if normalized_mode == "materialize" and values.get("time_variant"):
+        allowed_keys = frozenset({"dataset", "split", "sequence", "build", "build_root", "data_root", "name", "seed"})
+        values = {key: value for key, value in values.items() if key in allowed_keys}
+        for path_key in ("data_root", "build_root"):
+            if values.get(path_key) is not None:
+                values[path_key] = Path(values[path_key])
+    elif normalized_mode == "materialize":
         allowed_keys = frozenset(
             {
                 "build_root",
@@ -113,12 +119,6 @@ def build_mode_namespace(
             if values.get(path_key) is not None:
                 values[path_key] = Path(values[path_key])
         values["materialize_explicit_keys"] = tuple(sorted(explicit & allowed_keys))
-    elif normalized_mode == "time-variant":
-        allowed_keys = frozenset({"dataset", "split", "sequence", "build", "build_root", "data_root", "name", "seed"})
-        values = {key: value for key, value in values.items() if key in allowed_keys}
-        for path_key in ("data_root", "build_root"):
-            if values.get(path_key) is not None:
-                values[path_key] = Path(values[path_key])
     elif normalized_mode in RUNTIME_MODES:
         if normalized_mode == "track":
             values["detector"] = values.get("detector", DEFAULT_DETECTOR)

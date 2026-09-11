@@ -61,9 +61,7 @@ _ROOT_HELP_RUNTIME_MODULES = (
 _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
-    "boxmot.engine.commands.trackrcnn",
     "boxmot.engine.commands.materialize",
-    "boxmot.engine.commands.time_variant",
     "boxmot.engine.commands.research",
     "boxmot.engine.commands.track",
     "boxmot.engine.commands.tune",
@@ -87,9 +85,7 @@ _REID_COMMAND_MODULES = (
 _COMMAND_MODULE_BY_NAME = {
     "track": "boxmot.engine.commands.track",
     "materialize": "boxmot.engine.commands.materialize",
-    "time-variant": "boxmot.engine.commands.time_variant",
     "eval": "boxmot.engine.commands.eval",
-    "eval-trackrcnn": "boxmot.engine.commands.trackrcnn",
     "tune": "boxmot.engine.commands.tune",
     "research": "boxmot.engine.commands.research",
     "train-reid": "boxmot.engine.commands.reid.train",
@@ -178,7 +174,7 @@ def test_calibration_imports_do_not_load_search_dependencies(module_name: str) -
         "boxmot.reid.config",
         "boxmot.engine.config.experiments",
         "boxmot.engine.commands.eval",
-        "boxmot.engine.commands.trackrcnn",
+        "boxmot.engine.commands.track",
     ),
 )
 def test_evaluation_selectors_keep_data_and_model_runtimes_lazy(module_name: str) -> None:
@@ -348,7 +344,6 @@ def test_command_help_resolves_only_selected_adapter(command_name: str, expected
         "track",
         "materialize",
         "eval",
-        "eval-trackrcnn",
         "tune",
         "research",
         "train-reid",

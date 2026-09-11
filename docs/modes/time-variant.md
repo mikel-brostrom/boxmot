@@ -1,6 +1,6 @@
 # Time-variant dataset
 
-Use `time-variant` to test tracking with irregular capture intervals. It selects
+Use `materialize --time-variant` to test tracking with irregular capture intervals. It selects
 real frames from one MOT image sequence and reuses their cached detections and
 embeddings. Images and annotations retain their original scene motion; frame
 loss is simulated.
@@ -11,7 +11,7 @@ Start with a complete [materialized build](materialize.md) for the source
 dataset and split:
 
 ```bash
-boxmot time-variant \
+boxmot materialize --time-variant \
   --dataset mot17 \
   --split ablation \
   --sequence MOT17-10-FRCNN \
@@ -120,7 +120,7 @@ and evaluate on a separate sequence before claiming general improvement.
 ## Arguments
 
 ::: mkdocs-click
-    :module: boxmot.engine.commands.time_variant
-    :command: time_variant
-    :prog_name: boxmot time-variant
+    :module: boxmot.engine.commands.materialize
+    :command: materialize
+    :prog_name: boxmot materialize
     :depth: 0

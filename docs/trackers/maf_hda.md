@@ -31,7 +31,7 @@ for mask decoding and metrics, then replay downloaded TrackR-CNN text prediction
 with their original KITTI images and instance annotations:
 
 ```bash
-uv run --no-sync python -m boxmot.engine.cli eval-trackrcnn \
+uv run --no-sync python -m boxmot.engine.cli track \
   --tracker maf_hda \
   --detections ./kitti-mots/predictions/trackrcnn/training \
   --images ~/Downloads/data_tracking_image_2/training/image_02 \

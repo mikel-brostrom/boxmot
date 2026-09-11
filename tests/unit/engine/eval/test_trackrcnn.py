@@ -75,7 +75,7 @@ def _fixture(tmp_path: Path) -> SimpleNamespace:
 def _arguments(data: SimpleNamespace, *, tracker: str = "maf_hda") -> list[str]:
     """Use the registered command without any 3D inputs or model weights."""
     return [
-        "eval-trackrcnn",
+        "track",
         "--tracker",
         tracker,
         "--detections",

@@ -39,7 +39,7 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
+- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
   `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
 - Swappable components with explicit capabilities and requirements.
@@ -238,7 +238,7 @@ package requirements.
 [MafHda](docs/trackers/maf_hda.md) is the Python MAF_HDA/GMPHD_MAF port for
 mask-aware tracking. It requires AABB detections, nonempty full-frame instance
 masks, and the current image.
-Use `boxmot eval-trackrcnn --tracker maf_hda` to evaluate saved KITTI TrackR-CNN
+Use `boxmot track --tracker maf_hda --detections DIR --images DIR --instances DIR` to replay saved KITTI TrackR-CNN
 predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
 MafHda is not included in the box-only benchmark table above.
 

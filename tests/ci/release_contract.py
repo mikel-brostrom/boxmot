@@ -24,9 +24,7 @@ EXPECTED_PUBLIC_API = ("__version__", "create_tracker", *(public_name for _, pub
 EXPECTED_CLI_COMMANDS = (
     "track",
     "materialize",
-    "time-variant",
     "eval",
-    "eval-trackrcnn",
     "tune",
     "research",
     "train-reid",

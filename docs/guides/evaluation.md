@@ -165,7 +165,7 @@ saved profiles, and evaluation on held-out sequences.
 
 ## Evaluate variable capture intervals
 
-Use [`time-variant`](../modes/time-variant.md) to create a reproducible frame-loss
+Use [`materialize --time-variant`](../modes/time-variant.md) to create a reproducible frame-loss
 variant with original capture times, remapped ground truth, and a derived
 perception build. After generating the MOT17-10-FRCNN example, evaluate its
 `variable` split using the derived build ID printed by that command:

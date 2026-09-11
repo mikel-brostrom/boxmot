@@ -37,8 +37,7 @@ track:
   source: '0'
   benchmark: ''
   split: ''
-materialize: {}
-time-variant:
+materialize:
   dataset: mot17
   split: ablation
   name: null
