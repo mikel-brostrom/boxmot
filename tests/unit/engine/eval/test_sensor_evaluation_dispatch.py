@@ -85,7 +85,7 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
         ({"build": "build"}, "does not support build"),
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),
-        ({"calibrate_kf": True}, "does not support calibrate_kf"),
+        ({"calibrate_kf": True}, "--calibrate-kf requires 3D ground truth with track IDs"),
         ({"compare_trackeval": True}, "does not support compare_trackeval"),
         ({"fps": 10}, "does not support fps"),
         ({"variable_dt": True}, "does not support variable_dt"),

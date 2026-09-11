@@ -46,6 +46,7 @@ def validate_sensor_workflow_inputs(
     *,
     mode: str,
     split: str | None = None,
+    calibrate_kf: bool = False,
 ) -> None:
     """Explain unsupported sensor selections before reading payloads or loading models."""
 
@@ -77,6 +78,11 @@ def validate_sensor_workflow_inputs(
         raise ValueError(
             f"Dataset '{config['id']}' (split '{split_name}') is missing inputs for EagerMOT {mode}: "
             f"{', '.join(missing)}.\nAdd them to dataset.yaml."
+        )
+    if calibrate_kf and modalities.get("ground_truth_3d", {}).get("format") != "kitti-tracking-labels":
+        raise ValueError(
+            "--calibrate-kf requires 3D ground truth with track IDs.\n"
+            "Add ground_truth_3d with format: kitti-tracking-labels to dataset.yaml."
         )
 
 

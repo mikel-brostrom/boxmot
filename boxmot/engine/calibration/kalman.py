@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import copy
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,17 +18,18 @@ from boxmot.trackers.common.motion.kalman_filters.fitting import (
     ProcessNoiseMoments,
     ScalarNoiseMoments,
 )
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_NOISE_TRACKER_NAMES
 
 if TYPE_CHECKING:
     from boxmot.engine.calibration.kalman_data import CalibrationTrack
     from boxmot.engine.calibration.kalman_model import CalibrationModel
+    from boxmot.engine.calibration.kalman_model_3d import CalibrationModel3D
     from boxmot.engine.eval.results import ValidationResult
 
 
 def validate_kf_calibration(tracker_name: str, backend: str = "python") -> None:
     """Reject unsupported filters before materialization; no search dependency."""
-    if backend != "python" or tracker_name not in KALMAN_TRACKER_NAMES:
+    if backend != "python" or tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
         raise ValueError("--calibrate-kf requires a Python tracker with a Kalman filter.")
 
 
@@ -48,13 +49,14 @@ class KalmanCalibrationResult:
     matched_detections: int
     gt_transitions: int
     fitted_parameters: tuple[str, ...]
+    parameter_count: int = 5
 
     @property
     def description(self) -> str:
         """Describe the calibration evidence alongside the one final evaluation."""
         return (
             f"KF calibration: {self.matched_detections} matched detections, {self.gt_transitions} GT transitions; "
-            f"{len(self.fitted_parameters)}/5 covariance scales fitted.\n"
+            f"{len(self.fitted_parameters)}/{self.parameter_count} covariance scales fitted.\n"
             f"Saved tracker configuration: {self.config_path}"
         )
 
@@ -66,8 +68,8 @@ class KalmanCalibrationResult:
         _write_json(self.report_path, report)
 
 
-def _measurements(track: CalibrationTrack, model: CalibrationModel) -> np.ndarray:
-    """Keep OBB representations continuous within each annotated segment."""
+def _measurements(track: CalibrationTrack, model: CalibrationModel | CalibrationModel3D) -> np.ndarray:
+    """Keep box angles continuous within each annotated segment."""
     values = []
     for index, box in enumerate(track.gt_boxes):
         reference = values[-1] if index and track.frame_indices[index] == track.frame_indices[index - 1] + 1 else None
@@ -77,7 +79,7 @@ def _measurements(track: CalibrationTrack, model: CalibrationModel) -> np.ndarra
 
 def _collect_track_moments(
     track: CalibrationTrack,
-    model: CalibrationModel,
+    model: CalibrationModel | CalibrationModel3D,
     *,
     variable_dt: bool,
     measurement: ScalarNoiseMoments,
@@ -167,6 +169,42 @@ def _collect_track_moments(
         previous_residual, previous_index = error, index
 
 
+def fit_kalman_noise(
+    tracks: Sequence[CalibrationTrack],
+    models: Mapping[int, CalibrationModel | CalibrationModel3D],
+    baseline: Mapping[str, Any],
+    *,
+    variable_dt: bool = False,
+    progress: Callable[[str], None] | None = None,
+) -> tuple[dict[str, Any], dict[str, int]]:
+    """Fit the same five supervised covariance scales for 2D or 3D states."""
+    measurement, initial_position, initial_velocity = (ScalarNoiseMoments() for _ in range(3))
+    process = ProcessNoiseMoments()
+    for number, track in enumerate(tracks):
+        _collect_track_moments(
+            track,
+            models[track.class_id],
+            variable_dt=variable_dt,
+            measurement=measurement,
+            initial_position=initial_position,
+            initial_velocity=initial_velocity,
+            process=process,
+        )
+        if progress is not None and (number + 1) % 100 == 0:
+            progress(f"KF calibration: estimating noise from GT trajectory {number + 1}/{len(tracks)}…")
+    process_position, process_velocity = process.estimate(
+        (float(baseline["kf_process_position_scale"]), float(baseline["kf_process_velocity_scale"]))
+    )
+    parameters = {
+        "kf_process_position_scale": process_position,
+        "kf_process_velocity_scale": process_velocity,
+        "kf_measurement_noise_scale": measurement.estimate(float(baseline["kf_measurement_noise_scale"])),
+        "kf_initial_position_scale": initial_position.estimate(float(baseline["kf_initial_position_scale"])),
+        "kf_initial_velocity_scale": initial_velocity.estimate(float(baseline["kf_initial_velocity_scale"])),
+    }
+    return parameters, {"gt_transitions": process.events, "gt_lag_pairs": process.lag_pairs}
+
+
 def calibrate_kalman(
     args: argparse.Namespace,
     *,
@@ -188,6 +226,21 @@ def calibrate_kalman(
     from boxmot.engine.eval.evaluator import _ensure_setup
 
     validate_kf_calibration(args.tracker, getattr(args, "tracker_backend", "python"))
+    if args.tracker == "eagermot":
+        from boxmot.datasets.inputs import load_dataset_inputs
+        from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
+        from boxmot.engine.eval.eagermot_kitti import load_kitti_profiles
+
+        if tracker_options or getattr(args, "tracker_config", None):
+            raise ValueError("EagerMOT KF calibration uses --class-config for car and pedestrian profiles.")
+        if getattr(args, "variable_dt", False):
+            raise ValueError("EagerMOT 3D KF calibration uses fixed frame steps.")
+        dataset = load_dataset_inputs(
+            args.dataset, split=getattr(args, "split", None), sequence_names=getattr(args, "sequence_names", ()) or ()
+        )
+        return calibrate_sensor_kalman(
+            dataset, load_kitti_profiles(getattr(args, "class_config", None)), output_dir=output_dir, progress=progress
+        )
     _ensure_setup(args)
     base_config = resolve_tracker_options(args, tracker_options, include_defaults=True, stamp_timing=True)
     validate_calibration_options(args.tracker, base_config)
@@ -200,33 +253,13 @@ def calibrate_kalman(
         raise ValueError(
             "KF calibration requires detections matched to target ground truth; no valid matches were found."
         )
-    measurement, initial_position, initial_velocity = (ScalarNoiseMoments() for _ in range(3))
-    process = ProcessNoiseMoments()
-    models: dict[int, CalibrationModel] = {}
-    for number, track in enumerate(data.tracks):
-        if track.class_id not in models:
-            models[track.class_id] = CalibrationModel(args.tracker, args.geometry, base_config, cls_id=track.class_id)
-        _collect_track_moments(
-            track,
-            models[track.class_id],
-            variable_dt=base_config["variable_dt"],
-            measurement=measurement,
-            initial_position=initial_position,
-            initial_velocity=initial_velocity,
-            process=process,
-        )
-        if progress is not None and (number + 1) % 100 == 0:
-            progress(f"KF calibration: estimating noise from GT trajectory {number + 1}/{len(data.tracks)}…")
-    process_position, process_velocity = process.estimate(
-        (float(base_config["kf_process_position_scale"]), float(base_config["kf_process_velocity_scale"]))
-    )
-    parameters = {
-        "kf_process_position_scale": process_position,
-        "kf_process_velocity_scale": process_velocity,
-        "kf_measurement_noise_scale": measurement.estimate(float(base_config["kf_measurement_noise_scale"])),
-        "kf_initial_position_scale": initial_position.estimate(float(base_config["kf_initial_position_scale"])),
-        "kf_initial_velocity_scale": initial_velocity.estimate(float(base_config["kf_initial_velocity_scale"])),
+    models = {
+        class_id: CalibrationModel(args.tracker, args.geometry, base_config, cls_id=class_id)
+        for class_id in {track.class_id for track in data.tracks}
     }
+    parameters, statistics = fit_kalman_noise(
+        data.tracks, models, base_config, variable_dt=base_config["variable_dt"], progress=progress
+    )
     config = {**base_config, **{name: estimate["value"] for name, estimate in parameters.items()}}
     directory = Path(output_dir) / "kf-tuning"
     directory.mkdir(parents=True, exist_ok=True)
@@ -247,7 +280,7 @@ def calibrate_kalman(
         "class_names": dict(getattr(args, "tracker_class_names", ()) or ()),
         "timing": {name: config[name] for name in ("variable_dt", "kf_time_unit", "kf_reference_dt_s")},
         "matching": {"method": "same_class_hungarian_iou", "minimum_iou": data.match_iou},
-        "statistics": {**data.statistics, "gt_transitions": process.events, "gt_lag_pairs": process.lag_pairs},
+        "statistics": {**data.statistics, **statistics},
         "ground_truth_sources": list(data.ground_truth_sources),
         "parameters": parameters,
         "numerical_scale_floor": MIN_COVARIANCE_SCALE,
@@ -269,4 +302,6 @@ def calibrate_kalman(
     fitted = tuple(name for name in KALMAN_NOISE_OPTIONS if parameters[name]["status"] == "fitted")
     if progress is not None:
         progress(f"KF calibration complete: {len(fitted)}/5 scales fitted.")
-    return KalmanCalibrationResult(config_path, report_path, data.statistics["matched"], process.events, fitted)
+    return KalmanCalibrationResult(
+        config_path, report_path, data.statistics["matched"], statistics["gt_transitions"], fitted
+    )

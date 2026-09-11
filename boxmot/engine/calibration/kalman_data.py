@@ -32,7 +32,8 @@ class CalibrationTrack:
     """GT observations with matched detections; missing detections are NaN rows.
 
     Frame indices are zero-based delivered-frame indices. Geometry is ``xyxy``
-    for AABB and ``cx, cy, w, h, angle`` (radians) for OBB. Unannotated frames
+    for AABB, ``cx, cy, w, h, angle`` (radians) for OBB, and
+    ``x, y, z, yaw, length, width, height`` for 3D boxes. Unannotated frames
     are absent; their elapsed interval is preserved by indices and timestamps.
     """
 
@@ -54,6 +55,7 @@ class CalibrationData:
     statistics: dict[str, int]
     ground_truth_sources: tuple[dict[str, str], ...]
     match_iou: float = 0.5
+    input_sources: tuple[dict[str, str], ...] = ()
 
 
 def _read_ground_truth(path: Path, *, geometry: str, frame_count: int) -> tuple[np.ndarray, str]:

@@ -322,8 +322,8 @@ mapping replaces selected modality declarations; set an entry to `null` to
 omit it for that split. The resulting declarations select the inputs for the
 experiment. `eval` and `tune` require the selected tracker to consume every
 declared tracking input; an input marked `Unused` in its capability matrix is
-an incompatibility. Ground truth is consumed separately for scoring and is
-never passed to the tracker. `has_ground_truth` must agree with the effective
+an incompatibility. Ground truth is consumed separately for scoring or calibration
+and is never passed to the tracker. `has_ground_truth` must agree with the effective
 ground-truth modality, and evaluation requires annotations for the selected split.
 
 Sequence layouts require a finite positive dataset `fps`. This template sets `10`; it
@@ -337,6 +337,7 @@ enable variable-time motion.
 | --- | --- |
 | `images` / `image-directory` | PNG frames named `000000.png`, `000001.png`, etc.; contiguous, zero-based, with constant dimensions per sequence |
 | `ground_truth` / `instance-png` | Matching single-channel uint16 PNGs encoding `class_id * 1000 + instance_id`; the template uses car `1`, pedestrian `2`, background `0`, ignore `10000` |
+| `ground_truth_3d` / `kitti-tracking-labels` | Optional sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for 3D Kalman calibration |
 | `calibration` / `kitti-p2` | `P2:` followed by 12 row-major values of a `3 x 4` camera-to-pixel projection |
 | `poses` / `camera-to-world-npy` | Numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; identity poses for a stationary camera |
 | `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields |
@@ -352,6 +353,43 @@ specifies every field, coordinate convention,
 mask encoding, and empty-frame behavior. Format parsers live under
 `boxmot/datasets/readers`; adding an encoding belongs there, with consumers
 continuing to use canonical observations.
+
+### 3D ground truth for Kalman calibration
+
+To use `eval --calibrate-kf` or `tune --calibrate-kf` with EagerMOT, add 3D
+tracking annotations independently of the mask ground truth used for scoring.
+Uncomment the optional `ground_truth_3d` block in the sensor template after
+placing a label file for each selected sequence at the declared path:
+
+```yaml
+modalities:
+  ground_truth_3d:
+    format: kitti-tracking-labels
+    path: annotations/{partition}/{sequence}.txt
+    options:
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person_sitting, Tram, Misc]
+```
+
+Each row has exactly 17 whitespace-separated fields, with no detector score:
+
+```text
+frame track_id type truncated occluded alpha x1 y1 x2 y2 height width length x y z rotation_y
+```
+
+Frame indices align with the zero-based image timeline. Keep nonnegative
+object IDs stable across frames, with one row per class/ID in a frame.
+Dimensions are positive meters; `(x, y, z)` is the bottom-face center in the
+same calibrated camera coordinates as the predictions, and `rotation_y` is
+yaw about +y in radians. Retained numeric fields must be finite. The reader
+supports `class_map` and explicitly ignored labels as for spatial detections;
+ignored `DontCare` rows may use KITTI's placeholder 3D geometry.
+
+Missing object annotations break that object's motion samples; they are not
+interpolated. Calibration transforms matched detections and annotations using
+the supplied absolute ego poses. It fits filter noise, without adjusting those
+poses or replacing the mask evaluation objective. See
+[EagerMOT calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise) for commands
+and saved profiles. Ordinary evaluation and tuning do not require this modality.
 
 ### Split-specific inputs
 

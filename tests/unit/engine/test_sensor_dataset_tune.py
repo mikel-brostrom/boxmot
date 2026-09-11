@@ -242,7 +242,6 @@ def test_tune_help_explains_sensor_class_profiles() -> None:
         ["--data-root", "override"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
-        ["--calibrate-kf"],
         ["--variable-dt"],
         ["--fps", "5"],
         ["--resume-tune", "old-study"],

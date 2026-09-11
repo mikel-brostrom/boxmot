@@ -38,6 +38,7 @@ _SENSOR_OPTIONS = frozenset(
         "sequence_names",
         "project",
         "class_config",
+        "calibrate_kf",
         "show",
         "save",
         "show_3d",
@@ -67,7 +68,9 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
-        validate_sensor_workflow_inputs(path, spec, mode="eval", split=payload.get("split"))
+        validate_sensor_workflow_inputs(
+            path, spec, mode="eval", split=payload.get("split"), calibrate_kf=bool(payload.get("calibrate_kf"))
+        )
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
             names = ", ".join(
@@ -120,7 +123,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
 @click.option(
     "--class-config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="EagerMOT sensor evaluation: YAML containing car and pedestrian profiles, such as tuning's best.yaml.",
+    help="EagerMOT: car and pedestrian profiles from tuning's best.yaml or KF calibration's calibrated.yaml.",
 )
 @association_function_option
 @replay_options(mode="eval", parallel=True)

@@ -137,6 +137,23 @@ def test_multimodal_retains_missing_3d_and_empty_2d_frames(tmp_path: Path) -> No
     assert [sample.frame_index for sample in sequence[1:]] == [1, 2]
 
 
+def test_multimodal_replay_never_reads_3d_calibration_annotations(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    Image.new("RGB", (4, 3)).save(images / "000000.png")
+    # A nonexistent annotation file proves tracker observations cannot use GT.
+    modalities = {
+        "images": ModalityInput("image-directory", (images,), {}),
+        "ground_truth_3d": ModalityInput(
+            "kitti-tracking-labels", (tmp_path / "not-for-tracking.txt",), {"ignore_classes": ["DontCare"]}
+        ),
+    }
+
+    sequence = MultimodalSequence(SequenceInputs("drive", modalities), classes=_CLASSES, fps=10)
+
+    assert len(sequence[0].detections_3d) == 0
+
+
 def test_multimodal_does_not_decode_rgb_or_decode_masks_before_requested(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

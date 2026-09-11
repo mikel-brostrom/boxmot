@@ -507,7 +507,10 @@ def kalman_calibration_option(*, mode: str) -> Callable:
         "--calibrate-kf",
         is_flag=True,
         default=False,
-        help=f"Calibrate Kalman noise from cached detections and ground truth, {outcome}; Python Kalman trackers only.",
+        help=(
+            f"Calibrate Kalman noise from detections and ground truth, {outcome}; "
+            "Python Kalman trackers only. EagerMOT requires ground_truth_3d with track IDs."
+        ),
     )
 
 

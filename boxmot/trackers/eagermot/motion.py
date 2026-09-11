@@ -10,6 +10,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.eagermot.geometry import yaw_difference
 
 
@@ -17,24 +18,36 @@ class Kalman3D:
     """Filter ``[x, y, z, yaw, l, w, h]`` bottom-center, y-down boxes.
 
     State appends ``[vx, vy, vz]``, and optionally yaw velocity when
-    ``is_angular=True``. Prediction advances exactly one frame. Covariance,
-    process noise, and measurement noise retain the released source values.
+    ``is_angular=True``. Prediction advances exactly one frame. Covariance
+    scales multiply the released source priors; defaults preserve their values.
     """
 
-    def __init__(self, box: np.ndarray, is_angular: bool = False) -> None:
+    def __init__(
+        self, box: np.ndarray, is_angular: bool = False, *, noise_config: KalmanNoiseConfig | None = None
+    ) -> None:
+        """Initialize source covariances with optional instance-local calibration."""
         measurement = self._measurement(box)
         if not isinstance(is_angular, bool):
             raise TypeError("is_angular must be bool.")
+        self.noise_config = noise_config if noise_config is not None else KalmanNoiseConfig()
+        if not isinstance(self.noise_config, KalmanNoiseConfig):
+            raise TypeError("noise_config must be KalmanNoiseConfig.")
+        if self.noise_config.time_unit != "frames":
+            raise ValueError("Kalman3D requires kf_time_unit='frames'; prediction advances one frame.")
         dimensions = 11 if is_angular else 10
         self.state = np.zeros(dimensions, dtype=np.float64)
         self.state[:7] = measurement
-        self.covariance = np.diag([10.0] * 7 + [10000.0] * (dimensions - 7))
+        self.covariance = self.noise_config.initial_covariance(
+            np.diag([10.0] * 7 + [10000.0] * (dimensions - 7)), velocity_start=7
+        )
         self._transition = np.eye(dimensions)
         self._transition[:3, 7:10] = np.eye(3)
         if is_angular:
             self._transition[3, 10] = 1.0
-        self._process_noise = np.diag([1.0] * 7 + [0.01] * (dimensions - 7))
-        self._measurement_noise = np.eye(7) * 0.01
+        self._process_noise = self.noise_config.process_covariance(
+            np.diag([1.0] * 7 + [0.01] * (dimensions - 7)), velocity_start=7
+        )
+        self._measurement_noise = self.noise_config.measurement_covariance(np.eye(7) * 0.01)
 
     @staticmethod
     def _measurement(box: np.ndarray) -> np.ndarray:

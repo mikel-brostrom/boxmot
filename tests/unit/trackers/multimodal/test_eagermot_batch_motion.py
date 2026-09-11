@@ -10,6 +10,7 @@ import torch
 
 from boxmot import EagerMot
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.eagermot.geometry import project_box3d, transform_boxes3d
 from boxmot.trackers.eagermot.motion import Kalman3D
 
@@ -22,14 +23,23 @@ def test_batch_motion_matches_independent_filters_over_long_trajectories(angular
     truth[:, 4:] = rng.uniform(1, 5, size=(12, 3))
     truth[:, 3] += np.arange(12) * 4 * np.pi
     models = [
-        Kalman3D(box, is_angular=bool(index % 2) if angular is None else angular) for index, box in enumerate(truth)
+        Kalman3D(
+            box,
+            is_angular=bool(index % 2) if angular is None else angular,
+            noise_config=KalmanNoiseConfig(
+                process_position_scale=1 + index,
+                process_velocity_scale=1 + index / 2,
+                measurement_noise_scale=0.5 + index,
+                initial_position_scale=2 + index,
+                initial_velocity_scale=1 + index / 3,
+            ),
+        )
+        for index, box in enumerate(truth)
     ]
     for index, model in enumerate(models):
         dimensions = len(model.state)
         prior = rng.normal(size=(dimensions, dimensions))
         model.covariance = prior @ prior.T + np.eye(dimensions)
-        model._process_noise *= index + 1
-        model._measurement_noise *= 0.5 + index
         model._transition[0, 7] = 0.5 + index / 12
     scalar = deepcopy(models)
     for frame in range(160):

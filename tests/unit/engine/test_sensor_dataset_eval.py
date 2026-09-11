@@ -156,7 +156,6 @@ def test_sensor_eval_uses_shared_dispatch_and_portable_dataset_defaults(
         ["--data-root", "override"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
-        ["--calibrate-kf"],
         ["--variable-dt"],
         ["--fps", "5"],
         ["--compare-trackeval"],

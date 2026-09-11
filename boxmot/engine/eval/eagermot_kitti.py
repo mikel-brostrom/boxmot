@@ -38,12 +38,14 @@ from boxmot.engine.eval.replay import (
 from boxmot.engine.eval.results import ValidationResult
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Boxes3D, Frame, MaskBatch, MultimodalTracks, Tracks, Tracks3D
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
 from boxmot.utils import logger as LOGGER
 
 if TYPE_CHECKING:
     from boxmot.engine.eval.visualization import ReplayVisualization
 
 _KITTI_SHARED = {
+    **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
     "det_thresh_3d": 0.0,
     "max_age": 3,
     "max_age_2d": 3,
@@ -560,7 +562,7 @@ def evaluate_eagermot_kitti(
         raise ValueError("EagerMOT KITTI replay requires profiles for both car and pedestrian.")
     if show_3d and not (show or save):
         raise ValueError("--show-3d requires --show or --save.")
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=True)
     manifest = {
         **inputs.manifest,
         "status": "running",
@@ -569,7 +571,10 @@ def evaluate_eagermot_kitti(
         "sequence_workers": workers,
         "visualization": {"show": show, "save": save, "show_3d": show_3d, "video_fps": inputs.fps},
     }
-    (output / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # Calibration may already have created kf-tuning; reserve the replay itself
+    # exclusively so an existing run and its predictions cannot be overwritten.
+    with (output / "run.json").open("x", encoding="utf-8") as handle:
+        handle.write(json.dumps(manifest, indent=2) + "\n")
     previous_threads = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
@@ -611,6 +616,24 @@ def run_eagermot_kitti(
     if getattr(args, "show", False):
         args.sequence_workers = min(1, len(inputs.sequences))
     output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"])
+    calibration = None
+    if getattr(args, "calibrate_kf", False):
+        from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
+
+        dataset = load_sensor_evaluation_inputs(
+            args.dataset, split=args.split, sequence_names=tuple(args.sequence_names)
+        )
+        calibration = calibrate_sensor_kalman(
+            dataset, profiles, output_dir=output, progress=pipeline.update if pipeline is not None else None
+        )
+        profiles = load_kitti_profiles(calibration.config_path)
+        inputs.manifest["kf_calibration"] = {
+            "config_path": str(calibration.config_path),
+            "report_path": str(calibration.report_path),
+        }
+        LOGGER.info(calibration.description)
+    if getattr(args, "class_config", None) is not None:
+        inputs.manifest["class_config"] = str(Path(args.class_config).expanduser().resolve())
     args.dataset_id = inputs.manifest["dataset_id"]
     args.seq_info = args.sequence_frame_counts = inputs.manifest["sequences"]
     args.tracker_class_names = tuple(KITTI_CLASSES.items())
@@ -660,7 +683,7 @@ def run_eagermot_kitti(
     args.exp_dir = output
     manifest = json.loads((output / "run.json").read_text(encoding="utf-8"))
     args.video_paths = tuple(output / path for path in manifest.get("videos", ()))
-    return ValidationResult(
+    result = ValidationResult(
         benchmark=str(inputs.manifest["dataset_id"]),
         raw=metrics,
         summary_label="cls_comb_cls_av",
@@ -670,6 +693,9 @@ def run_eagermot_kitti(
         args=args,
         workflow_rendered=pipeline is not None,
     )
+    if calibration is not None:
+        calibration.record_final(result)
+    return result
 
 
 __all__ = (

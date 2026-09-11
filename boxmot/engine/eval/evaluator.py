@@ -483,7 +483,13 @@ def _run_sensor_evaluation(
     if path is None:
         return None
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
-    validate_sensor_workflow_inputs(path, spec, mode="eval", split=getattr(args, "split", None))
+    validate_sensor_workflow_inputs(
+        path,
+        spec,
+        mode="eval",
+        split=getattr(args, "split", None),
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+    )
     for name, value in {
         "evolve_config": evolve_config,
         "per_class_configs": per_class_configs,
@@ -509,7 +515,6 @@ def _run_sensor_evaluation(
         "reid",
         "data_root",
         "tracker_config",
-        "calibrate_kf",
         "fps",
         "variable_dt",
         "allow_noncanonical_build",

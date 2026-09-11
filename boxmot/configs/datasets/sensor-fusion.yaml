@@ -36,6 +36,12 @@ modalities:
       class_divisor: 1000
       background_id: 0
       ignore_ids: [10000]
+  # Optional: supply identity-bearing 3D annotations to use --calibrate-kf.
+  # ground_truth_3d:
+  #   format: kitti-tracking-labels
+  #   path: annotations/{partition}/{sequence}.txt
+  #   options:
+  #     ignore_classes: [DontCare, Van, Truck, Cyclist, Person_sitting, Tram, Misc]
   calibration:
     format: kitti-p2
     path: sequences/{partition}/{sequence}/calibration.txt

@@ -254,6 +254,8 @@ together for class-average mask HOTA, then evaluate `best.yaml` with
 its images, annotations, calibration, and poses. `dataset.yaml` defines the
 sequences, splits, classes, and per-modality encodings and paths in the same
 schema used by built-in datasets.
+With identity-bearing 3D annotations, add [`--calibrate-kf`](docs/trackers/eagermot.md#calibrate-3d-kalman-noise)
+to fit the 3D Kalman noise before evaluation or tracker tuning.
 For your own multimodal recordings and detector outputs, start from the
 [sensor dataset config](boxmot/configs/datasets/sensor-fusion.yaml) and follow
 the [setup guide](examples/datasets/sensor-fusion/README.md). The config defines

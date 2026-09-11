@@ -59,7 +59,7 @@ not imply official KITTI membership.
 
 The config uses the same `id`, `format`, `storage`, `classes`, and `splits`
 fields as BoxMOT's built-in datasets. `modalities` declares the available
-`images`, `ground_truth`, `calibration`, `poses`, `detections_2d`, and
+`images`, `ground_truth`, optional `ground_truth_3d`, `calibration`, `poses`, `detections_2d`, and
 `detections_3d`. Each entry selects a `format` and either one `path` or a list
 of `paths`, with parser settings in `options`. Spatial detections can share
 one directory or be combined from several, as in this template. Directory
@@ -112,6 +112,29 @@ Keep instance IDs stable across frames and unique within each class and
 sequence. IDs may restart in another sequence. Use an all-zero uint16 PNG
 for an annotated frame without objects. Missing annotations are errors.
 Predicted masks must come from your detector, independently of these labels.
+
+### Optional 3D ground truth
+
+For `eval --calibrate-kf` or `tune --calibrate-kf`, uncomment the template's
+`ground_truth_3d` modality and supply one `annotations/PARTITION/SEQUENCE.txt`
+file per selected sequence. Each row has exactly 17 KITTI tracking label fields:
+
+```text
+frame track_id type truncated occluded alpha x1 y1 x2 y2 height width length x y z rotation_y
+```
+
+Use zero-based image frame indices and stable nonnegative object IDs. Box
+coordinates follow the camera convention described below, including bottom
+centers, dimensions in meters, and yaw about +y. Annotations have no detection
+score. The template explicitly ignores KITTI labels outside the car and
+pedestrian classes, including `DontCare`; change this list or use `class_map`
+to match your exports. See the [3D annotation contract](../../../docs/config/datasets.md#3d-ground-truth-for-kalman-calibration).
+
+Calibration fits five 3D Kalman covariance scales per class using annotations
+and saved detections transformed with the fixed ego poses. The resulting
+`kf-tuning/calibrated.yaml` can be reused with `--class-config`. Tuning holds
+the fitted noise and angular-motion choice fixed. Ordinary evaluation and
+tuning need only the instance masks above; these 3D labels are optional.
 
 ### Calibration
 

@@ -152,6 +152,51 @@ def test_split_overrides_replace_whole_inputs_and_can_remove_ground_truth(tmp_pa
     assert load_dataset_config(path)["splits"]["test"]["has_ground_truth"] is False
 
 
+def test_3d_annotations_are_optional_files_and_do_not_change_mask_ground_truth_semantics(tmp_path: Path) -> None:
+    path = _fixture(tmp_path)
+    specification = {
+        "format": "kitti-tracking-labels",
+        "path": "labels/{sequence}.txt",
+        "options": {"class_map": {"Car": "vehicle"}, "ignore_classes": ["DontCare"]},
+    }
+    _change(path, ("modalities", "ground_truth_3d"), specification)
+    annotations = tmp_path / "labels/drive-004.txt"
+    annotations.parent.mkdir()
+    annotations.touch()
+
+    config = load_dataset_config(path)
+    dataset = load_dataset_inputs(path, split="test")
+
+    assert config["splits"]["test"]["has_ground_truth"] is False
+    assert dataset.sequences[0].modalities["ground_truth_3d"].paths == (annotations,)
+    assert dataset.sequences[0].modalities["ground_truth_3d"].options == specification["options"]
+    annotations.unlink()
+    annotations.mkdir()
+    with pytest.raises(ConfigurationError, match="ground_truth_3d requires a file"):
+        load_dataset_inputs(path, split="test")
+
+
+@pytest.mark.parametrize(
+    "specification,message",
+    [
+        ({"format": "kitti-detections", "path": "labels.txt"}, "format must be kitti-tracking-labels"),
+        ({"format": "kitti-tracking-labels", "paths": ["first.txt", "second.txt"]}, "exactly one input path"),
+        (
+            {"format": "kitti-tracking-labels", "path": "labels.txt", "options": {"score_transform": "odds"}},
+            "unsupported options: score_transform",
+        ),
+    ],
+)
+def test_3d_annotation_schema_requires_one_identity_bearing_source(
+    tmp_path: Path, specification: dict[str, Any], message: str
+) -> None:
+    path = _fixture(tmp_path)
+    _change(path, ("modalities", "ground_truth_3d"), specification)
+
+    with pytest.raises(ConfigurationError, match=message):
+        load_dataset_config(path)
+
+
 def test_missing_unselected_inputs_do_not_block_a_selected_sequence_or_role(tmp_path: Path) -> None:
     path = _fixture(tmp_path)
     (tmp_path / "sequences/recordings/drive-003/poses.npy").unlink()

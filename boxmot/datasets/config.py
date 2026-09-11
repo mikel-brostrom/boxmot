@@ -22,6 +22,7 @@ DATASET_CONFIGS_DIR = CONFIG_ROOT / "datasets"
 _MODALITY_FORMATS = {
     "images": "image-directory",
     "ground_truth": "instance-png",
+    "ground_truth_3d": "kitti-tracking-labels",
     "detections_2d": "trackrcnn",
     "detections_3d": "kitti-detections",
     "calibration": "kitti-p2",
@@ -180,6 +181,14 @@ def _validate_modality_options(role: str, options: Mapping[str, Any], context: s
 
     allowed = {
         "ground_truth": {"class_divisor", "background_id", "ignore_ids"},
+        "ground_truth_3d": {
+            "class_map",
+            "ignore_classes",
+            "coordinate_frame",
+            "box_origin",
+            "dimensions",
+            "yaw_axis",
+        },
         "detections_3d": {
             "score_transform",
             "class_map",
@@ -203,7 +212,7 @@ def _validate_modality_options(role: str, options: Mapping[str, Any], context: s
             isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in ignored
         ):
             raise ConfigurationError(f"{context}.options.ignore_ids must be a list of non-negative integer labels.")
-    elif role == "detections_3d":
+    elif role in {"detections_3d", "ground_truth_3d"}:
         for name, allowed_values in {
             "score_transform": ("identity", "odds"),
             "coordinate_frame": ("camera",),

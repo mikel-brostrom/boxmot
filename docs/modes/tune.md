@@ -72,7 +72,8 @@ on CPU, replaying independent sequences in parallel within each trial, and
 maximizes class-average mask HOTA across car and pedestrian profiles.
 The [automatic worker count](eval.md#sequence-parallelism) uses the selected
 sequences and logical CPU count; `--sequence-workers 4` caps it at four workers
-per trial. The first trial uses the default KITTI profiles. Add
+per trial. The first trial uses the starting class profiles, including any
+loaded or calibrated settings. Add
 `--sequence 0002` to select one validation sequence, repeat `--sequence` for
 several, or use `--split train` or `--split fulltrain` to select another
 dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
@@ -84,8 +85,25 @@ and the saved profile paths. Add `--verbose` to display tracker and Optuna logs.
 This sensor workflow reads the dataset and selected predictions directly.
 It supports `--search-alg optuna`; an explicit device must be `cpu`.
 `--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial.
-Objective selectors must use `HOTA`. Perception and build options,
-`--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
+Objective selectors must use `HOTA`. Perception and build options and
+`--resume-tune` are unavailable for fusion datasets.
+
+Supply [3D annotations](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+and add `--calibrate-kf` to fit the 3D Kalman noise once before Optuna starts:
+
+```bash
+boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
+  --split train --calibrate-kf --n-trials 50 --seed 0
+```
+
+The five covariance scales and `is_angular` stay fixed for each class during
+the search. Reuse calibration without fitting again with
+`--class-config path/to/kf-tuning/calibrated.yaml`. Both that starting profile
+and the final `best.yaml` contain separate `car` and `pedestrian` settings.
+`--class-config` also holds the loaded `is_angular` choices fixed; tuning
+without either flag can search those choices.
+Ego poses remain fixed; EagerMOT advances one frame per image. See
+[3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
 
 An incompatible selection reports a short reason and next step. The check uses
 the selected split and registered [tracker inputs](../trackers/index.md#input-support):
@@ -190,6 +208,9 @@ rejected before a native trial starts.
 
 ## Calibrate the KF before tracker tuning
 
+For saved sensor datasets, use the [EagerMOT workflow above](#eagermot-with-saved-sensor-inputs).
+The build preparation and resume behavior below apply to image trackers.
+
 Add `--calibrate-kf`, as in the first example, to estimate Kalman noise once
 from the prepared build's cached detections and ground truth, then tune the
 remaining tracker parameters. The flag works with automatic preparation or
@@ -232,12 +253,15 @@ These settings have no search ranges.
 Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
 scales from detections and ground truth.
 
-To reuse an existing calibration without fitting again, start a new tuning
-run with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
+For image trackers, reuse an existing calibration by starting a new tuning run
+with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
 `--calibrate-kf`. The loaded KF values stay fixed while the other tracker
 parameters are optimized. Without a profile, the built-in KF defaults stay
 fixed. The selector also accepts partial scalar runtime YAMLs and built-in
 presets.
+
+EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
+Its 3D filter supports covariance calibration in fixed-step mode only.
 
 `variable_dt`, `kf_time_unit`, and `kf_reference_dt_s` are fixed runtime
 settings. They are not tuning parameters, and elapsed `dt` is never sampled.

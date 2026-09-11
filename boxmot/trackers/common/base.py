@@ -72,6 +72,7 @@ class BaseTracker(
     _requires_camera = False
     uses_frame_dimensions_for_association = True
     supports_variable_dt = False
+    supports_kalman_noise = False
 
     def _resolve_detection_layout(self, is_obb: bool):
         """Return the private row layout for a resolved geometry mode."""
@@ -187,7 +188,7 @@ class BaseTracker(
         )
         self.kf_time_unit = self.kalman_noise_config.time_unit
         self.kf_reference_dt_s = self.kalman_noise_config.reference_dt_s
-        if not self.kalman_noise_config.is_default and not self.supports_variable_dt:
+        if not self.kalman_noise_config.is_default and not (self.supports_variable_dt or self.supports_kalman_noise):
             raise ValueError(f"{self.__class__.__name__} does not support Kalman noise scaling.")
         self._init_live_reid(
             reid_model=reid_model,

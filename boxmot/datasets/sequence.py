@@ -53,7 +53,7 @@ def _single_path(modality: ModalityInput, expected_format: str, role: str) -> Pa
         raise ValueError(f"{role} requires format {expected_format!r}, got {modality.format!r}.")
     if len(modality.paths) != 1:
         raise ValueError(f"{role} requires exactly one input path.")
-    if expected_format != "instance-png" and modality.options:
+    if expected_format not in {"instance-png", "kitti-tracking-labels"} and modality.options:
         raise ValueError(f"{expected_format} does not support reader options: {', '.join(sorted(modality.options))}.")
     return Path(modality.paths[0]).expanduser().resolve()
 
@@ -258,13 +258,24 @@ class MultimodalSequence(Sequence[SensorFrame]):
         self.split = split
         class_ids = _class_ids(classes)
         modalities = sequence_inputs.modalities
-        unknown = set(modalities) - {"images", "ground_truth", "detections_2d", "detections_3d", "calibration", "poses"}
+        unknown = set(modalities) - {
+            "images",
+            "ground_truth",
+            "ground_truth_3d",
+            "detections_2d",
+            "detections_3d",
+            "calibration",
+            "poses",
+        }
         if unknown:
             raise ValueError(f"Unsupported sequence modalities: {', '.join(sorted(unknown))}.")
         for role, modality in modalities.items():
             if role == "ground_truth":
                 _single_path(modality, "instance-png", role)
                 _instance_options(modality.options)
+            elif role == "ground_truth_3d":
+                # Calibration annotations never enter tracker observations.
+                _single_path(modality, "kitti-tracking-labels", role)
             elif role != "detections_3d" and modality.options:
                 raise ValueError(
                     f"{modality.format} does not support reader options: {', '.join(sorted(modality.options))}."

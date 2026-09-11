@@ -184,8 +184,14 @@ The shared Rich panel shows frame progress for each sequence and the final mask
 metrics. Add `--show-timing` to include replay timing in the result summary, or
 `--verbose` to display tracker diagnostics alongside the panel.
 
-Saved sensor evaluation reads predictions directly. Perception/build options,
-Kalman calibration, and TrackEval comparison are unavailable for these datasets;
+With [3D annotations](../config/datasets.md#3d-ground-truth-for-kalman-calibration),
+add `--calibrate-kf` to fit EagerMOT's five covariance scales per class before
+evaluation. Reuse `<run>/kf-tuning/calibrated.yaml` with `--class-config`.
+Calibration uses fixed camera-to-world poses and one motion step per image;
+see [3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
+
+Saved sensor evaluation reads predictions directly. Perception/build options
+and TrackEval comparison are unavailable for these datasets;
 an explicit `--device` must be `cpu`.
 
 An incompatible selection reports a short reason and next step. The check uses
@@ -303,6 +309,10 @@ Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
 the default and do not need this flag.
 
 ## Kalman calibration
+
+EagerMOT supports [3D calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise)
+from saved sensor detections and 3D ground truth, using fixed frame steps.
+The image-tracker workflow below supports AABB and OBB observations.
 
 Use `--calibrate-kf` to estimate Kalman noise directly from cached detector
 predictions and ground truth on the selected split, then evaluate the calibrated

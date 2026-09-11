@@ -91,6 +91,7 @@ class EagerMot(BaseTracker):
     _requires_detections_3d = True
     _requires_camera = True
     uses_frame_dimensions_for_association = False
+    supports_kalman_noise = True
 
     def __init__(
         self,
@@ -107,6 +108,11 @@ class EagerMot(BaseTracker):
         is_angular: bool = False,
         per_class: bool = False,
         asso_func: str = "iou",
+        kf_process_position_scale: float = 1.0,
+        kf_process_velocity_scale: float = 1.0,
+        kf_measurement_noise_scale: float = 1.0,
+        kf_initial_position_scale: float = 1.0,
+        kf_initial_velocity_scale: float = 1.0,
         **kwargs: Any,
     ) -> None:
         """Configure fusion, 3D matching, and the image-only recovery stage.
@@ -118,6 +124,10 @@ class EagerMot(BaseTracker):
         ``max_age_2d`` controls confidence decay after missing image support;
         ``max_age`` controls expiry after missing both sensor modalities.
         ``iou_threshold=1`` disables the second association stage, as upstream.
+        The five ``kf_*_scale`` settings multiply the 3D filter's covariance
+        priors. Position includes all seven box coordinates; velocity includes
+        xyz derivatives and, with ``is_angular``, yaw velocity. Prediction
+        remains one frame per update, independent of the supplied ego poses.
         """
         for name, value in (
             ("det_thresh", det_thresh),
@@ -146,6 +156,11 @@ class EagerMot(BaseTracker):
             iou_threshold=iou_threshold,
             per_class=per_class,
             asso_func=asso_func,
+            kf_process_position_scale=kf_process_position_scale,
+            kf_process_velocity_scale=kf_process_velocity_scale,
+            kf_measurement_noise_scale=kf_measurement_noise_scale,
+            kf_initial_position_scale=kf_initial_position_scale,
+            kf_initial_velocity_scale=kf_initial_velocity_scale,
             **kwargs,
         )
         self.det_thresh_3d = det_thresh_3d
@@ -345,7 +360,9 @@ class EagerMot(BaseTracker):
             confidence = float(detections_3d.scores[original_index])
             track = _Track(
                 id=self.id_allocator.alloc(),
-                motion=Kalman3D(boxes_3d[detection_index], is_angular=self.is_angular),
+                motion=Kalman3D(
+                    boxes_3d[detection_index], is_angular=self.is_angular, noise_config=self.kalman_noise_config
+                ),
                 cls=int(classes_3d[detection_index]),
                 confidence_3d=confidence,
                 conf=confidence,

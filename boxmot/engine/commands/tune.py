@@ -38,6 +38,8 @@ _SENSOR_OPTIONS = frozenset(
         "n_trials",
         "seed",
         "project",
+        "class_config",
+        "calibrate_kf",
         "search_alg",
         "objectives",
         "maximize",
@@ -102,7 +104,9 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
-        validate_sensor_workflow_inputs(path, spec, mode="tune", split=payload.get("split"))
+        validate_sensor_workflow_inputs(
+            path, spec, mode="tune", split=payload.get("split"), calibrate_kf=bool(payload.get("calibrate_kf"))
+        )
         _validate_sensor_options(ctx, payload)
         dataset = load_sensor_evaluation_inputs(
             path,
@@ -288,6 +292,11 @@ def _tune_options(func):
 @eval_masks_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
 @tracker_config_option
+@click.option(
+    "--class-config",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="EagerMOT: baseline car/pedestrian profiles; KF noise and the yaw model stay fixed during tuning.",
+)
 @replay_options(mode="tune", parallel=True)
 @kalman_calibration_option(mode="tune")
 @_tune_options
@@ -330,6 +339,8 @@ def tune(
     if sensor_payload is not None:
         _dispatch_cli_workflow(ctx, "tune", "boxmot.engine.tuning.tuner", sensor_payload)
         return
+    if kwargs.get("class_config") is not None:
+        raise click.UsageError("--class-config requires a sensor dataset with --tracker eagermot.")
     if calibrate_kf and kwargs.get("resume_tune"):
         raise click.UsageError(
             "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."

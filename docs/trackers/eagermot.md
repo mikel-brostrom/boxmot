@@ -232,13 +232,13 @@ The sensor workflow runs one Optuna trial at a time on CPU with
 same automatic worker count as evaluation. `--sequence-workers N` sets a
 positive worker cap per trial. An explicit device must be `cpu`.
 `--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial;
-objective selectors must use `HOTA`. Perception and build options,
-`--calibrate-kf`, and `--resume-tune` are unavailable for fusion datasets.
+objective selectors must use `HOTA`. Perception and build options and
+`--resume-tune` are unavailable for fusion datasets.
 `--project` changes the results root from `runs/eagermot-tune`.
 
-The trial count includes the first trial with the default KITTI car and
-pedestrian profiles. Remaining trials independently sample each class's
-parameters from the shared EagerMOT YAML search ranges. Distance and 3D IoU
+The trial count includes the first trial with the starting car and pedestrian
+profiles, including any loaded or calibrated settings. Remaining trials independently
+sample each class's parameters from the shared EagerMOT YAML search ranges. Distance and 3D IoU
 thresholds are sampled only for their corresponding matching methods;
 `max_age_2d` and `asso_func` stay fixed. Trials run serially on CPU using saved
 predictions. The tuned `det_thresh_3d` applies to the transformed PointGNN
@@ -266,6 +266,38 @@ uv run --no-sync python -m boxmot.engine.cli eval --tracker eagermot \
 This example reevaluates the fitting split. To measure generalization, tune
 and evaluate on separate sequences with detector checkpoints trained without
 the evaluation sequences.
+
+## Calibrate 3D Kalman noise
+
+Add `--calibrate-kf` to `eval` or `tune` after supplying the optional
+[`ground_truth_3d` modality](../config/datasets.md#3d-ground-truth-for-kalman-calibration).
+It requires 3D annotations with stable object identities; instance masks alone
+cannot provide the required 3D trajectories. The bundled KITTI folder does not
+include these labels, so add them and their YAML declaration before running:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split train --calibrate-kf --project runs/eagermot-calibration
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --class-config runs/eagermot-calibration/train/kf-tuning/calibrated.yaml
+```
+
+Calibration matches 3D detections to annotations by class and 3D IoU, then
+transforms both into world coordinates with the supplied ego poses. It fits
+the same five covariance multipliers as [2D Kalman calibration](../modes/eval.md#kalman-calibration),
+separately for cars and pedestrians. Process and initial covariance distinguish
+the seven measured box coordinates from their modeled velocities; measurement
+noise has one shared multiplier. The values scale covariance, not standard
+deviation. Ego poses remain fixed, and pose uncertainty is not fitted.
+
+Each run saves complete class profiles in `kf-tuning/calibrated.yaml` and
+calibration evidence in `kf-tuning/calibration.json`. Reuse the profiles with
+`--class-config` in `eval` or `tune`. `tune --calibrate-kf` calibrates once before
+Optuna starts; the fitted scales and each class's `is_angular` setting stay
+fixed throughout the search and are included in `best.yaml`. Prediction still
+advances one frame per image; variable-time prediction is unsupported.
+Loading profiles with `--class-config` also keeps their `is_angular` choices
+fixed. Tuning without either flag can search the angular-motion choice.
 
 ## Sensor fusion example
 

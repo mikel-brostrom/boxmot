@@ -10,6 +10,7 @@ import numpy as np
 KALMAN_TRACKER_NAMES = frozenset(
     {"botsort", "boosttrack", "bytetrack", "deepocsort", "hybridsort", "occluboost", "ocsort", "strongsort"}
 )
+KALMAN_NOISE_TRACKER_NAMES = KALMAN_TRACKER_NAMES | {"eagermot"}
 KALMAN_NOISE_OPTIONS = (
     "kf_process_position_scale",
     "kf_process_velocity_scale",
@@ -155,7 +156,7 @@ def normalize_kalman_options(
     if tracker_name is not None and tracker_name not in KALMAN_TRACKER_NAMES and variable_dt:
         raise ValueError(f"Tracker {tracker_name!r} does not support variable_dt.")
     if not config.is_default and (
-        backend != "python" or (tracker_name is not None and tracker_name not in KALMAN_TRACKER_NAMES)
+        backend != "python" or (tracker_name is not None and tracker_name not in KALMAN_NOISE_TRACKER_NAMES)
     ):
         raise ValueError("Kalman noise scaling requires a Python Kalman tracker.")
     return config
