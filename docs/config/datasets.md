@@ -87,6 +87,90 @@ This supports train/validation partitions that share a directory of frames.
 `box_type: aabb` selects axis-aligned MOT metrics. `box_type: obb` selects rotated
 IoU; OBB ground truth is expected in 13-column corner format on disk.
 
+## KITTI 2D tracking
+
+The `kitti-2d` config exposes images and native KITTI tracking box annotations
+for image trackers such as ByteTrack and BoT-SORT. Its inputs are:
+
+```text
+datasets/mot/KITTI/
+├── training/
+│   ├── image_02/0000/000000.png, 000001.png, ...
+│   └── label_02/0000.txt, 0001.txt, ...
+└── testing/
+    └── image_02/0000/000000.png, 000001.png, ...
+```
+
+The config defines the same 12 training and nine validation sequences used
+by the fusion preset, plus `fulltrain` and an unannotated `test` split.
+`ground_truth` selects `format: kitti-tracking-labels`: one 17-field text file
+per sequence, retaining identities, image bounds, visibility and DontCare
+regions. Only 2D geometry is evaluated; the unused spatial fields can contain
+KITTI's missing-value placeholders. Target classes are car `1` and pedestrian `2`.
+
+Install the evaluator and detector dependencies, then run a supplied experiment:
+
+```bash
+boxmot install --extra trackeval --extra yolo
+boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+  --split val --cache-inputs
+```
+
+For BoT-SORT with appearance features, add `--reid osnet-x0-25-msmt17`.
+Supplied YOLO26n experiments cover `train` and `val`, with or without OSNet,
+and explicitly map detector `person` to dataset `pedestrian`. Other perception
+models can be selected through your own experiment YAML. A materialized
+`--build` supplies the same cached detections to evaluation and tuning.
+
+The installed TrackEval KITTI adapter scores **2D HOTA, MOTA and IDF1** using
+its native visibility, distractor and DontCare preprocessing. Results are
+written to `metrics.json/csv`; `evaluation.json` records the protocol and
+selected frame mapping. `--fps`, `--sequence`, `--cache-inputs`, and 2D
+`--calibrate-kf` use that same selected image timeline. Tuning reuses the
+normal image workflow:
+
+```bash
+boxmot install --extra evolve
+boxmot tune --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+  --split train --n-trials 50 --cache-inputs
+```
+
+To reuse an existing multimodal data folder, copy
+`boxmot/configs/datasets/kitti-2d.yaml` beside its current YAML under a different
+filename. Set `storage.root: .` and point its two modalities to the existing
+images and `label_02` files. For the reorganized fusion layout:
+
+```yaml
+storage:
+  root: .
+modalities:
+  images:
+    format: image-directory
+    path: sequences/{partition}/{sequence}/images
+  ground_truth:
+    format: kitti-tracking-labels
+    path: "{partition}/label_02/{sequence}.txt"
+```
+
+Select the local YAML with `--dataset ./kitti-mots/kitti-2d.yaml --build <build>`.
+For automatic materialization, an experiment beside that YAML can reference it:
+
+```yaml
+dataset:
+  ref: kitti-2d.yaml
+  split: val
+detector:
+  ref: yolo26n
+  checkpoint: default
+evaluation:
+  class_map:
+    car: car
+    pedestrian: person
+```
+
+Run `boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n.yaml --tracker bytetrack`.
+Images remain in place; this YAML describes a separate 2D experiment over them.
+
 ## KITTI MOTS instance masks
 
 The `kitti-mots` profile reads the original KITTI tracking images and MOTS
@@ -339,6 +423,7 @@ enable variable-time motion.
 | Modality / encoding | File contract |
 | --- | --- |
 | `images` / `image-directory` | PNG frames named `000000.png`, `000001.png`, etc.; contiguous, zero-based, with constant dimensions per sequence |
+| `ground_truth` / `kitti-tracking-labels` | Native 17-field sequence labels for KITTI 2D image tracking; preserves visibility and ignored boxes, requires no spatial inputs |
 | `ground_truth` / `instance-png` | Matching single-channel uint16 PNGs encoding `class_id * 1000 + instance_id`; the template uses car `1`, pedestrian `2`, background `0`, ignore `10000` |
 | `ground_truth_3d` / `kitti-tracking-labels` | Sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for `eval --eval-3d` or 3D Kalman calibration |
 | `ground_truth_objects` / `kitti-object-labels` | Directory of zero-based six-digit frame text files with exact 15-field KITTI object labels, including fractional truncation; also required for `eval --eval-3d` |

@@ -211,7 +211,16 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     if getattr(args, "tracker", None) is not None:
         validate_image_tracker(str(args.tracker))
     dataset, experiment = _resolve_selection(args)
-    is_mots = dataset_modalities(dataset, str(dataset["split"])).get("ground_truth", {}).get("format") == "instance-png"
+    annotation_format = dataset_modalities(dataset, str(dataset["split"])).get("ground_truth", {}).get("format")
+    is_mots = annotation_format == "instance-png"
+    is_kitti_tracking = annotation_format == "kitti-tracking-labels"
+    if is_kitti_tracking:
+        from boxmot.engine.eval.trackeval_reference import validate_trackeval_kitti_dependencies
+
+        targets = {name: value["id"] for name, value in dataset["classes"].items() if value["evaluation"] == "target"}
+        if targets != {"car": 1, "pedestrian": 2}:
+            raise ValueError("KITTI 2D tracking evaluation requires classes.target car: 1 and pedestrian: 2.")
+        validate_trackeval_kitti_dependencies()
     if is_mots:
         validate_mots_evaluation_inputs(
             dataset["classes"], dataset_modalities(dataset, str(dataset["split"]))["ground_truth"]["options"]
@@ -299,7 +308,7 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         args.sequence_names = None
     split_root = _split_root(dataset, getattr(args, "data_root", None))
     gt_folder = resolve_dataset_annotation_root(dataset, split, getattr(args, "data_root", None))
-    if args.fps is not None and not is_mots:
+    if args.fps is not None and not (is_mots or is_kitti_tracking):
         if status_callback is not None:
             status_callback(f"Aligning ground truth to {args.fps:g} FPS…")
         variant_key = fingerprint({"catalog": catalog.fingerprint, "root": catalog.source_root.as_uri()})
@@ -347,6 +356,8 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         "annotation_layout": (
             "mots_png"
             if is_mots
+            else "kitti_tracking"
+            if is_kitti_tracking
             else "flat"
             if split_config.get("annotations") is not None or dataset["layout"] == "visdrone"
             else "sequence"
@@ -366,6 +377,27 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
                 )
                 gt_frames[sample.sequence_id].append((sample.frame_index, str(annotation), *sample.image_size))
         args.evaluation_config["mots_gt_frames"] = gt_frames
+    if is_kitti_tracking:
+        from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
+        from boxmot.datasets.readers.frames import numeric_frame_paths
+
+        gt_sequences = {}
+        for name in sequence_lengths:
+            source = sequence_inputs[name]
+            frame_count = int(numeric_frame_paths(source.modalities["images"].paths[0])[-1].stem) + 1
+            path = source.modalities["ground_truth"].paths[0]
+            read_kitti_tracking_labels_2d(
+                path, frame_count=frame_count, cache_inputs=bool(getattr(args, "cache_inputs", False))
+            )
+            gt_sequences[name] = {"path": str(path), "frame_count": frame_count, "frames": []}
+        for sample in catalog.samples:
+            if sample.sequence_id in gt_sequences:
+                if sample.image_ref is None:
+                    raise ValueError("KITTI 2D catalogs require image references to align tracking annotations.")
+                gt_sequences[sample.sequence_id]["frames"].append(
+                    (sample.frame_index, int(Path(sample.image_ref).stem))
+                )
+        args.evaluation_config["kitti_gt_sequences"] = gt_sequences
     args.remapped_class_ids = list(class_ids)
     args.remapped_class_names = [name.lower() for _, name in class_names]
     args.tracker_class_ids = class_ids
@@ -414,6 +446,10 @@ def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict[str, 
 
     _ensure_setup(args)
     evaluate = _run_motmetrics
+    if getattr(args, "evaluation_config", {}).get("annotation_layout") == "kitti_tracking":
+        from boxmot.engine.eval.kitti_tracking import run_kitti_tracking_metrics
+
+        evaluate = run_kitti_tracking_metrics
     if getattr(args, "evaluation_config", {}).get("annotation_layout") == "mots_png":
         if bool(getattr(args, "eval_masks", False)):
             from boxmot.engine.eval.mots import run_mots_metrics

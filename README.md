@@ -242,6 +242,13 @@ Use `boxmot track --tracker maf_hda --detections DIR --images DIR --instances DI
 predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
 MafHda is not included in the box-only benchmark table above.
 
+[KITTI 2D](docs/config/datasets.md#kitti-2d-tracking) supports image and box
+trackers with native tracking annotations. For example:
+
+```bash
+boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n --split val
+```
+
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
 Python API using independent detection batches and camera calibration. It
 returns image and spatial tracks with shared identities. The

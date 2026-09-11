@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
@@ -45,6 +45,17 @@ def _build_metrics(trackeval: Any) -> dict[str, Any]:
         "Identity": trackeval.metrics.Identity(config),
         "Count": trackeval.metrics.Count(),
     }
+
+
+def normalize_kitti_tracking_row(fields: list[str], identity_map: dict[int, int]) -> str:
+    """Compact identities losslessly before TrackEval's floating-point parser."""
+    fields = fields.copy()
+    identity = int(fields[1])
+    if identity >= 0:
+        fields[1] = str(identity_map.setdefault(identity, len(identity_map)))
+    if fields[2].casefold() == "person_sitting":
+        fields[2] = "Person"
+    return " ".join(fields)
 
 
 def evaluate_trackeval_motchallenge(
@@ -108,13 +119,26 @@ def evaluate_trackeval_motchallenge(
 
 
 def evaluate_trackeval_kitti(
-    *, gt_folder: Path, tracker_folder: Path, seq_info: Mapping[str, int]
+    *,
+    gt_folder: Path,
+    tracker_folder: Path,
+    seq_info: Mapping[str, int],
+    class_names: Sequence[str] = ("car", "pedestrian"),
 ) -> dict[str, dict[str, Any]]:
     """Run pinned KITTI 2D tracking preprocessing and metrics on saved KITTI rows.
 
     Ground truth retains distractors, truncation, occlusion, and DontCare rows.
     The installed dataset adapter owns every filtering and association rule.
     """
+    if (
+        isinstance(class_names, (str, bytes))
+        or not isinstance(class_names, Sequence)
+        or not class_names
+        or any(name not in ("car", "pedestrian") for name in class_names)
+        or len(set(class_names)) != len(class_names)
+    ):
+        raise ValueError("KITTI tracking evaluation classes must be a nonempty, unique subset of car and pedestrian.")
+    classes = tuple(class_names)
     validate_trackeval_kitti_dependencies()
     trackeval = _load_trackeval()
     tracker_folder = Path(tracker_folder).resolve()
@@ -124,7 +148,6 @@ def evaluate_trackeval_kitti(
     (gt_folder / "evaluate_tracking.seqmap.training").write_text(
         "".join(f"{name} empty 0 {count}\n" for name, count in seq_info.items()), encoding="utf-8"
     )
-    classes = ("car", "pedestrian")
     dataset = trackeval.datasets.Kitti2DBox(
         {
             "GT_FOLDER": str(gt_folder),
@@ -176,4 +199,9 @@ def evaluate_trackeval_kitti(
     return results
 
 
-__all__ = ["evaluate_trackeval_kitti", "evaluate_trackeval_motchallenge", "validate_trackeval_kitti_dependencies"]
+__all__ = [
+    "evaluate_trackeval_kitti",
+    "evaluate_trackeval_motchallenge",
+    "normalize_kitti_tracking_row",
+    "validate_trackeval_kitti_dependencies",
+]

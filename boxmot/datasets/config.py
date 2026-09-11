@@ -20,14 +20,14 @@ from boxmot.utils.config import (
 
 DATASET_CONFIGS_DIR = CONFIG_ROOT / "datasets"
 _MODALITY_FORMATS = {
-    "images": "image-directory",
-    "ground_truth": "instance-png",
-    "ground_truth_3d": "kitti-tracking-labels",
-    "ground_truth_objects": "kitti-object-labels",
-    "detections_2d": "trackrcnn",
-    "detections_3d": "kitti-detections",
-    "calibration": "kitti-p2",
-    "poses": "camera-to-world-npy",
+    "images": ("image-directory",),
+    "ground_truth": ("instance-png", "kitti-tracking-labels"),
+    "ground_truth_3d": ("kitti-tracking-labels",),
+    "ground_truth_objects": ("kitti-object-labels",),
+    "detections_2d": ("trackrcnn",),
+    "detections_3d": ("kitti-detections",),
+    "calibration": ("kitti-p2",),
+    "poses": ("camera-to-world-npy",),
 }
 MODALITY_ROLES = frozenset(_MODALITY_FORMATS)
 
@@ -156,8 +156,8 @@ def _modalities(value: Any, context: str, *, overrides: bool = False) -> dict[st
         encoding = specification.get("format")
         if not isinstance(encoding, str) or not encoding.strip():
             raise ConfigurationError(f"{item_context} must define a non-empty format.")
-        if encoding != _MODALITY_FORMATS[role]:
-            raise ConfigurationError(f"{item_context} format must be {_MODALITY_FORMATS[role]}.")
+        if encoding not in _MODALITY_FORMATS[role]:
+            raise ConfigurationError(f"{item_context} format must be {' or '.join(_MODALITY_FORMATS[role])}.")
         if ("path" in specification) == ("paths" in specification):
             raise ConfigurationError(f"{item_context} must define exactly one of path or paths.")
         paths = [specification["path"]] if "path" in specification else specification["paths"]
@@ -168,7 +168,7 @@ def _modalities(value: Any, context: str, *, overrides: bool = False) -> dict[st
         options = specification.get("options", {})
         if not isinstance(options, dict):
             raise ConfigurationError(f"{item_context}.options must be a mapping.")
-        _validate_modality_options(role, options, item_context)
+        _validate_modality_options(role, encoding, options, item_context)
         normalized[role] = {
             "format": encoding,
             "paths": [_modality_path(path, f"{item_context}.paths") for path in paths],
@@ -177,7 +177,7 @@ def _modalities(value: Any, context: str, *, overrides: bool = False) -> dict[st
     return normalized
 
 
-def _validate_modality_options(role: str, options: Mapping[str, Any], context: str) -> None:
+def _validate_modality_options(role: str, encoding: str, options: Mapping[str, Any], context: str) -> None:
     """Reject unsupported reader settings before locating or decoding inputs."""
 
     allowed = {
@@ -200,10 +200,12 @@ def _validate_modality_options(role: str, options: Mapping[str, Any], context: s
             "yaw_axis",
         },
     }.get(role, set())
+    if role == "ground_truth" and encoding == "kitti-tracking-labels":
+        allowed = set()
     unknown = set(options).difference(allowed)
     if unknown:
         raise ConfigurationError(f"{context} has unsupported options: {', '.join(sorted(map(str, unknown)))}.")
-    if role == "ground_truth":
+    if role == "ground_truth" and encoding == "instance-png":
         for name, minimum in (("class_divisor", 1), ("background_id", 0)):
             value = options.get(name)
             if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
@@ -352,10 +354,15 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
             except ConfigurationError as exc:
                 raise ConfigurationError(f"{split_context} partition: {exc}") from exc
             effective = {**modalities, **overrides}
-            if box_type != "aabb" and any(
-                effective.get(role) is not None for role in ("ground_truth", "detections_2d")
-            ):
-                raise ConfigurationError(f'{split_context} instance-png and trackrcnn inputs require box_type "aabb".')
+            image_box_formats = tuple(
+                effective[role]["format"]
+                for role in ("ground_truth", "detections_2d")
+                if effective.get(role) is not None
+            )
+            if box_type != "aabb" and image_box_formats:
+                raise ConfigurationError(
+                    f'{split_context} {" and ".join(image_box_formats)} inputs require box_type "aabb".'
+                )
             has_ground_truth = any(
                 effective.get(role) is not None for role in ("ground_truth", "ground_truth_3d", "ground_truth_objects")
             )

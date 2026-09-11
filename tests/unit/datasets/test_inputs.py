@@ -177,6 +177,57 @@ def test_3d_annotations_are_optional_files_and_mark_the_split_as_annotated(tmp_p
         load_dataset_inputs(path, split="test")
 
 
+def test_image_box_annotations_do_not_declare_sensor_inputs_or_require_mask_options(tmp_path: Path) -> None:
+    path = _fixture(tmp_path)
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    specification = {"format": "kitti-tracking-labels", "path": "labels/{sequence}.txt"}
+    payload["modalities"] = {"images": payload["modalities"]["images"], "ground_truth": specification}
+    payload["splits"] = {"val": {"partition": "recordings", "sequences": ["drive-002"]}}
+    _write(path, payload)
+    annotations = tmp_path / "labels/drive-002.txt"
+    annotations.parent.mkdir()
+    annotations.touch()
+
+    dataset = load_dataset_inputs(path)
+
+    assert set(dataset.sequences[0].modalities) == {"images", "ground_truth"}
+    assert dataset.sequences[0].modalities["ground_truth"].paths == (annotations,)
+    assert dataset.sequences[0].modalities["ground_truth"].options == {}
+    assert load_dataset_config(path)["splits"]["val"]["has_ground_truth"] is True
+    assert resolve_sensor_dataset_config_path(path) is None
+    annotations.unlink()
+    annotations.mkdir()
+    with pytest.raises(ConfigurationError, match="ground_truth requires a file"):
+        load_dataset_inputs(path)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [{"class_divisor": 1000, "background_id": 0}, {"ignore_classes": ["DontCare"]}, {"class_map": {"Car": 7}}],
+)
+def test_image_box_annotation_schema_preserves_native_unfiltered_labels(
+    tmp_path: Path, options: dict[str, Any]
+) -> None:
+    path = _fixture(tmp_path)
+    _change(
+        path,
+        ("modalities", "ground_truth"),
+        {"format": "kitti-tracking-labels", "path": "labels/{sequence}.txt", "options": options},
+    )
+
+    with pytest.raises(ConfigurationError, match="unsupported options"):
+        load_dataset_config(path)
+
+
+def test_image_box_annotation_schema_requires_axis_aligned_geometry(tmp_path: Path) -> None:
+    path = _fixture(tmp_path)
+    _change(path, ("modalities", "ground_truth"), {"format": "kitti-tracking-labels", "path": "labels/{sequence}.txt"})
+    _change(path, ("format", "box_type"), "obb")
+
+    with pytest.raises(ConfigurationError, match='kitti-tracking-labels and trackrcnn inputs require box_type "aabb"'):
+        load_dataset_config(path)
+
+
 @pytest.mark.parametrize(
     "specification,message",
     [

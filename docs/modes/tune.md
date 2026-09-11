@@ -29,6 +29,21 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
+## KITTI with image trackers
+
+The [KITTI 2D config](../config/datasets.md#kitti-2d-tracking) uses native
+tracking box labels with the standard materialization and tuning workflow:
+
+```bash
+boxmot tune --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+  --split train --n-trials 50 --cache-inputs
+```
+
+Install `--extra trackeval` alongside the detector and tuning extras. Use
+`--calibrate-kf` to fit 2D filter noise before searching tracking parameters.
+BoT-SORT can use the supplied OSNet experiments by adding
+`--reid osnet-x0-25-msmt17` and selecting `--tracker botsort`.
+
 ## EagerMOT with saved sensor inputs
 
 Pass a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets) to

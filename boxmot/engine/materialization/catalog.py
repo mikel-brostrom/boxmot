@@ -615,7 +615,7 @@ def catalog_mot_dataset(
     ``fps`` keeps the first frame in each occupied sampling interval, retains its
     capture timestamp, and numbers selected frames contiguously for cache/GT use.
     Configured sequence modalities preserve numeric frame indices and use
-    authored FPS, image paths, and optional paired instance annotations.
+    authored FPS, image paths, and optional instance or tracking-box annotations.
     """
 
     if fps is not None:
@@ -651,6 +651,7 @@ def catalog_mot_dataset(
                 item.sequence_id,
                 item.modalities["images"].paths[0],
                 item.modalities["ground_truth"].paths[0] if "ground_truth" in item.modalities else None,
+                item.modalities["ground_truth"].format if "ground_truth" in item.modalities else None,
             )
             for item in inputs.sequences
         ]
@@ -665,8 +666,11 @@ def catalog_mot_dataset(
                 missing = ", ".join(sorted(missing_sequences))
                 raise FileNotFoundError(f"Dataset sequence directories do not exist: {missing}.")
             sequence_roots = [path for path in sequence_roots if path.name in selected_sequences]
-        sequence_entries = [(path.name, path, None) for path in sequence_roots]
-    for sequence_name, sequence_root, instance_root in sequence_entries:
+        sequence_entries = [(path.name, path, None, None) for path in sequence_roots]
+    for sequence_name, sequence_root, annotation_source, annotation_format in sequence_entries:
+        instance_root = annotation_source if annotation_format == "instance-png" else None
+        if annotation_format not in {None, "instance-png", "kitti-tracking-labels"}:
+            raise ValueError(f"Unsupported image ground-truth format {annotation_format!r}.")
         image_root = sequence_root / "img1"
         if not image_root.is_dir():
             image_root = sequence_root
@@ -753,6 +757,15 @@ def catalog_mot_dataset(
                 }
                 sources.append(annotation_record)
                 ground_truth_sources.append(annotation_record)
+        if annotation_format == "kitti-tracking-labels":
+            annotation_metadata = resolve_metadata(annotation_source, False)
+            annotation_record = {
+                "ref": _relative_ref(annotation_source, dataset_root),
+                "sha256": annotation_metadata.sha256,
+                "size_bytes": annotation_metadata.size_bytes,
+            }
+            sources.append(annotation_record)
+            ground_truth_sources.append(annotation_record)
         metadata_files = [] if is_sequence else [sequence_root / "seqinfo.ini"]
         metadata_files.extend(
             sorted(path for path in (sequence_root / "gt").glob("*") if not is_appledouble_file(path))

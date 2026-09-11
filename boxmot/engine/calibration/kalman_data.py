@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import io
+import json
 from collections import defaultdict
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -87,6 +88,79 @@ def _read_ground_truth(path: Path, *, geometry: str, frame_count: int) -> tuple[
     return rows, hashlib.sha256(payload).hexdigest()
 
 
+def _read_kitti_ground_truth(
+    path: Path, *, frame_count: int, frames: tuple[tuple[int, int], ...]
+) -> tuple[np.ndarray, str]:
+    """Map native image boxes and KITTI visibility eligibility to delivered frames."""
+    from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
+
+    labels = read_kitti_tracking_labels_2d(path, frame_count=frame_count)
+    fields = [row.split() for row in labels.source_rows]
+    identities = sorted({int(row[1]) for row in fields if int(row[1]) >= 0})
+    # Numeric MOT arrays store IDs as floats. Compact unusually large int64
+    # identities before conversion so adjacent IDs never collapse together.
+    identity_map = (
+        {identity: index for index, identity in enumerate(identities)}
+        if identities and identities[-1] > (1 << 53)
+        else {}
+    )
+    frame_map = {source_frame: delivered_frame for delivered_frame, source_frame in frames}
+    rows: list[list[float]] = []
+    for row in fields:
+        source_frame = int(row[0])
+        if source_frame not in frame_map:
+            continue
+        track_id = int(row[1])
+        class_id = {"car": 1, "pedestrian": 2}.get(row[2].casefold(), 0)
+        eligible = class_id != 0 and int(row[3]) <= 0 and int(row[4]) <= 2
+        left, top, right, bottom = map(float, row[6:10])
+        rows.append(
+            [
+                frame_map[source_frame] + 1,
+                identity_map.get(track_id, track_id),
+                left,
+                top,
+                right - left,
+                bottom - top,
+                int(eligible),
+                class_id,
+                1.0,
+            ]
+        )
+    return np.asarray(rows, dtype=np.float64).reshape(-1, 9), labels.source_sha256
+
+
+def _kitti_calibration_source(
+    args: argparse.Namespace, sequence_id: str, frame_count: int
+) -> tuple[Path, int, tuple[tuple[int, int], ...]]:
+    """Validate the source-image mapping authored by evaluation setup."""
+    specification = args.evaluation_config.get("kitti_gt_sequences", {}).get(sequence_id)
+    if not isinstance(specification, dict):
+        raise ValueError(f"KITTI calibration requires the source annotation mapping for {sequence_id!r}.")
+    native_count = specification.get("frame_count")
+    frames = specification.get("frames")
+    if isinstance(native_count, bool) or not isinstance(native_count, int) or native_count <= 0:
+        raise ValueError(f"KITTI calibration sequence {sequence_id!r} requires a positive native frame count.")
+    if (
+        not isinstance(frames, (list, tuple))
+        or len(frames) != frame_count
+        or any(
+            not isinstance(pair, (list, tuple))
+            or len(pair) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in pair)
+            or pair[0] != index
+            or not 0 <= pair[1] < native_count
+            for index, pair in enumerate(frames)
+        )
+        or any(current[1] <= previous[1] for previous, current in zip(frames, frames[1:]))
+    ):
+        raise ValueError(f"KITTI calibration sequence {sequence_id!r} requires aligned, increasing source frames.")
+    path = specification.get("path")
+    if not isinstance(path, (str, Path)) or not str(path):
+        raise ValueError(f"KITTI calibration sequence {sequence_id!r} requires its source annotation path.")
+    return Path(path), native_count, tuple(tuple(pair) for pair in frames)
+
+
 def _gt_geometry(rows: np.ndarray, geometry: str) -> np.ndarray:
     """Retain true oriented geometry, never enclosing OBBs in axis-aligned boxes."""
 
@@ -158,6 +232,9 @@ def load_calibration_data(
     geometry = str(args.geometry)
     if geometry not in {"aabb", "obb"}:
         raise ValueError("KF calibration requires AABB or OBB geometry.")
+    kitti_tracking = getattr(args, "evaluation_config", {}).get("annotation_layout") == "kitti_tracking"
+    if kitti_tracking and geometry != "aabb":
+        raise ValueError("KITTI tracking calibration requires AABB geometry.")
     gt_folder = Path(args.gt_folder)
     settings = build_dataset_eval_settings(args, gt_folder, args.seq_info)
     selected_classes = set(map(int, settings["class_ids"])) - set(map(int, settings["distractor_ids"]))
@@ -192,7 +269,12 @@ def load_calibration_data(
             frame_count = int(args.seq_info[sequence_id])
             if len(dataset) != frame_count:
                 raise ValueError(f"Calibration sequence {sequence_id!r} has a different cached and GT frame count.")
-            if geometry == "obb":
+            if kitti_tracking:
+                gt_path, native_count, frames = _kitti_calibration_source(args, sequence_id, frame_count)
+                reader = lambda path: _read_kitti_ground_truth(path, frame_count=native_count, frames=frames)
+                frame_digest = hashlib.sha256(json.dumps(frames, separators=(",", ":")).encode("utf-8")).hexdigest()
+                annotation_format = f"boxmot.kalman-kitti-ground-truth/v1:frames={native_count}:mapping={frame_digest}"
+            elif geometry == "obb":
                 gt_path = _resolve_obb_gt_path(
                     Path(args.source),
                     gt_folder,
@@ -204,19 +286,22 @@ def load_calibration_data(
                 )
             else:
                 gt_path = _aabb_gt_path(gt_folder, settings["gt_loc_format"], sequence_id)
+            if not kitti_tracking:
+                reader = lambda path: _read_ground_truth(path, geometry=geometry, frame_count=frame_count)
+                annotation_format = f"boxmot.kalman-ground-truth/v1:{geometry}:frames={frame_count}"
             if bool(getattr(args, "cache_inputs", False)):
                 from boxmot.datasets.annotation_cache import load_cached_annotation
                 from boxmot.datasets.manifest import sha256_file
 
                 rows = load_cached_annotation(
                     gt_path,
-                    reader=lambda path: _read_ground_truth(path, geometry=geometry, frame_count=frame_count)[0],
-                    format=f"boxmot.kalman-ground-truth/v1:{geometry}:frames={frame_count}",
+                    reader=lambda path: reader(path)[0],
+                    format=annotation_format,
                     cache_root=gt_folder / ".boxmot" / "replay_cache" / "annotations",
                 )
                 digest = sha256_file(gt_path)
             else:
-                rows, digest = _read_ground_truth(gt_path, geometry=geometry, frame_count=frame_count)
+                rows, digest = reader(gt_path)
             sources.append({"sequence_id": sequence_id, "path": str(gt_path.resolve()), "sha256": digest})
             statistics["ground_truth_rows"] += len(rows)
             frame_rows = _index_rows_by_frame(rows, frame_count)

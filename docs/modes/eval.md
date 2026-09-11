@@ -197,6 +197,16 @@ EagerMOT sensor dataset and is available only on `eval`. Tracking labels alone
 cannot supply exact fractional truncation for official object AP; missing
 object annotations fail before replay.
 
+For image and box trackers, select the [KITTI 2D dataset](../config/datasets.md#kitti-2d-tracking):
+
+```bash
+boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+  --split val --cache-inputs
+```
+
+It uses native `label_02` image boxes and TrackEval KITTI 2D HOTA/MOTA/IDF1.
+Add `--reid osnet-x0-25-msmt17` when using BoT-SORT's appearance features.
+
 For your own recordings, copy the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),
 then supply synchronized images, calibration, absolute camera-to-world poses,

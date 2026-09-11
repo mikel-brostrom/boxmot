@@ -14,7 +14,11 @@ import numpy as np
 
 from boxmot.datasets.readers.boxes3d import KittiObjectLabels, TrackingLabels3D
 from boxmot.engine.eval.kitti_object_backend import evaluate_kitti_objects, resolve_kitti_object_backend
-from boxmot.engine.eval.trackeval_reference import evaluate_trackeval_kitti, validate_trackeval_kitti_dependencies
+from boxmot.engine.eval.trackeval_reference import (
+    evaluate_trackeval_kitti,
+    normalize_kitti_tracking_row,
+    validate_trackeval_kitti_dependencies,
+)
 from boxmot.structures import CameraModel, Tracks3D
 from boxmot.trackers.eagermot.geometry import project_box3d
 from boxmot.utils import logger as LOGGER
@@ -135,17 +139,6 @@ def validate_kitti_evaluation_dependencies() -> None:
     resolve_kitti_object_backend()
 
 
-def _tracking_row(fields: list[str], identity_map: dict[int, int]) -> str:
-    """Compact identities losslessly before TrackEval's floating-point parser."""
-    fields = fields.copy()
-    identity = int(fields[1])
-    if identity >= 0:
-        fields[1] = str(identity_map.setdefault(identity, len(identity_map)))
-    if fields[2].casefold() == "person_sitting":
-        fields[2] = "Person"
-    return " ".join(fields)
-
-
 def _validate_tracking_source(fields: list[str], *, sequence_id: str, frame_count: int) -> None:
     """Validate ignored raw rows too before passing them to official parsers."""
     try:
@@ -210,7 +203,7 @@ def _export_official_inputs(
                     f"{path}:{line_number} has an unavailable or zero-area projection."
                 )
             predictions_by_frame.setdefault(int(fields[0]), []).append(" ".join(fields[2:]))
-            prediction_rows.append(_tracking_row(fields, predicted_ids))
+            prediction_rows.append(normalize_kitti_tracking_row(fields, predicted_ids))
         (tracking_predictions / f"{sequence_id}.txt").write_text(
             "".join(row + "\n" for row in prediction_rows), encoding="utf-8"
         )
@@ -219,7 +212,7 @@ def _export_official_inputs(
         for line in truth.source_rows:
             fields = line.split()
             _validate_tracking_source(fields, sequence_id=sequence_id, frame_count=frame_count)
-            ground_truth_rows.append(_tracking_row(fields, gt_ids))
+            ground_truth_rows.append(normalize_kitti_tracking_row(fields, gt_ids))
         (tracking_gt / "label_02" / f"{sequence_id}.txt").write_text(
             "".join(row + "\n" for row in ground_truth_rows), encoding="utf-8"
         )
