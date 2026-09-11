@@ -222,6 +222,7 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),
         ({"calibrate_kf": True}, "--calibrate-kf requires 3D ground truth with track IDs"),
+        ({"eval_3d": True}, "eval_3d is available on eval only"),
         ({"class_config": "missing-profiles.yaml"}, "class_config requires an existing file"),
         ({"resume_tune": "old-study"}, "does not support resume_tune"),
         ({"time_budget_s": 10}, "does not support time_budget_s"),

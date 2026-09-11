@@ -181,7 +181,7 @@ def test_sensor_eval_rejects_unsupported_controls_before_loading_evaluators(
     assert "Traceback" not in result.output
 
 
-@pytest.mark.parametrize("option", ("--class-config", "--show-3d"))
+@pytest.mark.parametrize("option", ("--class-config", "--show-3d", "--eval-3d"))
 def test_image_eval_rejects_sensor_only_options_before_preparing_a_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, option: str
 ) -> None:
@@ -193,7 +193,7 @@ def test_image_eval_rejects_sensor_only_options_before_preparing_a_build(
     result = CliRunner().invoke(boxmot, ["eval", "--dataset", "mot17", "--tracker", "bytetrack", *flags])
 
     assert result.exit_code == 2, (result.output, result.exception)
-    assert "require a Sensor dataset dataset with --tracker eagermot" in result.output
+    assert f"{option} requires a sensor dataset with --tracker eagermot" in result.output
 
 
 def test_sensor_eval_passes_class_profile_yaml_to_runner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

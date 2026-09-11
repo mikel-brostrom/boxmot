@@ -1,4 +1,4 @@
-"""KITTI sensor replay and mask-based evaluation of the EagerMOT Python tracker."""
+"""KITTI sensor replay and mask or 3D box evaluation of the EagerMOT Python tracker."""
 
 from __future__ import annotations
 
@@ -17,8 +17,10 @@ import torch
 import yaml
 
 from boxmot import EagerMot, __version__
+from boxmot.datasets.readers.boxes3d import TrackingLabels3D, read_kitti_tracking_labels
 from boxmot.datasets.sequence import MultimodalSequence, SensorFrame
 from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+from boxmot.engine.eval.kitti_3d import evaluate_kitti_3d, write_kitti_3d_rows
 from boxmot.engine.eval.kitti_mots_replay import (
     GroundTruthEntry,
     evaluate_kitti_mots,
@@ -114,6 +116,7 @@ class KittiReplayInputs:
     fps: float = 10.0
     cache_inputs: bool = False
     ground_truth_options: dict[str, dict[str, Any]] = field(default_factory=dict)
+    annotations_3d: dict[str, TrackingLabels3D] = field(default_factory=dict)
 
     def close(self) -> None:
         """Release mapped inputs after the evaluation or entire tuning study."""
@@ -194,9 +197,17 @@ def _track_frame(frame: SensorFrame, trackers: dict[int, EagerMot]) -> Multimoda
 
 def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     """Validate alignment and index sensor inputs once for evaluation or tuning."""
-    dataset = load_sensor_evaluation_inputs(args.dataset, split=args.split, sequence_names=tuple(args.sequence_names))
+    eval_3d = bool(getattr(args, "eval_3d", False))
+    dataset = load_sensor_evaluation_inputs(
+        args.dataset,
+        split=args.split,
+        sequence_names=tuple(args.sequence_names),
+        eval_3d=eval_3d,
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+    )
     sequences: dict[str, MultimodalSequence | SensorReplaySequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
+    annotations_3d: dict[str, TrackingLabels3D] = {}
     cache_inputs = bool(getattr(args, "cache_inputs", False))
     try:
         for paths in dataset.sequences:
@@ -211,8 +222,26 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
             else:
                 sequence = MultimodalSequence(paths, classes=dataset.classes, fps=dataset.fps, split=dataset.split)
             sequences[name] = sequence
-            ground_truth = paths.modalities["ground_truth"].paths[0]
-            annotations[name] = kitti_mots_annotations(name, sequence.frame_paths, sequence.image_size, ground_truth)
+            if eval_3d:
+                ground_truth = paths.modalities["ground_truth_3d"]
+                labels = (
+                    sequence.ground_truth_3d()
+                    if cache_inputs
+                    else read_kitti_tracking_labels(
+                        ground_truth.paths[0],
+                        frame_count=len(sequence),
+                        classes=dataset.classes,
+                        options=ground_truth.options,
+                    )
+                )
+                if labels is None:
+                    raise ValueError(f"3D evaluation requires ground_truth_3d for sequence {name!r}.")
+                annotations_3d[name] = labels
+            else:
+                ground_truth = paths.modalities["ground_truth"].paths[0]
+                annotations[name] = kitti_mots_annotations(
+                    name, sequence.frame_paths, sequence.image_size, ground_truth
+                )
     except BaseException:
         for sequence in sequences.values():
             close = getattr(sequence, "close", None)
@@ -223,7 +252,12 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
     manifest = {
         "boxmot_version": __version__,
         "tracker": "eagermot",
-        "evaluation": "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics",
+        "evaluation": (
+            "3D volumetric IoU HOTA, CLEAR, and Identity metrics"
+            if eval_3d
+            else "KITTI MOTS; mask IoU HOTA, CLEAR, and Identity metrics"
+        ),
+        "eval_3d": eval_3d,
         "split": dataset.split,
         "fps": dataset.fps,
         "cache_inputs": cache_inputs,
@@ -244,7 +278,11 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         },
         "limitations": [
             "Detector checkpoint training provenance is not independently verified.",
-            "This evaluates segmentation tracking, not 3D boxes or published EagerMOT benchmark parity.",
+            (
+                "Custom 3D protocol; no official KITTI difficulty or DontCare suppression."
+                if eval_3d
+                else "This evaluates segmentation tracking, not 3D boxes or published EagerMOT benchmark parity."
+            ),
             "Full rigid poses transform centers; box orientation remains yaw-only.",
         ],
     }
@@ -256,9 +294,10 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
             ),
         }
         for paths in dataset.sequences
+        if not eval_3d
     }
     return KittiReplayInputs(
-        sequences, annotations, dataset.root, manifest, dataset.fps, cache_inputs, ground_truth_options
+        sequences, annotations, dataset.root, manifest, dataset.fps, cache_inputs, ground_truth_options, annotations_3d
     )
 
 
@@ -323,6 +362,7 @@ class _KittiSequenceTask:
     show_3d: bool = False
     run_id: str | None = None
     report_progress: bool = True
+    eval_3d: bool = False
 
 
 @dataclass(frozen=True)
@@ -367,15 +407,22 @@ def _replay_kitti_sequence(
                 )
             trackers = {class_id: EagerMot(**profile) for class_id, profile in task.profiles.items()}
             LOGGER.info("EagerMOT %s: tracking %s frames", task.name, len(task.sequence))
-            with (task.output / "mots" / f"{task.name}.txt").open("x", encoding="utf-8") as handle:
+            prediction_dir = task.output / ("kitti_3d" if task.eval_3d else "mots")
+            with (prediction_dir / f"{task.name}.txt").open("x", encoding="utf-8") as handle:
                 for frame in task.sequence:
                     tracks = _track_frame(frame, trackers)
-                    prepared = prepare_mots_tracks(
-                        PipelineResult(frame.detections, tracks.image_tracks), frame.image_size
-                    )
-                    rows = tracks_to_mots_rows(prepared, frame.frame_index)
-                    write_mots_rows(handle, rows)
-                    track_rows += len(rows)
+                    if not task.eval_3d or visualization is not None:
+                        prepared = prepare_mots_tracks(
+                            PipelineResult(frame.detections, tracks.image_tracks), frame.image_size
+                        )
+                    if task.eval_3d:
+                        track_rows += write_kitti_3d_rows(
+                            handle, tracks.spatial_tracks, frame.frame_index, frame.camera
+                        )
+                    else:
+                        rows = tracks_to_mots_rows(prepared, frame.frame_index)
+                        write_mots_rows(handle, rows)
+                        track_rows += len(rows)
                     if visualization is not None:
                         _visualize_frame(
                             visualization,
@@ -573,11 +620,14 @@ def _replay(
     on_evaluate: Callable[[], None] | None = None,
     replay_session: ReplaySession | None = None,
 ) -> tuple[dict[str, dict[str, Any]], tuple[Path, ...]]:
-    """Replay isolated sequences before evaluating all mask identities together."""
-    prediction_dir = output / "mots"
+    """Replay isolated sequences before scoring the selected tracking geometry."""
+    eval_3d = bool(inputs.manifest.get("eval_3d", False))
+    prediction_dir = output / ("kitti_3d" if eval_3d else "mots")
     prediction_dir.mkdir()
     tasks = tuple(
-        _KittiSequenceTask(name, sequence, profiles, output, inputs.manifest["split"], ordinal, save, show_3d)
+        _KittiSequenceTask(
+            name, sequence, profiles, output, inputs.manifest["split"], ordinal, save, show_3d, eval_3d=eval_3d
+        )
         for ordinal, (name, sequence) in enumerate(inputs.sequences.items())
     )
     if replay_session is not None and sequence_workers > 1 and not show:
@@ -607,6 +657,8 @@ def _replay(
             videos = () if visualization is None else visualization.video_paths
     if on_evaluate is not None:
         on_evaluate()
+    if eval_3d:
+        return evaluate_kitti_3d(prediction_dir, output, inputs.annotations_3d, inputs.manifest["sequences"]), videos
     cache_options = {"cached_ground_truth": inputs.sequences} if inputs.cache_inputs else {}
     if inputs.ground_truth_options:
         cache_options["ground_truth_options"] = inputs.ground_truth_options
@@ -683,7 +735,7 @@ def evaluate_eagermot_kitti(
 def run_eagermot_kitti(
     args: Any, *, pipeline: Any | None = None, show_progress: bool | None = None
 ) -> ValidationResult:
-    """Replay saved sensor predictions and return class-average mask metrics."""
+    """Replay saved sensor predictions and return class-average tracking metrics."""
     from boxmot.engine.config.runtime import resolve_sequence_workers
 
     if pipeline is not None:
@@ -700,7 +752,11 @@ def run_eagermot_kitti(
             from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
 
             dataset = load_sensor_evaluation_inputs(
-                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names)
+                args.dataset,
+                split=args.split,
+                sequence_names=tuple(args.sequence_names),
+                eval_3d=bool(getattr(args, "eval_3d", False)),
+                calibrate_kf=True,
             )
             calibration = calibrate_sensor_kalman(
                 dataset,
@@ -741,7 +797,8 @@ def run_eagermot_kitti(
                         presenter.flush()
                         pipeline.store_step_info(presenter.renderable)
                         contexts.close()
-                    pipeline.advance("Computing KITTI mask evaluation metrics…")
+                    geometry = "3D box" if inputs.manifest.get("eval_3d", False) else "mask"
+                    pipeline.advance(f"Computing KITTI {geometry} evaluation metrics…")
 
             metrics = evaluate_eagermot_kitti(
                 inputs,

@@ -60,9 +60,11 @@ select other predictions. `trackrcnn` and `kitti-detections` identify file
 encodings, so your own detector can export them. The template documents
 the complete field order, mask encoding, coordinates, and empty-frame rules.
 
-This workflow evaluates car and pedestrian segmentation tracking. Image
-prediction masks and ground-truth instance PNGs are required by evaluation
-and tuning, although masks remain optional for the Python tracker API.
+This workflow evaluates car and pedestrian segmentation tracking by default.
+Image prediction masks and ground-truth instance PNGs are required for mask
+evaluation and tuning. For [3D evaluation](#evaluate-3d-tracks), provide 3D
+tracking annotations instead of instance PNG ground truth. Masks remain
+optional for the Python tracker API.
 It supports one camera per sequence, with fixed calibration and synchronized
 sensor observations. Set dataset `fps` to your recording rate; it controls
 timestamps and saved video playback speed. EagerMOT still advances one motion
@@ -143,8 +145,30 @@ are indexed directly, without accumulation.
 These results do not reproduce the paper's benchmark setup: the image
 predictions come from TrackR-CNN, detector checkpoint training provenance has
 not been independently verified, and pedestrian detections use the supplied
-`trainval` variant. This command evaluates masks; KITTI 3D box evaluation
-requires separate 3D ground-truth labels and an evaluator.
+`trainval` variant. The default command evaluates masks.
+
+## Evaluate 3D tracks
+
+Declare the [`ground_truth_3d` modality](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+with KITTI tracking labels containing stable object IDs, then run:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --eval-3d --project runs/kitti-3d
+```
+
+`--eval-3d` scores the camera-space spatial tracks using volumetric IoU HOTA,
+CLEAR, and Identity metrics for car and pedestrian. Results are saved under
+`runs/kitti-3d/val/`, including `metrics.json`, `metrics.csv`, and
+`kitti_3d/<sequence>.txt` predictions. This custom evaluation includes all
+configured target annotations and does not implement the official KITTI
+difficulty, visibility, or DontCare-region protocol.
+
+Ground-truth mask PNGs are not required or loaded for 3D scoring. The same
+saved sensor observations still drive tracking. `--eval-masks` and `--eval-3d`
+cannot be combined; omitting both retains mask scoring. `tune` continues to
+optimize mask HOTA. Use `--class-config` to evaluate saved per-class profiles,
+and add `--cache-inputs` to reuse the selected observations and 3D annotations.
 
 ## Saved KITTI MOTS validation preset
 
@@ -301,8 +325,9 @@ advances one frame per image; variable-time prediction is unsupported.
 Loading profiles with `--class-config` also keeps their `is_angular` choices
 fixed. Tuning without either flag can search the angular-motion choice.
 
-Add `--cache-inputs` to reuse all declared sensor observations and annotations
-across trials and later runs. Calibration consumes the same cached 3D inputs.
+Add `--cache-inputs` to reuse all declared sensor observations and the annotations
+selected for scoring or calibration across trials and later runs. Calibration
+consumes the same cached 3D inputs.
 The cache stores unfiltered detections and packed masks; each trial still applies
 its own thresholds and starts fresh trackers. Worker processes remain available
 throughout the study. See [input caching](../modes/eval.md#cache-replay-inputs-for-repeated-runs)

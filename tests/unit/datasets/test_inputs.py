@@ -152,7 +152,7 @@ def test_split_overrides_replace_whole_inputs_and_can_remove_ground_truth(tmp_pa
     assert load_dataset_config(path)["splits"]["test"]["has_ground_truth"] is False
 
 
-def test_3d_annotations_are_optional_files_and_do_not_change_mask_ground_truth_semantics(tmp_path: Path) -> None:
+def test_3d_annotations_are_optional_files_and_mark_the_split_as_annotated(tmp_path: Path) -> None:
     path = _fixture(tmp_path)
     specification = {
         "format": "kitti-tracking-labels",
@@ -167,7 +167,8 @@ def test_3d_annotations_are_optional_files_and_do_not_change_mask_ground_truth_s
     config = load_dataset_config(path)
     dataset = load_dataset_inputs(path, split="test")
 
-    assert config["splits"]["test"]["has_ground_truth"] is False
+    assert config["splits"]["test"]["has_ground_truth"] is True
+    assert "ground_truth" not in dataset.sequences[0].modalities
     assert dataset.sequences[0].modalities["ground_truth_3d"].paths == (annotations,)
     assert dataset.sequences[0].modalities["ground_truth_3d"].options == specification["options"]
     annotations.unlink()

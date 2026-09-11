@@ -130,7 +130,7 @@ boxmot eval --dataset ./kitti-mots --tracker eagermot \
 ```
 
 Sensor caches contain the frame timeline, 2D detections and packed masks, 3D
-detections, calibration, ego poses, and declared ground truth. With
+detections, calibration, ego poses, and the ground truth selected for scoring. With
 `--calibrate-kf`, calibration reuses the cached 3D annotations and observations.
 RGB pixels are cached when visualization requests them; ordinary EagerMOT replay
 only needs image dimensions. Masks remain packed on disk and are unpacked one
@@ -170,17 +170,35 @@ saved image/spatial detections through `modalities` in its `dataset.yaml`.
 Each modality selects its encoding and relative paths; split overrides can
 select different prediction sets.
 You can pass the folder or its `dataset.yaml` file. Evaluation runs on CPU,
-scores KITTI MOTS masks, and writes a new split directory under `runs/eagermot`.
+scores KITTI MOTS masks by default, and writes a new split directory under `runs/eagermot`.
 Use `--project` to change that root or repeat `--sequence` to select sequences.
 Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
 Set `--sequence-workers 4` to allow at most four sequence workers.
 
+To evaluate spatial tracks, declare
+[`ground_truth_3d`](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+and select `--eval-3d`:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --eval-3d --project runs/kitti-3d
+```
+
+This computes car and pedestrian HOTA, CLEAR, and Identity metrics using
+volumetric IoU between camera-space 3D boxes. It is a custom evaluation:
+official KITTI difficulty, visibility, and DontCare-region rules are not applied.
+The run writes `metrics.json`, `metrics.csv`, and `kitti_3d/<sequence>.txt`.
+Ground-truth masks are neither required nor loaded in this mode. The dataset's
+tracking inputs, including prediction masks, are still consumed.
+`--eval-3d` and `--eval-masks` are mutually exclusive; `--eval-3d` requires an
+EagerMOT sensor dataset and is available only on `eval`.
+
 For your own recordings, copy the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),
 then supply synchronized images, calibration, absolute camera-to-world poses,
-2D/3D predictions, and ground-truth instance masks. Custom sequence names and
+2D/3D predictions, and ground truth for the selected metric. Custom sequence names and
 splits are supported; detector outputs must follow the documented file formats.
-The current metrics cover car and pedestrian masks:
+The default evaluates car and pedestrian masks:
 
 ```bash
 boxmot eval --dataset ./my-sensor-dataset --tracker eagermot \
@@ -194,7 +212,7 @@ their estimated 3D cuboids. Saved videos go under the result directory's
 `--show` keeps sensor replay on the main thread, processing one sequence at a
 time. With `--save` alone, each worker writes its sequence's video.
 
-The shared Rich panel shows frame progress for each sequence and the final mask
+The shared Rich panel shows frame progress for each sequence and the selected
 metrics. Add `--show-timing` to include replay timing in the result summary, or
 `--verbose` to display tracker diagnostics alongside the panel.
 
@@ -221,7 +239,8 @@ detector through the ordinary evaluation workflow. Split modality overrides
 set to `null` remove those inputs from the experiment.
 
 Python callers use `boxmot.engine.eval.evaluator.run_eval(args)` and receive
-the shared `ValidationResult`, including class-average mask metrics and `exp_dir`.
+the shared `ValidationResult`, including class-average metrics and `exp_dir`.
+Set `args.eval_3d = True` to select spatial scoring.
 See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
 
 ## View tracking results

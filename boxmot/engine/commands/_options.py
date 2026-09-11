@@ -493,7 +493,7 @@ def eval_masks_option(func: Callable) -> Callable:
         "--eval-masks",
         is_flag=True,
         default=False,
-        help="Evaluate KITTI-MOTS with mask IoU; requires published masks. Default: evaluate bounding boxes.",
+        help="Evaluate KITTI-MOTS with mask IoU. Image workflows default to boxes; sensor workflows default to masks.",
     )(func)
 
 

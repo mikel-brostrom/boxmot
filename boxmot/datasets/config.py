@@ -355,12 +355,14 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
                 effective.get(role) is not None for role in ("ground_truth", "detections_2d")
             ):
                 raise ConfigurationError(f'{split_context} instance-png and trackrcnn inputs require box_type "aabb".')
-            has_ground_truth = effective.get("ground_truth") is not None
+            has_ground_truth = any(effective.get(role) is not None for role in ("ground_truth", "ground_truth_3d"))
             if "has_ground_truth" in split_value and (
                 not isinstance(split_value["has_ground_truth"], bool)
                 or split_value["has_ground_truth"] != has_ground_truth
             ):
-                raise ConfigurationError(f"{split_context} has_ground_truth must agree with its ground_truth modality.")
+                raise ConfigurationError(
+                    f"{split_context} has_ground_truth must agree with its ground-truth modalities."
+                )
         else:
             normalized_split["path"] = _safe_relative_path(split_value, "path", split_context)
             has_ground_truth = split_value.get("has_ground_truth")

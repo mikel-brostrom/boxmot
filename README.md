@@ -246,7 +246,17 @@ MafHda is not included in the box-only benchmark table above.
 Python API using independent detection batches and camera calibration. It
 returns image and spatial tracks with shared identities. The
 `boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
-TrackR-CNN predictions against MOTS masks; see the tracker page for paths and examples.
+TrackR-CNN predictions against MOTS masks by default. Add
+[`--eval-3d`](docs/trackers/eagermot.md#evaluate-3d-tracks) to score spatial tracks
+against `ground_truth_3d` using volumetric IoU HOTA, CLEAR, and Identity metrics:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot --split val \
+  --eval-3d --project runs/kitti-3d
+```
+
+This is a custom 3D evaluation, without the official KITTI difficulty or
+DontCare-region protocol. Predictions are saved in `kitti_3d/<sequence>.txt`.
 Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
 with a multimodal sequence dataset to optimize separate car and pedestrian profiles
 together for class-average mask HOTA, then evaluate `best.yaml` with

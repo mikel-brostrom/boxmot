@@ -918,7 +918,7 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
 
             dataset = load_sensor_evaluation_inputs(
-                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names)
+                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names), calibrate_kf=True
             )
             calibration = calibrate_sensor_kalman(
                 dataset,
@@ -1135,6 +1135,8 @@ def _run_sensor_tuning(
     if path is None:
         return None
 
+    if getattr(args, "eval_3d", False):
+        raise ValueError("eval_3d is available on eval only; sensor tuning optimizes mask HOTA.")
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
     validate_sensor_workflow_inputs(
         path,
@@ -1195,6 +1197,7 @@ def _run_sensor_tuning(
         path,
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
     )
     sequence_workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
     normalized = SimpleNamespace(

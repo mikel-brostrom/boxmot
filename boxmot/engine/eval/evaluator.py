@@ -454,10 +454,10 @@ def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
 
 def _validate_image_evaluation_options(args: Any) -> None:
     """Keep sensor-only profile and 3D visualization controls out of image replay."""
-    for name in ("class_config", "show_3d"):
+    for name in ("class_config", "show_3d", "eval_3d"):
         if getattr(args, name, None):
             option = "--" + name.replace("_", "-")
-            raise ValueError(f"{option} requires an EagerMOT Sensor dataset dataset.")
+            raise ValueError(f"{option} requires an EagerMOT sensor dataset.")
 
 
 def _run_sensor_evaluation(
@@ -482,6 +482,9 @@ def _run_sensor_evaluation(
     path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
     if path is None:
         return None
+    eval_3d = bool(getattr(args, "eval_3d", False))
+    if eval_3d and getattr(args, "eval_masks", False):
+        raise ValueError("Choose either --eval-3d or --eval-masks.")
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
     validate_sensor_workflow_inputs(
         path,
@@ -489,6 +492,7 @@ def _run_sensor_evaluation(
         mode="eval",
         split=getattr(args, "split", None),
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        eval_3d=eval_3d,
     )
     for name, value in {
         "evolve_config": evolve_config,
@@ -536,6 +540,8 @@ def _run_sensor_evaluation(
         path,
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
+        eval_3d=eval_3d,
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
     )
     workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
     normalized = SimpleNamespace(
@@ -551,7 +557,8 @@ def _run_sensor_evaluation(
             "device": "cpu",
             "sequence_workers": 1 if getattr(args, "show", False) else workers,
             "per_class": True,
-            "eval_masks": True,
+            "eval_masks": not eval_3d,
+            "eval_3d": eval_3d,
         }
     )
 

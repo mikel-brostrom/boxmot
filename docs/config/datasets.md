@@ -323,8 +323,11 @@ omit it for that split. The resulting declarations select the inputs for the
 experiment. `eval` and `tune` require the selected tracker to consume every
 declared tracking input; an input marked `Unused` in its capability matrix is
 an incompatibility. Ground truth is consumed separately for scoring or calibration
-and is never passed to the tracker. `has_ground_truth` must agree with the effective
-ground-truth modality, and evaluation requires annotations for the selected split.
+and is never passed to the tracker. `has_ground_truth` must agree with the
+presence of either `ground_truth` or `ground_truth_3d`. Evaluation requires
+annotations for the selected metric and split: `ground_truth` for masks, or
+`ground_truth_3d` with `--eval-3d`.
+Unused scoring annotations are not loaded, even when their modalities remain declared.
 
 Sequence layouts require a finite positive dataset `fps`. This template sets `10`; it
 sets timestamps (`frame_index / fps`) and saved video playback speed. Tracking
@@ -337,7 +340,7 @@ enable variable-time motion.
 | --- | --- |
 | `images` / `image-directory` | PNG frames named `000000.png`, `000001.png`, etc.; contiguous, zero-based, with constant dimensions per sequence |
 | `ground_truth` / `instance-png` | Matching single-channel uint16 PNGs encoding `class_id * 1000 + instance_id`; the template uses car `1`, pedestrian `2`, background `0`, ignore `10000` |
-| `ground_truth_3d` / `kitti-tracking-labels` | Optional sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for 3D Kalman calibration |
+| `ground_truth_3d` / `kitti-tracking-labels` | Sequence text file with 17 KITTI tracking label fields, including zero-based frame and stable object identity; required for `eval --eval-3d` or 3D Kalman calibration |
 | `calibration` / `kitti-p2` | `P2:` followed by 12 row-major values of a `3 x 4` camera-to-pixel projection |
 | `poses` / `camera-to-world-npy` | Numeric `(N, 4, 4)` absolute camera-to-world rigid transforms; identity poses for a stationary camera |
 | `detections_2d` / `trackrcnn` | One sequence text file with 138 fields per detection: frame, AABB, score, class, full-image RLE mask, 128 embedding fields |
@@ -356,8 +359,8 @@ continuing to use canonical observations.
 
 ### 3D ground truth for Kalman calibration
 
-To use `eval --calibrate-kf` or `tune --calibrate-kf` with EagerMOT, add 3D
-tracking annotations independently of the mask ground truth used for scoring.
+To use `eval --eval-3d`, `eval --calibrate-kf`, or `tune --calibrate-kf` with
+EagerMOT, add 3D tracking annotations independently of the mask ground truth.
 Uncomment the optional `ground_truth_3d` block in the sensor template after
 placing a label file for each selected sequence at the declared path:
 
@@ -387,9 +390,22 @@ ignored `DontCare` rows may use KITTI's placeholder 3D geometry.
 Missing object annotations break that object's motion samples; they are not
 interpolated. Calibration transforms matched detections and annotations using
 the supplied absolute ego poses. It fits filter noise, without adjusting those
-poses or replacing the mask evaluation objective. See
+poses or changing the selected evaluation metric. See
 [EagerMOT calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise) for commands
-and saved profiles. Ordinary evaluation and tuning do not require this modality.
+and saved profiles. Mask evaluation and tuning without calibration do not
+require or load this modality.
+
+For spatial scoring, run:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --eval-3d --project runs/kitti-3d
+```
+
+This evaluates car and pedestrian 3D boxes with volumetric IoU HOTA, CLEAR,
+and Identity metrics and writes `kitti_3d/<sequence>.txt` predictions. It is a
+custom evaluation without official KITTI difficulty, visibility, or
+DontCare-region rules. Ground-truth instance PNGs are not required in this mode.
 
 ### Split-specific inputs
 
@@ -452,12 +468,12 @@ Repeat `--sequence` to select several sequences within a split. No built-in
 dataset registration or perception build is required.
 
 Dataset modalities and classes are generic configuration. The current sensor
-`eval` and `tune` consumers use EagerMOT and evaluate car and pedestrian
-segmentation tracking with one calibrated camera per sequence. These metrics
-require predicted and ground-truth masks, although the Python EagerMOT tracker
-can use image boxes without masks. Arbitrary-class metrics, multiple-camera
-ingestion, and 3D ground-truth box evaluation are not supplied by these
-consumers. Use separate sequences for tuning and evaluation. See
+`eval` and `tune` consumers use EagerMOT with one calibrated camera per sequence.
+Both default to car and pedestrian mask metrics; `eval --eval-3d` selects
+spatial metrics instead. Mask metrics require predicted and ground-truth
+masks, although the Python EagerMOT tracker can use image boxes without masks.
+Arbitrary-class metrics and multiple-camera ingestion are not supplied by
+these consumers. Use separate sequences for tuning and evaluation. See
 [EagerMOT tuning](../trackers/eagermot.md#tune-separate-class-profiles) for
 supported options and outputs.
 

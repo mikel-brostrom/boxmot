@@ -46,6 +46,7 @@ _SENSOR_OPTIONS = frozenset(
         "device",
         "sequence_workers",
         "eval_masks",
+        "eval_3d",
         "per_class",
         "verbose",
         "show_timing",
@@ -70,7 +71,12 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         validate_sensor_workflow_inputs(
-            path, spec, mode="eval", split=payload.get("split"), calibrate_kf=bool(payload.get("calibrate_kf"))
+            path,
+            spec,
+            mode="eval",
+            split=payload.get("split"),
+            calibrate_kf=bool(payload.get("calibrate_kf")),
+            eval_3d=bool(payload.get("eval_3d")),
         )
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
@@ -88,6 +94,8 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             path,
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
+            eval_3d=bool(payload.get("eval_3d")),
+            calibrate_kf=bool(payload.get("calibrate_kf")),
         )
         workers = resolve_sequence_workers(
             len(dataset.sequence_names),
@@ -109,7 +117,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
         "device": "cpu",
         "sequence_workers": 1 if payload.get("show") else workers,
         "per_class": True,
-        "eval_masks": True,
+        "eval_masks": not payload.get("eval_3d", False),
     }
 
 
@@ -119,6 +127,12 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
 @split_option
 @dataset_fps_option
 @eval_masks_option
+@click.option(
+    "--eval-3d",
+    is_flag=True,
+    default=False,
+    help="EagerMOT sensor evaluation: score 3D box IoU against ground_truth_3d; export KITTI tracking rows.",
+)
 @tracker_backend_option(default=BOXMOT_DEFAULTS.eval.tracker_backend)
 @tracker_config_option
 @click.option(
@@ -190,6 +204,8 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    if kwargs["eval_3d"] and eval_masks:
+        raise click.UsageError("Choose either --eval-3d or --eval-masks.")
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
         raise click.UsageError("--show-3d requires --show or --save.")
 
@@ -216,8 +232,10 @@ def eval(
     if sensor_payload is not None:
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
         return
-    if kwargs["class_config"] is not None or kwargs["show_3d"]:
-        raise click.UsageError("--class-config and --show-3d require a Sensor dataset dataset with --tracker eagermot.")
+    for name in ("class_config", "show_3d", "eval_3d"):
+        if kwargs[name]:
+            option = "--" + name.replace("_", "-")
+            raise click.UsageError(f"{option} requires a sensor dataset with --tracker eagermot.")
 
     if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
         from boxmot.engine.calibration.kalman import validate_kf_calibration

@@ -113,6 +113,7 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
             path,
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
+            calibrate_kf=bool(payload.get("calibrate_kf")),
         )
         explicit = _explicit_cli_keys(ctx)
         sequence_workers = resolve_sequence_workers(
