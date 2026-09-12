@@ -176,6 +176,10 @@ in the [saved 2D dataset presets](../config/datasets.md#existing-2d-detections).
 These configs explicitly disable mask loading and declare no spatial inputs.
 This workflow generates ReID features from the images when appearance is enabled;
 `--cache-inputs` caches them together with parsed inputs and required image pixels.
+If decoded images would exceed available disk space, saved-box evaluation reads
+the original images while keeping the smaller caches. If an annotation or ReID
+cache write runs out of space, it uses the computed values without saving that
+entry. All selected inputs still reach the tracker; only cache reuse changes.
 BoxMOT's built-in HOTA, CLEAR, and Identity evaluators report 2D HOTA, MOTA,
 and IDF1 with KITTI visibility, distractor, and DontCare preprocessing.
 No TrackEval installation is required.

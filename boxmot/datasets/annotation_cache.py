@@ -2,19 +2,50 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shutil
 import tempfile
 from collections.abc import Callable
+from contextlib import ExitStack
+from functools import lru_cache
 from pathlib import Path
+from typing import BinaryIO
 
 import numpy as np
 from filelock import FileLock
+
+from boxmot.utils import logger
 
 from .manifest import sha256_file
 from .replay_cache import ReplayCacheError, _close_arrays, _digest, _read_json, _signature, _write_json
 
 _SCHEMA = "boxmot.annotation-cache/v1"
+_CAPACITY_ERRORS = frozenset({errno.ENOSPC, errno.EDQUOT})
+
+
+class _ArrayWriter:
+    """Keep NumPy writes buffered so storage failures retain their OS errno."""
+
+    def __init__(self, stream: BinaryIO) -> None:
+        self._stream = stream
+
+    def write(self, data: bytes) -> int:
+        """Write NumPy's bounded chunks without its errno-less tofile path."""
+        view = memoryview(data)
+        offset = 0
+        while offset < len(view):
+            written = self._stream.write(view[offset:])
+            if written is None or written <= 0:
+                raise OSError(errno.EIO, "Annotation cache write made no progress.")
+            offset += written
+        return offset
+
+
+@lru_cache(maxsize=128)
+def _warn_cache_capacity(root: Path) -> None:
+    """Report disabled persistence once per active annotation/embedding root."""
+    logger.warning(f"Input cache storage is full at {root}; continuing with uncached annotations or embeddings.")
 
 
 def _load_array(path: Path, identity: dict) -> np.ndarray:
@@ -58,6 +89,8 @@ def load_cached_annotation(
     ``format`` names the parser contract, including its version and options.
     Source mutation and altered cache arrays trigger preparation again. Returned
     values are writable copies, so scoring cannot change another trial's input.
+    A full disk or storage quota skips persistence and returns the parsed values.
+    Reader failures and unrelated I/O errors still propagate.
     """
     if not isinstance(format, str) or not format or format != format.strip():
         raise ValueError("Annotation format must be a non-empty canonical string.")
@@ -66,11 +99,34 @@ def load_cached_annotation(
     root = (
         source.parent / ".boxmot" / "replay_cache" / "annotations" if cache_root is None else Path(cache_root).resolve()
     )
-    root.mkdir(parents=True, exist_ok=True)
     path = root / _digest(identity)
     locks = root / ".locks"
-    locks.mkdir(exist_ok=True)
-    with FileLock(str(locks / f"{path.name}.lock")):
+
+    def read_values() -> np.ndarray:
+        """Validate parsed values independently of optional cache writes."""
+        values = np.asarray(reader(source))
+        if values.dtype.kind not in "biufc":
+            raise ValueError("Cached annotations must be numeric arrays without object values.")
+        if _signature(source) != identity["signature"]:
+            raise ReplayCacheError("Annotation source changed during preparation.")
+        return values
+
+    def uncached(values: np.ndarray) -> np.ndarray:
+        """Retain parsed data and its source guarantees when persistence fails."""
+        if _signature(source) != identity["signature"]:
+            raise ReplayCacheError("Annotation source changed during preparation.")
+        _warn_cache_capacity(root)
+        return np.array(values, copy=True, order="C")
+
+    with ExitStack() as resources:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            locks.mkdir(exist_ok=True)
+            resources.enter_context(FileLock(str(locks / f"{path.name}.lock")))
+        except OSError as error:
+            if error.errno not in _CAPACITY_ERRORS:
+                raise
+            return uncached(read_values())
         if path.is_dir() and not path.is_symlink():
             try:
                 values = _load_array(path, identity)
@@ -79,16 +135,13 @@ def load_cached_annotation(
                 return values
             except ReplayCacheError:
                 pass
-        values = np.asarray(reader(source))
-        if values.dtype.kind not in "biufc":
-            raise ValueError("Cached annotations must be numeric arrays without object values.")
-        if _signature(source) != identity["signature"]:
-            raise ReplayCacheError("Annotation source changed during preparation.")
-        staging = Path(tempfile.mkdtemp(prefix=f".{path.name}.tmp-", dir=root))
+        values = read_values()
+        staging = None
         try:
+            staging = Path(tempfile.mkdtemp(prefix=f".{path.name}.tmp-", dir=root))
             file = staging / "values.npy"
             with file.open("wb") as stream:
-                np.save(stream, np.array(values, copy=True, order="C"), allow_pickle=False)
+                np.save(_ArrayWriter(stream), np.array(values, copy=True, order="C"), allow_pickle=False)
                 stream.flush()
                 os.fsync(stream.fileno())
             _write_json(
@@ -107,7 +160,11 @@ def load_cached_annotation(
             elif path.exists():
                 shutil.rmtree(path)
             os.replace(staging, path)
+        except OSError as error:
+            if error.errno not in _CAPACITY_ERRORS:
+                raise
+            return uncached(values)
         finally:
-            if staging.exists():
+            if staging is not None and staging.exists():
                 shutil.rmtree(staging)
     return np.array(values, copy=True, order="C")

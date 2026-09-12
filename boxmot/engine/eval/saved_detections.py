@@ -30,6 +30,7 @@ from boxmot.reid import create_reid_encoder
 from boxmot.reid.config import resolve_reid_spec
 from boxmot.structures import Frame
 from boxmot.trackers import TrackerSpec
+from boxmot.utils import logger
 
 
 def _tracking_inputs(dataset: DatasetInputs) -> DatasetInputs:
@@ -123,6 +124,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
             "per_class": spec.per_class,
             "reid": reid_provenance,
             "cache_inputs": cache_inputs,
+            "image_cache": {},
             "evaluation": "KITTI 2D tracking; BoxMOT built-in image-box IoU HOTA, CLEAR, and Identity metrics",
             "fps": dataset.fps,
             "inputs": {
@@ -150,15 +152,32 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
                 for source in dataset.sequences:
                     name = source.sequence_id
                     if cache_inputs:
-                        from boxmot.datasets.sensor_cache import open_sensor_sequence, prepare_sensor_sequence
+                        from boxmot.datasets.sensor_cache import (
+                            SensorReplayCacheStorageError,
+                            open_sensor_sequence,
+                            prepare_sensor_sequence,
+                        )
 
-                        prepared = prepare_sensor_sequence(tracking_dataset, name, load_images=load_images)
+                        try:
+                            prepared = prepare_sensor_sequence(tracking_dataset, name, load_images=load_images)
+                        except SensorReplayCacheStorageError:
+                            if not load_images:
+                                raise
+                            logger.warning(
+                                "Input cache: insufficient disk space for sequence %s images; "
+                                "reading original images and retaining detection/ReID caching.",
+                                name,
+                            )
+                            prepared = prepare_sensor_sequence(tracking_dataset, name, load_images=False)
                         sequence = contexts.enter_context(closing(open_sensor_sequence(prepared)))
                     else:
                         sequence = DetectionSequence(
                             source, classes=dataset.classes, fps=dataset.fps, split=dataset.split
                         )
                     sequences[name] = sequence
+                    manifest["image_cache"][name] = (
+                        "cached" if cache_inputs and sequence.load_images else "source" if load_images else "unused"
+                    )
                     ground_truth = source.modalities["ground_truth"].paths[0]
                     read_kitti_tracking_labels_2d(ground_truth, frame_count=len(sequence), cache_inputs=cache_inputs)
                     selections[name] = {
@@ -189,7 +208,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
                             if load_images:
                                 image = (
                                     sequence.read_image(index)
-                                    if cache_inputs
+                                    if cache_inputs and sequence.load_images
                                     else read_rgb_chw_uint8(path.as_uri(), dataset.root)
                                 )
                             else:

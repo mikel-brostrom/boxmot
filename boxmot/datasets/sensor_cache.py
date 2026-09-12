@@ -9,16 +9,17 @@ without sharing mutable tracking state.
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import math
 import os
 import shutil
 import tempfile
-from collections.abc import Callable, Sequence
-from contextlib import ExitStack
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any, overload
+from typing import Any, BinaryIO, overload
 
 import numpy as np
 import torch
@@ -37,10 +38,58 @@ from boxmot.datasets.sequence import MultimodalSequence, SensorFrame, _class_ids
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, Frame, MaskBatch
 
 _SCHEMA = "boxmot.sensor-replay-cache/v3"
+_RGB_CACHE_RESERVE_BYTES = 64 * 1024 * 1024
 
 
 class SensorReplayCacheError(ValueError):
     """A derived sensor entry is invalid and must be prepared again."""
+
+
+class SensorReplayCacheStorageError(SensorReplayCacheError):
+    """Cache preparation cannot fit on its destination filesystem or quota."""
+
+    def __init__(self, cache_path: str | Path, detail: str = "") -> None:
+        self.cache_path = Path(cache_path)
+        message = f"Insufficient disk space or storage quota for sensor input cache at '{self.cache_path}'."
+        if detail:
+            message += f" {detail}"
+        super().__init__(f"{message} Free disk space or use a cache location with more space.")
+
+
+@contextmanager
+def _storage_guard(cache_path: Path) -> Iterator[None]:
+    """Identify capacity failures without changing permission or other I/O errors."""
+    try:
+        yield
+    except OSError as error:
+        if error.errno in {errno.ENOSPC, errno.EDQUOT}:
+            raise SensorReplayCacheStorageError(cache_path) from error
+        raise
+
+
+def _check_rgb_cache_space(path: Path, frame_count: int, image_size: tuple[int, int]) -> None:
+    """Reject an impossible RGB payload before decoding or opening array files."""
+    required = frame_count * 3 * math.prod(image_size)
+    free = shutil.disk_usage(path).free
+    if free < required + _RGB_CACHE_RESERVE_BYTES:
+        raise SensorReplayCacheStorageError(
+            path,
+            f"RGB images require at least {required / 1024**2:.1f} MiB plus a 64 MiB reserve; "
+            f"{free / 1024**2:.1f} MiB is available.",
+        )
+
+
+def _write_array(handle: BinaryIO, values: np.ndarray) -> None:
+    """Write a contiguous view, retaining OS errors and handling partial writes."""
+    remaining = memoryview(np.ascontiguousarray(values).reshape(-1)).cast("B")
+    while remaining:
+        written = handle.write(remaining)
+        if written is None or written <= 0:
+            path = Path(handle.name)
+            if shutil.disk_usage(path.parent).free < len(remaining):
+                raise SensorReplayCacheStorageError(path, "The array write made no progress.")
+            raise OSError(f"Sensor cache array write made no progress: {path}")
+        remaining = remaining[written:]
 
 
 def _json_bytes(value: Any) -> bytes:
@@ -295,6 +344,8 @@ def _write_entry(
     """Stream observations and annotations into aligned, bounded-memory arrays."""
     sequence = MultimodalSequence(sequence_inputs, classes=dataset.classes, fps=dataset.fps, split=dataset.split)
     height, width = sequence.image_size
+    if context["load_images"]:
+        _check_rgb_cache_space(path, len(sequence), sequence.image_size)
     packed_width = (height * width + 7) // 8
     formats: dict[str, tuple[Any, tuple[int, ...]]] = {
         "boxes2d": (np.float32, (4,)),
@@ -325,7 +376,7 @@ def _write_entry(
 
         def append(name: str, values: np.ndarray) -> None:
             values = np.asarray(values, dtype=formats[name][0])
-            values.tofile(handles[name])
+            _write_array(handles[name], values)
             counts[name] += len(values)
 
         for frame in sequence:
@@ -393,7 +444,7 @@ def _write_entry(
         formats[name] = (values.dtype, values.shape[1:])
         counts[name] = len(values)
         with (path / f"{name}.bin").open("wb") as handle:
-            values.tofile(handle)
+            _write_array(handle, values)
             handle.flush()
             os.fsync(handle.fileno())
 
@@ -472,6 +523,8 @@ def prepare_sensor_sequence(
     entry before a study starts. Workers opening a prepared path do not revisit
     the raw dataset. An open view is an immutable study snapshot; call prepare
     again before a later study to observe source edits.
+    New RGB entries must fit with a 64 MiB reserve; capacity failures raise
+    SensorReplayCacheStorageError. Existing entries need no additional RGB space.
     """
     if type(load_images) is not bool:
         raise TypeError("load_images must be a boolean.")
@@ -482,34 +535,35 @@ def prepare_sensor_sequence(
     context = _context(dataset, sequence, load_images)
     root = Path(cache_root) if cache_root is not None else dataset.root / ".boxmot" / "replay_cache"
     root = root.expanduser().absolute()
-    root.mkdir(parents=True, exist_ok=True)
-    lock_root = root / ".locks"
-    lock_root.mkdir(exist_ok=True)
-    # Creating the cache must precede source directory epochs when a modality
-    # uses the dataset root itself. Hidden cache contents are excluded.
-    sources = _source_state(sequence)
-    path = root / _digest({"context": context, "sources": sources})
-    with FileLock(str(lock_root / f"{path.name}.lock")):
-        if path.is_dir():
+    with _storage_guard(root):
+        root.mkdir(parents=True, exist_ok=True)
+        lock_root = root / ".locks"
+        lock_root.mkdir(exist_ok=True)
+        # Creating the cache must precede source directory epochs when a modality
+        # uses the dataset root itself. Hidden cache contents are excluded.
+        sources = _source_state(sequence)
+        path = root / _digest({"context": context, "sources": sources})
+        with FileLock(str(lock_root / f"{path.name}.lock")):
+            if path.is_dir():
+                try:
+                    index = _read_index(path)
+                    if index["context"] == context and index["source_signatures"] == sources:
+                        if _source_state(sequence) != sources:
+                            raise SensorReplayCacheError("Sensor inputs changed while opening their replay cache.")
+                        return path
+                except SensorReplayCacheError:
+                    pass
+            staging = Path(tempfile.mkdtemp(prefix=f".{path.name}-", dir=root))
             try:
-                index = _read_index(path)
-                if index["context"] == context and index["source_signatures"] == sources:
-                    if _source_state(sequence) != sources:
-                        raise SensorReplayCacheError("Sensor inputs changed while opening their replay cache.")
-                    return path
-            except SensorReplayCacheError:
-                pass
-        staging = Path(tempfile.mkdtemp(prefix=f".{path.name}-", dir=root))
-        try:
-            _write_entry(staging, dataset, sequence, context, sources, progress)
-            if path.is_symlink() or path.is_file():
-                path.unlink()
-            elif path.exists():
-                shutil.rmtree(path)
-            os.replace(staging, path)
-        finally:
-            if staging.exists():
-                shutil.rmtree(staging)
+                _write_entry(staging, dataset, sequence, context, sources, progress)
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                elif path.exists():
+                    shutil.rmtree(path)
+                os.replace(staging, path)
+            finally:
+                if staging.exists():
+                    shutil.rmtree(staging)
     return path
 
 
@@ -716,7 +770,8 @@ class SensorReplaySequence(Sequence[SensorFrame]):
 def open_sensor_sequence(path: str | Path) -> SensorReplaySequence:
     """Open a prepared entry; consumers own its lifetime and call ``close()``."""
     path = Path(path).expanduser().absolute()
-    locks = path.parent / ".locks"
-    locks.mkdir(parents=True, exist_ok=True)
-    with FileLock(str(locks / f"{path.name}.lock")):
-        return SensorReplaySequence(path)
+    with _storage_guard(path):
+        locks = path.parent / ".locks"
+        locks.mkdir(parents=True, exist_ok=True)
+        with FileLock(str(locks / f"{path.name}.lock")):
+            return SensorReplaySequence(path)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 from dataclasses import replace
 from pathlib import Path
 
@@ -58,6 +59,25 @@ def test_appearance_cache_reuses_ordered_embeddings_without_shared_memory(tmp_pa
     assert encoder.calls == 2
     assert cached.embedding_dim == 2
     assert cached.requirements == encoder.requirements
+
+
+def test_appearance_cache_returns_embeddings_when_disk_fills(tmp_path: Path, monkeypatch) -> None:
+    """A failed cache publication must not remove appearance from tracking."""
+    from boxmot.datasets import annotation_cache
+
+    frame, detections = _sample(tmp_path)
+    encoder = _Encoder()
+    cached = _cached(tmp_path, encoder)
+
+    def no_space(*args, **kwargs):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(annotation_cache, "_write_json", no_space)
+    result = cached.encode([frame], [detections])[0]
+
+    torch.testing.assert_close(result, detections.geometry.values[:, :2])
+    assert encoder.calls == 1
+    assert not list((tmp_path / "cache").glob("*/_SUCCESS"))
 
 
 @pytest.mark.parametrize("change", ["source", "pixels", "boxes", "scores", "class_ids", "sample"])

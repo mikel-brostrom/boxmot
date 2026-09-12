@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import sys
 from pathlib import Path
@@ -254,6 +255,49 @@ def test_saved_input_cache_reuses_boxes_images_features_and_rebuilds_changed_inp
     assert cv2.imwrite(str(tmp_path / "images/0000/000001.png"), pixels)
     saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
     assert encoder.calls == calls + 2
+
+
+def test_saved_replay_streams_images_when_pixel_cache_does_not_fit(monkeypatch, tmp_path: Path) -> None:
+    """Low disk space changes caching, while pixels, observations and metrics stay identical."""
+    from boxmot.datasets import sensor_cache
+
+    dataset = _dataset(tmp_path)
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    original = saved_detections.run_saved_detections(_args(tmp_path, dataset))
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    messages = []
+    monkeypatch.setattr(saved_detections.logger, "warning", lambda message, *args: messages.append(message % args))
+    initial = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    calls = encoder.calls
+    repeated = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+
+    assert calls == 4
+    assert encoder.calls == calls  # The smaller appearance cache still works.
+    assert repeated.raw == initial.raw == original.raw
+    assert (initial.exp_dir / "0000.txt").read_bytes() == (original.exp_dir / "0000.txt").read_bytes()
+    metadata = json.loads((initial.exp_dir / "run.json").read_text())
+    assert metadata["status"] == "complete"
+    assert metadata["image_cache"] == {"0000": "source"}
+    assert any("insufficient disk space" in message for message in messages)
+    cache = tmp_path / ".boxmot/replay_cache"
+    assert list(cache.glob("*/boxes2d.bin"))
+    assert not list(cache.glob("*/images.bin"))
+
+
+def test_saved_replay_does_not_hide_unrelated_cache_io_errors(monkeypatch, tmp_path: Path) -> None:
+    """Only capacity failures may select source-image replay."""
+    from boxmot.datasets import sensor_cache
+
+    dataset = _dataset(tmp_path)
+    _stub_encoder(monkeypatch, _Encoder())
+
+    def fail_prepare(*args, **kwargs):
+        raise OSError(errno.EIO, "device I/O failure")
+
+    monkeypatch.setattr(sensor_cache, "prepare_sensor_sequence", fail_prepare)
+    with pytest.raises(OSError, match="device I/O failure"):
+        saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
 
 
 def test_saved_boxes_save_video_on_the_authored_timeline(monkeypatch, tmp_path: Path) -> None:

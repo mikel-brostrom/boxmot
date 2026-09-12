@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
+import io
 import json
 import pickle
 import shutil
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -18,8 +21,14 @@ import torch
 from PIL import Image
 from pycocotools import mask as mask_utils
 
+import boxmot.datasets.sensor_cache as sensor_cache
 from boxmot.datasets.inputs import DatasetInputs, ModalityInput, SequenceInputs
-from boxmot.datasets.sensor_cache import SensorReplayCacheError, open_sensor_sequence, prepare_sensor_sequence
+from boxmot.datasets.sensor_cache import (
+    SensorReplayCacheError,
+    SensorReplayCacheStorageError,
+    open_sensor_sequence,
+    prepare_sensor_sequence,
+)
 from boxmot.datasets.sequence import MultimodalSequence
 
 
@@ -88,6 +97,159 @@ def _dataset(tmp_path: Path, *, frames: int = 3, annotations: bool = True) -> Da
 
 def _prepare(dataset: DatasetInputs, **kwargs) -> Path:
     return prepare_sensor_sequence(dataset, "drive-a", **kwargs)
+
+
+def test_sensor_rgb_cache_space_check_precedes_decode_and_payload_writes(tmp_path: Path, monkeypatch) -> None:
+    dataset = _dataset(tmp_path)
+    cache_root = tmp_path / "cache"
+    required_rgb_bytes = 3 * 3 * 3 * 4
+    available = required_rgb_bytes + sensor_cache._RGB_CACHE_RESERVE_BYTES - 1
+    checked_paths = []
+
+    def disk_usage(path: Path) -> SimpleNamespace:
+        checked_paths.append(path)
+        return SimpleNamespace(free=available)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Insufficient space must be detected before decoding or writing inputs.")
+
+    original_open = Path.open
+
+    def open_without_arrays(path: Path, *args, **kwargs):
+        assert path.suffix != ".bin", "Preflight must happen before opening payload arrays."
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", disk_usage)
+    monkeypatch.setattr(sensor_cache.MultimodalSequence, "__iter__", forbidden)
+    monkeypatch.setattr(sensor_cache, "read_rgb_chw_uint8", forbidden)
+    monkeypatch.setattr(Path, "open", open_without_arrays)
+    with pytest.raises(SensorReplayCacheStorageError, match="64 MiB reserve") as failure:
+        _prepare(dataset, cache_root=cache_root, load_images=True)
+
+    assert checked_paths == [failure.value.cache_path]
+    assert failure.value.cache_path.parent == cache_root
+    assert str(cache_root) in str(failure.value)
+    assert "Free disk space" in str(failure.value)
+    assert list(cache_root.iterdir()) == [cache_root / ".locks"]
+
+
+def test_sensor_rgb_cache_warm_reuse_does_not_require_free_space(tmp_path: Path, monkeypatch) -> None:
+    dataset = _dataset(tmp_path)
+    path = _prepare(dataset, load_images=True)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("A published RGB cache needs no new payload space or decoding.")
+
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    monkeypatch.setattr(sensor_cache, "_check_rgb_cache_space", forbidden)
+    monkeypatch.setattr(sensor_cache, "MultimodalSequence", forbidden)
+    assert _prepare(dataset, load_images=True) == path
+    with closing(open_sensor_sequence(path)) as cached:
+        assert cached.read_image(2)[:, 0, 0].tolist() == [7, 10, 20]
+
+
+def test_sensor_compact_cache_does_not_reserve_rgb_capacity(tmp_path: Path, monkeypatch) -> None:
+    dataset = _dataset(tmp_path)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("An observations-only cache must not require RGB capacity.")
+
+    monkeypatch.setattr(sensor_cache, "_check_rgb_cache_space", forbidden)
+    monkeypatch.setattr(sensor_cache, "read_rgb_chw_uint8", forbidden)
+    path = _prepare(dataset, load_images=False)
+    assert not (path / "images.bin").exists()
+    with closing(open_sensor_sequence(path)) as cached:
+        assert len(cached) == 3
+
+
+@pytest.mark.parametrize("error_number", (errno.ENOSPC, errno.EDQUOT))
+@pytest.mark.parametrize("stage", ("mkdir", "lock", "staging", "write", "fsync", "publication"))
+def test_sensor_cache_storage_failure_cleans_staging_without_publication(
+    tmp_path: Path, monkeypatch, error_number: int, stage: str
+) -> None:
+    dataset = _dataset(tmp_path)
+    cache_root = tmp_path / "cache"
+    original_error = OSError(error_number, "Storage exhausted")
+
+    def fail(*args, **kwargs):
+        raise original_error
+
+    if stage == "mkdir":
+        monkeypatch.setattr(Path, "mkdir", fail)
+    elif stage == "lock":
+
+        @contextmanager
+        def failed_lock(*args, **kwargs):
+            fail()
+            yield
+
+        monkeypatch.setattr(sensor_cache, "FileLock", failed_lock)
+    elif stage == "staging":
+        monkeypatch.setattr(sensor_cache.tempfile, "mkdtemp", fail)
+    elif stage == "write":
+
+        def partial_write(handle, values):
+            handle.write(b"partial")
+            fail()
+
+        monkeypatch.setattr(sensor_cache, "_write_array", partial_write)
+    elif stage == "fsync":
+        monkeypatch.setattr(sensor_cache.os, "fsync", fail)
+    else:
+        monkeypatch.setattr(sensor_cache.os, "replace", fail)
+
+    with pytest.raises(SensorReplayCacheStorageError) as failure:
+        _prepare(dataset, cache_root=cache_root)
+
+    assert failure.value.cache_path == cache_root
+    assert failure.value.__cause__ is original_error
+    assert not cache_root.exists() or list(cache_root.iterdir()) == [cache_root / ".locks"]
+
+
+@pytest.mark.parametrize("error_number", (errno.EACCES, errno.EIO, None))
+def test_sensor_cache_preserves_unrelated_write_errors(tmp_path: Path, monkeypatch, error_number: int | None) -> None:
+    dataset = _dataset(tmp_path)
+    original_error = OSError(error_number, "An unrelated write failure")
+
+    def fail(*args, **kwargs):
+        raise original_error
+
+    monkeypatch.setattr(sensor_cache, "_write_array", fail)
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    with pytest.raises(OSError) as failure:
+        _prepare(dataset)
+    assert failure.value is original_error
+    assert list((tmp_path / ".boxmot/replay_cache").iterdir()) == [tmp_path / ".boxmot/replay_cache/.locks"]
+
+
+@pytest.mark.parametrize("free_bytes", (0, 1024))
+def test_sensor_cache_zero_progress_write_requires_verified_low_space(
+    tmp_path: Path, monkeypatch, free_bytes: int
+) -> None:
+    class StalledFile(io.BytesIO):
+        name = str(tmp_path / "images.bin")
+
+        def write(self, value: memoryview) -> int:
+            return 0
+
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", lambda _: SimpleNamespace(free=free_bytes))
+    expected_error = SensorReplayCacheStorageError if free_bytes == 0 else OSError
+    with pytest.raises(expected_error, match="no progress"):
+        sensor_cache._write_array(StalledFile(), np.arange(12, dtype=np.uint8))
+
+
+def test_sensor_cache_array_writes_resume_without_copying_contiguous_buffers() -> None:
+    values = np.arange(12, dtype=np.int64).reshape(3, 4)
+
+    class PartialFile(io.BytesIO):
+        def write(self, value: memoryview) -> int:
+            assert isinstance(value, memoryview)
+            assert np.shares_memory(value.obj, values)
+            return super().write(value[:5])
+
+    handle = PartialFile()
+    sensor_cache._write_array(handle, values)
+    assert handle.getvalue() == values.tobytes()
 
 
 @pytest.mark.parametrize("load_images", [False, True])

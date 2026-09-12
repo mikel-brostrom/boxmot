@@ -219,6 +219,11 @@ Calibration, ego poses, and 3D boxes are not declared by this config.
 and generated ReID features across runs; changed inputs or encoder settings
 invalidate the corresponding cache.
 
+Decoded RGB caches can be much larger than the image files. Saved-box evaluation
+checks available disk space first and streams source images when they will not
+fit. Annotation and ReID cache writes also tolerate a full disk by using the
+computed values without caching them. Dataset inputs and scoring stay the same.
+
 Scoring uses the same built-in 2D metrics and KITTI preprocessing as the
 perception-build workflow above. No TrackEval installation is required.
 
