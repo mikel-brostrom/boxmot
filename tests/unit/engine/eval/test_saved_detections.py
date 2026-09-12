@@ -12,7 +12,9 @@ import numpy as np
 import pytest
 import torch
 import yaml
+from click.testing import CliRunner
 
+from boxmot.engine.cli import boxmot
 from boxmot.engine.eval import saved_detections
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.reid.specs import ReIDEncoderSpec
@@ -133,6 +135,52 @@ def test_saved_boxes_use_real_occluboost_and_kitti_2d_metrics(monkeypatch, tmp_p
     assert metadata["sequences"] == {"0000": 3, "0001": 3}
     assert metadata["reid"]["profile"] == "fixture-reid"
     protocol = json.loads((result.exp_dir / "evaluation.json").read_text())
+    assert protocol["tracking"]["geometry"] == "2d"
+
+
+def test_saved_experiment_runs_builtin_metrics_and_records_provenance(monkeypatch, tmp_path: Path) -> None:
+    """Resolve an authored encoder and dataset through the CLI into real scoring."""
+    _dataset(tmp_path)
+    reid = tmp_path / "custom-reid.yaml"
+    reid.write_text(
+        "id: custom-reid\nweights:\n  path: custom-weights.pt\n"
+        "runtime:\n  device: cpu\n  precision: fp32\n"
+        "preprocessing:\n  mode: resize\n  image_size: [256, 128]\n"
+    )
+    experiment = tmp_path / "saved.yaml"
+    experiment.write_text("dataset:\n  ref: dataset.yaml\nreid:\n  ref: ./custom-reid.yaml\n")
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    original_resolver = saved_detections.resolve_reid_spec
+
+    def resolve_encoder(reference):
+        assert Path(reference) == reid.resolve()
+        return original_resolver(str(reference))
+
+    monkeypatch.setattr(saved_detections, "resolve_reid_spec", resolve_encoder)
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "eval",
+            "--experiment",
+            str(experiment),
+            "--tracker",
+            "occluboost",
+            "--cache-inputs",
+            "--project",
+            str(tmp_path / "runs"),
+        ],
+    )
+
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert "HOTA" in result.output
+    assert encoder.calls == 2
+    metadata = json.loads((tmp_path / "runs/val/run.json").read_text())
+    assert metadata["status"] == "complete"
+    assert metadata["experiment_id"] == "saved"
+    assert metadata["experiment_config"] == str(experiment.resolve())
+    assert metadata["reid"]["profile"] == str(reid.resolve())
+    protocol = json.loads((tmp_path / "runs/val/evaluation.json").read_text())
     assert protocol["tracking"]["geometry"] == "2d"
 
 

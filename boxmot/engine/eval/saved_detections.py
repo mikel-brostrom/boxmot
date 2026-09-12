@@ -112,6 +112,8 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
         manifest = {
             "status": "running",
             "boxmot_version": __version__,
+            "experiment_id": getattr(args, "experiment_id", None),
+            "experiment_config": str(args.experiment) if getattr(args, "experiment", None) else None,
             "dataset_id": dataset.id,
             "dataset_config": str(dataset.config_path),
             "split": dataset.split,

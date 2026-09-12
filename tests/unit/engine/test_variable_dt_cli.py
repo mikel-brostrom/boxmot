@@ -32,7 +32,7 @@ def test_cli_timing_flags_preserve_optional_override(monkeypatch, mode, flag, ex
     if mode == "track":
         argv += ["--source", "video.mp4"]
     else:
-        argv += ["--experiment", "fixture", "--build", "fixture-build"]
+        argv += ["--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build"]
     if flag is not None:
         argv.append(flag)
     result = CliRunner().invoke(boxmot, argv)

@@ -134,3 +134,97 @@ def test_saved_dataset_accepts_appearance_disabled_tracker_config(
     )
     assert result.exit_code == 0, (result.output, result.exception)
     assert captured["args"]["reid"] is None
+
+
+@pytest.mark.parametrize("tracker,reid", [("occluboost", "osnet-x0-25-msmt17"), ("bytetrack", None)])
+@pytest.mark.parametrize("split_override", (None, "val"))
+def test_saved_experiment_reuses_dataset_dispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tracker: str, reid: str | None, split_override: str | None
+) -> None:
+    """Authored selection and explicit split/root overrides reach saved replay."""
+    dataset = _saved_dataset(tmp_path / "data")
+    config = yaml.safe_load(dataset.read_text())
+    config["splits"]["train"] = config["splits"]["val"].copy()
+    dataset.write_text(yaml.safe_dump(config))
+    experiment = tmp_path / "saved.yaml"
+    authored = {"dataset": {"ref": "data/dataset.yaml", "split": "train"}}
+    if reid:
+        authored["reid"] = {"ref": reid}
+    experiment.write_text(yaml.safe_dump(authored))
+    captured = {}
+    command = importlib.import_module("boxmot.engine.commands.eval")
+    monkeypatch.setattr(command, "_prepare_replay_build", lambda *a, **kw: pytest.fail("Detector build requested"))
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.eval.saved_detections",
+        SimpleNamespace(main=lambda args: captured.update(args=vars(args))),
+    )
+    flags = [
+        "eval",
+        "--experiment",
+        str(experiment),
+        "--tracker",
+        tracker,
+        "--data-root",
+        str(dataset.parent),
+        "--cache-inputs",
+    ]
+    if split_override:
+        flags += ["--split", split_override]
+    result = CliRunner().invoke(boxmot, flags)
+
+    assert result.exit_code == 0, (result.output, result.exception)
+    args = captured["args"]
+    assert args["dataset"] == dataset.resolve()
+    assert args["experiment"] == str(experiment.resolve())
+    assert args["experiment_id"] == "saved"
+    assert args["split"] == (split_override or "train")
+    assert args["data_root"] == dataset.parent
+    assert args["saved_detections"] is True
+    assert args["cache_inputs"] is True
+    if reid:
+        from boxmot.reid.config import load_reid_config
+
+        assert Path(args["reid"]) == Path(load_reid_config(reid)["config_path"])
+    else:
+        assert args["reid"] is None
+
+
+@pytest.mark.parametrize(
+    "flags,message",
+    [
+        (["--detector", "yolo26n"], "cannot be combined with --experiment"),
+        (["--reid", "osnet-x0-25-msmt17"], "cannot be combined with --experiment"),
+        (["--build", "fixture-build"], "does not support --build"),
+        (["--calibrate-kf"], "does not support --calibrate-kf"),
+        (["--eval-masks"], "does not support --eval-masks"),
+    ],
+)
+def test_saved_experiment_rejects_conflicting_options(tmp_path: Path, flags: list[str], message: str) -> None:
+    """An experiment cannot silently discard saved inputs or authored components."""
+    _saved_dataset(tmp_path)
+    experiment = tmp_path / "saved.yaml"
+    experiment.write_text("dataset:\n  ref: dataset.yaml\n  split: val\n")
+    result = CliRunner().invoke(boxmot, ["eval", "--experiment", str(experiment), "--tracker", "bytetrack", *flags])
+
+    assert result.exit_code == 2, result.output
+    assert message in result.output
+
+
+@pytest.mark.parametrize("build", (None, "fixture-build"))
+def test_saved_experiment_tuning_fails_before_materialization_or_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, build: str | None
+) -> None:
+    """Selecting a build must not bypass the saved-input workflow contract."""
+    _saved_dataset(tmp_path)
+    experiment = tmp_path / "saved.yaml"
+    experiment.write_text("dataset:\n  ref: dataset.yaml\n")
+    for module in ("boxmot.engine.materialization.workflow", "boxmot.engine.tuning.tuner"):
+        monkeypatch.setitem(sys.modules, module, SimpleNamespace(main=lambda args: pytest.fail("Unsupported workflow")))
+    flags = ["tune", "--experiment", str(experiment), "--tracker", "bytetrack"]
+    if build:
+        flags += ["--build", build]
+    result = CliRunner().invoke(boxmot, flags)
+
+    assert result.exit_code == 2, result.output
+    assert "supports only eval; tune is not supported" in result.output

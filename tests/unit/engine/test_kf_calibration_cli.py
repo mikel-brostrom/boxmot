@@ -30,7 +30,7 @@ def test_dispatch_preserves_kalman_calibration_selection(monkeypatch, mode, flag
     monkeypatch.setattr(_support, "_run_engine_workflow", run_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", *flags],
     )
 
     assert result.exit_code == 0, result.output
@@ -50,7 +50,7 @@ def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_o
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags, *removed_options],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", *flags, *removed_options],
     )
 
     assert result.exit_code == 2
@@ -72,7 +72,7 @@ def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode,
         [
             mode,
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--calibrate-kf",
             "--tracker",
             tracker,
@@ -104,7 +104,7 @@ def test_kalman_calibration_dispatch_needs_no_search_dependencies(monkeypatch) -
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture", "--build", "fixture-build", "--calibrate-kf"],
+        ["eval", "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", "--calibrate-kf"],
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].calibrate_kf is True
@@ -118,7 +118,17 @@ def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, mo
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
-        boxmot, [mode, "--experiment", "fixture", "--tracker", tracker, "--tracker-backend", backend, "--variable-dt"]
+        boxmot,
+        [
+            mode,
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--tracker",
+            tracker,
+            "--tracker-backend",
+            backend,
+            "--variable-dt",
+        ],
     )
     assert result.exit_code == 2
     assert "does not support variable_dt" in result.output
@@ -151,7 +161,7 @@ def test_supported_kalman_trackers_reach_workflow(monkeypatch, mode, tracker) ->
         [
             mode,
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--tracker",
@@ -176,7 +186,7 @@ def test_tune_calibration_cannot_replace_a_resumed_search(monkeypatch) -> None:
         [
             "tune",
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--calibrate-kf",
@@ -193,7 +203,15 @@ def test_tune_resume_dispatches_without_recalibrating(monkeypatch) -> None:
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
-        ["tune", "--experiment", "fixture", "--build", "fixture-build", "--resume-tune", "previous-run"],
+        [
+            "tune",
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--build",
+            "fixture-build",
+            "--resume-tune",
+            "previous-run",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].calibrate_kf is False
@@ -213,7 +231,7 @@ def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch,
         [
             "tune",
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--tracker",
@@ -236,7 +254,7 @@ def test_tracker_config_selector_reaches_runtime_namespace(monkeypatch, mode) ->
     if mode == "track":
         argv += ["--source", "video.mp4"]
     else:
-        argv += ["--experiment", "fixture", "--build", "fixture-build"]
+        argv += ["--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build"]
     result = CliRunner().invoke(boxmot, argv)
 
     assert result.exit_code == 0, result.output
@@ -327,7 +345,7 @@ def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_pa
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--tracker-config", str(path), flag],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--tracker-config", str(path), flag],
     )
 
     assert result.exit_code == 2

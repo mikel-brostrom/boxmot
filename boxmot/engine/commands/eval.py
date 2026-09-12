@@ -58,7 +58,8 @@ _SENSOR_OPTIONS = frozenset(
 def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
     """Validate a saved box dataset before importing replay or appearance models."""
     reference = payload.get("dataset")
-    if not reference:
+    experiment = payload.get("experiment")
+    if not reference and not experiment:
         return None
 
     from boxmot.datasets.config import load_dataset_config
@@ -70,6 +71,27 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
 
     explicit = _explicit_cli_keys(ctx)
     try:
+        if experiment:
+            from boxmot.engine.config.experiments import resolve_experiment_config
+
+            components = explicit & {"detector", "reid"}
+            if components:
+                names = " and ".join("--" + name for name in sorted(components))
+                raise ValueError(
+                    f"{names} cannot be combined with --experiment because experiment YAML fixes perception components."
+                )
+            resolved = resolve_experiment_config(experiment, split=payload.get("split"), mode="eval")
+            selected = resolved["dataset"]
+            if not is_saved_2d_dataset(selected, selected["split"]):
+                return None
+            reference = selected.get("config_path", selected["id"])
+            payload = {
+                **payload,
+                "experiment": str(resolved["source_path"]),
+                "experiment_id": resolved["id"],
+                "split": selected["split"],
+                "reid": None if resolved["reid"] is None else resolved["reid"]["config_path"],
+            }
         config = load_dataset_config(reference)
         if not is_saved_2d_dataset(config, payload.get("split")):
             return None
@@ -83,6 +105,7 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
             )
         options = resolve_tracker_options(SimpleNamespace(**dict(payload)), include_defaults=True, factory_options=True)
         allowed = {
+            "experiment",
             "dataset",
             "data_root",
             "tracker",
@@ -212,7 +235,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     }
 
 
-@click.command(name="eval", help="Evaluate tracking performance from a perception build or saved-sensor dataset.")
+@click.command(name="eval", help="Evaluate tracking performance from a perception build or saved dataset predictions.")
 @replay_build_options(dataset_default=BOXMOT_DEFAULTS.eval.dataset)
 @data_root_option
 @split_option

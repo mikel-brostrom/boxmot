@@ -149,32 +149,40 @@ decisions, fusion, predictions, and metrics remain fresh for every run.
 
 ## Saved 2D detections
 
-The `kitti-2d-detections` dataset selects existing TrackR-CNN boxes, images,
-and native KITTI tracking ground truth. Evaluate them directly:
+The `kitti-mots-2d` dataset selects existing TrackR-CNN boxes, images, and
+native KITTI tracking ground truth from a multimodal sequence folder.
+Use the shipped experiment to evaluate its validation split with OSNet:
 
 ```bash
 boxmot eval \
-  --dataset ./kitti-mots/kitti-2d-detections.yaml \
+  --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots \
   --tracker occluboost \
-  --reid osnet-x0-25-msmt17 \
-  --split val \
   --cache-inputs \
   --project runs/kitti-2d
 ```
 
-Create the local YAML from the
-[saved 2D dataset preset](../config/datasets.md#existing-2d-detections), adjusting
-its root and paths to your folder. The config explicitly disables mask loading
-and declares no spatial inputs. This workflow generates ReID features from the
-images when appearance is enabled; `--cache-inputs` caches them together with
-parsed inputs and required image pixels. Omit `--reid` for motion-only tracking.
+The preset reads `sequences/{partition}/{sequence}/images`,
+`predictions/trackrcnn/{partition}/{sequence}.txt`, and
+`{partition}/label_02/{sequence}.txt` below `--data-root`.
+Choose `kitti-2d/train-trackrcnn-osnet` to evaluate the training split, or use
+`kitti-2d/val-trackrcnn` with `--tracker bytetrack` for motion-only tracking.
+The `*-yolo26n` experiments run fresh detector inference instead.
+
+Direct selection also works with `--dataset kitti-mots-2d --split val`
+and `--reid osnet-x0-25-msmt17`. The original KITTI directory layout uses
+`--dataset kitti-2d-detections`; other layouts can use a local YAML as described
+in the [saved 2D dataset presets](../config/datasets.md#existing-2d-detections).
+These configs explicitly disable mask loading and declare no spatial inputs.
+This workflow generates ReID features from the images when appearance is enabled;
+`--cache-inputs` caches them together with parsed inputs and required image pixels.
 BoxMOT's built-in HOTA, CLEAR, and Identity evaluators report 2D HOTA, MOTA,
 and IDF1 with KITTI visibility, distractor, and DontCare preprocessing.
 No TrackEval installation is required.
 
 Use `--sequence` to restrict the split and `--show` or `--save` for visualization.
-No detector, experiment, or build is required. This workflow uses one sequence
-worker and does not provide tuning or KF calibration.
+No detector or build is required. This workflow uses one sequence worker and
+does not provide materialization, tuning, or KF calibration.
 
 ## Saved TrackR-CNN masks
 
@@ -601,7 +609,7 @@ the initial worker-loading phase.
 
 ## Build resolution
 
-- When `--build` is omitted with `--experiment` or `--dataset` plus
+- For detector-based evaluation, when `--build` is omitted with `--experiment` or `--dataset` plus
   `--detector`, BoxMOT resolves the authored experiment and materializes its
   deterministic build below `--build-root`; an identical complete build is
   validated and reused.
@@ -609,7 +617,8 @@ the initial worker-loading phase.
 - A build ID is looked up only below `--build-root`.
 - `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then
   `./runs/materializations`.
-- Dataset-only evaluation requires `--build` when no detector is selected.
+- Dataset-only evaluation requires `--build` when no detector or saved detections are selected.
+- [Saved 2D experiments](#saved-2d-detections) replay their dataset inputs directly without a build.
 - There is no latest-build selection.
 
 The selected raw data root is used to verify ground-truth provenance. It

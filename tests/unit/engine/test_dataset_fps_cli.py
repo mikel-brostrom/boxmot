@@ -21,7 +21,7 @@ def _load_commands_before_workflow_patching() -> None:
 def test_dataset_fps_reaches_workflow_namespace(monkeypatch, command: str, fps: float | None) -> None:
     captured = {}
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
-    argv = [command, "--experiment", "fixture-experiment"]
+    argv = [command, "--experiment", "mot17/ablation-yolox-lmbn.yaml"]
     if command != "materialize":
         argv += ["--build", "fixture-build"]
     if fps is not None:
@@ -40,7 +40,7 @@ def test_dataset_fps_reaches_workflow_namespace(monkeypatch, command: str, fps: 
 def test_dataset_fps_rejects_invalid_target_before_workflow(monkeypatch, command: str, value: str) -> None:
     calls = []
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda *args: calls.append(args))
-    argv = [command, "--experiment", "fixture-experiment", "--fps", value]
+    argv = [command, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--fps", value]
     if command != "materialize":
         argv += ["--build", "fixture-build"]
 

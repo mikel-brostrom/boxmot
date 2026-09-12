@@ -294,7 +294,15 @@ def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command
 
     result = CliRunner().invoke(
         boxmot,
-        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", "--sequence-workers", "3"],
+        [
+            command,
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--build",
+            "fixture-build",
+            "--sequence-workers",
+            "3",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -346,7 +354,7 @@ def test_sequence_worker_options_fail_before_workflow_dispatch(monkeypatch, comm
 
     result = CliRunner().invoke(
         boxmot,
-        [command, "--experiment", "fixture-experiment", "--build", "fixture-build", option, value],
+        [command, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", option, value],
     )
 
     assert result.exit_code == 2
@@ -375,7 +383,7 @@ def test_dataset_without_build_requires_a_detector(command: str) -> None:
 def test_experiment_rejects_direct_component_overrides(command: str, option: str) -> None:
     result = CliRunner().invoke(
         boxmot,
-        [command, "--experiment", "fixture-experiment", option, "component-profile"],
+        [command, "--experiment", "mot17/ablation-yolox-lmbn.yaml", option, "component-profile"],
     )
 
     assert result.exit_code == 2
@@ -528,7 +536,7 @@ def test_without_build_materializes_experiment_once_before_replay(
         [
             command,
             "--experiment",
-            "fixture-experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--data-root",
             str(data_root),
             "--build-root",
@@ -543,7 +551,7 @@ def test_without_build_materializes_experiment_once_before_replay(
     assert result.exit_code == 0, result.output
     assert calls == ["materialize", command]
     materialize_args = captured["materialize"]
-    assert materialize_args.experiment == "fixture-experiment"
+    assert materialize_args.experiment == "mot17/ablation-yolox-lmbn.yaml"
     assert materialize_args.data_root == data_root
     assert materialize_args.build_root == build_root
     assert materialize_args.materialize_split == "ablation"
@@ -558,7 +566,7 @@ def test_without_build_materializes_experiment_once_before_replay(
     assert isinstance(replay_args.build, Path)
     assert replay_args.build_root == build_root
     assert replay_args.data_root == data_root
-    assert replay_args.experiment == "fixture-experiment"
+    assert replay_args.experiment == "mot17/ablation-yolox-lmbn.yaml"
     assert replay_args.split == "ablation"
     assert replay_args.calibrate_kf is calibrate_kf
     if command == "tune":
@@ -568,7 +576,7 @@ def test_without_build_materializes_experiment_once_before_replay(
 @pytest.mark.parametrize(
     "selection",
     (
-        ("--experiment", "fixture-experiment"),
+        ("--experiment", "mot17/ablation-yolox-lmbn.yaml"),
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )
@@ -610,7 +618,7 @@ def test_forwards_explicit_automatic_materialization_device(
 @pytest.mark.parametrize(
     "selection",
     (
-        ("--experiment", "fixture-experiment"),
+        ("--experiment", "mot17/ablation-yolox-lmbn.yaml"),
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )
@@ -737,7 +745,7 @@ def test_automatic_materialization_respects_appearance_profile(
         [
             command,
             "--experiment",
-            "fixture-experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--tracker",
             tracker,
             "--tracker-backend",
@@ -791,7 +799,7 @@ def test_automatic_tuning_materialization_respects_disabled_appearance_search(
         [
             "tune",
             "--experiment",
-            "fixture-experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--tracker",
             "botsort",
             "--tracker-config",
@@ -831,7 +839,7 @@ def test_mask_evaluation_rejects_other_datasets_before_materialization(
 def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture-experiment", "--allow-noncanonical-build"],
+        ["eval", "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--allow-noncanonical-build"],
     )
 
     assert result.exit_code == 2
@@ -841,7 +849,7 @@ def test_eval_noncanonical_opt_in_requires_explicit_build() -> None:
 @pytest.mark.parametrize(
     "selection",
     (
-        ("--experiment", "fixture-experiment"),
+        ("--experiment", "mot17/ablation-yolox-lmbn.yaml"),
         ("--dataset", "mot17", "--detector", "yolox-x-mot17", "--reid", "lmbn-n-duke"),
     ),
 )

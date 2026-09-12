@@ -10,7 +10,7 @@ from typing import Any, Mapping
 from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets.config import load_dataset_config
 from boxmot.detectors.config import load_detector_config
-from boxmot.engine.config.datasets import validate_perception_dataset_inputs
+from boxmot.engine.config.datasets import is_saved_2d_dataset, validate_perception_dataset_inputs
 from boxmot.reid.config import load_reid_config
 from boxmot.utils.config import CONFIG_ID_PATTERN, ConfigurationError, iter_config_paths, load_yaml_mapping
 
@@ -24,7 +24,7 @@ class _ResolvedExperiment:
 
     config: dict[str, Any]
     dataset_path: Path
-    detector_path: Path
+    detector_path: Path | None
     reid_path: Path | None
 
 
@@ -185,7 +185,10 @@ def _resolve_detector(
 
 def _resolve_reid(
     experiment: Mapping[str, Any],
+    *,
+    source_path: Path | None = None,
 ) -> dict[str, Any] | None:
+    """Resolve a ReID profile, preserving authored paths for saved-input replay."""
     reid_cfg = experiment.get("reid")
     reid_ref: str | None = None
     if isinstance(reid_cfg, dict):
@@ -200,6 +203,18 @@ def _resolve_reid(
     if not reid_ref:
         return None
 
+    if source_path is not None:
+        path = Path(reid_ref).expanduser()
+        local = source_path.parent / path
+        if path.is_absolute():
+            return load_reid_config(path)
+        if local.exists() or local.is_symlink() or "/" in reid_ref or "\\" in reid_ref:
+            return load_reid_config(local)
+        catalog = CONFIG_ROOT / "reid" / path
+        if not catalog.suffix:
+            catalog = catalog.with_suffix(".yaml")
+        if catalog.is_file():
+            return load_reid_config(catalog)
     return load_reid_config(reid_ref)
 
 
@@ -320,18 +335,44 @@ def _resolve_experiment(
             f'Dataset "{dataset["id"]}" has no split "{split_name}". Available splits: {available}.'
         )
     effective_mode = mode or experiment.get("mode")
-    _validate_evaluation_split(dataset, split_name, effective_mode)
-    try:
-        validate_perception_dataset_inputs(dataset, split_name, mode=effective_mode or "perception experiments")
-    except ValueError as error:
-        raise ConfigurationError(str(error)) from error
-
-    detector, detector_path = _resolve_detector(experiment, dataset)
-    reid = _resolve_reid(experiment)
-    segmentor = experiment.get("segmentor")
-    if segmentor is not None and not isinstance(segmentor, (str, dict)):
-        raise ConfigurationError(f'Experiment "{experiment_id}" segmentor must be a config reference or mapping.')
-    bridge, ignore_ids = _resolve_class_bridge(experiment, dataset, detector)
+    saved_detections = is_saved_2d_dataset(dataset, split_name)
+    if saved_detections:
+        if effective_mode is not None and str(effective_mode).lower() not in {"eval", "evaluation"}:
+            raise ConfigurationError(
+                f'Experiment "{experiment_id}" uses saved 2D detections and supports only eval; '
+                f'{effective_mode} is not supported. Use boxmot eval --experiment "{reference}".'
+            )
+        incompatible = set(experiment).intersection({"detector", "segmentor", "evaluation"})
+        if incompatible:
+            raise ConfigurationError(
+                f'Experiment "{experiment_id}" uses saved 2D detections and must omit '
+                f"{', '.join(sorted(incompatible))}; predictions and class IDs come from the dataset."
+            )
+        _validate_evaluation_split(dataset, split_name, effective_mode or "eval")
+        detector = detector_path = segmentor = None
+        bridge = sorted(
+            (
+                {"name": name, "dataset_id": int(metadata["id"])}
+                for name, metadata in dataset["classes"].items()
+                if metadata["evaluation"] == "target"
+            ),
+            key=lambda entry: entry["dataset_id"],
+        )
+        ignore_ids = sorted(
+            int(metadata["id"]) for metadata in dataset["classes"].values() if metadata["evaluation"] == "ignore"
+        )
+    else:
+        _validate_evaluation_split(dataset, split_name, effective_mode)
+        try:
+            validate_perception_dataset_inputs(dataset, split_name, mode=effective_mode or "perception experiments")
+        except ValueError as error:
+            raise ConfigurationError(str(error)) from error
+        detector, detector_path = _resolve_detector(experiment, dataset)
+        segmentor = experiment.get("segmentor")
+        if segmentor is not None and not isinstance(segmentor, (str, dict)):
+            raise ConfigurationError(f'Experiment "{experiment_id}" segmentor must be a config reference or mapping.')
+        bridge, ignore_ids = _resolve_class_bridge(experiment, dataset, detector)
+    reid = _resolve_reid(experiment, source_path=source_path if saved_detections else None)
     split_cfg = dataset["splits"][split_name]
 
     config = {
@@ -345,7 +386,7 @@ def _resolve_experiment(
             **({"split_path": split_cfg["path"]} if "path" in split_cfg else {}),
             **(
                 {"config_path": dataset["config_path"]}
-                if not Path(dataset["config_path"]).is_relative_to(CONFIG_ROOT / "datasets")
+                if saved_detections or not Path(dataset["config_path"]).is_relative_to(CONFIG_ROOT / "datasets")
                 else {}
             ),
             "fps": dataset["fps"],
@@ -360,7 +401,9 @@ def _resolve_experiment(
         },
         "detector": detector,
         "segmentor": deepcopy(segmentor),
-        "reid": None if reid is None else {key: deepcopy(value) for key, value in reid.items() if key != "config_path"},
+        "reid": None
+        if reid is None
+        else {key: deepcopy(value) for key, value in reid.items() if saved_detections or key != "config_path"},
         "evaluation": {
             "classes": bridge,
             "ignore_dataset_ids": ignore_ids,

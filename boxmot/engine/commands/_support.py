@@ -205,6 +205,12 @@ def _prepare_replay_build(
     if build_ref is None and allow_noncanonical_build:
         raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")
 
+    if experiment and mode == "tune":
+        try:
+            resolve_experiment_config(experiment, split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+
     if detector is not None:
         title = "Tuning" if mode == "tune" else "Evaluation"
         with _workflow_setup(title, "Resolving experiment…"):

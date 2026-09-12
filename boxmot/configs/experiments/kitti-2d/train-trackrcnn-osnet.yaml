@@ -1,0 +1,5 @@
+dataset:
+  ref: kitti-mots-2d
+  split: train
+reid:
+  ref: osnet-x0-25-msmt17

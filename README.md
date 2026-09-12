@@ -249,17 +249,18 @@ trackers with native tracking annotations. For example:
 boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n --split val
 ```
 
-To reuse saved TrackR-CNN 2D boxes with images and generate appearance features:
+To reuse saved TrackR-CNN boxes and images in an existing `kitti-mots` folder:
 
 ```bash
-boxmot eval --dataset kitti-2d-detections --tracker occluboost \
-  --reid osnet-x0-25-msmt17 --split val --cache-inputs
+boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots --tracker occluboost --cache-inputs
 ```
 
-The [saved-detection YAML](boxmot/configs/datasets/kitti-2d-detections.yaml)
-selects boxes without masks or spatial inputs. Adjust its root and paths for
-your folder; the [dataset guide](docs/config/datasets.md#existing-2d-detections)
-describes the layout. Both KITTI 2D workflows use BoxMOT's built-in HOTA, MOTA,
+The [saved-detection YAML](boxmot/configs/datasets/kitti-mots-2d.yaml)
+selects boxes without masks or spatial inputs; the experiment generates OSNet
+appearance features. Use `kitti-2d/val-trackrcnn` for motion-only trackers.
+The [dataset guide](docs/config/datasets.md#existing-2d-detections) describes
+the layout and original KITTI preset. Both KITTI 2D workflows use BoxMOT's built-in HOTA, MOTA,
 and IDF1 metrics; no TrackEval installation is required.
 
 [EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the

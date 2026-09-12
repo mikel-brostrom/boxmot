@@ -184,36 +184,52 @@ example above. OccluBoost evaluates 2D boxes; omit the sensor-only `--eval-3d` f
 
 ### Existing 2D detections
 
-Use `boxmot/configs/datasets/kitti-2d-detections.yaml` to evaluate the saved
-TrackR-CNN boxes with image trackers. It adds
-`predictions/trackrcnn/{partition}/{sequence}.txt` to the image and annotation
-layout above. Its `detections_2d.options.load_masks: false` explicitly selects
-boxes, scores, and classes; prediction masks and stored embeddings are not loaded.
-Calibration, ego poses, and 3D boxes are not declared by this config.
+The `kitti-mots-2d` dataset preset selects saved TrackR-CNN boxes and images
+from the existing multimodal sequence layout. Set `--data-root` to that folder:
 
 ```bash
-boxmot eval --dataset kitti-2d-detections --tracker occluboost \
-  --reid osnet-x0-25-msmt17 --split val --cache-inputs \
+boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots --tracker occluboost --cache-inputs \
   --project runs/kitti-2d
 ```
 
-This runs the existing detections without a detector or perception build.
-Appearance-enabled trackers require `--reid` to generate features from the
-images. Omit it for trackers such as ByteTrack, or when the selected tracker
-configuration disables appearance. `--cache-inputs` reuses parsed detections,
-required image pixels, annotations, and generated ReID features across runs;
-changed inputs or encoder settings invalidate the corresponding cache.
+The shipped dataset YAML, `boxmot/configs/datasets/kitti-mots-2d.yaml`, has
+`storage.root: .` and resolves these paths below `--data-root`:
+
+```text
+kitti-mots/
+├── sequences/training/0002/images/000000.png, 000001.png, ...
+├── predictions/trackrcnn/training/0002.txt
+└── training/label_02/0002.txt
+```
+
+The `train-trackrcnn` and `val-trackrcnn` experiments use the same 12 training
+and nine validation sequences as the fusion profile. Their `-osnet` variants
+generate ReID embeddings from images. For motion-only tracking, select
+`kitti-2d/val-trackrcnn` with `--tracker bytetrack`. These presets reuse saved
+predictions; the existing `*-yolo26n` experiments run detector inference.
+
+You can also select the dataset directly with
+`--dataset kitti-mots-2d --data-root ./kitti-mots --split val`, adding
+`--reid osnet-x0-25-msmt17` for appearance-enabled trackers.
+`detections_2d.options.load_masks: false` explicitly selects boxes, scores,
+and classes; prediction masks and stored embeddings are not loaded.
+Calibration, ego poses, and 3D boxes are not declared by this config.
+`--cache-inputs` reuses parsed detections, required image pixels, annotations,
+and generated ReID features across runs; changed inputs or encoder settings
+invalidate the corresponding cache.
 
 Scoring uses the same built-in 2D metrics and KITTI preprocessing as the
 perception-build workflow above. No TrackEval installation is required.
 
-For an existing folder, copy this YAML into it, set `storage.root: .`, and
-adjust the modality paths. For example, images in the multimodal sequence layout
-use `path: "sequences/{partition}/{sequence}/images"`. Run it with
-`--dataset ./kitti-mots/kitti-2d-detections.yaml`. Ground truth must be native
-KITTI tracking labels aligned to those images. This saved-box workflow supports
-`eval` with one sequence worker; tuning and KF calibration still use the
-perception-build workflow above.
+For the original KITTI layout, `kitti-2d-detections` instead reads images from
+`{partition}/image_02/{sequence}` under `storage.root: KITTI`. Use
+`--dataset kitti-2d-detections` with a data root containing that `KITTI` folder.
+For another layout, copy either dataset YAML into your data folder, set
+`storage.root: .`, and adjust its modality paths. Ground truth must be native
+KITTI tracking labels aligned to the images. This saved-box workflow supports
+`eval` with one sequence worker; materialization, tuning, and KF calibration
+use the detector-based workflow above.
 
 ## KITTI MOTS instance masks
 
