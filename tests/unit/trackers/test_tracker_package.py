@@ -228,3 +228,78 @@ def test_removed_common_tracks_exports_stay_absent() -> None:
     assert not hasattr(common_module, "tracks")
     assert not hasattr(common_module, "BoxTrack")
     assert not hasattr(common_module, "SortBoxTrack")
+
+
+def test_concrete_tracker_lookups_raise_guided_error() -> None:
+    """Regression test for https://github.com/mikel-brostrom/boxmot/issues/2353.
+
+    Concrete tracker implementations are deliberately absent from the
+    ``boxmot.trackers`` namespace (public API is contracts + factory -- see the
+    v24 package contract test), so attribute access must keep failing. The
+    failure should instead tell the user where the tracker actually lives.
+    """
+    trackers_module = importlib.import_module("boxmot.trackers")
+
+    for tracker_name, class_name, module_name in _TRACKER_EXPORTS:
+        assert not hasattr(trackers_module, class_name)
+        with pytest.raises(AttributeError) as excinfo:
+            getattr(trackers_module, class_name)
+        message = str(excinfo.value)
+        assert f"create_tracker(TrackerSpec(name={tracker_name!r}))" in message
+        assert f"from boxmot import {class_name}" in message
+        assert f"from {module_name} import {class_name}" in message
+        assert class_name not in trackers_module.__all__
+
+    # The lowercase manifest key is guided too.
+    with pytest.raises(AttributeError, match=r"create_tracker\(TrackerSpec\(name='botsort'\)\)"):
+        getattr(trackers_module, "botsort")
+
+
+def test_trackers_subpackage_public_contract_stays_clean() -> None:
+    """The guided error must not widen the public namespace (v24 contract)."""
+    trackers_module = importlib.import_module("boxmot.trackers")
+
+    assert trackers_module.__all__ == (
+        "GeometryKind",
+        "ReIDConfigurableTracker",
+        "Tracker",
+        "TrackerCapabilities",
+        "TrackerFamily",
+        "TrackerRequirements",
+        "TrackerSpec",
+        "create_tracker",
+    )
+    for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
+        assert not hasattr(trackers_module, implementation_name)
+
+
+def test_guided_error_path_imports_no_implementation() -> None:
+    """Raising the guided error must not import any implementation module."""
+    repo_root = Path(__file__).resolve().parents[3]
+    script = """
+import sys
+
+import boxmot.trackers
+
+assert not any(
+    name.startswith(("boxmot.trackers.box.", "boxmot.trackers.multimodal."))
+    for name in sys.modules
+)
+
+try:
+    boxmot.trackers.BotSort
+except AttributeError as exc:
+    assert "create_tracker(TrackerSpec(name='botsort'))" in str(exc), str(exc)
+else:
+    raise AssertionError("expected AttributeError")
+
+assert "boxmot.trackers.box.botsort.tracker" not in sys.modules
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
