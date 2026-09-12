@@ -1,0 +1,195 @@
+from __future__ import annotations
+
+from collections import deque
+from typing import Optional
+
+import numpy as np
+
+from boxmot.trackers.common.appearance import (
+    ema_update_embedding,
+)
+from boxmot.trackers.common.geometry.obb import (
+    align_obb_measurement,
+    smooth_obb_corners,
+)
+from boxmot.trackers.common.motion.cmc.state import transform_obb_kalman_states
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
+from boxmot.trackers.common.track_state import SortBoxTrack
+from boxmot.trackers.common.tracking.track import TrackIdAllocator, TrackState, sync_track_meta
+
+
+class KalmanBoxTracker(SortBoxTrack):
+    """
+    Single object tracker using a Kalman filter.
+
+    Supports both axis-aligned (default) and oriented (OBB) bounding boxes.
+    When ``is_obb=True`` the tracker stores ``(cx, cy, w, h, angle)`` state and
+    expects detections in the layout
+    ``(cx, cy, w, h, angle, conf, cls, det_ind)``.
+    """
+
+    def __init__(
+        self,
+        det,
+        max_obs,
+        emb: Optional[np.ndarray] = None,
+        is_obb: bool = False,
+        adaptive_kf: bool = False,
+        id_allocator: TrackIdAllocator | None = None,
+        track_id: int | None = None,
+        *,
+        noise_config: KalmanNoiseConfig | None = None,
+    ):
+        self.is_obb = bool(is_obb)
+        self._assign_sort_id(id_allocator=id_allocator, track_id=track_id)
+        if self.is_obb:
+            # det = (cx, cy, w, h, angle, conf, cls, det_ind)
+            self.conf = float(det[5])
+            self.cls = int(det[6])
+            self.det_ind = int(det[7])
+        else:
+            self.conf = float(det[4])
+            self.cls = int(det[5])
+            self.det_ind = int(det[6])
+        self.motion_model = create_motion_model(
+            MotionModelKind.XYHR,
+            is_obb=self.is_obb,
+            adaptive_kf=adaptive_kf,
+            cls_id=int(self.cls),
+        )
+        self.kf = self.motion_model.create_filter(
+            self.motion_model.to_measurement(det[:5] if self.is_obb else det[:4], column=False),
+            noise_config=noise_config,
+        )
+        self.emb = emb
+        self._init_sort_counters(max_obs=max_obs)
+        self.history_observations = deque([], maxlen=self.max_obs)
+        self._plot_angle = None
+        self._append_current_history()
+        self._sync_initial_sort_meta()
+
+    def get_confidence(self, coef: float = 0.9) -> float:
+        n = 7
+        if self.age < n:
+            return coef ** (n - self.age)
+        return coef ** (self.time_since_update - 1)
+
+    def update(self, det: np.ndarray) -> None:
+        """Correct geometry and update observation metadata."""
+        measurement = self._prepare_update(det)
+        self.kf.update(measurement)
+        self._finish_update(measurement)
+
+    def _prepare_update(self, det: np.ndarray) -> np.ndarray:
+        """Align the observation before the scalar or batched correction."""
+        self.time_since_update = 0
+        self.hit_streak += 1
+        if self.is_obb:
+            aligned = align_obb_measurement(det[:5], self.get_state()[0])
+            measurement = self.motion_model.to_measurement(aligned, column=False)
+            self.conf = float(det[5])
+            self.cls = int(det[6])
+            self.det_ind = int(det[7])
+        else:
+            measurement = self.motion_model.to_measurement(det[:4], column=False)
+            self.conf = float(det[4])
+            self.cls = int(det[5])
+            self.det_ind = int(det[6])
+        return measurement
+
+    def _finish_update(self, measurement: np.ndarray) -> None:
+        """Record the corrected geometry after Kalman arithmetic completes."""
+        self._append_current_history()
+        sync_track_meta(self, TrackState.TRACKED)
+
+    def _append_current_history(self) -> None:
+        """Append corrected display geometry using the shared 4/8-value contract."""
+        box = self.get_state()[0].astype(np.float32)
+        if self.is_obb:
+            box, self._plot_angle = smooth_obb_corners(box, self._plot_angle)
+        else:
+            box = box[:4]
+        self.history_observations.append(np.asarray(box, dtype=np.float32).copy())
+
+    def camera_update(self, transform: np.ndarray) -> None:
+        """Transform this track using its AABB or OBB CMC policy."""
+        self.multi_camera_update([self], transform)
+
+    @classmethod
+    def multi_camera_update(cls, tracks, transform: np.ndarray) -> None:
+        """Warp OBB states fully and AABB measurement diagonals in batches."""
+        matrix = np.asarray(transform, dtype=float)
+        if matrix.shape == (2, 3):
+            matrix = np.vstack([matrix, [0.0, 0.0, 1.0]])
+        elif matrix.shape != (3, 3):
+            raise ValueError(f"Expected 2×3 or 3×3 matrix, got {matrix.shape}")
+        for is_obb in (False, True):
+            group = [track for track in tracks if track.is_obb == is_obb]
+            if not group:
+                continue
+            model = group[0].motion_model
+            means = np.asarray([track.kf.x for track in group])
+            if is_obb:
+                means, covariances = transform_obb_kalman_states(
+                    means,
+                    np.asarray([track.kf.covariance for track in group]),
+                    matrix,
+                    measurement_to_box=model.to_boxes,
+                    box_to_measurement=model.to_measurements,
+                    velocity_measurement_indices=(0, 1, 2, 3, 4),
+                )
+                for track, mean, covariance in zip(group, means, covariances):
+                    track.kf.x, track.kf.covariance = mean, covariance
+                continue
+            # Retain the measurement-only diagonal endpoint contract used for
+            # tuning BoostTrack/OccluBoost, including its homography policy.
+            endpoints = model.to_boxes(means).reshape(-1, 2, 2)
+            homogeneous = np.concatenate((endpoints, np.ones((*endpoints.shape[:2], 1))), axis=2)
+            warped = (homogeneous @ matrix.T)[..., :2]
+            sizes = warped[:, 1] - warped[:, 0]
+            measurements = np.column_stack((warped[:, 0] + sizes / 2.0, sizes[:, 1], sizes[:, 0] / sizes[:, 1]))
+            for track, measurement in zip(group, measurements):
+                track.kf.x[:4] = measurement
+
+    def predict(self, *, dt: float | None = None) -> np.ndarray:
+        """Predict geometry over an optional elapsed time interval."""
+        self._prepare_prediction(dt=dt)
+        self.kf.predict(dt=dt)
+        return self._finish_prediction()
+
+    def _prepare_prediction(self, *, dt: float | None = None) -> None:
+        """XYHR needs no track-level motion adjustment before prediction."""
+
+    def _finish_prediction(self) -> np.ndarray:
+        """Advance lifecycle counters after scalar or batched prediction."""
+        self.age += 1
+        if self.time_since_update > 0:
+            self.hit_streak = 0
+        self.time_since_update += 1
+        sync_track_meta(self)
+        return self.get_state()
+
+    def get_state(self):
+        return self.motion_model.to_box(self.kf.x)
+
+    @property
+    def xywha(self) -> np.ndarray:
+        """Return the current OBB state as ``[cx, cy, w, h, angle]``.
+
+        Available for both AABB and OBB tracks; AABB tracks return ``angle=0``.
+        """
+        if self.is_obb:
+            return self.get_state()[0].astype(float)
+        x1, y1, x2, y2 = self.get_state()[0]
+        cx = (x1 + x2) * 0.5
+        cy = (y1 + y2) * 0.5
+        w = max(float(x2 - x1), 1e-4)
+        h = max(float(y2 - y1), 1e-4)
+        return np.array([cx, cy, w, h, 0.0], dtype=float)
+
+    def update_emb(self, emb, alpha=0.9):
+        self.emb = ema_update_embedding(self.emb, emb, alpha=alpha)
+
+    def get_emb(self):
+        return self.emb

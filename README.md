@@ -39,7 +39,7 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
+- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
   `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
 - Swappable components with explicit capabilities and requirements.
@@ -63,6 +63,12 @@ CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
 those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 `research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
+
+Add optional dependencies explicitly with `boxmot install --extra onnx`
+(repeat `--extra` for multiple workflows). Download helpers, ReID backends,
+exporters, tuning, and research report missing dependencies when used. See
+[Install dependencies](docs/modes/install.md) for interpreter selection and
+package requirements.
 
 ## Benchmark Results
 
@@ -229,6 +235,67 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 
 </div>
 
+[MafHda](docs/trackers/maf_hda.md) is the Python MAF_HDA/GMPHD_MAF port for
+mask-aware tracking. It requires AABB detections, nonempty full-frame instance
+masks, and the current image.
+Use `boxmot track --tracker maf_hda --detections DIR --images DIR --instances DIR` to replay saved KITTI TrackR-CNN
+predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
+MafHda is not included in the box-only benchmark table above.
+
+[KITTI 2D](docs/config/datasets.md#kitti-2d-tracking) supports image and box
+trackers with native tracking annotations. For example:
+
+```bash
+boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n --split val
+```
+
+To reuse saved TrackR-CNN boxes and images in an existing `kitti-mots` folder:
+
+```bash
+boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots --tracker occluboost --cache-inputs
+```
+
+The [saved-detection YAML](boxmot/configs/datasets/kitti-mots-2d.yaml)
+selects boxes without masks or spatial inputs; the experiment generates OSNet
+appearance features. Use `kitti-2d/val-trackrcnn` for motion-only trackers.
+The [dataset guide](docs/config/datasets.md#existing-2d-detections) describes
+the layout and original KITTI preset. Both KITTI 2D workflows use BoxMOT's built-in HOTA, MOTA,
+and IDF1 metrics; no TrackEval installation is required.
+
+[EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
+Python API using independent detection batches and camera calibration. It
+returns image and spatial tracks with shared identities. The
+`boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
+TrackR-CNN predictions against MOTS masks by default. Add
+[`--eval-3d`](docs/trackers/eagermot.md#evaluate-3d-tracks) to score spatial tracks
+using volumetric **3D HOTA/MOTA/IDF1** from the existing tracking labels.
+Add `--eval-ap` for official KITTI **2D/3D AP40 (Easy / Moderate / Hard)** and
+separate projected **2D tracking** metrics; that option requires exact object labels
+and the [official evaluators](docs/trackers/eagermot.md#evaluate-3d-tracks).
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot --split val \
+  --eval-3d --project runs/kitti-3d
+```
+
+The optional 2D reports use projections of the evaluated spatial tracks. Predictions
+are saved in `kitti_3d/<sequence>.txt`; AP and tracking metrics have separate files.
+Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
+with a multimodal sequence dataset to optimize separate car and pedestrian profiles
+together for class-average mask HOTA, then evaluate `best.yaml` with
+`boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
+its images, annotations, calibration, and poses. `dataset.yaml` defines the
+sequences, splits, classes, and per-modality encodings and paths in the same
+schema used by built-in datasets.
+With identity-bearing 3D annotations, add [`--calibrate-kf`](docs/trackers/eagermot.md#calibrate-3d-kalman-noise)
+to fit the 3D Kalman noise before evaluation or tracker tuning.
+For your own multimodal recordings and detector outputs, start from the
+[sensor dataset config](boxmot/configs/datasets/sensor-fusion.yaml) and follow
+the [setup guide](examples/datasets/sensor-fusion/README.md). The config defines
+portable paths, custom sequence/split names, frame timing, and the required
+image, 2D/3D detection, calibration, and ego-pose formats.
+
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
@@ -257,6 +324,18 @@ boxmot eval \
 
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
+
+For repeated evaluations or tuning, add
+[`--cache-inputs`](docs/modes/eval.md#cache-replay-inputs-for-repeated-runs)
+to reuse detections, masks, requested images and embeddings, sensor calibration
+and poses, and ground truth. Image and sensor tuning reuse sequence workers
+across trials while creating fresh tracker state each time.
+
+For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
+reads original instance PNGs into canonical frames, track IDs, masks, and ignore
+regions. The `kitti-mots` profile supports materialization, evaluation, and
+tuning with the official sequence splits. [MOTS evaluation](docs/guides/evaluation.md#kitti-mots-evaluation)
+uses box IoU by default; add `--eval-masks` for segmentation HOTA, CLEAR, and Identity.
 
 Use NumPy detections and BGR images directly:
 

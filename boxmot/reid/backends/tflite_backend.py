@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
-from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
+from boxmot.reid.backends.dependencies import require_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -42,12 +42,9 @@ class TFLiteBackend(BaseModelBackend):
         # self.current_allocated_batch_size: int = None
 
     def _get_interpreter_class(self) -> type[Any]:
-        """Resolve the LiteRT interpreter class, installing LiteRT when needed."""
-        try:
-            litert = import_module("ai_edge_litert.interpreter")
-        except ModuleNotFoundError:
-            ensure_reid_backend_requirements(self.checker, "tflite")
-            litert = import_module("ai_edge_litert.interpreter")
+        """Validate the LiteRT runtime and resolve its interpreter class."""
+        require_reid_backend_requirements("tflite")
+        litert = import_module("ai_edge_litert.interpreter")
         return litert.Interpreter
 
     def load_model(self, w):

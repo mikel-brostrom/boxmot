@@ -1,0 +1,69 @@
+# Copy to <your-dataset>/dataset.yaml, supply payloads, and edit this config.
+id: sensor-fusion
+format:
+  layout: sequence
+  box_type: aabb
+storage:
+  # Relative to a local YAML; built-in presets resolve beneath datasets/mot.
+  root: .
+classes:
+  target:
+    car: 1
+    pedestrian: 2
+  ignore:
+    ignore: 10
+fps: 10
+default_split: val
+
+splits:
+  train:
+    partition: recordings
+    sequences: [drive-001]
+    has_ground_truth: true
+  val:
+    partition: recordings
+    sequences: [drive-002]
+    has_ground_truth: true
+
+modalities:
+  images:
+    format: image-directory
+    path: sequences/{partition}/{sequence}/images
+  ground_truth:
+    format: instance-png
+    path: sequences/{partition}/{sequence}/ground_truth
+    options:
+      class_divisor: 1000
+      background_id: 0
+      ignore_ids: [10000]
+  # Identity-bearing sequence labels for 3D tracking evaluation and KF calibration.
+  ground_truth_3d:
+    format: kitti-tracking-labels
+    path: annotations/{partition}/{sequence}.txt
+    options:
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
+  # Required only by --eval-ap: native 15-field object labels for these exact images.
+  # Each sequence directory contains 000000.txt, 000001.txt, ...; do not derive
+  # object labels or fractional truncation from 17-field tracking labels.
+  # ground_truth_objects:
+  #   format: kitti-object-labels
+  #   path: annotations/objects/{partition}/{sequence}
+  calibration:
+    format: kitti-p2
+    path: sequences/{partition}/{sequence}/calibration.txt
+  # Optional: omit this modality to track and calibrate in camera coordinates.
+  poses:
+    format: camera-to-world-npy
+    path: sequences/{partition}/{sequence}/poses.npy
+  # Required for mask scoring; can be omitted for --eval-3d.
+  detections_2d:
+    format: trackrcnn
+    path: predictions/image/{partition}/{sequence}.txt
+  detections_3d:
+    format: kitti-detections
+    paths:
+      - predictions/car/{partition}/{sequence}
+      - predictions/pedestrian/{partition}/{sequence}
+    options:
+      score_transform: odds
+      ignore_classes: [Cyclist]

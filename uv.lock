@@ -418,6 +418,9 @@ evolve = [
     { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11' or (extra == 'extra-6-boxmot-cpu' and extra == 'extra-6-boxmot-cu130') or (extra == 'extra-6-boxmot-cu130' and extra == 'group-6-boxmot-service-runtime')" },
     { name = "seaborn" },
 ]
+mots = [
+    { name = "pycocotools" },
+]
 onnx = [
     { name = "onnx" },
     { name = "onnxruntime" },

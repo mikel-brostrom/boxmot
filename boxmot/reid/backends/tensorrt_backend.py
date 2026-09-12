@@ -1,10 +1,12 @@
 from collections import OrderedDict, namedtuple
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 
 from boxmot.reid.backends.base_backend import BaseModelBackend
-from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
+from boxmot.reid.backends.dependencies import require_reid_backend_requirements
 from boxmot.utils import logger as LOGGER
 
 
@@ -18,23 +20,25 @@ class TensorRTBackend(BaseModelBackend):
         self.nhwc = False
         self.half = half
 
-    def load_model(self, w):
+    def load_model(self, w: str | Path) -> None:
+        """Load a CUDA engine on the explicitly selected logical GPU."""
+        if self.device.type != "cuda":
+            raise ValueError("TensorRT ReID requires a CUDA device; select device='cuda:0' or another CUDA index.")
         LOGGER.info(f"Loading {w} for TensorRT inference...")
-        ensure_reid_backend_requirements(self.checker, "tensorrt")
+        require_reid_backend_requirements("tensorrt")
         try:
             import tensorrt as trt  # TensorRT library
         except ImportError as exc:
             raise ImportError(
-                "TensorRT auto-install completed, but the 'tensorrt' module still "
-                "could not be imported. Check CUDA, Python, and NVIDIA package compatibility."
+                "TensorRT is installed, but the 'tensorrt' module could not be imported. "
+                "Check CUDA, Python, and NVIDIA package compatibility."
             ) from exc
 
-        if self.device.type == "cpu":
-            if torch.cuda.is_available():
-                self.device = torch.device("cuda:0")
-            else:
-                raise ValueError("CUDA device not available for TensorRT inference.")
+        with torch.cuda.device(self.device):
+            self._load_engine(w, trt)
 
+    def _load_engine(self, w: str | Path, trt: Any) -> None:
+        """Create the engine, execution context, and bindings on the current GPU."""
         Binding = namedtuple("Binding", ("name", "dtype", "shape", "data", "ptr"))
         logger = trt.Logger(trt.Logger.INFO)
 
@@ -102,7 +106,13 @@ class TensorRTBackend(BaseModelBackend):
 
         self.binding_addrs = OrderedDict((n, d.ptr) for n, d in self.bindings.items())
 
-    def forward(self, im_batch):
+    def forward(self, im_batch: torch.Tensor) -> torch.Tensor:
+        """Execute on the engine's GPU and restore the caller's current device."""
+        with torch.cuda.device(self.device):
+            return self._forward_on_device(im_batch)
+
+    def _forward_on_device(self, im_batch: torch.Tensor) -> torch.Tensor:
+        """Run batches with the engine's CUDA context already selected."""
         temp_im_batch = im_batch.clone()
         batch_array = []
         inp_batch = im_batch.shape[0]

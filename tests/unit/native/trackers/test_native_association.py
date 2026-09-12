@@ -12,11 +12,11 @@ from boxmot.native.trackers import occluboost as occluboost_binding
 from boxmot.native.trackers import ocsort as ocsort_binding
 from boxmot.native.trackers import sfsort as sfsort_binding
 from boxmot.structures import MaskBatch
-from boxmot.trackers.box.botsort import native as botsort
-from boxmot.trackers.box.bytetrack import native as bytetrack
-from boxmot.trackers.box.occluboost import native as occluboost
-from boxmot.trackers.box.ocsort import native as ocsort
-from boxmot.trackers.box.sfsort import native as sfsort
+from boxmot.trackers.botsort import native as botsort
+from boxmot.trackers.bytetrack import native as bytetrack
+from boxmot.trackers.occluboost import native as occluboost
+from boxmot.trackers.ocsort import native as ocsort
+from boxmot.trackers.sfsort import native as sfsort
 
 from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr, update_rows
 
@@ -73,15 +73,16 @@ def test_native_adapter_revalidates_mutable_canonical_tensors() -> None:
     tracker.close()
 
 
-def test_native_adapter_validates_mask_and_frame_spatial_alignment() -> None:
+@pytest.mark.parametrize("mask_shape", ((40, 50), (80, 100)))
+def test_native_adapter_rejects_unused_masks_before_spatial_alignment(mask_shape: tuple[int, int]) -> None:
     library = _FakeLibrary()
     tracker = bytetrack.NativeByteTrackTracker(geometry="aabb", library=library)
     detections = detections_from_rows(np.array([[10, 10, 20, 20, 0.95, 0]], dtype=np.float32)).with_masks(
-        MaskBatch(torch.zeros((1, 40, 50), dtype=torch.bool))
+        MaskBatch(torch.zeros((1, *mask_shape), dtype=torch.bool))
     )
     frame = frame_from_bgr(np.zeros((80, 100, 3), dtype=np.uint8))
 
-    with pytest.raises(ValueError, match="masks must match the frame spatial size"):
+    with pytest.raises(ValueError, match="does not use detection masks"):
         tracker.update(detections, frame)
 
     assert library.calls == []

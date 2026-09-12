@@ -46,6 +46,15 @@ for the complete formulas and limitations.
 
 ## Presets
 
-`presets/` contains named scalar parameter profiles for a particular dataset,
-split, or published result. Presets and generated tuning results contain
-resolved runtime values only and overlay the defaults in `<tracker>.yaml`.
+`presets/` contains named parameter profiles for a particular dataset, split,
+or published result. Single-profile presets contain scalar runtime values
+that overlay the defaults in `<tracker>.yaml` and load with `--tracker-config`.
+
+`presets/eagermot-kitti-mots-val.yaml` stores the tuned KITTI MOTS validation
+profiles together under `car` and `pedestrian`. It uses the same class mapping
+as EagerMOT tuning's `best.yaml` and loads through evaluation's `--class-config`:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --class-config boxmot/configs/trackers/presets/eagermot-kitti-mots-val.yaml
+```

@@ -14,8 +14,8 @@ import pytest
 import torch
 
 import boxmot.trackers as public_trackers
-import boxmot.trackers.factory as tracker_factory
-import boxmot.trackers.registry as tracker_registry
+import boxmot.trackers.common.factory as tracker_factory
+import boxmot.trackers.common.registry as tracker_registry
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import (
@@ -27,8 +27,8 @@ from boxmot.trackers import (
     TrackerSpec,
     create_tracker,
 )
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.config import TRACKER_CONFIGS_DIR
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR
 
 
 def _frame(sample_id: str = "sequence/000001", *, height: int = 64, width: int = 64) -> Frame:
@@ -143,8 +143,15 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.TrackerRequirements is TrackerRequirements
     assert public_trackers.TrackerSpec is TrackerSpec
     assert public_trackers.create_tracker is create_tracker
-    assert tuple(inspect.signature(Tracker.update).parameters) == ("self", "detections", "frame", "timestamp_s")
-    for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "Sam2Mot"):
+    assert tuple(inspect.signature(Tracker.update).parameters) == (
+        "self",
+        "detections",
+        "frame",
+        "timestamp_s",
+        "detections_3d",
+        "camera",
+    )
+    for implementation_name in ("ByteTrack", "BotSort", "StrongSort", "MafHda"):
         assert not hasattr(public_trackers, implementation_name)
 
 
@@ -206,9 +213,13 @@ def test_package_root_import_does_not_load_tracker_or_heavy_runtimes() -> None:
 import sys
 import boxmot
 
-assert not any(name.startswith("boxmot.trackers") for name in sys.modules)
+assert {name for name in sys.modules if name.startswith("boxmot.trackers")} == {
+    "boxmot.trackers",
+    "boxmot.trackers.common",
+    "boxmot.trackers.common.manifest",
+}
 assert not any(name.startswith("boxmot.native") for name in sys.modules)
-assert not any(name in sys.modules for name in ("cv2", "numpy", "torch"))
+assert not any(name in sys.modules for name in ("cv2", "numpy", "torch", "yaml"))
 """
     completed = subprocess.run(
         [sys.executable, "-c", script],
@@ -233,8 +244,9 @@ def test_base_tracker_accepts_exact_packed_numpy_layout_for_configured_mode(
     geometry_columns: int,
 ) -> None:
     signature = inspect.signature(BaseTracker.update)
-    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s")
-    assert signature.parameters["timestamp_s"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert tuple(signature.parameters) == ("self", "detections", "frame", "timestamp_s", "detections_3d", "camera")
+    for name in ("timestamp_s", "detections_3d", "camera"):
+        assert signature.parameters[name].kind is inspect.Parameter.KEYWORD_ONLY
 
     tracker = _RecordingTracker(is_obb=is_obb)
     tracks = tracker.update(rows)
@@ -433,7 +445,7 @@ def test_private_adapter_initializes_dimensions_without_copying_frame_pixels(fra
         _frame(height=48, width=80) if frame_representation == "canonical" else np.zeros((48, 80, 3), dtype=np.uint8)
     )
 
-    tracker.update(_detections(height=48, width=80), frame)
+    tracker.update(_detections(height=48, width=80, embeddings=False, masks=False), frame)
 
     assert tracker.requirements == TrackerRequirements(frame=True, frame_dimensions_only=True)
     assert tracker.seen["img"] is None
@@ -484,7 +496,7 @@ def test_declared_requirements_are_strict(
 
 
 def test_frame_identity_and_mask_spatial_shape_are_strict() -> None:
-    tracker = _RecordingTracker()
+    tracker = _RecordingTracker(needs_embeddings=True, needs_masks=True)
     with pytest.raises(ValueError, match="same sample"):
         tracker.update(_detections(), _frame("sequence/000002"))
     with pytest.raises(ValueError, match="must match the frame spatial size"):
@@ -572,9 +584,16 @@ def test_factory_merges_options_then_applies_canonical_spec_fields(monkeypatch: 
     assert captured["class_names"] == {0: "person", 2: "car"}
 
 
-@pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
-def test_all_python_trackers_consume_canonical_inputs(tracker_name: str, geometry: str) -> None:
+@pytest.mark.parametrize(
+    ("tracker_name", "geometry"),
+    (
+        (name, kind.value)
+        for name, definition in tracker_registry.TRACKER_DEFINITIONS.items()
+        if not definition.capabilities.requires_detections_3d
+        for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
+    ),
+)
+def test_image_trackers_consume_canonical_inputs(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry))
     assert isinstance(tracker, Tracker)
     assert isinstance(tracker.requirements, TrackerRequirements)
@@ -611,40 +630,18 @@ def test_embedding_tracker_can_be_resolved_as_geometry_only() -> None:
     assert isinstance(tracker.update(_detections(embeddings=False, masks=False)), Tracks)
 
 
-def test_sam2mot_hard_requires_and_returns_full_frame_boolean_masks() -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot"))
+def test_mask_tracker_requires_and_returns_full_frame_boolean_masks() -> None:
+    tracker = create_tracker(TrackerSpec("maf_hda"))
     assert tracker.requirements == TrackerRequirements(masks=True, frame=True)
     with pytest.raises(ValueError, match="requires full-frame detection masks"):
-        tracker.update(_detections(masks=False), _frame())
+        tracker.update(_detections(masks=False, embeddings=False), _frame())
     with pytest.raises(ValueError, match="requires a frame"):
-        tracker.update(_detections(), None)
+        tracker.update(_detections(embeddings=False), None)
 
-    tracks = tracker.update(_detections(), _frame())
+    tracks = tracker.update(_detections(embeddings=False), _frame())
     assert tracks.masks is not None
     assert tracks.masks.values.dtype is torch.bool
     assert tracks.masks.values.shape == (len(tracks), 64, 64)
-
-
-@pytest.mark.parametrize("per_class", (False, True))
-def test_sam2mot_emits_propagated_tracks_with_full_frame_masks(per_class: bool) -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot", per_class=per_class))
-    frame = _frame()
-    first = tracker.update(_detections(), frame)
-    empty = Detections(
-        geometry=Boxes(torch.empty((0, 4), dtype=torch.float32)),
-        scores=torch.empty(0, dtype=torch.float32),
-        class_ids=torch.empty(0, dtype=torch.int64),
-        sample_id=frame.sample_id,
-        masks=MaskBatch(torch.empty((0, 64, 64), dtype=torch.bool)),
-    )
-
-    tracks = tracker.update(empty, frame)
-
-    assert tracks.track_ids.tolist() == first.track_ids.tolist()
-    assert tracks.detection_indices.tolist() == [-1]
-    assert tracks.masks is not None
-    assert tracks.masks.values.shape == (1, 64, 64)
-    torch.testing.assert_close(tracks.masks.values, first.masks.values)
 
 
 def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> None:

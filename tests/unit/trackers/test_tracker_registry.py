@@ -8,15 +8,15 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-import boxmot.trackers.factory as tracker_factory
-import boxmot.trackers.registry as tracker_registry
-from boxmot._tracker_exports import _TRACKER_MANIFEST
+import boxmot.trackers.common.factory as tracker_factory
+import boxmot.trackers.common.registry as tracker_registry
 from boxmot.structures import GeometryKind
-from boxmot.trackers.base import BaseTracker
-from boxmot.trackers.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
-from boxmot.trackers.protocols import TrackerRequirements
-from boxmot.trackers.registry import supported_native_trackers
-from boxmot.trackers.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
+from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.common.registry import supported_native_trackers
+from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
 
 
 def test_tracker_public_mappings_are_derived_from_the_lazy_manifest() -> None:
@@ -38,13 +38,13 @@ def test_native_registry_matches_the_lazy_tracker_manifest() -> None:
 def test_native_factory_validates_registered_geometry_modes() -> None:
     definition = tracker_registry.TrackerDefinition(
         name="bytetrack",
-        class_path="boxmot.trackers.box.bytetrack.tracker.ByteTrack",
+        class_path="boxmot.trackers.bytetrack.tracker.ByteTrack",
         capabilities=TrackerCapabilities(
             family=TrackerFamily.BOX,
             geometry_kinds=frozenset({GeometryKind.AABB, GeometryKind.OBB}),
             accepts_frame=True,
         ),
-        native_class_path="boxmot.trackers.box.bytetrack.native.NativeByteTrackTracker",
+        native_class_path="boxmot.trackers.bytetrack.native.NativeByteTrackTracker",
         native_geometry_kinds=frozenset({GeometryKind.AABB}),
     )
 
@@ -70,24 +70,46 @@ def test_tracker_definition_captures_component_requirements() -> None:
 def test_registered_capabilities_describe_every_tracker_family_and_input() -> None:
     definitions = tracker_registry.TRACKER_DEFINITIONS
     expected_embeddings = {"boosttrack", "botsort", "deepocsort", "hybridsort", "occluboost", "strongsort"}
+    expected_multimodal = {"eagermot", "maf_hda"}
 
     assert set(definitions) == set(_TRACKER_MANIFEST)
     assert {name for name, item in definitions.items() if item.capabilities.family is TrackerFamily.BOX} == (
-        set(definitions) - {"sam2mot"}
+        set(definitions) - expected_multimodal
     )
-    assert definitions["sam2mot"].capabilities.family is TrackerFamily.MULTIMODAL
-    assert all(
-        item.capabilities.geometry_kinds == {GeometryKind.AABB, GeometryKind.OBB} for item in definitions.values()
-    )
+    assert {
+        name for name, item in definitions.items() if item.capabilities.family is TrackerFamily.MULTIMODAL
+    } == expected_multimodal
+    for name, item in definitions.items():
+        expected_geometry = (
+            {GeometryKind.AABB} if name in {"eagermot", "maf_hda"} else {GeometryKind.AABB, GeometryKind.OBB}
+        )
+        assert item.capabilities.geometry_kinds == expected_geometry
     assert {name for name, item in definitions.items() if item.capabilities.accepts_embeddings} == expected_embeddings
     assert {name for name, item in definitions.items() if item.capabilities.requires_embeddings} == {"strongsort"}
-    assert {name for name, item in definitions.items() if item.capabilities.accepts_masks} == {"sam2mot"}
-    assert {name for name, item in definitions.items() if item.capabilities.requires_masks} == {"sam2mot"}
+    assert {name for name, item in definitions.items() if item.capabilities.accepts_masks} == expected_multimodal
+    assert {name for name, item in definitions.items() if item.capabilities.requires_masks} == {"maf_hda"}
+    for attribute in ("requires_detections_3d", "accepts_detections_3d", "requires_camera", "accepts_camera"):
+        assert {name for name, item in definitions.items() if getattr(item.capabilities, attribute)} == {"eagermot"}
+    assert {name for name, item in definitions.items() if item.capabilities.accepts_ego_motion} == {"eagermot"}
+    assert not any(item.capabilities.requires_ego_motion for item in definitions.values())
     assert all(item.capabilities.accepts_frame for item in definitions.values())
-    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {
-        "sam2mot",
-        "strongsort",
-    }
+    assert {name for name, item in definitions.items() if item.capabilities.requires_frame} == {"strongsort"}
+
+
+def test_configurable_maf_frames_and_optional_ego_poses_match_static_requirements() -> None:
+    maf_class = tracker_registry.get_tracker_class("maf_hda")
+    maf = maf_class(s2ta_mode="motion", t2ta_mode="motion")
+    assert maf.capabilities.accepts_frame
+    assert not maf.capabilities.requires_frame
+    assert not maf.requirements.frame
+    assert maf_class().requirements.frame_pixels
+
+    eager = tracker_registry.get_tracker_class("eagermot")()
+    assert eager.capabilities.requires_camera
+    assert eager.capabilities.accepts_ego_motion
+    assert not eager.capabilities.requires_ego_motion
+    assert eager.requirements.camera
+    assert not eager.requirements.ego_motion
 
 
 @pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
@@ -146,6 +168,18 @@ def test_factory_checks_resolved_requirements_against_static_capabilities() -> N
         )
 
 
+def test_factory_validates_ego_motion_independently_of_camera_projection() -> None:
+    camera_only = TrackerCapabilities(
+        family=TrackerFamily.MULTIMODAL,
+        geometry_kinds=frozenset({GeometryKind.AABB}),
+        accepts_camera=True,
+    )
+    with pytest.raises(ValueError, match="static capabilities do not accept ego_motion"):
+        tracker_factory._bind_and_validate_capabilities(
+            SimpleNamespace(requirements=TrackerRequirements(camera=True, ego_motion=True)), camera_only
+        )
+
+
 def test_tracker_lookup_rejects_unknown_names() -> None:
     with pytest.raises(ValueError, match="Unknown tracker type"):
         tracker_registry.get_tracker_definition("unknown_tracker")
@@ -179,7 +213,8 @@ def test_all_python_configs_expose_canonical_association_choices(tracker_name: s
     association = load_tracker_schema(tracker_name)["asso_func"]
 
     assert association["type"] == "choice"
-    assert association["options"] == ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
+    expected = ["iou"] if tracker_name == "eagermot" else ["iou", "giou", "diou", "ciou", "hmiou", "centroid"]
+    assert association["options"] == expected
     assert load_tracker_config(tracker_name)["asso_func"] == association["default"]
 
 

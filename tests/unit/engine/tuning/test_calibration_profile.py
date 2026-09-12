@@ -10,9 +10,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.calibration_profile import CALIBRATED_KF_OPTIONS, load_tuning_calibration
-from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
 
 
 def _saved_run(tmp_path: Path, *, tracker: str = "botsort") -> tuple[Namespace, Path, dict, dict]:
@@ -80,7 +80,7 @@ def test_seconds_profile_restores_without_a_timing_flag_or_heavy_dependencies(tm
 
     def reject_search_or_calibration(name, *args, **kwargs):
         assert name.split(".")[0] not in {"ray", "optuna"}
-        assert name not in {"boxmot.engine.tuning.kalman", "boxmot.engine.tuning.kalman_data"}
+        assert name not in {"boxmot.engine.calibration.kalman", "boxmot.engine.calibration.kalman_data"}
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", reject_search_or_calibration)

@@ -12,7 +12,7 @@ from boxmot.detectors.protocols import Detector, DetectorCapabilities
 from boxmot.reid.protocols import AppearanceEncoder, EncoderRequirements
 from boxmot.segmentors.protocols import Segmentor
 from boxmot.structures import Detections, Frame, MaskBatch
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 
 @dataclass(frozen=True, slots=True)

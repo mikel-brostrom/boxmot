@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from boxmot.native.trackers import occluboost as native_binding
-from boxmot.trackers.box.occluboost import native as native_module
-from boxmot.trackers.box.occluboost.tracker import OccluBoost
+from boxmot.trackers.occluboost import native as native_module
+from boxmot.trackers.occluboost.tracker import OccluBoost
 
 from ._helpers import detections_from_rows, empty_native_batch, update_rows
 

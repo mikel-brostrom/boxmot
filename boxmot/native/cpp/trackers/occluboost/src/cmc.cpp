@@ -304,13 +304,16 @@ private:
             initialized_ = false;
             return;
         }
-        cv::cornerSubPix(
-            prev_frame_,
-            prev_keypoints_,
-            cv::Size(5, 5),
-            cv::Size(-1, -1),
-            cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
-        );
+        // Subpixel refinement requires at least 2 * window + 5 pixels.
+        if (prev_frame_.rows >= 15 && prev_frame_.cols >= 15) {
+            cv::cornerSubPix(
+                prev_frame_,
+                prev_keypoints_,
+                cv::Size(5, 5),
+                cv::Size(-1, -1),
+                cv::TermCriteria(cv::TermCriteria::EPS | cv::TermCriteria::COUNT, 30, 0.01)
+            );
+        }
         initialized_ = true;
     }
 

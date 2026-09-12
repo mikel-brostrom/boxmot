@@ -45,8 +45,8 @@ made contiguous when needed.
 The low-level ctypes modules under `boxmot/native/trackers/` accept only typed,
 contiguous NumPy buffers. Canonical conversion, requirements, configuration,
 reset behavior, and OBB angle continuity live with each algorithm in
-`boxmot/trackers/box/<name>/native.py`. Backend validation and construction use
-the canonical factory in `boxmot/trackers/factory.py`.
+`boxmot/trackers/<name>/native.py`. Backend validation and construction use
+the canonical factory in `boxmot/trackers/common/factory.py`.
 
 ## Capabilities and requirements
 
@@ -56,10 +56,13 @@ the canonical factory in `boxmot/trackers/factory.py`.
 | `bytetrack` | Yes | Yes | No | Centroid association |
 | `occluboost` | Yes | Yes | When `use_embeddings` | CMC or centroid association |
 | `ocsort` | Yes | Yes | No | Centroid association |
-| `sfsort` | Yes | Yes | No | Always |
+| `sfsort` | Yes | Yes | No | Dimensions, unless width and height are configured |
 
 Requirements are frozen when the tracker is created and are available from
-`tracker.requirements`. A pipeline supplies the requested frame. It may enrich
+`tracker.requirements`. Supply a frame on every update when it is required,
+including for centroid association. SFSORT can run without a frame when both
+positive `frame_width` and `frame_height` are configured. Otherwise it needs
+the frame dimensions, but does not consume its pixels. A pipeline supplies the requested frame. It may enrich
 detections with a shared appearance encoder, or a ReID-enabled native adapter
 may derive missing embeddings privately before invoking its C++ library.
 
@@ -68,6 +71,10 @@ rejects those modes, unknown tracker options, model/weight options placed in
 `TrackerSpec`, and geometry modes unsupported by the selected native
 implementation. Configure tracker-owned ReID separately with
 `tracker.configure_reid(spec)`.
+
+Native trackers retain fixed-step prediction and reject `variable_dt=True`.
+See the [tracker input matrix](../trackers/index.md#input-support) for the Python
+implementations and their additional input modes.
 
 The high-level BotSort and OccluBoost native adapters consume embeddings already
 present on `Detections.embeddings` or lazily derive missing embeddings from a

@@ -1,0 +1,73 @@
+# Scalar defaults from the upstream KITTI car preset.
+det_thresh:
+  type: uniform
+  default: 0.0
+  range: [0.0, 0.99]
+
+det_thresh_3d:
+  type: uniform
+  default: 0.0
+  # KITTI replay maps the unbounded PointGNN score s to s / (1 + s).
+  range: [0.0, 0.99]
+
+max_age:
+  type: randint
+  default: 3
+  range: [1, 11]
+
+min_hits:
+  type: randint
+  default: 1
+  range: [1, 5]
+
+max_age_2d:
+  type: randint
+  default: 3
+  range: [1, 11]
+
+fusion_iou_threshold:
+  type: uniform
+  default: 0.01
+  range: [0.01, 0.5]
+
+iou_threshold:
+  type: uniform
+  default: 0.3
+  range: [0.01, 0.7]
+
+asso_func:
+  type: choice
+  default: iou
+  options: [iou]
+
+first_matching_method:
+  type: choice
+  default: dist_2d_full
+  options: [dist_2d, dist_2d_dims, dist_2d_full, iou_3d]
+
+distance_threshold:
+  type: uniform
+  default: 3.5
+  range: [0.1, 8.0]
+
+iou_3d_threshold:
+  type: uniform
+  default: 0.01
+  range: [0.01, 0.5]
+
+is_angular:
+  type: choice
+  default: false
+  options: [false, true]
+
+# Fixed runtime covariance defaults; --calibrate-kf supplies fitted 3D values.
+kf_process_position_scale:
+  default: 1.0
+kf_process_velocity_scale:
+  default: 1.0
+kf_measurement_noise_scale:
+  default: 1.0
+kf_initial_position_scale:
+  default: 1.0
+kf_initial_velocity_scale:
+  default: 1.0

@@ -4,8 +4,9 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from boxmot.engine.experiment_config import resolve_experiment_config
-from boxmot.engine.materialization.catalog import STILL_FRAME_EXTENSIONS, resolve_dataset_root
+from boxmot.datasets.config import resolve_dataset_storage_root
+from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.materialization.catalog import STILL_FRAME_EXTENSIONS, resolve_dataset_split_root
 from boxmot.engine.tracking.sources import is_appledouble_file
 
 
@@ -16,9 +17,12 @@ def _resolve_experiment_runtime(
 ) -> tuple[Path, str, str, str, dict[str, Any]]:
     resolved = resolve_experiment_config(experiment, mode="research")
     dataset = resolved["dataset"]
-    dataset_root = resolve_dataset_root(dataset, data_root)
-    relative = PurePosixPath(str(dataset["split_path"]))
-    source_root = dataset_root.joinpath(*relative.parts)
+    dataset_root = resolve_dataset_storage_root(dataset, data_root)
+    if dataset.get("layout") == "sequence":
+        source_root = resolve_dataset_split_root(dataset, dataset["split"], data_root)
+    else:
+        relative = PurePosixPath(str(dataset["split_path"]))
+        source_root = dataset_root.joinpath(*relative.parts)
 
     return (
         source_root,

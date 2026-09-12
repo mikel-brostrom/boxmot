@@ -10,21 +10,18 @@ import torch
 
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec, create_tracker
-from boxmot.trackers.box.boosttrack.track import KalmanBoxTracker as BoostTrackBoxTrack
-from boxmot.trackers.box.botsort.track import BaseTrack as BotSortBaseTrack
-from boxmot.trackers.box.botsort.track import STrack as BotSortTrack
-from boxmot.trackers.box.botsort.track import TrackState as BotSortTrackState
-from boxmot.trackers.box.bytetrack.track import BaseTrack as ByteTrackBaseTrack
-from boxmot.trackers.box.bytetrack.track import STrack as ByteTrackTrack
-from boxmot.trackers.box.bytetrack.track import TrackState as ByteTrackState
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
-from boxmot.trackers.box.deepocsort.track import KalmanBoxTracker as DeepOCSortBoxTrack
-from boxmot.trackers.box.hybridsort.track import KalmanBoxTracker as HybridSortBoxTrack
-from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OCSortBoxTrack
-from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.box.sfsort.tracker import TrackState as SFSortTrackState
+from boxmot.trackers.boosttrack.track import KalmanBoxTracker as BoostTrackBoxTrack
+from boxmot.trackers.botsort.track import BaseTrack as BotSortBaseTrack
+from boxmot.trackers.botsort.track import STrack as BotSortTrack
+from boxmot.trackers.botsort.track import TrackState as BotSortTrackState
+from boxmot.trackers.bytetrack.track import BaseTrack as ByteTrackBaseTrack
+from boxmot.trackers.bytetrack.track import STrack as ByteTrackTrack
+from boxmot.trackers.bytetrack.track import TrackState as ByteTrackState
+from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS, get_tracker_class
+from boxmot.trackers.common.specs import TrackerFamily
 from boxmot.trackers.common.track_state import BoxTrack, SortBoxTrack
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
 from boxmot.trackers.common.tracking.track import (
@@ -34,10 +31,16 @@ from boxmot.trackers.common.tracking.track import (
     TrackState,
     sync_track_meta,
 )
-from boxmot.trackers.registry import TRACKER_DEFINITIONS, get_tracker_class
+from boxmot.trackers.deepocsort.track import KalmanBoxTracker as DeepOCSortBoxTrack
+from boxmot.trackers.hybridsort.track import KalmanBoxTracker as HybridSortBoxTrack
+from boxmot.trackers.ocsort.track import KalmanBoxTracker as OCSortBoxTrack
+from boxmot.trackers.sfsort.tracker import SFSORT
+from boxmot.trackers.sfsort.tracker import TrackState as SFSortTrackState
 
 TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
-BOX_TRACKER_NAMES = tuple(name for name in TRACKER_NAMES if name != "sam2mot")
+BOX_TRACKER_NAMES = tuple(
+    name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.family is TrackerFamily.BOX
+)
 
 
 def _frame(sample_id: str, frame_index: int = 0) -> Frame:

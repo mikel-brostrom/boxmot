@@ -16,9 +16,31 @@ from boxmot.engine.tuning.backends import SEARCH_BACKENDS, resolve_search_backen
 from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
 from boxmot.engine.tuning.postprocessing import generate_summary, write_trial_yaml
 from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_config, load_yaml_config
-from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
-from boxmot.trackers.config import load_tracker_defaults
-from boxmot.trackers.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+
+
+def test_tuner_reports_missing_dependencies_before_evaluation_setup(monkeypatch) -> None:
+    """Missing tuning extras must reach callers before any dataset work starts."""
+
+    from boxmot.utils import dependencies
+
+    failure = ImportError("Install tuning dependencies with boxmot install --extra evolve")
+
+    def require_extra(extra: str, *, purpose: str) -> None:
+        assert extra == "evolve"
+        raise failure
+
+    monkeypatch.setattr(dependencies, "require_extra", require_extra)
+    monkeypatch.setattr(tuner_module, "eval_setup", lambda *args, **kwargs: pytest.fail("Unexpected evaluation setup"))
+    tuner = object.__new__(tuner_module.Tuner)
+    tuner.args = SimpleNamespace()
+
+    with pytest.raises(ImportError) as raised:
+        tuner._run()
+
+    assert raised.value is failure
 
 
 def test_nested_activates_flatten_defaults_and_optuna_children():
@@ -179,9 +201,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     detail_updates: list[tuple[str | None, object]] = []
     (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").mkdir(parents=True)
 
-    class _FakeRequirementsChecker:
-        def sync_extra(self, extra, verbose=True):
-            captured["extra"] = extra
+    def fake_require_extra(extra: str, *, purpose: str) -> None:
+        captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", load_yaml_config)
     monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
@@ -303,6 +324,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -327,11 +349,9 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
 
     class _FakeCheckpointConfig:
         def __init__(self, **kwargs):
-            pass
+            captured["checkpoint_config"] = kwargs
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -362,6 +382,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     scale = 2.0 if backend == "python" else 1.0
     tuner_module.Tuner(args, baseline_config={"kf_process_position_scale": scale}).fit()
 
+    assert captured["checkpoint_config"] == {"num_to_keep": 1, "checkpoint_at_end": False}
     expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kf_process_position_scale": scale}
     assert all(captured["param_space"][key] == value for key, value in expected_scales.items())
     assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["search_kwargs"]["points_to_evaluate"][0])
@@ -389,12 +410,15 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     assert workflow_state["stopped"] is True
 
 
-def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp_path):
+@pytest.mark.parametrize(("workers", "sequences", "expected"), ((3, 5, 3), (12, 2, 2), (None, 4, 4)))
+def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp_path, workers, sequences, expected):
+    from boxmot.engine.config import runtime
+
+    monkeypatch.setattr(runtime.os, "cpu_count", lambda: 8)
     captured = {}
 
-    class _FakeRequirementsChecker:
-        def sync_extra(self, extra, verbose=True):
-            captured["extra"] = extra
+    def fake_require_extra(extra: str, *, purpose: str) -> None:
+        captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
@@ -481,13 +505,8 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
             return False
 
         def __init__(self, trainable, param_space, tune_config, run_config):
-            objective = next(
-                cell.cell_contents
-                for cell in trainable.__closure__ or ()
-                if isinstance(cell.cell_contents, tuner_module.TrackerObjective)
-            )
-            captured["driver_lock_in_trainable_args"] = hasattr(objective.opt, "driver_lock")
-            captured["trial_args"] = vars(objective.opt)
+            captured["driver_lock_in_trainable_args"] = hasattr(trainable.workflow_options, "driver_lock")
+            captured["trial_args"] = vars(trainable.workflow_options)
             captured["callbacks"] = run_config.callbacks
             captured["callback_has_workflow_lock"] = any(
                 hasattr(callback, "_lock") for callback in run_config.callbacks or []
@@ -507,6 +526,7 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=with_resources,
         Callback=object,
@@ -533,9 +553,7 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -555,7 +573,8 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
         maximize=("HOTA",),
         minimize=(),
         objectives=("HOTA",),
-        sequence_workers=3,
+        sequence_workers=workers,
+        seq_info={f"seq{index}": 3 for index in range(sequences)},
         n_trials=3,
         project=Path("runs"),
         verbose=False,
@@ -566,9 +585,9 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
 
     assert captured["extra"] == "evolve"
     assert captured["driver_lock_in_trainable_args"] is False
-    assert captured["trial_args"]["sequence_workers"] == 3
+    assert captured["trial_args"]["sequence_workers"] == expected
     assert "n_threads" not in captured["trial_args"]
-    assert captured["trial_resources"] == {"cpu": 3, "gpu": 0}
+    assert captured["trial_resources"] == {"cpu": expected, "gpu": 0}
     assert len(captured["callbacks"]) == 1
     assert captured["callback_has_workflow_lock"] is False
     assert captured["verbose"] == 0
@@ -612,9 +631,8 @@ def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
 def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     captured = {}
 
-    class _FakeRequirementsChecker:
-        def sync_extra(self, extra, verbose=True):
-            captured["extra"] = extra
+    def fake_require_extra(extra: str, *, purpose: str) -> None:
+        captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
@@ -712,6 +730,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -738,9 +757,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -777,9 +794,8 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
 def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path):
     captured = {}
 
-    class _FakeRequirementsChecker:
-        def sync_extra(self, extra, verbose=True):
-            captured["extra"] = extra
+    def fake_require_extra(extra: str, *, purpose: str) -> None:
+        captured["extra"] = extra
 
     monkeypatch.setattr(tuner_module, "load_yaml_config", lambda tracker_name: {})
     monkeypatch.setattr(tuner_module, "save_all_results", lambda *args, **kwargs: None)
@@ -873,6 +889,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         Callback=object,
@@ -898,9 +915,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,
@@ -974,9 +989,8 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         "track_buffer": {"type": "qrandint", "default": 30, "range": [10, 61, 10]},
     }
 
-    class _FakeRequirementsChecker:
-        def sync_extra(self, extra, verbose=True):
-            captured["extra"] = extra
+    def fake_require_extra(extra: str, *, purpose: str) -> None:
+        captured["extra"] = extra
 
     def _metrics(trial_id, hota, mota, idsw, config, path):
         row = {
@@ -1109,6 +1123,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
 
     fake_tune = SimpleNamespace(
         Tuner=_FakeTuner,
+        Trainable=object,
         TuneConfig=_FakeTuneConfig,
         with_resources=lambda fn, resources: fn,
         uniform=lambda *args: ("uniform", args),
@@ -1136,9 +1151,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         def __init__(self, **kwargs):
             pass
 
-    monkeypatch.setitem(
-        sys.modules, "boxmot.utils.checks", SimpleNamespace(RequirementsChecker=_FakeRequirementsChecker)
-    )
+    monkeypatch.setitem(sys.modules, "boxmot.utils.dependencies", SimpleNamespace(require_extra=fake_require_extra))
     monkeypatch.setitem(sys.modules, "ray", fake_ray)
     monkeypatch.setitem(
         sys.modules,

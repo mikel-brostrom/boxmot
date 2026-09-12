@@ -19,8 +19,8 @@ from boxmot.engine.tuning.search_space import (
     yaml_to_tune_space,
 )
 from boxmot.engine.tuning.tuner import Tuner
-from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
-from boxmot.trackers.config import load_tracker_defaults
+from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])
@@ -32,7 +32,7 @@ def test_cli_timing_flags_preserve_optional_override(monkeypatch, mode, flag, ex
     if mode == "track":
         argv += ["--source", "video.mp4"]
     else:
-        argv += ["--experiment", "fixture", "--build", "fixture-build"]
+        argv += ["--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build"]
     if flag is not None:
         argv.append(flag)
     result = CliRunner().invoke(boxmot, argv)

@@ -52,8 +52,7 @@ class StageState:
         if self.status not in {"pending", "running", "completed", "failed"}:
             raise StateError(f"Unknown persisted stage status {self.status!r}.")
         if not isinstance(self.completed_shards, tuple) or any(
-            not isinstance(shard, str) or re.fullmatch(r"[0-9]{5,}", shard) is None
-            for shard in self.completed_shards
+            not isinstance(shard, str) or re.fullmatch(r"[0-9]{5,}", shard) is None for shard in self.completed_shards
         ):
             raise StateError(f"Stage {self.name!r} has invalid persisted shard IDs.")
         if len(set(self.completed_shards)) != len(self.completed_shards):
@@ -140,11 +139,7 @@ class BuildState:
     updated_at: str = field(default_factory=utc_now_iso)
 
     def __post_init__(self) -> None:
-        if (
-            isinstance(self.state_version, bool)
-            or not isinstance(self.state_version, int)
-            or self.state_version != 1
-        ):
+        if isinstance(self.state_version, bool) or not isinstance(self.state_version, int) or self.state_version != 1:
             raise StateError(f"Unsupported materialization state version {self.state_version!r}.")
         if not isinstance(self.build_id, str) or re.fullmatch(r"[0-9a-f]{64}", self.build_id) is None:
             raise StateError(f"Invalid persisted build ID {self.build_id!r}.")
@@ -275,10 +270,7 @@ class MaterializationStateStore:
             if shard_id not in completed:
                 completed = (*completed, shard_id)
             shard_hashes = tuple(item for item in current.shard_hashes if item[0] != shard_id)
-            shard_hashes += tuple(
-                (shard_id, artifact, digest)
-                for artifact, digest in sorted((hashes or {}).items())
-            )
+            shard_hashes += tuple((shard_id, artifact, digest) for artifact, digest in sorted((hashes or {}).items()))
             updated = replace(current, completed_shards=completed, shard_hashes=shard_hashes)
             self._replace(updated)
             return updated
@@ -379,9 +371,14 @@ class MaterializationStateStore:
             return updated
 
     def fail(self, stage_name: str, error: BaseException | str) -> StageState:
+        """Persist a failure, retaining a diagnostic for exceptions without a message."""
+
+        message = str(error)
+        if not message and isinstance(error, BaseException):
+            message = type(error).__name__
         with self._lock:
             current = self._stage(stage_name)
-            updated = replace(current, status="failed", error=str(error), completed_at=None)
+            updated = replace(current, status="failed", error=message, completed_at=None)
             self._replace(updated)
             return updated
 

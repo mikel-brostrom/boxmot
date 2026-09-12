@@ -6,9 +6,9 @@ BoxMOT v24 separates values, components, composition, and orchestration:
 structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
-The package root deliberately exports only `__version__`, `create_tracker`, and
-the ten lazily loaded tracker classes. Import every other public contract from
-its domain package.
+The package root exports `__version__`, `create_tracker`, and the lazily loaded
+tracker algorithm classes. Import every other public contract from its domain
+package.
 
 ## Canonical values
 
@@ -48,6 +48,11 @@ immutable values. Use `to_aabb_rows()` or `to_obb_rows()` only when a file or
 wire boundary requires the legacy 6/7- or 8/9-column representation.
 
 ## Tracker factory
+
+For calibrated 2D/3D sensor fusion, see [EagerMot](../trackers/eagermot.md).
+Its extended update interface consumes independent `Detections3D` and a
+`CameraModel` and returns `MultimodalTracks` with separate image and spatial
+collections. The image-only interfaces below apply to the other trackers.
 
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every
@@ -114,6 +119,8 @@ embeddings lazily; the return value remains a NumPy matrix without sample
 metadata. A `detection_index == -1` value identifies a propagated track without
 a current detection.
 
+Use the [tracker input matrix](../trackers/index.md#input-support) to compare
+geometry, embeddings, masks, frames, and sensor inputs across implementations.
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`. For a
 ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
@@ -125,6 +132,10 @@ either attached embeddings or a supplied `Frame` or NumPy image.
 Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
 motion behavior used by established benchmarks and tuning. Timestamps remain
 metadata in this mode; supplying them does not enable variable timing.
+
+Variable timing and online noise adaptation are independent settings. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios, recommended starting points, and configuration examples.
 
 Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
 and OccluBoost offer an experimental seconds-based mode. Enable it explicitly
@@ -304,6 +315,11 @@ encoder = create_reid_encoder(
 Resolve real artifact paths and hashes before creating a materialization plan.
 Backend `options` are sorted tuples of key/value pairs so specs remain
 canonical-JSON serializable.
+
+ReID inference uses the shared [device selectors](../modes/track.md#device-selection):
+for example, `device="0"` and `device="cuda:0"` select the first visible CUDA GPU.
+Select one device supported by the backend; GPU lists are rejected, and device
+selection preserves the process's `CUDA_VISIBLE_DEVICES` setting.
 
 The encoder derives each crop from the supplied detection geometry: AABBs use
 clipped axis-aligned crops and OBBs use the canonical rectified transform.

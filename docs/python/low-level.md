@@ -1,5 +1,17 @@
 # Component API Reference
 
+## Canonical structures
+
+Import canonical values from `boxmot.structures`. Their implementation modules
+group 2D and 3D values by role:
+
+| Module | Structures |
+| --- | --- |
+| [Geometry](../reference/boxmot/structures/geometry.md) | `Boxes`, `OrientedBoxes`, `Boxes3D` |
+| [Detections](../reference/boxmot/structures/detections.md) | `Detections`, `Detections3D` |
+| [Tracks](../reference/boxmot/structures/tracks.md) | `Tracks`, `Tracks3D`, `MultimodalTracks` |
+| [Camera](../reference/boxmot/structures/camera.md) | `CameraModel` |
+
 ## Detection
 
 ::: boxmot.detectors.protocols.Detector
@@ -30,15 +42,15 @@
 
 ## Tracking
 
-::: boxmot.trackers.protocols.Tracker
+::: boxmot.trackers.common.protocols.Tracker
 
-::: boxmot.trackers.protocols.ReIDConfigurableTracker
+::: boxmot.trackers.common.protocols.ReIDConfigurableTracker
 
-::: boxmot.trackers.protocols.TrackerRequirements
+::: boxmot.trackers.common.protocols.TrackerRequirements
 
-::: boxmot.trackers.specs.TrackerSpec
+::: boxmot.trackers.common.specs.TrackerSpec
 
-::: boxmot.trackers.factory.create_tracker
+::: boxmot.trackers.common.factory.create_tracker
 
 Trackers accept canonical `Detections` or, for standalone box-only calls, exact
 NumPy AABB `N x 6` / OBB `N x 7` rows. An optional canonical `Frame` may be
@@ -49,3 +61,58 @@ ReID-enabled tracker adapter can also lazily invoke ReID when its input has no
 embeddings and a `Frame` is supplied. Attached embeddings bypass that internal
 backend. Native adapters then pass the resolved features to their model-free
 C++ tracker libraries.
+
+## Batched Kalman filters
+
+Python trackers automatically batch compatible Kalman predictions and matched
+corrections within each association stage. No CLI option is needed. Each track
+retains its own covariance, calibrated noise, observation history, and adaptive
+noise state.
+
+For direct filter use, XYAH and XYWH provide `multi_predict`, `multi_project`,
+and `multi_update`. Pass means shaped `(N, state_dimensions)` and covariances
+shaped `(N, state_dimensions, state_dimensions)`; corrections also accept
+measurements shaped `(N, measurement_dimensions)` and one confidence per row.
+These methods return arrays without modifying the filter's stored state.
+
+XYSR, XYSCR, and XYHR provide `predict_many(filters, ...)` and
+`update_many(filters, measurements, ...)` for independent stateful filter
+instances. These methods modify each instance while batching the matrix work.
+Use these methods when a filter owns its state, noise, or observation history.
+EagerMOT's `Kalman3D` similarly provides `multi_predict(filters)` and
+`multi_update(filters, boxes)`.
+
+Batching preserves elapsed-time and oriented-box handling. Missing observations
+and observation-centric recovery retain each track's sequential history replay;
+per-track bookkeeping and adaptive-noise updates still run independently.
+
+## Batched camera-motion compensation
+
+BoT-SORT, StrongSORT, BoostTrack, OccluBoost, DeepOCSORT, and HybridSORT batch
+camera-motion updates automatically when CMC is enabled. No additional CLI
+option is needed. The shared kernels transform box geometry, numerical
+Jacobians, velocities, and covariances in arrays. Observation-centric trackers
+also batch their retained observations and recovery states, preserving each
+tracker's existing compensation policy.
+
+Camera motion is estimated once per frame. ECC and sparse optical flow already
+use OpenCV array operations; ORB/SIFT match filtering and mask-coordinate
+calculations also use batches. Frame pairs remain sequential. General affine
+and projective OBB fitting still uses one OpenCV rectangle fit per box, and
+mask rasterization retains individual polygon calls to preserve overlaps.
+
+Compare cached replay against a saved package snapshot without rerunning
+detection or ReID:
+
+```bash
+uv run --no-sync python -m tests.performance.trackers.benchmark_cached_cmc \
+  --baseline /path/to/snapshot-containing-boxmot \
+  --build /path/to/existing/materialization \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker botsort --workers 7 --repeat 3 \
+  --output /tmp/cmc-comparison
+```
+
+Use `--mode preloaded --sequence MOT17-04-FRCNN --frames 100` to exclude image
+decoding from the measured tracking loop. Both modes check track IDs and
+geometry; complete replay also checks the evaluation metrics.

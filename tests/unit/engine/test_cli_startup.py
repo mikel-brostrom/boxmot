@@ -33,12 +33,28 @@ _MODEL_RUNTIME_MODULES = (
 
 _CONFIG_RUNTIME_MODULES = (*_HEAVY_RUNTIME_MODULES, *_MODEL_RUNTIME_MODULES, "pyarrow")
 
+_ENGINE_CONFIG_MODULES = (
+    "boxmot.engine.config.runtime",
+    "boxmot.engine.config.experiments",
+    "boxmot.engine.config.trackers",
+)
+
+_CALIBRATION_MODULES = (
+    "boxmot.engine.calibration.ground_truth_noise",
+    "boxmot.engine.calibration.kalman",
+    "boxmot.engine.calibration.kalman_data",
+    "boxmot.engine.calibration.kalman_model",
+)
+
 _ROOT_HELP_RUNTIME_MODULES = (
     "cv2",
+    "numpy",
     "torch",
     "ultralytics",
+    "yaml",
     "boxmot.detectors",
-    "boxmot.trackers",
+    "boxmot.trackers.common.factory",
+    "boxmot.trackers.common.registry",
     "boxmot.reid",
 )
 
@@ -46,7 +62,6 @@ _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.build",
     "boxmot.engine.commands.eval",
     "boxmot.engine.commands.materialize",
-    "boxmot.engine.commands.time_variant",
     "boxmot.engine.commands.research",
     "boxmot.engine.commands.track",
     "boxmot.engine.commands.tune",
@@ -70,7 +85,6 @@ _REID_COMMAND_MODULES = (
 _COMMAND_MODULE_BY_NAME = {
     "track": "boxmot.engine.commands.track",
     "materialize": "boxmot.engine.commands.materialize",
-    "time-variant": "boxmot.engine.commands.time_variant",
     "eval": "boxmot.engine.commands.eval",
     "tune": "boxmot.engine.commands.tune",
     "research": "boxmot.engine.commands.research",
@@ -122,11 +136,43 @@ def _imported_heavy_modules(module_name: str) -> list[str]:
     (
         "boxmot.reid.training",
         "boxmot.engine.config",
+        "boxmot.engine.config.runtime",
         "boxmot.engine.cli",
     ),
 )
 def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
     assert _imported_heavy_modules(module_name) == []
+
+
+def test_engine_config_namespace_does_not_eagerly_import_children() -> None:
+    """Loading configuration names must not resolve profiles or runtime defaults."""
+
+    blocked_modules = (*_ENGINE_CONFIG_MODULES, *_CONFIG_RUNTIME_MODULES, "yaml")
+    assert _imported_modules("boxmot.engine.config", blocked_modules) == []
+
+
+def test_calibration_namespace_does_not_eagerly_import_children() -> None:
+    """Importing the namespace must not load data, filter, or model runtimes."""
+
+    assert _imported_modules("boxmot.engine.calibration", (*_CALIBRATION_MODULES, *_CONFIG_RUNTIME_MODULES)) == []
+
+
+@pytest.mark.parametrize("module_name", _CALIBRATION_MODULES)
+def test_calibration_imports_do_not_load_search_dependencies(module_name: str) -> None:
+    """Evaluation can calibrate Kalman filters without installing search extras."""
+
+    assert _imported_modules(module_name, ("boxmot.engine.tuning", "ray", "optuna", "hyperopt")) == []
+
+
+def test_tuner_keeps_sensor_evaluation_and_search_runtimes_lazy() -> None:
+    """The shared tuner must load its sensor runtime only after selecting sensor inputs."""
+    assert (
+        _imported_modules(
+            "boxmot.engine.tuning.tuner",
+            ("optuna", "ray", "boxmot.engine.eval.eagermot_kitti"),
+        )
+        == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -137,8 +183,9 @@ def test_startup_modules_keep_ml_runtimes_lazy(module_name: str):
         "boxmot.detectors",
         "boxmot.detectors.config",
         "boxmot.reid.config",
-        "boxmot.engine.experiment_config",
+        "boxmot.engine.config.experiments",
         "boxmot.engine.commands.eval",
+        "boxmot.engine.commands.track",
     ),
 )
 def test_evaluation_selectors_keep_data_and_model_runtimes_lazy(module_name: str) -> None:

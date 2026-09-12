@@ -22,9 +22,9 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 
 ## Root imports
 
-The package root exports exactly `__version__`, `create_tracker`, and the ten
-lazy tracker classes: `BoostTrack`, `BotSort`, `ByteTrack`, `DeepOcSort`,
-`HybridSort`, `OccluBoost`, `OcSort`, `Sam2Mot`, `SFSORT`, and `StrongSort`.
+The package root exports `__version__`, `create_tracker`, and the lazy tracker
+classes: `BoostTrack`, `BotSort`, `ByteTrack`, `DeepOcSort`, `EagerMot`,
+`HybridSort`, `MafHda`, `OccluBoost`, `OcSort`, `SFSORT`, and `StrongSort`.
 Import structures, specs, protocols, factories, pipelines, and datasets from
 their named subpackages.
 

@@ -37,6 +37,8 @@ def test_validation_result_preserves_field_order_slots_and_serialization():
         "workflow_rendered",
         "reference_raw",
         "reference_name",
+        "detection_metrics",
+        "tracking_2d_metrics",
     ]
     assert not hasattr(result, "__dict__")
     assert repr(result) == (
@@ -108,3 +110,34 @@ def test_validation_result_delegates_presentation_lazily(monkeypatch):
 
     result.workflow_rendered = True
     assert str(result) == ""
+
+
+def test_official_ap_is_serialized_and_displayed_separately_from_tracking():
+    """Both terminal renderers and saved reports label geometry and difficulty."""
+    from rich.console import Console
+
+    from boxmot.engine.ui.core.ui import BOXMOT_THEME
+
+    ap = {
+        "2d": {"car": {"easy": 81.25, "moderate": 70.5, "hard": 61.0}},
+        "3d": {"car": {"easy": 72.0, "moderate": 59.5, "hard": None}},
+    }
+    result = _validation_result(
+        raw={"car": {"HOTA": 71.5, "MOTA": 70.0, "IDF1": 75.0}},
+        args=None,
+        reference_raw=None,
+        reference_name=None,
+        detection_metrics=ap,
+    )
+    assert result.to_dict()["detection_metrics"] == ap
+    assert result.summary == {"HOTA": 71.5}
+    console = Console(width=120, record=True, force_terminal=False, theme=BOXMOT_THEME)
+    with console.capture() as captured:
+        console.print(result.renderable(include_sequences=False))
+    for report in (result.render(include_sequences=False), result.format_report(), captured.get()):
+        assert "AP40" in report
+        assert all(level in report for level in ("Easy", "Moderate", "Hard"))
+        assert "2D" in report and "3D" in report
+        assert "N/A" in report
+        assert "2D tracking" in report
+        assert report.index("AP40") < report.index("HOTA")

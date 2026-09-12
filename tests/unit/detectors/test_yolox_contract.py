@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+
+import pytest
 import torch
 
 import boxmot.detectors.backends.yolox as yolox_module
@@ -12,15 +15,21 @@ def _frame() -> Frame:
     return Frame(torch.zeros((3, 32, 48), dtype=torch.uint8), "sample")
 
 
-def test_yolox_uses_profile_class_count_and_names(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("device", ("cpu", "1", "cuda:1"))
+def test_yolox_uses_profile_class_count_and_names(monkeypatch, tmp_path, device) -> None:
     model_path = tmp_path / "yolox_x_visdrone.pt"
     model_path.touch()
+    selected_devices = []
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,7")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
     class FakeModel:
         def eval(self):
             return self
 
-        def to(self, _device):
+        def to(self, device):
+            selected_devices.append(device)
             return self
 
         def load_state_dict(self, state):
@@ -43,6 +52,7 @@ def test_yolox_uses_profile_class_count_and_names(monkeypatch, tmp_path) -> None
         DetectorSpec(
             "yolox",
             artifact=str(model_path),
+            device=device,
             options=(("image_size", (64, 96)),),
         )
     )
@@ -52,6 +62,10 @@ def test_yolox_uses_profile_class_count_and_names(monkeypatch, tmp_path) -> None
     assert detector.imgsz == [64, 96]
     assert experiment.num_classes == 10
     assert detector.capabilities == DetectorCapabilities()
+    expected_device = torch.device("cpu" if device == "cpu" else "cuda:1")
+    assert detector.device == expected_device
+    assert selected_devices == [expected_device]
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "4,7"
 
 
 def test_yolox_predict_filters_classes_on_device_and_returns_canonical_rows(monkeypatch) -> None:

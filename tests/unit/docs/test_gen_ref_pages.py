@@ -222,7 +222,7 @@ def test_real_tree_contains_representative_reference_targets():
         "boxmot",
         "boxmot.structures",
         "boxmot.pipelines",
-        "boxmot.trackers.registry",
+        "boxmot.trackers.common.registry",
         "boxmot.datasets",
     } <= identifiers
     assert len(identifiers) == len(references)

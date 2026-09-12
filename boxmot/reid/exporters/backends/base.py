@@ -5,7 +5,7 @@ from torch import nn
 
 from boxmot.reid.backbones.families.csl_tinyvit.deployment import optimize_csl_tinyvit_for_inference
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.dependencies import require_extra
 
 
 class InferenceExportWrapper(nn.Module):
@@ -37,19 +37,10 @@ def as_inference_export_model(model: nn.Module) -> nn.Module:
 def export_decorator(export_func):
     @wraps(export_func)
     def wrapper(self, *args, **kwargs):
-        # Exporters can declare one project extra to install before running.
-        group = getattr(self, "group", None)
+        # Exporters declare the dependencies required before conversion begins.
         extra = getattr(self, "extra", None)
-        if group and extra:
-            raise ValueError("Provide only one of `group` or `extra` in exporter.")
-        dependency_extra = group or extra
-        if dependency_extra:
-            extra_args = getattr(self, "cmd", None) or getattr(self, "extra_args", None)
-            self.checker.sync_extra(
-                extra=dependency_extra,
-                extra_args=extra_args,
-                verbose=self.verbose,
-            )
+        if extra:
+            require_extra(extra, purpose=f"{self.__class__.__name__} export")
 
         if self.verbose:
             LOGGER.info(f"Starting {self.file} export with {self.__class__.__name__}...")
@@ -71,7 +62,6 @@ class BaseExporter:
         self.half = half
         self.simplify = simplify
         self.verbose = bool(verbose)
-        self.checker = RequirementsChecker()
         self.workspace = 4
 
     @staticmethod

@@ -11,7 +11,7 @@ from boxmot.reid.core.crops import coerce_boxes, coerce_crops, prepare_crop_batc
 from boxmot.reid.core.formats import ReIDFormat, resolve_reid_format
 from boxmot.reid.core.preprocessing import DEFAULT_PREPROCESS, get_preprocess_fn
 from boxmot.utils import WEIGHTS
-from boxmot.utils.torch_utils import select_device
+from boxmot.utils.devices import resolve_device
 
 
 class ReID:
@@ -33,7 +33,7 @@ class ReID:
         primary_weight = model_ref[0] if isinstance(model_ref, (list, tuple)) else model_ref
         self.path = Path(primary_weight)
         self.weights = model_ref
-        self.device = device if isinstance(device, torch.device) else select_device(device)
+        self.device = resolve_device(device)
         self.half = bool(half)
         self.preprocess_name = preprocess_name or DEFAULT_PREPROCESS
         self.format = resolve_reid_format(self.path)

@@ -1,7 +1,7 @@
 # Track
 
 `track` runs a source through engine-owned perception, tracking, and output
-sinks.
+sinks. It also replays saved TrackR-CNN detections with their KITTI images.
 
 ```bash
 boxmot track \
@@ -11,6 +11,46 @@ boxmot track \
   --tracker botsort \
   --save
 ```
+
+## Saved TrackR-CNN detections
+
+Pass all three input directories to replay KITTI TrackR-CNN predictions and
+evaluate the resulting tracks against MOTS instance annotations:
+
+```bash
+boxmot track \
+  --tracker maf_hda \
+  --detections ./kitti-mots/predictions/trackrcnn/training \
+  --images ./kitti/training/image_02 \
+  --instances ./kitti/instances \
+  --split val \
+  --sequence 0002
+```
+
+This path defaults to the Python MAF-HDA tracker and tracks cars and pedestrians
+separately. It writes MOTS tracks, metrics, and run metadata under
+`runs/trackrcnn/<split>`; `--project` changes the output root. Live source,
+perception, and display options do not apply to these saved inputs. Install the
+`mots` extra for mask decoding and metrics. See the
+[MAF-HDA example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
+for input layout and tracker configuration details.
+
+## Device selection
+
+Use `--device cpu`, `--device mps`, or `--device cuda:N` to select one execution
+device. `cuda` selects `cuda:0`; a numeric string such as `0` is equivalent to
+`cuda:0`. Tracking, materialization, ReID inference, and export share these
+selectors and reject GPU lists such as `0,1`. Explicit accelerator requests
+validate availability and the selected index before model loading.
+
+CUDA indices refer to the GPUs visible to the current process. BoxMOT preserves
+`CUDA_VISIBLE_DEVICES`; it does not rewrite the variable to select a device.
+See [CUDA device indices](../guides/troubleshooting.md#cuda-device-index-is-unavailable)
+when launching with an external visibility mask.
+
+The selected backend must also support the device. For example, ONNX ReID
+rejects MPS, and TensorRT ReID requires an explicit CUDA device. See
+[ReID and acceleration](../guides/troubleshooting.md#reid-and-acceleration).
 
 ## Inference sources
 
@@ -39,8 +79,10 @@ layout when an external boundary needs it.
 
 ## Masks and appearance
 
-The resolved tracker declares whether it needs embeddings, masks, or frame
-pixels. The pipeline adds only missing requirements:
+The [tracker input matrix](../trackers/index.md#input-support) compares supported
+geometry and required or optional cues. The resolved tracker declares whether
+it needs embeddings, masks, or frame pixels. The pipeline adds only missing
+requirements:
 
 - A detector-native mask or embedding payload is preserved.
 - A configured segmentor runs only when masks are needed and absent.
@@ -51,8 +93,9 @@ pixels. The pipeline adds only missing requirements:
 - Transitive requirements are honored: a mask-aware encoder triggers
   segmentation first.
 
-Sam2Mot requires full-frame detection-aligned foreground masks. Trackers with
-`use_embeddings` consume an upstream payload when available. For a non-empty
+MafHda requires AABB detections, nonempty full-frame masks aligned to those
+detections, and the current image on every update. Trackers with `use_embeddings`
+consume an upstream payload when available. For a non-empty
 batch without embeddings, every ReID-enabled tracker adapter can instead lazily
 generate them from the supplied `Frame`; attached embeddings bypass internal
 inference, and empty batches do not initialize the model. Native adapters pass
@@ -89,6 +132,71 @@ the loaded value. Saved `variable_dt`, `kf_time_unit`, and `kf_reference_dt_s`
 settings preserve the calibrated timing contract. A conflicting timing flag,
 such as `--fixed-dt` with a seconds-based calibration, is rejected. Timestamps
 alone do not enable variable timing; the default remains fixed-step prediction.
+
+## Choose Kalman timing and adaptation
+
+`variable_dt` and `adaptive_kf` control different behavior and default to
+`False`. Variable timing uses capture intervals to update the transition matrix
+`F(dt)` and process covariance `Q(dt)` without learning noise parameters.
+Adaptive filtering learns process noise from each track's prediction errors;
+it does not learn measurement noise or add an acceleration model.
+
+Use these starting points, then compare tracking accuracy on representative
+sequences:
+
+| Scenario | `variable_dt` | `adaptive_kf` |
+| --- | --- | --- |
+| Regular capture intervals with validated fixed noise settings | `False` | `False` |
+| Dropped frames or irregular capture intervals | `True` | `False` initially |
+| Regular intervals, but long tracks alternate between smooth motion and unpredictable maneuvers | `False` | Consider `True` |
+| Irregular intervals and changing motion predictability | `True` | Consider `True` |
+
+Both features are experimental. Variable timing supports Python ByteTrack,
+BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack, and OccluBoost.
+Online adaptation is available in Python BoostTrack and OccluBoost. Native
+backends do not support these modes.
+
+For irregular capture intervals, start with `--variable-dt` and leave
+adaptation disabled:
+
+```bash
+boxmot track --source video.mp4 --tracker bytetrack --variable-dt
+```
+
+The source supplies timestamps and the tracker computes
+`dt = current_timestamp - previous_timestamp` internally. Use capture/media
+timestamps, not elapsed inference time. Slow or uneven processing does not
+require variable timing if every frame of a constant-rate recording is still
+processed. Missing detections alone do not require it when updates continue
+regularly with empty detections. A nominal-FPS timestamp fallback cannot
+recover unrecorded capture gaps. See [Python timing](../python/index.md#elapsed-time)
+for supplying timestamps directly; track lifetimes such as `max_age` still
+count updates in either mode.
+
+To also test adaptation, save this scalar configuration as
+`boosttrack-adaptive.yaml`:
+
+```yaml
+tracker: boosttrack
+variable_dt: true
+adaptive_kf: true
+```
+
+```bash
+boxmot track --source video.mp4 --tracker boosttrack --tracker-config boosttrack-adaptive.yaml
+```
+
+Adaptation uses up to 30 measurement corrections per track and starts after
+15 corrections. Initialization and prediction-only updates do not count, so
+short tracks may never leave warmup. Detection jitter, wrong associations, and
+imperfect camera compensation can distort the estimated process noise.
+Adaptation alone does not account for irregular capture intervals.
+
+If annotated recordings are available, first use
+[`--calibrate-kf`](eval.md#kalman-calibration) to estimate baseline noise in the
+chosen timing mode. Compare adaptation enabled and disabled on separate
+evaluation sequences, keeping each configuration's timing and adaptation
+settings consistent between calibration, evaluation, and deployment.
 
 ## Python
 

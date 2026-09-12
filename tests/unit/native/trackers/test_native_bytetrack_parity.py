@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 
 from boxmot.native.trackers import bytetrack as native_binding
-from boxmot.trackers.box.bytetrack import native as native_module
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
+from boxmot.trackers.bytetrack import native as native_module
+from boxmot.trackers.bytetrack.tracker import ByteTrack
 
 from ._helpers import update_rows
 

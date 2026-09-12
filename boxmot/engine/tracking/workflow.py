@@ -9,8 +9,7 @@ from typing import Any
 from boxmot import create_tracker
 from boxmot.detectors import Detector, DetectorSpec, create_detector
 from boxmot.detectors.config import resolve_detector_spec
-from boxmot.engine.logging import suppress_boxmot_logs
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tracking.profiling import RuntimeProfiler, profile_components, startup_stage
 from boxmot.engine.tracking.runner import RunSummary, TrackingRunner
 from boxmot.engine.tracking.sinks import (
@@ -23,6 +22,7 @@ from boxmot.engine.tracking.sinks import (
     VideoSink,
 )
 from boxmot.engine.tracking.sources import FrameSource, create_frame_source
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.track import TrackWorkflowReporter
 from boxmot.engine.ui.workflow.pipeline import PipelineTracker
 from boxmot.pipelines import PipelineOutputs, TrackingPipeline
@@ -31,6 +31,7 @@ from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors import Segmentor, create_segmentor
 from boxmot.segmentors.config import resolve_segmentor_spec
 from boxmot.trackers import ReIDConfigurableTracker, Tracker, TrackerSpec
+from boxmot.utils.devices import resolve_device
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +56,18 @@ def _classes(value: object) -> tuple[int, ...] | None:
     return parsed
 
 
+def _component_device(args: Any, authored_device: str) -> str:
+    """Resolve one command override or authored component device for live execution."""
+
+    selected = getattr(args, "device", None)
+    if selected is None:
+        selected = "cpu" if authored_device.strip().lower() == "auto" else authored_device
+    return str(resolve_device(selected))
+
+
 def _detector_spec(args: Any, geometry: str) -> DetectorSpec:
+    """Resolve detector options and a validated device before model loading."""
+
     spec, _ = resolve_detector_spec(args.detector, geometry=geometry)
     options = spec.option_values()
     if getattr(args, "conf", None) is not None:
@@ -75,7 +87,7 @@ def _detector_spec(args: Any, geometry: str) -> DetectorSpec:
         options["agnostic_nms"] = True
     return replace(
         spec,
-        device=str(getattr(args, "device", spec.device)),
+        device=_component_device(args, spec.device),
         options=tuple(sorted(options.items())),
     )
 
@@ -92,7 +104,7 @@ def _reid_spec(args: Any) -> ReIDEncoderSpec:
     spec, _ = resolve_reid_spec(args.reid)
     return replace(
         spec,
-        device=str(getattr(args, "device", spec.device)),
+        device=_component_device(args, spec.device),
         precision="fp16" if bool(getattr(args, "half", False)) else "fp32",
     )
 
@@ -181,6 +193,8 @@ def run_track(
     geometry = str(getattr(args, "geometry", "aabb") or "aabb")
     if geometry not in {"aabb", "obb"}:
         raise ValueError("geometry must be 'aabb' or 'obb'")
+    if getattr(args, "device", None) is not None:
+        resolve_device(args.device)
     tracker_was_injected = tracker is not None
     tracker_spec = _tracker_spec(args, geometry) if tracker is None else None
 
@@ -237,6 +251,7 @@ def run_track(
         if segmentor_reference is None:
             raise ValueError(f"Tracker {tracker.name!r} requires masks; configure --segmentor ID_OR_YAML.")
         segmentor_spec, _ = resolve_segmentor_spec(segmentor_reference, geometry=geometry)
+        segmentor_spec = replace(segmentor_spec, device=_component_device(args, segmentor_spec.device))
         if ui_pipeline is not None:
             ui_pipeline.update("Loading segmentor…")
         with startup_stage(startup_timings_ms, "segmentor_load"):

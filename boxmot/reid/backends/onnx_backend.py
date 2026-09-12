@@ -8,9 +8,10 @@ import torch
 from boxmot.reid.backends.base_backend import BaseModelBackend
 from boxmot.reid.backends.dependencies import (
     reid_backend_requirements,
-    requirement_satisfied,
+    require_reid_backend_requirements,
 )
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.dependencies import MissingDependencyError
 
 
 class ONNXBackend(BaseModelBackend):
@@ -43,10 +44,6 @@ class ONNXBackend(BaseModelBackend):
     def _device_type(device) -> str:
         return str(getattr(device, "type", device))
 
-    @staticmethod
-    def _requirement_satisfied(requirement: str) -> bool:
-        return requirement_satisfied(requirement)
-
     def _runtime_requirements(self) -> tuple[str, ...]:
         return reid_backend_requirements(
             "onnx",
@@ -54,11 +51,9 @@ class ONNXBackend(BaseModelBackend):
             system_name=platform.system(),
         )
 
-    def _ensure_onnxruntime_installed(self) -> None:
-        requirements = self._runtime_requirements()
-        if any(self._requirement_satisfied(requirement) for requirement in requirements):
-            return
-        self.checker.check_packages((requirements[0],))
+    def _require_onnxruntime(self) -> None:
+        """Validate the runtime selected for the requested device and platform."""
+        require_reid_backend_requirements("onnx", requirements=self._runtime_requirements())
 
     @staticmethod
     def _select_runtime_backend() -> str:
@@ -175,7 +170,18 @@ class ONNXBackend(BaseModelBackend):
         # avoid repeated CoreML graph recompilations across calls.
         if batch_size is not None:
             sess_opts.add_free_dimension_override_by_name("batch", batch_size)
-        return onnxruntime.InferenceSession(str(weights), sess_options=sess_opts, providers=providers)
+        session_kwargs = {}
+        if self._device_type(self._requested_device) == "cuda" and "CUDAExecutionProvider" in providers:
+            # CUDA indices are logical indices within the caller's existing
+            # visibility mask, matching the Torch device used by the detector.
+            cuda_index = self._requested_device.index if isinstance(self._requested_device, torch.device) else None
+            session_kwargs["provider_options"] = [
+                {"device_id": cuda_index or 0} if provider == "CUDAExecutionProvider" else {}
+                for provider in providers
+            ]
+        return onnxruntime.InferenceSession(
+            str(weights), sess_options=sess_opts, providers=providers, **session_kwargs
+        )
 
     def load_model(self, w):
         backend_request = self._select_runtime_backend()
@@ -185,11 +191,13 @@ class ONNXBackend(BaseModelBackend):
             self._load_opencv_dnn(w)
             return
         try:
-            self._ensure_onnxruntime_installed()
+            self._require_onnxruntime()
             import onnxruntime
-        except ImportError:
-            if backend_request != "auto":
-                raise RuntimeError("ONNX Runtime was explicitly requested for ReID but is unavailable.") from None
+        except ImportError as exc:
+            if backend_request != "auto" or self._device_type(self._requested_device) not in {"auto", "cpu"}:
+                if isinstance(exc, MissingDependencyError):
+                    raise
+                raise RuntimeError("ONNX Runtime was explicitly requested for ReID but is unavailable.") from exc
             self._validate_opencv_device()
             self._backend = "opencv"
             self._load_opencv_dnn(w)

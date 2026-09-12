@@ -25,7 +25,7 @@ from boxmot.detectors.backends.base import (
 from boxmot.detectors.specs import DetectorSpec
 from boxmot.structures import Detections, Frame
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.torch_utils import canonical_torch_device
+from boxmot.utils.devices import resolve_device
 
 
 def _transformers_classes():
@@ -50,7 +50,7 @@ class RTDetrDetector:
 
         self.spec = spec
         self.capabilities = capabilities_from_spec(spec)
-        self.device = canonical_torch_device(spec.device)
+        self.device = resolve_device(spec.device)
         self.imgsz = values.get("image_size")
         self._confidence = float(values.get("confidence", 0.25))
         self._classes = values.get("classes")

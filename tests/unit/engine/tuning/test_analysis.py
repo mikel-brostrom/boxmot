@@ -10,7 +10,7 @@ from matplotlib.figure import Figure
 from scipy.stats import ConstantInputWarning
 
 from boxmot.engine.tuning.analysis import generate_tune_analysis
-from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
 
 
 @pytest.mark.parametrize("constant_hota", [False, True])

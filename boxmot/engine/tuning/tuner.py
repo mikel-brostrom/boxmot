@@ -4,17 +4,21 @@ from __future__ import annotations
 """
 Hyperparameter tuning orchestration for multi-object trackers.
 
-Uses Ray Tune with pluggable search backends (Optuna, HyperOpt, random).
+Uses Ray Tune for perception builds and serial Optuna trials for saved sensor datasets.
 """
 
 import inspect
+import json
 import logging
+import math
 import os
+import time
 import warnings
+from copy import deepcopy
 from difflib import get_close_matches
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -28,9 +32,9 @@ def _configure_ray_environment() -> None:
     os.environ.setdefault("RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO", "0")
 
 
+from boxmot.engine.config.runtime import resolve_sequence_workers
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
-from boxmot.engine.logging import suppress_boxmot_logs
-from boxmot.engine.tracker_config import resolve_tracker_options
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
 from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
@@ -49,6 +53,7 @@ from boxmot.engine.tuning.search_space import (
     load_yaml_config,
     normalize_trial_config,
 )
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.tune import (
     TuneSilentReporter,
     TuneWorkflowCallback,
@@ -61,10 +66,20 @@ from boxmot.engine.ui.reporters.tune import (
     set_tune_progress_workflow,
 )
 from boxmot.engine.ui.reporters.validation import CLI_TUNE_BEST_SUMMARY_TITLE
-from boxmot.motion.kalman_filters.noise import KALMAN_TIMING_OPTIONS, KALMAN_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_OPTIONS,
+    KALMAN_TIMING_OPTIONS,
+    KALMAN_TRACKER_NAMES,
+)
 from boxmot.utils import logger as LOGGER
 
+if TYPE_CHECKING:
+    import optuna
+
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
+# Spatial confidence decay does not affect image masks; the 2D affinity is fixed.
+_SENSOR_FIXED_PARAMETERS = frozenset({"max_age_2d", "asso_func", "per_class", *KALMAN_NOISE_OPTIONS})
+_SENSOR_OBJECTIVE = "cls_comb_cls_av.HOTA"
 
 
 def eval_setup(*args: Any, **kwargs: Any) -> Any:
@@ -149,7 +164,7 @@ class Tuner:
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
         self._resolve_metrics()
         if getattr(self.args, "calibrate_kf", False):
-            from boxmot.engine.tuning.kalman import validate_kf_calibration
+            from boxmot.engine.calibration.kalman import validate_kf_calibration
 
             validate_kf_calibration(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
             if getattr(self.args, "resume_tune", None):
@@ -195,6 +210,7 @@ class Tuner:
 
     def _run(self):
         args = self.args
+        _require_tuning_requirements()
         maximize, minimize = self._maximize, self._minimize
 
         args.show_progress = False
@@ -228,8 +244,15 @@ class Tuner:
                 pipeline.update("Preparing evaluation setup...")
                 with suppress_boxmot_logs(enabled=not bool(getattr(args, "verbose", False)), level="ERROR"):
                     eval_setup(args, pipeline=pipeline)
+                if getattr(args, "seq_info", None) is not None:
+                    from boxmot.engine.config.runtime import resolve_sequence_workers
+
+                    args.sequence_workers = resolve_sequence_workers(
+                        len(args.seq_info), getattr(args, "sequence_workers", None)
+                    )
 
                 tune_dir = self._resolve_tune_dir()
+                self._prepare_evaluation_mode(tune_dir)
                 tune_name = tune_dir.name
                 resume_tune = getattr(args, "resume_tune", None) or None
 
@@ -261,7 +284,6 @@ class Tuner:
                 baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
                 self._configure_warning_filters()
-                _sync_tuning_requirements(verbose=bool(getattr(args, "verbose", False)))
 
                 pipeline.update("Initializing Ray...")
                 self._setup_ray()
@@ -290,13 +312,13 @@ class Tuner:
                 pipeline.advance()
                 tune_callback.set_workflow_detail_renderable(format_initial_tune_progress(int(args.n_trials)))
 
-                objective = TrackerObjective(self._make_safe_namespace())
-
-                def tune_wrapper(cfg):
-                    return objective(normalize_trial_config(cfg))
+                from boxmot.engine.tuning.trainable import build_tracker_trainable
 
                 sequence_workers = int(args.sequence_workers)
-                trainable = tune.with_resources(tune_wrapper, {"cpu": sequence_workers, "gpu": 0})
+                trainable = tune.with_resources(
+                    build_tracker_trainable(tune, self._make_safe_namespace()),
+                    {"cpu": sequence_workers, "gpu": 0},
+                )
 
                 # Build or restore the Ray Tuner
                 tuner = self._build_or_restore_tuner(
@@ -332,12 +354,43 @@ class Tuner:
         finally:
             set_tune_progress_workflow(None)
 
+    def _prepare_evaluation_mode(self, tune_dir: Path) -> None:
+        """Keep KITTI box and segmentation scores separate across tuning resumes."""
+        if getattr(self.args, "evaluation_config", {}).get("annotation_layout") != "mots_png":
+            return
+        path = tune_dir / "evaluation.json"
+        eval_masks = bool(getattr(self.args, "eval_masks", False))
+        if getattr(self.args, "resume_tune", None):
+            if not path.is_file():
+                raise ValueError("Saved tuning run lacks evaluation mode metadata; start a new tuning run.")
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError("Saved tuning evaluation mode metadata is invalid; start a new tuning run.") from exc
+            if not isinstance(saved, dict) or type(saved.get("eval_masks")) is not bool:
+                raise ValueError("Saved tuning evaluation mode metadata is invalid; start a new tuning run.")
+            if saved["eval_masks"] != eval_masks:
+                flag = "include --eval-masks" if saved["eval_masks"] else "omit --eval-masks"
+                raise ValueError(
+                    f"Resuming tuning requires the same evaluation mode as the saved run: {flag}. "
+                    "Start a new tuning run to change between box and mask evaluation."
+                )
+            return
+        tune_dir.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps({"eval_masks": eval_masks}, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(path)
+
     def _prepare_kalman_calibration(self, runtime_config: dict, tune_dir: Path, pipeline: Any) -> dict:
         """Fit KF noise once before search, or restore its fixed saved profile."""
-        from boxmot.engine.tuning.calibration_profile import CALIBRATED_KF_OPTIONS, load_tuning_calibration
+        from boxmot.engine.tuning.calibration_profile import (
+            CALIBRATED_KF_OPTIONS,
+            load_tuning_calibration,
+            record_tuning_calibration,
+        )
 
         if getattr(self.args, "calibrate_kf", False):
-            from boxmot.engine.tuning.kalman import calibrate_kalman
+            from boxmot.engine.calibration.kalman import calibrate_kalman
 
             calibration = calibrate_kalman(
                 self.args,
@@ -350,7 +403,7 @@ class Tuner:
             self._calibrated_fixed_options = {
                 key: runtime_config[key] for key in CALIBRATED_KF_OPTIONS if key in runtime_config
             }
-            calibration.record_tuning(self._calibrated_fixed_options)
+            record_tuning_calibration(calibration.report_path, self._calibrated_fixed_options)
             self._calibration_config_path = calibration.config_path
             pipeline.update(f"{calibration.description}\nKeeping calibrated KF settings fixed during tracker tuning.")
         elif getattr(self.args, "resume_tune", None):
@@ -438,12 +491,16 @@ class Tuner:
         if "progress_reporter" in sig.parameters:
             run_config_kwargs["progress_reporter"] = TuneSilentReporter()
         run_config_kwargs["failure_config"] = FailureConfig(max_failures=3)
-        run_config_kwargs["checkpoint_config"] = CheckpointConfig(num_to_keep=1)
+        # One step completes the entire evaluation. Ray defaults class actors
+        # to checkpointing at completion, but trackers have no incremental
+        # trial state to restore; interrupted evaluations restart from frame 0.
+        run_config_kwargs["checkpoint_config"] = CheckpointConfig(num_to_keep=1, checkpoint_at_end=False)
 
         tune_config_kwargs: dict[str, Any] = {
             "num_samples": args.n_trials,
             "max_concurrent_trials": max_concurrent,
             "trial_dirname_creator": lambda trial: f"trial_{trial.trial_id}",
+            "reuse_actors": True,
         }
         if search_alg is not None:
             tune_config_kwargs["search_alg"] = search_alg
@@ -669,23 +726,41 @@ class Tuner:
 
 
 class TrackerObjective:
-    def __init__(self, opt):
+    """Evaluate independent trials with one lazily started replay session."""
+
+    def __init__(self, opt: SimpleNamespace) -> None:
         self.opt = opt
+        self._session = None
+
+    def close(self) -> None:
+        """Discard the worker pool and retained inputs on actor cleanup/failure."""
+        session, self._session = self._session, None
+        if session is not None:
+            session.close()
 
     def __call__(self, config: dict) -> dict:
+        from boxmot.engine.eval.session import ReplaySession
+
+        if self._session is None:
+            self._session = ReplaySession(
+                int(self.opt.sequence_workers), cache_inputs=bool(getattr(self.opt, "cache_inputs", False))
+            )
         try:
             with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
                 result = run_eval(
-                    self.opt,
+                    deepcopy(self.opt),
                     evolve_config=config,
                     setup=False,
                     prepare_cache=False,
                     verbose=False,
                     show_progress=False,
+                    replay_session=self._session,
                 )
         except KeyboardInterrupt:
+            self.close()
             raise
         except Exception as exc:
+            self.close()
             LOGGER.debug(f"Trial failed with {type(exc).__name__}: {exc}")
             return {k: 0.0 for k in ALL_TUNE_METRICS}
 
@@ -728,14 +803,11 @@ def _validation_result_from_trial(trial_data: dict, args) -> ValidationResult:
     )
 
 
-def _sync_tuning_requirements(*, verbose: bool) -> None:
-    """Ensure tuning extras are available before running evolve/tune."""
-    try:
-        from boxmot.utils.checks import RequirementsChecker
+def _require_tuning_requirements() -> None:
+    """Require tuning dependencies without installing or hiding missing packages."""
+    from boxmot.utils.dependencies import require_extra
 
-        RequirementsChecker().sync_extra("evolve", verbose=verbose)
-    except Exception as exc:
-        LOGGER.debug(f"Could not sync evolve requirements: {exc}")
+    require_extra("evolve", purpose="Tracker tuning")
 
 
 def _is_ray_pickle_safe(value: Any) -> bool:
@@ -760,12 +832,450 @@ def _ray_pickle_dumps(value: Any) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Sensor tuning
+# ---------------------------------------------------------------------------
+
+
+def _active_sensor_schema(
+    schema: dict[str, Any], method: str, *, fixed_parameters: frozenset[str] = frozenset()
+) -> dict[str, Any]:
+    """Keep only parameters that affect the selected association method."""
+    inactive = "distance_threshold" if method == "iou_3d" else "iou_3d_threshold"
+    return {
+        name: details
+        for name, details in schema.items()
+        if name not in _SENSOR_FIXED_PARAMETERS | fixed_parameters and name != inactive
+    }
+
+
+def _sample_sensor_profiles(
+    trial: optuna.Trial,
+    schema: dict[str, Any],
+    *,
+    base_profiles: dict[int, dict[str, Any]] | None = None,
+    fixed_parameters: frozenset[str] = frozenset(),
+) -> dict[int, dict[str, Any]]:
+    """Sample independent class parameters using the shared YAML distributions."""
+    from boxmot.engine.eval.eagermot_kitti import KITTI_CLASSES, load_kitti_profiles
+    from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_space
+
+    profiles = load_kitti_profiles() if base_profiles is None else deepcopy(base_profiles)
+    for class_id, name in KITTI_CLASSES.items():
+        method_key = f"{name}.first_matching_method"
+        yaml_to_optuna_define_space({method_key: schema["first_matching_method"]})(trial)
+        active = _active_sensor_schema(schema, trial.params[method_key], fixed_parameters=fixed_parameters)
+        yaml_to_optuna_define_space(
+            {f"{name}.{key}": details for key, details in active.items() if key != "first_matching_method"}
+        )(trial)
+        profiles[class_id].update({key: trial.params[f"{name}.{key}"] for key in active})
+    return profiles
+
+
+def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResult:
+    """Run serial Optuna trials, saving the best reusable profiles after each trial.
+
+    Each trial replays both classes together because mask overlap resolution can
+    couple the class results. The objective is the class-average mask HOTA, in
+    percent, over all selected sequences. The first trial evaluates the loaded
+    or calibrated class profiles and counts toward ``n_trials``.
+    """
+    import optuna
+    from rich.console import Group
+    from rich.text import Text
+
+    from boxmot.engine.eval.eagermot_kitti import (
+        KITTI_CLASSES,
+        evaluate_eagermot_kitti,
+        load_kitti_profiles,
+        prepare_eagermot_kitti,
+        write_kitti_profiles,
+    )
+    from boxmot.engine.eval.output import increment_path
+    from boxmot.engine.eval.session import ReplaySession
+    from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter
+    from boxmot.engine.ui.reporters.tune import estimate_tune_remaining
+
+    if isinstance(args.n_trials, bool) or not isinstance(args.n_trials, int) or args.n_trials < 1:
+        raise ValueError("n_trials must be an integer >= 1.")
+    if isinstance(args.seed, bool) or not isinstance(args.seed, int) or not 0 <= args.seed < 2**32:
+        raise ValueError("seed must be an integer within [0, 2**32).")
+    schema = load_yaml_config("eagermot")
+    if pipeline is not None:
+        pipeline.update("Loading saved KITTI predictions and ground truth…")
+    inputs = prepare_eagermot_kitti(args)
+    try:
+        sequence_workers = resolve_sequence_workers(len(inputs.sequences), getattr(args, "sequence_workers", None))
+        output = increment_path(Path(args.project).expanduser().resolve() / inputs.manifest["split"], mkdir=True)
+        baseline_profiles = load_kitti_profiles(getattr(args, "class_config", None))
+        calibration = None
+        fixed_parameters = (
+            frozenset({"is_angular"})
+            if getattr(args, "calibrate_kf", False) or getattr(args, "class_config", None) is not None
+            else frozenset()
+        )
+        if getattr(args, "calibrate_kf", False):
+            from boxmot.engine.calibration.kalman_sensor import calibrate_sensor_kalman
+            from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
+
+            dataset = load_sensor_evaluation_inputs(
+                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names), calibrate_kf=True
+            )
+            calibration = calibrate_sensor_kalman(
+                dataset,
+                baseline_profiles,
+                output_dir=output,
+                progress=pipeline.update if pipeline is not None else None,
+                **({"cached_sequences": inputs.sequences} if getattr(inputs, "cache_inputs", False) else {}),
+            )
+            baseline_profiles = load_kitti_profiles(calibration.config_path)
+            inputs.manifest["kf_calibration"] = {
+                "config_path": str(calibration.config_path),
+                "report_path": str(calibration.report_path),
+            }
+            LOGGER.info(calibration.description)
+        if getattr(args, "class_config", None) is not None:
+            inputs.manifest["class_config"] = str(Path(args.class_config).expanduser().resolve())
+        manifest = {
+            **inputs.manifest,
+            "status": "running",
+            "mode": "tune",
+            "per_class": True,
+            "objective": _SENSOR_OBJECTIVE,
+            "direction": "maximize",
+            "n_trials": args.n_trials,
+            "seed": args.seed,
+            "sequence_workers": sequence_workers,
+            "sampler": "Optuna TPESampler",
+            "optuna_version": optuna.__version__,
+            "search_schema": schema,
+            "fixed_parameters": sorted(_SENSOR_FIXED_PARAMETERS | fixed_parameters),
+            "conditional_parameters": {
+                "distance_threshold": "first_matching_method != iou_3d",
+                "iou_3d_threshold": "first_matching_method == iou_3d",
+            },
+            "baseline_profiles": baseline_profiles,
+            "completed_trials": 0,
+        }
+        trials: dict[int, TuneTrialResult] = {}
+        durations: list[float] = []
+        replay_session = ReplaySession(sequence_workers, cache_inputs=bool(getattr(args, "cache_inputs", False)))
+
+        def publish_progress(*, current_trial: int | None = None, failed: int = 0) -> Group | None:
+            """Keep the standard trial counters and best metrics visible during serial search."""
+            if pipeline is None:
+                return None
+            complete = list(trials.values())
+            best = max(complete, key=lambda trial: trial.score) if complete else None
+            renderable = format_tune_progress(
+                len(complete) + failed,
+                args.n_trials,
+                complete[-1].summary if complete else None,
+                best_summary=best.summary if best else None,
+                current_trial=current_trial,
+                remaining_seconds=estimate_tune_remaining(durations, args.n_trials - len(complete)),
+                failed=failed,
+            )
+            pipeline.set_detail_renderable(pipeline.current_step, renderable, render=True)
+            return renderable
+
+        def save_manifest() -> None:
+            """Persist progress so interrupted studies retain their completed results."""
+            (output / "run.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+        def objective(trial: optuna.Trial) -> float:
+            """Replay the trial and select the native class-average aggregate once."""
+            started = time.perf_counter()
+            trial_progress = publish_progress(current_trial=trial.number + 1)
+            profiles = _sample_sensor_profiles(
+                trial, schema, base_profiles=baseline_profiles, fixed_parameters=fixed_parameters
+            )
+            trial_output = output / "trials" / f"{trial.number:04d}"
+            trial.set_user_attr("profiles", {name: profiles[class_id] for class_id, name in KITTI_CLASSES.items()})
+            trial.set_user_attr("output", str(trial_output))
+            LOGGER.info(f"EagerMOT tuning: trial {trial.number + 1}/{args.n_trials}")
+            try:
+                if pipeline is None:
+                    metrics = evaluate_eagermot_kitti(
+                        inputs,
+                        profiles,
+                        trial_output,
+                        sequence_workers=sequence_workers,
+                        replay_session=replay_session,
+                    )
+                else:
+
+                    def on_evaluate() -> None:
+                        """Retain trial status while the shared metrics evaluator runs."""
+                        presenter.flush()
+                        pipeline.set_detail_renderable(
+                            pipeline.current_step,
+                            Group(trial_progress, Text("Computing mask metrics…")),
+                            render=True,
+                        )
+
+                    with EvalSequenceProgressPresenter(pipeline.callback(), inputs.manifest["sequences"]) as presenter:
+                        pipeline.set_detail_renderable(
+                            pipeline.current_step,
+                            Group(trial_progress, presenter.renderable),
+                            render=True,
+                        )
+                        metrics = evaluate_eagermot_kitti(
+                            inputs,
+                            profiles,
+                            trial_output,
+                            progress_callback=presenter,
+                            on_evaluate=on_evaluate,
+                            sequence_workers=sequence_workers,
+                            replay_session=replay_session,
+                        )
+            except (Exception, KeyboardInterrupt):
+                publish_progress(failed=1)
+                raise
+            score = float(metrics["cls_comb_cls_av"]["HOTA"])
+            if not math.isfinite(score):
+                raise ValueError("EagerMOT tuning returned a non-finite mask HOTA.")
+            trial.set_user_attr("class_hota", {name: float(metrics[name]["HOTA"]) for name in KITTI_CLASSES.values()})
+            trials[trial.number] = TuneTrialResult(
+                index=trial.number + 1,
+                config={name: dict(profiles[class_id]) for class_id, name in KITTI_CLASSES.items()},
+                metrics=ValidationResult(
+                    benchmark=str(inputs.manifest["dataset_id"]),
+                    raw=metrics,
+                    summary_label="cls_comb_cls_av",
+                    summary=dict(metrics["cls_comb_cls_av"]),
+                    exp_dir=trial_output,
+                    args=args,
+                ),
+                score=(score,),
+            )
+            durations.append(time.perf_counter() - started)
+            return score
+
+        def save_best(study: optuna.Study, trial: optuna.trial.FrozenTrial) -> None:
+            """Checkpoint the best complete class configurations after every result."""
+            if trial.state != optuna.trial.TrialState.COMPLETE:
+                return
+            best = study.best_trial
+            profiles = {class_id: best.user_attrs["profiles"][name] for class_id, name in KITTI_CLASSES.items()}
+            temporary = output / "best.yaml.tmp"
+            write_kitti_profiles(temporary, profiles)
+            temporary.replace(output / "best.yaml")
+            manifest.update(
+                completed_trials=manifest["completed_trials"] + 1,
+                best_trial=best.number,
+                best_hota=best.value,
+                best_class_hota=best.user_attrs["class_hota"],
+                best_profiles="best.yaml",
+                best_results=str(Path("trials") / f"{best.number:04d}"),
+            )
+            save_manifest()
+            if calibration is not None:
+                calibration.record_final(trials[best.number].metrics)
+            publish_progress()
+            LOGGER.info(f"EagerMOT tuning: best mask HOTA {best.value:.2f} (trial {best.number + 1})")
+
+        save_manifest()
+        optuna_verbosity = optuna.logging.get_verbosity()
+        try:
+            if pipeline is not None and not bool(getattr(args, "verbose", False)):
+                optuna.logging.set_verbosity(optuna.logging.ERROR)
+            study = optuna.create_study(
+                study_name="eagermot-kitti",
+                direction="maximize",
+                sampler=optuna.samplers.TPESampler(seed=args.seed),
+                # A SQLite file URI preserves URL/template characters in directory names.
+                storage=f"sqlite:///{(output / 'study.sqlite3').as_uri()}?uri=true",
+            )
+            baseline = {
+                f"{KITTI_CLASSES[class_id]}.{name}": value
+                for class_id, profile in baseline_profiles.items()
+                for name, value in default_tune_config(
+                    _active_sensor_schema(schema, profile["first_matching_method"], fixed_parameters=fixed_parameters),
+                    defaults=profile,
+                ).items()
+            }
+            study.enqueue_trial(baseline)
+            if pipeline is not None:
+                pipeline.advance()
+                publish_progress()
+            study.optimize(objective, n_trials=args.n_trials, n_jobs=1, callbacks=[save_best])
+            manifest["status"] = "complete"
+        except (Exception, KeyboardInterrupt) as exc:
+            manifest.update(status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed", error=str(exc))
+            raise
+        finally:
+            replay_session.close()
+            optuna.logging.set_verbosity(optuna_verbosity)
+            save_manifest()
+        best = trials[study.best_trial.number]
+        return TuneResult(
+            benchmark=best.benchmark,
+            tracker="eagermot",
+            trials=list(trials.values()),
+            best=best,
+            best_config={name: dict(profile) for name, profile in best.config.items()},
+            best_yaml=output / "best.yaml",
+        )
+    finally:
+        close = getattr(inputs, "close", None)
+        if close is not None:
+            close()
+
+
+def _run_sensor_tuning(
+    args: Any, *, baseline_config: dict | None = None, render_cli: bool = False
+) -> TuneResult | None:
+    """Validate declared sensor inputs before lazily loading their optimizer."""
+    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
+    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    reference = getattr(args, "dataset", None)
+    path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
+    if path is None:
+        return None
+
+    for option in ("eval_3d", "eval_ap"):
+        if getattr(args, option, False):
+            raise ValueError(f"{option} is available on eval only; sensor tuning optimizes mask HOTA.")
+    spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
+    validate_sensor_workflow_inputs(
+        path,
+        spec,
+        mode="tune",
+        split=getattr(args, "split", None),
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+    )
+    if baseline_config is not None:
+        raise ValueError("Sensor dataset tuning uses separate class profiles and does not support baseline_config.")
+    unsupported = (
+        "experiment",
+        "build",
+        "build_ref",
+        "build_root",
+        "detector",
+        "reid",
+        "data_root",
+        "tracker_config",
+        "resume_tune",
+        "time_budget_s",
+        "fps",
+        "variable_dt",
+    )
+    for name in unsupported:
+        value = getattr(args, name, None)
+        if value is not None and value is not False and value != "":
+            raise ValueError(f"Sensor dataset tuning does not support {name}; inputs come from the dataset manifest.")
+    for name, allowed in {
+        "search_alg": ("optuna",),
+        "max_concurrent_trials": (0, 1),
+        "device": ("cpu",),
+    }.items():
+        value = getattr(args, name, allowed[-1])
+        if value not in allowed:
+            raise ValueError(
+                f"Sensor dataset tuning runs serial Optuna trials on CPU; {name} must be one of {allowed}."
+            )
+    for name in ("objectives", "maximize"):
+        if _parse_metric_names(getattr(args, name, ())) not in ([], ["HOTA"]):
+            raise ValueError(f"Sensor dataset tuning optimizes class-average mask HOTA; {name} must be HOTA.")
+    if _parse_metric_names(getattr(args, "minimize", ())):
+        raise ValueError("Sensor dataset tuning optimizes class-average mask HOTA and does not support minimize.")
+    class_config = getattr(args, "class_config", None)
+    if class_config is not None and not Path(class_config).expanduser().is_file():
+        raise ValueError(f"class_config requires an existing file: {class_config}")
+
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
+
+    n_trials = getattr(args, "n_trials", BOXMOT_DEFAULTS.tune.n_trials)
+    seed = getattr(args, "seed", None)
+    seed = 0 if seed is None else seed
+    if isinstance(n_trials, bool) or not isinstance(n_trials, int) or n_trials < 1:
+        raise ValueError("n_trials must be an integer >= 1.")
+    if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2**32:
+        raise ValueError("seed must be an integer within [0, 2**32).")
+    dataset = load_sensor_evaluation_inputs(
+        path,
+        split=getattr(args, "split", None) or None,
+        sequence_names=getattr(args, "sequence_names", ()),
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+    )
+    sequence_workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
+    normalized = SimpleNamespace(
+        **{
+            **vars(args),
+            "dataset": dataset.config_path,
+            "dataset_id": dataset.id,
+            "tracker": spec.name,
+            "tracker_backend": spec.backend,
+            "split": dataset.split,
+            "sequence_names": dataset.sequence_names,
+            "n_trials": n_trials,
+            "seed": seed,
+            "project": Path(getattr(args, "project", None) or "runs/eagermot-tune"),
+            "class_config": None if class_config is None else Path(class_config).expanduser().resolve(),
+            "device": "cpu",
+            "sequence_workers": sequence_workers,
+            "max_concurrent_trials": 1,
+            "search_alg": "optuna",
+            "objectives": ("HOTA",),
+            "maximize": ("HOTA",),
+            "minimize": (),
+            "per_class": True,
+            "eval_masks": True,
+        }
+    )
+    if not render_cli:
+        return _run_eagermot_tuning(normalized)
+
+    pipeline = TuneWorkflowReporter(normalized, maximize=["HOTA"], minimize=[]).pipeline()
+    with pipeline, suppress_boxmot_logs(enabled=not bool(getattr(normalized, "verbose", False)), level="ERROR"):
+        pipeline.update("Loading sensor inputs and tuning runtime…")
+        try:
+            result = _run_eagermot_tuning(normalized, pipeline=pipeline)
+        except ImportError as exc:
+            raise ImportError(
+                f"Sensor dataset tuning requires the mots and evolve extras: {exc}\n"
+                "Install with: uv sync --extra cpu --extra mots --extra evolve"
+            ) from exc
+        best_renderable = result.best.metrics.renderable(
+            title=CLI_TUNE_BEST_SUMMARY_TITLE,
+            compare_raw=result.baseline.raw,
+            compare_args=result.baseline.args,
+        )
+        artifacts = build_tune_artifacts_renderable(
+            {
+                "best_trial_id": f"trial {result.best.index}",
+                "best_yaml_path": result.best_yaml,
+                "study_path": result.best_yaml.parent / "study.sqlite3",
+                "manifest_path": result.best_yaml.parent / "run.json",
+            }
+        )
+        pipeline.finish(
+            combine_tune_result_renderables(best_renderable, artifacts),
+            exp_dir=result.best_yaml.parent,
+        )
+        result.workflow_rendered = True
+        return result
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 
 def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     """Run tuning and return a structured TuneResult."""
+    sensor_result = _run_sensor_tuning(args, baseline_config=baseline_config)
+    if sensor_result is not None:
+        return sensor_result
+    if getattr(args, "class_config", None) is not None:
+        raise ValueError("--class-config requires a sensor dataset with --tracker eagermot.")
+
+    from boxmot.engine.config.trackers import validate_image_tracker
+
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     tuner = Tuner(args, baseline_config=baseline_config)
     result_grid, tune_dir, maximize, minimize = tuner.fit()
 
@@ -802,8 +1312,30 @@ def run_tune(args, *, baseline_config: dict | None = None) -> TuneResult:
     )
 
 
-def main(args):
-    """CLI entry point."""
+def main(args: Any) -> TuneResult | None:
+    """Tune either perception builds or saved sensor inputs through one entry point."""
+    try:
+        sensor_result = _run_sensor_tuning(args, render_cli=True)
+    except ImportError as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(
+            f"Sensor dataset tuning requires the mots and evolve extras: {exc}\n"
+            "Install with: uv sync --extra cpu --extra mots --extra evolve"
+        ) from exc
+    except (ValueError, OSError) as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(str(exc)) from exc
+    if sensor_result is not None:
+        return sensor_result
+    if getattr(args, "class_config", None) is not None:
+        raise click.ClickException("--class-config requires a sensor dataset with --tracker eagermot.")
+
+    from boxmot.engine.config.trackers import validate_image_tracker
+
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     tuner = Tuner(args)
     tuner.fit()
 

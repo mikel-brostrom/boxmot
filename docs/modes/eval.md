@@ -1,15 +1,24 @@
 # Evaluate
 
-`eval` measures a tracker by streaming an immutable materialized build through
-the live tracker API. Select an authored experiment with `--experiment` or use
+`eval` measures tracking performance from perception builds or saved detections.
+For existing KITTI 2D predictions, use the [saved-box workflow](#saved-2d-detections).
+For perception-build evaluation, it streams an immutable materialized build
+through the live tracker API. Select an authored experiment with `--experiment` or use
 dataset and component flags as shorthand for a matching catalog experiment.
 In either case, `--build` is optional: when omitted, BoxMOT first materializes
 (or reuses) a canonical build compatible with the selected tracker and then
 evaluates it. Detector, segmentor, and appearance-encoder inference happens only
 during that preparation step, never during replay. Automatic preparation
-publishes image references, embeddings for appearance-capable trackers, and
-masks when the selected tracker requires them. Motion-only trackers such as
-SFSORT skip the embedding stage entirely.
+publishes image references, embeddings when the resolved tracker configuration
+uses appearance, and masks when the selected tracker or scoring requires them.
+Setting `use_embeddings: false` in `--tracker-config` skips the embedding stage,
+as do motion-only trackers such as SFSORT. Appearance-enabled replay requires
+cached embeddings; the live API's image-to-ReID fallback does not run during replay.
+
+Matching complete builds are reused across BoxMOT releases and CPU, MPS, or
+CUDA devices. Source data, weights, precision, preprocessing, class mapping,
+stage settings, and requested outputs must still match. Reuse validates the
+saved artifacts and keeps the original build ID without rerunning perception.
 
 Preparation caches detector output separately from ReID embeddings. If a
 compatible dataset, detector, geometry, and class mapping have already been
@@ -55,15 +64,16 @@ an experiment YAML for a combination absent from the catalog.
 Pass exactly one of `--experiment` or `--dataset`. Direct component selectors
 cannot be combined with `--experiment`.
 
-`--device` selects the detector, segmentor, and ReID execution device for this
-automatic preparation. It is rejected with an explicit `--build`, where no
+`--device` selects the detector, segmentor, and ReID execution device when
+automatic preparation needs new inference. It does not force regeneration of
+matching saved outputs. It is rejected with an explicit `--build`, where no
 perception model runs.
 
 After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest
 directory, or risk replaying another configuration's build.
 
-Pass `--build` to reuse a specific build. Dataset-only evaluation requires
+Pass `--build` to reuse a specific build. Image-dataset evaluation requires
 `--build` when no detector is selected, because the dataset config alone does
 not select the perception components needed for materialization:
 
@@ -83,6 +93,226 @@ and—when applicable—component fingerprints.
 
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
+
+## Cache replay inputs for repeated runs
+
+Add `--cache-inputs` to reuse the inputs consumed by evaluations or tuning runs:
+
+```bash
+boxmot eval \
+  --dataset mot17 \
+  --split ablation \
+  --detector yolox-x-mot17 \
+  --reid lmbn-n-duke \
+  --tracker botsort \
+  --cache-inputs
+```
+
+The first run validates the sources and prepares mapped arrays. Image workflows
+cache AABB or OBB detections, requested embeddings and masks, and decoded image
+pixels when the tracker or visualization needs them. Image references can point
+to image files, NumPy arrays, or video frames. Ground-truth box annotations and
+instance PNG labels also have reusable parsed caches.
+
+The cache is tied to the selected source content, sequence, split, geometry,
+and requested modalities. It is independent of the execution device and tracker
+thresholds. Later runs can reuse it when switching between CPU, MPS, and CUDA.
+
+With the default build layout, these files live under `runs/replay_cache/`.
+For a custom build location, the cache directory sits beside the build-root
+directory. They are derived data: the Parquet build remains authoritative and
+is never rewritten. Incomplete or invalid derived entries are rebuilt from it.
+You can remove the derived cache when no runs are using it to reclaim disk
+space; `--cache-inputs` prepares it again when needed.
+
+Saved sensor datasets support the same flag:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --cache-inputs
+```
+
+Sensor caches contain the frame timeline, declared 2D detections and packed masks,
+3D detections, calibration, optional ego poses, and the ground truth selected for scoring. With
+`--calibrate-kf`, calibration reuses the cached 3D annotations and observations.
+RGB pixels are cached when visualization requests them; ordinary EagerMOT replay
+only needs image dimensions. Masks remain packed on disk and are unpacked one
+frame at a time. Sensor caches live under `<dataset-root>/.boxmot/replay_cache/`;
+separate image-workflow annotation caches use `.boxmot/replay_cache/annotations/`
+near their annotation sources.
+
+The flag defaults to off because preparation takes time and extra disk space.
+Use `--no-cache-inputs` to read the source formats directly. Source changes are
+checked during preparation; an unchanged sensor study uses its prepared input
+snapshot. Changed or incomplete caches are rebuilt. Tracker state, threshold
+decisions, fusion, predictions, and metrics remain fresh for every run.
+
+## Saved 2D detections
+
+The `kitti-mots-2d` dataset selects existing TrackR-CNN boxes, images, and
+native KITTI tracking ground truth from a multimodal sequence folder.
+Use the shipped experiment to evaluate its validation split with OSNet:
+
+```bash
+boxmot eval \
+  --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots \
+  --tracker occluboost \
+  --cache-inputs \
+  --project runs/kitti-2d
+```
+
+The preset reads `sequences/{partition}/{sequence}/images`,
+`predictions/trackrcnn/{partition}/{sequence}.txt`, and
+`{partition}/label_02/{sequence}.txt` below `--data-root`.
+Choose `kitti-2d/train-trackrcnn-osnet` to evaluate the training split, or use
+`kitti-2d/val-trackrcnn` with `--tracker bytetrack` for motion-only tracking.
+The `*-yolo26n` experiments run fresh detector inference instead.
+
+Direct selection also works with `--dataset kitti-mots-2d --split val`
+and `--reid osnet-x0-25-msmt17`. The original KITTI directory layout uses
+`--dataset kitti-2d-detections`; other layouts can use a local YAML as described
+in the [saved 2D dataset presets](../config/datasets.md#existing-2d-detections).
+These configs explicitly disable mask loading and declare no spatial inputs.
+This workflow generates ReID features from the images when appearance is enabled;
+`--cache-inputs` caches them together with parsed inputs and required image pixels.
+If decoded images would exceed available disk space, saved-box evaluation reads
+the original images while keeping the smaller caches. If an annotation or ReID
+cache write runs out of space, it uses the computed values without saving that
+entry. All selected inputs still reach the tracker; only cache reuse changes.
+BoxMOT's built-in HOTA, CLEAR, and Identity evaluators report 2D HOTA, MOTA,
+and IDF1 with KITTI visibility, distractor, and DontCare preprocessing.
+No TrackEval installation is required.
+
+Use `--sequence` to restrict the split and `--show` or `--save` for visualization.
+No detector or build is required. This workflow uses one sequence worker and
+does not provide materialization, tuning, or KF calibration.
+
+## Saved TrackR-CNN masks
+
+For downloaded KITTI TrackR-CNN text predictions, use
+`boxmot track --tracker maf_hda` with `--detections`, `--images`, and `--instances`
+directories. This command directly replays the saved boxes and
+masks without materializing a perception build. See the
+[MAF-HDA evaluation example](../trackers/maf_hda.md#evaluate-trackr-cnn-detections-on-kitti-mots)
+for the full command.
+
+## EagerMOT with saved sensor inputs
+
+Evaluate a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets)
+through the same command:
+
+```bash
+boxmot eval \
+  --dataset ./kitti-mots \
+  --tracker eagermot \
+  --split val
+```
+
+The dataset supplies sequence images, annotations, calibration, saved spatial
+detections, and optional ego poses through `modalities` in its `dataset.yaml`.
+Default mask evaluation also requires saved image detections with instance masks.
+Each modality selects its encoding and relative paths; split overrides can
+select different prediction sets.
+You can pass the folder or its `dataset.yaml` file. Evaluation runs on CPU,
+scores KITTI MOTS masks by default, and writes a new split directory under `runs/eagermot`.
+Use `--project` to change that root or repeat `--sequence` to select sequences.
+Sequences replay in parallel using the [automatic worker count](#sequence-parallelism).
+Set `--sequence-workers 4` to allow at most four sequence workers.
+
+To evaluate spatial tracks, declare `ground_truth_3d` with the existing native
+KITTI tracking labels in `training/label_02`, then run:
+
+```bash
+boxmot eval --dataset ./kitti-mots --tracker eagermot \
+  --split val --eval-3d --project runs/kitti-3d
+```
+
+The terminal shows **3D tracking HOTA/MOTA/IDF1** using volumetric box IoU.
+Tracking scores are saved in `metrics.json/csv`, and predictions in
+`kitti_3d/<sequence>.txt`. This custom tracking protocol uses all supplied target
+GT; it does not apply official KITTI difficulty or DontCare filtering.
+
+For additional official **2D/3D AP40 (Easy / Moderate / Hard)**, declare
+[`ground_truth_objects`](../config/datasets.md#exact-object-labels-for-official-ap),
+[install the official evaluators](../trackers/eagermot.md#evaluate-3d-tracks),
+and add `--eval-ap` to the command. This writes `detection_metrics.json/csv`
+and separately scores projected 2D tracking into `tracking_2d_metrics.json/csv`.
+The main tracking scores remain volumetric 3D metrics.
+
+Ground-truth masks are neither required nor loaded in this mode. `detections_2d`
+can be omitted for tracking from 3D observations alone. Ego poses are optional;
+without them, the tracker models motion in camera coordinates. Images still
+provide the frame timeline and dimensions, and calibration remains required.
+Declared tracking inputs, including any image predictions and ego poses, are consumed.
+`--eval-3d` and `--eval-masks` are mutually exclusive; `--eval-3d` requires an
+EagerMOT sensor dataset and is available only on `eval`. `--eval-ap` requires
+`--eval-3d` and exact per-image object labels, including fractional truncation.
+Only that additional option requires object annotations and the official evaluators.
+
+For image and box trackers, select the [KITTI 2D dataset](../config/datasets.md#kitti-2d-tracking):
+
+```bash
+boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+  --split val --cache-inputs
+```
+
+It uses native `label_02` image boxes and BoxMOT's built-in 2D HOTA/MOTA/IDF1
+metrics, including KITTI preprocessing, without an external TrackEval dependency.
+Add `--reid osnet-x0-25-msmt17` when using BoT-SORT's appearance features.
+
+For your own recordings, copy the
+[sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),
+then supply synchronized images, calibration, 3D predictions, and ground truth
+for the selected metric. Add ego poses when available and 2D mask predictions
+for default mask evaluation. Custom sequence names and
+splits are supported; detector outputs must follow the documented file formats.
+The default evaluates car and pedestrian masks:
+
+```bash
+boxmot eval --dataset ./my-sensor-dataset --tracker eagermot \
+  --split val --sequence drive-002
+```
+
+Load tuning's class profiles with `--class-config path/to/best.yaml`. Use
+`--show` or `--save` to preview or record tracks, and add `--show-3d` to overlay
+their estimated 3D cuboids. Saved videos go under the result directory's
+`videos/` folder. `--class-config` and `--show-3d` apply only to this sensor workflow.
+`--show` keeps sensor replay on the main thread, processing one sequence at a
+time. With `--save` alone, each worker writes its sequence's video.
+
+The shared Rich panel shows frame progress for each sequence and the selected
+metrics. Add `--show-timing` to include replay timing in the result summary, or
+`--verbose` to display tracker diagnostics alongside the panel.
+
+With [3D annotations](../config/datasets.md#3d-ground-truth-for-kalman-calibration),
+add `--calibrate-kf` to fit EagerMOT's five covariance scales per class before
+evaluation. Reuse `<run>/kf-tuning/calibrated.yaml` with `--class-config`.
+Calibration uses world coordinates when ego poses are declared, or camera
+coordinates without them, matching tracking. Prediction advances one step per image;
+see [3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
+
+Saved sensor evaluation reads predictions directly. Perception/build options
+and TrackEval comparison are unavailable for these datasets;
+an explicit `--device` must be `cpu`.
+
+An incompatible selection reports a short reason and next step. The check uses
+the selected split and registered [tracker inputs](../trackers/index.md#input-support):
+declared tracking inputs marked `Unused` cause rejection. Ground truth is used
+separately for scoring.
+
+The direct spatial saved-sensor workflow requires
+`--tracker eagermot --tracker-backend python`. For existing image detections,
+select the [saved 2D dataset](#saved-2d-detections). To intentionally evaluate an
+image-only experiment with a new detector, select only `images` and `ground_truth` in a separate
+dataset config or explicit split override, then select a perception build or
+detector through the ordinary evaluation workflow. Split modality overrides
+set to `null` remove those inputs from the experiment.
+
+Python callers use `boxmot.engine.eval.evaluator.run_eval(args)` and receive
+the shared `ValidationResult`, including class-average metrics and `exp_dir`.
+Set `args.eval_3d = True` to select spatial scoring.
+See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloaded-kitti-predictions).
 
 ## View tracking results
 
@@ -112,9 +342,10 @@ quantized to a 30 FPS output grid, with one final 1/30-second frame. Sources
 without timestamps use one output frame per input frame. `eval --fps` retains
 its dataset-sampling meaning; it does not change the output video rate.
 
-Visualization decodes source images and replays sequences serially on the main
-thread, regardless of `--sequence-workers`. Reported replay timing includes rendering,
-video writing, and preview pacing; omit these flags for speed benchmarks.
+For image builds, visualization decodes source images and replays sequences
+serially on the main thread, regardless of `--sequence-workers`. Reported replay
+timing includes rendering, video writing, and preview pacing; omit these flags
+for speed benchmarks.
 
 ## Dataset FPS
 
@@ -182,6 +413,10 @@ Omit `--sequence data23-1` to evaluate every sequence. Canonical builds remain
 the default and do not need this flag.
 
 ## Kalman calibration
+
+EagerMOT supports [3D calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise)
+from saved sensor detections and 3D ground truth, using fixed frame steps.
+The image-tracker workflow below supports AABB and OBB observations.
 
 Use `--calibrate-kf` to estimate Kalman noise directly from cached detector
 predictions and ground truth on the selected split, then evaluate the calibrated
@@ -333,12 +568,22 @@ Elapsed inference time is not a capture timestamp.
 
 ## Sequence parallelism
 
-Evaluation replays each sequence as one isolated spawned-process job. Every
-job constructs its own tracker from the immutable tracker spec, so tracker
-state and native handles never cross sequence or process boundaries.
-`--sequence-workers` sets the maximum number of sequence worker processes. The Rich
-panel reports frame progress separately for every sequence while those jobs
-run.
+Parallel evaluation gives each sequence its own tracker in an isolated
+process. Tracker state and native handles never cross sequence or process
+boundaries.
+By default, the worker count is the smaller of the selected sequence count and
+the logical CPU count minus two, with at least one worker when sequences are
+selected: `min(sequences, max(1, logical_cpus - 2))`. For example, nine selected
+sequences on a machine with eight logical CPUs use six workers.
+
+`--sequence-workers N` overrides automatic sizing with a positive integer cap;
+the active worker count never exceeds the number of selected sequences.
+Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
+reports frame progress separately for every sequence while those jobs run.
+
+Image-build previews and saved videos use serial replay. EagerMOT sensor
+replay runs serially with `--show`; `--save` alone supports parallel video
+writing.
 
 Use `--sequence` to replay only one sequence while diagnosing a run. Repeat
 the option to select more than one sequence:
@@ -368,7 +613,7 @@ the initial worker-loading phase.
 
 ## Build resolution
 
-- When `--build` is omitted with `--experiment` or `--dataset` plus
+- For detector-based evaluation, when `--build` is omitted with `--experiment` or `--dataset` plus
   `--detector`, BoxMOT resolves the authored experiment and materializes its
   deterministic build below `--build-root`; an identical complete build is
   validated and reused.
@@ -376,7 +621,8 @@ the initial worker-loading phase.
 - A build ID is looked up only below `--build-root`.
 - `--build-root` defaults to `BOXMOT_BUILDS_DIR`, then
   `./runs/materializations`.
-- Dataset-only evaluation requires `--build` when no detector is selected.
+- Dataset-only evaluation requires `--build` when no detector or saved detections are selected.
+- [Saved 2D experiments](#saved-2d-detections) replay their dataset inputs directly without a build.
 - There is no latest-build selection.
 
 The selected raw data root is used to verify ground-truth provenance. It

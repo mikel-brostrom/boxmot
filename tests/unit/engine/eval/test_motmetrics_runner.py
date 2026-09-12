@@ -455,7 +455,8 @@ def test_rotated_iou_rejects_disjoint_aabbs_before_exact_intersection(monkeypatc
 
 
 @pytest.mark.parametrize("eval_box_type", ["aabb", "obb"])
-def test_run_motmetrics_loads_each_multiclass_sequence_once(tmp_path, monkeypatch, eval_box_type):
+@pytest.mark.parametrize("cache_inputs", [False, True])
+def test_run_motmetrics_loads_each_multiclass_sequence_once(tmp_path, monkeypatch, eval_box_type, cache_inputs):
     source = tmp_path / "source"
     exp_dir = tmp_path / "runs" / "exp"
     seq_names = ("SEQ-01", "SEQ-02")
@@ -496,9 +497,10 @@ def test_run_motmetrics_loads_each_multiclass_sequence_once(tmp_path, monkeypatc
         remapped_class_names=["first", "second"],
         translated_benchmark_class_names=None,
         classes=None,
+        cache_inputs=cache_inputs,
     )
 
-    run_motmetrics(
+    first = run_motmetrics(
         args,
         [source / seq_name for seq_name in seq_names]
         if eval_box_type == "obb"
@@ -511,6 +513,18 @@ def test_run_motmetrics_loads_each_multiclass_sequence_once(tmp_path, monkeypatc
     for seq_name in seq_names:
         assert reads.count(gt_paths[seq_name]) == 1
         assert reads.count(tracker_paths[seq_name]) == 1
+
+    second = run_motmetrics(
+        args,
+        [source / seq_name for seq_name in seq_names],
+        tmp_path / "save",
+        source,
+        seq_info={seq_name: 1 for seq_name in seq_names},
+    )
+    assert second == first
+    for seq_name in seq_names:
+        assert reads.count(gt_paths[seq_name]) == (1 if cache_inputs else 2)
+        assert reads.count(tracker_paths[seq_name]) == 2
 
 
 @pytest.mark.parametrize("eval_box_type", ["aabb", "obb"])

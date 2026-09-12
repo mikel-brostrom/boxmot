@@ -26,7 +26,7 @@ from boxmot.detectors.backends.base import (
 from boxmot.detectors.specs import DetectorSpec
 from boxmot.resources.paths import resolve_model_path
 from boxmot.structures import Detections, Frame
-from boxmot.utils.torch_utils import canonical_torch_device
+from boxmot.utils.devices import resolve_device
 
 
 class UltralyticsDetector:
@@ -43,7 +43,7 @@ class UltralyticsDetector:
 
         self.spec = spec
         self.capabilities = capabilities_from_spec(spec)
-        self.device = canonical_torch_device(spec.device)
+        self.device = resolve_device(spec.device)
         self.imgsz = values.get("image_size")
         self._prediction_options = {
             "conf": values.get("confidence", 0.25),

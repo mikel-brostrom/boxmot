@@ -7,9 +7,9 @@ import pytest
 
 from boxmot.native.trackers import sfsort as native_binding
 from boxmot.structures import Tracks
-from boxmot.trackers.box.sfsort import native as native_module
-from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.sfsort import native as native_module
+from boxmot.trackers.sfsort.tracker import SFSORT
 
 from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr, update_rows
 

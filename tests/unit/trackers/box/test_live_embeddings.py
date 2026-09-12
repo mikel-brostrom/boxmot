@@ -11,7 +11,7 @@ import torch
 from boxmot.components.timing import timing_event_sink
 from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
-from boxmot.trackers.registry import TRACKER_DEFINITIONS, get_tracker_class
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS, get_tracker_class
 
 REID_TRACKER_NAMES = tuple(
     name for name, definition in TRACKER_DEFINITIONS.items() if definition.capabilities.accepts_embeddings
@@ -78,7 +78,6 @@ def _tracker_options(tracker_name: str) -> dict[str, object]:
                 "use_cmc": False,
                 "use_dlo_boost": False,
                 "use_duo_boost": False,
-                "gta_enabled": False,
                 "instant_confirm_thresh": 0.2,
                 "new_track_thresh": 0.2,
             },
@@ -337,6 +336,7 @@ def test_configured_encoder_rebuilds_numpy_rows_as_canonical_detections(
     import boxmot.reid.factory as reid_factory
 
     encoder = _AppearanceEncoderSpy()
+    encoder.requirements = EncoderRequirements()
     monkeypatch.setattr(reid_factory, "create_reid_encoder", lambda _spec: encoder)
     tracker = _tracker("botsort", reid_model=None)
     tracker.configure_reid(ReIDEncoderSpec("native", artifact="models/reid.onnx"))
@@ -364,6 +364,54 @@ def test_configured_encoder_rebuilds_numpy_rows_as_canonical_detections(
     torch.testing.assert_close(canonical.geometry.values, torch.from_numpy(rows[:, :4]))
     torch.testing.assert_close(canonical.scores, torch.from_numpy(rows[:, 4]))
     torch.testing.assert_close(canonical.class_ids, torch.tensor([7, 9], dtype=torch.int64))
+
+
+@pytest.mark.parametrize("tracker_name", REID_TRACKER_NAMES)
+def test_live_encoder_required_masks_are_checked_before_encoding(
+    tracker_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The encoder's mandatory channels apply even when tracking uses only boxes."""
+    import boxmot.reid.factory as reid_factory
+
+    encoder = _AppearanceEncoderSpy()
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", lambda _spec: encoder)
+    tracker = _tracker(tracker_name, reid_model=None)
+    tracker.configure_reid(ReIDEncoderSpec("native", artifact="models/reid.onnx"))
+
+    with pytest.raises(ValueError, match="live ReID requires full-frame detection masks"):
+        tracker.update(_detections(), _frame())
+
+    assert encoder.calls == []
+    assert not tracker._has_updated
+
+
+@pytest.mark.parametrize("tracker_name", REID_TRACKER_NAMES)
+def test_mask_aware_live_encoder_accepts_empty_batches_without_inference(
+    tracker_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Empty provider output advances tracking before and after lazy ReID creation."""
+    import boxmot.reid.factory as reid_factory
+
+    encoder = _AppearanceEncoderSpy()
+    constructed = []
+
+    def create_encoder(spec: ReIDEncoderSpec) -> _AppearanceEncoderSpy:
+        constructed.append(spec)
+        return encoder
+
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", create_encoder)
+    tracker = _tracker(tracker_name, reid_model=None)
+    tracker.configure_reid(ReIDEncoderSpec("native", artifact="models/reid.onnx"))
+    empty = _detections(empty=True).with_masks(MaskBatch(torch.empty((0, 32, 48), dtype=torch.bool)))
+
+    tracker.update(empty, _frame())
+    assert tracker._has_updated
+    assert constructed == []
+
+    tracker.update(_detections().with_masks(MaskBatch(torch.ones((2, 32, 48), dtype=torch.bool))), _frame())
+    tracker.update(empty, _frame())
+    assert len(constructed) == 1
+    assert len(encoder.calls) == 1
 
 
 @pytest.mark.parametrize("empty", (False, True))

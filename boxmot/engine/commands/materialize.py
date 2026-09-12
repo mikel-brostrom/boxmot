@@ -1,4 +1,4 @@
-"""Click adapter for immutable perception-dataset materialization."""
+"""Click adapter for perception builds and timestamp-preserving dataset variants."""
 
 from __future__ import annotations
 
@@ -6,18 +6,60 @@ from pathlib import Path
 
 import click
 
-from boxmot.engine.commands._options import dataset_fps_option, experiment_option
-from boxmot.engine.commands._support import _dispatch_cli_workflow
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.commands._options import _parse_device, dataset_fps_option, experiment_option
+from boxmot.engine.commands._support import (
+    _dispatch_cli_workflow,
+    _explicit_cli_keys,
+    _require_experiment_input,
+)
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, get_mode_default
 
 
-@click.command(help="Build an immutable keyed perception dataset")
+@click.command(help="Build an immutable perception dataset or derive a timestamped frame-loss variant")
+@click.option(
+    "--time-variant",
+    is_flag=True,
+    help="Derive a frame-loss dataset from --dataset, --sequence, and --build, preserving source timestamps.",
+)
+@experiment_option
+@click.option(
+    "--dataset",
+    default=get_mode_default("materialize", "dataset"),
+    show_default=True,
+    help="Source dataset ID or YAML file for --time-variant.",
+)
+@click.option(
+    "--split",
+    default=get_mode_default("materialize", "split"),
+    show_default=True,
+    help="Source split containing the sequence and ground truth for --time-variant.",
+)
+@click.option("--sequence", help="One source sequence for --time-variant, e.g. MOT17-10-FRCNN.")
+@click.option(
+    "--build",
+    "build_ref",
+    help="Parent materialized build ID or directory for --time-variant.",
+)
+@click.option(
+    "--name",
+    help=(
+        "New dataset ID for --time-variant; defaults to the lowercase sequence name plus '-variable-time'. "
+        "Existing outputs are refused."
+    ),
+)
+@click.option(
+    "--seed",
+    type=click.IntRange(min=0),
+    default=get_mode_default("materialize", "seed"),
+    show_default=True,
+    help="Seed for reproducible frame selection and simulated outages with --time-variant.",
+)
 @click.option(
     "--device",
     default=BOXMOT_DEFAULTS.materialize.device,
-    help="Single execution device for all perception stages, e.g. cpu, mps, cuda:0, or 0.",
+    callback=_parse_device,
+    help="One device for all perception stages: cpu, mps, cuda:N, or N (e.g. 0). GPU lists are not supported.",
 )
-@experiment_option(required=True)
 @dataset_fps_option
 @click.option("--publish-image-refs/--no-publish-image-refs", default=True, show_default=True)
 @click.option("--publish-masks/--no-publish-masks", default=False, show_default=True)
@@ -60,7 +102,14 @@ from boxmot.engine.config import BOXMOT_DEFAULTS
 @click.pass_context
 def materialize(
     ctx: click.Context,
-    experiment: str,
+    time_variant: bool,
+    experiment: str | None,
+    dataset: str,
+    split: str,
+    sequence: str | None,
+    build_ref: str | None,
+    name: str | None,
+    seed: int,
     device: str,
     fps: float | None,
     publish_image_refs: bool,
@@ -72,7 +121,58 @@ def materialize(
     plan_overrides: tuple[str, ...],
     resume: bool,
 ) -> None:
-    """Build an immutable, reusable perception dataset."""
+    """Build perception or derive a dataset while reusing cached perception."""
+
+    explicit = _explicit_cli_keys(ctx)
+    if time_variant:
+        perception_options = {
+            "experiment": "--experiment",
+            "device": "--device",
+            "fps": "--fps",
+            "publish_image_refs": "--publish-image-refs/--no-publish-image-refs",
+            "publish_masks": "--publish-masks/--no-publish-masks",
+            "publish_embeddings": "--publish-embeddings/--no-publish-embeddings",
+            "plan_path": "--plan",
+            "plan_overrides": "--set",
+            "resume": "--resume/--no-resume",
+        }
+        invalid = [option for key, option in perception_options.items() if key in explicit]
+        if invalid:
+            raise click.UsageError(f"{', '.join(invalid)} cannot be combined with --time-variant.")
+        if not sequence:
+            raise click.UsageError("materialize --time-variant requires --sequence <sequence-name>.")
+        if not build_ref:
+            raise click.UsageError("materialize --time-variant requires --build <build-id-or-path>.")
+        _dispatch_cli_workflow(
+            ctx,
+            "materialize",
+            "boxmot.engine.dataset_variants.workflow",
+            {
+                "time_variant": True,
+                "dataset": dataset,
+                "split": split,
+                "sequence": sequence,
+                "build": build_ref,
+                "build_root": build_root,
+                "data_root": data_root,
+                "name": name,
+                "seed": seed,
+            },
+        )
+        return
+
+    variant_options = {
+        "dataset": "--dataset",
+        "split": "--split",
+        "sequence": "--sequence",
+        "build_ref": "--build",
+        "name": "--name",
+        "seed": "--seed",
+    }
+    invalid = [option for key, option in variant_options.items() if key in explicit]
+    if invalid:
+        raise click.UsageError(f"Dataset derivation options {', '.join(invalid)} require --time-variant.")
+    experiment = _require_experiment_input(experiment, "materialize")
 
     _dispatch_cli_workflow(
         ctx,

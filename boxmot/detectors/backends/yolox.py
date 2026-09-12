@@ -30,7 +30,7 @@ from boxmot.detectors.specs import DetectorSpec
 from boxmot.resources.paths import resolve_model_path
 from boxmot.structures import Detections, Frame
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.torch_utils import canonical_torch_device
+from boxmot.utils.devices import resolve_device
 
 YOLOX_MODELS = ("yolox_n", "yolox_s", "yolox_m", "yolox_l", "yolox_x")
 
@@ -115,7 +115,7 @@ class YoloXDetector:
 
         self.spec = spec
         self.capabilities = capabilities_from_spec(spec)
-        self.device = canonical_torch_device(spec.device)
+        self.device = resolve_device(spec.device)
         self.imgsz = [int(image_size[0]), int(image_size[1])]
         self._prediction_options = {
             "conf": float(values.get("confidence", 0.25)),

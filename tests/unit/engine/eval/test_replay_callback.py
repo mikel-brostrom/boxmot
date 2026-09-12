@@ -194,6 +194,43 @@ def test_callback_keeps_real_kalman_results_identical(timestamped_build, tmp_pat
     assert not list(shown.output_dir.glob(".replay-*"))
 
 
+@pytest.mark.parametrize("render", [False, True])
+def test_input_cache_is_used_by_injected_and_rendered_replay(timestamped_build, tmp_path, monkeypatch, render):
+    from boxmot.datasets import replay_cache
+
+    baseline = replay.replay_build(
+        timestamped_build,
+        TrackerSpec(name="bytetrack"),
+        output_dir=tmp_path / "baseline",
+        tracker=PayloadTracker(),
+    )
+    opened = []
+    original_open = replay_cache.open_replay_sequence
+
+    def open_cached(path, **kwargs):
+        opened.append((path, kwargs))
+        return original_open(path, **kwargs)
+
+    monkeypatch.setattr(replay_cache, "open_replay_sequence", open_cached)
+    frames = []
+    cached = replay.replay_build(
+        timestamped_build,
+        TrackerSpec(name="bytetrack"),
+        output_dir=tmp_path / "cached",
+        tracker=PayloadTracker(),
+        frame_callback=frames.append if render else None,
+        cache_inputs=True,
+    )
+    assert len(opened) == 2
+    assert all(options["load_images"] is render and options["load_embeddings"] for _, options in opened)
+    assert [path.read_bytes() for path in baseline.sequence_files] == [
+        path.read_bytes() for path in cached.sequence_files
+    ]
+    if render:
+        assert len(frames) == 4
+        assert all(item.sample.frame is not None for item in frames)
+
+
 @pytest.mark.parametrize("injected", [False, True])
 def test_callback_failure_preserves_old_results_and_closes_only_owned_tracker(
     timestamped_build, tmp_path, monkeypatch, injected

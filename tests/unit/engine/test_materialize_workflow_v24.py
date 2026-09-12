@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -7,22 +8,31 @@ import cv2
 import numpy as np
 import pytest
 import torch
+import yaml
 
 import boxmot.engine.materialization.metadata_cache as metadata_cache_module
+import boxmot.engine.materialization.plan as plan_module
 import boxmot.engine.materialization.source as source_module
 import boxmot.engine.materialization.stages.detect as detect_stage_module
 import boxmot.engine.materialization.stages.embed as embed_stage_module
 import boxmot.engine.materialization.stages.segment as segment_stage_module
 import boxmot.engine.materialization.workflow as workflow
+from boxmot import create_tracker
+from boxmot.configs import CONFIG_ROOT
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.datasets.manifest import sha256_file
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
-from boxmot.engine.experiment_config import resolve_experiment_config
+from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.eval.replay import iter_cached_tracks
 from boxmot.engine.materialization import SourceSample, StagePlan, fingerprint
 from boxmot.engine.materialization.catalog import SourceCatalog
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.segmentors import SegmentorSpec
-from boxmot.structures import Boxes, Detections, OrientedBoxes
+from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
+from boxmot.trackers import TrackerSpec
+from boxmot.utils.devices import resolve_device
+from tests.unit.engine.test_dataset_fps_workflow import _materialize as materialize_fixture
+from tests.unit.engine.test_dataset_fps_workflow import fps_case as fps_case
 
 
 class _Detector:
@@ -138,12 +148,24 @@ def test_automatic_component_device_resolves_to_command_default(spec) -> None:
     assert updated_provenance["spec"]["device"] == "cpu"
 
 
+@pytest.mark.parametrize("spec_type", [DetectorSpec, SegmentorSpec, ReIDEncoderSpec])
 @pytest.mark.parametrize(
     ("value", "expected"),
     (("cpu", "cpu"), ("MPS", "mps"), ("0", "cuda:0"), ("cuda", "cuda:0"), ("cuda:02", "cuda:2")),
 )
-def test_materialization_device_normalization(value: str, expected: str) -> None:
-    assert workflow._normalize_device(value) == expected
+def test_authored_component_devices_are_canonical_in_runtime_and_fingerprints(
+    spec_type, value: str, expected: str
+) -> None:
+    spec = spec_type("fixture", device=value)
+    original = {"spec": asdict(spec), "artifact": None}
+
+    updated, provenance = workflow._with_device(spec, original, None)
+    canonical = {"spec": asdict(spec_type("fixture", device=expected)), "artifact": None}
+
+    assert updated.device == expected
+    assert provenance["spec"]["device"] == expected
+    assert fingerprint(provenance) == fingerprint(canonical)
+    assert original["spec"]["device"] == value
 
 
 def test_only_an_explicit_cli_device_overrides_component_configuration() -> None:
@@ -152,6 +174,54 @@ def test_only_an_explicit_cli_device_overrides_component_configuration() -> None
 
     assert workflow._device_override(implicit) is None
     assert workflow._device_override(explicit) == "mps"
+
+
+def test_invalid_device_selector_fails_before_source_cataloging(monkeypatch) -> None:
+    monkeypatch.setattr(workflow, "_resolved_inputs", lambda *args, **kwargs: pytest.fail("Unexpected cataloging"))
+
+    with pytest.raises(ValueError, match="Unsupported device"):
+        workflow.materialize(SimpleNamespace(device="cuda:bad", materialize_explicit_keys=("device",)))
+
+
+@pytest.mark.parametrize("device_source", ["explicit", "authored"])
+def test_unavailable_device_fails_only_when_missing_outputs_need_inference(
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
+    device_source: str,
+) -> None:
+    """A real cache miss still checks accelerator availability before model execution."""
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    discovered: list[Path | None] = []
+    actual_find = workflow.find_matching_build
+
+    def find_matching(plan, **kwargs):
+        result = actual_find(plan, **kwargs)
+        discovered.append(result)
+        return result
+
+    def construct_detector(spec):
+        assert discovered == [None]
+        resolve_device(spec.device)
+        pytest.fail("An unavailable accelerator must fail before model execution.")
+
+    monkeypatch.setattr(workflow, "find_matching_build", find_matching)
+    monkeypatch.setattr(detect_stage_module, "create_detector", construct_detector)
+    options: dict[str, object] = {}
+    if device_source == "authored":
+        authored = DetectorSpec("fixture", device="cuda:2")
+        monkeypatch.setattr(
+            workflow, "resolve_detector_spec", lambda *args, **kwargs: (authored, {"spec": asdict(authored)})
+        )
+    else:
+        options.update(device="cuda:2", materialize_explicit_keys=("device",))
+
+    with pytest.raises(RuntimeError, match="cuda:2 is unavailable"):
+        materialize_fixture(fps_case, None, **options)
+
+    assert discovered == [None]
+    assert fps_case.detector.seen == []
+    assert fps_case.encoder.seen == []
 
 
 def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeypatch, tmp_path) -> None:
@@ -211,6 +281,39 @@ def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeyp
     ]
     assert inspected == [(source_path, True)]
     assert any("1 cached, 0 refreshed" in message for message in messages)
+
+
+@pytest.mark.parametrize("mode", ("materialize", "eval", "tune"))
+def test_local_kitti_experiment_materializes_its_own_images_and_annotations(tmp_path: Path, mode: str) -> None:
+    """A sibling dataset YAML must retain its local root through source cataloging."""
+    dataset = yaml.safe_load((CONFIG_ROOT / "datasets/kitti-2d.yaml").read_text())
+    dataset["storage"]["root"] = "."
+    dataset["modalities"]["images"]["path"] = "frames/{sequence}"
+    dataset["modalities"]["ground_truth"]["path"] = "annotations/{sequence}.txt"
+    dataset["splits"] = {"val": {"partition": "training", "sequences": ["0002"], "has_ground_truth": True}}
+    (tmp_path / "kitti-2d.yaml").write_text(yaml.safe_dump(dataset))
+    image_path = tmp_path / "frames/0002/000000.png"
+    image_path.parent.mkdir(parents=True)
+    assert cv2.imwrite(str(image_path), np.zeros((24, 32, 3), dtype=np.uint8))
+    annotations = tmp_path / "annotations/0002.txt"
+    annotations.parent.mkdir()
+    annotations.write_text("0 1 Car 0 0 -10 1 2 10 20 -1 -1 -1 -1000 -1000 -1000 -10\n")
+    experiment = yaml.safe_load((CONFIG_ROOT / "experiments/kitti-2d/val-yolo26n-osnet.yaml").read_text())
+    experiment["dataset"]["ref"] = "kitti-2d.yaml"
+    experiment_path = tmp_path / "local-kitti.yaml"
+    experiment_path.write_text(yaml.safe_dump(experiment))
+
+    _, geometry, catalog, detector, _, reid, metadata = workflow._resolved_inputs(
+        SimpleNamespace(experiment=experiment_path, materialize_mode=mode)
+    )
+
+    assert catalog.source_root == tmp_path.resolve()
+    assert len(catalog.samples) == 1
+    assert catalog.samples[0].source_uri == image_path.as_uri()
+    assert catalog.samples[0].image_ref == "frames/0002/000000.png"
+    assert geometry == "aabb" and detector == "yolo26n/default"
+    assert reid is not None
+    assert metadata["class_bridge"][1]["detector_name"] == "person"
 
 
 def test_eval_owned_materialization_split_is_forwarded_explicitly(monkeypatch, tmp_path) -> None:
@@ -354,6 +457,86 @@ def test_workflow_reuses_detector_cache_across_derived_experiments(monkeypatch, 
     assert first != second
     assert predict_calls == 1
     assert DatasetManifest.load(first).stages[0].fingerprint == DatasetManifest.load(second).stages[0].fingerprint
+
+
+@pytest.mark.parametrize("publish_masks", [False, True])
+def test_kitti_materialization_publishes_masks_only_when_requested(monkeypatch, tmp_path, publish_masks: bool) -> None:
+    """KITTI supports both detection-only builds and masks for optional MOTS replay."""
+    data_root, source_path, resolved = _experiment_case(tmp_path)
+    image_path = source_path.parent.parent / "000000.png"
+    assert cv2.imwrite(str(image_path), np.zeros((8, 10, 3), dtype=np.uint8))
+    resolved["dataset"]["layout"] = "sequence"
+    resolved["dataset"]["fps"] = 10.0
+    resolved["dataset"]["default_split"] = "test"
+    resolved["dataset"]["modalities"] = {
+        "images": {"format": "image-directory", "paths": ["test/{sequence}"], "options": {}}
+    }
+    resolved["dataset"]["splits"]["test"]["partition"] = "testing"
+    resolved["dataset"]["splits"]["test"]["has_ground_truth"] = False
+    resolved["dataset"]["classes"] = {"car": {"id": 1, "evaluation": "target"}}
+    resolved["evaluation"]["classes"] = [{"name": "car", "dataset_id": 1, "detector_name": "car", "detector_id": 2}]
+    expected_mask = torch.zeros((1, 8, 10), dtype=torch.bool)
+    expected_mask[0, 2:6, 1] = True
+    expected_mask[0, 5, 1:4] = True
+
+    class MaskDetector(_Detector):
+        capabilities = DetectorCapabilities(provides_masks=True)
+
+        def predict(self, frames: list[Frame]) -> list[Detections]:
+            return [detections.with_masks(MaskBatch(expected_mask.clone())) for detections in super().predict(frames)]
+
+    detector_type = MaskDetector if publish_masks else _Detector
+    detector_spec = DetectorSpec(backend="fixture", geometry_mode="aabb")
+    monkeypatch.setattr(workflow, "resolve_experiment_config", lambda *_args, **_kwargs: resolved)
+    monkeypatch.setattr(
+        workflow,
+        "resolve_detector_spec",
+        lambda _reference, *, geometry: (
+            detector_spec,
+            {"spec": {"backend": "fixture", "geometry_mode": geometry}, "artifact": None},
+        ),
+    )
+    monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: detector_type.capabilities)
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(detect_stage_module, "create_detector", lambda _spec: detector_type())
+    args = SimpleNamespace(
+        experiment="fixture-test-detector",
+        data_root=data_root,
+        device="cpu",
+        materialize_explicit_keys=(),
+        build_root=tmp_path / "builds",
+        plan_path=None,
+        plan_overrides=(),
+        publish_image_refs=True,
+        publish_masks=publish_masks,
+        publish_embeddings=False,
+        tracker="bytetrack",
+        resume=True,
+    )
+
+    output = workflow.materialize(args)
+
+    assert args.publish_masks is publish_masks
+    manifest = DatasetManifest.load(output)
+    assert manifest.metadata["layout"] == "sequence"
+    assert manifest.publish.masks is publish_masks
+    dataset = CachedVisionDataset(output, load_masks=publish_masks)
+    assert len(dataset) == 1
+    assert dataset[0].frame_index == 0
+    assert dataset[0].detections.class_ids.tolist() == [1]
+    if publish_masks:
+        torch.testing.assert_close(dataset[0].detections.masks.values, expected_mask)
+    else:
+        assert dataset[0].detections.masks is None
+    tracker = create_tracker(TrackerSpec(name=args.tracker))
+    assert tracker.requirements.masks is False
+    replayed = list(iter_cached_tracks(dataset, tracker, output_format="mots" if publish_masks else "mot"))
+    assert len(replayed[0].result.tracks) == 1
+    assert replayed[0].result.tracks.detection_indices.tolist() == [0]
+    if publish_masks:
+        torch.testing.assert_close(replayed[0].result.tracks.masks.values, expected_mask)
+    else:
+        assert replayed[0].result.tracks.masks is None
 
 
 def test_mmot_materialization_preserves_native_zero_based_class_ids(monkeypatch, tmp_path) -> None:
@@ -533,7 +716,6 @@ def test_workflow_does_not_plan_masks_for_builtin_reid(monkeypatch, tmp_path) ->
 
 
 def test_materialize_workflow_publishes_loadable_build(monkeypatch, tmp_path) -> None:
-    monkeypatch.setattr(workflow, "_require_available_device", lambda _device: None)
     source_path = tmp_path / "frame.jpg"
     assert cv2.imwrite(str(source_path), np.zeros((8, 10, 3), dtype=np.uint8))
     sample = SourceSample(
@@ -662,7 +844,6 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
             {"spec": {"backend": "fixture", "device": "cpu"}, "artifact": None},
         ),
     )
-    monkeypatch.setattr(workflow, "_require_available_device", lambda _device: None)
     monkeypatch.setattr(workflow, "detector_capabilities", lambda _spec: DetectorCapabilities())
     captured = []
 
@@ -710,6 +891,59 @@ def test_process_stages_receive_one_effective_device_and_change_build_identity(m
         "segmentor": "mps",
         "reid": "mps",
     }
+
+
+@pytest.mark.parametrize(
+    ("published_device", "requested_device"),
+    [("cpu", "mps"), ("mps", "cuda:0"), ("cuda:0", "cpu")],
+)
+def test_workflow_reuses_prior_release_and_device_without_perception(
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
+    published_device: str,
+    requested_device: str,
+) -> None:
+    """A complete build is reused even when the newly requested accelerator is absent."""
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with monkeypatch.context() as previous_release:
+        previous_release.setattr(plan_module, "__version__", "0.1.0")
+        previous_release.setattr(workflow, "__version__", "0.1.0")
+        output = materialize_fixture(fps_case, None, device=published_device, materialize_explicit_keys=("device",))
+
+    def snapshot() -> dict[str, tuple[bytes, int]]:
+        return {
+            path.relative_to(output).as_posix(): (path.read_bytes(), path.stat().st_mtime_ns)
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+
+    before = snapshot()
+    calls = list(fps_case.detector.seen), list(fps_case.encoder.seen)
+
+    def forbid_perception(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Matching published outputs must be reused before constructing perception stages or models.")
+
+    for name in ("DetectStage", "EmbedStage", "SegmentStage", "DatasetMaterializer"):
+        monkeypatch.setattr(workflow, name, forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "create_detector", forbid_perception)
+    monkeypatch.setattr(embed_stage_module, "create_reid_encoder", forbid_perception)
+    monkeypatch.setattr(segment_stage_module, "create_segmentor", forbid_perception)
+    monkeypatch.setattr(detect_stage_module, "_WORKER_DETECTORS", {})
+    monkeypatch.setattr(embed_stage_module, "_WORKER_ENCODERS", {})
+
+    reused = materialize_fixture(fps_case, None, device=requested_device, materialize_explicit_keys=("device",))
+
+    assert reused == output
+    assert snapshot() == before
+    assert (fps_case.detector.seen, fps_case.encoder.seen) == calls
+    manifest = DatasetManifest.load(output)
+    assert manifest.metadata["boxmot_version"] == "0.1.0"
+    assert manifest.metadata["components"]["detector"]["spec"]["device"] == published_device
+    assert manifest.metadata["components"]["reid"]["spec"]["device"] == published_device
+    assert manifest.counts["samples"] == 19
+    assert manifest.counts["embeddings"] == manifest.counts["instances"] == 18
 
 
 def test_published_build_reuse_does_not_construct_perception_models(monkeypatch, tmp_path) -> None:

@@ -4,7 +4,7 @@
 
 namespace occluboost {
 
-// Constant-noise XYHR Kalman filter mirroring boxmot.motion.kalman_filters.xyhr.
+// Constant-noise XYHR Kalman filter mirroring boxmot.trackers.common.motion.kalman_filters.xyhr.
 // AABB mode (dim_z=4, dim_x=8): state [x, y, h, r, vx, vy, vh, vr]
 // OBB  mode (dim_z=5, dim_x=10): state [x, y, h, r, theta, vx, vy, vh, vr, vtheta]
 class KalmanFilterXYHR {

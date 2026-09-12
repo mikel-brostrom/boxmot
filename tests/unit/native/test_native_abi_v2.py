@@ -9,13 +9,13 @@ import torch
 
 from boxmot.native.trackers import _common
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes
-from boxmot.trackers.box.bytetrack import native as native_bytetrack_module
-from boxmot.trackers.box.bytetrack.native import NativeByteTrackTracker
-from boxmot.trackers.box.sfsort.native import NativeSFSORTTracker
-from boxmot.trackers.factory import create_tracker
-from boxmot.trackers.protocols import TrackerRequirements
-from boxmot.trackers.registry import supported_native_trackers
-from boxmot.trackers.specs import TrackerSpec
+from boxmot.trackers.bytetrack import native as native_bytetrack_module
+from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
+from boxmot.trackers.common.factory import create_tracker
+from boxmot.trackers.common.protocols import TrackerRequirements
+from boxmot.trackers.common.registry import supported_native_trackers
+from boxmot.trackers.common.specs import TrackerSpec
+from boxmot.trackers.sfsort.native import NativeSFSORTTracker
 
 
 def _detections(*, sample_id: str = "sample", class_id: int = 16_777_217) -> Detections:

@@ -12,11 +12,11 @@ from unittest.mock import MagicMock
 import pytest
 import yaml
 
-import boxmot.engine.tuning.kalman as kalman_module
+import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.search_space import flatten_yaml_config
-from boxmot.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
     monkeypatch.setattr(tuner_module.TuneWorkflowReporter, "pipeline", lambda *args, **kwargs: pipeline)
     monkeypatch.setattr(tuner_module, "set_tune_progress_workflow", lambda *args: None)
     monkeypatch.setattr(tuner_module.Tuner, "_configure_warning_filters", lambda self: None)
-    monkeypatch.setattr(tuner_module, "_sync_tuning_requirements", lambda **kwargs: None)
+    monkeypatch.setattr(tuner_module, "_require_tuning_requirements", lambda: None)
     monkeypatch.setattr(tuner_module.Tuner, "_inject_callback_into_restored", lambda *args: None)
 
     def setup(args: SimpleNamespace, pipeline: object = None) -> None:
@@ -133,6 +133,9 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
             captured["trial_configs"].append(dict(config))
             return {"HOTA": 50.0}
 
+        def close(self) -> None:
+            pass
+
     monkeypatch.setattr(tuner_module, "TrackerObjective", Objective)
 
     class RunConfig:
@@ -142,7 +145,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
 
     class RayTuner:
         def __init__(self, trainable: object, param_space: dict, tune_config: object, run_config: RunConfig) -> None:
-            del tune_config
+            assert tune_config.reuse_actors is True
             captured["events"].append("ray_tuner")
             captured["param_space"] = dict(param_space)
             captured["tune_dir"] = Path(run_config.storage_path) / run_config.name
@@ -178,8 +181,14 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                         for key, value in captured["param_space"].items()
                     }
                     configs.append({**config, **suggestion.params})
-            for config in configs:
-                self.trainable(config)
+            actor = self.trainable()
+            actor.setup(configs[0])
+            try:
+                for config in configs:
+                    assert actor.reset_config(config)
+                    assert actor.step()["done"] is True
+            finally:
+                actor.cleanup()
             captured["saved_results"] = [SimpleNamespace(config=config) for config in configs]
             return []
 
@@ -193,6 +202,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
 
     fake_tune = SimpleNamespace(
         Tuner=RayTuner,
+        Trainable=object,
         TuneConfig=lambda **kwargs: SimpleNamespace(**kwargs),
         with_resources=lambda function, resources: function,
         uniform=lambda low, high: _Domain((low + high) / 2.0),
@@ -412,6 +422,92 @@ def test_resuming_calibrated_run_loads_saved_units_and_frozen_values_without_ref
         assert resumed._runtime_config[key] == expected
         assert flatten_yaml_config(resumed._yaml_cfg)[key] == {"default": expected}
         assert all(config[key] == expected for config in captured["trial_configs"])
+
+
+@pytest.mark.parametrize("eval_masks", [False, True])
+def test_tuning_persists_evaluation_mode_and_resumes_with_matching_trial_geometry(
+    fake_tuning: SimpleNamespace, eval_masks: bool
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(
+        calibrate_kf=False,
+        eval_masks=eval_masks,
+        evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+    )
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+
+    assert json.loads((tune_dir / "evaluation.json").read_text()) == {"eval_masks": eval_masks}
+    assert captured["trial_args"].eval_masks is eval_masks
+    captured["restore_enabled"] = True
+    tuner_module.Tuner(
+        fake_tuning.args(
+            calibrate_kf=False,
+            eval_masks=eval_masks,
+            resume_tune=tune_dir,
+            evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+        )
+    ).fit()
+
+    assert captured["trial_args"].eval_masks is eval_masks
+    assert captured["events"].count("restore") == 1
+    assert captured["events"].count("fit") == 2
+
+
+@pytest.mark.parametrize("saved_masks", [False, True])
+def test_tuning_rejects_changed_evaluation_mode_before_starting_resume_runtime(
+    fake_tuning: SimpleNamespace, saved_masks: bool
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(
+        calibrate_kf=False,
+        eval_masks=saved_masks,
+        evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+    )
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+    captured["restore_enabled"] = True
+    captured["events"].clear()
+
+    with pytest.raises(ValueError, match="same evaluation mode"):
+        tuner_module.Tuner(
+            fake_tuning.args(
+                calibrate_kf=False,
+                eval_masks=not saved_masks,
+                resume_tune=tune_dir,
+                evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+            )
+        ).fit()
+
+    assert captured["events"] == ["eval_setup"]
+    assert json.loads((tune_dir / "evaluation.json").read_text())["eval_masks"] is saved_masks
+
+
+@pytest.mark.parametrize("contents", [None, "{", "[]", '{"eval_masks": 1}', '{"eval_masks": "false"}'])
+def test_tuning_rejects_missing_or_corrupt_evaluation_mode_on_resume(
+    fake_tuning: SimpleNamespace, contents: str | None
+) -> None:
+    captured = fake_tuning.captured
+    args = fake_tuning.args(
+        calibrate_kf=False, evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"}
+    )
+    _, tune_dir, _, _ = tuner_module.Tuner(args).fit()
+    path = tune_dir / "evaluation.json"
+    if contents is None:
+        path.unlink()
+    else:
+        path.write_text(contents)
+    captured["restore_enabled"] = True
+    captured["events"].clear()
+
+    with pytest.raises(ValueError, match="evaluation mode metadata"):
+        tuner_module.Tuner(
+            fake_tuning.args(
+                calibrate_kf=False,
+                resume_tune=tune_dir,
+                evaluation_config={"layout": "sequence", "annotation_layout": "mots_png"},
+            )
+        ).fit()
+
+    assert captured["events"] == ["eval_setup"]
 
 
 @pytest.mark.parametrize("search_alg", ["optuna", "random"])

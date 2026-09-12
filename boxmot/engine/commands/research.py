@@ -14,7 +14,7 @@ from boxmot.engine.commands._options import (
     replay_options,
 )
 from boxmot.engine.commands._support import _dispatch_cli_workflow, _require_experiment_input
-from boxmot.engine.config import BOXMOT_DEFAULTS
+from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
 
 def _research_options(func):

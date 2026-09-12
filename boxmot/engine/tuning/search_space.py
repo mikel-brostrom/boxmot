@@ -7,7 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.trackers.config import load_tracker_defaults, load_tracker_schema
+from boxmot.trackers.common.config import load_tracker_defaults, load_tracker_schema
 from boxmot.utils import logger as LOGGER
 
 # ---------------------------------------------------------------------------

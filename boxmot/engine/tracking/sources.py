@@ -19,7 +19,7 @@ import numpy as np
 import torch
 from typing_extensions import Self
 
-from boxmot.engine.frame_timing import SourceTimestamps
+from boxmot.engine.tracking.timestamps import SourceTimestamps
 from boxmot.structures import Frame
 
 IMAGE_EXTENSIONS = frozenset({".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"})

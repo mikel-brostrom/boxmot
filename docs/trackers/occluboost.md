@@ -4,8 +4,7 @@ OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It
 keeps BoostTrack's multi-cue association and confidence boosting, then adds
 tentative-track confirmation, ReID recovery, a guarded low-confidence second
 pass, duplicate suppression, and an **Abnormal Motion Suppression (AMS)**
-Kalman update. The Python implementation can also enable online global
-trajectory association (GTA) for longer appearance-based recovery.
+Kalman update.
 
 ## What's layered on top of BoostTrack
 
@@ -17,7 +16,6 @@ trajectory association (GTA) for longer appearance-based recovery.
 - **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
 - **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
 - **Duplicate suppression.** `duplicate_iou_thresh` controls removal of the younger of two near-identical emitted tracks.
-- **Optional online GTA.** When `gta_enabled` is set, appearance-only recovery can reconnect eligible live tracks, resurrect recently removed tracks from a graveyard, and optionally interpolate and smooth recovered gaps. The built-in tracker config leaves GTA disabled.
 
 ## What BoxMOT Needs For OccluBoost
 
@@ -43,8 +41,8 @@ supports:
 - typed generated or precomputed embeddings for association and recovery through the v2 update ABI
 - model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
-Online GTA and adaptive-Kalman controls are currently Python-only; selecting
-the C++ backend does not enable those two extensions.
+Adaptive-Kalman controls are currently Python-only; selecting the C++ backend
+does not enable adaptive Kalman filtering.
 
 Requirements:
 
@@ -91,24 +89,25 @@ numeric values into a custom config. The main parameter groups are:
 - `recovery_*`, `feat_alpha`, and `use_embeddings` for appearance recovery.
 - `use_second_pass`, `second_*`, and `track_low_thresh` for guarded
   low-confidence association.
-- `gta_*` for the optional Python-only global trajectory association path.
 - `obb_*` for thresholds and lifetimes that intentionally differ in OBB mode.
 - `new_track_thresh` and `max_age` for new-track creation and gap tolerance.
 
 ### Adaptive Kalman Filter (`adaptive_kf`)
 
-When `adaptive_kf: true` is set in the tracker config, the process noise covariance **Q** is estimated online from innovation statistics (Mehra 1970) rather than kept constant. A sliding window (30 frames, warmup 15) accumulates the outer products of the Kalman innovations, and once warmed up the estimated Q is blended (α = 0.7) with the default static Q.
+The Python implementation supports experimental online process-noise estimation
+with `adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
+innovations per track, starts adapting after 15 measurement corrections, and
+blends the estimate with baseline noise (70% adaptive, 30% baseline).
+Initialization and prediction-only updates do not count toward warmup.
+Measurement noise remains configured separately.
 
-**When to use it:**
-
-- Deploying to a new domain where you do not yet have tuned static motion parameters.
-- Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
-- Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
-
-**When NOT to use it:**
-
-- You already have validated static motion parameters — the static solution is cheaper and deterministic.
-- Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
+Consider adaptation for long tracks whose motion predictability changes, then
+compare against validated fixed noise settings. Short tracks may never leave
+warmup; detector, association, and camera-compensation errors can distort the
+estimate. `variable_dt=True` independently handles irregular capture intervals
+and can be combined with adaptation. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios and CLI examples.
 
 Enable it through the structured factory:
 

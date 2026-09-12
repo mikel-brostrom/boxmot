@@ -6,8 +6,8 @@ import pytest
 
 from boxmot import ByteTrack
 from boxmot.structures import GeometryKind
-from boxmot.trackers.registry import TRACKER_CLASS_SPECS
-from boxmot.trackers.specs import (
+from boxmot.trackers.common.registry import TRACKER_CLASS_SPECS
+from boxmot.trackers.common.specs import (
     TrackerCapabilities,
     TrackerFamily,
     TrackerSpec,
@@ -31,7 +31,7 @@ def test_tracker_capabilities_are_frozen_typed_and_use_shared_geometry_kinds() -
         capabilities.requires_embeddings = False
 
 
-@pytest.mark.parametrize("input_name", ("embeddings", "masks", "frame"))
+@pytest.mark.parametrize("input_name", ("embeddings", "masks", "frame", "detections_3d", "camera", "ego_motion"))
 def test_tracker_capabilities_requirements_must_also_be_accepted(input_name: str) -> None:
     kwargs = {f"requires_{input_name}": True}
     with pytest.raises(ValueError, match=f"requiring {input_name}"):

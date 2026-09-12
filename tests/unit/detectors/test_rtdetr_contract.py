@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import sys
 import types
 
@@ -94,12 +95,16 @@ def test_rtdetr_preserves_two_frame_batch_with_mixed_empty_results(monkeypatch) 
     assert results[1].scores.dtype == torch.float32
 
 
-def test_rtdetr_loads_only_a_resolved_local_snapshot(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize("device", ("cpu", "1", "cuda:1"))
+def test_rtdetr_loads_only_a_resolved_local_snapshot(monkeypatch, tmp_path, device) -> None:
     rtdetr_module = _import_rtdetr_with_stubbed_transformers(monkeypatch)
     snapshot = tmp_path / "rtdetr-snapshot"
     snapshot.mkdir()
     (snapshot / "config.json").write_text("{}", encoding="utf-8")
     calls = []
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "4,7")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
     class FakeProcessorClass:
         @classmethod
@@ -128,13 +133,17 @@ def test_rtdetr_loads_only_a_resolved_local_snapshot(monkeypatch, tmp_path) -> N
         "_transformers_classes",
         lambda: (FakeProcessorClass, FakeModelClass),
     )
-    detector = rtdetr_module.RTDetrDetector(DetectorSpec("rtdetr", artifact=str(snapshot), device="cpu"))
+    detector = rtdetr_module.RTDetrDetector(DetectorSpec("rtdetr", artifact=str(snapshot), device=device))
 
     assert detector.model_id == str(snapshot.resolve())
     assert calls[:2] == [
         ("processor", str(snapshot.resolve()), {"local_files_only": True}),
         ("model", str(snapshot.resolve()), {"local_files_only": True}),
     ]
+    expected_device = torch.device("cpu" if device == "cpu" else "cuda:1")
+    assert detector.device == expected_device
+    assert calls[2] == ("to", expected_device)
+    assert os.environ["CUDA_VISIBLE_DEVICES"] == "4,7"
 
     checkpoint = tmp_path / "rtdetr.pt"
     checkpoint.write_bytes(b"not a snapshot")

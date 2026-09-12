@@ -9,9 +9,9 @@ import torch
 
 from boxmot.native.trackers import ocsort as native_binding
 from boxmot.structures import Boxes, Detections, OrientedBoxes, Tracks
-from boxmot.trackers.box.ocsort import native as native_module
-from boxmot.trackers.box.ocsort.tracker import OcSort
-from boxmot.trackers.config import load_tracker_config
+from boxmot.trackers.common.config import load_tracker_config
+from boxmot.trackers.ocsort import native as native_module
+from boxmot.trackers.ocsort.tracker import OcSort
 
 from ._helpers import empty_native_batch
 

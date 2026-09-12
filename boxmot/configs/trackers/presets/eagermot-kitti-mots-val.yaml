@@ -1,0 +1,37 @@
+# EagerMOT class profiles for the KITTI MOTS validation split.
+# Load with --class-config; class IDs: car=1, pedestrian=2.
+# Source: runs/eagermot-tune/val2/best.yaml (BoxMOT 24.0.0).
+# Optuna TPE, seed=0, 200 completed trials, best trial=197 (zero-based).
+# Objective: cls_comb_cls_av.HOTA (mask IoU), 67.3474688366662.
+# Class HOTA: car=78.56943671387127, pedestrian=56.125500959461135.
+# Fitted sequences: 0002, 0006, 0007, 0008, 0010, 0013, 0014, 0016, 0018.
+# Inputs: TrackR-CNN masks; PointGNN car t2-train and pedestrian trainval.
+# These scores measure the fitting split, not held-out performance.
+car:
+  det_thresh_3d: 0.2619456958774728
+  max_age: 9
+  max_age_2d: 3
+  fusion_iou_threshold: 0.1068467663844036
+  iou_threshold: 0.026302598372371522
+  first_matching_method: dist_2d_dims
+  iou_3d_threshold: 0.01
+  is_angular: false
+  per_class: false
+  asso_func: iou
+  det_thresh: 0.5341441854636622
+  min_hits: 1
+  distance_threshold: 3.8565434549240734
+pedestrian:
+  det_thresh_3d: 0.3616315875515425
+  max_age: 10
+  max_age_2d: 3
+  fusion_iou_threshold: 0.20348309679851226
+  iou_threshold: 0.31020510505444837
+  first_matching_method: iou_3d
+  iou_3d_threshold: 0.17296969927355305
+  is_angular: true
+  per_class: false
+  asso_func: iou
+  det_thresh: 0.6932125347667007
+  min_hits: 2
+  distance_threshold: 0.3

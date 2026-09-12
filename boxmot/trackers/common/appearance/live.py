@@ -97,6 +97,31 @@ class LiveReIDMixin:
 
         return bool(getattr(self, "accepts_embeddings", False) and self.use_embeddings)
 
+    @property
+    def reid_requires_masks(self) -> bool:
+        """Whether the configured live appearance encoder consumes instance masks."""
+        return bool(
+            self.generates_embeddings
+            and self._reid_encoder_spec is not None
+            and self._get_live_reid_encoder().requirements.masks
+        )
+
+    def _validate_detection_inputs(self, detections: Detections) -> None:
+        """Reject supplied channels unused by the algorithm or its live encoder."""
+        if detections.embeddings is not None and not self.requirements.embeddings:
+            raise ValueError(f"{self.__class__.__name__} does not use detection embeddings in this configuration.")
+        accepts_masks = getattr(getattr(self, "capabilities", None), "accepts_masks", self.requirements.masks)
+        if detections.masks is not None and not accepts_masks:
+            encoder_uses_masks = (
+                detections.embeddings is None and self.generates_embeddings and self._reid_encoder_spec is not None
+            )
+            # Empty provider batches must advance lifecycle without constructing
+            # a lazy encoder merely to inspect its mask requirements.
+            if encoder_uses_masks and (len(detections) > 0 or self._reid_encoder is not None):
+                encoder_uses_masks = self.reid_requires_masks
+            if not encoder_uses_masks:
+                raise ValueError(f"{self.__class__.__name__} does not use detection masks in this configuration.")
+
     def configure_reid(self, spec: ReIDEncoderSpec) -> None:
         """Configure a full encoder spec for lazy tracker-owned inference.
 
@@ -214,7 +239,10 @@ class LiveReIDMixin:
                     class_ids=torch.from_numpy(class_id_values),
                     sample_id=frame.sample_id,
                 )
-            encoded = self._get_live_reid_encoder().encode((frame,), (encoder_detections,))
+            encoder = self._get_live_reid_encoder()
+            if encoder.requirements.masks and encoder_detections.masks is None:
+                raise ValueError(f"{self.__class__.__name__} live ReID requires full-frame detection masks.")
+            encoded = encoder.encode((frame,), (encoder_detections,))
             if not isinstance(encoded, list) or len(encoded) != 1:
                 raise ValueError("ReID encoder must return one embedding tensor for one frame.")
             if not isinstance(encoded[0], torch.Tensor):
