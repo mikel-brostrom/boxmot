@@ -39,6 +39,7 @@ uv run --no-sync pytest tests/unit/configs tests/unit/trackers/test_tracker_regi
 ## Python model-name autocomplete
 
 After adding or renaming a detector/ReID profile or tracker manifest entry,
+or updating the Ultralytics dependency,
 regenerate the editor suggestions and commit the generated files:
 
 ```bash
@@ -46,8 +47,12 @@ uv run --no-sync python -m tools.generate_model_names
 uv run --no-sync python -m tools.generate_model_names --check
 ```
 
-The generator reads the packaged detector and ReID catalogs and the tracker
-manifest. Profiles with multiple detector checkpoints produce explicit
+The generator reads the packaged detector and ReID catalogs, the tracker
+manifest, and the installed Ultralytics official asset inventory. Use the locked
+environment with the `yolo` extra to regenerate it. The detector catalog records
+the Ultralytics version and includes checkpoints supported by the box-producing
+backend tasks; classification, semantic segmentation, and prompt-only SAM assets
+are excluded. Profiles with multiple detector checkpoints produce explicit
 `profile/checkpoint` suggestions. The resulting `_model_names.py` files contain
 static literal types; imports do not read YAML or load models. The component
 tests check freshness in CI, and `boxmot/py.typed` makes the annotations

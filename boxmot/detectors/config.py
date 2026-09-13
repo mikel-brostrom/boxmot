@@ -230,10 +230,13 @@ def load_detector_profile(reference: str | Path) -> dict[str, Any]:
 
 
 def _detector_backend(identifier: str, artifact: str) -> str:
+    """Distinguish Ultralytics checkpoints from Hugging Face RT-DETR snapshots."""
     normalized = f"{identifier} {Path(artifact).name}".lower()
     if "yolox" in normalized:
         return "yolox"
     if "rtdetr" in normalized or "rt-detr" in normalized:
+        if Path(artifact).suffix.lower() == ".pt" and "rtdetr_v2_" not in normalized:
+            return "ultralytics"
         return "rtdetr"
     return "ultralytics"
 

@@ -7,13 +7,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
+import cv2
 import numpy as np
 import torch
 from ultralytics import YOLO
 from ultralytics.utils import ops
 
 from boxmot.components.timing import timed_component_phase
-from boxmot.detectors._capabilities import capabilities_from_spec
 from boxmot.detectors.backends.base import (
     _as_numpy,
     _canonical_detections,
@@ -23,14 +23,25 @@ from boxmot.detectors.backends.base import (
     _validate_results,
     _validated_frames,
 )
+from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.detectors.specs import DetectorSpec
 from boxmot.resources.paths import resolve_model_path
 from boxmot.structures import Detections, Frame
 from boxmot.utils.devices import resolve_device
 
 
+def _model_input_channels(model: Any) -> int:
+    """Read channel metadata before and after Ultralytics wraps the model."""
+    channels = getattr(model, "channels", None)
+    if channels is None:
+        channels = getattr(model, "yaml", {}).get("channels", 3)
+    if channels not in (1, 3):
+        raise ValueError(f"Ultralytics detector requires {channels} image channels; RGB Frames support 1 or 3.")
+    return channels
+
+
 class UltralyticsDetector:
-    """Ultralytics YOLO detector exposing only the canonical detector API."""
+    """Ultralytics box-producing models exposed through the canonical detector API."""
 
     def __init__(self, spec: DetectorSpec) -> None:
         values = _validate_backend_spec(spec, backend="ultralytics", supports_obb=True)
@@ -42,7 +53,6 @@ class UltralyticsDetector:
             )
 
         self.spec = spec
-        self.capabilities = capabilities_from_spec(spec)
         self.device = resolve_device(spec.device)
         self.imgsz = values.get("image_size")
         self._prediction_options = {
@@ -51,8 +61,35 @@ class UltralyticsDetector:
             "classes": values.get("classes"),
             "agnostic_nms": values.get("agnostic_nms", False),
         }
-        self._yolo = YOLO(str(model_path))
-        self._is_obb = str(getattr(self._yolo, "task", "")).lower() == "obb"
+        stem = model_path.stem.lower()
+        if stem.startswith("yolo_nas_"):
+            from ultralytics import NAS
+
+            self._yolo = NAS(str(model_path))
+        elif stem.startswith("fastsam-"):
+            from ultralytics import FastSAM
+
+            self._yolo = FastSAM(str(model_path))
+        else:
+            self._yolo = YOLO(str(model_path))
+        task = str(getattr(self._yolo, "task", "")).lower()
+        if task not in {"detect", "segment", "pose", "obb"}:
+            raise ValueError(
+                f"Ultralytics task {task!r} does not provide supported tracking detections. "
+                "Choose a detect, segment, pose, or obb checkpoint."
+            )
+        self._is_obb = task == "obb"
+        geometry = "obb" if self._is_obb else "aabb"
+        if spec.geometry_mode not in {"auto", geometry}:
+            raise ValueError(
+                f"Ultralytics checkpoint task {task!r} produces {geometry.upper()} boxes, "
+                f"which conflicts with geometry_mode={spec.geometry_mode!r}."
+            )
+        self.capabilities = DetectorCapabilities(
+            provides_masks=task == "segment",
+            supports_aabb=not self._is_obb,
+            supports_obb=self._is_obb,
+        )
         self.names = self._yolo.names or {}
         self._predictor = None
 
@@ -70,7 +107,12 @@ class UltralyticsDetector:
             self._ensure_predictor(**self._prediction_options)
             images = [_frame_to_bgr(frame) for frame in batch]
             self._predictor.batch = ([frame.source_uri or "" for frame in batch], images, None)
-            preprocessed = self._predictor.preprocess(images)
+            channels = _model_input_channels(getattr(self._predictor, "model", None))
+            if channels == 1:
+                model_images = [cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)[..., None] for image in images]
+            else:
+                model_images = images
+            preprocessed = self._predictor.preprocess(model_images)
         with timed_component_phase("detector", "process", device=device):
             raw_predictions = self._predictor.inference(preprocessed)
         with timed_component_phase("detector", "postprocess", device=device):
@@ -101,7 +143,8 @@ class UltralyticsDetector:
         """Create and configure Ultralytics' private stateful predictor."""
 
         if self._predictor is None:
-            dummy = np.zeros((32, 32, 3), dtype=np.uint8)
+            channels = _model_input_channels(getattr(self._yolo, "model", None))
+            dummy = np.zeros((32, 32, channels), dtype=np.uint8)
             predictor_options = {
                 "source": dummy,
                 "conf": 0.25 if conf is None else float(conf),

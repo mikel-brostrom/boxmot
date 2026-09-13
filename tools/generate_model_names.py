@@ -1,8 +1,9 @@
-"""Generate static model-name Literal aliases from the packaged catalogs.
+"""Generate static model-name Literal aliases from catalogs and Ultralytics.
 
 Run ``uv run --no-sync python -m tools.generate_model_names`` after changing a
-detector/ReID profile or the tracker manifest. ``--check`` reports stale files
-without modifying them. Generated modules need only the Python standard library.
+detector/ReID profile, tracker manifest, or locked Ultralytics release. Install
+the yolo extra before generating. ``--check`` reports stale files without
+modifying them. Generated modules need only the Python standard library.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
+from boxmot.detectors._ultralytics_models import ultralytics_detector_names, ultralytics_inventory_version
 from boxmot.detectors.config import load_detector_config
 from boxmot.reid.config import load_reid_config
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
@@ -44,14 +46,15 @@ def reid_names(config_dir: Path) -> tuple[str, ...]:
     return tuple(sorted(indexed))
 
 
-def render_alias(alias: str, names: Iterable[str]) -> str:
+def render_alias(alias: str, names: Iterable[str], *, provenance: str | None = None) -> str:
     """Render deterministic Python 3.10-compatible source without dynamic lookups."""
     ordered_names = tuple(sorted(set(names)))
     if not ordered_names:
         raise ValueError(f"{alias} requires at least one catalog name.")
     entries = "".join(f"    {json.dumps(name)},\n" for name in ordered_names)
+    provenance_line = f"\n{provenance}\n" if provenance else ""
     return (
-        f'"""Generated model names for autocomplete. Regenerate with:\n\n{_REGENERATE}\n"""\n\n'
+        f'"""Generated model names for autocomplete. Regenerate with:\n\n{_REGENERATE}\n{provenance_line}"""\n\n'
         "from typing import Literal, TypeAlias\n\n"
         f"{alias}: TypeAlias = Literal[\n{entries}]\n\n"
         f'__all__ = ("{alias}",)\n'
@@ -61,8 +64,13 @@ def render_alias(alias: str, names: Iterable[str]) -> str:
 def generated_sources(root: Path = REPO_ROOT, *, trackers: Iterable[str] | None = None) -> dict[Path, str]:
     """Build expected sources without writing catalogs, artifacts, or outputs."""
     configs = root / "boxmot" / "configs"
+    detector_selectors = (*detector_names(configs / "detectors"), *ultralytics_detector_names())
     return {
-        root / "boxmot/detectors/_model_names.py": render_alias("DetectorName", detector_names(configs / "detectors")),
+        root / "boxmot/detectors/_model_names.py": render_alias(
+            "DetectorName",
+            detector_selectors,
+            provenance=f"Includes box-producing assets from Ultralytics {ultralytics_inventory_version()}.",
+        ),
         root / "boxmot/reid/_model_names.py": render_alias("ReIDName", reid_names(configs / "reid")),
         root / "boxmot/trackers/common/_model_names.py": render_alias(
             "TrackerName", _TRACKER_MANIFEST if trackers is None else trackers

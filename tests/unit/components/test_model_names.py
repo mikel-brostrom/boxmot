@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from boxmot.detectors._model_names import DetectorName
+from boxmot.detectors._ultralytics_models import ultralytics_detector_names, ultralytics_inventory_version
 from boxmot.detectors.config import load_detector_profile
 from boxmot.utils.config import ConfigurationError
 from tools import generate_model_names as generator
@@ -55,7 +56,9 @@ def _reid(root: Path, identifier: str, *, filename: str | None = None) -> Path:
 
 
 @pytest.fixture
-def catalog_root(tmp_path: Path) -> Path:
+def catalog_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    monkeypatch.setattr(generator, "ultralytics_detector_names", lambda: ("yolo99n",))
+    monkeypatch.setattr(generator, "ultralytics_inventory_version", lambda: "fixture-version")
     _detector(tmp_path, "base-detector")
     _reid(tmp_path, "base-reid")
     return tmp_path
@@ -66,8 +69,10 @@ def test_committed_model_names_are_current() -> None:
     assert not stale, f"Regenerate {stale} with: uv run --no-sync python -m tools.generate_model_names"
 
 
-def test_every_suggested_detector_name_selects_one_checkpoint() -> None:
-    for name in get_args(DetectorName):
+def test_every_suggested_detector_name_selects_a_profile_or_official_checkpoint() -> None:
+    profiles = generator.detector_names(generator.REPO_ROOT / "boxmot/configs/detectors")
+    assert set(get_args(DetectorName)) == set(profiles) | set(ultralytics_detector_names())
+    for name in profiles:
         profile = load_detector_profile(name)
         assert profile["checkpoint"]
         assert profile["model"]
@@ -75,6 +80,11 @@ def test_every_suggested_detector_name_selects_one_checkpoint() -> None:
     assert "yolox-x-mot17/ablation" in get_args(DetectorName)
     assert "yolox" not in get_args(DetectorName)
     assert "yolox-x-mot17" not in get_args(DetectorName)
+
+
+def test_detector_alias_records_installed_inventory_version() -> None:
+    detector_module = generator.REPO_ROOT / "boxmot/detectors/_model_names.py"
+    assert f"Ultralytics {ultralytics_inventory_version()}" in detector_module.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("kind", ("detectors", "reid"))
@@ -168,6 +178,25 @@ def test_tracker_alias_follows_manifest_additions_and_removals(
     assert '"added"' in source
     assert '"second"' in source
     assert '"first"' not in source
+
+
+def test_detector_alias_merges_and_tracks_installed_inventory_changes(
+    catalog_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    names = ["yolo99n", "base-detector", "yolo99n"]
+    monkeypatch.setattr(generator, "ultralytics_detector_names", lambda: names)
+    output = catalog_root / "boxmot/detectors/_model_names.py"
+    first = generator.generated_sources(catalog_root)[output]
+    assert first.count('"base-detector"') == 1
+    assert first.count('"yolo99n"') == 1
+    assert names == ["yolo99n", "base-detector", "yolo99n"]
+    names[:] = ["yolo100n"]
+    second = generator.generated_sources(catalog_root)[output]
+    assert '"yolo100n"' in second
+    assert '"yolo99n"' not in second
+    assert '"base-detector"' in second
+    monkeypatch.setattr(generator, "ultralytics_inventory_version", lambda: "updated-version")
+    assert "Ultralytics updated-version" in generator.generated_sources(catalog_root)[output]
 
 
 def test_check_detects_missing_and_modified_outputs_without_repairing_them(catalog_root: Path) -> None:

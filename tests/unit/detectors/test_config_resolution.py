@@ -232,6 +232,43 @@ def test_bare_rtdetr_v2_selector_resolves_huggingface_snapshot(
     }
 
 
+@pytest.mark.parametrize("selector", ("rtdetr-l", "rtdetr-x.pt"))
+def test_official_rtdetr_checkpoints_use_ultralytics_artifacts(
+    selector: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Official .pt selectors must not require a Hugging Face snapshot directory."""
+    filename = f"{Path(selector).stem}.pt"
+    artifact = tmp_path / filename
+    calls = []
+    monkeypatch.setattr(component_resolution, "resolve_model_path", lambda _path: artifact)
+
+    def resolve_missing(path, *, source_uri, expected_sha256, allow_download):
+        calls.append((path, source_uri, expected_sha256, allow_download))
+        artifact.write_bytes(b"resolved Ultralytics RT-DETR checkpoint")
+        return ResolvedArtifact(
+            path=artifact,
+            sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
+            source_uri=source_uri,
+        )
+
+    spec, _ = resolve_detector_spec(selector, artifact_resolver=resolve_missing)
+
+    assert spec.backend == "ultralytics"
+    assert spec.artifact == str(artifact.resolve())
+    assert calls == [
+        (artifact, f"https://github.com/ultralytics/assets/releases/download/v8.4.0/{filename}", None, True)
+    ]
+
+
+def test_local_rtdetr_checkpoint_uses_ultralytics(tmp_path: Path) -> None:
+    artifact = _artifact(tmp_path, "custom-rtdetr.pt")
+
+    spec, _ = resolve_detector_spec(artifact, allow_download=False)
+
+    assert spec.backend == "ultralytics"
+    assert spec.artifact == str(artifact.resolve())
+
+
 def test_detector_artifact_uses_matching_profile_defaults(tmp_path, monkeypatch) -> None:
     artifact = _artifact(tmp_path, "yolox_x_fixture.pt")
     profile_config = tmp_path / "detector-profile.yaml"

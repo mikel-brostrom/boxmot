@@ -14,7 +14,7 @@ def capabilities_from_spec(spec: DetectorSpec) -> DetectorCapabilities:
     ultralytics = spec.backend == "ultralytics"
     axis_aligned_only = spec.backend in {"rtdetr", "yolox"}
     artifact = spec.artifact or ""
-    provides_masks = ultralytics and any(marker in artifact.lower() for marker in ("-seg", "_seg"))
+    provides_masks = ultralytics and any(marker in artifact.lower() for marker in ("-seg", "_seg", "fastsam-"))
     supports_aabb = spec.geometry_mode in {"auto", "aabb"}
     supports_obb = spec.geometry_mode == "obb"
     if ultralytics:

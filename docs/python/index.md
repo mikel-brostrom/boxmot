@@ -283,15 +283,29 @@ encoder = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
 tracker = create_tracker("occluboost", per_class=True, use_embeddings=True)
 ```
 
-Editors that support Python literal completions can suggest the packaged model
-names inside the first argument's quotes. Invoke your editor's completion menu
+Editors that support Python literal completions can suggest model names inside
+the first argument's quotes. Detector suggestions combine BoxMOT profiles with
+the official box-producing checkpoints from Ultralytics. Invoke your editor's completion menu
 while typing `create_detector("...")`, `create_reid_encoder("...")`, or
 `create_tracker("...")`. Detector suggestions include checkpoint selections such
 as `"yolox/n"` when a profile has multiple checkpoints.
 
-Suggestions describe the packaged catalogs. Custom paths, config mappings,
+Suggestions ship with BoxMOT and record the Ultralytics version used to generate
+them. Custom paths, config mappings,
 string variables, and explicit specs remain accepted. Adding a local model file
 does not automatically add an editor suggestion.
+
+Ultralytics models include YOLO detection, instance segmentation, pose, and OBB
+variants, YOLO-World, YOLOE, RT-DETR, FastSAM, and YOLO-NAS. For example,
+`create_detector("yolov8n-seg")` returns boxes and masks, while
+`create_detector("rtdetr-l")` uses the Ultralytics RT-DETR checkpoint. Hugging
+Face `rtdetr_v2_*` selectors continue to use the separate RT-DETR backend.
+YOLO-NAS requires its upstream `super_gradients` dependency.
+
+Pose models contribute detection boxes; keypoints are not part of `Detections`.
+World and YOLOE use the checkpoint's vocabulary. Classification and semantic
+segmentation produce different outputs and are rejected by the detector API.
+SAM models that require their own prompt workflow are not detector suggestions.
 
 Detectors and ReID encoders also accept a local model path, YAML path, or config
 mapping. Set inference options with an `options` mapping:
