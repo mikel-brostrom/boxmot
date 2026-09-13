@@ -6,10 +6,11 @@ import inspect
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 from boxmot.components.artifacts import require_resolved_artifact
 from boxmot.components.registry import LazyComponentRegistry
+from boxmot.reid._model_names import ReIDName
 from boxmot.reid.protocols import AppearanceEncoder, EncoderRequirements
 from boxmot.reid.specs import ReIDEncoderSpec
 
@@ -28,6 +29,30 @@ _REID_ENCODER_FACTORIES: LazyComponentRegistry[ReIDEncoderFactory] = LazyCompone
         "native": "boxmot.reid.adapters:create_native_reid_encoder",
     },
 )
+
+
+@overload
+def create_reid_encoder(
+    spec: ReIDName,
+    *,
+    device: str | None = None,
+    precision: str | None = None,
+    preprocessing: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    allow_download: bool = True,
+) -> AppearanceEncoder: ...
+
+
+@overload
+def create_reid_encoder(
+    spec: ReIDEncoderSpec | str | Path | Mapping[str, Any],
+    *,
+    device: str | None = None,
+    precision: str | None = None,
+    preprocessing: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    allow_download: bool = True,
+) -> AppearanceEncoder: ...
 
 
 def create_reid_encoder(

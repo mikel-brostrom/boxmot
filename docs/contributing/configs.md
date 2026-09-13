@@ -35,3 +35,20 @@ Validate catalog and tracker-config changes with:
 ```bash
 uv run --no-sync pytest tests/unit/configs tests/unit/trackers/test_tracker_registry.py tests/test_config.py
 ```
+
+## Python model-name autocomplete
+
+After adding or renaming a detector/ReID profile or tracker manifest entry,
+regenerate the editor suggestions and commit the generated files:
+
+```bash
+uv run --no-sync python -m tools.generate_model_names
+uv run --no-sync python -m tools.generate_model_names --check
+```
+
+The generator reads the packaged detector and ReID catalogs and the tracker
+manifest. Profiles with multiple detector checkpoints produce explicit
+`profile/checkpoint` suggestions. The resulting `_model_names.py` files contain
+static literal types; imports do not read YAML or load models. The component
+tests check freshness in CI, and `boxmot/py.typed` makes the annotations
+available to editors using an installed package.

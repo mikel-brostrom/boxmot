@@ -353,7 +353,9 @@ pipeline = TrackingPipeline(detector=detector, reid=reid, tracker=tracker)
 # result = pipeline.step(frame)  # A canonical RGB Frame.
 ```
 
-Factories resolve model configs and weights internally. See the
+Factories resolve model configs and weights internally. Python editors that
+support literal completions can suggest built-in names inside the model string.
+See the
 [Python API](docs/python/index.md#component-factories) for independent component
 calls, frame construction, and explicit specs.
 

@@ -283,6 +283,16 @@ encoder = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
 tracker = create_tracker("occluboost", per_class=True, use_embeddings=True)
 ```
 
+Editors that support Python literal completions can suggest the packaged model
+names inside the first argument's quotes. Invoke your editor's completion menu
+while typing `create_detector("...")`, `create_reid_encoder("...")`, or
+`create_tracker("...")`. Detector suggestions include checkpoint selections such
+as `"yolox/n"` when a profile has multiple checkpoints.
+
+Suggestions describe the packaged catalogs. Custom paths, config mappings,
+string variables, and explicit specs remain accepted. Adding a local model file
+does not automatically add an editor suggestion.
+
 Detectors and ReID encoders also accept a local model path, YAML path, or config
 mapping. Set inference options with an `options` mapping:
 

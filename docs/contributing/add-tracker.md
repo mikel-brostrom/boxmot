@@ -28,7 +28,9 @@ To integrate a new tracker cleanly:
    in `boxmot/trackers/common/manifest.py`, then add its static capability declaration
    to `boxmot/trackers/common/registry.py`. Public exports and exact class
    identities derive from the manifest; tests require registry and
-   implementation capabilities to agree.
+   implementation capabilities to agree. Regenerate the
+   [Python autocomplete catalog](configs.md#python-model-name-autocomplete)
+   after changing the manifest.
 4. Import the class in application examples with
    `from boxmot import <TrackerClass>`; implementation packages do not provide
    parallel class aliases.

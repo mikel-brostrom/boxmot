@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 from boxmot.components.artifacts import require_resolved_artifact
 from boxmot.components.registry import LazyComponentRegistry
 from boxmot.detectors._capabilities import capabilities_from_spec
+from boxmot.detectors._model_names import DetectorName
 from boxmot.detectors.protocols import Detector, DetectorCapabilities
 from boxmot.detectors.specs import DetectorSpec
 
@@ -34,6 +35,32 @@ def detector_capabilities(spec: DetectorSpec) -> DetectorCapabilities:
         available = ", ".join(_DETECTOR_FACTORIES.entries) or "(none)"
         raise ValueError(f"Unknown detector backend {spec.backend!r}. Available backends: {available}.")
     return capabilities_from_spec(spec)
+
+
+@overload
+def create_detector(
+    spec: DetectorName,
+    *,
+    device: str | None = None,
+    precision: str | None = None,
+    preprocessing: str | None = None,
+    geometry: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    allow_download: bool = True,
+) -> Detector: ...
+
+
+@overload
+def create_detector(
+    spec: DetectorSpec | str | Path | Mapping[str, Any],
+    *,
+    device: str | None = None,
+    precision: str | None = None,
+    preprocessing: str | None = None,
+    geometry: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    allow_download: bool = True,
+) -> Detector: ...
 
 
 def create_detector(

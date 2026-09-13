@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from boxmot.trackers.common.factory import create_tracker as create_tracker
     from boxmot.trackers.common.protocols import ReIDConfigurableTracker, Tracker, TrackerRequirements
     from boxmot.trackers.common.specs import GeometryKind, TrackerCapabilities, TrackerFamily, TrackerSpec
 

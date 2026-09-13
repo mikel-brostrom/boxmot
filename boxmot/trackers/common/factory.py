@@ -5,10 +5,11 @@ from __future__ import annotations
 import importlib
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any
+from typing import Any, overload
 
 from boxmot.components.resolution import component_options
 from boxmot.structures import GeometryKind
+from boxmot.trackers.common._model_names import TrackerName
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.motion.kalman_filters.noise import normalize_kalman_options
 from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
@@ -182,6 +183,14 @@ def _validate_model_options(name: str, options: Mapping[str, Any]) -> None:
         "TrackerSpec accepts tracker-algorithm options only; configure ReID on the created "
         "tracker instead: " + ", ".join(model_options)
     )
+
+
+@overload
+def create_tracker(spec: TrackerName, **overrides: Any) -> Tracker: ...
+
+
+@overload
+def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker: ...
 
 
 def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:

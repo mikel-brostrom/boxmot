@@ -6,6 +6,8 @@ import argparse
 import importlib.metadata
 import importlib.util
 import subprocess
+from pathlib import Path
+from typing import Literal, get_args, get_origin
 
 EXPECTED_TRACKERS = (
     ("boosttrack", "BoostTrack"),
@@ -36,6 +38,23 @@ EXPECTED_CLI_COMMANDS = (
 )
 
 
+def check_typing_metadata() -> None:
+    """Check installed typing metadata needed for factory-name autocomplete."""
+    import boxmot
+
+    marker = Path(boxmot.__file__).with_name("py.typed")
+    assert marker.is_file(), f"Missing packaged typing marker: {marker}"
+    for module_name, alias_name, representative in (
+        ("boxmot.detectors._model_names", "DetectorName", "yolo26n"),
+        ("boxmot.reid._model_names", "ReIDName", "osnet-x0-25-msmt17"),
+        ("boxmot.trackers.common._model_names", "TrackerName", "occluboost"),
+    ):
+        alias = getattr(importlib.import_module(module_name), alias_name)
+        assert get_origin(alias) is Literal and representative in get_args(alias), (
+            f"Packaged {module_name}.{alias_name} must include Literal[{representative!r}]"
+        )
+
+
 def check_release_contract(expected_version: str | None = None) -> None:
     """Check the requested release or installed version and public discovery APIs.
 
@@ -57,6 +76,7 @@ def check_release_contract(expected_version: str | None = None) -> None:
     assert boxmot.__all__ == EXPECTED_PUBLIC_API, (
         f"Public API: expected {EXPECTED_PUBLIC_API!r}, got {boxmot.__all__!r}"
     )
+    check_typing_metadata()
     with click.Context(boxmot_cli) as context:
         commands = tuple(boxmot_cli.list_commands(context))
     assert commands == EXPECTED_CLI_COMMANDS, f"CLI commands: expected {EXPECTED_CLI_COMMANDS!r}, got {commands!r}"
