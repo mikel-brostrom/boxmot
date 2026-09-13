@@ -33,7 +33,7 @@ from boxmot.trackers.common.input import (
     parse_numpy_detection_rows,
     prepare_frame,
 )
-from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, normalize_kalman_options
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.protocols import TrackerRequirements
 from boxmot.trackers.common.tracking import outputs as output_utils
@@ -112,13 +112,7 @@ class BaseTracker(
         asso_func: str = "iou",
         is_obb: bool = False,
         variable_dt: bool = False,
-        kf_process_position_scale: float = 1.0,
-        kf_process_velocity_scale: float = 1.0,
-        kf_measurement_noise_scale: float = 1.0,
-        kf_initial_position_scale: float = 1.0,
-        kf_initial_velocity_scale: float = 1.0,
-        kf_reference_dt_s: float = DEFAULT_REFERENCE_DT_S,
-        kf_time_unit: str | None = None,
+        kalman_noise: KalmanNoiseConfig | None = None,
         reid_model: Any | None = _REID_OPTION_UNSET,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
         device: Any = _REID_OPTION_UNSET,
@@ -145,15 +139,8 @@ class BaseTracker(
           where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
         - variable_dt: Use measured capture intervals for prediction in seconds.
-        - kf_process_position_scale: Multiplier for process noise in measured states.
-        - kf_process_velocity_scale: Multiplier for process noise in derivatives.
-        - kf_measurement_noise_scale: Multiplier for Kalman measurement covariance.
-        - kf_initial_position_scale: Multiplier for initial measured-state covariance.
-        - kf_initial_velocity_scale: Multiplier for initial velocity covariance.
-        - kf_reference_dt_s: Fixed seconds per reference frame for converting the
-          original priors and noise; independent of measured frame intervals.
-        - kf_time_unit: Persisted 'frames' or 'seconds', which must agree with
-          variable_dt. None derives the unit from the selected timing mode.
+        - kalman_noise: Immutable Kalman covariance settings. Fresh units derive
+          from variable_dt; explicitly calibrated units must match it.
         - reid_model: Optional pre-built ReID backend exposing
           ``get_features(boxes, image)``.
         - reid_weights: Weights used to lazily construct a ReID backend when
@@ -175,22 +162,13 @@ class BaseTracker(
         if variable_dt and not self.supports_variable_dt:
             raise ValueError(f"{self.__class__.__name__} does not support variable_dt.")
         self.variable_dt = variable_dt
-        self.kalman_noise_config = normalize_kalman_options(
-            {
-                "kf_process_position_scale": kf_process_position_scale,
-                "kf_process_velocity_scale": kf_process_velocity_scale,
-                "kf_measurement_noise_scale": kf_measurement_noise_scale,
-                "kf_initial_position_scale": kf_initial_position_scale,
-                "kf_initial_velocity_scale": kf_initial_velocity_scale,
-                "kf_reference_dt_s": kf_reference_dt_s,
-                "kf_time_unit": kf_time_unit,
-            },
-            variable_dt=variable_dt,
-        )
-        self.kf_time_unit = self.kalman_noise_config.time_unit
-        self.kf_reference_dt_s = self.kalman_noise_config.reference_dt_s
-        if not self.kalman_noise_config.is_default and not (self.supports_variable_dt or self.supports_kalman_noise):
-            raise ValueError(f"{self.__class__.__name__} does not support Kalman noise scaling.")
+        if kalman_noise is not None and not isinstance(kalman_noise, KalmanNoiseConfig):
+            raise TypeError("kalman_noise must be a KalmanNoiseConfig object or None.")
+        if kalman_noise is not None and not (self.supports_variable_dt or self.supports_kalman_noise):
+            raise ValueError(f"{self.__class__.__name__} does not support kalman_noise settings.")
+        self.kalman_noise_config = (kalman_noise or KalmanNoiseConfig()).resolve(variable_dt=variable_dt)
+        if self.kalman_noise_config.by_class and self.supports_variable_dt and not per_class:
+            raise ValueError("Class-specific kalman_noise requires per_class=True for box trackers.")
         self._init_live_reid(
             reid_model=reid_model,
             reid_weights=reid_weights,

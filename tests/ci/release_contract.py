@@ -25,7 +25,12 @@ EXPECTED_TRACKERS = (
     ("sfsort", "SFSORT"),
     ("strongsort", "StrongSort"),
 )
-EXPECTED_PUBLIC_API = ("__version__", "create_tracker", *(public_name for _, public_name in EXPECTED_TRACKERS))
+EXPECTED_PUBLIC_API = (
+    "__version__",
+    "create_tracker",
+    "KalmanNoiseConfig",
+    *(public_name for _, public_name in EXPECTED_TRACKERS),
+)
 EXPECTED_CLI_COMMANDS = (
     "track",
     "materialize",
@@ -70,6 +75,11 @@ def check_typing_metadata() -> None:
         assert representative in get_type_hints(options), f"Packaged {name} must include {representative!r}"
         assert not options.__required_keys__, f"Packaged {name} constructor keywords must remain optional"
     check_tracker_constructor_docs()
+    from dataclasses import is_dataclass
+
+    assert is_dataclass(boxmot.KalmanNoiseConfig), "KalmanNoiseConfig must be publicly available"
+    assert boxmot.KalmanNoiseConfig.__dataclass_params__.frozen, "KalmanNoiseConfig must remain immutable"
+    assert get_type_hints(boxmot.KalmanNoiseConfig)["measurement_noise_scale"] is float
 
 
 def check_tracker_constructor_docs() -> None:

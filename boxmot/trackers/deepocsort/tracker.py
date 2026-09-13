@@ -23,6 +23,7 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.deepocsort.track import DeepOBBKalmanBoxTracker, KalmanBoxTracker
 
@@ -51,6 +52,7 @@ class DeepOcSort(BoxTracker):
         cmc_off: bool = False,
         aw_off: bool = False,
         *,
+        kalman_noise: KalmanNoiseConfig | None = None,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: Any = "cpu",
@@ -78,12 +80,15 @@ class DeepOcSort(BoxTracker):
             device: Inference device for the lazily constructed ReID backend.
             half: Use FP16 inference in the lazily constructed ReID backend.
             reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            kalman_noise: Immutable Kalman covariance scales and reference
+                interval. None preserves the default noise; fresh units
+                follow the shared timing mode. Class overrides require
+                ``per_class=True``.
             **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
-                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
-                ``kf_time_unit``.
+                ``asso_func``, and ``is_obb`` settings. ``variable_dt`` enables prediction using capture timestamps.
         """
         super().__init__(
+            kalman_noise=kalman_noise,
             reid_model=reid_model,
             reid_weights=reid_weights,
             device=device,

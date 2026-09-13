@@ -1,5 +1,6 @@
 """Timing mode is a tracker runtime option and a constant during tuning."""
 
+import importlib
 from types import SimpleNamespace
 
 import pytest
@@ -14,6 +15,7 @@ from boxmot.engine.tuning.backends.optuna_backend import yaml_to_optuna_define_s
 from boxmot.engine.tuning.postprocessing import write_trial_yaml
 from boxmot.engine.tuning.search_space import (
     default_tune_config,
+    flatten_yaml_config,
     load_yaml_config,
     validate_tuning_config,
     yaml_to_tune_space,
@@ -40,6 +42,80 @@ def test_cli_timing_flags_preserve_optional_override(monkeypatch, mode, flag, ex
     assert captured["args"].variable_dt is expected
 
 
+def test_tune_cli_preserves_repeated_selected_kf_scales(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--build",
+            "fixture-build",
+            "--tracker",
+            "botsort",
+            "--tune-kf",
+            "process_velocity_scale",
+            "--tune-kf",
+            "measurement_noise_scale",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["args"].tune_kf == ("process_velocity_scale", "measurement_noise_scale")
+
+
+@pytest.mark.parametrize("field", ["time_unit", "reference_dt_s", "unknown"])
+def test_tune_cli_rejects_non_scale_kf_fields(field):
+    result = CliRunner().invoke(boxmot, ["tune", "--dataset", "fixture", "--tune-kf", field])
+    assert result.exit_code == 2
+    assert "Invalid value for '--tune-kf'" in result.output
+
+
+def test_tune_cli_rejects_refinement_without_supported_filter(monkeypatch):
+    command = importlib.import_module("boxmot.engine.commands.tune")
+    monkeypatch.setattr(
+        command, "_prepare_replay_build", lambda *args, **kwargs: pytest.fail("Must validate before building")
+    )
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--tracker",
+            "sfsort",
+            "--tune-kf",
+            "process_velocity_scale",
+        ],
+    )
+    assert result.exit_code == 2
+    assert "sfsort" in result.output
+
+
+def test_sensor_tune_accepts_selected_kf_scales(tmp_path, monkeypatch):
+    from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
+
+    dataset = sensor_dataset_fixture(tmp_path / "sensor").dataset
+    command = importlib.import_module("boxmot.engine.commands.tune")
+    captured = {}
+    monkeypatch.setattr(command, "_dispatch_cli_workflow", lambda ctx, mode, module, payload: captured.update(payload))
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "tune",
+            "--dataset",
+            str(dataset),
+            "--tracker",
+            "eagermot",
+            "--tune-kf",
+            "measurement_noise_scale",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    assert captured["tune_kf"] == ("measurement_noise_scale",)
+
+
 @pytest.mark.parametrize("value", [None, False, True])
 def test_runtime_specs_apply_only_explicit_timing_override(value):
     args = SimpleNamespace(tracker="bytetrack", variable_dt=value)
@@ -57,14 +133,14 @@ def test_runtime_specs_apply_only_explicit_timing_override(value):
     "tracker", ["bytetrack", "botsort", "boosttrack", "deepocsort", "hybridsort", "occluboost", "ocsort", "strongsort"]
 )
 def test_builtin_timing_and_kf_noise_are_fixed_default_only(tracker):
-    schema = load_yaml_config(tracker)
+    schema = flatten_yaml_config(load_yaml_config(tracker))
     assert schema["variable_dt"] == {"default": False}
     assert load_tracker_defaults(tracker)["variable_dt"] is False
     assert "variable_dt" not in default_tune_config(schema)
     for parameter in KALMAN_NOISE_OPTIONS:
         assert schema[parameter] == {"default": 1.0}
         assert parameter not in default_tune_config(schema)
-    for parameter in ("kf_time_unit", "kf_reference_dt_s"):
+    for parameter in ("kalman_noise.time_unit", "kalman_noise.reference_dt_s"):
         assert set(schema[parameter]) == {"default"}
         assert parameter not in default_tune_config(schema)
 
@@ -79,7 +155,7 @@ def test_search_backends_skip_fixed_timing_mode():
     assert trial.params == {"threshold": 0.1}
 
 
-@pytest.mark.parametrize("parameter", ["variable_dt", "kf_time_unit", "kf_reference_dt_s"])
+@pytest.mark.parametrize("parameter", ["variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s"])
 def test_timing_mode_cannot_be_changed_to_a_search_dimension(parameter):
     with pytest.raises(ValueError, match=f"{parameter}.*fixed"):
         validate_tuning_config("bytetrack", {parameter: {"type": "choice", "default": False, "options": [False, True]}})
@@ -106,8 +182,8 @@ def test_tune_resume_rejects_changed_timing_mode(requested, saved):
                 SimpleNamespace(
                     config={
                         "variable_dt": saved,
-                        "kf_time_unit": "seconds" if saved else "frames",
-                        "kf_reference_dt_s": DEFAULT_REFERENCE_DT_S,
+                        "kalman_noise.time_unit": "seconds" if saved else "frames",
+                        "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
                     }
                 )
             ]
@@ -117,19 +193,24 @@ def test_tune_resume_rejects_changed_timing_mode(requested, saved):
             SimpleNamespace(
                 config={
                     "variable_dt": requested,
-                    "kf_time_unit": "seconds" if requested else "frames",
-                    "kf_reference_dt_s": DEFAULT_REFERENCE_DT_S,
+                    "kalman_noise.time_unit": "seconds" if requested else "frames",
+                    "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
                 }
             )
         ]
     )
 
 
-@pytest.mark.parametrize("replacement", [{"kf_time_unit": "frames"}, {"kf_reference_dt_s": 0.04}])
+@pytest.mark.parametrize("replacement", [{"kalman_noise.time_unit": "frames"}, {"kalman_noise.reference_dt_s": 0.04}])
 def test_resume_rejects_changed_units_or_reference(replacement):
     tuner = Tuner(SimpleNamespace(tracker="bytetrack", variable_dt=True))
-    saved = {"variable_dt": True, "kf_time_unit": "seconds", "kf_reference_dt_s": DEFAULT_REFERENCE_DT_S, **replacement}
-    with pytest.raises(ValueError, match="same variable_dt.*kf_reference_dt_s"):
+    saved = {
+        "variable_dt": True,
+        "kalman_noise.time_unit": "seconds",
+        "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+        **replacement,
+    }
+    with pytest.raises(ValueError, match="same variable_dt.*kalman_noise.reference_dt_s"):
         tuner._validate_resumed_timing([SimpleNamespace(config=saved)])
 
 

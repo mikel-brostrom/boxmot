@@ -21,13 +21,13 @@ Adding a new dataset/experiment combination usually means:
 
 Adding a tuned tracker usually means:
 
-1. add or update a scalar preset without changing the tracker defaults
+1. add or update a runtime preset without changing the tracker defaults
 2. validate `track`, `eval`, and `tune`
 3. document any new behavior or defaults
 
 Tracker YAML files use the combined runtime/search schema. Each parameter entry
 declares a scalar `default` plus tuning metadata such as `type`, `range`,
-`options`, or conditional `activates`. Presets under `presets/` are scalar
+`options`, or conditional `activates`. Presets under `presets/` are runtime
 overlays and should identify their target tracker.
 
 Validate catalog and tracker-config changes with:
@@ -65,6 +65,12 @@ option groups in `boxmot/trackers/common/constructor.py`. Update those groups wh
 shared constructor options change, keeping tracker-specific restrictions intact.
 The constructor typing tests check their names and types against the actual
 parent constructors and ensure packaged defaults remain discoverable.
+
+Kalman trackers expose `kalman_noise: KalmanNoiseConfig | None` directly.
+Keep noise fields under the `kalman_noise` YAML group, using dotted scalar paths
+only inside engine search/configuration code. Use `flatten_tracker_options` and
+`nest_tracker_options` for profile conversion; preserve resolved timing and any
+class profiles when writing calibrated or tuned settings.
 
 Keep constructor argument documentation directly on each public tracker's
 `__init__` so editor tooltips show that tracker's options. Use one Google-style

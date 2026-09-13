@@ -8,10 +8,11 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import KalmanNoiseConfig
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.common.config import load_tracker_config, load_tracker_defaults
+from boxmot.trackers.common.config import load_tracker_config, load_tracker_defaults, nest_tracker_options
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
 from boxmot.trackers.deepocsort.tracker import DeepOcSort
 from boxmot.trackers.hybridsort.tracker import HybridSort
@@ -188,7 +189,7 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     }
     expected.update({"det_thresh", "max_age", "max_obs", "min_hits", "iou_threshold", "asso_func"})
 
-    assert expected <= set(runtime_config)
+    assert expected <= {name.split(".", 1)[0] for name in runtime_config}
     assert set(flat_tuning_config) <= set(runtime_config)
     assert set(tuning_config["use_byte"]["activates"]) == {"low_thresh", "TCM_byte_step"}
     assert "longterm_bank_length" in tuning_config["use_embeddings"]["activates"]
@@ -201,7 +202,7 @@ def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
     tracker_name: str, geometry: str, velocity_scale: float
 ) -> None:
     tracker = create_tracker(
-        TrackerSpec(tracker_name, geometry=geometry, options=(("kf_process_velocity_scale", velocity_scale),))
+        TrackerSpec(tracker_name, geometry=geometry, options=(("kalman_noise.process_velocity_scale", velocity_scale),))
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     _update(tracker, rows, frame_index=0)
@@ -229,7 +230,8 @@ def test_removed_sort_noise_parameters_are_rejected(tmp_path, tracker_name, trac
         else:
             config = tmp_path / "tracker.yaml"
             config.write_text(f"{parameter}: 0.2\n")
-            options = load_tracker_config(tracker_name, config)
+            options = nest_tracker_options(load_tracker_config(tracker_name, config))
+            options["kalman_noise"] = KalmanNoiseConfig.from_mapping(options["kalman_noise"])
             tracker_type(**options)
 
 

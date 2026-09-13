@@ -113,8 +113,9 @@ boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
   --split train --calibrate-kf --n-trials 50 --seed 0
 ```
 
-The five covariance scales and `is_angular` stay fixed for each class during
-the search. Reuse calibration without fitting again with
+The five covariance scales and `is_angular` stay fixed for each class by
+default. Add `--tune-kf` to refine selected scales around each class's fitted
+values. Reuse calibration without fitting again with
 `--class-config path/to/kf-tuning/calibrated.yaml`. Both that starting profile
 and the final `best.yaml` contain separate `car` and `pedestrian` settings.
 `--class-config` also holds the loaded `is_angular` choices fixed; tuning
@@ -139,7 +140,8 @@ for inputs and outputs.
 Python callers use `boxmot.engine.tuning.tuner.run_tune(args)` for both image
 builds and sensor datasets. It returns a `TuneResult` with the completed trials,
 best metrics, and `best_yaml` path. For EagerMOT, `best_config` contains separate
-`car` and `pedestrian` profiles, matching the exported YAML.
+`car` and `pedestrian` profiles. Runtime dictionaries use dotted noise keys;
+the exported YAML nests them under `kalman_noise`.
 
 ## Build preparation and reuse
 
@@ -183,7 +185,7 @@ another build. Worker count and retry policy are execution settings, not
 semantic fingerprints.
 
 Automatic preparation caches embeddings when the baseline uses them or the
-search can enable `use_embeddings`. A scalar `--tracker-config` sets the
+search can enable `use_embeddings`. A runtime `--tracker-config` sets the
 baseline; searchable parameters can still change in trials. To omit embeddings
 throughout tuning, both the baseline and search must keep appearance disabled.
 Appearance-enabled trials require cached embeddings rather than live ReID inference.
@@ -270,7 +272,7 @@ dataset selection and build. The saved calibration is restored automatically.
 Combining `--calibrate-kf` with `--resume-tune` is rejected
 because a fresh calibration would change the existing search.
 Resuming retains the original search space; start a new run to use updated
-search definitions, including the removal of KF search dimensions.
+search definitions, including a different selection of KF search dimensions.
 
 `eval --calibrate-kf` instead calibrates and evaluates the tracker once. See
 [Kalman calibration](eval.md#kalman-calibration) for the estimator, supported
@@ -278,11 +280,11 @@ trackers, and limitations.
 
 ## Kalman noise and timing
 
-New tracker tuning runs hold Kalman settings fixed. The five covariance
+Tracker tuning holds Kalman settings fixed unless you select scales with `--tune-kf`. The five covariance
 multipliers retain their runtime defaults of `1.0` in the tracker YAML;
 `adaptive_kf` and timing settings also retain their YAML runtime defaults where
 supported. OC-SORT's base process-noise priors are fixed inside the filter.
-These settings have no search ranges.
+The built-in settings have no search ranges.
 Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
 scales from detections and ground truth.
 
@@ -290,13 +292,13 @@ For image trackers, reuse an existing calibration by starting a new tuning run
 with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
 `--calibrate-kf`. The loaded KF values stay fixed while the other tracker
 parameters are optimized. Without a profile, the built-in KF defaults stay
-fixed. The selector also accepts partial scalar runtime YAMLs and built-in
+fixed. The selector also accepts partial runtime YAMLs and built-in
 presets.
 
 EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
 Its 3D filter supports covariance calibration in fixed-step mode only.
 
-`variable_dt`, `kf_time_unit`, and `kf_reference_dt_s` are fixed runtime
+`variable_dt`, `kalman_noise.time_unit`, and `kalman_noise.reference_dt_s` are fixed runtime
 settings. They are not tuning parameters, and elapsed `dt` is never sampled.
 Use `--variable-dt` to select elapsed-seconds prediction explicitly, or keep
 the default fixed-step mode. The reference interval defaults to `1/30` second
@@ -308,6 +310,39 @@ interval. Reuse them with `--tracker-config` in `track`, `eval`, or another
 measure the fitting split; evaluate on separate held-out sequences before
 judging whether the selected settings improve deployment accuracy.
 
+### Refine selected calibrated scales
+
+Repeat `--tune-kf` to select `process_position_scale`, `process_velocity_scale`,
+`measurement_noise_scale`, `initial_position_scale`, or `initial_velocity_scale`.
+Each selected multiplier is searched on a logarithmic scale from **0.25× to 4×**
+its starting value. Unselected scales, timing units, and the reference interval
+stay fixed. Without `--calibrate-kf`, the starting values come from
+`--tracker-config` or the tracker defaults.
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build <build> \
+  --tracker botsort --calibrate-kf --per-class \
+  --tune-kf process_velocity_scale --tune-kf measurement_noise_scale
+```
+
+When calibration or a saved profile supplies `kalman_noise.by_class`, tuning
+refines each class's selected scales around its own prior. It searches the
+global prior only when it can be used as a fallback for the selected classes.
+Saved YAML keeps the grouped `kalman_noise` structure, including class settings.
+
+For EagerMOT, the same flags refine each car/pedestrian 3D filter independently:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot --split train \
+  --calibrate-kf --tune-kf process_velocity_scale --tune-kf measurement_noise_scale
+```
+
+The first trial evaluates the starting profiles. Image tuning records its
+selection and baseline priors in `kf-refinement.json`. When using
+`--resume-tune`, repeat the same `--tune-kf` fields and retain the same baseline
+configuration; omit `--calibrate-kf` because the saved calibration is restored.
+Changing a scale's starting value, a class prior, or timing requires a new run.
+
 ### OC-SORT base process noise
 
 OC-SORT and DeepOCSORT use fixed reference process covariances of `0.01` for
@@ -316,15 +351,15 @@ velocity also uses `0.0001`. Python Kalman calibration scales these priors
 with the shared velocity multiplier:
 
 ```text
-centre-velocity noise = 0.01   × kf_process_velocity_scale
-area-velocity noise   = 0.0001 × kf_process_velocity_scale
-angular-velocity noise = 0.0001 × kf_process_velocity_scale  (OBB)
+centre-velocity noise = 0.01   × kalman_noise.process_velocity_scale
+area-velocity noise   = 0.0001 × kalman_noise.process_velocity_scale
+angular-velocity noise = 0.0001 × kalman_noise.process_velocity_scale  (OBB)
 ```
 
 These products describe reference noise before time-unit conversion and
 integration into `Q(dt)`. The relative balance between centre, area, and
 angular velocity noise is fixed by the filter; calibration scales them
-together. The five shared `kf_*_scale` settings are the noise-calibration
+together. The five shared `kalman_noise.*_scale` settings are the noise-calibration
 interface.
 
 ## Arguments

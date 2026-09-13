@@ -89,7 +89,7 @@ def test_measurement_scale_controls_correction_without_leaking_between_filters()
 
 
 def test_covariance_storage_is_local_even_when_noise_configuration_is_shared() -> None:
-    config = KalmanNoiseConfig(initial_position_scale=2.0, process_velocity_scale=3.0)
+    config = KalmanNoiseConfig(initial_position_scale=2.0, process_velocity_scale=3.0).resolve()
     first, second = (Kalman3D(_box(), noise_config=config) for _ in range(2))
     assert first.noise_config is second.noise_config is config
     for name in ("covariance", "_process_noise", "_measurement_noise"):
@@ -99,5 +99,5 @@ def test_covariance_storage_is_local_even_when_noise_configuration_is_shared() -
 
 
 def test_3d_filter_rejects_seconds_without_advertising_variable_timing() -> None:
-    with pytest.raises(ValueError, match="requires kf_time_unit='frames'"):
+    with pytest.raises(ValueError, match="requires kalman_noise.time_unit='frames'"):
         Kalman3D(_box(), noise_config=KalmanNoiseConfig(time_unit="seconds"))

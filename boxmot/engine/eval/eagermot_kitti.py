@@ -49,7 +49,13 @@ from boxmot.engine.eval.replay import (
 from boxmot.engine.eval.results import ValidationResult
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Boxes3D, Frame, MaskBatch, MultimodalTracks, Tracks, Tracks3D
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    DEFAULT_REFERENCE_DT_S,
+    KALMAN_NOISE_OPTIONS,
+    normalize_kalman_options,
+)
+from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 from boxmot.utils import logger as LOGGER
 
 if TYPE_CHECKING:
@@ -59,6 +65,8 @@ if TYPE_CHECKING:
 
 _KITTI_SHARED = {
     **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
+    "kalman_noise.time_unit": "frames",
+    "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
     "det_thresh_3d": 0.0,
     "max_age": 3,
     "max_age_2d": 3,
@@ -77,6 +85,23 @@ KITTI_PROFILES = {
 KITTI_CLASSES = {1: "car", 2: "pedestrian"}
 
 
+def _create_kitti_tracker(profile: dict[str, Any], *, class_id: int | None = None) -> EagerMot:
+    """Pack a flat class profile into the public grouped Kalman constructor."""
+    options = flatten_tracker_options(profile)
+    validate_calibration_profile(options, tracker_name="eagermot", geometry="aabb")
+    if class_id is not None and "calibration.class_id" in options:
+        if (
+            options["calibration.class_id"] != class_id
+            or options.get("calibration.class_name") != KITTI_CLASSES[class_id]
+        ):
+            raise ValueError(f"Calibrated EagerMOT profile does not match class {KITTI_CLASSES[class_id]!r}.")
+    noise = normalize_kalman_options(options, variable_dt=False, tracker_name="eagermot")
+    arguments = {
+        name: value for name, value in options.items() if not name.startswith(("kalman_noise.", "calibration."))
+    }
+    return EagerMot(**arguments, kalman_noise=noise)
+
+
 def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:
     """Load car/pedestrian overrides, validating every option before replay."""
     profiles = {class_id: dict(profile) for class_id, profile in KITTI_PROFILES.items()}
@@ -92,14 +117,18 @@ def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:
         overrides = values[name]
         if not isinstance(overrides, dict):
             raise ValueError(f"EagerMOT {name} configuration must be a mapping of tracker options.")
-        unknown = set(overrides) - set(profiles[class_id])
+        try:
+            overrides = flatten_tracker_options(overrides)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Invalid EagerMOT {name} configuration: {exc}") from exc
+        unknown = {key for key in overrides if key not in profiles[class_id] and not key.startswith("calibration.")}
         if unknown:
             raise ValueError(f"Unknown EagerMOT {name} options: {', '.join(sorted(map(str, unknown)))}")
         profile = {**profiles[class_id], **overrides}
         if profile["per_class"] is not False:
             raise ValueError("EagerMOT class profiles require per_class=false; replay already separates classes.")
         try:
-            EagerMot(**profile)
+            _create_kitti_tracker(profile, class_id=class_id)
         except (TypeError, ValueError) as exc:
             raise ValueError(f"Invalid EagerMOT {name} configuration: {exc}") from exc
         profiles[class_id] = profile
@@ -109,7 +138,10 @@ def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:
 def write_kitti_profiles(path: Path, profiles: dict[int, dict[str, Any]]) -> None:
     """Persist complete class profiles in the format accepted by evaluation."""
     path.write_text(
-        yaml.safe_dump({name: profiles[class_id] for class_id, name in KITTI_CLASSES.items()}, sort_keys=False),
+        yaml.safe_dump(
+            {name: nest_tracker_options(profiles[class_id]) for class_id, name in KITTI_CLASSES.items()},
+            sort_keys=False,
+        ),
         encoding="utf-8",
     )
 
@@ -446,7 +478,10 @@ def _replay_kitti_sequence(
                         task.output, show=False, save=True, class_names=KITTI_CLASSES, video_fps=task.sequence.fps
                     )
                 )
-            trackers = {class_id: EagerMot(**profile) for class_id, profile in task.profiles.items()}
+            trackers = {
+                class_id: _create_kitti_tracker(profile, class_id=class_id)
+                for class_id, profile in task.profiles.items()
+            }
             LOGGER.info("EagerMOT %s: tracking %s frames", task.name, len(task.sequence))
             prediction_dir = task.output / ("kitti_3d" if task.eval_3d else "mots")
             with (prediction_dir / f"{task.name}.txt").open("x", encoding="utf-8") as handle:

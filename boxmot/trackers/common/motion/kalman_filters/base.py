@@ -45,6 +45,7 @@ class BaseKalmanFilter:
         if noise_config is not None and not isinstance(noise_config, KalmanNoiseConfig):
             raise TypeError("noise_config must be a KalmanNoiseConfig object.")
         self.noise_config = KalmanNoiseConfig() if noise_config is None else noise_config
+        self.noise_config = self.noise_config.resolve(variable_dt=self.noise_config.time_unit == "seconds")
         self.ndim = ndim
         self.dim_z = dim_z if dim_z is not None else ndim
         self.dim_x = dim_x if dim_x is not None else 2 * self.ndim

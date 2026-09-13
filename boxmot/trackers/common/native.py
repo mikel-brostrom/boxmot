@@ -13,7 +13,7 @@ from boxmot.components.timing import timed_component_phase
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
-from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_defaults
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.input import (
     frame_image_size,
@@ -84,6 +84,7 @@ def load_native_tracker_config(
 
     resolved = load_tracker_defaults(tracker_name)
     if options is not None:
+        options = flatten_tracker_options(options)
         accepted_keys = (
             set(resolved)
             | set(native_only_keys)

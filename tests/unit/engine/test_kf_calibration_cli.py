@@ -138,7 +138,7 @@ def test_live_config_unit_conflict_fails_before_detector_loading(monkeypatch, tm
     from boxmot.engine.tracking import workflow
 
     profile = tmp_path / "seconds.yaml"
-    profile.write_text(yaml.safe_dump({"variable_dt": True, "kf_time_unit": "seconds"}))
+    profile.write_text(yaml.safe_dump({"variable_dt": True, "kalman_noise.time_unit": "seconds"}))
 
     def unexpected_detector(*args):
         pytest.fail("Conflicting calibration units must fail before loading perception")
@@ -220,7 +220,7 @@ def test_tune_resume_dispatches_without_recalibrating(monkeypatch) -> None:
 
 def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch, tmp_path) -> None:
     path = tmp_path / "seconds.yaml"
-    path.write_text("tracker: botsort\nvariable_dt: true\nkf_time_unit: seconds\n")
+    path.write_text("tracker: botsort\nvariable_dt: true\nkalman_noise.time_unit: seconds\n")
 
     def unexpected_workflow(*args):
         pytest.fail("Conflicting calibration units must fail before tuning")
@@ -243,7 +243,7 @@ def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch,
         ],
     )
     assert result.exit_code == 2
-    assert "kf_time_unit" in result.output
+    assert "kalman_noise.time_unit" in result.output
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])
@@ -269,14 +269,14 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
     saved = {
         "tracker": "bytetrack",
         "variable_dt": saved_mode,
-        "kf_time_unit": "seconds" if saved_mode else "frames",
-        "kf_reference_dt_s": 0.04,
+        "kalman_noise.time_unit": "seconds" if saved_mode else "frames",
+        "kalman_noise.reference_dt_s": 0.04,
         "asso_func": "giou",
-        "kf_process_position_scale": 2.0,
-        "kf_process_velocity_scale": 3.0,
-        "kf_measurement_noise_scale": 0.5,
-        "kf_initial_position_scale": 0.75,
-        "kf_initial_velocity_scale": 4.0,
+        "kalman_noise.process_position_scale": 2.0,
+        "kalman_noise.process_velocity_scale": 3.0,
+        "kalman_noise.measurement_noise_scale": 0.5,
+        "kalman_noise.initial_position_scale": 0.75,
+        "kalman_noise.initial_velocity_scale": 4.0,
     }
     path = tmp_path / "calibrated.yaml"
     path.write_text(yaml.safe_dump(saved))
@@ -288,13 +288,13 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
     assert options["asso_func"] == "iou"
     assert "tracker" not in options
     for name in (
-        "kf_time_unit",
-        "kf_reference_dt_s",
-        "kf_process_position_scale",
-        "kf_process_velocity_scale",
-        "kf_measurement_noise_scale",
-        "kf_initial_position_scale",
-        "kf_initial_velocity_scale",
+        "kalman_noise.time_unit",
+        "kalman_noise.reference_dt_s",
+        "kalman_noise.process_position_scale",
+        "kalman_noise.process_velocity_scale",
+        "kalman_noise.measurement_noise_scale",
+        "kalman_noise.initial_position_scale",
+        "kalman_noise.initial_velocity_scale",
     ):
         assert options[name] == saved[name]
     assert "track_thresh" in options
@@ -309,15 +309,15 @@ def test_calibrated_config_rejects_conflicting_timing_override(tmp_path, mode, s
             {
                 "tracker": "bytetrack",
                 "variable_dt": saved_mode,
-                "kf_time_unit": "seconds" if saved_mode else "frames",
-                "kf_reference_dt_s": 1 / 30,
-                "kf_process_velocity_scale": 2.0,
+                "kalman_noise.time_unit": "seconds" if saved_mode else "frames",
+                "kalman_noise.reference_dt_s": 1 / 30,
+                "kalman_noise.process_velocity_scale": 2.0,
             }
         )
     )
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path, variable_dt=not saved_mode)
 
-    with pytest.raises(ValueError, match="kf_time_unit"):
+    with pytest.raises(ValueError, match="kalman_noise.time_unit"):
         if mode == "track":
             _tracker_spec(args, "aabb")
         else:
@@ -333,8 +333,8 @@ def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_pa
             {
                 "tracker": "bytetrack",
                 "variable_dt": saved_mode,
-                "kf_time_unit": "seconds" if saved_mode else "frames",
-                "kf_reference_dt_s": 1 / 30,
+                "kalman_noise.time_unit": "seconds" if saved_mode else "frames",
+                "kalman_noise.reference_dt_s": 1 / 30,
             }
         )
     )
@@ -349,7 +349,7 @@ def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_pa
     )
 
     assert result.exit_code == 2
-    assert "kf_time_unit" in result.output
+    assert "kalman_noise.time_unit" in result.output
 
 
 @pytest.mark.parametrize("mode", ["track", "eval"])
@@ -365,7 +365,7 @@ def test_tracker_config_accepts_builtin_preset(mode) -> None:
 @pytest.mark.parametrize("mode", ["track", "eval"])
 def test_tracker_config_rejects_metadata_for_a_different_tracker(tmp_path, mode) -> None:
     path = tmp_path / "calibrated.yaml"
-    path.write_text("tracker: botsort\nkf_process_position_scale: 2.0\n")
+    path.write_text("tracker: botsort\nkalman_noise.process_position_scale: 2.0\n")
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path)
 
     with pytest.raises(ValueError, match="botsort.*bytetrack"):

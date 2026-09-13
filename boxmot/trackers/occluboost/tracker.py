@@ -45,6 +45,7 @@ from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.constructor import OccluBoostOptions
 from boxmot.trackers.common.motion.batching import predict_tracks
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
@@ -91,6 +92,7 @@ class OccluBoost(BoostTrack):
         obb_recovery_max_age: int = 15,
         obb_second_iou_thresh: float = 0.3,
         *,
+        kalman_noise: KalmanNoiseConfig | None = None,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: Any = "cpu",
@@ -147,14 +149,17 @@ class OccluBoost(BoostTrack):
             device: Inference device for the lazily constructed ReID backend.
             half: Use FP16 inference in the lazily constructed ReID backend.
             reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            kalman_noise: Immutable Kalman covariance scales and reference
+                interval. None preserves the default noise; fresh units
+                follow the shared timing mode. Class overrides require
+                ``per_class=True``.
             **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
-                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
-                ``kf_time_unit``.
+                ``asso_func``, and ``is_obb`` settings. ``variable_dt`` enables prediction using capture timestamps.
                 BoostTrack options additionally configure ``use_cmc``, ``cmc_method``,
                 output size filtering, multi-cue weights, and DLO/DUO confidence boosting.
         """
         super().__init__(
+            kalman_noise=kalman_noise,
             use_embeddings=use_embeddings,
             reid_model=reid_model,
             reid_weights=reid_weights,

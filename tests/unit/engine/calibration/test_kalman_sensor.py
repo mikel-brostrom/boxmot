@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+import yaml
 
 from boxmot.datasets.inputs import DatasetInputs
 from boxmot.engine.calibration import kalman_sensor
@@ -57,7 +58,7 @@ def test_3d_bases_match_runtime_with_all_five_scales(angular):
     scales = dict(zip(KALMAN_NOISE_OPTIONS, (2.0, 3.0, 4.0, 5.0, 6.0), strict=True))
     model = CalibrationModel3D({"is_angular": angular, **scales})
     box = np.array([1.0, 2.0, 20.0, 0.3, 4.0, 2.0, 1.6])
-    noise = KalmanNoiseConfig(**{key.removeprefix("kf_"): value for key, value in scales.items()})
+    noise = KalmanNoiseConfig(**{key.removeprefix("kalman_noise."): value for key, value in scales.items()})
     runtime = Kalman3D(box, is_angular=angular, noise_config=noise)
     state, p0 = model.initial_state(box)
     q_position, q_velocity = model.process_covariance_bases(state)
@@ -81,7 +82,8 @@ def test_yaw_alignment_uses_pi_equivalence_and_keeps_inputs_unchanged():
 
 
 @pytest.mark.parametrize(
-    "options", [{"variable_dt": True}, {"kf_time_unit": "seconds"}, {"kf_measurement_noise_scale": 0}]
+    "options",
+    [{"variable_dt": True}, {"kalman_noise.time_unit": "seconds"}, {"kalman_noise.measurement_noise_scale": 0}],
 )
 def test_3d_model_rejects_unusable_timing_or_noise(options):
     with pytest.raises(ValueError):
@@ -111,11 +113,13 @@ def test_shared_fit_recovers_simulated_3d_diffusion_and_measurement_noise(angula
             CalibrationTrack("simulation", track_id, 1, np.arange(len(gt)), None, gt, detected, np.ones(len(gt)))
         )
     parameters, stats = fit_kalman_noise(trajectories, {1: model}, base)
-    assert parameters["kf_process_position_scale"]["value"] == pytest.approx(position_scale, rel=0.15)
-    assert parameters["kf_process_velocity_scale"]["value"] == pytest.approx(velocity_scale, rel=0.15)
-    assert parameters["kf_measurement_noise_scale"]["value"] == pytest.approx(measurement_scale, rel=0.03)
-    assert parameters["kf_initial_position_scale"]["value"] == pytest.approx(0.001 * measurement_scale, rel=0.15)
-    assert parameters["kf_initial_velocity_scale"]["value"] > 0
+    assert parameters["kalman_noise.process_position_scale"]["value"] == pytest.approx(position_scale, rel=0.15)
+    assert parameters["kalman_noise.process_velocity_scale"]["value"] == pytest.approx(velocity_scale, rel=0.15)
+    assert parameters["kalman_noise.measurement_noise_scale"]["value"] == pytest.approx(measurement_scale, rel=0.03)
+    assert parameters["kalman_noise.initial_position_scale"]["value"] == pytest.approx(
+        0.001 * measurement_scale, rel=0.15
+    )
+    assert parameters["kalman_noise.initial_velocity_scale"]["value"] > 0
     assert stats == {"gt_transitions": 14800, "gt_lag_pairs": 14700}
 
 
@@ -129,17 +133,26 @@ def test_class_profiles_fit_separately_preserve_other_settings_and_record_source
         _dataset(tmp_path), profiles, output_dir=tmp_path, progress=progress.append
     )
     saved = load_kitti_profiles(result.config_path)
-    assert saved[2]["kf_measurement_noise_scale"] == pytest.approx(4 * saved[1]["kf_measurement_noise_scale"])
+    assert saved[2]["kalman_noise.measurement_noise_scale"] == pytest.approx(
+        4 * saved[1]["kalman_noise.measurement_noise_scale"]
+    )
     for class_id in profiles:
-        assert {key: value for key, value in saved[class_id].items() if key not in KALMAN_NOISE_OPTIONS} == {
-            key: value for key, value in profiles[class_id].items() if key not in KALMAN_NOISE_OPTIONS
-        }
+        assert {
+            key: value
+            for key, value in saved[class_id].items()
+            if key not in KALMAN_NOISE_OPTIONS and not key.startswith("calibration.")
+        } == {key: value for key, value in profiles[class_id].items() if key not in KALMAN_NOISE_OPTIONS}
     assert result.matched_detections == 24
     assert result.gt_transitions == 16
     assert result.parameter_count == 10
     assert len(result.fitted_parameters) == 10
     assert "10/10 covariance scales" in result.description
     report = json.loads(result.report_path.read_text())
+    authored = yaml.safe_load(result.config_path.read_text())
+    assert (
+        authored["car"]["kalman_noise"]["measurement_noise_scale"] == saved[1]["kalman_noise.measurement_noise_scale"]
+    )
+    assert not any(key.startswith("kalman_noise.") for key in authored["car"])
     assert report["input_sources"] == list(data.input_sources)
     assert report["ground_truth_sources"] == list(data.ground_truth_sources)
     assert report["classes"]["car"]["state_dimensions"] == 10
@@ -160,11 +173,33 @@ def test_sparse_or_absent_class_evidence_retains_supplied_scales(monkeypatch, tm
     for class_id, profile in profiles.items():
         profile.update({key: float(class_id + index) for index, key in enumerate(KALMAN_NOISE_OPTIONS)})
     result = kalman_sensor.calibrate_sensor_kalman(_dataset(tmp_path), profiles, output_dir=tmp_path)
-    assert load_kitti_profiles(result.config_path) == profiles
+    saved = load_kitti_profiles(result.config_path)
+    assert {
+        class_id: {key: value for key, value in profile.items() if not key.startswith("calibration.")}
+        for class_id, profile in saved.items()
+    } == profiles
     assert result.fitted_parameters == ()
     report = json.loads(result.report_path.read_text())
     assert report["classes"]["pedestrian"]["statistics"]["ground_truth"] == 0
     assert all(value["status"] == "retained" for value in report["classes"]["pedestrian"]["parameters"].values())
+
+
+def test_unobserved_sensor_class_uses_fitted_global_scales(monkeypatch, tmp_path):
+    tracks = tuple(_track(1, track_id) for track_id in (1, 2))
+    data = CalibrationData(tracks, {"matched": 12, "trajectories": 2}, ())
+    monkeypatch.setattr(kalman_sensor, "load_sensor_calibration_data", lambda *a, **kw: data)
+    profiles = load_kitti_profiles()
+    profiles[2]["kalman_noise.measurement_noise_scale"] = 7.0
+    result = kalman_sensor.calibrate_sensor_kalman(_dataset(tmp_path), profiles, output_dir=tmp_path)
+    saved = load_kitti_profiles(result.config_path)
+    assert all(saved[2][key] == saved[1][key] for key in KALMAN_NOISE_OPTIONS)
+    report = json.loads(result.report_path.read_text())
+    estimates = report["classes"]["pedestrian"]["parameters"]
+    assert all(
+        value["status"] == "global_fallback" and value["source"] == "pooled_classes" for value in estimates.values()
+    )
+    assert estimates["kalman_noise.measurement_noise_scale"]["baseline"] == 7.0
+    assert report["global"]["statistics"]["gt_transitions"] == 8
 
 
 def test_calibration_report_identifies_camera_coordinates_without_ego_poses(monkeypatch, tmp_path):
@@ -201,4 +236,4 @@ def test_shared_entrypoint_dispatches_3d_without_build_setup(monkeypatch, tmp_pa
     )
     args = SimpleNamespace(tracker="eagermot", dataset=tmp_path, split="train", class_config=None)
     result = calibrate_kalman(args, output_dir=tmp_path)
-    assert load_kitti_profiles(result.config_path)[1]["kf_measurement_noise_scale"] != 1
+    assert load_kitti_profiles(result.config_path)[1]["kalman_noise.measurement_noise_scale"] != 1

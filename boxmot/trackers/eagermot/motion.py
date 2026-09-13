@@ -32,8 +32,9 @@ class Kalman3D:
         self.noise_config = noise_config if noise_config is not None else KalmanNoiseConfig()
         if not isinstance(self.noise_config, KalmanNoiseConfig):
             raise TypeError("noise_config must be KalmanNoiseConfig.")
-        if self.noise_config.time_unit != "frames":
-            raise ValueError("Kalman3D requires kf_time_unit='frames'; prediction advances one frame.")
+        if self.noise_config.time_unit == "seconds":
+            raise ValueError("Kalman3D requires kalman_noise.time_unit='frames'; prediction advances one frame.")
+        self.noise_config = self.noise_config.resolve()
         dimensions = 11 if is_angular else 10
         self.state = np.zeros(dimensions, dtype=np.float64)
         self.state[:7] = measurement

@@ -161,6 +161,52 @@ ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
 required by the algorithm; the direct update boundary can satisfy it from
 either attached embeddings or a supplied `Frame` or NumPy image.
 
+### Kalman noise configuration
+
+Python trackers that use Kalman filters accept an immutable configuration with
+typed fields, defaults, and editor autocomplete:
+
+```python
+from boxmot import KalmanNoiseConfig, OcSort, create_tracker
+
+noise = KalmanNoiseConfig(
+    process_position_scale=1.0,
+    process_velocity_scale=1.0,
+    measurement_noise_scale=1.0,
+    initial_position_scale=1.0,
+    initial_velocity_scale=1.0,
+    reference_dt_s=1 / 30,
+)
+tracker = OcSort(kalman_noise=noise)
+tracker_from_factory = create_tracker("ocsort", kalman_noise=noise)
+```
+
+`1.0` preserves each filter's own covariance priors. These values multiply
+covariance, not standard deviation. Omitting `kalman_noise` uses the defaults.
+The tracker resolves `time_unit=None` from `variable_dt` without mutating the
+provided object. A saved explicit unit must match the selected timing mode.
+
+Use `by_class` for complete class-specific settings. Unlisted class IDs use the
+global settings. Box trackers require `per_class=True` when these profiles are
+present:
+
+```python
+noise = KalmanNoiseConfig(
+    measurement_noise_scale=1.5,
+    by_class={
+        0: KalmanNoiseConfig(measurement_noise_scale=0.8),
+        1: KalmanNoiseConfig(measurement_noise_scale=2.0),
+    },
+)
+tracker = OcSort(per_class=True, kalman_noise=noise)
+```
+
+Each track keeps independent state and covariance. Class profiles share the
+same timing units and reference interval. EagerMot accepts the same configuration
+for its 3D filter with frame-based timing. SFSORT and MafHda do not accept Kalman
+configuration. See [tracker YAMLs](../config/trackers.md#kalman-noise) and
+[calibration and tuning](../modes/tune.md#kalman-noise-and-timing) for saved profiles.
+
 ### Elapsed time
 
 Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
@@ -202,9 +248,9 @@ experimental mode, or `--fixed-dt` to select fixed steps explicitly. Omitting
 both flags preserves the tracker YAML setting, which defaults to fixed steps.
 Tuning holds this mode constant, records it with the tuned configuration, and
 requires the same timing settings when resuming a run. Saved configurations
-declare `kf_time_unit: frames` or `kf_time_unit: seconds`; an override that
-conflicts with those units is rejected. Untuned defaults use `kf_time_unit: null`
-to resolve the units from the chosen mode. Video sources provide media
+declare `time_unit: frames` or `time_unit: seconds` under `kalman_noise`; an
+override that conflicts with those units is rejected. Untuned defaults use
+`time_unit: null` to resolve the units from the chosen mode. Video sources provide media
 timestamps, falling back to the
 nominal frame rate when timestamps are unavailable or stop advancing and that
 rate is known.
@@ -219,7 +265,7 @@ for seconds requires an explicit measured interval in these low-level methods;
 the reference interval never substitutes for a missing capture interval.
 
 The seconds-based mode converts historic per-frame priors using the fixed
-reference interval `h = kf_reference_dt_s`, which defaults to `1/30` second.
+reference interval `h = kalman_noise.reference_dt_s`, which defaults to `1/30` second.
 This is the basis of the original noise priors, not a measured source frame
 interval. The conversion is:
 

@@ -36,16 +36,9 @@ class BoxTrackerOptions(AssociationTrackerOptions, total=False):
 
 
 class KalmanTrackerOptions(BoxTrackerOptions, total=False):
-    """Box settings with supported Kalman calibration and capture timing."""
+    """Box settings with supported capture timing."""
 
     variable_dt: bool
-    kf_process_position_scale: float
-    kf_process_velocity_scale: float
-    kf_measurement_noise_scale: float
-    kf_initial_position_scale: float
-    kf_initial_velocity_scale: float
-    kf_reference_dt_s: float
-    kf_time_unit: str | None
 
 
 class CommonTrackerOptions(KalmanTrackerOptions, total=False):

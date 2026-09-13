@@ -11,6 +11,8 @@ from typing import Any
 import yaml
 
 from boxmot.engine.config.trackers import resolve_tracker_options
+from boxmot.engine.tuning.kalman_refinement import is_kalman_option
+from boxmot.trackers.common.config import flatten_tracker_options
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 
 CALIBRATED_KF_OPTIONS = (
@@ -113,6 +115,8 @@ def load_tuning_calibration(
         saved_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise ValueError(f"Saved tuning calibration profile is malformed: {config_path}") from exc
+    if isinstance(saved_yaml, Mapping):
+        saved_yaml = flatten_tracker_options(saved_yaml)
     if not isinstance(saved_yaml, Mapping) or any(name not in saved_yaml for name in _REQUIRED_OPTIONS):
         raise ValueError(
             "Saved tuning calibration profile is incomplete; all KF scales and timing settings are required."
@@ -121,7 +125,7 @@ def load_tuning_calibration(
     saved_args.tracker_config = config_path
     saved_args.variable_dt = None
     saved_config = resolve_tracker_options(saved_args, include_defaults=True, stamp_timing=True)
-    expected_keys = {name for name in CALIBRATED_KF_OPTIONS if name in saved_config}
+    expected_keys = {name for name in saved_config if name in CALIBRATED_KF_OPTIONS or is_kalman_option(name)}
     if set(fixed) != expected_keys or any(name not in saved_yaml for name in expected_keys):
         raise ValueError(
             "Saved tuning calibration fixed_options must contain every applicable KF prior and timing setting."

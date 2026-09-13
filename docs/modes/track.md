@@ -128,7 +128,7 @@ boxmot track \
 
 The file overlays built-in tracker defaults and must match the selected
 tracker when it declares a `tracker` name. Explicit `--asso-func` overrides
-the loaded value. Saved `variable_dt`, `kf_time_unit`, and `kf_reference_dt_s`
+the loaded value. Saved `variable_dt`, `kalman_noise.time_unit`, and `kalman_noise.reference_dt_s`
 settings preserve the calibrated timing contract. A conflicting timing flag,
 such as `--fixed-dt` with a seconds-based calibration, is rejected. Timestamps
 alone do not enable variable timing; the default remains fixed-step prediction.

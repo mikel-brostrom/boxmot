@@ -2,7 +2,7 @@
 
 Each `boxmot/configs/trackers/<tracker>.yaml` file contains both runtime
 defaults and the corresponding tuning search space. Tuned presets live under
-`boxmot/configs/trackers/presets`. Single-profile presets are plain scalar
+`boxmot/configs/trackers/presets`. Single-profile presets are runtime
 overlays and declare their owning tracker with a top-level `tracker` field.
 The EagerMOT `eagermot-kitti-mots-val.yaml` preset contains both `car` and
 `pedestrian` profiles and loads through `--class-config`; see
@@ -23,6 +23,48 @@ code:
 - `track` and `eval` extract each parameter's scalar `default`
 - a preset overlays those defaults
 - `tune` reads `type`, `range`, `options`, `values`, and `activates`
+
+## Kalman noise
+
+Runtime YAML groups covariance scales and timing metadata under `kalman_noise`:
+
+```yaml title="ocsort-noise.yaml"
+tracker: ocsort
+variable_dt: false
+kalman_noise:
+  process_position_scale: 1.0
+  process_velocity_scale: 1.0
+  measurement_noise_scale: 1.0
+  initial_position_scale: 1.0
+  initial_velocity_scale: 1.0
+  reference_dt_s: 0.03333333333333333
+  time_unit: frames
+```
+
+Pass the file through `--tracker-config`. Partial profiles override individual
+fields; omitted fields retain the tracker defaults. Python uses the corresponding
+`KalmanNoiseConfig` object through the `kalman_noise` constructor argument.
+
+`variable_dt` remains a tracker setting. Fresh noise settings can use
+`time_unit: null` to derive units from it; calibrated profiles save the resolved
+unit. Timing and the reference interval remain fixed during tuning.
+
+With per-class tracking, `kalman_noise.by_class` maps detector class IDs to
+complete noise profiles. Unlisted classes use the global profile. Calibration
+with `--per-class` writes these profiles and records when a class used pooled
+estimates because it lacked sufficient evidence.
+
+Calibrated files also carry a `calibration` mapping describing the tracker,
+backend, geometry, filter dimensions, and timing basis. Loading validates that
+signature before creating a tracker. A single-class profile also binds the
+factory's class selection. The YAML is portable without its report sidecar;
+dataset and split identify the calibration evidence and allow reuse on held-out
+data.
+
+Built-in search schemas use the same group, with a `default` entry for each
+field. Search backends address scalar leaves such as
+`kalman_noise.measurement_noise_scale`. Noise scales stay fixed unless selected
+with `--tune-kf`; see [Kalman tuning](../modes/tune.md#kalman-noise-and-timing).
 
 ## EagerMOT class profiles
 
@@ -103,7 +145,7 @@ track_buffer:
 ```
 
 The tracker name selects its combined built-in file. `track` and `eval` accept
-`--tracker-config` to overlay a scalar YAML file or a built-in preset. Explicit
+`--tracker-config` to overlay a runtime YAML file or a built-in preset. Explicit
 runtime flags override the loaded values. The Python factory accepts a canonical
 `TrackerSpec`; place scalar overrides in its sorted `options` tuple. Tuning
-writes resolved scalar YAML that can be reused with `--tracker-config`.
+writes resolved runtime YAML that can be reused with `--tracker-config`.

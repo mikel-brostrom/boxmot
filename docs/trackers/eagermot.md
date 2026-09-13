@@ -359,13 +359,22 @@ separately for cars and pedestrians. Process and initial covariance distinguish
 the seven measured box coordinates from their modeled velocities; measurement
 noise has one shared multiplier. The values scale covariance, not standard
 deviation. Ego poses remain fixed, and pose uncertainty is not fitted.
+When a class has too little evidence for a scale, calibration uses the estimate
+pooled across classes. If the pooled evidence is also insufficient, it retains
+that class's configured value. The report records the source and observation
+counts for each scale.
 
 Each run saves complete class profiles in `kf-tuning/calibrated.yaml` and
 calibration evidence in `kf-tuning/calibration.json`, including each sequence's
 camera or world coordinate frame. Reuse the profiles with
-`--class-config` in `eval` or `tune`. `tune --calibrate-kf` calibrates once before
-Optuna starts; the fitted scales and each class's `is_angular` setting stay
-fixed throughout the search and are included in `best.yaml`. Prediction still
+`--class-config` in `eval` or `tune`. Each YAML profile carries its tracker,
+backend, geometry, class, and Kalman state dimensions. Loading an incompatible
+profile, including a changed `is_angular` state layout, fails before replay.
+`tune --calibrate-kf` calibrates once before
+Optuna starts; the fitted scales stay fixed by default. Select a scale explicitly,
+such as `--tune-kf measurement_noise_scale`, to search around each class's fitted
+value. Each class's `is_angular` setting stays fixed, and the grouped settings are
+included in `best.yaml`. Prediction still
 advances one frame per image; variable-time prediction is unsupported.
 Loading profiles with `--class-config` also keeps their `is_angular` choices
 fixed. Tuning without either flag can search the angular-motion choice.

@@ -149,7 +149,7 @@ for backend details.
 
 ## Config and factory
 
-- Tracker runtime defaults and tuning search spaces share `boxmot/configs/trackers/<tracker>.yaml`; reusable scalar presets remain under `boxmot/configs/trackers/presets`.
+- Tracker runtime defaults and tuning search spaces share `boxmot/configs/trackers/<tracker>.yaml`; reusable runtime presets remain under `boxmot/configs/trackers/presets`.
 - The runtime factory lives in `boxmot/trackers/common/factory.py`; public
   contracts and factories remain available from `boxmot.trackers`, and public
   tracker classes from `boxmot`.

@@ -23,6 +23,7 @@ from boxmot.engine.tuning import tuner
 from boxmot.engine.tuning.results import TuneResult
 from boxmot.engine.tuning.tuner import run_tune
 from boxmot.engine.ui.reporters.tune import TuneWorkflowReporter
+from boxmot.trackers.common.config import flatten_tracker_options
 from tests.unit.engine.eval.test_eagermot_kitti import _fixture
 
 optuna = pytest.importorskip("optuna")
@@ -82,7 +83,10 @@ def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_con
         assert (directory / "mots/0002.txt").is_file()
     assert study.best_value >= baseline.value
 
-    exported = yaml.safe_load((output / "best.yaml").read_text())
+    exported = {
+        name: flatten_tracker_options(profile)
+        for name, profile in yaml.safe_load((output / "best.yaml").read_text()).items()
+    }
     assert set(exported) == {"car", "pedestrian"}
     assert result.best_config == result.best.config == exported
     assert result.tracker == "eagermot"
@@ -137,6 +141,35 @@ def test_repeated_tuning_allocates_a_new_directory_without_overwriting(tmp_path:
     assert (second / "study.sqlite3").is_file()
     assert _study(second).best_value == pytest.approx(100)
     assert json.loads((second / "run.json").read_text())["status"] == "complete"
+
+
+def test_selected_sensor_noise_is_refined_around_each_class_baseline(tmp_path: Path) -> None:
+    data = _fixture(tmp_path)
+    args = _arguments(data)
+    profiles = load_kitti_profiles()
+    key = "kalman_noise.process_velocity_scale"
+    profiles[1][key], profiles[2][key] = 2.0, 7.0
+    config = tmp_path / "class-config.yaml"
+    evaluation.write_kitti_profiles(config, profiles)
+    args.class_config = config
+    args.tune_kf = ("process_velocity_scale",)
+    result = run_tune(args)
+    study = _study(result.best_yaml.parent)
+    for class_id, name in evaluation.KITTI_CLASSES.items():
+        assert study.trials[0].params[f"{name}.{key}"] == profiles[class_id][key]
+        distribution = study.trials[1].distributions[f"{name}.{key}"]
+        assert distribution.log is True
+        assert distribution.low == profiles[class_id][key] / 4.0
+        assert distribution.high == profiles[class_id][key] * 4.0
+        for trial in study.trials:
+            assert all(
+                trial.user_attrs["profiles"][name][field] == value
+                for field, value in profiles[class_id].items()
+                if field.startswith("kalman_noise.") and field != key
+            )
+    saved = yaml.safe_load(result.best_yaml.read_text())
+    assert saved["car"]["kalman_noise"]["process_velocity_scale"] == 2.0
+    assert saved["pedestrian"]["kalman_noise"]["process_velocity_scale"] == 7.0
 
 
 def test_objective_uses_class_average_hota_without_averaging_existing_aggregates(

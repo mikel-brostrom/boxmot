@@ -9,9 +9,10 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import KalmanNoiseConfig
 from boxmot.structures import Boxes, CameraModel, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.botsort.native import NativeBotSortTracker
-from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.config import load_tracker_defaults, nest_tracker_options
 from boxmot.trackers.common.registry import get_tracker_class
 from boxmot.trackers.occluboost.native import NativeOccluBoostTracker
 from tests.unit.native.trackers._helpers import empty_native_batch
@@ -73,7 +74,8 @@ def _without_cmc(name: str) -> dict[str, bool]:
 
 
 def _python_tracker(name: str, **options: Any) -> Any:
-    defaults = load_tracker_defaults(name)
+    defaults = nest_tracker_options(load_tracker_defaults(name))
+    defaults["kalman_noise"] = KalmanNoiseConfig.from_mapping(defaults["kalman_noise"])
     defaults.update(options)
     return get_tracker_class(name)(**defaults)
 

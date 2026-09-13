@@ -9,6 +9,7 @@ __version__ = "25.0.0"
 
 _EXPORTS = {
     "create_tracker": ("boxmot.trackers.common.factory", "create_tracker"),
+    "KalmanNoiseConfig": ("boxmot.trackers.common.motion.kalman_filters.noise", "KalmanNoiseConfig"),
     **{
         entry.class_path.rsplit(".", 1)[-1]: tuple(entry.class_path.rsplit(".", 1))
         for entry in _TRACKER_MANIFEST.values()
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     from boxmot.trackers.botsort.tracker import BotSort as BotSort
     from boxmot.trackers.bytetrack.tracker import ByteTrack as ByteTrack
     from boxmot.trackers.common.factory import create_tracker as create_tracker
+    from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig as KalmanNoiseConfig
     from boxmot.trackers.deepocsort.tracker import DeepOcSort as DeepOcSort
     from boxmot.trackers.eagermot.tracker import EagerMot as EagerMot
     from boxmot.trackers.hybridsort.tracker import HybridSort as HybridSort

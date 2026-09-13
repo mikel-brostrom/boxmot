@@ -26,6 +26,7 @@ from boxmot.structures import (
 )
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.constructor import TrackerMetadataOptions
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.common.tracking.per_class import ClassTrackState
 from boxmot.trackers.eagermot.association import (
@@ -114,11 +115,8 @@ class EagerMot(BaseTracker):
         is_angular: bool = False,
         per_class: bool = False,
         asso_func: str = "iou",
-        kf_process_position_scale: float = 1.0,
-        kf_process_velocity_scale: float = 1.0,
-        kf_measurement_noise_scale: float = 1.0,
-        kf_initial_position_scale: float = 1.0,
-        kf_initial_velocity_scale: float = 1.0,
+        *,
+        kalman_noise: KalmanNoiseConfig | None = None,
         **kwargs: Unpack[TrackerMetadataOptions],
     ) -> None:
         """Configure fusion, 3D matching, and the image-only recovery stage.
@@ -149,11 +147,8 @@ class EagerMot(BaseTracker):
             per_class: Maintain separate class state collections. Association
                 always matches only detections and tracks of the same class.
             asso_func: Image association geometry; must be ``iou``.
-            kf_process_position_scale: Scale process covariance for box coordinates.
-            kf_process_velocity_scale: Scale process covariance for derivatives.
-            kf_measurement_noise_scale: Scale 3D measurement covariance.
-            kf_initial_position_scale: Scale initial box-coordinate covariance.
-            kf_initial_velocity_scale: Scale initial derivative covariance.
+            kalman_noise: Immutable 3D covariance scales; None preserves the
+                source priors. Calibrated units must be frames.
             **kwargs: ``max_obs`` for observation history, and ``class_ids`` and
                 ``class_names`` for detector class metadata.
         """
@@ -178,17 +173,13 @@ class EagerMot(BaseTracker):
         if asso_func != "iou":
             raise ValueError("EagerMot supports only asso_func='iou' for sensor fusion and image association.")
         super().__init__(
+            kalman_noise=kalman_noise,
             det_thresh=det_thresh,
             max_age=max_age,
             min_hits=min_hits,
             iou_threshold=iou_threshold,
             per_class=per_class,
             asso_func=asso_func,
-            kf_process_position_scale=kf_process_position_scale,
-            kf_process_velocity_scale=kf_process_velocity_scale,
-            kf_measurement_noise_scale=kf_measurement_noise_scale,
-            kf_initial_position_scale=kf_initial_position_scale,
-            kf_initial_velocity_scale=kf_initial_velocity_scale,
             **kwargs,
         )
         self.det_thresh_3d = det_thresh_3d
@@ -389,7 +380,9 @@ class EagerMot(BaseTracker):
             track = _Track(
                 id=self.id_allocator.alloc(),
                 motion=Kalman3D(
-                    boxes_3d[detection_index], is_angular=self.is_angular, noise_config=self.kalman_noise_config
+                    boxes_3d[detection_index],
+                    is_angular=self.is_angular,
+                    noise_config=self.kalman_noise_config.for_class(int(classes_3d[detection_index])),
                 ),
                 cls=int(classes_3d[detection_index]),
                 confidence_3d=confidence,

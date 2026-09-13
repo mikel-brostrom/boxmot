@@ -14,6 +14,7 @@ from boxmot.structures import GeometryKind
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 from boxmot.trackers.common.protocols import TrackerRequirements
 from boxmot.trackers.common.registry import supported_native_trackers
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
@@ -300,7 +301,11 @@ def test_tracker_defaults_are_scalar_constructor_parameters(tracker_name: str) -
 
     defaults = load_tracker_config(tracker_name)
 
-    assert set(defaults) <= accepted
+    assert {name.split(".", 1)[0] for name in defaults} <= accepted
+    assert {name for name in defaults if name.startswith("kalman_noise.")} <= {
+        *KALMAN_NOISE_OPTIONS,
+        *KALMAN_TIMING_OPTIONS,
+    }
     assert all(isinstance(value, (str, int, float, bool, type(None))) for value in defaults.values())
 
 
@@ -308,7 +313,7 @@ def test_tracker_config_rejects_collection_values(tmp_path) -> None:
     config_path = tmp_path / "invalid.yaml"
     config_path.write_text(yaml.safe_dump({"track_thresh": [0.5, 0.7]}), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="not nested or collection values"):
+    with pytest.raises(ValueError, match="Kalman fields grouped under kalman_noise"):
         load_tracker_config("bytetrack", config_path)
 
 

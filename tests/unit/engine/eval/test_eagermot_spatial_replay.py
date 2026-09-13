@@ -17,6 +17,7 @@ from boxmot.datasets.sequence import MultimodalSequence
 from boxmot.engine.cli import boxmot
 from boxmot.engine.eval.eagermot_kitti import (
     KITTI_PROFILES,
+    _create_kitti_tracker,
     _track_frame,
     evaluate_eagermot_kitti,
     load_kitti_profiles,
@@ -29,7 +30,10 @@ from tests.unit.engine.eval.test_eagermot_visualization import _capture_visualiz
 
 def _trackers() -> dict[int, EagerMot]:
     """Keep fixture projections eligible for image-only recovery after a 3D dropout."""
-    return {class_id: EagerMot(**{**profile, "iou_threshold": 0.01}) for class_id, profile in KITTI_PROFILES.items()}
+    return {
+        class_id: _create_kitti_tracker({**profile, "iou_threshold": 0.01})
+        for class_id, profile in KITTI_PROFILES.items()
+    }
 
 
 @pytest.mark.parametrize("reverse_spatial", [False, True])

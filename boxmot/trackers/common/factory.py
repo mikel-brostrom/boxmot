@@ -10,8 +10,12 @@ from typing import Any, overload
 from boxmot.components.resolution import component_options
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
-from boxmot.trackers.common.config import load_tracker_config
-from boxmot.trackers.common.motion.kalman_filters.noise import normalize_kalman_options
+from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_TRACKER_NAMES,
+    normalize_kalman_options,
+)
+from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
 from boxmot.trackers.common.registry import (
     TrackerDefinition,
@@ -144,7 +148,11 @@ def _resolve_spec(spec: TrackerSpec | str, overrides: Mapping[str, Any]) -> Trac
         raise ValueError("Pass tracker selection fields outside options: " + ", ".join(sorted(misplaced)))
     if "is_obb" in supplied or "is_obb" in option_mapping:
         raise ValueError("Select tracker geometry with geometry='aabb' or geometry='obb', not is_obb.")
-    options = {**spec.option_dict, **option_mapping, **supplied}
+    options = {
+        **flatten_tracker_options(spec.option_dict),
+        **flatten_tracker_options(option_mapping),
+        **flatten_tracker_options(supplied),
+    }
     _validate_model_options(spec.name, options)
 
     if "class_ids" in metadata and metadata["class_ids"] is not None:
@@ -209,7 +217,17 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
     spec = _resolve_spec(spec, overrides)
     definition = get_tracker_definition(spec.name)
     tracker_args = load_tracker_config(definition.config_name or definition.name, None, spec.option_dict)
-    normalize_kalman_options(
+    validate_calibration_profile(tracker_args, tracker_name=spec.name, geometry=spec.geometry, backend=spec.backend)
+    calibrated_class = tracker_args.get("calibration.class_id")
+    if calibrated_class is not None:
+        if spec.class_ids is None:
+            spec = replace(spec, class_ids=(calibrated_class,))
+        elif spec.class_ids != (calibrated_class,):
+            raise ValueError(
+                f"Calibrated tracker profile is for class {calibrated_class}, "
+                f"but class_ids selects {spec.class_ids}. Use the matching class profile."
+            )
+    noise = normalize_kalman_options(
         tracker_args,
         variable_dt=tracker_args.get("variable_dt", False),
         tracker_name=spec.name,
@@ -220,6 +238,11 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
     if spec.backend == "cpp":
         tracker = _create_native_tracker(spec, definition, geometry_kind)
         return _bind_and_validate_capabilities(tracker, definition.capabilities)
+
+    if spec.name in KALMAN_NOISE_TRACKER_NAMES:
+        tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("kalman_noise.")}
+        tracker_args["kalman_noise"] = noise
+    tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("calibration.")}
 
     tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
     if definition.accepts_per_class:

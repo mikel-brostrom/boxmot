@@ -14,16 +14,11 @@ from typing_extensions import Unpack, is_typeddict
 import boxmot
 from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 
 _REID_OPTIONS = {"reid_model", "reid_weights", "device", "half", "reid_preprocess"}
-_TIMING_OPTIONS = {"variable_dt", "kf_reference_dt_s", "kf_time_unit"}
-_NOISE_OPTIONS = {
-    "kf_process_position_scale",
-    "kf_process_velocity_scale",
-    "kf_measurement_noise_scale",
-    "kf_initial_position_scale",
-    "kf_initial_velocity_scale",
-}
+_TIMING_OPTIONS = {"variable_dt"}
+_NOISE_OPTIONS = {"kalman_noise"}
 
 
 def _keyword_parameters(constructor: Any) -> dict[str, inspect.Parameter]:
@@ -67,7 +62,7 @@ def _documented_arguments(docstring: str) -> list[tuple[str, str]]:
     content = section.group(1)
     rows = list(re.finditer(r"(?m)^    (\*{0,2}[a-zA-Z_]\w*)(?: \([^\n]*\))?:", content))
     return [
-        (row.group(1), content[row.end():rows[index + 1].start() if index + 1 < len(rows) else len(content)].strip())
+        (row.group(1), content[row.end() : rows[index + 1].start() if index + 1 < len(rows) else len(content)].strip())
         for index, row in enumerate(rows)
     ]
 
@@ -111,7 +106,7 @@ def test_authored_defaults_are_discoverable_in_public_constructor(tracker_name: 
     constructor = getattr(boxmot, public_name).__init__
     (options,) = get_args(get_type_hints(constructor)["kwargs"])
     advertised = set(_keyword_parameters(constructor)) | set(get_type_hints(options))
-    missing = set(load_tracker_defaults(tracker_name)) - advertised
+    missing = {name.split(".", 1)[0] for name in load_tracker_defaults(tracker_name)} - advertised
     assert not missing, f"{public_name} config defaults lack constructor autocomplete: {sorted(missing)}"
 
 
@@ -163,3 +158,41 @@ def test_constructor_kwargs_docs_only_advertise_supported_options(tracker_name: 
         forbidden.add("det_thresh")
     mentioned = set(re.findall(r"\b[a-z]\w*\b", kwargs_docs))
     assert not forbidden.intersection(mentioned), f"{public_name} kwargs docs advertise unavailable settings"
+
+
+@pytest.mark.parametrize("tracker_name", sorted(KALMAN_NOISE_TRACKER_NAMES))
+def test_kalman_configuration_is_an_explicit_keyword_only_parameter(tracker_name: str) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    signature = inspect.signature(tracker.__init__)
+    parameter = signature.parameters["kalman_noise"]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
+    assert get_type_hints(tracker.__init__)["kalman_noise"] == boxmot.KalmanNoiseConfig | None
+    assert not any(name.startswith("kf_") for name in signature.parameters)
+
+
+@pytest.mark.parametrize("tracker_name", sorted(KALMAN_NOISE_TRACKER_NAMES))
+@pytest.mark.parametrize(
+    "option",
+    [
+        "kf_process_position_scale",
+        "kf_process_velocity_scale",
+        "kf_measurement_noise_scale",
+        "kf_initial_position_scale",
+        "kf_initial_velocity_scale",
+        "kf_reference_dt_s",
+        "kf_time_unit",
+    ],
+)
+def test_removed_scalar_kalman_constructor_keywords_are_rejected(tracker_name: str, option: str) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    with pytest.raises(TypeError, match=option):
+        tracker(**{option: 1.0})
+
+
+@pytest.mark.parametrize("tracker_name", ["sfsort", "maf_hda"])
+@pytest.mark.parametrize("config", [None, boxmot.KalmanNoiseConfig()])
+def test_trackers_without_kalman_motion_reject_configuration_objects(tracker_name: str, config) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    with pytest.raises(TypeError, match="does not accept kalman_noise"):
+        tracker(kalman_noise=config)

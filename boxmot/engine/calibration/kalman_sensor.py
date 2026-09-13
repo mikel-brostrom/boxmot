@@ -10,11 +10,22 @@ import numpy as np
 import yaml
 
 from boxmot.datasets.inputs import DatasetInputs
-from boxmot.engine.calibration.kalman import KalmanCalibrationResult, _write_json, fit_kalman_noise
+from boxmot.engine.calibration.kalman import (
+    KalmanCalibrationResult,
+    _write_json,
+    apply_global_noise_fallback,
+    fit_kalman_noise,
+)
 from boxmot.engine.calibration.kalman_model_3d import CalibrationModel3D
 from boxmot.engine.calibration.kalman_sensor_data import load_sensor_calibration_data
+from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
 from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
-from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_OPTIONS,
+    KALMAN_TIMING_OPTIONS,
+    normalize_kalman_options,
+)
+from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 
 if TYPE_CHECKING:
     from boxmot.datasets.sensor_cache import SensorReplaySequence
@@ -33,7 +44,8 @@ def calibrate_sensor_kalman(
     Annotations and matched detections use EagerMOT's camera coordinates or
     its world coordinates when ego poses are declared. Pose covariance cannot
     be identified separately from object and annotation errors by this fit.
-    Insufficient per-class evidence retains that class's configured scales.
+    Insufficient per-class evidence uses fitted pooled scales, or retains that
+    class's configured scales when the pooled evidence is also insufficient.
     The resulting YAML is reusable with ``--class-config``.
     """
     class_names = {
@@ -42,14 +54,23 @@ def calibrate_sensor_kalman(
     if not profiles or set(profiles) != set(class_names):
         raise ValueError("3D KF calibration requires one tracker profile for each target dataset class.")
     baselines = {
-        class_id: {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "is_angular": False, **profile}
+        class_id: {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "is_angular": False, **flatten_tracker_options(profile)}
         for class_id, profile in profiles.items()
     }
+    for class_id, baseline in baselines.items():
+        noise = normalize_kalman_options(baseline, variable_dt=False, tracker_name="eagermot").for_class(class_id)
+        baselines[class_id] = {
+            **{key: value for key, value in baseline.items() if not key.startswith("kalman_noise.")},
+            **{f"kalman_noise.{key}": value for key, value in noise.to_dict().items() if key != "by_class"},
+        }
     models = {class_id: CalibrationModel3D(profile) for class_id, profile in baselines.items()}
     options = {} if cached_sequences is None else {"cached_sequences": cached_sequences}
     data = load_sensor_calibration_data(dataset, progress=progress, **options)
     if not data.statistics["matched"]:
         raise ValueError("3D KF calibration found no detections matched to target 3D ground truth (IoU >= 0.5).")
+    global_parameters, global_statistics = fit_kalman_noise(
+        data.tracks, models, dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), progress=progress
+    )
     calibrated: dict[str, dict[str, Any]] = {}
     class_reports: dict[str, dict[str, Any]] = {}
     fitted: list[str] = []
@@ -60,11 +81,14 @@ def calibrate_sensor_kalman(
         if progress is not None:
             progress(f"KF calibration: fitting {name} 3D covariance scales…")
         parameters, statistics = fit_kalman_noise(tracks, models, baseline, progress=progress)
+        parameters = apply_global_noise_fallback(parameters, global_parameters)
         calibrated[name] = {**baseline, **{key: estimate["value"] for key, estimate in parameters.items()}}
         class_reports[name] = {
             "class_id": class_id,
             "state_dimensions": models[class_id].dim_x,
+            "filter": "box3d_angular" if baseline.get("is_angular", False) else "box3d",
             "is_angular": baseline.get("is_angular", False),
+            "timing": {"variable_dt": False, **{key: baseline[key] for key in KALMAN_TIMING_OPTIONS}},
             "statistics": {
                 "trajectories": len(tracks),
                 "ground_truth": sum(len(track.gt_boxes) for track in tracks),
@@ -80,6 +104,21 @@ def calibrate_sensor_kalman(
     directory = Path(output_dir) / "kf-tuning"
     directory.mkdir(parents=True, exist_ok=True)
     config_path, report_path = directory / "calibrated.yaml", directory / "calibration.json"
+    for class_id, name in class_names.items():
+        calibrated[name].update(
+            flatten_tracker_options(
+                {
+                    "calibration": {
+                        **calibration_profile_signature("eagermot", "aabb", calibrated[name]),
+                        "class_id": class_id,
+                        "class_name": name,
+                        "dataset": dataset.id,
+                        "split": dataset.split,
+                        "source": str(report_path.resolve()),
+                    }
+                }
+            )
+        )
     coordinate_frames = {
         source["sequence_id"]: source["value"] for source in data.input_sources if source["role"] == "coordinate_frame"
     }
@@ -103,12 +142,13 @@ def calibrate_sensor_kalman(
         "split": dataset.split,
         "sequences": list(dataset.sequence_names),
         "per_class": True,
-        "timing": {"variable_dt": False, "kf_time_unit": "frames", "fps": dataset.fps},
+        "timing": {"variable_dt": False, "kalman_noise.time_unit": "frames", "fps": dataset.fps},
         "matching": {"method": "same_class_hungarian_3d_iou", "minimum_iou": data.match_iou, "coordinates": "camera"},
         "statistics": {**data.statistics, **totals},
         "ground_truth_sources": list(data.ground_truth_sources),
         "input_sources": list(data.input_sources),
         "classes": class_reports,
+        "global": {"parameters": global_parameters, "statistics": global_statistics},
         "numerical_scale_floor": MIN_COVARIANCE_SCALE,
         "baseline_profiles": {class_names[class_id]: profile for class_id, profile in baselines.items()},
         "calibrated_config": str(config_path),
@@ -123,7 +163,10 @@ def calibrate_sensor_kalman(
         ],
     }
     temporary = config_path.with_suffix(".tmp")
-    temporary.write_text(yaml.safe_dump(calibrated, sort_keys=False), encoding="utf-8")
+    temporary.write_text(
+        yaml.safe_dump({name: nest_tracker_options(profile) for name, profile in calibrated.items()}, sort_keys=False),
+        encoding="utf-8",
+    )
     temporary.replace(config_path)
     _write_json(report_path, report)
     result = KalmanCalibrationResult(

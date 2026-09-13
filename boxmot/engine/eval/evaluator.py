@@ -418,14 +418,15 @@ def _tracker_options(
 
 
 def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None = None) -> TrackerSpec:
+    options = _tracker_options(args, overrides)
     return TrackerSpec(
         name=str(args.tracker),
         backend=str(getattr(args, "tracker_backend", "python")),
         geometry=str(args.geometry),
-        per_class=bool(getattr(args, "per_class", False)),
+        per_class=bool(getattr(args, "per_class", False) or dict(options).get("per_class", False)),
         class_ids=tuple(args.tracker_class_ids),
         class_names=tuple(args.tracker_class_names),
-        options=_tracker_options(args, overrides),
+        options=options,
     )
 
 

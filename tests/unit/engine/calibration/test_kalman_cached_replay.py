@@ -145,18 +145,18 @@ def test_cached_kalman_calibration_runs_no_tracker_until_final_evaluation(monkey
     assert report["statistics"]["unmatched_ground_truth"] == 2
     assert calibration.gt_transitions == report["statistics"]["gt_transitions"] == len(timestamps) - 2
     assert set(calibration.fitted_parameters) == {
-        "kf_process_position_scale",
-        "kf_process_velocity_scale",
-        "kf_measurement_noise_scale",
+        "kalman_noise.process_position_scale",
+        "kalman_noise.process_velocity_scale",
+        "kalman_noise.measurement_noise_scale",
     }
     # One labelled birth cannot calibrate population initialization uncertainty.
-    for key in ("kf_initial_position_scale", "kf_initial_velocity_scale"):
+    for key in ("kalman_noise.initial_position_scale", "kalman_noise.initial_velocity_scale"):
         assert report["parameters"][key]["status"] == "retained"
         assert saved[key] == report["baseline_config"][key]
     assert saved["variable_dt"] is True
-    assert saved["kf_time_unit"] == "seconds"
-    assert saved["kf_reference_dt_s"] == pytest.approx(1.0 / 30.0)
-    for key in ("variable_dt", "kf_time_unit", "kf_reference_dt_s"):
+    assert saved["kalman_noise.time_unit"] == "seconds"
+    assert saved["kalman_noise.reference_dt_s"] == pytest.approx(1.0 / 30.0)
+    for key in ("variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s"):
         assert report["timing"][key] == saved[key]
     assert set(report["parameters"]) == set(KALMAN_NOISE_OPTIONS)
     for key in KALMAN_NOISE_OPTIONS:
@@ -170,14 +170,14 @@ def test_cached_kalman_calibration_runs_no_tracker_until_final_evaluation(monkey
     assert 0 < deployed.summary["HOTA"] <= 100
     assert deployed.timings["frames"] == len(timestamps)
     assert len(replay_configs) == 1
-    for key in (*KALMAN_NOISE_OPTIONS, "variable_dt", "kf_time_unit", "kf_reference_dt_s"):
+    for key in (*KALMAN_NOISE_OPTIONS, "variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s"):
         assert replay_configs[0][key] == saved[key]
     assert len(seen) == len(timestamps)
     assert seen[0][0] is None
     np.testing.assert_allclose([event[0] for event in seen[1:]], np.diff(timestamps))
     assert [event[1] for event in seen] == [1, 1, 1, 0, 1, 0, 1, 1]
     assert all(event[2].time_unit == "seconds" for event in seen)
-    assert all(event[2].reference_dt_s == saved["kf_reference_dt_s"] for event in seen)
+    assert all(event[2].reference_dt_s == saved["kalman_noise.reference_dt_s"] for event in seen)
 
     # The final score is attached for reporting only, after parameters are fixed.
     calibration.record_final(deployed)

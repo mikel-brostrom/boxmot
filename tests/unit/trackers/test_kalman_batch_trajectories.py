@@ -6,6 +6,7 @@ from importlib import import_module
 import numpy as np
 import pytest
 
+from boxmot import KalmanNoiseConfig
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.strongsort.track import Track as StrongTrack
 from tests.unit.trackers.test_association_switcher import TRACKER_FACTORIES
@@ -105,9 +106,9 @@ def test_batch_tracker_trajectory_matches_scalar(name, is_obb, timed, monkeypatc
         is_obb=is_obb,
         variable_dt=timed,
         max_age=6,
-        kf_process_position_scale=1.3,
-        kf_process_velocity_scale=0.7,
-        kf_measurement_noise_scale=1.8,
+        kalman_noise=KalmanNoiseConfig(
+            process_position_scale=1.3, process_velocity_scale=0.7, measurement_noise_scale=1.8
+        ),
     )
     if name in ("boosttrack", "occluboost"):
         options["adaptive_kf"] = True

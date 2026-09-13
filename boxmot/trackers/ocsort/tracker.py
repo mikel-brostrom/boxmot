@@ -17,6 +17,7 @@ from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.ocsort.track import KalmanBoxTracker
 
@@ -43,6 +44,8 @@ class OcSort(BoxTracker):
         delta_t: int = 3,
         inertia: float = 0.2,
         use_byte: bool = False,
+        *,
+        kalman_noise: KalmanNoiseConfig | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
         """Configure observation history and optional low-confidence recovery.
@@ -55,13 +58,15 @@ class OcSort(BoxTracker):
             inertia: Weight of the observed velocity-direction term in matching.
             use_byte: Enable a second association pass for detections between
                 ``min_conf`` and the shared detection threshold.
+            kalman_noise: Immutable Kalman covariance scales and reference
+                interval. None preserves the default noise; fresh units
+                follow the shared timing mode. Class overrides require
+                ``per_class=True``.
             **kwargs: ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
                 ``iou_threshold``, class metadata and separation, ``asso_func``,
-                and ``is_obb``. Kalman settings include the five covariance
-                scales, ``variable_dt``, ``kf_reference_dt_s``, and
-                ``kf_time_unit``.
+                and ``is_obb``. ``variable_dt`` enables prediction using capture timestamps.
         """
-        super().__init__(**kwargs)
+        super().__init__(kalman_noise=kalman_noise, **kwargs)
 
         # Store OcSort-specific parameters
         self.min_conf: float = min_conf

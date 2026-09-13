@@ -135,6 +135,9 @@ class AdaptiveNoiseXYHR(ConstantNoiseXYHR):
     ):
         super().__init__(dim_x, dim_z, cls_id=cls_id)
         self.noise_config = KalmanNoiseConfig() if noise_config is None else noise_config
+        if not isinstance(self.noise_config, KalmanNoiseConfig):
+            raise TypeError("noise_config must be a KalmanNoiseConfig object.")
+        self.noise_config = self.noise_config.resolve(variable_dt=self.noise_config.time_unit == "seconds")
         self._window = window
         self._warmup = warmup
         self._innovations: list[np.ndarray] = []

@@ -190,6 +190,8 @@ class SFSORT(BoxTracker):
                 Detection and association thresholds come from this constructor's
                 explicit settings; the regional timeouts control tracking expiry.
         """
+        if "kalman_noise" in kwargs:
+            raise TypeError("SFSORT does not accept kalman_noise settings.")
         if "det_thresh" in kwargs:
             raise TypeError("SFSORT.__init__() got an unexpected keyword argument 'det_thresh'; use 'high_th' instead")
         det_thresh = 0.6 if high_th is None else float(high_th)

@@ -117,7 +117,7 @@ def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
         name=str(args.tracker),
         backend=str(getattr(args, "tracker_backend", "python")),
         geometry=geometry,
-        per_class=bool(getattr(args, "per_class", False)),
+        per_class=bool(getattr(args, "per_class", False) or options.get("per_class", False)),
         class_ids=_classes(getattr(args, "classes", None)),
         options=tuple(sorted(options.items())),
     )

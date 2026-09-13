@@ -40,6 +40,7 @@ _SENSOR_OPTIONS = frozenset(
         "project",
         "class_config",
         "calibrate_kf",
+        "tune_kf",
         "cache_inputs",
         "search_alg",
         "objectives",
@@ -194,6 +195,23 @@ class TuneCommand(click.Command):
 def _tune_options(func):
     options = (
         click.option(
+            "--tune-kf",
+            type=click.Choice(
+                (
+                    "process_position_scale",
+                    "process_velocity_scale",
+                    "measurement_noise_scale",
+                    "initial_position_scale",
+                    "initial_velocity_scale",
+                )
+            ),
+            multiple=True,
+            help=(
+                "Refine a KF scale from 0.25x to 4x its baseline; repeat to select more scales. "
+                "Other priors stay fixed."
+            ),
+        ),
+        click.option(
             "--n-trials",
             type=click.IntRange(min=1),
             default=BOXMOT_DEFAULTS.tune.n_trials,
@@ -297,7 +315,10 @@ def _tune_options(func):
 @click.option(
     "--class-config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="EagerMOT: baseline car/pedestrian profiles; KF noise and the yaw model stay fixed during tuning.",
+    help=(
+        "EagerMOT: baseline car/pedestrian profiles; --tune-kf selects noise scales to refine. "
+        "The yaw model stays fixed."
+    ),
 )
 @replay_options(mode="tune", parallel=True)
 @kalman_calibration_option(mode="tune")
@@ -347,13 +368,21 @@ def tune(
         raise click.UsageError(
             "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
         )
-    if calibrate_kf or kwargs.get("tracker_config") is not None or kwargs.get("variable_dt") is not None:
+    if (
+        calibrate_kf
+        or kwargs.get("tune_kf")
+        or kwargs.get("tracker_config") is not None
+        or kwargs.get("variable_dt") is not None
+    ):
         from boxmot.engine.calibration.kalman import validate_kf_calibration
         from boxmot.engine.config.trackers import resolve_tracker_options
+        from boxmot.engine.tuning.kalman_refinement import validate_kalman_refinement
         from boxmot.trackers.common.specs import parse_tracker_spec
 
         try:
             tracker_spec = parse_tracker_spec(kwargs["tracker"], default_backend=kwargs["tracker_backend"])
+            if kwargs.get("tune_kf"):
+                validate_kalman_refinement(tracker_spec.name, tracker_spec.backend)
             if calibrate_kf:
                 validate_kf_calibration(tracker_spec.name, tracker_spec.backend)
             resolve_tracker_options(

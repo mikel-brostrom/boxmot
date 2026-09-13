@@ -14,10 +14,15 @@ import yaml
 from click.testing import CliRunner
 from PIL import Image
 
-from boxmot import EagerMot
 from boxmot.datasets.sequence import MultimodalSequence
 from boxmot.engine.cli import boxmot
-from boxmot.engine.eval.eagermot_kitti import KITTI_PROFILES, _track_frame, load_kitti_profiles
+from boxmot.engine.eval.eagermot_kitti import (
+    KITTI_PROFILES,
+    _create_kitti_tracker,
+    _track_frame,
+    load_kitti_profiles,
+    write_kitti_profiles,
+)
 from boxmot.engine.eval.mots_io import read_mots_results
 from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
@@ -123,7 +128,7 @@ def test_class_replay_retains_empty_frame_and_original_detection_indices(tmp_pat
         fps=10.0,
         split="val",
     )
-    trackers = {class_id: EagerMot(**profile) for class_id, profile in KITTI_PROFILES.items()}
+    trackers = {class_id: _create_kitti_tracker(profile) for class_id, profile in KITTI_PROFILES.items()}
     first = _track_frame(sequence[0], trackers).image_tracks
     assert first.class_ids.tolist() == [1, 2]
     assert first.detection_indices.tolist() == [1, 0]
@@ -177,6 +182,9 @@ def test_missing_ground_truth_fails_before_output_and_restores_threads(tmp_path:
         ({"car": {}, "pedestrian": {"det_thresh": 1.1}}, "Invalid EagerMOT pedestrian configuration"),
         ({"car": {}, "pedestrian": {"min_hits": "2"}}, "Invalid EagerMOT pedestrian configuration"),
         ({"car": {"per_class": True}, "pedestrian": {}}, "replay already separates classes"),
+        ({"car": {"kalman_noise": {"time_unit": "seconds"}}, "pedestrian": {}}, "conflicts with variable_dt"),
+        ({"car": {"kalman_noise": {"measurement_noise_scale": 0}}, "pedestrian": {}}, "finite positive"),
+        ({"car": {"kf_measurement_noise_scale": 2.0}, "pedestrian": {}}, "under 'kalman_noise'"),
     ],
 )
 def test_class_config_rejects_invalid_values_before_replay(tmp_path: Path, contents: object, message: str) -> None:
@@ -195,6 +203,20 @@ def test_class_overrides_preserve_other_class_and_do_not_mutate_presets(tmp_path
     profiles[1]["det_thresh"] = 0.7
     assert load_kitti_profiles() == KITTI_PROFILES
     assert KITTI_PROFILES[1]["det_thresh"] == 0.0
+
+
+def test_nested_class_noise_profiles_round_trip_with_resolved_timing(tmp_path: Path) -> None:
+    path = tmp_path / "profiles.yaml"
+    path.write_text("car: {kalman_noise: {measurement_noise_scale: 0.25}}\npedestrian: {}\n", encoding="utf-8")
+    profiles = load_kitti_profiles(path)
+    assert profiles[1]["kalman_noise.measurement_noise_scale"] == 0.25
+    assert profiles[2]["kalman_noise.measurement_noise_scale"] == 1.0
+    write_kitti_profiles(path, profiles)
+    assert load_kitti_profiles(path) == profiles
+    authored = yaml.safe_load(path.read_text())
+    assert authored["car"]["kalman_noise"]["measurement_noise_scale"] == 0.25
+    assert authored["car"]["kalman_noise"]["time_unit"] == "frames"
+    assert not any(name.startswith("kalman_noise.") for name in authored["car"])
 
 
 def test_invalid_class_config_cli_fails_before_creating_results(tmp_path: Path) -> None:

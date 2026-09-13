@@ -167,8 +167,8 @@ def test_real_3d_calibration_runs_before_sensor_replay(tmp_path: Path, mode: str
     replay_manifest = json.loads((replay_output / "run.json").read_text())
     for class_id, name in KITTI_CLASSES.items():
         assert set(report["classes"][name]["parameters"]) == set(KALMAN_NOISE_OPTIONS)
-        assert report["classes"][name]["parameters"]["kf_measurement_noise_scale"]["status"] == "fitted"
-        assert profiles[class_id]["kf_measurement_noise_scale"] < 1.0
+        assert report["classes"][name]["parameters"]["kalman_noise.measurement_noise_scale"]["status"] == "fitted"
+        assert profiles[class_id]["kalman_noise.measurement_noise_scale"] < 1.0
         for parameter in KALMAN_NOISE_OPTIONS:
             assert profiles[class_id][parameter] == report["classes"][name]["parameters"][parameter]["value"]
             assert replay_manifest["tracker_profiles"][str(class_id)][parameter] == profiles[class_id][parameter]

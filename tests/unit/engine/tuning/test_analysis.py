@@ -29,8 +29,8 @@ def test_analysis_omits_constant_pairs_and_preserves_valid_plots(
             # constant once unusable pairs are removed.
             "conditional_threshold": [0.2] * 12 + [np.nan, np.inf, -np.inf, np.nan],
             "variable_dt": True,
-            "kf_time_unit": "seconds",
-            "kf_reference_dt_s": 0.05,
+            "kalman_noise.time_unit": "seconds",
+            "kalman_noise.reference_dt_s": 0.05,
             **{name: float(index + 2) for index, name in enumerate(KALMAN_NOISE_OPTIONS)},
         }
     )

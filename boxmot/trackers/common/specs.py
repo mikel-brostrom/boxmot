@@ -13,7 +13,7 @@ JSONValue: TypeAlias = JSONScalar | tuple["JSONValue", ...]
 
 TRACKER_BACKENDS = frozenset({"python", "cpp"})
 _IDENTIFIER_PATTERN = re.compile(r"[a-z][a-z0-9_-]*")
-_OPTION_PATTERN = re.compile(r"[a-z][a-z0-9_]*")
+_OPTION_PATTERN = re.compile(r"[a-z][a-z0-9_]*(?:\.[a-z0-9][a-z0-9_]*)*")
 
 
 class TrackerFamily(str, Enum):
@@ -99,7 +99,7 @@ def _validate_options(options: tuple[tuple[str, JSONValue], ...]) -> None:
             raise TypeError(f"TrackerSpec.options[{index}] must be a (key, value) tuple.")
         key, value = entry
         if not isinstance(key, str) or _OPTION_PATTERN.fullmatch(key) is None:
-            raise ValueError(f"TrackerSpec.options[{index}] key must be a canonical lowercase identifier.")
+            raise ValueError(f"TrackerSpec.options[{index}] key must be a canonical lowercase parameter path.")
         keys.append(key)
         _validate_immutable_json_value(value, path=f"Tracker option {key!r}")
     if keys != sorted(keys) or len(keys) != len(set(keys)):

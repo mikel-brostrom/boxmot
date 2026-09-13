@@ -87,7 +87,7 @@ def test_seconds_profile_restores_without_a_timing_flag_or_heavy_dependencies(tm
     config, fixed = load_tuning_calibration(args, directory)
     assert config == saved
     assert config["variable_dt"] is True
-    assert config["kf_time_unit"] == "seconds"
+    assert config["kalman_noise.time_unit"] == "seconds"
     assert fixed == report["tuning"]["fixed_options"]
     assert vars(args) == before
 
@@ -127,11 +127,13 @@ def test_changed_calibrated_scale_override_is_rejected(tmp_path, name):
 def test_explicit_timing_flag_uses_normal_time_unit_validation(tmp_path):
     args, directory, _, _ = _saved_run(tmp_path)
     args.variable_dt = False
-    with pytest.raises(ValueError, match="kf_time_unit"):
+    with pytest.raises(ValueError, match="kalman_noise.time_unit"):
         load_tuning_calibration(args, directory)
 
 
-@pytest.mark.parametrize("override", [{"kf_reference_dt_s": 0.1}, {"variable_dt": False, "kf_time_unit": "frames"}])
+@pytest.mark.parametrize(
+    "override", [{"kalman_noise.reference_dt_s": 0.1}, {"variable_dt": False, "kalman_noise.time_unit": "frames"}]
+)
 def test_changed_calibrated_time_basis_is_rejected(tmp_path, override):
     args, directory, _, _ = _saved_run(tmp_path)
     with pytest.raises(ValueError, match="Cannot change fixed KF calibration"):
@@ -199,11 +201,11 @@ def test_missing_or_inconsistent_fixed_marker_is_rejected(tmp_path, malformation
     if malformation == "missing_marker":
         report.pop("tuning")
     elif malformation == "missing_prior":
-        report["tuning"]["fixed_options"].pop("kf_measurement_noise_scale")
+        report["tuning"]["fixed_options"].pop("kalman_noise.measurement_noise_scale")
     elif malformation == "extra_prior":
         report["tuning"]["fixed_options"]["unknown_setting"] = 1.0
     else:
-        report["tuning"]["fixed_options"]["kf_measurement_noise_scale"] = 100.0
+        report["tuning"]["fixed_options"]["kalman_noise.measurement_noise_scale"] = 100.0
     _write_report(directory, report)
     with pytest.raises(ValueError, match="fixed_options|disagrees"):
         load_tuning_calibration(args, directory)

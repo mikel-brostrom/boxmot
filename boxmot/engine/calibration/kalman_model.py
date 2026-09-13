@@ -3,24 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from inspect import Parameter, signature
 from typing import Any
 
 import numpy as np
 
 from boxmot.structures.kinds import GeometryKind
-from boxmot.trackers.common.config import load_tracker_config
+from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TRACKER_NAMES,
     normalize_kalman_options,
 )
+from boxmot.trackers.common.motion.kalman_filters.profile import (
+    calibration_profile_signature,
+    validate_calibration_profile,
+)
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 from boxmot.trackers.common.registry import get_tracker_class
 
 
-def validate_calibration_options(tracker_name: str, options: Mapping[str, Any]) -> None:
+def validate_calibration_options(tracker_name: str, options: Mapping[str, Any], *, geometry: str = "aabb") -> None:
     """Reject options the runtime tracker cannot consume, without constructing it."""
     tracker_class = get_tracker_class(tracker_name)
     accepted = {
@@ -29,7 +34,13 @@ def validate_calibration_options(tracker_name: str, options: Mapping[str, Any]) 
         for name, parameter in signature(owner.__init__).parameters.items()
         if name != "self" and parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
     }
-    unknown = sorted(set(options) - accepted)
+    flattened = flatten_tracker_options(options)
+    validate_calibration_profile(flattened, tracker_name=tracker_name, geometry=geometry)
+    accepted.update(name for name in flattened if name.startswith("calibration."))
+    if "kalman_noise" in accepted:
+        normalize_kalman_options(flattened, variable_dt=flattened.get("variable_dt", False), tracker_name=tracker_name)
+        accepted.update(name for name in flattened if name.startswith("kalman_noise."))
+    unknown = sorted(set(flattened) - accepted)
     if unknown:
         raise ValueError(f"Unsupported {tracker_name} tracker options for KF calibration: {', '.join(unknown)}")
 
@@ -64,23 +75,19 @@ class CalibrationModel:
         self.geometry = GeometryKind(geometry)
         self.is_obb = self.geometry is GeometryKind.OBB
         self.options = load_tracker_config(tracker_name, None, options)
-        validate_calibration_options(tracker_name, self.options)
-        self.options.update({name: 1.0 for name in KALMAN_NOISE_OPTIONS})
-        self.noise_config = normalize_kalman_options(
+        validate_calibration_options(tracker_name, self.options, geometry=self.geometry.value)
+        noise = normalize_kalman_options(
             self.options,
             variable_dt=self.options.get("variable_dt", False),
             tracker_name=tracker_name,
         )
-        if tracker_name in {"boosttrack", "occluboost"}:
-            kind = MotionModelKind.XYHR
-        elif tracker_name == "hybridsort" and not self.is_obb:
-            kind = MotionModelKind.XYSCR
-        elif tracker_name in {"ocsort", "deepocsort", "hybridsort"}:
-            kind = MotionModelKind.XYSR
-        elif tracker_name == "botsort" or self.is_obb:
-            kind = MotionModelKind.XYWH
-        else:
-            kind = MotionModelKind.XYAH
+        self.noise_config = replace(
+            noise.for_class(cls_id) if cls_id is not None else noise,
+            **{name.removeprefix("kalman_noise."): 1.0 for name in KALMAN_NOISE_OPTIONS},
+            by_class={},
+        )
+        signature_fields = calibration_profile_signature(tracker_name, self.geometry.value, self.options)
+        kind = MotionModelKind(signature_fields["filter"])
         self.motion_model = create_motion_model(kind, is_obb=self.is_obb, cls_id=cls_id)
         self.kind = kind
         self.dim_x = self.motion_model.dim_x

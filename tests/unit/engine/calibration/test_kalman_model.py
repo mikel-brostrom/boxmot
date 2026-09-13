@@ -8,6 +8,7 @@ import pytest
 from boxmot.engine.calibration.kalman_model import CalibrationModel
 from boxmot.trackers import TrackerSpec, create_tracker
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES
+from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 from tests.unit.trackers.test_trackers import _aabb_rows, _obb_rows
 from tests.unit.trackers.test_variable_frame_time import _state, _update
 
@@ -19,12 +20,12 @@ def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str,
     options = {
         "min_hits": 1,
         "variable_dt": timed,
-        "kf_reference_dt_s": 0.05,
-        "kf_process_position_scale": 3.0,
-        "kf_process_velocity_scale": 7.0,
-        "kf_measurement_noise_scale": 5.0,
-        "kf_initial_position_scale": 4.0,
-        "kf_initial_velocity_scale": 6.0,
+        "kalman_noise.reference_dt_s": 0.05,
+        "kalman_noise.process_position_scale": 3.0,
+        "kalman_noise.process_velocity_scale": 7.0,
+        "kalman_noise.measurement_noise_scale": 5.0,
+        "kalman_noise.initial_position_scale": 4.0,
+        "kalman_noise.initial_velocity_scale": 6.0,
     }
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=tuple(sorted(options.items()))))
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
@@ -33,6 +34,10 @@ def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str,
     actual_mean, actual_filter = _state(track)
     actual_initial_covariance = getattr(track, "covariance", actual_filter.P).copy()
     model = CalibrationModel(tracker_name, geometry, options)
+    signature = calibration_profile_signature(tracker_name, geometry, options)
+    assert signature["filter"] == model.kind.value
+    assert signature["state_dimensions"] == model.dim_x
+    assert signature["measurement_dimensions"] == model.dim_z
     geometry_size = 5 if geometry == "obb" else 4
     score = float(rows[0, geometry_size])
     measurement = model.to_measurement(rows[0, :geometry_size], score)
@@ -73,7 +78,7 @@ def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str,
     np.testing.assert_allclose(actual_q, 3.0 * q_position + 7.0 * q_velocity, atol=1e-12)
     assert np.min(np.linalg.eigvalsh(q_position)) >= -1e-12
     assert np.min(np.linalg.eigvalsh(q_velocity)) >= -1e-12
-    assert options["kf_process_position_scale"] == 3.0
+    assert options["kalman_noise.process_position_scale"] == 3.0
 
 
 @pytest.mark.parametrize("tracker_name", sorted(KALMAN_TRACKER_NAMES))
@@ -100,6 +105,26 @@ def test_hybrid_sort_confidence_is_not_supervised_by_box_ground_truth() -> None:
     assert model.velocity_indices == (5, 6, 7)
     assert model.velocity_measurement_indices == (0, 1, 2)
     assert model.to_measurement(np.array([10.0, 20.0, 40.0, 80.0]), score=0.85)[3] == 0.85
+
+
+def test_class_reference_model_removes_existing_noise_scales():
+    options = {
+        "per_class": True,
+        "kalman_noise": {
+            "measurement_noise_scale": 5.0,
+            "initial_position_scale": 8.0,
+            "by_class": {"2": {"measurement_noise_scale": 7.0, "initial_position_scale": 9.0}},
+        },
+    }
+    baseline = CalibrationModel("bytetrack", "aabb", {}, cls_id=2)
+    model = CalibrationModel("bytetrack", "aabb", options, cls_id=2)
+    measurement = model.to_measurement(np.array([10.0, 20.0, 40.0, 80.0]))
+    np.testing.assert_array_equal(model.initial_state(measurement)[1], baseline.initial_state(measurement)[1])
+    np.testing.assert_array_equal(
+        model.measurement_covariance(measurement), baseline.measurement_covariance(measurement)
+    )
+    assert not model.noise_config.by_class
+    assert options["kalman_noise"]["by_class"]["2"]["measurement_noise_scale"] == 7.0
 
 
 @pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort", "hybridsort"])
@@ -132,7 +157,7 @@ def test_seconds_requires_measured_prediction_interval(tracker_name: str) -> Non
 
 def test_calibration_rejects_wrong_time_basis_and_trackers_without_a_kalman_filter() -> None:
     with pytest.raises(ValueError, match="conflicts with"):
-        CalibrationModel("botsort", "aabb", {"variable_dt": True, "kf_time_unit": "frames"})
+        CalibrationModel("botsort", "aabb", {"variable_dt": True, "kalman_noise.time_unit": "frames"})
     with pytest.raises(ValueError, match="supported Kalman"):
         CalibrationModel("sfsort", "aabb", {})
 

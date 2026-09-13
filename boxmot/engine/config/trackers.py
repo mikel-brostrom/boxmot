@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from boxmot.trackers.common.config import load_tracker_config
+from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
 
 
 def validate_image_tracker(tracker_name: str) -> None:
@@ -49,7 +49,7 @@ def resolve_tracker_options(
     options = (
         load_tracker_config(str(tracker_name), reference, overrides, include_defaults=not sparse_native)
         if include_defaults or reference is not None
-        else dict(overrides or {})
+        else flatten_tracker_options(overrides or {})
     )
     if getattr(args, "asso_func", None):
         options["asso_func"] = str(args.asso_func)
@@ -66,16 +66,25 @@ def resolve_tracker_options(
         else load_tracker_config(tracker_name, None, options)
     )
     variable_dt = effective.get("variable_dt", False)
+    if getattr(args, "geometry", None) is not None:
+        from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
+
+        validate_calibration_profile(effective, tracker_name=tracker_name, geometry=args.geometry, backend=backend)
     noise = normalize_kalman_options(
         effective,
         variable_dt=variable_dt,
         tracker_name=tracker_name,
         backend=backend,
     )
-    if stamp_timing and tracker_name in KALMAN_TRACKER_NAMES:
+    if backend == "python" and tracker_name in KALMAN_TRACKER_NAMES and (include_defaults or stamp_timing):
+        options.update(flatten_tracker_options({"kalman_noise": noise}))
+        options["variable_dt"] = variable_dt
+    elif stamp_timing and tracker_name in KALMAN_TRACKER_NAMES and not sparse_native:
         options.update(
-            variable_dt=variable_dt,
-            kf_time_unit=noise.time_unit,
-            kf_reference_dt_s=noise.reference_dt_s,
+            {
+                "variable_dt": variable_dt,
+                "kalman_noise.time_unit": noise.time_unit,
+                "kalman_noise.reference_dt_s": noise.reference_dt_s,
+            }
         )
     return options

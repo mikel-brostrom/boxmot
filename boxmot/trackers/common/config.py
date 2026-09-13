@@ -3,7 +3,8 @@
 Built-in tracker YAMLs colocate runtime defaults and tuning metadata. This
 module resolves scalar runtime values;
 interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
-Reusable presets and custom runtime configs are plain scalar mappings.
+Reusable presets and custom runtime configs group Kalman settings under
+``kalman_noise``. Engine/search code addresses those leaves using dotted paths.
 """
 
 from __future__ import annotations
@@ -19,6 +20,94 @@ from boxmot.configs import CONFIG_ROOT
 TRACKER_CONFIGS_DIR = CONFIG_ROOT / "trackers"
 TRACKER_PRESETS_DIR = TRACKER_CONFIGS_DIR / "presets"
 TRACKER_METADATA_KEY = "tracker"
+
+
+def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Normalize authored Kalman settings to scalar parameter paths.
+
+    Nested YAML mappings and the public immutable configuration object resolve
+    to the same fields. Other tracker options retain their original values.
+    Supplying a field twice through nested and dotted notation is an error.
+    """
+    flattened: dict[str, Any] = {}
+
+    def insert(name: str, value: Any) -> None:
+        if name in flattened:
+            raise ValueError(f"Tracker configuration specifies {name!r} more than once.")
+        flattened[name] = value
+
+    def visit_noise(value: Any, prefix: str = "kalman_noise.") -> None:
+        if isinstance(value, tuple):
+            value = dict(value)
+        if not isinstance(value, Mapping):
+            from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+
+            if not isinstance(value, KalmanNoiseConfig):
+                raise TypeError("kalman_noise must be a KalmanNoiseConfig or a configuration mapping.")
+            value = value.to_dict()
+        if not value:
+            insert(prefix + "time_unit", None)
+            return
+        for field, setting in value.items():
+            if not isinstance(field, str) or "." in field:
+                raise ValueError("kalman_noise field names must be unqualified strings.")
+            if field == "by_class":
+                if prefix != "kalman_noise.":
+                    raise ValueError("Kalman class overrides cannot contain further class overrides.")
+                if isinstance(setting, tuple):
+                    setting = dict(setting)
+                if not isinstance(setting, Mapping):
+                    raise TypeError("kalman_noise.by_class must map class IDs to noise configurations.")
+                for class_id, child in setting.items():
+                    text_id = str(class_id)
+                    if not text_id.isdecimal() or str(int(text_id)) != text_id:
+                        raise ValueError("kalman_noise.by_class keys must be non-negative integer class IDs.")
+                    visit_noise(child, f"{prefix}by_class.{text_id}.")
+            else:
+                insert(prefix + field, setting)
+
+    for name, value in config.items():
+        if not isinstance(name, str):
+            raise TypeError("Tracker option names must be strings.")
+        if name.startswith("kf_"):
+            raise TypeError(f"Unknown tracker option {name!r}; configure Kalman settings under 'kalman_noise'.")
+        if name == "calibration":
+            if not isinstance(value, Mapping) or not value:
+                raise ValueError("calibration must contain saved profile metadata.")
+            for field, setting in value.items():
+                if not isinstance(field, str) or "." in field:
+                    raise ValueError("calibration field names must be unqualified strings.")
+                insert(f"calibration.{field}", setting)
+            continue
+        if name != "kalman_noise":
+            insert(name, value)
+            continue
+        if value is None:
+            insert("kalman_noise.time_unit", None)
+            continue
+        count = len(flattened)
+        visit_noise(value)
+        if len(flattened) == count:
+            insert("kalman_noise.time_unit", None)
+    return flattened
+
+
+def nest_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
+    """Serialize resolved tracker settings using the authored YAML structure."""
+    nested: dict[str, Any] = {}
+    for name, value in flatten_tracker_options(config).items():
+        if name.startswith(("kalman_noise.", "calibration.")):
+            target = nested
+            parts = name.split(".")
+            for part in parts[:-1]:
+                existing = target.setdefault(part, {})
+                if not isinstance(existing, dict):
+                    raise ValueError(f"Tracker option {name!r} conflicts with another parameter path.")
+                target = existing
+            target[parts[-1]] = value
+        else:
+            nested[name] = value
+    return nested
 
 
 def get_tracker_config_path(tracker_name: str) -> Path:
@@ -47,7 +136,7 @@ def _load_mapping(path: Path, *, label: str) -> dict[str, Any]:
 
 
 def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
-    payload = _load_mapping(path, label=label)
+    payload = flatten_tracker_options(_load_mapping(path, label=label))
 
     non_scalar = [
         str(key) for key, value in payload.items() if not isinstance(value, (str, int, float, bool, type(None)))
@@ -56,7 +145,7 @@ def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
         names = ", ".join(non_scalar)
         raise ValueError(
             f"{label.capitalize()} config {path} must contain runtime parameter values, "
-            f"not nested or collection values; invalid entries: {names}"
+            f"with Kalman fields grouped under kalman_noise; invalid entries: {names}"
         )
     return dict(payload)
 
@@ -66,8 +155,14 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
 
     flattened: dict[str, Mapping[str, Any]] = {}
 
-    def _visit(entries: Mapping[str, Any]) -> None:
+    def _visit(entries: Mapping[str, Any], prefix: str = "") -> None:
         for parameter, details in entries.items():
+            if parameter == "kalman_noise" and not prefix:
+                if not isinstance(details, Mapping) or not details:
+                    raise ValueError(f"Tracker config {path} kalman_noise must contain parameter definitions.")
+                _visit(details, "kalman_noise.")
+                continue
+            parameter = prefix + str(parameter)
             if not isinstance(details, Mapping):
                 raise ValueError(f'Tracker config {path} entry "{parameter}" must be a mapping containing a default.')
             if parameter in flattened:
@@ -79,7 +174,7 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
                 continue
             if not isinstance(children, Mapping):
                 raise ValueError(f'Tracker config {path} entry "{parameter}" has a non-mapping activates block.')
-            _visit(children)
+            _visit(children, prefix)
 
     _visit(config)
     return flattened
@@ -165,10 +260,10 @@ def load_tracker_config(
     *overrides: Mapping[str, Any] | None,
     include_defaults: bool = True,
 ) -> dict[str, Any]:
-    """Resolve one tracker config using deterministic overlay precedence.
+    """Resolve one tracker config to scalar paths using deterministic overlays.
 
     Built-in defaults are loaded first. ``tracker_config`` may be a partial
-    scalar YAML or a built-in preset and overlays those defaults. Additional
+    runtime YAML or a built-in preset and overlays those defaults. Additional
     mappings are then applied from left to right. ``include_defaults=False``
     returns only authored values and overrides, allowing backend factories to
     apply their own defaults without treating them as explicit user choices.
@@ -193,7 +288,7 @@ def load_tracker_config(
 
     for override in overrides:
         if override:
-            resolved.update(dict(override))
+            resolved.update(flatten_tracker_options(override))
     return resolved
 
 
@@ -203,8 +298,10 @@ __all__ = (
     "TRACKER_PRESETS_DIR",
     "get_tracker_config_path",
     "get_tracker_preset_path",
+    "flatten_tracker_options",
     "load_tracker_config",
     "load_tracker_defaults",
     "load_tracker_schema",
+    "nest_tracker_options",
     "resolve_tracker_config_path",
 )

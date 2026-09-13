@@ -12,6 +12,7 @@ from rich.markup import escape as _escape_markup
 
 from boxmot.engine.eval.results import SUMMARY_COLUMNS
 from boxmot.engine.tuning.search_space import flatten_yaml_config, normalize_trial_config
+from boxmot.trackers.common.config import nest_tracker_options
 from boxmot.utils import logger as LOGGER
 
 # Metrics that must be summed across classes (not averaged), because they are counts
@@ -80,7 +81,7 @@ def write_trial_yaml(
     base_config: dict | None = None,
     tracker_name: str | None = None,
 ):
-    """Write a reusable scalar tracker config for one tuning trial.
+    """Write a reusable runtime tracker config for one tuning trial.
 
     Search metadata is deliberately excluded. When supplied, ``base_config``
     provides the full runtime config and the trial values overlay it.
@@ -92,7 +93,7 @@ def write_trial_yaml(
     if tracker_name is not None:
         resolved = {"tracker": tracker_name, **resolved}
     path.write_text(
-        yaml.safe_dump(resolved, sort_keys=False, allow_unicode=True),
+        yaml.safe_dump(nest_tracker_options(resolved), sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
 

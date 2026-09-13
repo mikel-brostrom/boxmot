@@ -36,6 +36,13 @@ from boxmot.engine.config.runtime import resolve_sequence_workers
 from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
+from boxmot.engine.tuning.kalman_refinement import (
+    is_kalman_option,
+    prepare_kalman_refinement,
+    refine_kalman_schema,
+    selected_kalman_options,
+    validate_kalman_refinement,
+)
 from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
     MAXIMIZE_TUNE_METRICS,
@@ -49,7 +56,9 @@ from boxmot.engine.tuning.postprocessing import (
 from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
 from boxmot.engine.tuning.search_space import (
     default_tune_config,
+    expand_yaml_groups,
     flatten_yaml_config,
+    is_valid_search_param,
     load_yaml_config,
     normalize_trial_config,
 )
@@ -78,7 +87,7 @@ if TYPE_CHECKING:
 
 _TUNE_WARNING_FILTER = "ignore:resource_tracker:UserWarning"
 # Spatial confidence decay does not affect image masks; the 2D affinity is fixed.
-_SENSOR_FIXED_PARAMETERS = frozenset({"max_age_2d", "asso_func", "per_class", *KALMAN_NOISE_OPTIONS})
+_SENSOR_FIXED_PARAMETERS = frozenset({"max_age_2d", "asso_func", "per_class"})
 _SENSOR_OBJECTIVE = "cls_comb_cls_av.HOTA"
 
 
@@ -163,11 +172,14 @@ class Tuner:
     def fit(self):
         """Run the full tuning pipeline. Returns (result_grid, tune_dir, maximize, minimize)."""
         self._resolve_metrics()
+        refined = selected_kalman_options(getattr(self.args, "tune_kf", ()))
+        if refined:
+            validate_kalman_refinement(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
         if getattr(self.args, "calibrate_kf", False):
             from boxmot.engine.calibration.kalman import validate_kf_calibration
 
             validate_kf_calibration(self.args.tracker, getattr(self.args, "tracker_backend", "python"))
-            if getattr(self.args, "resume_tune", None):
+            if getattr(self.args, "calibrate_kf", False) and getattr(self.args, "resume_tune", None):
                 raise ValueError("--calibrate-kf cannot be combined with --resume-tune; resume the saved calibration.")
         return self._run()
 
@@ -223,6 +235,8 @@ class Tuner:
 
         baseline_overlay = normalize_trial_config(self.baseline_config)
         runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
+        if runtime_config.get("per_class"):
+            args.per_class = True
 
         max_concurrent = int(getattr(args, "max_concurrent_trials", 0)) or None
         if max_concurrent is None:
@@ -265,10 +279,28 @@ class Tuner:
                         args.project = str(inferred_project)
 
                 runtime_config = self._prepare_kalman_calibration(runtime_config, tune_dir, pipeline)
+                refined_options = prepare_kalman_refinement(args, runtime_config, tune_dir)
+                self._calibrated_fixed_options = {
+                    key: value for key, value in self._calibrated_fixed_options.items() if key not in refined_options
+                }
+                if refined_options:
+                    self._calibrated_fixed_options.update(
+                        {
+                            key: value
+                            for key, value in runtime_config.items()
+                            if is_kalman_option(key) and key not in refined_options
+                        }
+                    )
                 # The local schema controls every backend's search dimensions.
                 # Preserve the selected KF model while optimizing association
                 # and track lifecycle parameters, without editing tracker YAMLs.
                 yaml_cfg = self._freeze_calibrated_schema(yaml_cfg)
+                yaml_cfg = refine_kalman_schema(
+                    yaml_cfg,
+                    runtime_config,
+                    getattr(args, "tune_kf", ()),
+                    class_ids=getattr(args, "tracker_class_ids", None),
+                )
                 self._yaml_cfg = yaml_cfg
                 self._runtime_config = runtime_config
                 flat_schema = flatten_yaml_config(yaml_cfg)
@@ -401,11 +433,18 @@ class Tuner:
             self.args.tracker_config = str(calibration.config_path)
             runtime_config = resolve_tracker_options(self.args, include_defaults=True, stamp_timing=True)
             self._calibrated_fixed_options = {
-                key: runtime_config[key] for key in CALIBRATED_KF_OPTIONS if key in runtime_config
+                key: value
+                for key, value in runtime_config.items()
+                if key in CALIBRATED_KF_OPTIONS or is_kalman_option(key)
             }
             record_tuning_calibration(calibration.report_path, self._calibrated_fixed_options)
             self._calibration_config_path = calibration.config_path
-            pipeline.update(f"{calibration.description}\nKeeping calibrated KF settings fixed during tracker tuning.")
+            action = (
+                "Refining the selected KF scales."
+                if getattr(self.args, "tune_kf", ())
+                else "Keeping calibrated KF settings fixed during tracker tuning."
+            )
+            pipeline.update(f"{calibration.description}\n{action}")
         elif getattr(self.args, "resume_tune", None):
             restored = load_tuning_calibration(self.args, tune_dir, overrides=self.baseline_config)
             if restored is not None:
@@ -421,7 +460,7 @@ class Tuner:
         if not self._calibrated_fixed_options:
             return schema
         fixed_schema = {}
-        for key, entry in schema.items():
+        for key, entry in expand_yaml_groups(schema).items():
             if key in self._calibrated_fixed_options:
                 fixed_schema[key] = {"default": self._calibrated_fixed_options[key]}
             elif isinstance(entry, dict) and isinstance(entry.get("activates"), dict):
@@ -446,7 +485,8 @@ class Tuner:
                 raise ValueError("Saved Kalman trials lack explicit timing units/reference; start a new tuning run.")
             if any(saved[key] != expected[key] for key in keys):
                 raise ValueError(
-                    "Resuming tuning requires the same variable_dt, kf_time_unit and kf_reference_dt_s as saved trials."
+                    "Resuming tuning requires the same variable_dt, kalman_noise.time_unit and "
+                    "kalman_noise.reference_dt_s as saved trials."
                 )
             if any(saved.get(key) != value for key, value in self._calibrated_fixed_options.items()):
                 raise ValueError("Saved trials do not match the fixed KF calibration; start a new tuning run.")
@@ -843,8 +883,10 @@ def _active_sensor_schema(
     inactive = "distance_threshold" if method == "iou_3d" else "iou_3d_threshold"
     return {
         name: details
-        for name, details in schema.items()
-        if name not in _SENSOR_FIXED_PARAMETERS | fixed_parameters and name != inactive
+        for name, details in flatten_yaml_config(schema).items()
+        if name not in _SENSOR_FIXED_PARAMETERS | fixed_parameters
+        and name != inactive
+        and is_valid_search_param(name, details, warn=False)
     }
 
 
@@ -854,6 +896,7 @@ def _sample_sensor_profiles(
     *,
     base_profiles: dict[int, dict[str, Any]] | None = None,
     fixed_parameters: frozenset[str] = frozenset(),
+    tune_kf: tuple[str, ...] = (),
 ) -> dict[int, dict[str, Any]]:
     """Sample independent class parameters using the shared YAML distributions."""
     from boxmot.engine.eval.eagermot_kitti import KITTI_CLASSES, load_kitti_profiles
@@ -861,9 +904,10 @@ def _sample_sensor_profiles(
 
     profiles = load_kitti_profiles() if base_profiles is None else deepcopy(base_profiles)
     for class_id, name in KITTI_CLASSES.items():
+        class_schema = refine_kalman_schema(schema, profiles[class_id], tune_kf)
         method_key = f"{name}.first_matching_method"
-        yaml_to_optuna_define_space({method_key: schema["first_matching_method"]})(trial)
-        active = _active_sensor_schema(schema, trial.params[method_key], fixed_parameters=fixed_parameters)
+        yaml_to_optuna_define_space({method_key: class_schema["first_matching_method"]})(trial)
+        active = _active_sensor_schema(class_schema, trial.params[method_key], fixed_parameters=fixed_parameters)
         yaml_to_optuna_define_space(
             {f"{name}.{key}": details for key, details in active.items() if key != "first_matching_method"}
         )(trial)
@@ -900,6 +944,8 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
     if isinstance(args.seed, bool) or not isinstance(args.seed, int) or not 0 <= args.seed < 2**32:
         raise ValueError("seed must be an integer within [0, 2**32).")
     schema = load_yaml_config("eagermot")
+    tune_kf = tuple(getattr(args, "tune_kf", ()))
+    selected_kalman_options(tune_kf)
     if pipeline is not None:
         pipeline.update("Loading saved KITTI predictions and ground truth…")
     inputs = prepare_eagermot_kitti(args)
@@ -935,6 +981,9 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             LOGGER.info(calibration.description)
         if getattr(args, "class_config", None) is not None:
             inputs.manifest["class_config"] = str(Path(args.class_config).expanduser().resolve())
+        class_schemas = {
+            class_id: refine_kalman_schema(schema, profile, tune_kf) for class_id, profile in baseline_profiles.items()
+        }
         manifest = {
             **inputs.manifest,
             "status": "running",
@@ -948,7 +997,13 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             "sampler": "Optuna TPESampler",
             "optuna_version": optuna.__version__,
             "search_schema": schema,
-            "fixed_parameters": sorted(_SENSOR_FIXED_PARAMETERS | fixed_parameters),
+            "tune_kf": list(tune_kf),
+            "class_search_schemas": {KITTI_CLASSES[class_id]: value for class_id, value in class_schemas.items()},
+            "fixed_parameters": sorted(
+                _SENSOR_FIXED_PARAMETERS
+                | fixed_parameters
+                | (set(KALMAN_NOISE_OPTIONS) - set(selected_kalman_options(tune_kf)))
+            ),
             "conditional_parameters": {
                 "distance_threshold": "first_matching_method != iou_3d",
                 "iou_3d_threshold": "first_matching_method == iou_3d",
@@ -987,7 +1042,7 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             started = time.perf_counter()
             trial_progress = publish_progress(current_trial=trial.number + 1)
             profiles = _sample_sensor_profiles(
-                trial, schema, base_profiles=baseline_profiles, fixed_parameters=fixed_parameters
+                trial, schema, base_profiles=baseline_profiles, fixed_parameters=fixed_parameters, tune_kf=tune_kf
             )
             trial_output = output / "trials" / f"{trial.number:04d}"
             trial.set_user_attr("profiles", {name: profiles[class_id] for class_id, name in KITTI_CLASSES.items()})
@@ -1090,7 +1145,9 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
                 f"{KITTI_CLASSES[class_id]}.{name}": value
                 for class_id, profile in baseline_profiles.items()
                 for name, value in default_tune_config(
-                    _active_sensor_schema(schema, profile["first_matching_method"], fixed_parameters=fixed_parameters),
+                    _active_sensor_schema(
+                        class_schemas[class_id], profile["first_matching_method"], fixed_parameters=fixed_parameters
+                    ),
                     defaults=profile,
                 ).items()
             }
@@ -1139,6 +1196,7 @@ def _run_sensor_tuning(
         if getattr(args, option, False):
             raise ValueError(f"{option} is available on eval only; sensor tuning optimizes mask HOTA.")
     spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
+    selected_kalman_options(getattr(args, "tune_kf", ()))
     validate_sensor_workflow_inputs(
         path,
         spec,
