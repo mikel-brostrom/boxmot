@@ -33,10 +33,13 @@ confirm_hits: 2
 instant_confirm_thresh: 0.6783889178413256
 tentative_max_age: 3
 duplicate_iou_thresh: 0.9571823233925608
-ams_enabled: true
-ams_alpha0: 0.8732388616784778
-ams_threshold: 0.9206232808452425
-ams_buffer_size: 57
-ams_shrink_ratio: 0.6934881647679682
 lambda_emb_multiplier: 2.9476295884842885
-adaptive_kf: false
+
+kalman:
+  adaptive_kf: false
+  ams:
+    enabled: true
+    alpha0: 0.8732388616784778
+    threshold: 0.9206232808452425
+    buffer_size: 57
+    shrink_ratio: 0.6934881647679682

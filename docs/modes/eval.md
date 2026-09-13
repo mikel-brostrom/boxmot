@@ -441,11 +441,11 @@ covariance multipliers from the observed errors:
 
 | Parameter | What provides the calibration residuals |
 | --- | --- |
-| `kalman_noise.process_position_scale` | Position-noise contribution to ground-truth box prediction errors |
-| `kalman_noise.process_velocity_scale` | Velocity-noise contribution to the same prediction errors |
-| `kalman_noise.measurement_noise_scale` | Matched detector boxes minus ground-truth boxes |
-| `kalman_noise.initial_position_scale` | Detection errors at each GT object's first matched observation |
-| `kalman_noise.initial_velocity_scale` | Zero-initialized velocity errors relative to local ground-truth motion |
+| `kalman.noise.process_position_scale` | Position-noise contribution to ground-truth box prediction errors |
+| `kalman.noise.process_velocity_scale` | Velocity-noise contribution to the same prediction errors |
+| `kalman.noise.measurement_noise_scale` | Matched detector boxes minus ground-truth boxes |
+| `kalman.noise.initial_position_scale` | Detection errors at each GT object's first matched observation |
+| `kalman.noise.initial_velocity_scale` | Zero-initialized velocity errors relative to local ground-truth motion |
 
 Measurement and initialization scales use residual second moments. Both process
 scales are fitted together from constant-velocity prediction errors across
@@ -461,7 +461,7 @@ scale lacks sufficient evidence, its current value is retained and the report
 records why.
 
 With `--per-class`, calibration also fits a profile for each selected class and
-saves it under `kalman_noise.by_class`. A class with insufficient evidence uses
+saves it under `kalman.noise.by_class`. A class with insufficient evidence uses
 the pooled estimate for that parameter; if the pooled evidence is also sparse,
 its configured prior is retained. Saved profiles preserve per-class tracking
 when reused with `--tracker-config`.
@@ -498,18 +498,19 @@ noise in seconds, with elapsed intervals from capture timestamps. Neither
 mode searches `dt`, and measurement noise is not scaled by elapsed time.
 `--fps 2` selects dataset frames at 2 FPS; it does not enable `--variable-dt`.
 
-`kalman_noise.reference_dt_s` fixes the interval used to convert historic per-frame priors
+`kalman.noise.reference_dt_s` fixes the interval used to convert historic per-frame priors
 into seconds: its default `0.03333333333333333` represents a 30 FPS reference.
 It is not the source clock or the prediction interval. This reference and
-`kalman_noise.time_unit` stay fixed during calibration and tracker tuning. See
+`kalman.noise.time_unit` stay fixed during calibration and tracker tuning. See
 [time-unit conversion](../python/index.md#elapsed-time) for the covariance
 scaling rules.
 
 Each run writes:
 
 - `<run>/kf-tuning/calibrated.yaml`: resolved tracker settings, tracker
-  name, `variable_dt`, and a nested `kalman_noise` profile containing the five
-  scales, explicit units, reference interval, and any class profiles.
+  name, and a nested `kalman` configuration containing timing and filter policies.
+  Its `noise` group holds the five scales, explicit units, reference interval,
+  and any class profiles.
 - `<run>/kf-tuning/calibration.json`: calibration evidence, timing settings,
   and the final evaluation result.
 
@@ -539,7 +540,7 @@ as `botsort-mot17-ablation`. It overlays tracker defaults. Explicit runtime
 flags such as `--asso-func` can override scalar parameters, but a calibrated
 config's time units must match the selected mode. For example,
 `--fixed-dt --tracker-config seconds-config.yaml` is rejected when that file
-declares `kalman_noise.time_unit: seconds`. Recalibrate in the intended mode instead of
+declares `kalman.noise.time_unit: seconds`. Recalibrate in the intended mode instead of
 reinterpreting the saved values. Keep the detector, geometry, backend, class
 selection, and per-class tracking behavior consistent with calibration.
 
@@ -558,7 +559,7 @@ boxmot track \
 ```
 
 BoostTrack and OccluBoost also support experimental online process-noise
-adaptation with `adaptive_kf: true`. This learns from each track's prediction
+adaptation with `kalman.adaptive_kf: true`. This learns from each track's prediction
 errors; it does not learn measurement noise or initial uncertainty and does
 not measure tracking accuracy. Incorrect associations can distort its estimates.
 Calibration estimates the starting priors and preserves this setting; it does

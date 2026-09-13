@@ -316,7 +316,7 @@ Results go to `runs/eagermot-tune/val`, then `val2`, and so on:
 
 - `study.sqlite3`: the Optuna study and trial history.
 - `run.json`: input selection, sampling settings and search metadata.
-- `best.yaml`: complete scalar tracker profiles under `car` and `pedestrian`.
+- `best.yaml`: complete tracker profiles under `car` and `pedestrian`, with grouped Kalman settings.
 - `trials/0000/metrics.json` and `trials/0000/mots/SEQUENCE.txt`: metrics and
   mask predictions for each numbered trial, starting with the baseline.
 
@@ -369,15 +369,31 @@ calibration evidence in `kf-tuning/calibration.json`, including each sequence's
 camera or world coordinate frame. Reuse the profiles with
 `--class-config` in `eval` or `tune`. Each YAML profile carries its tracker,
 backend, geometry, class, and Kalman state dimensions. Loading an incompatible
-profile, including a changed `is_angular` state layout, fails before replay.
+profile, including a changed `kalman.is_angular` state layout, fails before replay.
 `tune --calibrate-kf` calibrates once before
 Optuna starts; the fitted scales stay fixed by default. Select a scale explicitly,
 such as `--tune-kf measurement_noise_scale`, to search around each class's fitted
-value. Each class's `is_angular` setting stays fixed, and the grouped settings are
+value. Each class's `kalman.is_angular` setting stays fixed, and the grouped settings are
 included in `best.yaml`. Prediction still
 advances one frame per image; variable-time prediction is unsupported.
-Loading profiles with `--class-config` also keeps their `is_angular` choices
+Loading profiles with `--class-config` also keeps their `kalman.is_angular` choices
 fixed. Tuning without either flag can search the angular-motion choice.
+
+Kalman settings live under `kalman` in each class profile. Covariance scales and
+their timing metadata live under `kalman.noise`. For a manual class configuration:
+
+```yaml
+car:
+  kalman:
+    is_angular: false
+    noise:
+      measurement_noise_scale: 1.0
+pedestrian:
+  kalman:
+    is_angular: true
+    noise:
+      measurement_noise_scale: 1.0
+```
 
 Add `--cache-inputs` to reuse all declared sensor observations and the annotations
 selected for scoring or calibration across trials and later runs. Calibration

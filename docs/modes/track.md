@@ -128,14 +128,14 @@ boxmot track \
 
 The file overlays built-in tracker defaults and must match the selected
 tracker when it declares a `tracker` name. Explicit `--asso-func` overrides
-the loaded value. Saved `variable_dt`, `kalman_noise.time_unit`, and `kalman_noise.reference_dt_s`
+the loaded value. Saved `kalman.variable_dt`, `kalman.noise.time_unit`, and `kalman.noise.reference_dt_s`
 settings preserve the calibrated timing contract. A conflicting timing flag,
 such as `--fixed-dt` with a seconds-based calibration, is rejected. Timestamps
 alone do not enable variable timing; the default remains fixed-step prediction.
 
 ## Choose Kalman timing and adaptation
 
-`variable_dt` and `adaptive_kf` control different behavior and default to
+`kalman.variable_dt` and `kalman.adaptive_kf` control different behavior and default to
 `False`. Variable timing uses capture intervals to update the transition matrix
 `F(dt)` and process covariance `Q(dt)` without learning noise parameters.
 Adaptive filtering learns process noise from each track's prediction errors;
@@ -144,7 +144,7 @@ it does not learn measurement noise or add an acceleration model.
 Use these starting points, then compare tracking accuracy on representative
 sequences:
 
-| Scenario | `variable_dt` | `adaptive_kf` |
+| Scenario | `kalman.variable_dt` | `kalman.adaptive_kf` |
 | --- | --- | --- |
 | Regular capture intervals with validated fixed noise settings | `False` | `False` |
 | Dropped frames or irregular capture intervals | `True` | `False` initially |
@@ -173,13 +173,14 @@ recover unrecorded capture gaps. See [Python timing](../python/index.md#elapsed-
 for supplying timestamps directly; track lifetimes such as `max_age` still
 count updates in either mode.
 
-To also test adaptation, save this scalar configuration as
+To also test adaptation, save this runtime configuration as
 `boosttrack-adaptive.yaml`:
 
 ```yaml
 tracker: boosttrack
-variable_dt: true
-adaptive_kf: true
+kalman:
+  variable_dt: true
+  adaptive_kf: true
 ```
 
 ```bash

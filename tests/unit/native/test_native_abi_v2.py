@@ -318,8 +318,8 @@ def test_native_sfsort_requires_frame() -> None:
             "does not implement",
         ),
         (
-            TrackerSpec(name="occluboost", backend="cpp", options=(("adaptive_kf", True),)),
-            "does not implement",
+            TrackerSpec(name="occluboost", backend="cpp", options=(("kalman.adaptive_kf", True),)),
+            "requires the Python tracker backend",
         ),
         (TrackerSpec(name="strongsort", backend="cpp"), "unavailable"),
     ],

@@ -75,7 +75,7 @@ inputs.
   coordinates; without them it uses camera coordinates. Keep pose availability
   consistent throughout a sequence. Calibration projection remains required.
 - **Timing:** Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort,
-  HybridSort, BoostTrack, and OccluBoost support `variable_dt=True`. This then
+  HybridSort, BoostTrack, and OccluBoost support `kalman.variable_dt=True`. This then
   requires a capture timestamp on every update through `Frame.timestamp_s`
   or `timestamp_s=`. Otherwise timestamps are metadata and prediction uses
   fixed frame intervals. MafHda, EagerMot, SFSORT, and native backends use fixed

@@ -45,7 +45,7 @@ from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.constructor import OccluBoostOptions
 from boxmot.trackers.common.motion.batching import predict_tracks
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
@@ -75,14 +75,7 @@ class OccluBoost(BoostTrack):
         instant_confirm_thresh: float = 0.7,
         tentative_max_age: int = 1,
         duplicate_iou_thresh: float = 0.85,
-        ams_enabled: bool = True,
-        ams_alpha0: float = 0.4,
-        ams_threshold: float = 0.5,
-        ams_buffer_size: int = 30,
-        ams_shrink_ratio: float = 0.75,
         lambda_emb_multiplier: float = 1.5,
-        # ---- Adaptive KF ----
-        adaptive_kf: bool = False,
         # ---- OBB-specific operating point ----
         obb_det_thresh: float = 0.2,
         obb_iou_threshold: float = 0.15,
@@ -92,7 +85,7 @@ class OccluBoost(BoostTrack):
         obb_recovery_max_age: int = 15,
         obb_second_iou_thresh: float = 0.3,
         *,
-        kalman_noise: KalmanNoiseConfig | None = None,
+        kalman: KalmanConfig | None = None,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: Any = "cpu",
@@ -126,15 +119,7 @@ class OccluBoost(BoostTrack):
             tentative_max_age: Maximum unmatched age before a tentative track expires.
             duplicate_iou_thresh: Geometric similarity above which duplicate tracks
                 are suppressed, retaining the older track.
-            ams_enabled: Enable abnormal-motion suppression of AABB Kalman updates.
-            ams_alpha0: Kalman-gain multiplier for abnormal AABB motion components;
-                lower values suppress observation corrections more strongly.
-            ams_threshold: Relative excess over historical speed that triggers suppression.
-            ams_buffer_size: Observation history length for estimating normal motion.
-            ams_shrink_ratio: Suppress only when the AABB area falls below this fraction
-                of the historical mean area.
             lambda_emb_multiplier: Appearance-weight multiplier in AABB first-pass matching.
-            adaptive_kf: Adapt Kalman noise using measurement innovations.
             obb_det_thresh: Detection confidence threshold for OBB first-pass matching.
             obb_iou_threshold: Minimum geometric similarity for OBB first-pass matching.
             obb_new_track_thresh: Minimum detection confidence to create an OBB track.
@@ -149,17 +134,16 @@ class OccluBoost(BoostTrack):
             device: Inference device for the lazily constructed ReID backend.
             half: Use FP16 inference in the lazily constructed ReID backend.
             reid_preprocess: Preprocessing profile for the lazy ReID backend.
-            kalman_noise: Immutable Kalman covariance scales and reference
-                interval. None preserves the default noise; fresh units
-                follow the shared timing mode. Class overrides require
-                ``per_class=True``.
+            kalman: Immutable filter noise, timing, adaptation, and AABB abnormal-motion
+                suppression settings. AMS is bypassed for OBB. None preserves tracker
+                defaults. Per-class noise overrides require ``per_class=True``.
             **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings. ``variable_dt`` enables prediction using capture timestamps.
+                ``asso_func``, and ``is_obb`` settings.
                 BoostTrack options additionally configure ``use_cmc``, ``cmc_method``,
                 output size filtering, multi-cue weights, and DLO/DUO confidence boosting.
         """
         super().__init__(
-            kalman_noise=kalman_noise,
+            kalman=kalman,
             use_embeddings=use_embeddings,
             reid_model=reid_model,
             reid_weights=reid_weights,
@@ -206,24 +190,7 @@ class OccluBoost(BoostTrack):
         # IoU threshold above which two co-existing tracks are considered
         # duplicates; the younger one (lower ``age``) is dropped.
         self.duplicate_iou_thresh = duplicate_iou_thresh
-        # ---- Abnormal Motion Suppression (OccluTrack AMS KF) ----
-        # Detect speed spikes caused by partial occlusion (the bbox suddenly
-        # shrinks/jumps because only part of the body is visible) and damp
-        # the Kalman gain on the affected update so the predicted state is
-        # trusted more than the abnormal observation. ``ams_threshold`` is the
-        # relative-spike trigger (current speed magnitude vs. running mean),
-        # ``ams_alpha0`` is the suppression factor applied to the gain when
-        # an abnormal motion is detected, and ``ams_buffer_size`` is the
-        # length of the per-track observation buffer used to compute the
-        # mean speed. Defaults follow the paper (MOT17 setting).
-        self.ams_enabled = bool(ams_enabled)
-        self.ams_alpha0 = float(np.clip(ams_alpha0, 0.0, 1.0))
-        self.ams_threshold = float(max(ams_threshold, 0.0))
-        self.ams_buffer_size = int(max(ams_buffer_size, 2))
-        self.ams_shrink_ratio = float(np.clip(ams_shrink_ratio, 0.0, 1.0))
         self.lambda_emb_multiplier = float(lambda_emb_multiplier)
-        # ---- Adaptive KF ----
-        self.adaptive_kf = bool(adaptive_kf)
 
     def _track_detections(
         self,
@@ -430,7 +397,7 @@ class OccluBoost(BoostTrack):
                     dets[i, :],
                     max_obs=self.max_obs,
                     emb=det_emb,
-                    adaptive_kf=self.adaptive_kf,
+                    adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
                 )
@@ -498,11 +465,11 @@ class OccluBoost(BoostTrack):
         (lazily attached to the tracker as ``_ams_obs_buf``). Compares the
         current speed magnitude (centre and aspect/scale separately) against
         the running mean of the previous speeds in the buffer. If either
-        relative spike exceeds ``ams_threshold`` the corresponding pair of
-        gain scalars is replaced with ``ams_alpha0``; the returned value is
+        relative spike exceeds ``kalman.ams.threshold`` the corresponding pair of
+        gain scalars is replaced with ``kalman.ams.alpha0``; the returned value is
         the mean of the four ``α_x, α_y, α_w, α_h`` per the paper.
         """
-        if not self.ams_enabled or self.ams_alpha0 >= 1.0:
+        if not self.kalman_config.ams.enabled or self.kalman_config.ams.alpha0 >= 1.0:
             return 1.0
         # OBB tracks use a different state layout (theta channel); skip AMS
         # to avoid mixing rectangular/oriented box semantics.
@@ -514,7 +481,7 @@ class OccluBoost(BoostTrack):
         if buf is None:
             from collections import deque
 
-            buf = deque(maxlen=self.ams_buffer_size)
+            buf = deque(maxlen=self.kalman_config.ams.buffer_size)
             trk._ams_obs_buf = buf
 
         # Need at least 2 prior observations to estimate the mean speed.
@@ -540,8 +507,8 @@ class OccluBoost(BoostTrack):
         d_c = max(0.0, cur_c_mag - mean_c_mag) / max(mean_c_mag, eps)
         d_a = max(0.0, cur_a_mag - mean_a_mag) / max(mean_a_mag, eps)
 
-        alpha_c = 1.0 if d_c <= self.ams_threshold else self.ams_alpha0
-        alpha_a = 1.0 if d_a <= self.ams_threshold else self.ams_alpha0
+        alpha_c = 1.0 if d_c <= self.kalman_config.ams.threshold else self.kalman_config.ams.alpha0
+        alpha_a = 1.0 if d_a <= self.kalman_config.ams.threshold else self.kalman_config.ams.alpha0
         alpha = 0.5 * (alpha_c + alpha_a)
 
         # Physical sanity: partial occlusion specifically *shrinks* the bbox
@@ -551,7 +518,7 @@ class OccluBoost(BoostTrack):
         # the track re-emerging from full occlusion at its true scale.
         cur_area = float(cur[2] * cur[3])
         mean_area = float(np.mean(np.asarray(buf, dtype=float)[:, 2:].prod(axis=1)))
-        if cur_area >= mean_area * self.ams_shrink_ratio:
+        if cur_area >= mean_area * self.kalman_config.ams.shrink_ratio:
             alpha = 1.0
 
         buf.append(cur)
@@ -865,7 +832,7 @@ class OccluBoost(BoostTrack):
                     max_obs=self.max_obs,
                     emb=det_emb,
                     is_obb=True,
-                    adaptive_kf=self.adaptive_kf,
+                    adaptive_kf=self.kalman_config.adaptive_kf,
                     id_allocator=self.id_allocator,
                     noise_config=self.kalman_noise_config,
                 )

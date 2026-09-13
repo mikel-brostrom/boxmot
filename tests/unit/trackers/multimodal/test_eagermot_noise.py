@@ -99,5 +99,5 @@ def test_covariance_storage_is_local_even_when_noise_configuration_is_shared() -
 
 
 def test_3d_filter_rejects_seconds_without_advertising_variable_timing() -> None:
-    with pytest.raises(ValueError, match="requires kalman_noise.time_unit='frames'"):
+    with pytest.raises(ValueError, match="requires kalman.noise.time_unit='frames'"):
         Kalman3D(_box(), noise_config=KalmanNoiseConfig(time_unit="seconds"))

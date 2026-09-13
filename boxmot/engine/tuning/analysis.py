@@ -21,7 +21,7 @@ BOOL_PARAMS = [
     "use_vt",
     "use_embeddings",
     "use_second_pass",
-    "ams_enabled",
+    "kalman.ams.enabled",
 ]
 KEY_CONTINUOUS = [
     "det_thresh",

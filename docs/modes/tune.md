@@ -113,12 +113,12 @@ boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
   --split train --calibrate-kf --n-trials 50 --seed 0
 ```
 
-The five covariance scales and `is_angular` stay fixed for each class by
+The five covariance scales and `kalman.is_angular` stay fixed for each class by
 default. Add `--tune-kf` to refine selected scales around each class's fitted
 values. Reuse calibration without fitting again with
 `--class-config path/to/kf-tuning/calibrated.yaml`. Both that starting profile
 and the final `best.yaml` contain separate `car` and `pedestrian` settings.
-`--class-config` also holds the loaded `is_angular` choices fixed; tuning
+`--class-config` also holds the loaded `kalman.is_angular` choices fixed; tuning
 without either flag can search those choices.
 Ego poses remain fixed; EagerMOT advances one frame per image. See
 [3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
@@ -141,7 +141,7 @@ Python callers use `boxmot.engine.tuning.tuner.run_tune(args)` for both image
 builds and sensor datasets. It returns a `TuneResult` with the completed trials,
 best metrics, and `best_yaml` path. For EagerMOT, `best_config` contains separate
 `car` and `pedestrian` profiles. Runtime dictionaries use dotted noise keys;
-the exported YAML nests them under `kalman_noise`.
+the exported YAML nests them under `kalman.noise`.
 
 ## Build preparation and reuse
 
@@ -254,7 +254,7 @@ an explicitly selected build.
 Calibration runs after build validation and before Ray and the search start.
 The five calibrated covariance scales, their timing settings, and the filter's
 reference process-noise priors stay fixed throughout all 200 tracker trials.
-`adaptive_kf` also stays fixed for trackers that support it. No search-schema
+`kalman.adaptive_kf` also stays fixed for trackers that support it. No search-schema
 edits are needed.
 
 Add `--variable-dt` to calibrate and predict using capture timestamps in
@@ -280,11 +280,14 @@ trackers, and limitations.
 
 ## Kalman noise and timing
 
-Tracker tuning holds Kalman settings fixed unless you select scales with `--tune-kf`. The five covariance
+Tracker tuning holds covariance scales fixed unless you select them with `--tune-kf`. The five covariance
 multipliers retain their runtime defaults of `1.0` in the tracker YAML;
-`adaptive_kf` and timing settings also retain their YAML runtime defaults where
+`kalman.adaptive_kf` and timing settings also retain their YAML runtime defaults where
 supported. OC-SORT's base process-noise priors are fixed inside the filter.
-The built-in settings have no search ranges.
+These covariance and timing settings have no default search ranges.
+OccluBoost's `kalman.ams` settings retain their conditional search ranges.
+EagerMOT's `kalman.is_angular` remains searchable when no calibration or class
+profile fixes its state model.
 Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
 scales from detections and ground truth.
 
@@ -298,7 +301,7 @@ presets.
 EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
 Its 3D filter supports covariance calibration in fixed-step mode only.
 
-`variable_dt`, `kalman_noise.time_unit`, and `kalman_noise.reference_dt_s` are fixed runtime
+`kalman.variable_dt`, `kalman.noise.time_unit`, and `kalman.noise.reference_dt_s` are fixed runtime
 settings. They are not tuning parameters, and elapsed `dt` is never sampled.
 Use `--variable-dt` to select elapsed-seconds prediction explicitly, or keep
 the default fixed-step mode. The reference interval defaults to `1/30` second
@@ -325,10 +328,29 @@ boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build <build> \
   --tune-kf process_velocity_scale --tune-kf measurement_noise_scale
 ```
 
-When calibration or a saved profile supplies `kalman_noise.by_class`, tuning
+When calibration or a saved profile supplies `kalman.noise.by_class`, tuning
 refines each class's selected scales around its own prior. It searches the
 global prior only when it can be used as a fallback for the selected classes.
-Saved YAML keeps the grouped `kalman_noise` structure, including class settings.
+Saved YAML groups filter settings under `kalman`, with covariance settings
+under `noise` and OccluBoost's smoothing controls under `ams`. For example:
+
+```yaml
+per_class: true
+kalman:
+  variable_dt: false
+  adaptive_kf: false
+  noise:
+    process_velocity_scale: 2.0
+    by_class:
+      "1":
+        process_velocity_scale: 3.0
+  ams:
+    enabled: true
+    alpha0: 0.75
+```
+
+This partial OccluBoost configuration inherits unspecified tracker defaults.
+Other trackers expose only the Kalman controls they support.
 
 For EagerMOT, the same flags refine each car/pedestrian 3D filter independently:
 
@@ -351,15 +373,15 @@ velocity also uses `0.0001`. Python Kalman calibration scales these priors
 with the shared velocity multiplier:
 
 ```text
-centre-velocity noise = 0.01   × kalman_noise.process_velocity_scale
-area-velocity noise   = 0.0001 × kalman_noise.process_velocity_scale
-angular-velocity noise = 0.0001 × kalman_noise.process_velocity_scale  (OBB)
+centre-velocity noise = 0.01   × kalman.noise.process_velocity_scale
+area-velocity noise   = 0.0001 × kalman.noise.process_velocity_scale
+angular-velocity noise = 0.0001 × kalman.noise.process_velocity_scale  (OBB)
 ```
 
 These products describe reference noise before time-unit conversion and
 integration into `Q(dt)`. The relative balance between centre, area, and
 angular velocity noise is fixed by the filter; calibration scales them
-together. The five shared `kalman_noise.*_scale` settings are the noise-calibration
+together. The five shared `kalman.noise.*_scale` settings are the noise-calibration
 interface.
 
 ## Arguments

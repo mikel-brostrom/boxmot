@@ -26,30 +26,40 @@ code:
 
 ## Kalman noise
 
-Runtime YAML groups covariance scales and timing metadata under `kalman_noise`:
+Runtime YAML groups all configurable Kalman settings under `kalman`. Covariance
+scales and their unit metadata belong to its `noise` group:
 
 ```yaml title="ocsort-noise.yaml"
 tracker: ocsort
-variable_dt: false
-kalman_noise:
-  process_position_scale: 1.0
-  process_velocity_scale: 1.0
-  measurement_noise_scale: 1.0
-  initial_position_scale: 1.0
-  initial_velocity_scale: 1.0
-  reference_dt_s: 0.03333333333333333
-  time_unit: frames
+kalman:
+  variable_dt: false
+  noise:
+    process_position_scale: 1.0
+    process_velocity_scale: 1.0
+    measurement_noise_scale: 1.0
+    initial_position_scale: 1.0
+    initial_velocity_scale: 1.0
+    reference_dt_s: 0.03333333333333333
+    time_unit: frames
 ```
 
 Pass the file through `--tracker-config`. Partial profiles override individual
 fields; omitted fields retain the tracker defaults. Python uses the corresponding
-`KalmanNoiseConfig` object through the `kalman_noise` constructor argument.
+`KalmanConfig` object through the `kalman` constructor argument. Its `noise`
+field accepts a `KalmanNoiseConfig`.
 
-`variable_dt` remains a tracker setting. Fresh noise settings can use
+`kalman.variable_dt` selects capture timing. Fresh noise settings can use
 `time_unit: null` to derive units from it; calibrated profiles save the resolved
 unit. Timing and the reference interval remain fixed during tuning.
 
-With per-class tracking, `kalman_noise.by_class` maps detector class IDs to
+`kalman.adaptive_kf` selects innovation-based adaptation in BoostTrack and
+OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
+OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
+`buffer_size`, and `shrink_ratio` for its AABB gain-suppression policy. Other
+trackers reject these policy groups. Filter implementation and dimensions follow
+the tracker and box geometry automatically.
+
+With per-class tracking, `kalman.noise.by_class` maps detector class IDs to
 complete noise profiles. Unlisted classes use the global profile. Calibration
 with `--per-class` writes these profiles and records when a class used pooled
 estimates because it lacked sufficient evidence.
@@ -63,7 +73,7 @@ data.
 
 Built-in search schemas use the same group, with a `default` entry for each
 field. Search backends address scalar leaves such as
-`kalman_noise.measurement_noise_scale`. Noise scales stay fixed unless selected
+`kalman.noise.measurement_noise_scale`. Noise scales stay fixed unless selected
 with `--tune-kf`; see [Kalman tuning](../modes/tune.md#kalman-noise-and-timing).
 
 ## EagerMOT class profiles

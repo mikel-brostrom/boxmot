@@ -27,7 +27,7 @@ from boxmot.trackers.common.box.base import BoxTracker
 from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.hybridsort.track import KalmanBoxTracker
 from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
@@ -76,7 +76,7 @@ class HybridSort(BoxTracker):
         longterm_reid_correction_thresh: float = 0.4,
         longterm_reid_correction_thresh_low: float = 0.4,
         *,
-        kalman_noise: KalmanNoiseConfig | None = None,
+        kalman: KalmanConfig | None = None,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: Any = "cpu",
@@ -123,15 +123,14 @@ class HybridSort(BoxTracker):
             device: Inference device for the lazily constructed ReID backend.
             half: Use FP16 inference in the lazily constructed ReID backend.
             reid_preprocess: Preprocessing profile for the lazy ReID backend.
-            kalman_noise: Immutable Kalman covariance scales and reference
-                interval. None preserves the default noise; fresh units
-                follow the shared timing mode. Class overrides require
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
             **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings. ``variable_dt`` enables prediction using capture timestamps.
+                ``asso_func``, and ``is_obb`` settings.
         """
         super().__init__(
-            kalman_noise=kalman_noise,
+            kalman=kalman,
             reid_model=reid_model,
             reid_weights=reid_weights,
             device=device,

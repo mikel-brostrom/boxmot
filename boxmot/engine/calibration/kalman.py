@@ -15,6 +15,7 @@ import numpy as np
 import yaml
 
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.fitting import (
     MIN_COVARIANCE_SCALE,
     ProcessNoiseMoments,
@@ -23,7 +24,6 @@ from boxmot.trackers.common.motion.kalman_filters.fitting import (
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_NOISE_TRACKER_NAMES,
-    normalize_kalman_options,
 )
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 
@@ -200,19 +200,19 @@ def fit_kalman_noise(
         if progress is not None and (number + 1) % 100 == 0:
             progress(f"KF calibration: estimating noise from GT trajectory {number + 1}/{len(tracks)}…")
     process_position, process_velocity = process.estimate(
-        (float(baseline["kalman_noise.process_position_scale"]), float(baseline["kalman_noise.process_velocity_scale"]))
+        (float(baseline["kalman.noise.process_position_scale"]), float(baseline["kalman.noise.process_velocity_scale"]))
     )
     parameters = {
-        "kalman_noise.process_position_scale": process_position,
-        "kalman_noise.process_velocity_scale": process_velocity,
-        "kalman_noise.measurement_noise_scale": measurement.estimate(
-            float(baseline["kalman_noise.measurement_noise_scale"])
+        "kalman.noise.process_position_scale": process_position,
+        "kalman.noise.process_velocity_scale": process_velocity,
+        "kalman.noise.measurement_noise_scale": measurement.estimate(
+            float(baseline["kalman.noise.measurement_noise_scale"])
         ),
-        "kalman_noise.initial_position_scale": initial_position.estimate(
-            float(baseline["kalman_noise.initial_position_scale"])
+        "kalman.noise.initial_position_scale": initial_position.estimate(
+            float(baseline["kalman.noise.initial_position_scale"])
         ),
-        "kalman_noise.initial_velocity_scale": initial_velocity.estimate(
-            float(baseline["kalman_noise.initial_velocity_scale"])
+        "kalman.noise.initial_velocity_scale": initial_velocity.estimate(
+            float(baseline["kalman.noise.initial_velocity_scale"])
         ),
     }
     return parameters, {"gt_transitions": process.events, "gt_lag_pairs": process.lag_pairs}
@@ -296,7 +296,7 @@ def calibrate_kalman(
         base_config["per_class"] = True
     validate_calibration_options(args.tracker, base_config, geometry=args.geometry)
     resolved_args = copy(args)
-    resolved_args.variable_dt = base_config["variable_dt"]
+    resolved_args.variable_dt = base_config["kalman.variable_dt"]
     if progress is not None:
         progress("KF calibration: matching cached detections to ground truth…")
     data = load_calibration_data(resolved_args, progress=progress)
@@ -313,29 +313,29 @@ def calibrate_kalman(
         for class_id in sorted(class_ids)
     }
     parameters, statistics = fit_kalman_noise(
-        data.tracks, models, base_config, variable_dt=base_config["variable_dt"], progress=progress
+        data.tracks, models, base_config, variable_dt=base_config["kalman.variable_dt"], progress=progress
     )
     config = {**base_config, **{name: estimate["value"] for name, estimate in parameters.items()}}
     class_reports = {}
     if per_class:
         config["per_class"] = True
-        noise = normalize_kalman_options(base_config, variable_dt=base_config["variable_dt"], tracker_name=args.tracker)
+        noise = normalize_kalman_config(base_config, tracker_name=args.tracker).noise
         class_names = dict(getattr(args, "tracker_class_names", ()) or ())
         for class_id, model in models.items():
             tracks = tuple(track for track in data.tracks if track.class_id == class_id)
             baseline = {
-                f"kalman_noise.{name}": value
+                f"kalman.noise.{name}": value
                 for name, value in noise.for_class(class_id).to_dict().items()
                 if name != "by_class"
             }
             class_parameters, class_statistics = fit_kalman_noise(
-                tracks, models, baseline, variable_dt=base_config["variable_dt"], progress=progress
+                tracks, models, baseline, variable_dt=base_config["kalman.variable_dt"], progress=progress
             )
             class_parameters = apply_global_noise_fallback(class_parameters, parameters)
             class_profile = {**baseline, **{name: estimate["value"] for name, estimate in class_parameters.items()}}
             config.update(
                 {
-                    f"kalman_noise.by_class.{class_id}.{name.removeprefix('kalman_noise.')}": value
+                    f"kalman.noise.by_class.{class_id}.{name.removeprefix('kalman.noise.')}": value
                     for name, value in class_profile.items()
                 }
             )
@@ -346,9 +346,9 @@ def calibrate_kalman(
                 "state_dimensions": model.dim_x,
                 "measurement_dimensions": model.dim_z,
                 "timing": {
-                    "variable_dt": base_config["variable_dt"],
-                    "kalman_noise.time_unit": model.noise_config.time_unit,
-                    "kalman_noise.reference_dt_s": model.noise_config.reference_dt_s,
+                    "kalman.variable_dt": base_config["kalman.variable_dt"],
+                    "kalman.noise.time_unit": model.noise_config.time_unit,
+                    "kalman.noise.reference_dt_s": model.noise_config.reference_dt_s,
                 },
                 "statistics": {
                     "trajectories": len(tracks),
@@ -388,7 +388,8 @@ def calibrate_kalman(
         "class_ids": list(getattr(args, "tracker_class_ids", ()) or ()),
         "class_names": dict(getattr(args, "tracker_class_names", ()) or ()),
         "timing": {
-            name: config[name] for name in ("variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s")
+            name: config[name]
+            for name in ("kalman.variable_dt", "kalman.noise.time_unit", "kalman.noise.reference_dt_s")
         },
         "matching": {"method": "same_class_hungarian_iou", "minimum_iou": data.match_iou},
         "statistics": {**data.statistics, **statistics},
@@ -425,7 +426,7 @@ def calibrate_kalman(
     _write_json(report_path, report)
     fitted = tuple(name for name in KALMAN_NOISE_OPTIONS if parameters[name]["status"] == "fitted")
     fitted += tuple(
-        f"kalman_noise.by_class.{class_id}.{name.removeprefix('kalman_noise.')}"
+        f"kalman.noise.by_class.{class_id}.{name.removeprefix('kalman.noise.')}"
         for class_id, class_report in class_reports.items()
         for name in KALMAN_NOISE_OPTIONS
         if class_report["parameters"][name]["status"] == "fitted"

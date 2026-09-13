@@ -109,7 +109,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                     "class_ids": list(args.tracker_class_ids),
                     "timing": {
                         key: config[key]
-                        for key in ("variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s")
+                        for key in ("kalman.variable_dt", "kalman.noise.time_unit", "kalman.noise.reference_dt_s")
                     },
                     "baseline_config": baseline,
                 }
@@ -275,7 +275,7 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
 ) -> None:
     args = fake_tuning.args(search_alg=search_alg)
     captured = fake_tuning.captured
-    tuner = tuner_module.Tuner(args, baseline_config={"kalman_noise.reference_dt_s": 0.05})
+    tuner = tuner_module.Tuner(args, baseline_config={"kalman.noise.reference_dt_s": 0.05})
 
     tuner.fit()
 
@@ -284,9 +284,9 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
     assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
     frozen = {
         **{name: float(index + 2) for index, name in enumerate(KALMAN_NOISE_OPTIONS)},
-        "variable_dt": True,
-        "kalman_noise.time_unit": "seconds",
-        "kalman_noise.reference_dt_s": 0.05,
+        "kalman.variable_dt": True,
+        "kalman.noise.time_unit": "seconds",
+        "kalman.noise.reference_dt_s": 0.05,
     }
     for key, expected in frozen.items():
         assert captured["param_space"][key] == expected
@@ -303,10 +303,10 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
 @pytest.mark.parametrize(
     "tracker, overrides",
     [
-        ("ocsort", {"kalman_noise.process_velocity_scale": 2.5}),
-        ("deepocsort", {"kalman_noise.process_velocity_scale": 3.5}),
-        ("boosttrack", {"adaptive_kf": True}),
-        ("occluboost", {"adaptive_kf": False}),
+        ("ocsort", {"kalman.noise.process_velocity_scale": 2.5}),
+        ("deepocsort", {"kalman.noise.process_velocity_scale": 3.5}),
+        ("boosttrack", {"kalman.adaptive_kf": True}),
+        ("occluboost", {"kalman.adaptive_kf": False}),
     ],
 )
 @pytest.mark.parametrize("calibrate_kf", [False, True])
@@ -344,13 +344,13 @@ def test_plain_tuning_preserves_kf_defaults_or_scalar_profile_while_searching_tr
     profile = None
     expected = {
         **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
-        "variable_dt": True,
-        "kalman_noise.time_unit": "seconds",
-        "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+        "kalman.variable_dt": True,
+        "kalman.noise.time_unit": "seconds",
+        "kalman.noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
     }
     if use_profile:
         expected.update(dict(zip(KALMAN_NOISE_OPTIONS, (1e-6, 240.0, 0.003, 550.0, 1.3), strict=True)))
-        expected["kalman_noise.reference_dt_s"] = 0.05
+        expected["kalman.noise.reference_dt_s"] = 0.05
         profile = tmp_path / "calibrated.yaml"
         profile.write_text(yaml.safe_dump({"tracker": "botsort", **expected}), encoding="utf-8")
     args = fake_tuning.args(
@@ -385,7 +385,7 @@ def test_programmatic_baseline_and_custom_config_are_preserved_during_calibratio
     original_config = tmp_path / "tracker.yaml"
     original_config.write_text(yaml.safe_dump({"tracker": "botsort", "track_buffer": 61, "match_thresh": 0.8}))
     args = fake_tuning.args(tracker_config=original_config)
-    baseline = {"match_thresh": 0.55, "use_cmc": False, "kalman_noise.measurement_noise_scale": 8.0}
+    baseline = {"match_thresh": 0.55, "use_cmc": False, "kalman.noise.measurement_noise_scale": 8.0}
 
     tuner_module.Tuner(args, baseline_config=baseline).fit()
 
@@ -393,9 +393,9 @@ def test_programmatic_baseline_and_custom_config_are_preserved_during_calibratio
     assert observed["track_buffer"] == 61
     assert observed["match_thresh"] == 0.55
     assert observed["use_cmc"] is False
-    assert observed["kalman_noise.measurement_noise_scale"] == 8.0
+    assert observed["kalman.noise.measurement_noise_scale"] == 8.0
     assert fake_tuning.captured["postprocess_base"]["match_thresh"] == 0.55
-    assert baseline == {"match_thresh": 0.55, "use_cmc": False, "kalman_noise.measurement_noise_scale": 8.0}
+    assert baseline == {"match_thresh": 0.55, "use_cmc": False, "kalman.noise.measurement_noise_scale": 8.0}
     assert yaml.safe_load(original_config.read_text())["match_thresh"] == 0.8
 
 
@@ -410,7 +410,7 @@ def test_resuming_calibrated_run_loads_saved_units_and_frozen_values_without_ref
     fake_tuning: SimpleNamespace,
 ) -> None:
     captured = fake_tuning.captured
-    first = tuner_module.Tuner(fake_tuning.args(), baseline_config={"kalman_noise.reference_dt_s": 0.05})
+    first = tuner_module.Tuner(fake_tuning.args(), baseline_config={"kalman.noise.reference_dt_s": 0.05})
     _, tune_dir, _, _ = first.fit()
     captured["restore_enabled"] = True
     resumed_args = fake_tuning.args(calibrate_kf=False, resume_tune=tune_dir, variable_dt=None)
@@ -421,7 +421,7 @@ def test_resuming_calibrated_run_loads_saved_units_and_frozen_values_without_ref
     assert captured["events"].count("calibrate") == 1
     assert captured["events"].count("restore") == 1
     assert Path(resumed_args.tracker_config) == captured["config_path"]
-    for key in (*KALMAN_NOISE_OPTIONS, "variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s"):
+    for key in (*KALMAN_NOISE_OPTIONS, "kalman.variable_dt", "kalman.noise.time_unit", "kalman.noise.reference_dt_s"):
         expected = captured["calibrated_config"][key]
         assert resumed._runtime_config[key] == expected
         assert flatten_yaml_config(resumed._yaml_cfg)[key] == {"default": expected}
@@ -534,7 +534,7 @@ def test_resume_rejects_saved_trials_that_disagree_with_the_calibrated_noise(fak
     captured = fake_tuning.captured
     _, tune_dir, _, _ = tuner_module.Tuner(fake_tuning.args()).fit()
     captured["restore_enabled"] = True
-    captured["saved_results"][0].config["kalman_noise.measurement_noise_scale"] = 999.0
+    captured["saved_results"][0].config["kalman.noise.measurement_noise_scale"] = 999.0
 
     with pytest.raises(ValueError, match="fixed KF calibration"):
         tuner_module.Tuner(fake_tuning.args(calibrate_kf=False, resume_tune=tune_dir, variable_dt=None)).fit()
@@ -552,7 +552,7 @@ def test_selected_scale_is_searchable_and_resumes_with_its_original_baseline(
     driver = tuner_module.Tuner(args)
     _, directory, *_ = driver.fit()
     captured = fake_tuning.captured
-    key = "kalman_noise.measurement_noise_scale"
+    key = "kalman.noise.measurement_noise_scale"
     baseline = driver._runtime_config[key]
     assert flatten_yaml_config(driver._yaml_cfg)[key] == {
         "type": "loguniform",
@@ -586,22 +586,22 @@ def test_class_calibration_refines_selected_child_scale_and_freezes_every_other_
 ) -> None:
     fitted = {name: float(index + 2) for index, name in enumerate(KALMAN_NOISE_OPTIONS)}
     fitted.update(
-        {f"kalman_noise.by_class.1.{key.rsplit('.', 1)[-1]}": value * 3 for key, value in list(fitted.items())}
+        {f"kalman.noise.by_class.1.{key.rsplit('.', 1)[-1]}": value * 3 for key, value in list(fitted.items())}
     )
     fitted.update(
         {
-            "kalman_noise.by_class.1.time_unit": "seconds",
-            "kalman_noise.by_class.1.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+            "kalman.noise.by_class.1.time_unit": "seconds",
+            "kalman.noise.by_class.1.reference_dt_s": DEFAULT_REFERENCE_DT_S,
         }
     )
     fake_tuning.captured["fitted_values"] = fitted
     driver = tuner_module.Tuner(fake_tuning.args(per_class=True, tune_kf=("process_velocity_scale",)))
     _, directory, *_ = driver.fit()
-    selected = "kalman_noise.by_class.1.process_velocity_scale"
+    selected = "kalman.noise.by_class.1.process_velocity_scale"
     schema = flatten_yaml_config(driver._yaml_cfg)
     assert schema[selected]["type"] == "loguniform"
     assert schema[selected]["range"] == [fitted[selected] / 4, fitted[selected] * 4]
-    assert schema["kalman_noise.process_velocity_scale"] == {"default": fitted["kalman_noise.process_velocity_scale"]}
+    assert schema["kalman.noise.process_velocity_scale"] == {"default": fitted["kalman.noise.process_velocity_scale"]}
     assert all(
         config[key] == value
         for config in fake_tuning.captured["trial_configs"]
@@ -625,7 +625,7 @@ def test_refinement_resume_rejects_corrupted_unselected_trial_prior(fake_tuning:
     _, directory, *_ = tuner_module.Tuner(
         fake_tuning.args(calibrate_kf=False, tune_kf=("process_velocity_scale",))
     ).fit()
-    fake_tuning.captured["saved_results"][0].config["kalman_noise.measurement_noise_scale"] = 999.0
+    fake_tuning.captured["saved_results"][0].config["kalman.noise.measurement_noise_scale"] = 999.0
     fake_tuning.captured["restore_enabled"] = True
     with pytest.raises(ValueError, match="fixed KF calibration"):
         tuner_module.Tuner(

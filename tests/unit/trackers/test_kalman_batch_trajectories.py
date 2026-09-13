@@ -6,7 +6,7 @@ from importlib import import_module
 import numpy as np
 import pytest
 
-from boxmot import KalmanNoiseConfig
+from boxmot import KalmanConfig, KalmanNoiseConfig
 from boxmot.trackers.common.track_state import BoxTrack
 from boxmot.trackers.strongsort.track import Track as StrongTrack
 from tests.unit.trackers.test_association_switcher import TRACKER_FACTORIES
@@ -104,14 +104,15 @@ def _trajectory(is_obb):
 def test_batch_tracker_trajectory_matches_scalar(name, is_obb, timed, monkeypatch):
     options = dict(
         is_obb=is_obb,
-        variable_dt=timed,
         max_age=6,
-        kalman_noise=KalmanNoiseConfig(
-            process_position_scale=1.3, process_velocity_scale=0.7, measurement_noise_scale=1.8
+        kalman=KalmanConfig(
+            variable_dt=timed,
+            adaptive_kf=True if name in ("boosttrack", "occluboost") else None,
+            noise=KalmanNoiseConfig(
+                process_position_scale=1.3, process_velocity_scale=0.7, measurement_noise_scale=1.8
+            ),
         ),
     )
-    if name in ("boosttrack", "occluboost"):
-        options["adaptive_kf"] = True
     actual, expected = [TRACKER_FACTORIES[name](**options) for _ in range(2)]
     # Camera estimation and embedding inference are outside this comparison.
     for tracker in (actual, expected):

@@ -55,24 +55,25 @@ iou_3d_threshold:
   default: 0.01
   range: [0.01, 0.5]
 
-is_angular:
-  type: choice
-  default: false
-  options: [false, true]
+kalman:
+  is_angular:
+    type: choice
+    default: false
+    options: [false, true]
 
-# Fixed covariance defaults; --calibrate-kf supplies fitted 3D values.
-kalman_noise:
-  process_position_scale:
-    default: 1.0
-  process_velocity_scale:
-    default: 1.0
-  measurement_noise_scale:
-    default: 1.0
-  initial_position_scale:
-    default: 1.0
-  initial_velocity_scale:
-    default: 1.0
-  time_unit:
-    default: frames
-  reference_dt_s:
-    default: 0.03333333333333333
+  # Fixed covariance defaults; --calibrate-kf supplies fitted 3D values.
+  noise:
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+    time_unit:
+      default: frames
+    reference_dt_s:
+      default: 0.03333333333333333

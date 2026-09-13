@@ -66,8 +66,9 @@ shared constructor options change, keeping tracker-specific restrictions intact.
 The constructor typing tests check their names and types against the actual
 parent constructors and ensure packaged defaults remain discoverable.
 
-Kalman trackers expose `kalman_noise: KalmanNoiseConfig | None` directly.
-Keep noise fields under the `kalman_noise` YAML group, using dotted scalar paths
+Kalman trackers expose `kalman: KalmanConfig | None` directly.
+Keep timing and filter policies under `kalman`, covariance under `kalman.noise`,
+and gain-suppression settings under `kalman.ams`, using dotted scalar paths
 only inside engine search/configuration code. Use `flatten_tracker_options` and
 `nest_tracker_options` for profile conversion; preserve resolved timing and any
 class profiles when writing calibrated or tuned settings.

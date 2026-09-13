@@ -15,7 +15,8 @@ car:
   iou_threshold: 0.026302598372371522
   first_matching_method: dist_2d_dims
   iou_3d_threshold: 0.01
-  is_angular: false
+  kalman:
+    is_angular: false
   per_class: false
   asso_func: iou
   det_thresh: 0.5341441854636622
@@ -29,7 +30,8 @@ pedestrian:
   iou_threshold: 0.31020510505444837
   first_matching_method: iou_3d
   iou_3d_threshold: 0.17296969927355305
-  is_angular: true
+  kalman:
+    is_angular: true
   per_class: false
   asso_func: iou
   det_thresh: 0.6932125347667007

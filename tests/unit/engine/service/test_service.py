@@ -669,8 +669,8 @@ def test_gpu_manager_shares_one_prebuilt_encoder_across_decoupled_trackers(monke
     assert len(shared_encoder.calls) == 2
     assert [spec.name for spec in tracker_specs] == ["botsort", "botsort"]
     assert [spec.option_dict for spec in tracker_specs] == [
-        {"asso_func": "iou", "frame_rate": 24, "variable_dt": False},
-        {"asso_func": "iou", "frame_rate": 30, "variable_dt": False},
+        {"asso_func": "iou", "frame_rate": 24, "kalman.variable_dt": False},
+        {"asso_func": "iou", "frame_rate": 30, "kalman.variable_dt": False},
     ]
 
 

@@ -35,13 +35,7 @@ class BoxTrackerOptions(AssociationTrackerOptions, total=False):
     is_obb: bool
 
 
-class KalmanTrackerOptions(BoxTrackerOptions, total=False):
-    """Box settings with supported capture timing."""
-
-    variable_dt: bool
-
-
-class CommonTrackerOptions(KalmanTrackerOptions, total=False):
+class CommonTrackerOptions(BoxTrackerOptions, total=False):
     """Shared settings for trackers accepting the base detection threshold."""
 
     det_thresh: float
@@ -70,7 +64,6 @@ __all__ = (
     "AssociationTrackerOptions",
     "BoxTrackerOptions",
     "CommonTrackerOptions",
-    "KalmanTrackerOptions",
     "OccluBoostOptions",
     "TrackerMetadataOptions",
 )

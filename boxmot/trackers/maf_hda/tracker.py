@@ -127,8 +127,8 @@ class MafHda(BaseTracker):
                 AABB geometry affinity. Instance masks remain required in every
                 association mode.
         """
-        if "kalman_noise" in kwargs:
-            raise TypeError("MafHda does not accept kalman_noise settings.")
+        if "kalman" in kwargs:
+            raise TypeError("MafHda does not accept kalman settings.")
         for name, value in (
             ("det_thresh", det_thresh),
             ("iou_threshold", iou_threshold),

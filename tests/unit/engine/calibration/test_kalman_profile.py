@@ -11,6 +11,8 @@ from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.eval.eagermot_kitti import load_kitti_profiles
 from boxmot.trackers import create_tracker
 from boxmot.trackers.common.config import load_tracker_config
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 from tests.unit.engine.calibration.test_kalman import _args, _data, _load_fixture
 from tests.unit.engine.calibration.test_kalman_sensor import _data as _sensor_data
@@ -53,8 +55,8 @@ def test_eval_options_reject_calibrated_geometry_change_before_replay(monkeypatc
 @pytest.mark.parametrize(
     "overrides,field",
     [
-        ({"kalman_noise.reference_dt_s": 0.5}, "reference_dt_s"),
-        ({"variable_dt": False, "kalman_noise.time_unit": "frames"}, "variable_dt"),
+        ({"kalman.noise.reference_dt_s": 0.5}, "reference_dt_s"),
+        ({"kalman.variable_dt": False, "kalman.noise.time_unit": "frames"}, "variable_dt"),
     ],
 )
 def test_saved_profile_binds_resolved_time_basis_in_factory_and_eval(monkeypatch, tmp_path, overrides, field):
@@ -73,12 +75,14 @@ def test_saved_profile_binds_resolved_time_basis_in_factory_and_eval(monkeypatch
 
 
 def test_partial_manual_settings_resolve_signature_timing_without_false_rejection():
-    signature = calibration_profile_signature("bytetrack", "aabb", {"variable_dt": True})
+    signature = calibration_profile_signature("bytetrack", "aabb", {"kalman.variable_dt": True})
     assert signature["time_unit"] == "seconds"
     assert signature["reference_dt_s"] == pytest.approx(1 / 30)
-    tracker = create_tracker("bytetrack", variable_dt=True, calibration=signature)
+    tracker = create_tracker("bytetrack", kalman=KalmanConfig(variable_dt=True), calibration=signature)
     assert tracker.kalman_noise_config.time_unit == "seconds"
-    manual = create_tracker("bytetrack", variable_dt=True, kalman_noise={"reference_dt_s": 0.5})
+    manual = create_tracker(
+        "bytetrack", kalman=KalmanConfig(variable_dt=True, noise=KalmanNoiseConfig(reference_dt_s=0.5))
+    )
     assert manual.kalman_noise_config.reference_dt_s == 0.5
 
 
@@ -92,7 +96,7 @@ def test_factory_rejects_inconsistent_calibration_signature(field, value):
 
 def test_manual_noise_settings_do_not_claim_a_calibration_geometry(tmp_path):
     path = tmp_path / "manual.yaml"
-    path.write_text("kalman_noise: {measurement_noise_scale: 0.25}\n")
+    path.write_text("kalman: {noise: {measurement_noise_scale: 0.25}}\n")
     options = load_tracker_config("bytetrack", path)
     for geometry in ("aabb", "obb"):
         tracker = create_tracker("bytetrack", geometry=geometry, **options)
@@ -102,7 +106,7 @@ def test_manual_noise_settings_do_not_claim_a_calibration_geometry(tmp_path):
 def test_sensor_profile_binds_angular_state_and_class_identity(monkeypatch, tmp_path):
     monkeypatch.setattr(kalman_sensor, "load_sensor_calibration_data", lambda *a, **kw: _sensor_data())
     profiles = load_kitti_profiles()
-    profiles[2]["is_angular"] = True
+    profiles[2]["kalman.is_angular"] = True
     result = kalman_sensor.calibrate_sensor_kalman(_dataset(tmp_path), profiles, output_dir=tmp_path)
     saved = load_kitti_profiles(result.config_path)
     assert saved[1]["calibration.state_dimensions"] == 10
@@ -112,14 +116,14 @@ def test_sensor_profile_binds_angular_state_and_class_identity(monkeypatch, tmp_
     assert saved[2]["calibration.time_unit"] == "frames"
     create_tracker("eagermot", **saved[2])
     with pytest.raises(ValueError, match="profile filter=.*incompatible"):
-        create_tracker("eagermot", **{**saved[2], "is_angular": False})
+        create_tracker("eagermot", **{**saved[2], "kalman.is_angular": False})
 
     authored = yaml.safe_load(result.config_path.read_text())
-    authored["pedestrian"]["is_angular"] = False
+    authored["pedestrian"]["kalman"]["is_angular"] = False
     result.config_path.write_text(yaml.safe_dump(authored))
     with pytest.raises(ValueError, match="profile filter=.*incompatible"):
         load_kitti_profiles(result.config_path)
-    authored["pedestrian"]["is_angular"] = True
+    authored["pedestrian"]["kalman"]["is_angular"] = True
     authored["car"], authored["pedestrian"] = authored["pedestrian"], authored["car"]
     result.config_path.write_text(yaml.safe_dump(authored))
     with pytest.raises(ValueError, match="does not match class"):

@@ -120,13 +120,13 @@ def test_sensor_tune_accepts_selected_kf_scales(tmp_path, monkeypatch):
 def test_runtime_specs_apply_only_explicit_timing_override(value):
     args = SimpleNamespace(tracker="bytetrack", variable_dt=value)
     track_options = _tracker_spec(args, "aabb").option_dict
-    eval_options = dict(_tracker_options(args, {"variable_dt": True}))
+    eval_options = dict(_tracker_options(args, {"kalman.variable_dt": True}))
     if value is None:
-        assert "variable_dt" not in track_options
-        assert eval_options["variable_dt"] is True
+        assert "kalman.variable_dt" not in track_options
+        assert eval_options["kalman.variable_dt"] is True
     else:
-        assert track_options["variable_dt"] is value
-        assert eval_options["variable_dt"] is value
+        assert track_options["kalman.variable_dt"] is value
+        assert eval_options["kalman.variable_dt"] is value
 
 
 @pytest.mark.parametrize(
@@ -134,19 +134,22 @@ def test_runtime_specs_apply_only_explicit_timing_override(value):
 )
 def test_builtin_timing_and_kf_noise_are_fixed_default_only(tracker):
     schema = flatten_yaml_config(load_yaml_config(tracker))
-    assert schema["variable_dt"] == {"default": False}
-    assert load_tracker_defaults(tracker)["variable_dt"] is False
-    assert "variable_dt" not in default_tune_config(schema)
+    assert schema["kalman.variable_dt"] == {"default": False}
+    assert load_tracker_defaults(tracker)["kalman.variable_dt"] is False
+    assert "kalman.variable_dt" not in default_tune_config(schema)
     for parameter in KALMAN_NOISE_OPTIONS:
         assert schema[parameter] == {"default": 1.0}
         assert parameter not in default_tune_config(schema)
-    for parameter in ("kalman_noise.time_unit", "kalman_noise.reference_dt_s"):
+    for parameter in ("kalman.noise.time_unit", "kalman.noise.reference_dt_s"):
         assert set(schema[parameter]) == {"default"}
         assert parameter not in default_tune_config(schema)
 
 
 def test_search_backends_skip_fixed_timing_mode():
-    schema = {"variable_dt": {"default": True}, "threshold": {"type": "uniform", "default": 0.5, "range": [0.1, 0.9]}}
+    schema = {
+        "kalman.variable_dt": {"default": True},
+        "threshold": {"type": "uniform", "default": 0.5, "range": [0.1, 0.9]},
+    }
     ray = SimpleNamespace(uniform=lambda low, high: (low, high))
     assert yaml_to_tune_space(schema, ray) == {"threshold": (0.1, 0.9)}
     trial = SimpleNamespace(params={})
@@ -155,7 +158,7 @@ def test_search_backends_skip_fixed_timing_mode():
     assert trial.params == {"threshold": 0.1}
 
 
-@pytest.mark.parametrize("parameter", ["variable_dt", "kalman_noise.time_unit", "kalman_noise.reference_dt_s"])
+@pytest.mark.parametrize("parameter", ["kalman.variable_dt", "kalman.noise.time_unit", "kalman.noise.reference_dt_s"])
 def test_timing_mode_cannot_be_changed_to_a_search_dimension(parameter):
     with pytest.raises(ValueError, match=f"{parameter}.*fixed"):
         validate_tuning_config("bytetrack", {parameter: {"type": "choice", "default": False, "options": [False, True]}})
@@ -169,21 +172,21 @@ def test_saved_runtime_config_and_trial_identity_include_timing(tmp_path):
     timed_path = _output_directory(args, overrides)
     assert timed_path != fixed_path
     output = tmp_path / "best.yaml"
-    write_trial_yaml({}, overrides, output, base_config={"variable_dt": True, "track_thresh": 0.5})
-    assert yaml.safe_load(output.read_text()) == {"variable_dt": True, "track_thresh": 0.4}
+    write_trial_yaml({}, overrides, output, base_config={"kalman.variable_dt": True, "track_thresh": 0.5})
+    assert yaml.safe_load(output.read_text()) == {"kalman": {"variable_dt": True}, "track_thresh": 0.4}
 
 
 @pytest.mark.parametrize("requested, saved", [(True, False), (False, True)])
 def test_tune_resume_rejects_changed_timing_mode(requested, saved):
     tuner = Tuner(SimpleNamespace(tracker="bytetrack", variable_dt=requested))
-    with pytest.raises(ValueError, match="same variable_dt"):
+    with pytest.raises(ValueError, match="same kalman.variable_dt"):
         tuner._validate_resumed_timing(
             [
                 SimpleNamespace(
                     config={
-                        "variable_dt": saved,
-                        "kalman_noise.time_unit": "seconds" if saved else "frames",
-                        "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+                        "kalman.variable_dt": saved,
+                        "kalman.noise.time_unit": "seconds" if saved else "frames",
+                        "kalman.noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
                     }
                 )
             ]
@@ -192,29 +195,29 @@ def test_tune_resume_rejects_changed_timing_mode(requested, saved):
         [
             SimpleNamespace(
                 config={
-                    "variable_dt": requested,
-                    "kalman_noise.time_unit": "seconds" if requested else "frames",
-                    "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+                    "kalman.variable_dt": requested,
+                    "kalman.noise.time_unit": "seconds" if requested else "frames",
+                    "kalman.noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
                 }
             )
         ]
     )
 
 
-@pytest.mark.parametrize("replacement", [{"kalman_noise.time_unit": "frames"}, {"kalman_noise.reference_dt_s": 0.04}])
+@pytest.mark.parametrize("replacement", [{"kalman.noise.time_unit": "frames"}, {"kalman.noise.reference_dt_s": 0.04}])
 def test_resume_rejects_changed_units_or_reference(replacement):
     tuner = Tuner(SimpleNamespace(tracker="bytetrack", variable_dt=True))
     saved = {
-        "variable_dt": True,
-        "kalman_noise.time_unit": "seconds",
-        "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+        "kalman.variable_dt": True,
+        "kalman.noise.time_unit": "seconds",
+        "kalman.noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
         **replacement,
     }
-    with pytest.raises(ValueError, match="same variable_dt.*kalman_noise.reference_dt_s"):
+    with pytest.raises(ValueError, match="same kalman.variable_dt.*kalman.noise.reference_dt_s"):
         tuner._validate_resumed_timing([SimpleNamespace(config=saved)])
 
 
 def test_resume_requires_explicit_saved_units():
     tuner = Tuner(SimpleNamespace(tracker="bytetrack", variable_dt=True))
     with pytest.raises(ValueError, match="lack explicit timing"):
-        tuner._validate_resumed_timing([SimpleNamespace(config={"variable_dt": True})])
+        tuner._validate_resumed_timing([SimpleNamespace(config={"kalman.variable_dt": True})])

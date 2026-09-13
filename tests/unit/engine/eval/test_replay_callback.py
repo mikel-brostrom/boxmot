@@ -169,7 +169,7 @@ def test_callback_preserves_selected_pixels_timestamps_payloads_and_progress(tim
 
 
 def test_callback_keeps_real_kalman_results_identical(timestamped_build, tmp_path, monkeypatch):
-    spec = TrackerSpec(name="bytetrack", options=(("variable_dt", True),))
+    spec = TrackerSpec(name="bytetrack", options=(("kalman.variable_dt", True),))
     ordinary = replay.replay_build(
         timestamped_build,
         spec,

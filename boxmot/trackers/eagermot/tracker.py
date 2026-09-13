@@ -26,7 +26,7 @@ from boxmot.structures import (
 )
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.constructor import TrackerMetadataOptions
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.common.tracking.per_class import ClassTrackState
 from boxmot.trackers.eagermot.association import (
@@ -112,11 +112,10 @@ class EagerMot(BaseTracker):
         first_matching_method: str = "dist_2d_full",
         distance_threshold: float = 3.5,
         iou_3d_threshold: float = 0.01,
-        is_angular: bool = False,
         per_class: bool = False,
         asso_func: str = "iou",
         *,
-        kalman_noise: KalmanNoiseConfig | None = None,
+        kalman: KalmanConfig | None = None,
         **kwargs: Unpack[TrackerMetadataOptions],
     ) -> None:
         """Configure fusion, 3D matching, and the image-only recovery stage.
@@ -143,12 +142,11 @@ class EagerMot(BaseTracker):
             distance_threshold: Positive maximum distance for distance-based
                 first-stage matching.
             iou_3d_threshold: Minimum volumetric IoU when using ``iou_3d`` matching.
-            is_angular: Include object yaw velocity in the 3D motion state.
             per_class: Maintain separate class state collections. Association
                 always matches only detections and tracks of the same class.
             asso_func: Image association geometry; must be ``iou``.
-            kalman_noise: Immutable 3D covariance scales; None preserves the
-                source priors. Calibrated units must be frames.
+            kalman: Immutable 3D covariance and optional object yaw-velocity settings.
+                None preserves source priors. Prediction uses fixed frame steps.
             **kwargs: ``max_obs`` for observation history, and ``class_ids`` and
                 ``class_names`` for detector class metadata.
         """
@@ -168,12 +166,10 @@ class EagerMot(BaseTracker):
             raise ValueError("distance_threshold must be finite and positive.")
         if first_matching_method not in {"dist_2d", "dist_2d_dims", "dist_2d_full", "iou_3d"}:
             raise ValueError("first_matching_method must be 'dist_2d', 'dist_2d_dims', 'dist_2d_full', or 'iou_3d'.")
-        if not isinstance(is_angular, bool):
-            raise TypeError("is_angular must be bool.")
         if asso_func != "iou":
             raise ValueError("EagerMot supports only asso_func='iou' for sensor fusion and image association.")
         super().__init__(
-            kalman_noise=kalman_noise,
+            kalman=kalman,
             det_thresh=det_thresh,
             max_age=max_age,
             min_hits=min_hits,
@@ -188,7 +184,6 @@ class EagerMot(BaseTracker):
         self.first_matching_method = first_matching_method
         self.distance_threshold = distance_threshold
         self.iou_3d_threshold = iou_3d_threshold
-        self.is_angular = is_angular
         self._tracks: list[_Track] = []
         self._uses_world_frame: bool | None = None
 
@@ -381,7 +376,7 @@ class EagerMot(BaseTracker):
                 id=self.id_allocator.alloc(),
                 motion=Kalman3D(
                     boxes_3d[detection_index],
-                    is_angular=self.is_angular,
+                    is_angular=self.kalman_config.is_angular,
                     noise_config=self.kalman_noise_config.for_class(int(classes_3d[detection_index])),
                 ),
                 cls=int(classes_3d[detection_index]),

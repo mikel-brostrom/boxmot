@@ -310,9 +310,9 @@ class Tuner:
                     if parameter not in flat_schema or set(flat_schema[parameter]) == {"default"}
                 }
                 fixed_options.update(self._calibrated_fixed_options)
-                if "variable_dt" in runtime_config:
-                    args.variable_dt = runtime_config["variable_dt"]
-                    fixed_options["variable_dt"] = args.variable_dt
+                if "kalman.variable_dt" in runtime_config:
+                    args.variable_dt = runtime_config["kalman.variable_dt"]
+                    fixed_options["kalman.variable_dt"] = args.variable_dt
                 baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
                 self._configure_warning_filters()
@@ -478,15 +478,15 @@ class Tuner:
             expected = resolve_tracker_options(
                 self.args, self.baseline_config, include_defaults=True, stamp_timing=True
             )
-        keys = ("variable_dt", *KALMAN_TIMING_OPTIONS)
+        keys = ("kalman.variable_dt", *KALMAN_TIMING_OPTIONS)
         for result in results:
             saved = normalize_trial_config(result.config)
             if any(key not in saved for key in keys):
                 raise ValueError("Saved Kalman trials lack explicit timing units/reference; start a new tuning run.")
             if any(saved[key] != expected[key] for key in keys):
                 raise ValueError(
-                    "Resuming tuning requires the same variable_dt, kalman_noise.time_unit and "
-                    "kalman_noise.reference_dt_s as saved trials."
+                    "Resuming tuning requires the same kalman.variable_dt, kalman.noise.time_unit and "
+                    "kalman.noise.reference_dt_s as saved trials."
                 )
             if any(saved.get(key) != value for key, value in self._calibrated_fixed_options.items()):
                 raise ValueError("Saved trials do not match the fixed KF calibration; start a new tuning run.")
@@ -955,7 +955,7 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
         baseline_profiles = load_kitti_profiles(getattr(args, "class_config", None))
         calibration = None
         fixed_parameters = (
-            frozenset({"is_angular"})
+            frozenset({"kalman.is_angular"})
             if getattr(args, "calibrate_kf", False) or getattr(args, "class_config", None) is not None
             else frozenset()
         )

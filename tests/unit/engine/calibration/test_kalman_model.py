@@ -19,13 +19,13 @@ from tests.unit.trackers.test_variable_frame_time import _state, _update
 def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str, geometry: str, timed: bool) -> None:
     options = {
         "min_hits": 1,
-        "variable_dt": timed,
-        "kalman_noise.reference_dt_s": 0.05,
-        "kalman_noise.process_position_scale": 3.0,
-        "kalman_noise.process_velocity_scale": 7.0,
-        "kalman_noise.measurement_noise_scale": 5.0,
-        "kalman_noise.initial_position_scale": 4.0,
-        "kalman_noise.initial_velocity_scale": 6.0,
+        "kalman.variable_dt": timed,
+        "kalman.noise.reference_dt_s": 0.05,
+        "kalman.noise.process_position_scale": 3.0,
+        "kalman.noise.process_velocity_scale": 7.0,
+        "kalman.noise.measurement_noise_scale": 5.0,
+        "kalman.noise.initial_position_scale": 4.0,
+        "kalman.noise.initial_velocity_scale": 6.0,
     }
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=tuple(sorted(options.items()))))
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
@@ -78,7 +78,7 @@ def test_covariance_bases_reconstruct_actual_tracker_matrices(tracker_name: str,
     np.testing.assert_allclose(actual_q, 3.0 * q_position + 7.0 * q_velocity, atol=1e-12)
     assert np.min(np.linalg.eigvalsh(q_position)) >= -1e-12
     assert np.min(np.linalg.eigvalsh(q_velocity)) >= -1e-12
-    assert options["kalman_noise.process_position_scale"] == 3.0
+    assert options["kalman.noise.process_position_scale"] == 3.0
 
 
 @pytest.mark.parametrize("tracker_name", sorted(KALMAN_TRACKER_NAMES))
@@ -110,10 +110,12 @@ def test_hybrid_sort_confidence_is_not_supervised_by_box_ground_truth() -> None:
 def test_class_reference_model_removes_existing_noise_scales():
     options = {
         "per_class": True,
-        "kalman_noise": {
-            "measurement_noise_scale": 5.0,
-            "initial_position_scale": 8.0,
-            "by_class": {"2": {"measurement_noise_scale": 7.0, "initial_position_scale": 9.0}},
+        "kalman": {
+            "noise": {
+                "measurement_noise_scale": 5.0,
+                "initial_position_scale": 8.0,
+                "by_class": {"2": {"measurement_noise_scale": 7.0, "initial_position_scale": 9.0}},
+            },
         },
     }
     baseline = CalibrationModel("bytetrack", "aabb", {}, cls_id=2)
@@ -124,7 +126,7 @@ def test_class_reference_model_removes_existing_noise_scales():
         model.measurement_covariance(measurement), baseline.measurement_covariance(measurement)
     )
     assert not model.noise_config.by_class
-    assert options["kalman_noise"]["by_class"]["2"]["measurement_noise_scale"] == 7.0
+    assert options["kalman"]["noise"]["by_class"]["2"]["measurement_noise_scale"] == 7.0
 
 
 @pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort", "hybridsort"])
@@ -146,7 +148,7 @@ def test_strongsort_uses_runtime_confidence_uncertainty_without_an_invented_floo
 
 @pytest.mark.parametrize("tracker_name", sorted(KALMAN_TRACKER_NAMES))
 def test_seconds_requires_measured_prediction_interval(tracker_name: str) -> None:
-    model = CalibrationModel(tracker_name, "aabb", {"variable_dt": True})
+    model = CalibrationModel(tracker_name, "aabb", {"kalman.variable_dt": True})
     measurement = model.to_measurement(np.array([20.0, 30.0, 40.0, 80.0]))
     mean, _ = model.initial_state(measurement)
     with pytest.raises(ValueError, match="explicit measured dt"):
@@ -157,7 +159,7 @@ def test_seconds_requires_measured_prediction_interval(tracker_name: str) -> Non
 
 def test_calibration_rejects_wrong_time_basis_and_trackers_without_a_kalman_filter() -> None:
     with pytest.raises(ValueError, match="conflicts with"):
-        CalibrationModel("botsort", "aabb", {"variable_dt": True, "kalman_noise.time_unit": "frames"})
+        CalibrationModel("botsort", "aabb", {"kalman.variable_dt": True, "kalman.noise.time_unit": "frames"})
     with pytest.raises(ValueError, match="supported Kalman"):
         CalibrationModel("sfsort", "aabb", {})
 

@@ -167,36 +167,10 @@ duplicate_iou_thresh:
   default: 0.9571823233925608
   range: [0.5, 1.0]
 
-ams_enabled:
-  type: choice
-  default: True
-  options: [False, True]
-  activates:
-    ams_alpha0:
-      type: uniform
-      default: 0.8732388616784778
-      range: [0.0, 1.0]
-    ams_threshold:
-      type: uniform
-      default: 0.9206232808452425
-      range: [0.0, 1.0]
-    ams_buffer_size:
-      type: randint
-      default: 57
-      range: [3, 60]
-    ams_shrink_ratio:
-      type: uniform
-      default: 0.6934881647679682
-      range: [0.5, 1.0]
-
 lambda_emb_multiplier:
   type: uniform
   default: 2.9476295884842885
   range: [0.1, 8.0]
-
-# Fixed KF mode; select it before calibration.
-adaptive_kf:
-  default: False
 
 obb_det_thresh:
   type: uniform
@@ -233,23 +207,50 @@ obb_second_iou_thresh:
   default: 0.3
   range: [0.05, 0.9]
 
-# Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
+kalman:
+  # Fixed KF mode; select it before calibration.
+  adaptive_kf:
+    default: False
 
-# Fixed covariance defaults; --calibrate-kf supplies fitted values.
-kalman_noise:
-  time_unit:
-    default: null
-  reference_dt_s:
-    default: 0.03333333333333333
-  process_position_scale:
-    default: 1.0
-  process_velocity_scale:
-    default: 1.0
-  measurement_noise_scale:
-    default: 1.0
-  initial_position_scale:
-    default: 1.0
-  initial_velocity_scale:
-    default: 1.0
+  # Timing and reference-prior units stay fixed across all tuning trials.
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+  ams:
+    enabled:
+      type: choice
+      default: True
+      options: [False, True]
+      activates:
+        alpha0:
+          type: uniform
+          default: 0.8732388616784778
+          range: [0.0, 1.0]
+        threshold:
+          type: uniform
+          default: 0.9206232808452425
+          range: [0.0, 1.0]
+        buffer_size:
+          type: randint
+          default: 57
+          range: [3, 60]
+        shrink_ratio:
+          type: uniform
+          default: 0.6934881647679682
+          range: [0.5, 1.0]

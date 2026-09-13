@@ -4,7 +4,7 @@ Built-in tracker YAMLs colocate runtime defaults and tuning metadata. This
 module resolves scalar runtime values;
 interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
 Reusable presets and custom runtime configs group Kalman settings under
-``kalman_noise``. Engine/search code addresses those leaves using dotted paths.
+``kalman``. Engine/search code addresses those leaves using dotted paths.
 """
 
 from __future__ import annotations
@@ -30,47 +30,79 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
     Supplying a field twice through nested and dotted notation is an error.
     """
     flattened: dict[str, Any] = {}
+    parents: set[str] = set()
 
     def insert(name: str, value: Any) -> None:
         if name in flattened:
             raise ValueError(f"Tracker configuration specifies {name!r} more than once.")
+        if name.startswith("kalman.") and not isinstance(value, (str, int, float, bool, type(None))):
+            raise TypeError(
+                "Dotted Kalman option paths must address scalar leaves; use the 'kalman' group for mappings."
+            )
+        parts = name.split(".")
+        prefixes = {".".join(parts[:length]) for length in range(1, len(parts))}
+        if name in parents or prefixes.intersection(flattened):
+            raise ValueError(f"Tracker option {name!r} conflicts with another parameter path.")
+        parents.update(prefixes)
         flattened[name] = value
 
-    def visit_noise(value: Any, prefix: str = "kalman_noise.") -> None:
+    def visit_group(value: Any, prefix: str) -> None:
         if isinstance(value, tuple):
             value = dict(value)
         if not isinstance(value, Mapping):
+            from boxmot.trackers.common.motion.kalman_filters.config import (
+                AbnormalMotionSuppressionConfig,
+                KalmanConfig,
+            )
             from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 
-            if not isinstance(value, KalmanNoiseConfig):
-                raise TypeError("kalman_noise must be a KalmanNoiseConfig or a configuration mapping.")
+            expected = (
+                KalmanConfig
+                if prefix == "kalman."
+                else (AbnormalMotionSuppressionConfig if prefix == "kalman.ams." else KalmanNoiseConfig)
+            )
+            if not isinstance(value, expected):
+                raise TypeError(f"{prefix.rstrip('.')} must be a {expected.__name__} or a configuration mapping.")
             value = value.to_dict()
         if not value:
-            insert(prefix + "time_unit", None)
+            field, default = (
+                ("variable_dt", False)
+                if prefix == "kalman."
+                else (("enabled", True) if prefix == "kalman.ams." else ("time_unit", None))
+            )
+            insert(prefix + field, default)
             return
         for field, setting in value.items():
             if not isinstance(field, str) or "." in field:
-                raise ValueError("kalman_noise field names must be unqualified strings.")
-            if field == "by_class":
-                if prefix != "kalman_noise.":
-                    raise ValueError("Kalman class overrides cannot contain further class overrides.")
+                raise ValueError("Kalman field names must be unqualified strings.")
+            if prefix == "kalman." and field in {"noise", "ams"}:
+                if field == "ams" and setting is None:
+                    continue
+                visit_group(setting, prefix + field + ".")
+            elif field == "by_class":
+                if prefix != "kalman.noise.":
+                    raise ValueError("Kalman class overrides belong under kalman.noise.by_class and cannot nest.")
                 if isinstance(setting, tuple):
                     setting = dict(setting)
                 if not isinstance(setting, Mapping):
-                    raise TypeError("kalman_noise.by_class must map class IDs to noise configurations.")
+                    raise TypeError("kalman.noise.by_class must map class IDs to noise configurations.")
                 for class_id, child in setting.items():
                     text_id = str(class_id)
-                    if not text_id.isdecimal() or str(int(text_id)) != text_id:
-                        raise ValueError("kalman_noise.by_class keys must be non-negative integer class IDs.")
-                    visit_noise(child, f"{prefix}by_class.{text_id}.")
+                    if not text_id.isascii() or not text_id.isdecimal() or str(int(text_id)) != text_id:
+                        raise ValueError("kalman.noise.by_class keys must be non-negative integer class IDs.")
+                    visit_group(child, f"{prefix}by_class.{text_id}.")
             else:
                 insert(prefix + field, setting)
 
     for name, value in config.items():
         if not isinstance(name, str):
             raise TypeError("Tracker option names must be strings.")
-        if name.startswith("kf_"):
-            raise TypeError(f"Unknown tracker option {name!r}; configure Kalman settings under 'kalman_noise'.")
+        if (
+            name.startswith("kf_")
+            or name in {"kalman_noise", "variable_dt", "adaptive_kf", "is_angular"}
+            or name.startswith(("kalman_noise.", "ams_"))
+        ):
+            raise TypeError(f"Unknown tracker option {name!r}; configure Kalman settings under 'kalman'.")
         if name == "calibration":
             if not isinstance(value, Mapping) or not value:
                 raise ValueError("calibration must contain saved profile metadata.")
@@ -79,16 +111,16 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
                     raise ValueError("calibration field names must be unqualified strings.")
                 insert(f"calibration.{field}", setting)
             continue
-        if name != "kalman_noise":
+        if name != "kalman":
             insert(name, value)
             continue
         if value is None:
-            insert("kalman_noise.time_unit", None)
+            insert("kalman.variable_dt", False)
             continue
         count = len(flattened)
-        visit_noise(value)
+        visit_group(value, "kalman.")
         if len(flattened) == count:
-            insert("kalman_noise.time_unit", None)
+            insert("kalman.variable_dt", False)
     return flattened
 
 
@@ -96,7 +128,7 @@ def nest_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
     """Serialize resolved tracker settings using the authored YAML structure."""
     nested: dict[str, Any] = {}
     for name, value in flatten_tracker_options(config).items():
-        if name.startswith(("kalman_noise.", "calibration.")):
+        if name.startswith(("kalman.", "calibration.")):
             target = nested
             parts = name.split(".")
             for part in parts[:-1]:
@@ -145,7 +177,7 @@ def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
         names = ", ".join(non_scalar)
         raise ValueError(
             f"{label.capitalize()} config {path} must contain runtime parameter values, "
-            f"with Kalman fields grouped under kalman_noise; invalid entries: {names}"
+            f"with Kalman fields grouped under kalman; invalid entries: {names}"
         )
     return dict(payload)
 
@@ -157,10 +189,10 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
 
     def _visit(entries: Mapping[str, Any], prefix: str = "") -> None:
         for parameter, details in entries.items():
-            if parameter == "kalman_noise" and not prefix:
+            if (parameter == "kalman" and not prefix) or (prefix == "kalman." and parameter in {"noise", "ams"}):
                 if not isinstance(details, Mapping) or not details:
-                    raise ValueError(f"Tracker config {path} kalman_noise must contain parameter definitions.")
-                _visit(details, "kalman_noise.")
+                    raise ValueError(f"Tracker config {path} kalman must contain parameter definitions.")
+                _visit(details, prefix + str(parameter) + ".")
                 continue
             parameter = prefix + str(parameter)
             if not isinstance(details, Mapping):

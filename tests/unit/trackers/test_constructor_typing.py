@@ -18,7 +18,7 @@ from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRAC
 
 _REID_OPTIONS = {"reid_model", "reid_weights", "device", "half", "reid_preprocess"}
 _TIMING_OPTIONS = {"variable_dt"}
-_NOISE_OPTIONS = {"kalman_noise"}
+_NOISE_OPTIONS = {"kalman"}
 
 
 def _keyword_parameters(constructor: Any) -> dict[str, inspect.Parameter]:
@@ -164,10 +164,10 @@ def test_constructor_kwargs_docs_only_advertise_supported_options(tracker_name: 
 def test_kalman_configuration_is_an_explicit_keyword_only_parameter(tracker_name: str) -> None:
     tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
     signature = inspect.signature(tracker.__init__)
-    parameter = signature.parameters["kalman_noise"]
+    parameter = signature.parameters["kalman"]
     assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
     assert parameter.default is None
-    assert get_type_hints(tracker.__init__)["kalman_noise"] == boxmot.KalmanNoiseConfig | None
+    assert get_type_hints(tracker.__init__)["kalman"] == boxmot.KalmanConfig | None
     assert not any(name.startswith("kf_") for name in signature.parameters)
 
 
@@ -182,6 +182,15 @@ def test_kalman_configuration_is_an_explicit_keyword_only_parameter(tracker_name
         "kf_initial_velocity_scale",
         "kf_reference_dt_s",
         "kf_time_unit",
+        "kalman_noise",
+        "variable_dt",
+        "adaptive_kf",
+        "is_angular",
+        "ams_enabled",
+        "ams_alpha0",
+        "ams_threshold",
+        "ams_buffer_size",
+        "ams_shrink_ratio",
     ],
 )
 def test_removed_scalar_kalman_constructor_keywords_are_rejected(tracker_name: str, option: str) -> None:
@@ -191,8 +200,8 @@ def test_removed_scalar_kalman_constructor_keywords_are_rejected(tracker_name: s
 
 
 @pytest.mark.parametrize("tracker_name", ["sfsort", "maf_hda"])
-@pytest.mark.parametrize("config", [None, boxmot.KalmanNoiseConfig()])
+@pytest.mark.parametrize("config", [None, boxmot.KalmanConfig()])
 def test_trackers_without_kalman_motion_reject_configuration_objects(tracker_name: str, config) -> None:
     tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
-    with pytest.raises(TypeError, match="does not accept kalman_noise"):
-        tracker(kalman_noise=config)
+    with pytest.raises(TypeError, match="does not accept kalman"):
+        tracker(kalman=config)

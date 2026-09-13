@@ -12,10 +12,10 @@ import numpy as np
 from boxmot.structures.kinds import GeometryKind
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TRACKER_NAMES,
-    normalize_kalman_options,
 )
 from boxmot.trackers.common.motion.kalman_filters.profile import (
     calibration_profile_signature,
@@ -37,9 +37,9 @@ def validate_calibration_options(tracker_name: str, options: Mapping[str, Any], 
     flattened = flatten_tracker_options(options)
     validate_calibration_profile(flattened, tracker_name=tracker_name, geometry=geometry)
     accepted.update(name for name in flattened if name.startswith("calibration."))
-    if "kalman_noise" in accepted:
-        normalize_kalman_options(flattened, variable_dt=flattened.get("variable_dt", False), tracker_name=tracker_name)
-        accepted.update(name for name in flattened if name.startswith("kalman_noise."))
+    if "kalman" in accepted:
+        normalize_kalman_config(flattened, tracker_name=tracker_name)
+        accepted.update(name for name in flattened if name.startswith("kalman."))
     unknown = sorted(set(flattened) - accepted)
     if unknown:
         raise ValueError(f"Unsupported {tracker_name} tracker options for KF calibration: {', '.join(unknown)}")
@@ -76,14 +76,10 @@ class CalibrationModel:
         self.is_obb = self.geometry is GeometryKind.OBB
         self.options = load_tracker_config(tracker_name, None, options)
         validate_calibration_options(tracker_name, self.options, geometry=self.geometry.value)
-        noise = normalize_kalman_options(
-            self.options,
-            variable_dt=self.options.get("variable_dt", False),
-            tracker_name=tracker_name,
-        )
+        noise = normalize_kalman_config(self.options, tracker_name=tracker_name).noise
         self.noise_config = replace(
             noise.for_class(cls_id) if cls_id is not None else noise,
-            **{name.removeprefix("kalman_noise."): 1.0 for name in KALMAN_NOISE_OPTIONS},
+            **{name.removeprefix("kalman.noise."): 1.0 for name in KALMAN_NOISE_OPTIONS},
             by_class={},
         )
         signature_fields = calibration_profile_signature(tracker_name, self.geometry.value, self.options)

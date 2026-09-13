@@ -34,7 +34,11 @@ def expand_yaml_groups(yaml_cfg: dict, *, prefix: str = "") -> dict:
     expanded = {}
     for name, details in yaml_cfg.items():
         key = f"{prefix}{name}"
-        if name == "kalman_noise" and isinstance(details, dict):
+        if (
+            (key == "kalman" or key.startswith("kalman."))
+            and isinstance(details, dict)
+            and not {"default", "type"}.intersection(details)
+        ):
             expanded.update(expand_yaml_groups(details, prefix=f"{key}."))
             continue
         if isinstance(details, dict) and isinstance(details.get("activates"), dict):
@@ -154,7 +158,7 @@ def validate_tuning_config(tracker_name: str, config: dict) -> None:
     for param, details in flat.items():
         if isinstance(details, dict) and set(details) == {"default"}:
             continue
-        if param in {"variable_dt", *KALMAN_TIMING_OPTIONS}:
+        if param in {"kalman.variable_dt", *KALMAN_TIMING_OPTIONS}:
             raise ValueError(f"{param} is a fixed runtime setting and cannot have tuning metadata.")
         if not is_valid_search_param(param, details, warn=False):
             raise ValueError(f"Tuning config for {tracker_name} has invalid search metadata for {param!r}.")
@@ -306,7 +310,7 @@ def unpack_nested_dict(dct: dict[str, Any]) -> dict[str, Any]:
     """Recursively flatten nested dicts produced by conditional HyperOpt branches."""
     out: dict[str, Any] = {}
     for key, value in dct.items():
-        if key in {"kalman_noise", "calibration"} and isinstance(value, dict):
+        if key in {"kalman", "calibration"} and isinstance(value, dict):
             out.update(flatten_tracker_options({key: value}))
         elif isinstance(value, dict):
             out.update(unpack_nested_dict(value))

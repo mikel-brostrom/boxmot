@@ -119,11 +119,11 @@ def test_stateful_measurement_scale_is_consistent_in_joseph_covariance(mode):
 
 
 @pytest.mark.parametrize(
-    "field", [*[option.removeprefix("kalman_noise.") for option in KALMAN_NOISE_OPTIONS], "reference_dt_s"]
+    "field", [*[option.removeprefix("kalman.noise.") for option in KALMAN_NOISE_OPTIONS], "reference_dt_s"]
 )
 @pytest.mark.parametrize("value", [True, False, 0.0, -1.0, np.nan, np.inf, "2", [2]])
 def test_noise_config_rejects_malformed_scalars(field, value):
-    with pytest.raises(ValueError, match=f"kalman_noise.{field}"):
+    with pytest.raises(ValueError, match=f"kalman.noise.{field}"):
         KalmanNoiseConfig(**{field: value})
 
 
@@ -173,28 +173,28 @@ def test_class_noise_rejects_recursive_overrides_and_conflicting_time_bases():
 
 
 def test_dotted_and_nested_class_noise_resolve_to_the_same_immutable_config():
-    dotted = {"kalman_noise.process_position_scale": 2.0, "kalman_noise.by_class.5.measurement_noise_scale": 7.0}
-    nested = {"kalman_noise": {"process_position_scale": 2.0, "by_class": {"5": {"measurement_noise_scale": 7.0}}}}
+    dotted = {"kalman.noise.process_position_scale": 2.0, "kalman.noise.by_class.5.measurement_noise_scale": 7.0}
+    nested = {"kalman.noise": {"process_position_scale": 2.0, "by_class": {"5": {"measurement_noise_scale": 7.0}}}}
     assert normalize_kalman_options(dotted, variable_dt=False) == normalize_kalman_options(nested, variable_dt=False)
     with pytest.raises(ValueError, match="both nested and dotted"):
         normalize_kalman_options({**dotted, **nested}, variable_dt=False)
     with pytest.raises(TypeError, match="Unexpected Kalman option"):
-        normalize_kalman_options({"kalman_noise.by_class.5.unknown": 1.0}, variable_dt=False)
+        normalize_kalman_options({"kalman.noise.by_class.5.unknown": 1.0}, variable_dt=False)
 
 
 @pytest.mark.parametrize("name, backend", [("bytetrack", "cpp"), ("sfsort", "python"), ("maf_hda", "python")])
 def test_factory_rejects_unsupported_noise_scaling_before_loading_models(name, backend):
-    with pytest.raises(ValueError, match="Python Kalman|does not support kalman_noise"):
-        create_tracker(TrackerSpec(name=name, backend=backend, options=(("kalman_noise.process_position_scale", 2.0),)))
+    with pytest.raises(ValueError, match="Python Kalman|does not support kalman"):
+        create_tracker(TrackerSpec(name=name, backend=backend, options=(("kalman.noise.process_position_scale", 2.0),)))
 
 
 def test_native_adapter_accepts_default_scales_and_rejects_custom_scales():
     config = load_native_tracker_config(
-        "bytetrack", {"kalman_noise.process_position_scale": 1.0, "kalman_noise.time_unit": "frames"}
+        "bytetrack", {"kalman.noise.process_position_scale": 1.0, "kalman.noise.time_unit": "frames"}
     )
-    assert not any(option.startswith("kalman_noise.") for option in config)
+    assert not any(option.startswith("kalman.noise.") for option in config)
     with pytest.raises(ValueError, match="Python Kalman"):
-        load_native_tracker_config("bytetrack", {"kalman_noise.measurement_noise_scale": 0.5})
+        load_native_tracker_config("bytetrack", {"kalman.noise.measurement_noise_scale": 0.5})
 
 
 @pytest.mark.parametrize("dt", [0.013, 0.1, 1.0])
@@ -300,14 +300,14 @@ def test_seconds_prediction_requires_measured_interval_without_mutation(mode):
 
 @pytest.mark.parametrize("unit", ["Frames", "second", False, []])
 def test_noise_config_rejects_noncanonical_time_units(unit):
-    with pytest.raises(ValueError, match="kalman_noise.time_unit"):
+    with pytest.raises(ValueError, match="kalman.noise.time_unit"):
         KalmanNoiseConfig(time_unit=unit)
 
 
 @pytest.mark.parametrize("variable_dt,unit", [(False, "seconds"), (True, "frames")])
 def test_persisted_units_cannot_silently_change_timing_mode(variable_dt, unit):
     with pytest.raises(ValueError, match="conflicts with variable_dt"):
-        normalize_kalman_options({"kalman_noise.time_unit": unit}, variable_dt=variable_dt)
+        normalize_kalman_options({"kalman.noise.time_unit": unit}, variable_dt=variable_dt)
 
 
 @pytest.mark.parametrize("variable_dt,unit", [(False, "frames"), (True, "seconds")])

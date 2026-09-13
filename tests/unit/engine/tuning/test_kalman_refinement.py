@@ -17,6 +17,7 @@ from boxmot.engine.tuning.postprocessing import write_trial_yaml
 from boxmot.engine.tuning.search_space import (
     conditional_yaml_tree,
     flatten_yaml_config,
+    load_yaml_config,
     normalize_trial_config,
     yaml_to_tune_space,
 )
@@ -30,12 +31,14 @@ def test_grouped_schema_preserves_conditional_children_across_search_backends() 
             "default": True,
             "options": [True],
             "activates": {
-                "kalman_noise": {"process_position_scale": {"type": "loguniform", "default": 2.0, "range": [0.5, 8.0]}}
+                "kalman": {
+                    "noise": {"process_position_scale": {"type": "loguniform", "default": 2.0, "range": [0.5, 8.0]}}
+                }
             },
         },
-        "kalman_noise": {"time_unit": {"default": "frames"}},
+        "kalman": {"noise": {"time_unit": {"default": "frames"}}},
     }
-    key = "kalman_noise.process_position_scale"
+    key = "kalman.noise.process_position_scale"
     flat = flatten_yaml_config(schema)
     parents, children, mapping = conditional_yaml_tree(schema)
     assert key in flat and key in parents["enabled"]
@@ -50,51 +53,95 @@ def test_grouped_schema_preserves_conditional_children_across_search_backends() 
     sampled = normalize_trial_config(stochastic.sample(yaml_to_hyperopt_space(schema), rng=np.random.default_rng(4)))
     assert sampled["enabled"] is True
     assert 0.5 <= sampled[key] <= 8.0
-    assert "kalman_noise.time_unit" not in sampled
+    assert "kalman.noise.time_unit" not in sampled
 
 
 def test_refinement_uses_each_class_prior_and_omits_unused_global_fallback() -> None:
     baseline = {
         **load_tracker_defaults("botsort"),
-        "kalman_noise.by_class.1.process_velocity_scale": 2.0,
-        "kalman_noise.by_class.3.process_velocity_scale": 12.0,
-        "kalman_noise.by_class.3.measurement_noise_scale": 7.0,
-        "kalman_noise.by_class.5.process_velocity_scale": 99.0,
+        "kalman.noise.by_class.1.process_velocity_scale": 2.0,
+        "kalman.noise.by_class.3.process_velocity_scale": 12.0,
+        "kalman.noise.by_class.3.measurement_noise_scale": 7.0,
+        "kalman.noise.by_class.5.process_velocity_scale": 99.0,
     }
     schema = refine_kalman_schema(
-        {"kalman_noise": {"process_velocity_scale": {"default": 1.0}}},
+        {"kalman": {"noise": {"process_velocity_scale": {"default": 1.0}}}},
         baseline,
         ("process_velocity_scale",),
         class_ids=(1, 3),
     )
-    assert schema["kalman_noise.process_velocity_scale"] == {"default": 1.0}
-    assert schema["kalman_noise.by_class.1.process_velocity_scale"]["range"] == [0.5, 8.0]
-    assert schema["kalman_noise.by_class.3.process_velocity_scale"]["range"] == [3.0, 48.0]
-    assert "kalman_noise.by_class.5.process_velocity_scale" not in schema
+    assert schema["kalman.noise.process_velocity_scale"] == {"default": 1.0}
+    assert schema["kalman.noise.by_class.1.process_velocity_scale"]["range"] == [0.5, 8.0]
+    assert schema["kalman.noise.by_class.3.process_velocity_scale"]["range"] == [3.0, 48.0]
+    assert "kalman.noise.by_class.5.process_velocity_scale" not in schema
     with_fallback = refine_kalman_schema({}, baseline, ("process_velocity_scale",), class_ids=(1, 2, 3))
-    assert with_fallback["kalman_noise.process_velocity_scale"]["range"] == [0.25, 4.0]
+    assert with_fallback["kalman.noise.process_velocity_scale"]["range"] == [0.25, 4.0]
+
+
+@pytest.mark.parametrize("enabled", (False, True))
+def test_grouped_ams_remains_conditionally_searchable_with_noise_refinement(enabled: bool) -> None:
+    """Moving AMS inside Kalman must retain its ranges and enabled branches."""
+    baseline = load_tracker_defaults("occluboost")
+    schema = refine_kalman_schema(load_yaml_config("occluboost"), baseline, ("process_velocity_scale",))
+    flat = flatten_yaml_config(schema)
+    parent = "kalman.ams.enabled"
+    fields = {
+        "kalman.ams.alpha0": (0.0, 1.0),
+        "kalman.ams.threshold": (0.0, 1.0),
+        "kalman.ams.buffer_size": (3, 60),
+        "kalman.ams.shrink_ratio": (0.5, 1.0),
+    }
+    parents, _, child_to_parent = conditional_yaml_tree(schema)
+    assert set(parents[parent]) == set(fields)
+    assert all(child_to_parent[name] == parent for name in fields)
+    assert flat[parent]["options"] == [False, True]
+    assert all(tuple(flat[name]["range"]) == bounds for name, bounds in fields.items())
+    assert flat["kalman.adaptive_kf"] == {"default": baseline["kalman.adaptive_kf"]}
+    # Select just the grouped AMS tree so unrelated tracker branches cannot
+    # obscure whether these options activate and keep their canonical names.
+    ams_schema = {parent: {**schema[parent], "options": [enabled]}}
+    values = {parent: enabled, **{name: baseline[name] for name in fields}}
+    optuna = pytest.importorskip("optuna")
+    trial = optuna.trial.FixedTrial(values)
+    yaml_to_optuna_define_space(ams_schema)(trial)
+    assert trial.params == (values if enabled else {parent: False})
+    stochastic = pytest.importorskip("hyperopt.pyll.stochastic")
+    sampled = normalize_trial_config(
+        stochastic.sample(yaml_to_hyperopt_space(ams_schema), rng=np.random.default_rng(4))
+    )
+    assert sampled[parent] is enabled
+    assert set(sampled) == ({parent, *fields} if enabled else {parent})
+    ray = SimpleNamespace(
+        choice=lambda choices: choices[0], uniform=lambda low, high: (low, high), randint=lambda low, high: (low, high)
+    )
+    ray_space = yaml_to_tune_space(ams_schema, ray)
+    assert ray_space == {parent: enabled, **fields}
 
 
 @pytest.mark.parametrize("value", [0, -1, float("nan"), float("inf"), True])
 def test_refinement_rejects_invalid_log_scale_baseline(value: float) -> None:
     with pytest.raises(ValueError, match="positive baseline"):
-        refine_kalman_schema({}, {"kalman_noise.process_position_scale": value}, ("process_position_scale",))
+        refine_kalman_schema({}, {"kalman.noise.process_position_scale": value}, ("process_position_scale",))
 
 
 def test_resume_requires_same_refinement_selection_and_all_class_baselines(tmp_path: Path) -> None:
-    baseline = {**load_tracker_defaults("botsort"), "kalman_noise.by_class.1.process_velocity_scale": 2.0}
+    baseline = {**load_tracker_defaults("occluboost"), "kalman.noise.by_class.1.process_velocity_scale": 2.0}
     args = SimpleNamespace(tune_kf=("process_velocity_scale",), tracker_class_ids=(1,), resume_tune=None)
     keys = prepare_kalman_refinement(args, baseline, tmp_path)
-    assert keys == ("kalman_noise.by_class.1.process_velocity_scale",)
+    assert keys == ("kalman.noise.by_class.1.process_velocity_scale",)
     args.resume_tune = tmp_path
     assert prepare_kalman_refinement(args, baseline, tmp_path) == keys
     for field in (
-        "kalman_noise.process_position_scale",
-        "kalman_noise.by_class.1.process_velocity_scale",
-        "kalman_noise.reference_dt_s",
+        "kalman.noise.process_position_scale",
+        "kalman.noise.by_class.1.process_velocity_scale",
+        "kalman.noise.reference_dt_s",
     ):
         with pytest.raises(ValueError, match="same baseline"):
             prepare_kalman_refinement(args, {**baseline, field: 123.0}, tmp_path)
+    with pytest.raises(ValueError, match="same baseline"):
+        prepare_kalman_refinement(
+            args, {**baseline, "kalman.adaptive_kf": not baseline["kalman.adaptive_kf"]}, tmp_path
+        )
     args.tune_kf = ()
     with pytest.raises(ValueError, match="same --tune-kf selection"):
         prepare_kalman_refinement(args, baseline, tmp_path)
@@ -109,7 +156,7 @@ def test_resume_cannot_add_refinement_or_accept_malformed_metadata(tmp_path: Pat
     with pytest.raises(ValueError, match="malformed"):
         prepare_kalman_refinement(args, baseline, tmp_path)
     (tmp_path / "kf-refinement.json").write_text(
-        json.dumps({"fields": ["kalman_noise.process_position_scale"]}), encoding="utf-8"
+        json.dumps({"fields": ["kalman.noise.process_position_scale"]}), encoding="utf-8"
     )
     with pytest.raises(ValueError, match="same baseline"):
         prepare_kalman_refinement(args, baseline, tmp_path)
@@ -117,18 +164,22 @@ def test_resume_cannot_add_refinement_or_accept_malformed_metadata(tmp_path: Pat
 
 def test_best_yaml_nests_grouped_noise_and_preserves_class_settings(tmp_path: Path) -> None:
     baseline = {
-        "kalman_noise.process_position_scale": 2.0,
-        "kalman_noise.time_unit": "seconds",
-        "kalman_noise.by_class.1.process_position_scale": 4.0,
-        "kalman_noise.by_class.1.reference_dt_s": 0.05,
-        "variable_dt": True,
+        "kalman.noise.process_position_scale": 2.0,
+        "kalman.noise.time_unit": "seconds",
+        "kalman.noise.by_class.1.process_position_scale": 4.0,
+        "kalman.noise.by_class.1.reference_dt_s": 0.05,
+        "kalman.variable_dt": True,
+        "kalman.adaptive_kf": False,
+        "kalman.ams.enabled": True,
+        "kalman.ams.alpha0": 0.75,
         "calibration.tracker": "botsort",
         "calibration.geometry": "aabb",
     }
     path = tmp_path / "best.yaml"
-    write_trial_yaml({}, {"kalman_noise.by_class.1.process_position_scale": 8.0}, path, base_config=baseline)
+    write_trial_yaml({}, {"kalman.noise.by_class.1.process_position_scale": 8.0}, path, base_config=baseline)
     saved = yaml.safe_load(path.read_text())
     assert not any("." in key for key in saved)
-    assert saved["kalman_noise"]["by_class"]["1"]["process_position_scale"] == 8.0
+    assert saved["kalman"]["noise"]["by_class"]["1"]["process_position_scale"] == 8.0
+    assert saved["kalman"]["ams"] == {"enabled": True, "alpha0": 0.75}
     assert saved["calibration"] == {"tracker": "botsort", "geometry": "aabb"}
-    assert flatten_tracker_options(saved) == {**baseline, "kalman_noise.by_class.1.process_position_scale": 8.0}
+    assert flatten_tracker_options(saved) == {**baseline, "kalman.noise.by_class.1.process_position_scale": 8.0}

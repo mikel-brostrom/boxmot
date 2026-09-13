@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from boxmot.trackers.common.motion.kalman_filters.noise import normalize_kalman_options
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 
 _IMAGE_FILTERS = {
     "boosttrack": ("xyhr", "xyhr"),
@@ -29,20 +29,20 @@ def calibration_profile_signature(
         raise ValueError("Calibrated Kalman profiles require the Python tracker backend.")
     if geometry not in {"aabb", "obb"}:
         raise ValueError(f"Unsupported calibrated tracker geometry {geometry!r}.")
-    variable_dt = options.get("variable_dt", False)
-    noise = normalize_kalman_options(options, variable_dt=variable_dt, tracker_name=tracker_name, backend=backend)
+    kalman = normalize_kalman_config(options, tracker_name=tracker_name, backend=backend)
+    noise = kalman.noise
     signature: dict[str, str | int | float | bool] = {
         "tracker": tracker_name,
         "backend": backend,
         "geometry": geometry,
-        "variable_dt": variable_dt,
+        "variable_dt": kalman.variable_dt,
         "time_unit": noise.time_unit,
         "reference_dt_s": noise.reference_dt_s,
     }
     if tracker_name == "eagermot":
         if geometry != "aabb":
             raise ValueError("Calibrated EagerMOT profiles require AABB image detections.")
-        angular = options.get("is_angular", False)
+        angular = kalman.is_angular
         if not isinstance(angular, bool):
             raise ValueError("Calibrated EagerMOT is_angular must be a bool.")
         return {

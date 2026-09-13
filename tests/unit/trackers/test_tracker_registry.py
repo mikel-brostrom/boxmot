@@ -302,7 +302,7 @@ def test_tracker_defaults_are_scalar_constructor_parameters(tracker_name: str) -
     defaults = load_tracker_config(tracker_name)
 
     assert {name.split(".", 1)[0] for name in defaults} <= accepted
-    assert {name for name in defaults if name.startswith("kalman_noise.")} <= {
+    assert {name for name in defaults if name.startswith("kalman.noise.")} <= {
         *KALMAN_NOISE_OPTIONS,
         *KALMAN_TIMING_OPTIONS,
     }
@@ -313,7 +313,7 @@ def test_tracker_config_rejects_collection_values(tmp_path) -> None:
     config_path = tmp_path / "invalid.yaml"
     config_path.write_text(yaml.safe_dump({"track_thresh": [0.5, 0.7]}), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Kalman fields grouped under kalman_noise"):
+    with pytest.raises(ValueError, match="Kalman fields grouped under kalman"):
         load_tracker_config("bytetrack", config_path)
 
 

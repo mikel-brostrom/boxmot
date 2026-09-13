@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanNoiseConfig
+from boxmot import KalmanConfig
 from boxmot.structures import Boxes, CameraModel, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.botsort.native import NativeBotSortTracker
 from boxmot.trackers.common.config import load_tracker_defaults, nest_tracker_options
@@ -75,7 +75,7 @@ def _without_cmc(name: str) -> dict[str, bool]:
 
 def _python_tracker(name: str, **options: Any) -> Any:
     defaults = nest_tracker_options(load_tracker_defaults(name))
-    defaults["kalman_noise"] = KalmanNoiseConfig.from_mapping(defaults["kalman_noise"])
+    defaults["kalman"] = KalmanConfig.from_mapping(defaults["kalman"])
     defaults.update(options)
     return get_tracker_class(name)(**defaults)
 
@@ -155,7 +155,7 @@ def test_python_does_not_silently_drop_disabled_or_unsupported_inputs(name: str,
 
 @pytest.mark.parametrize("name", _PYTHON_TRACKERS)
 def test_python_variable_timing_requires_and_consumes_capture_timestamps(name: str) -> None:
-    tracker = _python_tracker(name, **_without_cmc(name), use_embeddings=False, variable_dt=True)
+    tracker = _python_tracker(name, **_without_cmc(name), use_embeddings=False, kalman=KalmanConfig(variable_dt=True))
     with pytest.raises(ValueError, match="requires timestamp_s"):
         tracker.update(_detections())
     tracker.update(_detections(), timestamp_s=1.0)
@@ -243,5 +243,5 @@ def test_native_enabled_cmc_rejects_unavailable_estimators(name: str, method: st
 
 @pytest.mark.parametrize("name", _NATIVE_TRACKERS)
 def test_native_trackers_do_not_claim_variable_frame_time(name: str) -> None:
-    with pytest.raises(ValueError, match="variable_dt"):
-        _NATIVE_TRACKERS[name]({"variable_dt": True}, library=_Library())
+    with pytest.raises(ValueError, match="kalman.variable_dt"):
+        _NATIVE_TRACKERS[name]({"kalman.variable_dt": True}, library=_Library())

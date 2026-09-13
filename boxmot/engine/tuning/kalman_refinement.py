@@ -24,8 +24,8 @@ def validate_kalman_refinement(tracker_name: str, backend: str = "python") -> No
 
 
 def is_kalman_option(name: str) -> bool:
-    """Include grouped class priors alongside the global noise and timing."""
-    return name.startswith("kalman_noise.") or name == "variable_dt"
+    """Keep covariance priors and fixed filter modes distinct from AMS search."""
+    return name.startswith("kalman.noise.") or name in {"kalman.variable_dt", "kalman.adaptive_kf"}
 
 
 def selected_kalman_options(fields: Sequence[str] | None) -> tuple[str, ...]:
@@ -52,12 +52,12 @@ def refinement_keys(
         children = sorted(
             name
             for name in baseline
-            if name.startswith("kalman_noise.by_class.")
+            if name.startswith("kalman.noise.by_class.")
             and name.endswith(f".{field}")
-            and (allowed_classes is None or name.split(".")[2] in allowed_classes)
+            and (allowed_classes is None or name.split(".")[3] in allowed_classes)
         )
         keys.extend(children)
-        if not class_ids or any(f"kalman_noise.by_class.{class_id}.{field}" not in children for class_id in class_ids):
+        if not class_ids or any(f"kalman.noise.by_class.{class_id}.{field}" not in children for class_id in class_ids):
             keys.append(key)
     return tuple(keys)
 

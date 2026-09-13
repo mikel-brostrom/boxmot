@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 
 from boxmot.engine.calibration.kalman_model import validate_calibration_options
-from boxmot.trackers.common.motion.kalman_filters.noise import normalize_kalman_options
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.eagermot.geometry import yaw_difference
 from boxmot.trackers.eagermot.motion import Kalman3D
 
@@ -23,9 +23,9 @@ class CalibrationModel3D:
 
     def __init__(self, options: Mapping[str, Any]) -> None:
         validate_calibration_options("eagermot", options)
-        normalize_kalman_options(options, variable_dt=options.get("variable_dt", False), tracker_name="eagermot")
+        kalman = normalize_kalman_config(options, tracker_name="eagermot")
         self._filter = Kalman3D(
-            np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]), is_angular=options.get("is_angular", False)
+            np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]), is_angular=kalman.is_angular
         )
         self.dim_z = 7
         self.dim_x = len(self._filter.state)

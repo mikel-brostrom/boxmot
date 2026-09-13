@@ -11,10 +11,8 @@ from boxmot.components.resolution import component_options
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
-from boxmot.trackers.common.motion.kalman_filters.noise import (
-    KALMAN_NOISE_TRACKER_NAMES,
-    normalize_kalman_options,
-)
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
 from boxmot.trackers.common.registry import (
@@ -41,7 +39,7 @@ _REID_MODEL_OPTIONS = frozenset(
 _FORBIDDEN_NATIVE_MASK_OPTIONS = frozenset({"masks", "supports_masks", "use_masks"})
 _UNSUPPORTED_NATIVE_OPTIONS = {
     "botsort": frozenset({"removed_stracks_buffer"}),
-    "occluboost": frozenset({"adaptive_kf"}),
+    "occluboost": frozenset({"kalman.adaptive_kf"}),
 }
 _SPEC_FIELDS = frozenset({"backend", "geometry", "per_class", "class_ids", "class_names"})
 
@@ -109,7 +107,7 @@ def _create_native_tracker(
         raise ValueError(f"Native {spec.name} does not support {geometry_kind.value.upper()} geometry.")
     if definition.capabilities.accepts_masks:
         raise ValueError(f"Native {spec.name} does not support masks.")
-    variable_dt = spec.option_dict.get("variable_dt", False)
+    variable_dt = spec.option_dict.get("kalman.variable_dt", False)
     if not isinstance(variable_dt, bool):
         raise TypeError("variable_dt must be bool.")
     if variable_dt:
@@ -136,7 +134,7 @@ def _resolve_spec(spec: TrackerSpec | str, overrides: Mapping[str, Any]) -> Trac
     elif not isinstance(spec, TrackerSpec):
         raise TypeError(f"spec must be TrackerSpec or a tracker name, got {type(spec).__name__}.")
     if not overrides:
-        return spec
+        return replace(spec, options=component_options(flatten_tracker_options(spec.option_dict)))
 
     supplied = dict(overrides)
     metadata = {name: supplied.pop(name) for name in _SPEC_FIELDS if name in supplied}
@@ -227,9 +225,8 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
                 f"Calibrated tracker profile is for class {calibrated_class}, "
                 f"but class_ids selects {spec.class_ids}. Use the matching class profile."
             )
-    noise = normalize_kalman_options(
+    kalman = normalize_kalman_config(
         tracker_args,
-        variable_dt=tracker_args.get("variable_dt", False),
         tracker_name=spec.name,
         backend=spec.backend,
     )
@@ -240,8 +237,8 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
         return _bind_and_validate_capabilities(tracker, definition.capabilities)
 
     if spec.name in KALMAN_NOISE_TRACKER_NAMES:
-        tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("kalman_noise.")}
-        tracker_args["kalman_noise"] = noise
+        tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("kalman.")}
+        tracker_args["kalman"] = kalman
     tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("calibration.")}
 
     tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB

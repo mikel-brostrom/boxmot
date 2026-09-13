@@ -50,10 +50,10 @@ from boxmot.engine.eval.results import ValidationResult
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Boxes3D, Frame, MaskBatch, MultimodalTracks, Tracks, Tracks3D
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     DEFAULT_REFERENCE_DT_S,
     KALMAN_NOISE_OPTIONS,
-    normalize_kalman_options,
 )
 from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 from boxmot.utils import logger as LOGGER
@@ -65,8 +65,8 @@ if TYPE_CHECKING:
 
 _KITTI_SHARED = {
     **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
-    "kalman_noise.time_unit": "frames",
-    "kalman_noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
+    "kalman.noise.time_unit": "frames",
+    "kalman.noise.reference_dt_s": DEFAULT_REFERENCE_DT_S,
     "det_thresh_3d": 0.0,
     "max_age": 3,
     "max_age_2d": 3,
@@ -74,7 +74,8 @@ _KITTI_SHARED = {
     "iou_threshold": 0.3,
     "first_matching_method": "dist_2d_full",
     "iou_3d_threshold": 0.01,
-    "is_angular": False,
+    "kalman.variable_dt": False,
+    "kalman.is_angular": False,
     "per_class": False,
     "asso_func": "iou",
 }
@@ -95,11 +96,11 @@ def _create_kitti_tracker(profile: dict[str, Any], *, class_id: int | None = Non
             or options.get("calibration.class_name") != KITTI_CLASSES[class_id]
         ):
             raise ValueError(f"Calibrated EagerMOT profile does not match class {KITTI_CLASSES[class_id]!r}.")
-    noise = normalize_kalman_options(options, variable_dt=False, tracker_name="eagermot")
+    kalman = normalize_kalman_config(options, tracker_name="eagermot")
     arguments = {
-        name: value for name, value in options.items() if not name.startswith(("kalman_noise.", "calibration."))
+        name: value for name, value in options.items() if not name.startswith(("kalman.", "calibration."))
     }
-    return EagerMot(**arguments, kalman_noise=noise)
+    return EagerMot(**arguments, kalman=kalman)
 
 
 def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:

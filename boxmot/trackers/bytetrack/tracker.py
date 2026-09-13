@@ -7,8 +7,8 @@ from boxmot.trackers.bytetrack.track import STrack, TrackState
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import KalmanTrackerOptions
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.constructor import BoxTrackerOptions
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
@@ -41,8 +41,8 @@ class ByteTrack(BoxTracker):
         track_buffer: int = 25,
         frame_rate: int = 30,
         *,
-        kalman_noise: KalmanNoiseConfig | None = None,
-        **kwargs: Unpack[KalmanTrackerOptions],  # BaseTracker parameters
+        kalman: KalmanConfig | None = None,
+        **kwargs: Unpack[BoxTrackerOptions],  # BaseTracker parameters
     ) -> None:
         """Configure ByteTrack's confidence stages and lost-track buffer.
 
@@ -55,13 +55,11 @@ class ByteTrack(BoxTracker):
             track_buffer: Lost-track retention in frames at 30 FPS, scaled by
                 ``frame_rate``. This controls tracking expiry.
             frame_rate: Frame rate used to scale ``track_buffer``.
-            kalman_noise: Immutable Kalman covariance scales and reference
-                interval. None preserves the default noise; fresh units
-                follow the shared timing mode. Class overrides require
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
             **kwargs: Shared history/display settings, class metadata and
-                separation, ``asso_func``, and ``is_obb``. ``variable_dt`` enables
-                prediction using capture timestamps. ``max_age`` and
+                separation, ``asso_func``, and ``is_obb``. ``max_age`` and
                 ``min_hits`` affect shared history/display rather than the
                 tracker-specific buffer and activation rules.
         """
@@ -69,7 +67,7 @@ class ByteTrack(BoxTracker):
             raise TypeError(
                 "ByteTrack.__init__() got an unexpected keyword argument 'det_thresh'; use 'track_thresh' instead"
             )
-        super().__init__(kalman_noise=kalman_noise, **kwargs)
+        super().__init__(kalman=kalman, **kwargs)
 
         # Track lifecycle parameters
         self.frame_id = 0

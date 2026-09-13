@@ -28,6 +28,8 @@ EXPECTED_TRACKERS = (
 EXPECTED_PUBLIC_API = (
     "__version__",
     "create_tracker",
+    "KalmanConfig",
+    "AbnormalMotionSuppressionConfig",
     "KalmanNoiseConfig",
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
@@ -66,7 +68,6 @@ def check_typing_metadata() -> None:
         ("TrackerMetadataOptions", "class_ids"),
         ("AssociationTrackerOptions", "asso_func"),
         ("BoxTrackerOptions", "is_obb"),
-        ("KalmanTrackerOptions", "variable_dt"),
         ("CommonTrackerOptions", "det_thresh"),
         ("OccluBoostOptions", "use_cmc"),
     ):
@@ -77,6 +78,10 @@ def check_typing_metadata() -> None:
     check_tracker_constructor_docs()
     from dataclasses import is_dataclass
 
+    assert is_dataclass(boxmot.KalmanConfig)
+    assert boxmot.KalmanConfig.__dataclass_params__.frozen
+    assert get_type_hints(boxmot.KalmanConfig)["noise"] is boxmot.KalmanNoiseConfig
+    assert is_dataclass(boxmot.AbnormalMotionSuppressionConfig)
     assert is_dataclass(boxmot.KalmanNoiseConfig), "KalmanNoiseConfig must be publicly available"
     assert boxmot.KalmanNoiseConfig.__dataclass_params__.frozen, "KalmanNoiseConfig must remain immutable"
     assert get_type_hints(boxmot.KalmanNoiseConfig)["measurement_noise_scale"] is float

@@ -15,13 +15,13 @@ KALMAN_TRACKER_NAMES = frozenset(
 )
 KALMAN_NOISE_TRACKER_NAMES = KALMAN_TRACKER_NAMES | {"eagermot"}
 KALMAN_NOISE_OPTIONS = (
-    "kalman_noise.process_position_scale",
-    "kalman_noise.process_velocity_scale",
-    "kalman_noise.measurement_noise_scale",
-    "kalman_noise.initial_position_scale",
-    "kalman_noise.initial_velocity_scale",
+    "kalman.noise.process_position_scale",
+    "kalman.noise.process_velocity_scale",
+    "kalman.noise.measurement_noise_scale",
+    "kalman.noise.initial_position_scale",
+    "kalman.noise.initial_velocity_scale",
 )
-KALMAN_TIMING_OPTIONS = ("kalman_noise.time_unit", "kalman_noise.reference_dt_s")
+KALMAN_TIMING_OPTIONS = ("kalman.noise.time_unit", "kalman.noise.reference_dt_s")
 DEFAULT_REFERENCE_DT_S = 1.0 / 30.0
 
 
@@ -48,10 +48,10 @@ def _class_id(value: object, *, serialized: bool = False) -> int:
     """Validate canonical detector IDs, allowing JSON keys when requested."""
     if serialized and isinstance(value, str):
         if not value.isascii() or not value.isdecimal() or str(int(value)) != value:
-            raise ValueError("kalman_noise.by_class keys must be canonical non-negative integer class IDs.")
+            raise ValueError("kalman.noise.by_class keys must be canonical non-negative integer class IDs.")
         value = int(value)
     if isinstance(value, (bool, np.bool_)) or not isinstance(value, Integral) or not 0 <= value < 2**63:
-        raise ValueError("kalman_noise.by_class keys must be non-negative int64 class IDs.")
+        raise ValueError("kalman.noise.by_class keys must be non-negative int64 class IDs.")
     return int(value)
 
 
@@ -91,27 +91,27 @@ class KalmanNoiseConfig:
         if self.time_unit is not None and (
             not isinstance(self.time_unit, str) or self.time_unit not in ("frames", "seconds")
         ):
-            raise ValueError("kalman_noise.time_unit must be 'frames', 'seconds', or None.")
-        for name in (*[option.removeprefix("kalman_noise.") for option in KALMAN_NOISE_OPTIONS], "reference_dt_s"):
+            raise ValueError("kalman.noise.time_unit must be 'frames', 'seconds', or None.")
+        for name in (*[option.removeprefix("kalman.noise.") for option in KALMAN_NOISE_OPTIONS], "reference_dt_s"):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real):
-                raise ValueError(f"kalman_noise.{name} must be a finite positive real scalar.")
+                raise ValueError(f"kalman.noise.{name} must be a finite positive real scalar.")
             try:
                 value = float(value)
             except OverflowError as error:
-                raise ValueError(f"kalman_noise.{name} must be a finite positive real scalar.") from error
+                raise ValueError(f"kalman.noise.{name} must be a finite positive real scalar.") from error
             if not isfinite(value) or value <= 0.0:
-                raise ValueError(f"kalman_noise.{name} must be a finite positive real scalar.")
+                raise ValueError(f"kalman.noise.{name} must be a finite positive real scalar.")
             object.__setattr__(self, name, value)
         if not isinstance(self.by_class, Mapping):
-            raise TypeError("kalman_noise.by_class must be a mapping of class IDs to KalmanNoiseConfig objects.")
+            raise TypeError("kalman.noise.by_class must be a mapping of class IDs to KalmanNoiseConfig objects.")
         entries = []
         for key, config in self.by_class.items():
             class_id = _class_id(key)
             if not isinstance(config, KalmanNoiseConfig):
-                raise TypeError("kalman_noise.by_class values must be KalmanNoiseConfig objects.")
+                raise TypeError("kalman.noise.by_class values must be KalmanNoiseConfig objects.")
             if config.by_class:
-                raise ValueError("Nested kalman_noise.by_class settings are not supported.")
+                raise ValueError("Nested kalman.noise.by_class settings are not supported.")
             if config.reference_dt_s != self.reference_dt_s:
                 raise ValueError("Class-specific Kalman noise must share the pooled reference_dt_s.")
             if self.time_unit is not None and config.time_unit is not None and config.time_unit != self.time_unit:
@@ -126,7 +126,7 @@ class KalmanNoiseConfig:
         expected = "seconds" if variable_dt else "frames"
         if self.time_unit is not None and self.time_unit != expected:
             raise ValueError(
-                f"kalman_noise.time_unit={self.time_unit!r} conflicts with "
+                f"kalman.noise.time_unit={self.time_unit!r} conflicts with "
                 f"variable_dt={variable_dt}; expected {expected!r}."
             )
         children = {class_id: config.resolve(variable_dt=variable_dt) for class_id, config in self.by_class.items()}
@@ -140,7 +140,7 @@ class KalmanNoiseConfig:
     def to_dict(self) -> dict[str, object]:
         """Return an independent JSON/YAML-compatible configuration mapping."""
         values = {
-            option.removeprefix("kalman_noise."): getattr(self, option.removeprefix("kalman_noise."))
+            option.removeprefix("kalman.noise."): getattr(self, option.removeprefix("kalman.noise."))
             for option in (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS)
         }
         if self.by_class:
@@ -151,20 +151,20 @@ class KalmanNoiseConfig:
     def from_mapping(cls, values: Mapping[str, object]) -> KalmanNoiseConfig:
         """Parse serialized settings, including string class IDs from YAML/JSON."""
         if not isinstance(values, Mapping):
-            raise TypeError("kalman_noise settings must be a mapping.")
-        fields = {option.removeprefix("kalman_noise.") for option in (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS)}
+            raise TypeError("kalman.noise settings must be a mapping.")
+        fields = {option.removeprefix("kalman.noise.") for option in (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS)}
         unknown = set(values) - fields - {"by_class"}
         if unknown:
-            raise TypeError(f"Unexpected kalman_noise field {next(iter(unknown))!r}.")
+            raise TypeError(f"Unexpected kalman.noise field {next(iter(unknown))!r}.")
         payload = dict(values)
         children = payload.pop("by_class", {})
         if not isinstance(children, Mapping):
-            raise TypeError("kalman_noise.by_class must be a mapping.")
+            raise TypeError("kalman.noise.by_class must be a mapping.")
         parsed = {}
         for key, child in children.items():
             class_id = _class_id(key, serialized=True)
             if class_id in parsed:
-                raise ValueError(f"Duplicate kalman_noise.by_class ID {class_id}.")
+                raise ValueError(f"Duplicate kalman.noise.by_class ID {class_id}.")
             parsed[class_id] = child if isinstance(child, cls) else cls.from_mapping(child)
         return cls(**payload, by_class=parsed)
 
@@ -252,16 +252,16 @@ def normalize_kalman_options(
     if not isinstance(variable_dt, bool):
         raise TypeError("variable_dt must be bool.")
     accepted = {*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS}
-    fields = {option.removeprefix("kalman_noise.") for option in accepted}
+    fields = {option.removeprefix("kalman.noise.") for option in accepted}
     values = {}
     for option in options:
         if not isinstance(option, str):
             raise TypeError("Tracker option names must be strings.")
         if option.startswith("kf_"):
-            raise TypeError(f"Unexpected Kalman option {option!r}; use 'kalman_noise' settings.")
-        if not option.startswith("kalman_noise."):
+            raise TypeError(f"Unexpected Kalman option {option!r}; use 'kalman.noise' settings.")
+        if not option.startswith("kalman.noise."):
             continue
-        parts = option.split(".")
+        parts = option.removeprefix("kalman.").split(".")
         if option in accepted:
             values[parts[1]] = options[option]
         elif len(parts) == 4 and parts[1] == "by_class" and parts[3] in fields:
@@ -272,11 +272,11 @@ def normalize_kalman_options(
             child[parts[3]] = options[option]
         else:
             raise TypeError(f"Unexpected Kalman option {option!r}.")
-    nested = options.get("kalman_noise")
+    nested = options.get("kalman.noise")
     if nested is not None and values:
         raise ValueError("Kalman settings cannot be supplied both nested and dotted.")
     if nested is not None and not isinstance(nested, (KalmanNoiseConfig, Mapping)):
-        raise TypeError("kalman_noise must be a KalmanNoiseConfig, a mapping, or None.")
+        raise TypeError("kalman.noise must be a KalmanNoiseConfig, a mapping, or None.")
     config = (
         nested
         if isinstance(nested, KalmanNoiseConfig)
@@ -286,9 +286,9 @@ def normalize_kalman_options(
         raise ValueError("The native tracker backend does not support variable_dt=True; use the Python backend.")
     if tracker_name is not None and tracker_name not in KALMAN_TRACKER_NAMES and variable_dt:
         raise ValueError(f"Tracker {tracker_name!r} does not support variable_dt.")
-    declared = "kalman_noise" in options or bool(values)
+    declared = "kalman.noise" in options or bool(values)
     if declared and tracker_name is not None and tracker_name not in KALMAN_NOISE_TRACKER_NAMES:
-        raise ValueError(f"Tracker {tracker_name!r} does not support kalman_noise settings.")
+        raise ValueError(f"Tracker {tracker_name!r} does not support kalman.noise settings.")
     if not config.is_default and backend != "python":
         raise ValueError("Kalman noise scaling requires a Python Kalman tracker.")
     return config

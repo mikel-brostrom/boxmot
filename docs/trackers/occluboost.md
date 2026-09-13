@@ -8,10 +8,10 @@ Kalman update.
 
 ## What's layered on top of BoostTrack
 
-- **AMS Kalman update.** Every matched Kalman update (first pass, ReID recovery, low-conf second pass) is routed through `_ams_update`, which scales the Kalman gain on the mean update by `alpha ∈ [ams_alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.
-    - **Trigger.** A per-track ring buffer of length `ams_buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `ams_threshold`, the speed gate fires.
-    - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < ams_shrink_ratio * mean_area`. This keeps pure speed spikes from being treated as partial occlusion.
-    - **OBB safety.** OBB tracks bypass AMS (`alpha=1.0`) — the suppression model is defined for AABB motion only.
+- **AMS Kalman update.** Matched AABB updates (first pass, ReID recovery, and low-confidence second pass) scale the Kalman gain on the mean update by `alpha ∈ [kalman.ams.alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.
+    - **Trigger.** A per-track ring buffer of length `kalman.ams.buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `kalman.ams.threshold`, the speed gate fires.
+    - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < kalman.ams.shrink_ratio * mean_area`. This keeps pure speed spikes from being treated as partial occlusion.
+    - **OBB behavior.** AMS applies to AABB motion only. OBB tracks bypass suppression (`alpha=1.0`) even when `kalman.ams.enabled=True`.
 - **BotSort-style track confirmation** (`tentative -> activated`). New tracks born from medium-confidence detections must accumulate `confirm_hits` consecutive matches before being emitted; detections above `instant_confirm_thresh` skip the wait. Tentative tracks expire after `tentative_max_age` frames, slashing ghost IDs from one-frame flickers.
 - **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
 - **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
@@ -79,8 +79,9 @@ The canonical defaults and tuning metadata live together in
 `boxmot/configs/trackers/occluboost.yaml`; consult that file instead of copying
 numeric values into a custom config. The main parameter groups are:
 
-- `ams_enabled`, `ams_alpha0`, `ams_threshold`, `ams_shrink_ratio`, and
-  `ams_buffer_size` for AABB abnormal-motion suppression. Lower `ams_alpha0`
+- `kalman.ams.enabled`, `kalman.ams.alpha0`, `kalman.ams.threshold`,
+  `kalman.ams.shrink_ratio`, and `kalman.ams.buffer_size` for AABB abnormal-motion
+  suppression. Lower `kalman.ams.alpha0`
   suppresses the mean update more strongly when both the motion and shrink
   gates fire.
 - `confirm_hits`, `instant_confirm_thresh`, and `tentative_max_age` for the
@@ -92,45 +93,48 @@ numeric values into a custom config. The main parameter groups are:
 - `obb_*` for thresholds and lifetimes that intentionally differ in OBB mode.
 - `new_track_thresh` and `max_age` for new-track creation and gap tolerance.
 
-### Adaptive Kalman Filter (`adaptive_kf`)
+### Adaptive Kalman Filter (`kalman.adaptive_kf`)
 
 The Python implementation supports experimental online process-noise estimation
-with `adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
+with `kalman.adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
 innovations per track, starts adapting after 15 measurement corrections, and
 blends the estimate with baseline noise (70% adaptive, 30% baseline).
 Initialization and prediction-only updates do not count toward warmup.
-Measurement noise remains configured separately.
+Measurement noise is configured under `kalman.noise`.
 
 Consider adaptation for long tracks whose motion predictability changes, then
 compare against validated fixed noise settings. Short tracks may never leave
 warmup; detector, association, and camera-compensation errors can distort the
-estimate. `variable_dt=True` independently handles irregular capture intervals
+estimate. `kalman.variable_dt=True` independently handles irregular capture intervals
 and can be combined with adaptation. See
 [choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
 for scenarios and CLI examples.
 
-Enable it through the structured factory:
+Enable it with a typed Kalman configuration:
 
 ```python
-from boxmot import create_tracker
-from boxmot.trackers import TrackerSpec
+from boxmot import KalmanConfig, create_tracker
 
 tracker = create_tracker(
-    TrackerSpec(
-        name="occluboost",
-        options=(("adaptive_kf", True),),
-    )
+    "occluboost",
+    kalman=KalmanConfig(adaptive_kf=True),
 )
 ```
 
 Or set it in a custom tracker config YAML:
 
 ```yaml
-adaptive_kf: true
+kalman:
+  adaptive_kf: true
 ```
 
-Use a custom tracker configuration when you have calibrated static Kalman
-parameters. `adaptive_kf` is a runtime setting and stays fixed during tracker
-tuning, along with the calibrated covariance scales.
+AMS settings live under `kalman.ams` in YAML. In Python, pass an
+`AbnormalMotionSuppressionConfig` as `KalmanConfig.ams` to customize them.
+OBB updates bypass AMS regardless of these settings.
+
+Use a calibrated tracker configuration to load fitted covariance scales under
+`kalman.noise`. `kalman.adaptive_kf` stays fixed during tracker tuning.
+Calibrated scales stay fixed by default; `--tune-kf` selects individual scales
+for refinement.
 
 ::: boxmot.OccluBoost

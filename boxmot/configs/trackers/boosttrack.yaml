@@ -99,26 +99,28 @@ use_embeddings:
   options: [False, True]
 
 # Fixed KF mode; select it before calibration.
-adaptive_kf:
-  default: False
 
-# Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
+kalman:
+  adaptive_kf:
+    default: False
 
-# Fixed covariance defaults; --calibrate-kf supplies fitted values.
-kalman_noise:
-  time_unit:
-    default: null
-  reference_dt_s:
-    default: 0.03333333333333333
-  process_position_scale:
-    default: 1.0
-  process_velocity_scale:
-    default: 1.0
-  measurement_noise_scale:
-    default: 1.0
-  initial_position_scale:
-    default: 1.0
-  initial_velocity_scale:
-    default: 1.0
+  # Timing and reference-prior units stay fixed across all tuning trials.
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0

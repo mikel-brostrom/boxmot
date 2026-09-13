@@ -33,7 +33,8 @@ from boxmot.trackers.common.input import (
     parse_numpy_detection_rows,
     prepare_frame,
 )
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES, KalmanNoiseConfig
 from boxmot.trackers.common.motion.tracker import TrackerMotionMixin
 from boxmot.trackers.common.protocols import TrackerRequirements
 from boxmot.trackers.common.tracking import outputs as output_utils
@@ -75,6 +76,16 @@ class BaseTracker(
     supports_variable_dt = False
     supports_kalman_noise = False
 
+    @property
+    def variable_dt(self) -> bool:
+        """Read the resolved capture-timing mode from the Kalman configuration."""
+        return self.kalman_config.variable_dt
+
+    @property
+    def kalman_noise_config(self) -> KalmanNoiseConfig:
+        """Read the currently selected class's immutable noise configuration."""
+        return self.kalman_config.noise
+
     def _resolve_detection_layout(self, is_obb: bool):
         """Return the private row layout for a resolved geometry mode."""
 
@@ -111,8 +122,7 @@ class BaseTracker(
         class_names: Mapping[int, str] | None = None,
         asso_func: str = "iou",
         is_obb: bool = False,
-        variable_dt: bool = False,
-        kalman_noise: KalmanNoiseConfig | None = None,
+        kalman: KalmanConfig | None = None,
         reid_model: Any | None = _REID_OPTION_UNSET,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
         device: Any = _REID_OPTION_UNSET,
@@ -138,9 +148,7 @@ class BaseTracker(
           OBB ``hmiou`` is an experimental global-y height cue intended only
           where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
-        - variable_dt: Use measured capture intervals for prediction in seconds.
-        - kalman_noise: Immutable Kalman covariance settings. Fresh units derive
-          from variable_dt; explicitly calibrated units must match it.
+        - kalman: Immutable filter noise, timing, and supported behavior settings.
         - reid_model: Optional pre-built ReID backend exposing
           ``get_features(boxes, image)``.
         - reid_weights: Weights used to lazily construct a ReID backend when
@@ -157,18 +165,23 @@ class BaseTracker(
         if kwargs:
             unexpected = next(iter(kwargs))
             raise TypeError(f"{self.__class__.__name__}.__init__() got an unexpected keyword argument '{unexpected}'")
-        if not isinstance(variable_dt, bool):
-            raise TypeError("variable_dt must be bool.")
-        if variable_dt and not self.supports_variable_dt:
-            raise ValueError(f"{self.__class__.__name__} does not support variable_dt.")
-        self.variable_dt = variable_dt
-        if kalman_noise is not None and not isinstance(kalman_noise, KalmanNoiseConfig):
-            raise TypeError("kalman_noise must be a KalmanNoiseConfig object or None.")
-        if kalman_noise is not None and not (self.supports_variable_dt or self.supports_kalman_noise):
-            raise ValueError(f"{self.__class__.__name__} does not support kalman_noise settings.")
-        self.kalman_noise_config = (kalman_noise or KalmanNoiseConfig()).resolve(variable_dt=variable_dt)
+        if kalman is not None and not isinstance(kalman, KalmanConfig):
+            raise TypeError("kalman must be a KalmanConfig object or None.")
+        if kalman is not None and not (self.supports_variable_dt or self.supports_kalman_noise):
+            raise ValueError(f"{self.__class__.__name__} does not support kalman settings.")
+        tracker_name = next(
+            (
+                base.__name__.lower()
+                for base in type(self).__mro__
+                if base.__name__.lower() in KALMAN_NOISE_TRACKER_NAMES
+            ),
+            None,
+        )
+        self.kalman_config = (kalman or KalmanConfig()).resolve(tracker_name=tracker_name)
+        if self.variable_dt and not self.supports_variable_dt:
+            raise ValueError(f"{self.__class__.__name__} does not support kalman.variable_dt.")
         if self.kalman_noise_config.by_class and self.supports_variable_dt and not per_class:
-            raise ValueError("Class-specific kalman_noise requires per_class=True for box trackers.")
+            raise ValueError("Class-specific kalman.noise requires per_class=True for box trackers.")
         self._init_live_reid(
             reid_model=reid_model,
             reid_weights=reid_weights,

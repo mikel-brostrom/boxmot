@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanNoiseConfig
+from boxmot import KalmanConfig
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
@@ -202,7 +202,7 @@ def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
     tracker_name: str, geometry: str, velocity_scale: float
 ) -> None:
     tracker = create_tracker(
-        TrackerSpec(tracker_name, geometry=geometry, options=(("kalman_noise.process_velocity_scale", velocity_scale),))
+        TrackerSpec(tracker_name, geometry=geometry, options=(("kalman.noise.process_velocity_scale", velocity_scale),))
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     _update(tracker, rows, frame_index=0)
@@ -231,7 +231,7 @@ def test_removed_sort_noise_parameters_are_rejected(tmp_path, tracker_name, trac
             config = tmp_path / "tracker.yaml"
             config.write_text(f"{parameter}: 0.2\n")
             options = nest_tracker_options(load_tracker_config(tracker_name, config))
-            options["kalman_noise"] = KalmanNoiseConfig.from_mapping(options["kalman_noise"])
+            options["kalman"] = KalmanConfig.from_mapping(options["kalman"])
             tracker_type(**options)
 
 

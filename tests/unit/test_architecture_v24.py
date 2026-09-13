@@ -350,6 +350,7 @@ TRACKER_OWNERSHIP_LAYOUT = (
     "trackers/common/motion/kalman_filters/base.py",
     "trackers/common/motion/kalman_filters/noise.py",
     "trackers/common/motion/kalman_filters/profile.py",
+        "trackers/common/motion/kalman_filters/config.py",
     "trackers/common/motion/kalman_filters/fitting.py",
     "trackers/boosttrack/__init__.py",
     "trackers/boosttrack/tracker.py",

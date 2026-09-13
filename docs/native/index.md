@@ -72,7 +72,7 @@ rejects those modes, unknown tracker options, model/weight options placed in
 implementation. Configure tracker-owned ReID separately with
 `tracker.configure_reid(spec)`.
 
-Native trackers retain fixed-step prediction and reject `variable_dt=True`.
+Native trackers retain fixed-step prediction and reject `kalman.variable_dt=True`.
 See the [tracker input matrix](../trackers/index.md#input-support) for the Python
 implementations and their additional input modes.
 

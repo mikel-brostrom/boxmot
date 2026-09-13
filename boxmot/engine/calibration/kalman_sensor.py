@@ -19,11 +19,11 @@ from boxmot.engine.calibration.kalman import (
 from boxmot.engine.calibration.kalman_model_3d import CalibrationModel3D
 from boxmot.engine.calibration.kalman_sensor_data import load_sensor_calibration_data
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TIMING_OPTIONS,
-    normalize_kalman_options,
 )
 from boxmot.trackers.common.motion.kalman_filters.profile import calibration_profile_signature
 
@@ -54,14 +54,21 @@ def calibrate_sensor_kalman(
     if not profiles or set(profiles) != set(class_names):
         raise ValueError("3D KF calibration requires one tracker profile for each target dataset class.")
     baselines = {
-        class_id: {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "is_angular": False, **flatten_tracker_options(profile)}
+        class_id: {
+            **dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0),
+            "kalman.is_angular": False,
+            **flatten_tracker_options(profile),
+        }
         for class_id, profile in profiles.items()
     }
     for class_id, baseline in baselines.items():
-        noise = normalize_kalman_options(baseline, variable_dt=False, tracker_name="eagermot").for_class(class_id)
+        kalman = normalize_kalman_config(baseline, tracker_name="eagermot")
+        noise = kalman.noise.for_class(class_id)
         baselines[class_id] = {
-            **{key: value for key, value in baseline.items() if not key.startswith("kalman_noise.")},
-            **{f"kalman_noise.{key}": value for key, value in noise.to_dict().items() if key != "by_class"},
+            **{key: value for key, value in baseline.items() if not key.startswith("kalman.noise.")},
+            **{f"kalman.noise.{key}": value for key, value in noise.to_dict().items() if key != "by_class"},
+            "kalman.variable_dt": kalman.variable_dt,
+            "kalman.is_angular": kalman.is_angular,
         }
     models = {class_id: CalibrationModel3D(profile) for class_id, profile in baselines.items()}
     options = {} if cached_sequences is None else {"cached_sequences": cached_sequences}
@@ -86,9 +93,9 @@ def calibrate_sensor_kalman(
         class_reports[name] = {
             "class_id": class_id,
             "state_dimensions": models[class_id].dim_x,
-            "filter": "box3d_angular" if baseline.get("is_angular", False) else "box3d",
-            "is_angular": baseline.get("is_angular", False),
-            "timing": {"variable_dt": False, **{key: baseline[key] for key in KALMAN_TIMING_OPTIONS}},
+            "filter": "box3d_angular" if baseline["kalman.is_angular"] else "box3d",
+            "is_angular": baseline["kalman.is_angular"],
+            "timing": {"kalman.variable_dt": False, **{key: baseline[key] for key in KALMAN_TIMING_OPTIONS}},
             "statistics": {
                 "trajectories": len(tracks),
                 "ground_truth": sum(len(track.gt_boxes) for track in tracks),
@@ -142,7 +149,7 @@ def calibrate_sensor_kalman(
         "split": dataset.split,
         "sequences": list(dataset.sequence_names),
         "per_class": True,
-        "timing": {"variable_dt": False, "kalman_noise.time_unit": "frames", "fps": dataset.fps},
+        "timing": {"kalman.variable_dt": False, "kalman.noise.time_unit": "frames", "fps": dataset.fps},
         "matching": {"method": "same_class_hungarian_3d_iou", "minimum_iou": data.match_iou, "coordinates": "camera"},
         "statistics": {**data.statistics, **totals},
         "ground_truth_sources": list(data.ground_truth_sources),

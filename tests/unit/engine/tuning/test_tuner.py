@@ -187,7 +187,7 @@ def test_all_builtin_tracker_entries_have_runtime_defaults(tracker_name):
     assert set(flat_config) == set(runtime_defaults)
     assert not {"Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"}.intersection(runtime_defaults)
     assert all(details["default"] == runtime_defaults[parameter] for parameter, details in flat_config.items())
-    for parameter in (*KALMAN_NOISE_OPTIONS, "adaptive_kf"):
+    for parameter in (*KALMAN_NOISE_OPTIONS, "kalman.adaptive_kf"):
         if parameter in flat_config:
             assert flat_config[parameter] == {"default": runtime_defaults[parameter]}
 
@@ -380,15 +380,15 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     )
 
     scale = 2.0 if backend == "python" else 1.0
-    tuner_module.Tuner(args, baseline_config={"kalman_noise.process_position_scale": scale}).fit()
+    tuner_module.Tuner(args, baseline_config={"kalman.noise.process_position_scale": scale}).fit()
 
     assert captured["checkpoint_config"] == {"num_to_keep": 1, "checkpoint_at_end": False}
-    expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kalman_noise.process_position_scale": scale}
+    expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kalman.noise.process_position_scale": scale}
     assert all(captured["param_space"][key] == value for key, value in expected_scales.items())
     assert not set(KALMAN_NOISE_OPTIONS).intersection(captured["search_kwargs"]["points_to_evaluate"][0])
-    assert captured["param_space"]["variable_dt"] is bool(variable_dt)
-    assert captured["param_space"]["kalman_noise.time_unit"] == ("seconds" if variable_dt else "frames")
-    assert captured["param_space"]["kalman_noise.reference_dt_s"] == DEFAULT_REFERENCE_DT_S
+    assert captured["param_space"]["kalman.variable_dt"] is bool(variable_dt)
+    assert captured["param_space"]["kalman.noise.time_unit"] == ("seconds" if variable_dt else "frames")
+    assert captured["param_space"]["kalman.noise.reference_dt_s"] == DEFAULT_REFERENCE_DT_S
     assert args.variable_dt is bool(variable_dt)
     assert "restore_path" not in captured
     assert Path(captured["storage_path"]).is_absolute()

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import KalmanConfig
 from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
@@ -73,7 +74,7 @@ class _Tracker:
         self.requirements = TrackerRequirements(embeddings=True)
         self.received: list[tuple[float | None, Frame | None]] = []
         self.variable_dt = variable_dt
-        self.tracker = ByteTrack(variable_dt=variable_dt)
+        self.tracker = ByteTrack(kalman=KalmanConfig(variable_dt=variable_dt))
 
     def validate_timing(self, frame: Frame | None, *, timestamp_s: float | None = None) -> float | None:
         return self.tracker.validate_timing(frame, timestamp_s=timestamp_s)

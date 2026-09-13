@@ -19,44 +19,43 @@ Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
 
 ## Tuning notes
 
-### Adaptive Kalman Filter (`adaptive_kf`)
+### Adaptive Kalman Filter (`kalman.adaptive_kf`)
 
 The Python implementation supports experimental online process-noise estimation
-with `adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
+with `kalman.adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
 innovations per track, starts adapting after 15 measurement corrections, and
 blends the estimate with baseline noise (70% adaptive, 30% baseline).
 Initialization and prediction-only updates do not count toward warmup.
-Measurement noise remains configured separately.
+Measurement noise is configured under `kalman.noise`.
 
 Consider adaptation for long tracks whose motion predictability changes, then
 compare against validated fixed noise settings. Short tracks may never leave
 warmup; detector, association, and camera-compensation errors can distort the
-estimate. `variable_dt=True` independently handles irregular capture intervals
+estimate. `kalman.variable_dt=True` independently handles irregular capture intervals
 and can be combined with adaptation. See
 [choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
 for scenarios and CLI examples.
 
-Enable it through the structured factory:
+Enable it with a typed Kalman configuration:
 
 ```python
-from boxmot import create_tracker
-from boxmot.trackers import TrackerSpec
+from boxmot import KalmanConfig, create_tracker
 
 tracker = create_tracker(
-    TrackerSpec(
-        name="boosttrack",
-        options=(("adaptive_kf", True),),
-    )
+    "boosttrack",
+    kalman=KalmanConfig(adaptive_kf=True),
 )
 ```
 
 Or set it in a custom tracker config YAML:
 
 ```yaml
-adaptive_kf: true
+kalman:
+  adaptive_kf: true
 ```
 
-Use a custom tracker configuration when you have calibrated static Kalman
-parameters against representative ground truth.
+Use a calibrated tracker configuration to load covariance scales fitted against
+representative ground truth. Those scales live under `kalman.noise`; adaptation
+and timing remain separate settings within the same `kalman` group.
 
 ::: boxmot.BoostTrack

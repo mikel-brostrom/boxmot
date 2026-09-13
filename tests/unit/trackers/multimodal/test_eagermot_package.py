@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import EagerMot, KalmanNoiseConfig
+from boxmot import EagerMot, KalmanConfig, KalmanNoiseConfig
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch, MultimodalTracks
 from boxmot.trackers import TrackerRequirements, TrackerSpec, create_tracker
 from boxmot.trackers.common.base import BaseTracker
@@ -126,11 +126,13 @@ def test_eagermot_applies_calibrated_noise_to_each_track_and_preserves_it_on_res
 ) -> None:
     """Direct and canonical construction consume all five scales on every birth."""
     options = dict(zip(KALMAN_NOISE_OPTIONS, [2.0, 3.0, 4.0, 5.0, 6.0]))
-    options["is_angular"] = angular
+    options["kalman.is_angular"] = angular
     tracker = (
         create_tracker(TrackerSpec("eagermot", options=tuple(sorted(options.items()))))
         if factory
-        else EagerMot(is_angular=angular, kalman_noise=normalize_kalman_options(options, variable_dt=False))
+        else EagerMot(
+            kalman=KalmanConfig(is_angular=angular, noise=normalize_kalman_options(options, variable_dt=False)),
+        )
     )
     assert tracker.kalman_noise_config.time_unit == "frames"
     assert tracker.supports_variable_dt is False
@@ -151,7 +153,7 @@ def test_eagermot_applies_calibrated_noise_to_each_track_and_preserves_it_on_res
 @pytest.mark.parametrize("value", [0, -1, True, np.nan, np.inf, "2"])
 def test_eagermot_rejects_invalid_covariance_scales(option: str, value: object) -> None:
     with pytest.raises(ValueError, match=option):
-        EagerMot(kalman_noise=KalmanNoiseConfig(**{option.removeprefix("kalman_noise."): value}))
+        EagerMot(kalman=KalmanConfig(noise=KalmanNoiseConfig(**{option.removeprefix("kalman.noise."): value})))
 
 
 @pytest.mark.parametrize("per_class", [False, True])
@@ -160,7 +162,7 @@ def test_eagermot_selects_class_noise_at_birth_with_pooled_fallback(per_class: b
         measurement_noise_scale=2.0,
         by_class={5: KalmanNoiseConfig(measurement_noise_scale=9.0)},
     )
-    tracker = EagerMot(kalman_noise=noise, per_class=per_class)
+    tracker = EagerMot(kalman=KalmanConfig(noise=noise), per_class=per_class)
     for _ in range(2):
         detections, spatial, camera = _observations()
         tracker.update(detections, detections_3d=spatial, camera=camera)

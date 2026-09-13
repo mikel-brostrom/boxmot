@@ -54,37 +54,37 @@ def resolve_tracker_options(
     if getattr(args, "asso_func", None):
         options["asso_func"] = str(args.asso_func)
     if getattr(args, "variable_dt", None) is not None:
-        options["variable_dt"] = args.variable_dt
+        options["kalman.variable_dt"] = args.variable_dt
     if tracker_name is None:
         return options
 
-    from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES, normalize_kalman_options
+    from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
+    from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TRACKER_NAMES
 
     effective = (
         options
         if not sparse_native and (include_defaults or reference is not None)
         else load_tracker_config(tracker_name, None, options)
     )
-    variable_dt = effective.get("variable_dt", False)
+    variable_dt = effective.get("kalman.variable_dt", False)
     if getattr(args, "geometry", None) is not None:
         from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 
         validate_calibration_profile(effective, tracker_name=tracker_name, geometry=args.geometry, backend=backend)
-    noise = normalize_kalman_options(
+    kalman = normalize_kalman_config(
         effective,
-        variable_dt=variable_dt,
         tracker_name=tracker_name,
         backend=backend,
     )
     if backend == "python" and tracker_name in KALMAN_TRACKER_NAMES and (include_defaults or stamp_timing):
-        options.update(flatten_tracker_options({"kalman_noise": noise}))
-        options["variable_dt"] = variable_dt
+        options.update(flatten_tracker_options({"kalman": kalman}))
+        options["kalman.variable_dt"] = variable_dt
     elif stamp_timing and tracker_name in KALMAN_TRACKER_NAMES and not sparse_native:
         options.update(
             {
-                "variable_dt": variable_dt,
-                "kalman_noise.time_unit": noise.time_unit,
-                "kalman_noise.reference_dt_s": noise.reference_dt_s,
+                "kalman.variable_dt": variable_dt,
+                "kalman.noise.time_unit": kalman.noise.time_unit,
+                "kalman.noise.reference_dt_s": kalman.noise.reference_dt_s,
             }
         )
     return options

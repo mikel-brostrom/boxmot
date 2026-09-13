@@ -21,10 +21,10 @@ from boxmot.trackers.common.input import (
     parse_numpy_detection_rows,
     prepare_frame,
 )
+from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
     KALMAN_TIMING_OPTIONS,
-    normalize_kalman_options,
 )
 from boxmot.trackers.common.protocols import TrackerRequirements
 
@@ -88,7 +88,7 @@ def load_native_tracker_config(
         accepted_keys = (
             set(resolved)
             | set(native_only_keys)
-            | {"variable_dt"}
+            | {"kalman.variable_dt"}
             | set(KALMAN_NOISE_OPTIONS)
             | set(KALMAN_TIMING_OPTIONS)
         )
@@ -97,10 +97,10 @@ def load_native_tracker_config(
             unexpected = next(key for key in options if key in unexpected_keys)
             raise TypeError(f"Native tracker '{tracker_name}' got an unexpected option {unexpected!r}.")
         resolved.update(options)
-    variable_dt = resolved.pop("variable_dt", False)
-    normalize_kalman_options(resolved, variable_dt=variable_dt, tracker_name=tracker_name, backend="cpp")
-    for option in (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS):
-        resolved.pop(option, None)
+    kalman = normalize_kalman_config(resolved, tracker_name=tracker_name, backend="cpp")
+    resolved = {key: value for key, value in resolved.items() if not key.startswith("kalman.")}
+    if kalman.ams is not None:
+        resolved.update({f"ams_{key}": value for key, value in kalman.ams.to_dict().items()})
     return resolved
 
 

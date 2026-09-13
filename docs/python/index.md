@@ -167,7 +167,7 @@ Python trackers that use Kalman filters accept an immutable configuration with
 typed fields, defaults, and editor autocomplete:
 
 ```python
-from boxmot import KalmanNoiseConfig, OcSort, create_tracker
+from boxmot import KalmanConfig, KalmanNoiseConfig, OcSort, create_tracker
 
 noise = KalmanNoiseConfig(
     process_position_scale=1.0,
@@ -177,13 +177,14 @@ noise = KalmanNoiseConfig(
     initial_velocity_scale=1.0,
     reference_dt_s=1 / 30,
 )
-tracker = OcSort(kalman_noise=noise)
-tracker_from_factory = create_tracker("ocsort", kalman_noise=noise)
+config = KalmanConfig(noise=noise)
+tracker = OcSort(kalman=config)
+tracker_from_factory = create_tracker("ocsort", kalman=config)
 ```
 
 `1.0` preserves each filter's own covariance priors. These values multiply
-covariance, not standard deviation. Omitting `kalman_noise` uses the defaults.
-The tracker resolves `time_unit=None` from `variable_dt` without mutating the
+covariance, not standard deviation. Omitting `kalman` uses the defaults.
+The tracker resolves `time_unit=None` from `kalman.variable_dt` without mutating the
 provided object. A saved explicit unit must match the selected timing mode.
 
 Use `by_class` for complete class-specific settings. Unlisted class IDs use the
@@ -198,7 +199,7 @@ noise = KalmanNoiseConfig(
         1: KalmanNoiseConfig(measurement_noise_scale=2.0),
     },
 )
-tracker = OcSort(per_class=True, kalman_noise=noise)
+tracker = OcSort(per_class=True, kalman=KalmanConfig(noise=noise))
 ```
 
 Each track keeps independent state and covariance. Class profiles share the
@@ -207,9 +208,30 @@ for its 3D filter with frame-based timing. SFSORT and MafHda do not accept Kalma
 configuration. See [tracker YAMLs](../config/trackers.md#kalman-noise) and
 [calibration and tuning](../modes/tune.md#kalman-noise-and-timing) for saved profiles.
 
+Filter behavior also belongs to `KalmanConfig`. Optional policies select the
+owning tracker's defaults when omitted and are rejected by trackers that do not
+implement them:
+
+```python
+from boxmot import AbnormalMotionSuppressionConfig, EagerMot, KalmanConfig, OccluBoost
+
+tracker = OccluBoost(
+    kalman=KalmanConfig(
+        adaptive_kf=True,
+        ams=AbnormalMotionSuppressionConfig(alpha0=0.4, buffer_size=30),
+    )
+)
+spatial_tracker = EagerMot(kalman=KalmanConfig(is_angular=True))
+```
+
+`adaptive_kf` is available in BoostTrack and OccluBoost. `is_angular` is specific
+to EagerMOT. AMS is specific to OccluBoost's AABB updates; its OBB path bypasses
+that policy. Per-class noise settings vary covariance only. Association weights,
+CMC, and track lifetime remain tracker arguments.
+
 ### Elapsed time
 
-Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
+Trackers default to fixed-step prediction (`kalman.variable_dt=False`), preserving the
 motion behavior used by established benchmarks and tuning. Timestamps remain
 metadata in this mode; supplying them does not enable variable timing.
 
@@ -224,7 +246,7 @@ when constructing the tracker:
 ```python
 tracker = create_tracker(
     "bytetrack",
-    variable_dt=True,
+    kalman=KalmanConfig(variable_dt=True),
 )
 tracks = tracker.update(detections, frame=frame)
 ```
@@ -248,7 +270,7 @@ experimental mode, or `--fixed-dt` to select fixed steps explicitly. Omitting
 both flags preserves the tracker YAML setting, which defaults to fixed steps.
 Tuning holds this mode constant, records it with the tuned configuration, and
 requires the same timing settings when resuming a run. Saved configurations
-declare `time_unit: frames` or `time_unit: seconds` under `kalman_noise`; an
+declare `time_unit: frames` or `time_unit: seconds` under `kalman.noise`; an
 override that conflicts with those units is rejected. Untuned defaults use
 `time_unit: null` to resolve the units from the chosen mode. Video sources provide media
 timestamps, falling back to the
@@ -265,7 +287,7 @@ for seconds requires an explicit measured interval in these low-level methods;
 the reference interval never substitutes for a missing capture interval.
 
 The seconds-based mode converts historic per-frame priors using the fixed
-reference interval `h = kalman_noise.reference_dt_s`, which defaults to `1/30` second.
+reference interval `h = kalman.noise.reference_dt_s`, which defaults to `1/30` second.
 This is the basis of the original noise priors, not a measured source frame
 interval. The conversion is:
 
@@ -285,12 +307,12 @@ Five independent, dimensionless multipliers then calibrate position and
 velocity process noise, measurement noise, and initial position and velocity
 covariance. They default to `1.0` and are estimated by
 [Kalman calibration](../modes/eval.md#kalman-calibration), with timing mode,
-units, and reference interval held fixed. New tracker tuning runs preserve the
-default or loaded Kalman settings; they have no YAML search ranges.
+units, and reference interval held fixed. Tracker tuning preserves the default
+or loaded covariance scales unless `--tune-kf` enables noise refinement.
 Unit conversion provides coherent priors; it does not guarantee that existing
 benchmark accuracy transfers without calibration and held-out evaluation.
 
-SFSORT, SAM2, and native C++ tracker adapters reject `variable_dt=True` and
+EagerMot, MafHda, SFSORT, and native C++ tracker adapters reject `kalman.variable_dt=True` and
 retain fixed-step behavior. Native C++ elapsed-time prediction is not
 implemented. Track expiration and confirmation settings such as `max_age`,
 `track_buffer`, and `min_hits`
@@ -534,7 +556,7 @@ and runtime-validation path. A `PipelineResult` has exactly two fields:
 
 ### Capture timestamps
 
-Enable `variable_dt` on the tracker and pass timestamp-bearing frames to the
+Enable `KalmanConfig(variable_dt=True)` on the tracker and pass timestamp-bearing frames to the
 pipeline normally. The tracker derives prediction intervals internally.
 Here, `samples` contains consecutive `(Frame, Detections)` pairs with capture
 timestamps:
@@ -542,7 +564,7 @@ timestamps:
 ```python
 pipeline = TrackingPipeline(
     detector=None,
-    tracker=create_tracker("bytetrack", variable_dt=True),
+    tracker=create_tracker("bytetrack", kalman=KalmanConfig(variable_dt=True)),
 )
 for frame, detections in samples:
     result = pipeline.step_detections(frame, detections)
@@ -557,7 +579,7 @@ timestamps rather than processing or network arrival times.
 
 The same behavior applies to `step(frame)` when the pipeline owns a detector.
 No pipeline timing option or interval argument is needed. With the default
-`variable_dt=False`, timestamps are metadata and prediction uses fixed steps.
+`kalman.variable_dt=False`, timestamps are metadata and prediction uses fixed steps.
 Variable timing requires one of the [supported Python trackers](#elapsed-time)
 and timestamps on every frame.
 

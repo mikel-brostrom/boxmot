@@ -9,12 +9,15 @@ import pytest
 import torch
 
 import boxmot.trackers.occluboost.tracker as occluboost_module
+from boxmot import AbnormalMotionSuppressionConfig, KalmanConfig
 from boxmot.structures import Boxes, Detections, OrientedBoxes
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.occluboost.tracker import OccluBoost
 
 
-def _tracker(*, is_obb: bool, adaptive: bool = False) -> OccluBoost:
+def _tracker(
+    *, is_obb: bool, adaptive: bool = False, ams: AbnormalMotionSuppressionConfig | None = None
+) -> OccluBoost:
     """Use supplied embeddings and allow every relevant association stage."""
     return OccluBoost(
         is_obb=is_obb,
@@ -37,7 +40,7 @@ def _tracker(*, is_obb: bool, adaptive: bool = False) -> OccluBoost:
         recovery_iou_thresh=0.0,
         recovery_appearance_thresh=0.9,
         use_second_pass=True,
-        adaptive_kf=adaptive,
+        kalman=KalmanConfig(adaptive_kf=adaptive, ams=ams),
     )
 
 
@@ -159,3 +162,45 @@ def test_batch_ams_retains_distinct_suppression_and_adaptive_noise(is_obb: bool,
             np.testing.assert_allclose(track.kf.cov_update_policy.get_r(), reference.kf.cov_update_policy.get_r())
     if not is_obb:
         assert suppressed
+
+
+@pytest.mark.parametrize("is_obb", [False, True])
+def test_grouped_ams_settings_change_live_corrections_and_preserve_obb_bypass(is_obb: bool) -> None:
+    """The configuration reaches births, gain suppression, and independent buffers."""
+    active = _tracker(
+        is_obb=is_obb,
+        adaptive=True,
+        ams=AbnormalMotionSuppressionConfig(alpha0=0.0, threshold=0.0, buffer_size=4, shrink_ratio=0.9),
+    )
+    disabled = _tracker(is_obb=is_obb, adaptive=True, ams=AbnormalMotionSuppressionConfig(enabled=False))
+    for frame in range(6):
+        rows = _detections(frame, is_obb)
+        geometry = OrientedBoxes if is_obb else Boxes
+        dimensions = 5 if is_obb else 4
+        observations = Detections(
+            geometry(torch.from_numpy(rows[:, :dimensions]).float()),
+            torch.from_numpy(rows[:, dimensions]).float(),
+            torch.from_numpy(rows[:, dimensions + 1]).long(),
+            sample_id=f"ams/{frame}",
+            embeddings=torch.eye(3),
+        )
+        for tracker in (active, disabled):
+            tracker.update(observations)
+        assert len(active.trackers) == len(disabled.trackers) == 3
+    assert all(type(track.kf.cov_update_policy).__name__ == "AdaptiveNoiseXYHR" for track in active.trackers)
+    for track, reference in zip(active.trackers, disabled.trackers):
+        # Suppression changes only the mean correction in the existing policy.
+        np.testing.assert_allclose(track.kf.P, reference.kf.P)
+    if is_obb:
+        for track, reference in zip(active.trackers, disabled.trackers):
+            np.testing.assert_array_equal(track.kf.x, reference.kf.x)
+            assert not hasattr(track, "_ams_obs_buf")
+    else:
+        assert not np.allclose(active.trackers[0].kf.x, disabled.trackers[0].kf.x)
+        assert all(track._ams_obs_buf.maxlen == 4 for track in active.trackers)
+        assert len({id(track._ams_obs_buf) for track in active.trackers}) == 3
+        assert all(not hasattr(track, "_ams_obs_buf") for track in disabled.trackers)
+    configured = active.kalman_config
+    active.reset()
+    assert active.kalman_config is configured
+    assert configured.ams.alpha0 == 0.0

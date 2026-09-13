@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanNoiseConfig
+from boxmot import KalmanConfig, KalmanNoiseConfig
 from boxmot.trackers import Tracker, TrackerSpec, create_tracker
 from boxmot.trackers.common.config import flatten_tracker_options
 from tests.unit.trackers.test_trackers import _aabb_rows, _detections, _empty_rows, _frame, _obb_rows
@@ -19,12 +19,12 @@ def _tracker(
     name: str,
     geometry: str,
     *,
-    kalman_noise: KalmanNoiseConfig | None = None,
+    kalman: KalmanConfig | None = None,
     per_class: bool = False,
     **tracking_options: object,
 ) -> Tracker:
     """Resolve supplied embeddings without loading a ReID model."""
-    noise_options = {} if kalman_noise is None else flatten_tracker_options({"kalman_noise": kalman_noise})
+    noise_options = {} if kalman is None else flatten_tracker_options({"kalman": kalman})
     options = tuple(sorted({"min_hits": 1, **tracking_options, **noise_options}.items()))
     return create_tracker(TrackerSpec(name, geometry=geometry, per_class=per_class, options=options))
 
@@ -59,12 +59,14 @@ def test_noise_settings_reach_tracks_survive_reset_and_preserve_other_owners(nam
     configured = _tracker(
         name,
         geometry,
-        kalman_noise=KalmanNoiseConfig(
-            process_position_scale=2.0,
-            process_velocity_scale=5.0,
-            measurement_noise_scale=4.0,
-            initial_position_scale=7.0,
-            initial_velocity_scale=3.0,
+        kalman=KalmanConfig(
+            noise=KalmanNoiseConfig(
+                process_position_scale=2.0,
+                process_velocity_scale=5.0,
+                measurement_noise_scale=4.0,
+                initial_position_scale=7.0,
+                initial_velocity_scale=3.0,
+            )
         ),
     )
     _update(configured, rows, index=0)
@@ -122,7 +124,7 @@ def test_measurement_noise_changes_correction_without_changing_initial_uncertain
 
     initial_covariances, corrections = [], []
     for scale in (1.0, 8.0):
-        tracker = _tracker(name, geometry, kalman_noise=KalmanNoiseConfig(measurement_noise_scale=scale))
+        tracker = _tracker(name, geometry, kalman=KalmanConfig(noise=KalmanNoiseConfig(measurement_noise_scale=scale)))
         _update(tracker, rows, index=0)
         track = tracker.active_tracks[0]
         initial_covariances.append(_covariance(track).copy())
@@ -149,12 +151,14 @@ def test_seconds_initial_covariance_uses_reference_interval_and_independent_scal
     tracker = _tracker(
         name,
         geometry,
-        variable_dt=True,
-        kalman_noise=KalmanNoiseConfig(
-            reference_dt_s=reference_dt,
-            initial_position_scale=3.0,
-            initial_velocity_scale=7.0,
-            measurement_noise_scale=4.0,
+        kalman=KalmanConfig(
+            variable_dt=True,
+            noise=KalmanNoiseConfig(
+                reference_dt_s=reference_dt,
+                initial_position_scale=3.0,
+                initial_velocity_scale=7.0,
+                measurement_noise_scale=4.0,
+            ),
         ),
     )
 
@@ -182,8 +186,9 @@ def test_second_frame_batch_prediction_uses_configured_owner_noise(name: str, ge
     tracker = _tracker(
         name,
         geometry,
-        variable_dt=timed,
-        kalman_noise=KalmanNoiseConfig(process_position_scale=5.0, process_velocity_scale=2.0),
+        kalman=KalmanConfig(
+            variable_dt=timed, noise=KalmanNoiseConfig(process_position_scale=5.0, process_velocity_scale=2.0)
+        ),
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     _update(tracker, rows, index=0, timestamp_s=0.0 if timed else None)
@@ -205,7 +210,11 @@ def test_second_frame_batch_prediction_uses_configured_owner_noise(name: str, ge
 def test_mixed_owner_batch_preserves_each_filter_noise_configuration(name: str, geometry: str) -> None:
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     trackers = [
-        _tracker(name, geometry, variable_dt=True, kalman_noise=KalmanNoiseConfig(process_position_scale=scale))
+        _tracker(
+            name,
+            geometry,
+            kalman=KalmanConfig(variable_dt=True, noise=KalmanNoiseConfig(process_position_scale=scale)),
+        )
         for scale in (1.0, 5.0)
     ]
     tracks, expected = [], []
@@ -239,10 +248,15 @@ def test_per_class_noise_reaches_independent_filters_and_preserves_pooled_fallba
             1: KalmanNoiseConfig(initial_position_scale=17.0, initial_velocity_scale=19.0),
         },
     )
-    baseline = _tracker(name, geometry, per_class=True, variable_dt=timed)
+    baseline = _tracker(name, geometry, per_class=True, kalman=KalmanConfig(variable_dt=timed))
     _update(baseline, rows, index=0, timestamp_s=0.0 if timed else None)
     initial = _covariance(baseline.get_class_tracks(2)[0]).copy()
-    tracker = _tracker(name, geometry, per_class=True, kalman_noise=noise, variable_dt=timed)
+    tracker = _tracker(
+        name,
+        geometry,
+        per_class=True,
+        kalman=KalmanConfig(noise=noise, variable_dt=timed),
+    )
     pooled = tracker.kalman_noise_config
     original_filter = getattr(tracker, "kalman_filter", None)
 
@@ -270,7 +284,7 @@ def test_per_class_noise_reaches_independent_filters_and_preserves_pooled_fallba
 @pytest.mark.parametrize("name", ["bytetrack", "botsort"])
 def test_per_class_noise_restores_owner_after_a_kernel_error(name, monkeypatch) -> None:
     noise = KalmanNoiseConfig(by_class={0: KalmanNoiseConfig(measurement_noise_scale=8.0)})
-    tracker = _tracker(name, "aabb", per_class=True, kalman_noise=noise)
+    tracker = _tracker(name, "aabb", per_class=True, kalman=KalmanConfig(noise=noise))
     pooled = tracker.kalman_noise_config
     original_filter = tracker.kalman_filter
 
@@ -290,7 +304,7 @@ def test_per_class_noise_restores_owner_after_a_kernel_error(name, monkeypatch) 
 def test_class_noise_selects_canonical_ids_before_float32_kernel_encoding(name) -> None:
     class_id = 2**40 + 3
     noise = KalmanNoiseConfig(by_class={class_id: KalmanNoiseConfig(measurement_noise_scale=9.0)})
-    tracker = _tracker(name, "aabb", per_class=True, kalman_noise=noise)
+    tracker = _tracker(name, "aabb", per_class=True, kalman=KalmanConfig(noise=noise))
     rows = np.repeat(_aabb_rows()[:1], 2, axis=0)
     detections = _detections(rows, sample_id="large-class", embeddings=tracker.requirements.embeddings)
     detections = replace(detections, class_ids=torch.tensor([class_id, 0], dtype=torch.int64))
@@ -306,4 +320,4 @@ def test_class_noise_selects_canonical_ids_before_float32_kernel_encoding(name) 
 def test_box_class_noise_requires_class_separation(name) -> None:
     config = KalmanNoiseConfig(by_class={0: KalmanNoiseConfig()})
     with pytest.raises(ValueError, match="requires per_class=True"):
-        _tracker(name, "aabb", kalman_noise=config)
+        _tracker(name, "aabb", kalman=KalmanConfig(noise=config))

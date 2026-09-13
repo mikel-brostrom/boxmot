@@ -25,7 +25,7 @@ from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
-from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_model
 
 
@@ -62,9 +62,8 @@ class BoostTrack(BoxTracker):
         use_sb: bool = False,
         use_vt: bool = False,
         use_embeddings: bool = False,
-        adaptive_kf: bool = False,
         *,
-        kalman_noise: KalmanNoiseConfig | None = None,
+        kalman: KalmanConfig | None = None,
         reid_model: Any | None = None,
         reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
         device: Any = "cpu",
@@ -92,7 +91,6 @@ class BoostTrack(BoxTracker):
             use_vt: Use track-age-dependent similarity thresholds for DLO boosting.
             use_embeddings: Use supplied appearance embeddings, generating missing
                 embeddings from image frames with the configured ReID backend.
-            adaptive_kf: Adapt Kalman noise using measurement innovations.
             reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
                 used when appearance is enabled and input embeddings are absent.
             reid_weights: Weights for the ReID backend constructed lazily when
@@ -100,15 +98,14 @@ class BoostTrack(BoxTracker):
             device: Inference device for the lazily constructed ReID backend.
             half: Use FP16 inference in the lazily constructed ReID backend.
             reid_preprocess: Preprocessing profile for the lazy ReID backend.
-            kalman_noise: Immutable Kalman covariance scales and reference
-                interval. None preserves the default noise; fresh units
-                follow the shared timing mode. Class overrides require
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
             **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings. ``variable_dt`` enables prediction using capture timestamps.
+                ``asso_func``, and ``is_obb`` settings.
         """
         super().__init__(
-            kalman_noise=kalman_noise,
+            kalman=kalman,
             reid_model=reid_model,
             reid_weights=reid_weights,
             device=device,
@@ -144,7 +141,6 @@ class BoostTrack(BoxTracker):
         if not isinstance(use_embeddings, bool):
             raise TypeError("use_embeddings must be bool.")
         self.use_embeddings = use_embeddings
-        self.adaptive_kf = bool(adaptive_kf)
 
         self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
         self._requires_frame = self._requires_frame or self.cmc is not None
@@ -271,7 +267,7 @@ class BoostTrack(BoxTracker):
                         max_obs=self.max_obs,
                         emb=dets_embs[i],
                         is_obb=self.is_obb,
-                        adaptive_kf=self.adaptive_kf,
+                        adaptive_kf=self.kalman_config.adaptive_kf,
                         id_allocator=self.id_allocator,
                         noise_config=self.kalman_noise_config,
                     )

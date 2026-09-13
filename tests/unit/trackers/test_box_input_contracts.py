@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanNoiseConfig
+from boxmot import KalmanConfig
 from boxmot.native.trackers._common import NativeTrackBatch
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
@@ -23,8 +23,8 @@ from boxmot.trackers.sfsort.native import NativeSFSORTTracker
 def _tracker(name: str, **overrides: Any):
     """Exercise authored defaults while disabling no features implicitly."""
     defaults = nest_tracker_options(load_tracker_defaults(name))
-    if "kalman_noise" in defaults:
-        defaults["kalman_noise"] = KalmanNoiseConfig.from_mapping(defaults["kalman_noise"])
+    if "kalman" in defaults:
+        defaults["kalman"] = KalmanConfig.from_mapping(defaults["kalman"])
     return get_tracker_class(name)(**{**defaults, **overrides})
 
 

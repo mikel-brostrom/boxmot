@@ -70,7 +70,7 @@ def test_cli_calibrates_once_and_reuses_class_specific_noise(
     calibrated = deepcopy(KITTI_PROFILES)
     for class_id, profile in calibrated.items():
         profile.update({name: class_id + (index + 1) / 10 for index, name in enumerate(KALMAN_NOISE_OPTIONS)})
-    calibrated[2]["is_angular"] = True
+    calibrated[2]["kalman.is_angular"] = True
     calls = []
 
     def calibrate(dataset: Any, profiles: Any, *, output_dir: Path, progress: Any = None) -> KalmanCalibrationResult:
@@ -105,7 +105,7 @@ def test_cli_calibrates_once_and_reuses_class_specific_noise(
     assert len(replay_profiles) == (3 if mode == "tune" else 1)
     for profiles in replay_profiles:
         for class_id in calibrated:
-            for name in (*KALMAN_NOISE_OPTIONS, "is_angular"):
+            for name in (*KALMAN_NOISE_OPTIONS, "kalman.is_angular"):
                 assert profiles[class_id][name] == calibrated[class_id][name]
     report = json.loads((output / "kf-tuning/calibration.json").read_text())
     assert report["final_summary"]["HOTA"] == pytest.approx(100)
@@ -117,10 +117,12 @@ def test_cli_calibrates_once_and_reuses_class_specific_noise(
     profile_path = output / ("best.yaml" if mode == "tune" else "kf-tuning/calibrated.yaml")
     if mode == "tune":
         assert manifest["baseline_profiles"] == {str(key): value for key, value in calibrated.items()}
-        assert set((*KALMAN_NOISE_OPTIONS, "is_angular")) <= set(manifest["fixed_parameters"])
+        assert set((*KALMAN_NOISE_OPTIONS, "kalman.is_angular")) <= set(manifest["fixed_parameters"])
         study = optuna.load_study(study_name=None, storage=f"sqlite:///{(output / 'study.sqlite3').as_uri()}?uri=true")
         for trial in study.trials:
-            assert not any(name.rpartition(".")[2] in (*KALMAN_NOISE_OPTIONS, "is_angular") for name in trial.params)
+            assert not any(
+                name.partition(".")[2] in (*KALMAN_NOISE_OPTIONS, "kalman.is_angular") for name in trial.params
+            )
 
     # A second run consumes the exported profiles without invoking calibration.
     replay_profiles.clear()
@@ -129,7 +131,7 @@ def test_cli_calibrates_once_and_reuses_class_specific_noise(
     assert calls == [output]
     for profiles in replay_profiles:
         for class_id in calibrated:
-            for name in (*KALMAN_NOISE_OPTIONS, "is_angular"):
+            for name in (*KALMAN_NOISE_OPTIONS, "kalman.is_angular"):
                 assert profiles[class_id][name] == calibrated[class_id][name]
     exported = load_kitti_profiles(profile_path)
     assert set(exported) == set(KITTI_CLASSES)
@@ -167,8 +169,8 @@ def test_real_3d_calibration_runs_before_sensor_replay(tmp_path: Path, mode: str
     replay_manifest = json.loads((replay_output / "run.json").read_text())
     for class_id, name in KITTI_CLASSES.items():
         assert set(report["classes"][name]["parameters"]) == set(KALMAN_NOISE_OPTIONS)
-        assert report["classes"][name]["parameters"]["kalman_noise.measurement_noise_scale"]["status"] == "fitted"
-        assert profiles[class_id]["kalman_noise.measurement_noise_scale"] < 1.0
+        assert report["classes"][name]["parameters"]["kalman.noise.measurement_noise_scale"]["status"] == "fitted"
+        assert profiles[class_id]["kalman.noise.measurement_noise_scale"] < 1.0
         for parameter in KALMAN_NOISE_OPTIONS:
             assert profiles[class_id][parameter] == report["classes"][name]["parameters"][parameter]["value"]
             assert replay_manifest["tracker_profiles"][str(class_id)][parameter] == profiles[class_id][parameter]

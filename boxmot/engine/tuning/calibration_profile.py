@@ -18,10 +18,10 @@ from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTI
 CALIBRATED_KF_OPTIONS = (
     *KALMAN_NOISE_OPTIONS,
     *KALMAN_TIMING_OPTIONS,
-    "variable_dt",
-    "adaptive_kf",
+    "kalman.variable_dt",
+    "kalman.adaptive_kf",
 )
-_REQUIRED_OPTIONS = (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS, "variable_dt")
+_REQUIRED_OPTIONS = (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS, "kalman.variable_dt")
 
 
 def _metadata_selection(value: Any, *, key: str) -> tuple:

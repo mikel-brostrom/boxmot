@@ -9,6 +9,11 @@ __version__ = "25.0.0"
 
 _EXPORTS = {
     "create_tracker": ("boxmot.trackers.common.factory", "create_tracker"),
+    "KalmanConfig": ("boxmot.trackers.common.motion.kalman_filters.config", "KalmanConfig"),
+    "AbnormalMotionSuppressionConfig": (
+        "boxmot.trackers.common.motion.kalman_filters.config",
+        "AbnormalMotionSuppressionConfig",
+    ),
     "KalmanNoiseConfig": ("boxmot.trackers.common.motion.kalman_filters.noise", "KalmanNoiseConfig"),
     **{
         entry.class_path.rsplit(".", 1)[-1]: tuple(entry.class_path.rsplit(".", 1))
@@ -24,6 +29,12 @@ if TYPE_CHECKING:
     from boxmot.trackers.botsort.tracker import BotSort as BotSort
     from boxmot.trackers.bytetrack.tracker import ByteTrack as ByteTrack
     from boxmot.trackers.common.factory import create_tracker as create_tracker
+    from boxmot.trackers.common.motion.kalman_filters.config import (
+        AbnormalMotionSuppressionConfig as AbnormalMotionSuppressionConfig,
+    )
+    from boxmot.trackers.common.motion.kalman_filters.config import (
+        KalmanConfig as KalmanConfig,
+    )
     from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig as KalmanNoiseConfig
     from boxmot.trackers.deepocsort.tracker import DeepOcSort as DeepOcSort
     from boxmot.trackers.eagermot.tracker import EagerMot as EagerMot

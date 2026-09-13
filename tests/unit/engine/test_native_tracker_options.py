@@ -32,7 +32,9 @@ def test_native_defaults_reach_factory_without_python_only_options(monkeypatch, 
     assert result.options == {}
 
 
-@pytest.mark.parametrize("tracker, unsupported", [("botsort", "removed_stracks_buffer"), ("occluboost", "adaptive_kf")])
+@pytest.mark.parametrize(
+    "tracker, unsupported", [("botsort", "removed_stracks_buffer"), ("occluboost", "kalman.adaptive_kf")]
+)
 @pytest.mark.parametrize("source", ["override", "config"])
 def test_native_explicit_unsupported_options_still_reject_even_at_default_values(
     tmp_path, tracker, unsupported, source
@@ -86,7 +88,7 @@ def test_native_sparse_options_still_validate_timing_and_calibrated_noise(tmp_pa
     with pytest.raises(ValueError, match="variable_dt"):
         resolve_tracker_options(_args("bytetrack", variable_dt=True), include_defaults=True, factory_options=True)
     profile = tmp_path / "calibrated.yaml"
-    profile.write_text("tracker: bytetrack\nkalman_noise:\n  measurement_noise_scale: 0.5\n")
+    profile.write_text("tracker: bytetrack\nkalman:\n  noise:\n    measurement_noise_scale: 0.5\n")
     with pytest.raises(ValueError, match="requires a Python Kalman tracker"):
         resolve_tracker_options(_args("bytetrack", tracker_config=profile), include_defaults=True, factory_options=True)
 

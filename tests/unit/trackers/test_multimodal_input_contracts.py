@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from boxmot import EagerMot, MafHda
+from boxmot import EagerMot, KalmanConfig, MafHda
 from boxmot.trackers.maf_hda import tracker as maf_hda
 from tests.unit.trackers.multimodal.test_eagermot_package import _observations as _sensor_observations
 from tests.unit.trackers.multimodal.test_maf_hda_package import _observations as _mask_observations
@@ -97,8 +97,9 @@ def test_multimodal_trackers_explicitly_use_fixed_frame_timing(tracker_class: ty
     tracker = tracker_class()
     assert tracker.supports_variable_dt is False
     assert tracker.requirements.timestamp is False
-    with pytest.raises(ValueError, match="does not support variable_dt"):
-        tracker_class(variable_dt=True)
+    error = ValueError if tracker_class is EagerMot else TypeError
+    with pytest.raises(error, match="kalman"):
+        tracker_class(kalman=KalmanConfig(variable_dt=True))
 
 
 @pytest.mark.parametrize("tracker_class", [EagerMot, MafHda])

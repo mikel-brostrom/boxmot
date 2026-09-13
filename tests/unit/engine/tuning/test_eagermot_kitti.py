@@ -76,6 +76,8 @@ def test_two_real_trials_preserve_class_baselines_and_export_replayable_best_con
     assert {name.partition(".")[0] for name in study.trials[1].params} == {"car", "pedestrian"}
 
     for trial in study.trials:
+        assert "car.kalman.is_angular" in trial.params
+        assert "pedestrian.kalman.is_angular" in trial.params
         directory = output / "trials" / f"{trial.number:04d}"
         metrics = json.loads((directory / "metrics.json").read_text())
         assert trial.value == pytest.approx(metrics["cls_comb_cls_av"]["HOTA"])
@@ -147,7 +149,7 @@ def test_selected_sensor_noise_is_refined_around_each_class_baseline(tmp_path: P
     data = _fixture(tmp_path)
     args = _arguments(data)
     profiles = load_kitti_profiles()
-    key = "kalman_noise.process_velocity_scale"
+    key = "kalman.noise.process_velocity_scale"
     profiles[1][key], profiles[2][key] = 2.0, 7.0
     config = tmp_path / "class-config.yaml"
     evaluation.write_kitti_profiles(config, profiles)
@@ -162,14 +164,16 @@ def test_selected_sensor_noise_is_refined_around_each_class_baseline(tmp_path: P
         assert distribution.low == profiles[class_id][key] / 4.0
         assert distribution.high == profiles[class_id][key] * 4.0
         for trial in study.trials:
+            assert f"{name}.kalman.is_angular" not in trial.params
+            assert trial.user_attrs["profiles"][name]["kalman.is_angular"] == profiles[class_id]["kalman.is_angular"]
             assert all(
                 trial.user_attrs["profiles"][name][field] == value
                 for field, value in profiles[class_id].items()
-                if field.startswith("kalman_noise.") and field != key
+                if field.startswith("kalman.noise.") and field != key
             )
     saved = yaml.safe_load(result.best_yaml.read_text())
-    assert saved["car"]["kalman_noise"]["process_velocity_scale"] == 2.0
-    assert saved["pedestrian"]["kalman_noise"]["process_velocity_scale"] == 7.0
+    assert saved["car"]["kalman"]["noise"]["process_velocity_scale"] == 2.0
+    assert saved["pedestrian"]["kalman"]["noise"]["process_velocity_scale"] == 7.0
 
 
 def test_objective_uses_class_average_hota_without_averaging_existing_aggregates(
