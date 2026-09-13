@@ -15,7 +15,9 @@ def test_public_detector_exports_do_not_load_implementation_modules() -> None:
     probe = (
         "import json, sys; "
         "import boxmot.detectors as detectors; "
+        "from boxmot.detectors import DetectorSpec, create_detector; "
         "print(json.dumps({'exports': sorted(detectors.__all__), "
+        "'config_loaded': 'boxmot.detectors.config' in sys.modules, "
         "'implementations': sorted(name for name in sys.modules "
         "if name.startswith('boxmot.detectors.backends.'))}))"
     )
@@ -30,6 +32,7 @@ def test_public_detector_exports_do_not_load_implementation_modules() -> None:
     payload = json.loads(completed.stdout)
     assert payload == {
         "exports": ["Detector", "DetectorCapabilities", "DetectorSpec", "create_detector"],
+        "config_loaded": False,
         "implementations": [],
     }
 

@@ -8,9 +8,9 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | Before v24 | v24 replacement |
 | --- | --- |
 | `BoxMOT(...)` workflow facade | Explicit component factories plus `PerceptionPipeline` or `TrackingPipeline`; use the engine CLI for source-to-sink workflows |
-| Root `Detector` | `boxmot.detectors.DetectorSpec` and `create_detector` |
-| Root `ReIDModel` | `boxmot.reid.ReIDEncoderSpec` and `create_reid_encoder` |
-| `create_tracker("name", reid_weights=..., device=...)` | Use `create_tracker(TrackerSpec(...))`, then configure its ReID-enabled Python or native adapter with a `ReIDEncoderSpec`; direct ReID-enabled tracker construction also accepts the shared `reid_model`, `reid_weights`, `device`, `half`, and `reid_preprocess` options for lazy live extraction |
+| Root `Detector` | `boxmot.detectors.create_detector("yolo26n", device="cpu")`; explicit `DetectorSpec` is also supported |
+| Root `ReIDModel` | `boxmot.reid.create_reid_encoder("osnet-x0-25-msmt17", device="cpu")`; explicit `ReIDEncoderSpec` is also supported |
+| `create_tracker("name", reid_weights=..., device=...)` | Use `create_tracker("name", ...)` for algorithm settings and a separate `create_reid_encoder` for model settings. Explicit `TrackerSpec` remains supported; ReID-enabled adapters also accept `configure_reid(ReIDEncoderSpec(...))`, and direct tracker classes accept live ReID options |
 | `tracker.update(numpy_rows, img=..., embs=..., masks=...)` | Use `tracker.update(numpy_rows)` for simple box-only calls; attach enrichments to `Detections` and call `tracker.update(detections, frame)` otherwise |
 | `DetectionBatch`, `TrackResults`, `FrameData`, `FramePayload`, engine result records | `Frame`, `Boxes`/`OrientedBoxes`, `MaskBatch`, `Detections`, `Tracks`, and `PipelineResult` |
 | `boxmot.api` | Removed; compose public domain packages directly |

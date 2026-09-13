@@ -546,15 +546,16 @@ def test_tracker_spec_rejects_non_finite_options(value: float) -> None:
         TrackerSpec("bytetrack", options=(("value", value),))
 
 
-def test_create_tracker_accepts_only_a_canonical_spec_and_dispatches_native(monkeypatch: pytest.MonkeyPatch) -> None:
-    assert tuple(inspect.signature(create_tracker).parameters) == ("spec",)
-    with pytest.raises(TypeError, match="spec must be TrackerSpec"):
-        create_tracker("bytetrack")
+def test_create_tracker_accepts_a_name_or_canonical_spec_and_dispatches_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert next(iter(inspect.signature(create_tracker).parameters)) == "spec"
+    with pytest.raises(TypeError, match="spec must be TrackerSpec or a tracker name"):
+        create_tracker(object())
 
     native_tracker = object()
     monkeypatch.setattr(tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind: native_tracker)
     monkeypatch.setattr(tracker_factory, "_bind_and_validate_capabilities", lambda tracker, _capabilities: tracker)
     assert create_tracker(TrackerSpec("bytetrack", backend="cpp")) is native_tracker
+    assert create_tracker("bytetrack", backend="cpp") is native_tracker
 
 
 def test_factory_merges_options_then_applies_canonical_spec_fields(monkeypatch: pytest.MonkeyPatch) -> None:

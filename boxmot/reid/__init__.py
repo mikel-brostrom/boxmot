@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from boxmot.reid.factory import create_reid_encoder
     from boxmot.reid.protocols import AppearanceEncoder, EncoderRequirements
     from boxmot.reid.specs import ReIDEncoderSpec
 

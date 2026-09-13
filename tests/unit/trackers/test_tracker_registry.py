@@ -254,9 +254,9 @@ def test_create_tracker_merges_spec_options_then_applies_fixed_spec_fields(monke
     assert captured["class_names"] == {0: "person", 3: "car"}
 
 
-def test_create_tracker_rejects_old_keyword_factory_surface() -> None:
-    with pytest.raises(TypeError, match="spec must be TrackerSpec"):
-        tracker_factory.create_tracker("bytetrack")  # type: ignore[arg-type]
+def test_create_tracker_rejects_non_name_non_spec_input() -> None:
+    with pytest.raises(TypeError, match="spec must be TrackerSpec or a tracker name"):
+        tracker_factory.create_tracker({"name": "bytetrack"})  # type: ignore[arg-type]
 
 
 def test_create_tracker_rejects_unknown_algorithm_options() -> None:

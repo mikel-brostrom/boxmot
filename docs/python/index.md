@@ -64,22 +64,24 @@ tracker library.
 
 ```python
 from boxmot import create_tracker
-from boxmot.trackers import TrackerSpec
 
 tracker = create_tracker(
-    TrackerSpec(
-        name="bytetrack",
-        backend="python",
-        geometry="aabb",
-        per_class=False,
-        options=(("track_thresh", 0.55),),
-    )
+    "bytetrack",
+    backend="python",
+    geometry="aabb",
+    per_class=False,
+    track_thresh=0.55,
 )
 
 tracks = tracker.update(detections)
 print(tracks.geometry.values, tracks.track_ids)
 tracker.reset()
 ```
+
+Pass algorithm settings as keywords. An explicit `TrackerSpec` is also
+accepted; keyword overrides take precedence without changing the original
+spec. Configure model selection and inference on the detector and ReID
+factories separately.
 
 The public method preserves the input representation:
 
@@ -96,7 +98,7 @@ metadata and stores an RGB CHW tensor in `Frame.image`.
 A tracker configured for AABB expects exactly `N x 6`
 `(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
 `(cx, cy, w, h, angle, confidence, class_id)` rows. Real numeric arrays are
-normalized to canonical dtypes. Geometry is still fixed by `TrackerSpec`, not
+normalized to canonical dtypes. Geometry is fixed at construction, not
 inferred from the first matrix.
 
 Class IDs retain only the integer precision present in the packed array. Use
@@ -143,11 +145,8 @@ when constructing the tracker:
 
 ```python
 tracker = create_tracker(
-    TrackerSpec(
-        name="bytetrack",
-        backend="python",
-        options=(("variable_dt", True),),
-    )
+    "bytetrack",
+    variable_dt=True,
 )
 tracks = tracker.update(detections, frame=frame)
 ```
@@ -256,9 +255,9 @@ installing a complete encoder specification:
 
 ```python
 from boxmot.reid import ReIDEncoderSpec
-from boxmot.trackers import ReIDConfigurableTracker, TrackerSpec, create_tracker
+from boxmot.trackers import ReIDConfigurableTracker, create_tracker
 
-tracker = create_tracker(TrackerSpec(name="botsort", backend="cpp"))
+tracker = create_tracker("botsort", backend="cpp")
 spec = ReIDEncoderSpec(backend="onnx", artifact="/models/reid.onnx")
 
 if not isinstance(tracker, ReIDConfigurableTracker) or not tracker.generates_embeddings:
@@ -268,12 +267,65 @@ tracker.configure_reid(spec)
 
 ## Component factories
 
-Each factory accepts one frozen, immutable specification:
+Create detectors, ReID encoders, and trackers by name. Detector and ReID
+factories resolve the model config and weights internally, downloading missing
+weights when a download source is configured. Use `allow_download=False` to
+require local weights. Detector geometry comes from its config; an explicit
+`geometry="aabb"` or `geometry="obb"` must agree with that config.
+
+```python
+from boxmot import create_tracker
+from boxmot.detectors import create_detector
+from boxmot.reid import create_reid_encoder
+
+detector = create_detector("yolo26n", device="cpu")
+encoder = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
+tracker = create_tracker("occluboost", per_class=True, use_embeddings=True)
+```
+
+Detectors and ReID encoders also accept a local model path, YAML path, or config
+mapping. Set inference options with an `options` mapping:
+
+```python
+detector = create_detector(
+    "yolo26n",
+    device="cuda:0",
+    precision="fp16",
+    options={"confidence": 0.3, "image_size": [640, 640]},
+)
+```
+
+Keyword overrides take precedence over the selected config or spec. Options
+merge by key, preserving settings you did not override. Explicit specs remain
+immutable, and their resolved artifact identity is still validated.
+
+### Independent calls
+
+Using a canonical `Frame` as shown above, call any component independently:
+
+```python
+detections = detector.predict([frame])[0]
+embeddings = encoder.encode([frame], [detections])[0]
+tracks = tracker.update(detections.with_embeddings(embeddings), frame)
+```
+
+The encoder accepts boxes from any source, including saved detections. The
+tracker consumes attached embeddings without invoking another ReID encoder.
+Keep the same tracker through a sequence, update it even on empty detection
+frames, and call `tracker.reset()` before the next sequence. Image and
+embedding requirements depend on the tracker configuration.
+
+### Explicit specifications
+
+For advanced configuration, pass a frozen specification. These calls use
+already resolved local artifact paths and SHA-256 hashes. Segmentor
+construction uses this form as well:
 
 ```python
 from boxmot.detectors import DetectorSpec, create_detector
 from boxmot.reid import ReIDEncoderSpec, create_reid_encoder
 from boxmot.segmentors import SegmentorSpec, create_segmentor
+from boxmot.trackers import TrackerSpec
 
 # Values produced by your artifact resolver before component construction.
 detector_sha256 = "..."
@@ -309,6 +361,11 @@ encoder = create_reid_encoder(
         device="cuda:0",
         precision="fp16",
     )
+)
+
+tracker = create_tracker(
+    TrackerSpec(name="occluboost", per_class=True),
+    max_age=60,
 )
 ```
 
@@ -369,13 +426,7 @@ timestamps:
 ```python
 pipeline = TrackingPipeline(
     detector=None,
-    tracker=create_tracker(
-        TrackerSpec(
-            name="bytetrack",
-            backend="python",
-            options=(("variable_dt", True),),
-        )
-    ),
+    tracker=create_tracker("bytetrack", variable_dt=True),
 )
 for frame, detections in samples:
     result = pipeline.step_detections(frame, detections)

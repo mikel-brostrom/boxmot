@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
 
 from boxmot.components.artifacts import require_resolved_artifact
 from boxmot.components.registry import LazyComponentRegistry
@@ -27,10 +30,45 @@ _REID_ENCODER_FACTORIES: LazyComponentRegistry[ReIDEncoderFactory] = LazyCompone
 )
 
 
-def create_reid_encoder(spec: ReIDEncoderSpec) -> AppearanceEncoder:
-    """Construct the appearance encoder described by ``spec``."""
+def create_reid_encoder(
+    spec: ReIDEncoderSpec | str | Path | Mapping[str, Any],
+    *,
+    device: str | None = None,
+    precision: str | None = None,
+    preprocessing: str | None = None,
+    options: Mapping[str, Any] | None = None,
+    allow_download: bool = True,
+) -> AppearanceEncoder:
+    """Construct an encoder from a resolved spec, profile, YAML, or model artifact.
+
+    Explicit runtime keywords override the selected configuration. ``options``
+    merges backend settings by key, preserving authored settings not overridden.
+    References resolve and verify model artifacts, downloading missing weights
+    when allowed; an explicit ``ReIDEncoderSpec`` must already be resolved.
+    """
+    if not isinstance(spec, (ReIDEncoderSpec, str, Path, Mapping)):
+        raise TypeError(
+            f"spec must be a ReIDEncoderSpec, name, path, or configuration mapping, not {type(spec).__name__}."
+        )
+    if options is not None and not isinstance(options, Mapping):
+        raise TypeError("options must be a mapping when provided.")
+    if type(allow_download) is not bool:
+        raise TypeError("allow_download must be a boolean.")
     if not isinstance(spec, ReIDEncoderSpec):
-        raise TypeError(f"spec must be a ReIDEncoderSpec, not {type(spec).__name__}.")
+        from boxmot.reid.config import resolve_reid_spec
+
+        spec, _ = resolve_reid_spec(spec, allow_download=allow_download)
+    overrides = {
+        name: value
+        for name, value in (("device", device), ("precision", precision), ("preprocessing", preprocessing))
+        if value is not None
+    }
+    if options is not None:
+        from boxmot.components.resolution import component_options
+
+        overrides["options"] = component_options({**spec.option_values(), **options})
+    if overrides:
+        spec = replace(spec, **overrides)
     require_resolved_artifact(
         spec.artifact,
         spec.artifact_sha256,

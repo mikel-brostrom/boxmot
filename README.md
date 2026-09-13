@@ -337,6 +337,26 @@ regions. The `kitti-mots` profile supports materialization, evaluation, and
 tuning with the official sequence splits. [MOTS evaluation](docs/guides/evaluation.md#kitti-mots-evaluation)
 uses box IoU by default; add `--eval-masks` for segmentation HOTA, CLEAR, and Identity.
 
+Create independent Python components by name:
+
+```python
+from boxmot import create_tracker
+from boxmot.detectors import create_detector
+from boxmot.pipelines import TrackingPipeline
+from boxmot.reid import create_reid_encoder
+
+detector = create_detector("yolo26n", device="cpu")
+reid = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
+tracker = create_tracker("occluboost", per_class=True)
+
+pipeline = TrackingPipeline(detector=detector, reid=reid, tracker=tracker)
+# result = pipeline.step(frame)  # A canonical RGB Frame.
+```
+
+Factories resolve model configs and weights internally. See the
+[Python API](docs/python/index.md#component-factories) for independent component
+calls, frame construction, and explicit specs.
+
 Use NumPy detections and BGR images directly:
 
 ```python
