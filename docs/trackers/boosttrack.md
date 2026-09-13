@@ -13,8 +13,8 @@ BoostTrack++ focuses on a neglected part of MOT pipelines: deciding which detect
 - Supports both AABB and OBB detections in BoxMOT.
 - Best when low-confidence true positives are a recurring problem and you want stronger association scoring than plain IoU or Mahalanobis distance.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ## Tuning notes

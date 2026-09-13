@@ -103,10 +103,56 @@ def timed_component_phase(
         )
 
 
+@contextmanager
+def timed_component_call(
+    component: str,
+    *,
+    device: object = None,
+) -> Iterator[None]:
+    """Time opaque component work when it does not report its own phases.
+
+    Nested events are forwarded unchanged. Any event for this component suppresses
+    the fallback, so wrapping an instrumented implementation does not count its
+    phases twice. Uninstrumented calls emit one ``process`` event, including when
+    they fail. Timing remains inactive when no event sink is installed.
+    """
+    sink = _TIMING_EVENT_SINK.get()
+    if sink is None:
+        yield
+        return
+
+    canonical = component.strip().lower()
+    observed = False
+
+    def forward(event: ComponentTimingEvent) -> None:
+        nonlocal observed
+        if event.component.strip().lower() == canonical:
+            observed = True
+        sink(event)
+
+    synchronize_torch_device(device)
+    started = time.perf_counter()
+    token = _TIMING_EVENT_SINK.set(forward)
+    try:
+        yield
+    finally:
+        _TIMING_EVENT_SINK.reset(token)
+        if not observed:
+            synchronize_torch_device(device)
+            sink(
+                ComponentTimingEvent(
+                    component=component,
+                    phase="process",
+                    elapsed_ms=max((time.perf_counter() - started) * 1000.0, 0.0),
+                )
+            )
+
+
 __all__ = (
     "ComponentTimingEvent",
     "TimingEventSink",
     "synchronize_torch_device",
+    "timed_component_call",
     "timed_component_phase",
     "timing_event_sink",
 )

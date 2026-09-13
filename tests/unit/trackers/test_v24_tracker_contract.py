@@ -552,7 +552,9 @@ def test_create_tracker_accepts_a_name_or_canonical_spec_and_dispatches_native(m
         create_tracker(object())
 
     native_tracker = object()
-    monkeypatch.setattr(tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind: native_tracker)
+    monkeypatch.setattr(
+        tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind, *, reid: native_tracker
+    )
     monkeypatch.setattr(tracker_factory, "_bind_and_validate_capabilities", lambda tracker, _capabilities: tracker)
     assert create_tracker(TrackerSpec("bytetrack", backend="cpp")) is native_tracker
     assert create_tracker("bytetrack", backend="cpp") is native_tracker
@@ -648,7 +650,8 @@ def test_mask_tracker_requires_and_returns_full_frame_boolean_masks() -> None:
 def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> None:
     configurable = {"boosttrack", "botsort", "deepocsort", "hybridsort", "occluboost"}
     base_parameters = inspect.signature(BaseTracker.__init__).parameters
-    assert {"reid_model", "reid_weights", "device", "half", "reid_preprocess"} <= set(base_parameters)
+    assert "reid" in base_parameters
+    assert not {"reid_model", "reid_weights", "device", "half", "reid_preprocess"}.intersection(base_parameters)
     embedding_trackers = (
         name
         for name, definition in tracker_registry.TRACKER_DEFINITIONS.items()
@@ -680,7 +683,7 @@ def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> No
 )
 def test_non_reid_trackers_reject_reid_model_configuration(option: str, value: object) -> None:
     tracker_class = tracker_registry.get_tracker_class("bytetrack")
-    with pytest.raises(TypeError, match=rf"does not accept ReID model options: {option}"):
+    with pytest.raises(TypeError, match=rf"unexpected keyword argument.*{option}"):
         tracker_class(**{option: value})
 
 

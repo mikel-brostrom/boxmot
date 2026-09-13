@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, List, Optional
+from typing import List, Optional
 
 import numpy as np
 from typing_extensions import Unpack
 
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
@@ -64,11 +65,7 @@ class BoostTrack(BoxTracker):
         use_embeddings: bool = False,
         *,
         kalman: KalmanConfig | None = None,
-        reid_model: Any | None = None,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
-        device: Any = "cpu",
-        half: bool = False,
-        reid_preprocess: str | None = None,
+        reid: ReIDConfig | AppearanceEncoder | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
         """Configure confidence boosting, association, and optional appearance features.
@@ -91,13 +88,9 @@ class BoostTrack(BoxTracker):
             use_vt: Use track-age-dependent similarity thresholds for DLO boosting.
             use_embeddings: Use supplied appearance embeddings, generating missing
                 embeddings from image frames with the configured ReID backend.
-            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
-                used when appearance is enabled and input embeddings are absent.
-            reid_weights: Weights for the ReID backend constructed lazily when
-                embeddings are needed. None selects the default ReID weights.
-            device: Inference device for the lazily constructed ReID backend.
-            half: Use FP16 inference in the lazily constructed ReID backend.
-            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; supplied embeddings and
+                empty batches skip inference. None selects the default configuration.
             kalman: Immutable filter noise, timing, and supported behavior settings.
                 None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
@@ -106,11 +99,7 @@ class BoostTrack(BoxTracker):
         """
         super().__init__(
             kalman=kalman,
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
+            reid=reid,
             **kwargs,
         )
 

@@ -12,8 +12,8 @@ Hybrid-SORT argues that MOT pipelines lean too heavily on strong cues such as ap
 - Supports both AABB and OBB detections in BoxMOT.
 - A good fit when you want richer association than OC-SORT or BoT-SORT-style matching, especially on crowded MOT benchmarks.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ::: boxmot.HybridSort

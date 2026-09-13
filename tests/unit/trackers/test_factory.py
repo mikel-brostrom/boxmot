@@ -5,12 +5,15 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import torch
 
 from boxmot import create_tracker
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common import factory
 from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.specs import TrackerSpec
+from tests.unit.trackers._reid import RecordingEncoder
 
 
 @pytest.mark.parametrize("name", tuple(_TRACKER_MANIFEST))
@@ -101,8 +104,8 @@ def test_name_and_spec_native_dispatch_use_equal_immutable_options(name: str, mo
     captured = []
     sentinel = object()
 
-    def construct(spec, definition, geometry):
-        captured.append((spec, definition, geometry))
+    def construct(spec, definition, geometry, *, reid):
+        captured.append((spec, definition, geometry, reid))
         return sentinel
 
     monkeypatch.setattr(factory, "_create_native_tracker", construct)
@@ -119,7 +122,7 @@ def test_collection_options_are_frozen_before_factory_dispatch(monkeypatch: pyte
     nested = {"schedule": [1, 2, {"enabled": True}]}
     sentinel = object()
 
-    def construct(spec, definition, geometry):
+    def construct(spec, definition, geometry, *, reid):
         captured.append(spec)
         return sentinel
 
@@ -139,7 +142,46 @@ def test_factory_model_options_remain_outside_tracker_ownership(name: str, optio
     message = "tracker-algorithm options only" if name == "occluboost" else "does not accept ReID model options"
 
     with pytest.raises(ValueError, match=message):
-        create_tracker(name, **{option: Path("models/custom.pt")})
+        create_tracker(name, options={option: Path("models/custom.pt")})
+
+
+@pytest.mark.parametrize("name", ["botsort", "occluboost"])
+@pytest.mark.parametrize("backend", ["python", "cpp"])
+@pytest.mark.parametrize("configured", [False, True])
+def test_factory_passes_live_reid_separately_and_preserves_lazy_inference(
+    name: str, backend: str, configured: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import importlib
+
+    import boxmot.reid.factory as reid_factory
+    from tests.unit.native.trackers.test_native_live_embeddings import _FakeLibrary
+    from tests.unit.trackers.box.test_live_embeddings import _detections, _frame
+
+    encoder = RecordingEncoder(torch.eye(2, 3).numpy())
+    config = ReIDConfig(model=Path("unused-model.pt"), allow_download=False)
+    calls = []
+
+    def construct(received: ReIDConfig):
+        calls.append(received)
+        return encoder
+
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", construct)
+    if backend == "cpp":
+        module = importlib.import_module(f"boxmot.trackers.{name}.native")
+        monkeypatch.setattr(module, f"get_{name}_library", lambda: _FakeLibrary())
+    original = TrackerSpec(name, backend=backend, options=(("use_cmc", False),))
+    tracker = create_tracker(original, reid=config if configured else encoder)
+    try:
+        assert calls == []
+        tracker.update(_detections(embeddings=torch.eye(2, 3)), _frame())
+        assert calls == []
+        tracker.update(_detections(), _frame())
+        assert calls == ([config] if configured else [])
+        assert len(encoder.calls) == 1
+        assert original.option_dict == {"use_cmc": False}
+    finally:
+        if backend == "cpp":
+            tracker.close()
 
 
 @pytest.mark.parametrize("backend", ("python", "cpp"))

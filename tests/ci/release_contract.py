@@ -8,7 +8,7 @@ import importlib.metadata
 import importlib.util
 import subprocess
 from pathlib import Path
-from typing import Literal, get_args, get_origin, get_type_hints
+from typing import Literal, get_args, get_origin, get_overloads, get_type_hints
 
 from typing_extensions import is_typeddict
 
@@ -31,6 +31,7 @@ EXPECTED_PUBLIC_API = (
     "KalmanConfig",
     "AbnormalMotionSuppressionConfig",
     "KalmanNoiseConfig",
+    "ReIDConfig",
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
 EXPECTED_CLI_COMMANDS = (
@@ -85,6 +86,27 @@ def check_typing_metadata() -> None:
     assert is_dataclass(boxmot.KalmanNoiseConfig), "KalmanNoiseConfig must be publicly available"
     assert boxmot.KalmanNoiseConfig.__dataclass_params__.frozen, "KalmanNoiseConfig must remain immutable"
     assert get_type_hints(boxmot.KalmanNoiseConfig)["measurement_noise_scale"] is float
+    assert is_dataclass(boxmot.ReIDConfig), "ReIDConfig must be publicly available"
+    assert boxmot.ReIDConfig.__dataclass_params__.frozen, "ReIDConfig must remain immutable"
+    expected_fields = {
+        "model",
+        "device",
+        "precision",
+        "preprocessing",
+        "batch_size",
+        "image_size",
+        "embedding_dim",
+        "allow_download",
+    }
+    assert expected_fields <= get_type_hints(boxmot.ReIDConfig).keys(), (
+        "ReIDConfig must retain its typed inference fields"
+    )
+    assert any(
+        get_origin(model := get_type_hints(overload).get("model")) is Literal
+        and "osnet-x0-25-msmt17" in get_args(model)
+        for overload in get_overloads(boxmot.ReIDConfig.__init__)
+    ), "ReIDConfig.model must retain Literal autocomplete suggestions"
+    assert boxmot.ReIDConfig().model == "osnet-x0-25-msmt17", "ReIDConfig must retain its default model"
 
 
 def check_tracker_constructor_docs() -> None:

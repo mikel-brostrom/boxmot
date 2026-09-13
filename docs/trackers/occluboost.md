@@ -63,9 +63,10 @@ canonical `Detections`. When `use_embeddings=True` and a non-empty batch has no
 embeddings, the high-level tracker lazily initializes its configured encoder or
 backend and extracts embeddings from the supplied `Frame`. A native adapter
 then passes that typed feature buffer to its model-free C++ library.
-Configuration may come from a complete `ReIDEncoderSpec`, an injected
-`reid_model`, or `reid_weights`, `device`, `half`, and `reid_preprocess`. If no
-weights or spec are supplied, the default ReID model is used.
+Pass `reid=ReIDConfig(...)` to group model, device, precision, preprocessing,
+and batching settings, or inject a prebuilt `AppearanceEncoder` with `reid=encoder`.
+The workflow API also accepts a complete `ReIDEncoderSpec` through
+`tracker.configure_reid(spec)`. Omitting ReID configuration uses the default model.
 Attached embeddings bypass inference, and empty batches do not initialize the
 model. See [Live embeddings in ReID-enabled
 trackers](../python/index.md#live-embeddings-in-reid-enabled-trackers).

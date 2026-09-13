@@ -290,3 +290,86 @@ def test_reid_factory_rejects_unresolved_explicit_specs(capture_encoder) -> None
     with pytest.raises(ValueError, match="resolved local artifact"):
         create_reid_encoder(ReIDEncoderSpec("pytorch"), allow_download=True)
     assert not capture_encoder
+
+
+@pytest.mark.parametrize("kind", ("object", "mapping", "yaml"))
+def test_reid_factory_config_inherits_profile_settings(kind, profile, capture_encoder) -> None:
+    from boxmot.reid import ReIDConfig
+
+    config_path, _ = profile
+    config = ReIDConfig(allow_download=False)
+    if kind == "object":
+        reference = config
+    elif kind == "mapping":
+        reference = config.to_dict()
+    else:
+        reference = config_path.parent / "friendly.yaml"
+        reference.write_text(yaml.safe_dump(config.to_dict()))
+    encoder = create_reid_encoder(reference)
+    assert encoder.spec.device == "cuda:3"
+    assert encoder.spec.precision == "fp16"
+    assert encoder.spec.preprocessing == "resize"
+    assert encoder.spec.option_values() == {"image_size": (384, 128)}
+
+
+def test_reid_factory_config_overrides_merge_and_factory_keywords_take_precedence(profile, capture_encoder) -> None:
+    from boxmot.reid import ReIDConfig
+
+    config = ReIDConfig(
+        device="cuda:1",
+        precision="fp32",
+        preprocessing="resize_pad",
+        batch_size=7,
+        image_size=(128, 64),
+        embedding_dim=8,
+        allow_download=False,
+    )
+    encoder = create_reid_encoder(config)
+    assert encoder.spec.device == "cuda:1"
+    assert encoder.spec.precision == "fp32"
+    assert encoder.spec.preprocessing == "resize_pad"
+    assert encoder.spec.option_values() == {"batch_size": 7, "image_size": (128, 64), "embedding_dim": 8}
+    overridden = create_reid_encoder(config, device="cpu", options={"batch_size": 2})
+    assert overridden.spec.device == "cpu"
+    assert overridden.spec.option_values() == {"batch_size": 2, "image_size": (128, 64), "embedding_dim": 8}
+    assert config.device == "cuda:1"
+    assert config.batch_size == 7
+
+
+@pytest.mark.parametrize("kind", ("object", "mapping", "yaml"))
+@pytest.mark.parametrize("override", (None, False, True))
+def test_reid_factory_inherits_config_download_policy(kind, override, tmp_path, capture_encoder, monkeypatch) -> None:
+    from boxmot.reid import ReIDConfig
+
+    artifact = tmp_path / "appearance.pt"
+    source = tmp_path / "source.yaml"
+    source.write_text(
+        yaml.safe_dump(
+            {"backend": "pytorch", "artifact": {"path": str(artifact), "uri": "https://example.test/model.pt"}}
+        )
+    )
+    config = ReIDConfig(source, allow_download=False)
+    if kind == "object":
+        reference = config
+    elif kind == "mapping":
+        reference = config.to_dict()
+    else:
+        reference = tmp_path / "friendly.yaml"
+        reference.write_text(yaml.safe_dump(config.to_dict()))
+    downloads = []
+
+    def download(url, destination):
+        downloads.append(url)
+        destination.write_bytes(b"fixture downloaded weights")
+
+    monkeypatch.setitem(sys.modules, "boxmot.resources.download", SimpleNamespace(download_file=download))
+    kwargs = {} if override is None else {"allow_download": override}
+    if override is True:
+        encoder = create_reid_encoder(reference, **kwargs)
+        assert encoder.spec.artifact == str(artifact)
+        assert downloads == ["https://example.test/model.pt"]
+    else:
+        with pytest.raises(FileNotFoundError, match="Model artifact does not exist"):
+            create_reid_encoder(reference, **kwargs)
+        assert downloads == []
+        assert capture_encoder == []

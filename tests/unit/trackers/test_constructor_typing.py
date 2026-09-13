@@ -12,13 +12,44 @@ import pytest
 from typing_extensions import Unpack, is_typeddict
 
 import boxmot
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 
-_REID_OPTIONS = {"reid_model", "reid_weights", "device", "half", "reid_preprocess"}
+_REID_OPTIONS = {"reid"}
 _TIMING_OPTIONS = {"variable_dt"}
 _NOISE_OPTIONS = {"kalman"}
+
+
+@pytest.mark.parametrize("tracker_name", tuple(_TRACKER_MANIFEST))
+def test_reid_configuration_is_explicit_only_for_appearance_trackers(tracker_name: str) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    signature = inspect.signature(tracker.__init__)
+    if tracker.accepts_embeddings:
+        parameter = signature.parameters["reid"]
+        assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+        assert parameter.default is None
+        assert get_type_hints(tracker.__init__)["reid"] == ReIDConfig | AppearanceEncoder | None
+    else:
+        assert "reid" not in signature.parameters
+
+
+@pytest.mark.parametrize("tracker_name", tuple(_TRACKER_MANIFEST))
+@pytest.mark.parametrize("option", ["reid_model", "reid_weights", "device", "half", "reid_preprocess"])
+def test_removed_reid_constructor_options_are_rejected(tracker_name: str, option: str) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    with pytest.raises(TypeError, match=option):
+        tracker(**{option: None})
+
+
+@pytest.mark.parametrize("tracker_name", ["bytetrack", "ocsort", "sfsort", "eagermot", "maf_hda"])
+@pytest.mark.parametrize("reid", [None, ReIDConfig()])
+def test_non_appearance_trackers_reject_explicit_reid_configuration(tracker_name: str, reid) -> None:
+    tracker = getattr(boxmot, _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1])
+    with pytest.raises(TypeError, match="does not accept.*[Rr]e[Ii][Dd]"):
+        tracker(reid=reid)
 
 
 def _keyword_parameters(constructor: Any) -> dict[str, inspect.Parameter]:

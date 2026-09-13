@@ -230,7 +230,7 @@ def test_lazy_component_registry_rejects_non_callable_target(monkeypatch) -> Non
         (
             "boxmot.reid",
             "boxmot.reid.factory",
-            ["AppearanceEncoder", "EncoderRequirements", "ReIDEncoderSpec", "create_reid_encoder"],
+            ["AppearanceEncoder", "EncoderRequirements", "ReIDConfig", "ReIDEncoderSpec", "create_reid_encoder"],
             ("boxmot.reid.adapters", "boxmot.reid.backends."),
         ),
     ),

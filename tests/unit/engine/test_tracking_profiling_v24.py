@@ -306,3 +306,49 @@ def test_profiled_tracker_accounts_owned_reid_as_exclusive_child_time(monkeypatc
     assert timings["tracker_total"] == pytest.approx(10.0)
     assert timings["reid_total"] + timings["tracker_total"] == pytest.approx(timings["overall"])
     assert timings["other_overhead"] == pytest.approx(0.0, abs=1e-9)
+
+
+@pytest.mark.parametrize("instrumented", [False, True])
+def test_live_encoder_inference_is_attributed_once_to_reid(instrumented: bool, monkeypatch) -> None:
+    """Custom encoders get fallback timing; built-in encoders retain their own phases."""
+    from boxmot import BotSort
+    from boxmot.reid.adapters import RuntimeAppearanceEncoder
+    from boxmot.reid.specs import ReIDEncoderSpec
+
+    elapsed = [0.0]
+
+    class OpaqueEncoder:
+        embedding_dim = 4
+        requirements = EncoderRequirements()
+
+        def encode(self, frames, detections):
+            elapsed[0] += 0.025
+            return [torch.ones((len(item), 4), dtype=torch.float32) for item in detections]
+
+    class Runtime:
+        embedding_dim = 4
+        input_shape = (12, 10)
+        device = "cpu"
+
+        def get_features(self, boxes, image):
+            elapsed[0] += 0.025
+            return np.ones((len(boxes), 4), dtype=np.float32)
+
+    encoder = (
+        RuntimeAppearanceEncoder(ReIDEncoderSpec("pytorch"), Runtime()) if instrumented else OpaqueEncoder()
+    )
+    tracker = BotSort(reid=encoder, use_cmc=False)
+    monkeypatch.setattr(component_timing, "synchronize_torch_device", lambda _: None)
+    monkeypatch.setattr(component_timing.time, "perf_counter", lambda: elapsed[0])
+    profiler = RuntimeProfiler(clock=lambda: elapsed[0])
+    frame = _frame()
+
+    ProfiledTracker(tracker, profiler).update(_detections(frame), frame)
+    profiler.finish_sample(frame.sample_id, 25.0)
+
+    timings = profiler.sample_timings_ms(frame.sample_id)
+    assert timings["reid_inference"] == pytest.approx(25.0)
+    assert timings["reid_total"] == pytest.approx(25.0)
+    assert timings["tracker_update"] == pytest.approx(0.0)
+    assert timings["tracker_total"] == pytest.approx(0.0)
+    assert timings["other_overhead"] == pytest.approx(0.0)

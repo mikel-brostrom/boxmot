@@ -12,8 +12,8 @@ StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The pap
 - Supports both AABB and OBB detections in BoxMOT.
 - Good when appearance matching matters more than raw speed, especially for pedestrian-style MOT benchmarks.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ::: boxmot.StrongSort

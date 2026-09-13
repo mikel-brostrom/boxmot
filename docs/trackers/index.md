@@ -99,9 +99,9 @@ for dtypes, shapes, and validation.
 
 Every ReID-enabled high-level adapter can consume attached embeddings or
 generate missing embeddings from a supplied frame. Direct Python class
-construction exposes the same `reid_model`,
-`reid_weights`, `device`, `half`, and `reid_preprocess` options across all six
-trackers. Attached embeddings bypass inference, and empty batches do not load
+construction exposes the same `reid=ReIDConfig(...)` or prebuilt
+`AppearanceEncoder` input across all six trackers. The configuration groups
+model, device, precision, preprocessing, and batching. Attached embeddings bypass inference, and empty batches do not load
 the model. Direct callers may also install a complete `ReIDEncoderSpec` with
 `tracker.configure_reid(spec)` before the first update of a sequence. Native
 BotSort and OccluBoost adapters support that same dual path, then pass features

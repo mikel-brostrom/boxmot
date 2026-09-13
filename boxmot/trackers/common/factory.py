@@ -8,6 +8,8 @@ from dataclasses import replace
 from typing import Any, overload
 
 from boxmot.components.resolution import component_options
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
@@ -28,6 +30,7 @@ _REID_MODEL_OPTIONS = frozenset(
         "device",
         "half",
         "model",
+        "reid",
         "reid_device",
         "reid_model",
         "reid_model_path",
@@ -95,6 +98,8 @@ def _create_native_tracker(
     spec: TrackerSpec,
     definition: TrackerDefinition,
     geometry_kind: GeometryKind,
+    *,
+    reid: ReIDConfig | AppearanceEncoder | None = None,
 ) -> Tracker:
     """Validate and construct a C++ tracker through its domain-owned adapter."""
 
@@ -124,7 +129,8 @@ def _create_native_tracker(
         )
 
     tracker_class = _load_native_tracker_class(definition)
-    return tracker_class(spec.option_dict, geometry=geometry_kind.value)
+    encoder_options = {"reid": reid} if reid is not None else {}
+    return tracker_class(spec.option_dict, geometry=geometry_kind.value, **encoder_options)
 
 
 def _resolve_spec(spec: TrackerSpec | str, overrides: Mapping[str, Any]) -> TrackerSpec:
@@ -186,25 +192,33 @@ def _validate_model_options(name: str, options: Mapping[str, Any]) -> None:
     if not get_tracker_definition(name).capabilities.accepts_embeddings:
         raise ValueError(f"Tracker {name!r} does not accept ReID model options: " + ", ".join(model_options))
     raise ValueError(
-        "TrackerSpec accepts tracker-algorithm options only; configure ReID on the created "
-        "tracker instead: " + ", ".join(model_options)
+        "TrackerSpec accepts tracker-algorithm options only; pass ReIDConfig or an encoder "
+        "through create_tracker(..., reid=...) instead: " + ", ".join(model_options)
     )
 
 
 @overload
-def create_tracker(spec: TrackerName, **overrides: Any) -> Tracker: ...
+def create_tracker(
+    spec: TrackerName, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+) -> Tracker: ...
 
 
 @overload
-def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker: ...
+def create_tracker(
+    spec: TrackerSpec | str, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+) -> Tracker: ...
 
 
-def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
+def create_tracker(
+    spec: TrackerSpec | str, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+) -> Tracker:
     """Create a tracker from its registered name or an immutable specification.
 
     Keyword arguments override specification fields or tracker-algorithm options.
     An optional ``options`` mapping overlays spec options; direct keywords win.
     Omitted values retain the spec selection and the tracker's configured defaults.
+    ``reid`` supplies an encoder configuration or prebuilt AppearanceEncoder
+    separately from the serializable tracking algorithm specification.
 
     The factory does not construct models eagerly. Trackers consume required
     masks, embeddings, or frames through their structured update boundary;
@@ -214,6 +228,8 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
 
     spec = _resolve_spec(spec, overrides)
     definition = get_tracker_definition(spec.name)
+    if reid is not None and not definition.capabilities.accepts_embeddings:
+        raise ValueError(f"Tracker {spec.name!r} does not accept ReID configuration.")
     tracker_args = load_tracker_config(definition.config_name or definition.name, None, spec.option_dict)
     validate_calibration_profile(tracker_args, tracker_name=spec.name, geometry=spec.geometry, backend=spec.backend)
     calibrated_class = tracker_args.get("calibration.class_id")
@@ -233,13 +249,15 @@ def create_tracker(spec: TrackerSpec | str, **overrides: Any) -> Tracker:
     geometry_kind = _validate_geometry(spec, definition)
     _validate_model_options(spec.name, spec.option_dict)
     if spec.backend == "cpp":
-        tracker = _create_native_tracker(spec, definition, geometry_kind)
+        tracker = _create_native_tracker(spec, definition, geometry_kind, reid=reid)
         return _bind_and_validate_capabilities(tracker, definition.capabilities)
 
     if spec.name in KALMAN_NOISE_TRACKER_NAMES:
         tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("kalman.")}
         tracker_args["kalman"] = kalman
     tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("calibration.")}
+    if reid is not None:
+        tracker_args["reid"] = reid
 
     tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
     if definition.accepts_per_class:

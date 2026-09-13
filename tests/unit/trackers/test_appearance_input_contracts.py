@@ -10,6 +10,7 @@ import pytest
 import torch
 
 from boxmot import KalmanConfig
+from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, CameraModel, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.botsort.native import NativeBotSortTracker
 from boxmot.trackers.common.config import load_tracker_defaults, nest_tracker_options
@@ -24,13 +25,16 @@ _NATIVE_TRACKERS = {"botsort": NativeBotSortTracker, "occluboost": NativeOccluBo
 class _Encoder:
     """Record image fallback without model construction or downloads."""
 
+    embedding_dim = 3
+    requirements = EncoderRequirements()
+
     def __init__(self) -> None:
         self.calls = 0
 
-    def get_features(self, boxes: np.ndarray, image: np.ndarray) -> np.ndarray:
-        assert image.shape == (192, 192, 3)
+    def encode(self, frames, detections) -> list[torch.Tensor]:
+        assert frames[0].image.shape == (3, 192, 192)
         self.calls += 1
-        return np.tile(np.array([[1.0, 0.0, 0.0]], dtype=np.float32), (len(boxes), 1))
+        return [torch.tensor([[1.0, 0.0, 0.0]]).repeat(len(value), 1) for value in detections]
 
 
 class _Library:
@@ -87,7 +91,7 @@ def test_default_python_appearance_inputs_drive_real_tracking(
     name: str, geometry: str, supplied_embeddings: bool
 ) -> None:
     encoder = _Encoder()
-    tracker = _python_tracker(name, reid_model=encoder, is_obb=geometry == "obb")
+    tracker = _python_tracker(name, reid=encoder, is_obb=geometry == "obb")
     assert tracker.requirements.embeddings and tracker.requirements.frame_pixels
     detections, frame = _detections(geometry=geometry, embeddings=supplied_embeddings), _frame()
 
@@ -179,7 +183,7 @@ def test_native_defaults_forward_images_and_resolved_embeddings(
     name: str, geometry: str, supplied_embeddings: bool
 ) -> None:
     library, encoder = _Library(), _Encoder()
-    tracker = _NATIVE_TRACKERS[name](library=library, geometry=geometry, reid_model=encoder)
+    tracker = _NATIVE_TRACKERS[name](library=library, geometry=geometry, reid=encoder)
     try:
         assert tracker.requirements.frame_pixels and tracker.requirements.embeddings
         tracker.update(_detections(geometry=geometry, embeddings=supplied_embeddings), _frame())

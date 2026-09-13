@@ -19,9 +19,9 @@ To integrate a new tracker cleanly:
    packed NumPy input returns packed NumPy track rows. `BaseTracker` owns
    validation and conversion of both representations; concrete trackers
    continue to implement only their private NumPy kernel. A ReID-enabled
-   high-level tracker adapter must expose and forward the shared `reid_model`,
-   `reid_weights`, `device`, `half`, and `reid_preprocess` constructor options
-   rather than implementing its own extraction path. The shared tracker-domain
+   high-level tracker adapter must expose and forward
+   `reid: ReIDConfig | AppearanceEncoder | None`. Keep `use_embeddings` and
+   appearance association parameters on the tracker. The shared tracker-domain
    appearance helper owns lazy extraction for missing embeddings, the
    precomputed bypass, and empty-batch behavior for Python and native adapters.
 3. Add the tracker key and canonical implementation path to `_TRACKER_MANIFEST`

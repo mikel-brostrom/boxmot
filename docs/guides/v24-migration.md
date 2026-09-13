@@ -10,7 +10,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 | `BoxMOT(...)` workflow facade | Explicit component factories plus `PerceptionPipeline` or `TrackingPipeline`; use the engine CLI for source-to-sink workflows |
 | Root `Detector` | `boxmot.detectors.create_detector("yolo26n", device="cpu")`; explicit `DetectorSpec` is also supported |
 | Root `ReIDModel` | `boxmot.reid.create_reid_encoder("osnet-x0-25-msmt17", device="cpu")`; explicit `ReIDEncoderSpec` is also supported |
-| `create_tracker("name", reid_weights=..., device=...)` | Use `create_tracker("name", ...)` for algorithm settings and a separate `create_reid_encoder` for model settings. Explicit `TrackerSpec` remains supported; ReID-enabled adapters also accept `configure_reid(ReIDEncoderSpec(...))`, and direct tracker classes accept live ReID options |
+| Separate tracker model/weight/device arguments | Group inference settings in `ReIDConfig` and pass `reid=config` to the tracker class or `create_tracker`. Pass a prebuilt `AppearanceEncoder` through the same argument to reuse it. `TrackerSpec` retains algorithm settings only |
 | `tracker.update(numpy_rows, img=..., embs=..., masks=...)` | Use `tracker.update(numpy_rows)` for simple box-only calls; attach enrichments to `Detections` and call `tracker.update(detections, frame)` otherwise |
 | `DetectionBatch`, `TrackResults`, `FrameData`, `FramePayload`, engine result records | `Frame`, `Boxes`/`OrientedBoxes`, `MaskBatch`, `Detections`, `Tracks`, and `PipelineResult` |
 | `boxmot.api` | Removed; compose public domain packages directly |
@@ -22,7 +22,8 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 
 ## Root imports
 
-The package root exports `__version__`, `create_tracker`, and the lazy tracker
+The package root exports `__version__`, `create_tracker`, `ReIDConfig`,
+`KalmanConfig`, `KalmanNoiseConfig`, `AbnormalMotionSuppressionConfig`, and the lazy tracker
 classes: `BoostTrack`, `BotSort`, `ByteTrack`, `DeepOcSort`, `EagerMot`,
 `HybridSort`, `MafHda`, `OccluBoost`, `OcSort`, `SFSORT`, and `StrongSort`.
 Import structures, specs, protocols, factories, pipelines, and datasets from

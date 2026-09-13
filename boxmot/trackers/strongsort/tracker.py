@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 import numpy as np
 from typing_extensions import Unpack
 
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association.strongsort import (
     INFTY_COST,
@@ -97,11 +96,7 @@ class StrongSort(BoxTracker):
         ema_alpha: float = 0.9,
         *,
         kalman: KalmanConfig | None = None,
-        reid_model: Any | None = None,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
-        device: Any = "cpu",
-        half: bool = False,
-        reid_preprocess: str | None = None,
+        reid: ReIDConfig | AppearanceEncoder | None = None,
         **kwargs: Unpack[CommonTrackerOptions],
     ) -> None:
         """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
@@ -121,13 +116,9 @@ class StrongSort(BoxTracker):
                 the motion-distance weight is one minus this value.
             ema_alpha: Previous-embedding weight in exponential smoothing; higher values
                 retain more history and adapt more slowly.
-            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
-                used when appearance is enabled and input embeddings are absent.
-            reid_weights: Weights for the ReID backend constructed lazily when
-                embeddings are needed. None selects the default ReID weights.
-            device: Inference device for the lazily constructed ReID backend.
-            half: Use FP16 inference in the lazily constructed ReID backend.
-            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; supplied embeddings and
+                empty batches skip inference. None selects the default configuration.
             kalman: Immutable filter noise, timing, and supported behavior settings.
                 None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
@@ -136,11 +127,7 @@ class StrongSort(BoxTracker):
         """
         super().__init__(
             kalman=kalman,
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
+            reid=reid,
             **kwargs,
         )
 

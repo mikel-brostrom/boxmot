@@ -12,8 +12,8 @@ Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearanc
 - Supports both AABB and OBB detections in BoxMOT.
 - Useful when OC-SORT is close but still loses IDs in crowded scenes where appearance recovery matters.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ::: boxmot.DeepOcSort

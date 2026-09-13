@@ -15,6 +15,7 @@ _EXPORTS = {
         "AbnormalMotionSuppressionConfig",
     ),
     "KalmanNoiseConfig": ("boxmot.trackers.common.motion.kalman_filters.noise", "KalmanNoiseConfig"),
+    "ReIDConfig": ("boxmot.reid.specs", "ReIDConfig"),
     **{
         entry.class_path.rsplit(".", 1)[-1]: tuple(entry.class_path.rsplit(".", 1))
         for entry in _TRACKER_MANIFEST.values()
@@ -25,6 +26,7 @@ __all__ = ("__version__", *_EXPORTS)
 
 
 if TYPE_CHECKING:
+    from boxmot.reid.specs import ReIDConfig as ReIDConfig
     from boxmot.trackers.boosttrack.tracker import BoostTrack as BoostTrack
     from boxmot.trackers.botsort.tracker import BotSort as BotSort
     from boxmot.trackers.bytetrack.tracker import ByteTrack as ByteTrack

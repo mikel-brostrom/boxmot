@@ -3,13 +3,13 @@ from __future__ import annotations
 from abc import abstractmethod
 from collections.abc import Iterable, Mapping
 from numbers import Real
-from pathlib import Path
-from typing import Any, overload
+from typing import overload
 
 import numpy as np
 import torch
 
-from boxmot.components.timing import timed_component_phase
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import (
     Boxes,
     CameraModel,
@@ -123,11 +123,7 @@ class BaseTracker(
         asso_func: str = "iou",
         is_obb: bool = False,
         kalman: KalmanConfig | None = None,
-        reid_model: Any | None = _REID_OPTION_UNSET,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
-        device: Any = _REID_OPTION_UNSET,
-        half: bool = _REID_OPTION_UNSET,
-        reid_preprocess: str | None = _REID_OPTION_UNSET,
+        reid: ReIDConfig | AppearanceEncoder | None = _REID_OPTION_UNSET,
         **kwargs,
     ):
         """
@@ -149,13 +145,7 @@ class BaseTracker(
           where image vertical is meaningful.
         - is_obb: Use oriented detections instead of axis-aligned detections.
         - kalman: Immutable filter noise, timing, and supported behavior settings.
-        - reid_model: Optional pre-built ReID backend exposing
-          ``get_features(boxes, image)``.
-        - reid_weights: Weights used to lazily construct a ReID backend when
-          an appearance-enabled tracker receives no embeddings.
-        - device: Device used by the lazily constructed ReID backend.
-        - half: Whether the lazily constructed ReID backend uses FP16.
-        - reid_preprocess: Optional ReID preprocessing profile.
+        - reid: Immutable encoder configuration or a prebuilt AppearanceEncoder.
 
         Detection layouts:
         - AABB: ``(x1, y1, x2, y2, conf, cls)``
@@ -182,13 +172,7 @@ class BaseTracker(
             raise ValueError(f"{self.__class__.__name__} does not support kalman.variable_dt.")
         if self.kalman_noise_config.by_class and self.supports_variable_dt and not per_class:
             raise ValueError("Class-specific kalman.noise requires per_class=True for box trackers.")
-        self._init_live_reid(
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
-        )
+        self._init_live_reid(reid=reid)
         self.name = self.__class__.__name__
         self.det_thresh = det_thresh
         self.max_age = max_age
@@ -396,17 +380,6 @@ class BaseTracker(
             embeddings = None
             masks = None
 
-        prepared_bgr = None
-        if (
-            embeddings is None
-            and self.generates_embeddings
-            and len(geometry)
-            and frame is not None
-            and self._reid_encoder_spec is None
-        ):
-            with timed_component_phase("reid", "preprocess", device=self._reid_device):
-                prepared_bgr = self._frame_to_bgr(frame)
-
         embeddings = self._resolve_input_embeddings(
             geometry=geometry,
             embeddings=embeddings,
@@ -414,7 +387,6 @@ class BaseTracker(
             detections=canonical_detections,
             scores=scores,
             class_ids=class_ids,
-            prepared_bgr=prepared_bgr,
         )
         requirements = self.requirements
         if requirements.embeddings and embeddings is None:
@@ -445,7 +417,6 @@ class BaseTracker(
             masks=masks,
             mask_image_size=mask_image_size,
             numpy_output=numpy_input,
-            prepared_bgr=prepared_bgr,
         )
         self._last_timestamp_s = timestamp_s
         return tracks
@@ -548,7 +519,6 @@ class BaseTracker(
         masks: np.ndarray | None,
         mask_image_size: tuple[int, int] | None,
         numpy_output: bool,
-        prepared_bgr: np.ndarray | None,
     ) -> Tracks | np.ndarray:
         """Invoke one NumPy kernel update and return its requested public representation."""
         self.class_catalog.validate_ids(class_ids.tolist())
@@ -566,7 +536,7 @@ class BaseTracker(
                 self._initialize_frame_dimensions(width=width, height=height)
             else:
                 # Tracker kernels and CMC implementations use OpenCV's HWC BGR convention.
-                img = prepared_bgr if prepared_bgr is not None else self._frame_to_bgr(frame)
+                img = self._frame_to_bgr(frame)
 
         self._initialize_frame_context(img)
         if self.per_class:

@@ -11,6 +11,7 @@ import torch
 
 from boxmot import KalmanConfig
 from boxmot.native.trackers._common import NativeTrackBatch
+from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
 from boxmot.trackers.common import native
@@ -129,11 +130,14 @@ def test_hybrid_live_reid_requires_pixels_only_when_cached_embeddings_are_absent
     calls: list[np.ndarray] = []
 
     class Encoder:
-        def get_features(self, boxes: np.ndarray, image: np.ndarray) -> np.ndarray:
-            calls.append(image.copy())
-            return np.tile(np.array([[1.0, 0.0]], dtype=np.float32), (len(boxes), 1))
+        embedding_dim = 2
+        requirements = EncoderRequirements()
 
-    tracker = _tracker("hybridsort", cmc_method=None, reid_model=Encoder())
+        def encode(self, frames, detections) -> list[torch.Tensor]:
+            calls.append(frames[0].image.numpy().copy())
+            return [torch.tensor([[1.0, 0.0]]).repeat(len(value), 1) for value in detections]
+
+    tracker = _tracker("hybridsort", cmc_method=None, reid=Encoder())
     tracker.update(_detections(embeddings=True))
     assert not calls
     with pytest.raises(ValueError, match="requires a frame to generate"):

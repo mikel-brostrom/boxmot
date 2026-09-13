@@ -13,8 +13,8 @@ BoT-SORT extends the ByteTrack family by combining motion, appearance, and camer
 - Supports both AABB and OBB detections in BoxMOT.
 - Best when you need stronger identity preservation than ByteTrack, especially with camera motion or repeated occlusions.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
 ## Native C++ Backend

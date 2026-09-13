@@ -20,7 +20,6 @@ def forbid_reid_loading(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_model_loading(self: LiveReIDMixin) -> None:
         raise AssertionError("Release smoke must supply embeddings without constructing a ReID model")
 
-    monkeypatch.setattr(LiveReIDMixin, "_get_live_reid_model", unexpected_model_loading)
     monkeypatch.setattr(LiveReIDMixin, "_get_live_reid_encoder", unexpected_model_loading)
 
 

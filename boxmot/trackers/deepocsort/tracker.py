@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-
 import numpy as np
 from typing_extensions import Unpack
 
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
     resolve_batch_embeddings,
@@ -53,11 +52,7 @@ class DeepOcSort(BoxTracker):
         aw_off: bool = False,
         *,
         kalman: KalmanConfig | None = None,
-        reid_model: Any | None = None,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
-        device: Any = "cpu",
-        half: bool = False,
-        reid_preprocess: str | None = None,
+        reid: ReIDConfig | AppearanceEncoder | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
         """Configure motion-direction matching and adaptive appearance weighting.
@@ -73,13 +68,9 @@ class DeepOcSort(BoxTracker):
                 embeddings from image frames with the configured ReID backend.
             cmc_off: Disable sparse-optical-flow camera-motion compensation.
             aw_off: Disable adaptive weighting of appearance similarity.
-            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
-                used when appearance is enabled and input embeddings are absent.
-            reid_weights: Weights for the ReID backend constructed lazily when
-                embeddings are needed. None selects the default ReID weights.
-            device: Inference device for the lazily constructed ReID backend.
-            half: Use FP16 inference in the lazily constructed ReID backend.
-            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; supplied embeddings and
+                empty batches skip inference. None selects the default configuration.
             kalman: Immutable filter noise, timing, and supported behavior settings.
                 None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
@@ -88,11 +79,7 @@ class DeepOcSort(BoxTracker):
         """
         super().__init__(
             kalman=kalman,
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
+            reid=reid,
             **kwargs,
         )
 

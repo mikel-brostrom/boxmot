@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -69,6 +70,36 @@ def test_release_rejects_required_inherited_constructor_options(monkeypatch: pyt
     monkeypatch.setattr(constructor, "CommonTrackerOptions", RequiredOptions)
 
     with pytest.raises(AssertionError, match="CommonTrackerOptions constructor keywords must remain optional"):
+        check_typing_metadata()
+
+
+def test_release_rejects_mutable_reid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    @dataclass
+    class MutableReIDConfig:
+        model: str = "osnet-x0-25-msmt17"
+
+    monkeypatch.setattr(boxmot, "ReIDConfig", MutableReIDConfig)
+    with pytest.raises(AssertionError, match="ReIDConfig must remain immutable"):
+        check_typing_metadata()
+
+
+def test_release_rejects_missing_reid_model_autocomplete(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(release_contract, "get_overloads", lambda function: [])
+    with pytest.raises(AssertionError, match="ReIDConfig.model must retain Literal autocomplete"):
+        check_typing_metadata()
+
+
+def test_release_rejects_missing_reid_batch_configuration_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    get_type_hints = release_contract.get_type_hints
+
+    def without_batch_size(value):
+        hints = get_type_hints(value)
+        if value is boxmot.ReIDConfig:
+            hints.pop("batch_size")
+        return hints
+
+    monkeypatch.setattr(release_contract, "get_type_hints", without_batch_size)
+    with pytest.raises(AssertionError, match="ReIDConfig must retain its typed inference fields"):
         check_typing_metadata()
 
 

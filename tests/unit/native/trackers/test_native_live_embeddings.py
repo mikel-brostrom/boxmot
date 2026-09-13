@@ -9,9 +9,11 @@ import pytest
 import torch
 
 from boxmot.reid import EncoderRequirements, ReIDEncoderSpec
+from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import Detections, Frame, Tracks
 from boxmot.trackers.botsort.native import NativeBotSortTracker
 from boxmot.trackers.occluboost.native import NativeOccluBoostTracker
+from tests.unit.trackers._reid import INVALID_ENCODER_OUTPUTS, OutputEncoder, RecordingEncoder, invalid_output_encoder
 
 from ._helpers import detections_from_rows, empty_native_batch, frame_from_bgr
 
@@ -67,18 +69,6 @@ class _FakeLibrary:
         self.destroy_calls += 1
 
 
-class _ReIDModelSpy:
-    """Record calls through the established ``get_features`` runtime API."""
-
-    def __init__(self, features: np.ndarray) -> None:
-        self.features = np.asarray(features, dtype=np.float32)
-        self.calls: list[tuple[np.ndarray, np.ndarray]] = []
-
-    def get_features(self, geometry: np.ndarray, image: np.ndarray) -> np.ndarray:
-        self.calls.append((geometry.copy(), image.copy()))
-        return self.features[: len(geometry)].copy()
-
-
 class _AppearanceEncoderSpy:
     """Canonical encoder double for full-spec lazy configuration."""
 
@@ -131,14 +121,14 @@ def _tracker(tracker_class, library: _FakeLibrary, *, geometry: str = "aabb", **
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
 @pytest.mark.parametrize("frame_representation", ("canonical", "numpy"))
-def test_native_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_frame(
+def test_native_reid_trackers_encode_canonical_geometry_and_rgb_frames(
     tracker_class,
     geometry: str,
     frame_representation: str,
 ) -> None:
     library = _FakeLibrary()
-    model = _ReIDModelSpy(np.array([[3, 4, 0], [0, 0, 2]], dtype=np.float32))
-    tracker = _tracker(tracker_class, library, geometry=geometry, reid_model=model)
+    model = RecordingEncoder(np.array([[3, 4, 0], [0, 0, 2]], dtype=np.float32))
+    tracker = _tracker(tracker_class, library, geometry=geometry, reid=model)
     detections = detections_from_rows(_rows(geometry), sample_id="sequence/000001")
     frame, expected_bgr = _frame()
 
@@ -150,10 +140,12 @@ def test_native_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_
     assert isinstance(output, Tracks)
     assert tracker.generates_embeddings is True
     assert len(model.calls) == 1
-    received_geometry, received_image = model.calls[0]
-    np.testing.assert_array_equal(received_geometry, detections.geometry.values.numpy())
-    np.testing.assert_array_equal(received_image, expected_bgr)
-    assert received_image.flags.c_contiguous
+    frames, observations = model.calls[0]
+    assert observations == (detections,)
+    torch.testing.assert_close(frames[0].image, frame.image)
+    assert frames[0].sample_id == detections.sample_id
+    if frame_representation == "canonical":
+        assert frames[0] is frame
 
     generated = library.update_calls[0]["embeddings"]
     assert generated is not None
@@ -166,8 +158,8 @@ def test_native_reid_trackers_generate_missing_embeddings_from_geometry_and_bgr_
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 def test_native_reid_trackers_bypass_model_for_supplied_embeddings(tracker_class) -> None:
     library = _FakeLibrary()
-    model = _ReIDModelSpy(np.ones((2, 3), dtype=np.float32))
-    tracker = _tracker(tracker_class, library, reid_model=model)
+    model = RecordingEncoder(np.ones((2, 3), dtype=np.float32))
+    tracker = _tracker(tracker_class, library, reid=model)
     supplied = np.array([[7, 0, 0], [0, 5, 0]], dtype=np.float32)
     detections = detections_from_rows(_rows("aabb"), embeddings=supplied)
 
@@ -184,8 +176,8 @@ def test_native_reid_trackers_bypass_model_for_supplied_embeddings(tracker_class
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 def test_native_reid_trackers_require_frame_only_for_nonempty_missing_embeddings(tracker_class) -> None:
     library = _FakeLibrary()
-    model = _ReIDModelSpy(np.ones((2, 3), dtype=np.float32))
-    tracker = _tracker(tracker_class, library, reid_model=model)
+    model = RecordingEncoder(np.ones((2, 3), dtype=np.float32))
+    tracker = _tracker(tracker_class, library, reid=model)
 
     try:
         with pytest.raises(ValueError, match="[Ff]rame"):
@@ -206,18 +198,18 @@ def test_native_reid_trackers_do_not_load_a_model_for_empty_batches(
     representation: str,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import boxmot.reid.core as reid_core
+    import boxmot.reid.factory as reid_factory
 
-    def reject_model_creation(**_kwargs):
+    def reject_model_creation(_config):
         raise AssertionError("Empty batches must not initialize ReID.")
 
-    monkeypatch.setattr(reid_core, "ReID", reject_model_creation)
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", reject_model_creation)
     library = _FakeLibrary()
     tracker = _tracker(
         tracker_class,
         library,
         geometry=geometry,
-        reid_weights=Path("unused-reid.pt"),
+        reid=ReIDConfig(model=Path("unused-reid.pt")),
     )
     rows = _rows(geometry, empty=True)
     detections = detections_from_rows(rows) if representation == "canonical" else rows
@@ -244,11 +236,11 @@ def test_native_reid_trackers_do_not_load_a_model_for_empty_batches(
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
 def test_native_trackers_do_not_generate_embeddings_when_disabled(tracker_class) -> None:
     library = _FakeLibrary()
-    model = _ReIDModelSpy(np.ones((2, 3), dtype=np.float32))
+    model = RecordingEncoder(np.ones((2, 3), dtype=np.float32))
     tracker = tracker_class(
         {"use_embeddings": False, "use_cmc": False},
         library=library,
-        reid_model=model,
+        reid=model,
     )
 
     try:
@@ -262,31 +254,23 @@ def test_native_trackers_do_not_generate_embeddings_when_disabled(tracker_class)
 
 
 @pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
-def test_native_reid_trackers_build_raw_model_lazily_with_shared_options(
+def test_native_reid_trackers_build_the_configured_encoder_lazily(
     tracker_class,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    import boxmot.reid.core as reid_core
+    import boxmot.reid.factory as reid_factory
 
-    model = _ReIDModelSpy(np.array([[3, 4, 0], [0, 0, 2]], dtype=np.float32))
-    constructor_calls: list[dict[str, object]] = []
+    model = RecordingEncoder(np.array([[3, 4, 0], [0, 0, 2]], dtype=np.float32))
+    constructor_calls: list[ReIDConfig] = []
 
-    class _ReIDRuntime:
-        def __init__(self, **kwargs: object) -> None:
-            constructor_calls.append(kwargs)
-            self.model = model
+    def create_encoder(config: ReIDConfig):
+        constructor_calls.append(config)
+        return model
 
-    monkeypatch.setattr(reid_core, "ReID", _ReIDRuntime)
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", create_encoder)
     library = _FakeLibrary()
-    weights = Path("custom-reid.pt")
-    tracker = _tracker(
-        tracker_class,
-        library,
-        reid_weights=weights,
-        device="cuda:7",
-        half=True,
-        reid_preprocess="fast",
-    )
+    config = ReIDConfig(model=Path("custom-reid.pt"), device="cuda:7", precision="fp16", preprocessing="fast")
+    tracker = _tracker(tracker_class, library, reid=config)
     frame, _ = _frame()
 
     assert constructor_calls == []
@@ -295,14 +279,7 @@ def test_native_reid_trackers_build_raw_model_lazily_with_shared_options(
     finally:
         tracker.close()
 
-    assert constructor_calls == [
-        {
-            "weights": weights,
-            "device": "cuda:7",
-            "half": True,
-            "preprocess_name": "fast",
-        }
-    ]
+    assert constructor_calls == [config]
     assert len(model.calls) == 1
 
 
@@ -404,3 +381,43 @@ def test_native_reid_configuration_must_precede_updates_but_reset_starts_a_new_s
         second.configure_reid(spec)
     finally:
         second.close()
+
+
+@pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
+@pytest.mark.parametrize("case", INVALID_ENCODER_OUTPUTS)
+def test_native_encoder_output_contract_is_checked_before_native_update(tracker_class, case: str) -> None:
+    encoder = invalid_output_encoder(case)
+    library = _FakeLibrary()
+    tracker = _tracker(tracker_class, library, reid=encoder)
+    frame, _ = _frame()
+    try:
+        assert encoder.dimension_reads == 0
+        with pytest.raises((TypeError, ValueError), match="ReID|embedding"):
+            tracker.update(detections_from_rows(_rows("aabb"), sample_id=frame.sample_id), frame)
+        assert encoder.calls == 1
+        assert library.update_calls == []
+        assert not tracker._has_updated
+    finally:
+        tracker.close()
+
+
+@pytest.mark.parametrize("tracker_class", NATIVE_REID_TRACKERS)
+def test_native_lazy_encoder_dimension_is_read_after_encoding_only(tracker_class) -> None:
+    encoder = OutputEncoder(torch.tensor([[3.0, 4.0, 0.0], [0.0, 0.0, 2.0]]), defer_dimension=True)
+    library = _FakeLibrary()
+    tracker = _tracker(tracker_class, library, reid=encoder)
+    frame, _ = _frame()
+    try:
+        tracker.update(detections_from_rows(_rows("aabb", empty=True), sample_id=frame.sample_id), frame)
+        tracker.update(
+            detections_from_rows(
+                _rows("aabb"), embeddings=np.ones((2, 3), dtype=np.float32), sample_id=frame.sample_id
+            ),
+            frame,
+        )
+        assert encoder.calls == encoder.dimension_reads == 0
+        tracker.update(detections_from_rows(_rows("aabb"), sample_id=frame.sample_id), frame)
+        assert encoder.calls == encoder.dimension_reads == 1
+        np.testing.assert_allclose(library.update_calls[-1]["embeddings"], [[0.6, 0.8, 0.0], [0.0, 0.0, 1.0]])
+    finally:
+        tracker.close()

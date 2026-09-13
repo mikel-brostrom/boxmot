@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from boxmot.reid.factory import create_reid_encoder
     from boxmot.reid.protocols import AppearanceEncoder, EncoderRequirements
-    from boxmot.reid.specs import ReIDEncoderSpec
+    from boxmot.reid.specs import ReIDConfig, ReIDEncoderSpec
 
-__all__ = ("AppearanceEncoder", "EncoderRequirements", "ReIDEncoderSpec", "create_reid_encoder")
+__all__ = ("AppearanceEncoder", "EncoderRequirements", "ReIDConfig", "ReIDEncoderSpec", "create_reid_encoder")
 
 _EXPORTS = {
     "AppearanceEncoder": ("boxmot.reid.protocols", "AppearanceEncoder"),
     "EncoderRequirements": ("boxmot.reid.protocols", "EncoderRequirements"),
+    "ReIDConfig": ("boxmot.reid.specs", "ReIDConfig"),
     "ReIDEncoderSpec": ("boxmot.reid.specs", "ReIDEncoderSpec"),
     "create_reid_encoder": ("boxmot.reid.factory", "create_reid_encoder"),
 }

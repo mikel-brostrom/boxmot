@@ -7,12 +7,13 @@ from __future__ import annotations
 # - Uses the validated Detections/NumPy/Frame update boundary from BaseTracker
 # - Emits rows: [x1,y1,x2,y2, track_id, conf, cls, det_ind]
 # - Preserves detector class IDs and frame-global det_ind values
-from pathlib import Path
-from typing import Any, List
+from typing import List
 
 import numpy as np
 from typing_extensions import Unpack
 
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
     resolve_batch_embeddings,
@@ -77,11 +78,7 @@ class HybridSort(BoxTracker):
         longterm_reid_correction_thresh_low: float = 0.4,
         *,
         kalman: KalmanConfig | None = None,
-        reid_model: Any | None = None,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = None,
-        device: Any = "cpu",
-        half: bool = False,
-        reid_preprocess: str | None = None,
+        reid: ReIDConfig | AppearanceEncoder | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
         """Configure HybridSORT association, confidence prediction, and appearance memory.
@@ -116,13 +113,9 @@ class HybridSort(BoxTracker):
                 in OBB mode, good appearance may rescue a poor geometry match.
             longterm_reid_correction_thresh_low: Appearance-distance gate for low-score
                 AABB matches when correction is enabled.
-            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
-                used when appearance is enabled and input embeddings are absent.
-            reid_weights: Weights for the ReID backend constructed lazily when
-                embeddings are needed. None selects the default ReID weights.
-            device: Inference device for the lazily constructed ReID backend.
-            half: Use FP16 inference in the lazily constructed ReID backend.
-            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; supplied embeddings and
+                empty batches skip inference. None selects the default configuration.
             kalman: Immutable filter noise, timing, and supported behavior settings.
                 None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
@@ -131,11 +124,7 @@ class HybridSort(BoxTracker):
         """
         super().__init__(
             kalman=kalman,
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
+            reid=reid,
             **kwargs,
         )
 

@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 from typing import Any, Protocol, overload
 
 import numpy as np
 import torch
 
-from boxmot.components.timing import timed_component_phase
 from boxmot.native.trackers._common import NativeTrackBatch
+from boxmot.reid.protocols import AppearanceEncoder
+from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_defaults
@@ -157,11 +157,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
         use_embeddings: bool,
         requires_frame: bool,
         frame_dimensions_only: bool = False,
-        reid_model: Any | None = _REID_OPTION_UNSET,
-        reid_weights: str | Path | list[str | Path] | tuple[str | Path, ...] | None = _REID_OPTION_UNSET,
-        device: Any = _REID_OPTION_UNSET,
-        half: bool = _REID_OPTION_UNSET,
-        reid_preprocess: str | None = _REID_OPTION_UNSET,
+        reid: ReIDConfig | AppearanceEncoder | None = _REID_OPTION_UNSET,
     ) -> None:
         if geometry not in {"aabb", "obb"}:
             raise ValueError("Native tracker geometry must be 'aabb' or 'obb'.")
@@ -170,13 +166,7 @@ class NativeTrackerAdapter(LiveReIDMixin):
         self.geometry = geometry
         self.is_obb = geometry == "obb"
         self.use_embeddings = use_embeddings
-        self._init_live_reid(
-            reid_model=reid_model,
-            reid_weights=reid_weights,
-            device=device,
-            half=half,
-            reid_preprocess=reid_preprocess,
-        )
+        self._init_live_reid(reid=reid)
         self._requirements = TrackerRequirements(
             embeddings=use_embeddings,
             frame=requires_frame,
@@ -259,17 +249,6 @@ class NativeTrackerAdapter(LiveReIDMixin):
             class_ids = rows.class_ids
             embeddings = None
 
-        prepared_bgr = None
-        if (
-            embeddings is None
-            and self.generates_embeddings
-            and len(geometry)
-            and frame is not None
-            and self._reid_encoder_spec is None
-        ):
-            with timed_component_phase("reid", "preprocess", device=self._reid_device):
-                prepared_bgr = self._frame_to_bgr(frame)
-
         embeddings = self._resolve_input_embeddings(
             geometry=geometry,
             embeddings=embeddings,
@@ -277,7 +256,6 @@ class NativeTrackerAdapter(LiveReIDMixin):
             detections=canonical_detections,
             scores=scores,
             class_ids=class_ids,
-            prepared_bgr=prepared_bgr,
         )
         if self.requirements.embeddings and embeddings is None:
             raise ValueError(f"Native {self._native_display_name} requires detection embeddings.")
@@ -285,8 +263,8 @@ class NativeTrackerAdapter(LiveReIDMixin):
             raise ValueError(f"Native {self._native_display_name} requires a frame.")
 
         self._mark_live_reid_updated()
-        image = prepared_bgr
-        if frame is not None and (image is None or self.requirements.frame_dimensions_only):
+        image = None
+        if frame is not None:
             image = _frame_to_bgr(
                 frame,
                 dimensions_only=self.requirements.frame_dimensions_only,

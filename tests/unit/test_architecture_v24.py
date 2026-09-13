@@ -22,10 +22,6 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
         # inference when detections arrive without precomputed embeddings.
         (
             "boxmot/trackers/common/appearance/live.py",
-            "boxmot.reid.core",
-        ),
-        (
-            "boxmot/trackers/common/appearance/live.py",
             "boxmot.reid.factory",
         ),
         (
@@ -42,6 +38,26 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
             "boxmot/trackers/common/protocols.py",
             "boxmot.reid.specs",
         ),
+        # Public encoder injection names configuration and protocol types.
+        # Model construction stays exclusively in common/appearance/live.py;
+        # these constructor boundaries cannot import ReID factories/backends.
+        *{
+            (f"boxmot/trackers/{path}", module)
+            for path in (
+                "common/base.py",
+                "common/native.py",
+                "common/factory.py",
+                "botsort/tracker.py",
+                "botsort/native.py",
+                "boosttrack/tracker.py",
+                "deepocsort/tracker.py",
+                "hybridsort/tracker.py",
+                "occluboost/tracker.py",
+                "occluboost/native.py",
+                "strongsort/tracker.py",
+            )
+            for module in ("boxmot.reid.protocols", "boxmot.reid.specs")
+        },
     }
 )
 

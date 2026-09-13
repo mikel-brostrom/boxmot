@@ -33,8 +33,14 @@ group 2D and 3D values by role:
 ## Appearance encoding
 
 ::: boxmot.reid.protocols.AppearanceEncoder
+    options:
+      skip_local_inventory: true
 
 ::: boxmot.reid.protocols.EncoderRequirements
+
+::: boxmot.reid.specs.ReIDConfig
+    options:
+      skip_local_inventory: true
 
 ::: boxmot.reid.specs.ReIDEncoderSpec
 

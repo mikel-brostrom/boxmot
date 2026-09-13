@@ -322,29 +322,55 @@ durations.
 ### Live embeddings in ReID-enabled trackers
 
 `BotSort`, `StrongSort`, `DeepOcSort`, `HybridSort`, `BoostTrack`, and
-`OccluBoost` share the same Python direct-construction options. The native
-BotSort and OccluBoost adapters expose the same live fallback:
+`OccluBoost` accept one `reid` argument for appearance inference. The native
+BotSort and OccluBoost adapters expose the same live fallback. Pass an immutable
+`ReIDConfig` to configure lazy model construction:
 
-- `reid_model` injects a pre-built backend exposing `get_features(boxes, image)`.
-- `reid_weights` selects the weights for a lazily built backend; omitting it
-  selects the default ReID model.
-- `device`, `half`, and `reid_preprocess` configure that lazy backend.
+```python
+from boxmot import OccluBoost, ReIDConfig, create_tracker
+
+reid = ReIDConfig(
+    model="osnet-x0-25-msmt17",
+    device="cpu",
+    precision="fp32",
+    batch_size=32,
+)
+tracker = OccluBoost(reid=reid, use_embeddings=True)
+tracker_from_factory = create_tracker("occluboost", reid=reid, use_embeddings=True)
+```
+
+`model` accepts a profile ID, trained checkpoint name, YAML file, or artifact
+path. Optional `device`, `precision`, `preprocessing`, `batch_size`,
+`image_size`, and `embedding_dim` override the selected profile; unset fields
+retain its settings. Set `allow_download=False` to require local weights.
+Omitting `reid` selects the default configuration. Keep `use_embeddings`,
+association thresholds, feature smoothing, and gallery limits on the tracker.
+
+To reuse an encoder that has already been constructed, pass that
+`AppearanceEncoder` directly:
+
+```python
+from boxmot.reid import create_reid_encoder
+
+encoder = create_reid_encoder(reid)
+tracker = OccluBoost(reid=encoder, use_embeddings=True)
+```
 
 When embeddings are already attached, the tracker uses them without invoking
-its backend. A non-empty batch without embeddings requires a `Frame` or NumPy
+its encoder. A non-empty batch without embeddings requires a `Frame` or NumPy
 image, then extracts one embedding per detection. An empty batch bypasses ReID
 extraction and does not initialize the model; independent frame requirements
 such as CMC still apply. For trackers with a `use_embeddings` option, disabling
 it also disables extraction. The resolved `tracker.generates_embeddings`
 property reports whether this fallback is active for either backend.
 
-These are direct class-construction options for real-time tracking loops. A
-resolved `ReIDEncoderSpec` can instead be installed before the first update of
+The same configuration works for standalone `create_reid_encoder(config)` and
+tracker-owned extraction. A resolved `ReIDEncoderSpec` can also be installed before the first update of
 a sequence with `tracker.configure_reid(spec)`; the tracker keeps the full
 backend, artifact hash, preprocessing, and encoder options and still constructs
 the encoder lazily. A composed pipeline can also share one `AppearanceEncoder`
-and attach its output before the tracker runs. Model settings do not belong in
-`TrackerSpec` for either backend. A native adapter owns the optional encoder;
+and attach its output before the tracker runs. Pass `reid=` separately from
+the algorithm-only `TrackerSpec` for either backend. A native adapter owns the optional encoder;
 the underlying C++ tracker library accepts only the resulting typed embedding
 buffer and never loads a model.
 
@@ -390,6 +416,7 @@ runtime profiles with BoxMOT's pretrained checkpoint catalog. Invoke your editor
 while typing `create_detector("...")`, `create_reid_encoder("...")`, or
 `create_tracker("...")`. Detector suggestions include checkpoint selections such
 as `"yolox/n"` when a profile has multiple checkpoints.
+`ReIDConfig(model="...")` offers the same ReID model suggestions.
 
 Suggestions ship with BoxMOT; detector suggestions record the Ultralytics version
 used to generate them. Custom paths, config mappings, string variables, and

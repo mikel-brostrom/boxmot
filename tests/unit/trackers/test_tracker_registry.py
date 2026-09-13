@@ -267,7 +267,7 @@ def test_create_tracker_rejects_unknown_algorithm_options() -> None:
 
 def test_create_tracker_dispatches_native_spec_without_model_options(monkeypatch) -> None:
     expected = object()
-    monkeypatch.setattr(tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind: expected)
+    monkeypatch.setattr(tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind, *, reid: expected)
 
     monkeypatch.setattr(tracker_factory, "_bind_and_validate_capabilities", lambda tracker, _capabilities: tracker)
     assert tracker_factory.create_tracker(TrackerSpec("bytetrack", backend="cpp")) is expected

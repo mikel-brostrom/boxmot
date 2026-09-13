@@ -181,11 +181,7 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     expected = constructor_params - {
         "self",
         "kwargs",
-        "reid_model",
-        "reid_weights",
-        "device",
-        "half",
-        "reid_preprocess",
+        "reid",
     }
     expected.update({"det_thresh", "max_age", "max_obs", "min_hits", "iou_threshold", "asso_func"})
 
