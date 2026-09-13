@@ -59,3 +59,9 @@ are excluded. Profiles with multiple detector checkpoints produce explicit
 static literal types; imports do not read YAML or load models. The component
 tests check freshness in CI, and `boxmot/py.typed` makes the annotations
 available to editors using an installed package.
+
+Tracker class constructors annotate forwarded keyword arguments with the typed
+option groups in `boxmot/trackers/common/constructor.py`. Update those groups when
+shared constructor options change, keeping tracker-specific restrictions intact.
+The constructor typing tests check their names and types against the actual
+parent constructors and ensure packaged defaults remain discoverable.

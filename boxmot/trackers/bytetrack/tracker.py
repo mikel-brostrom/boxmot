@@ -1,13 +1,13 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
-from typing import Any
-
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.bytetrack.track import STrack, TrackState
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import KalmanTrackerOptions
 from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
@@ -49,8 +49,8 @@ class ByteTrack(BoxTracker):
         match_thresh: float = 0.8,
         track_buffer: int = 25,
         frame_rate: int = 30,
-        **kwargs: Any,  # BaseTracker parameters
-    ):
+        **kwargs: Unpack[KalmanTrackerOptions],  # BaseTracker parameters
+    ) -> None:
         if "det_thresh" in kwargs:
             raise TypeError(
                 "ByteTrack.__init__() got an unexpected keyword argument 'det_thresh'; use 'track_thresh' instead"

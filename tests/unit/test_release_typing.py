@@ -6,6 +6,7 @@ import importlib
 from pathlib import Path
 
 import pytest
+from typing_extensions import TypedDict
 
 import boxmot
 from tests.ci.release_contract import check_typing_metadata
@@ -36,4 +37,34 @@ def test_release_rejects_untyped_factory_names(
     monkeypatch.setattr(importlib.import_module(module_name), alias_name, str)
 
     with pytest.raises(AssertionError, match=rf"{alias_name} must include Literal"):
+        check_typing_metadata()
+
+
+def test_release_rejects_missing_constructor_keyword_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    constructor = importlib.import_module("boxmot.trackers.common.constructor")
+    monkeypatch.setattr(constructor, "CommonTrackerOptions", str)
+
+    with pytest.raises(AssertionError, match="CommonTrackerOptions must be a TypedDict"):
+        check_typing_metadata()
+
+
+def test_release_rejects_incomplete_constructor_keyword_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    class IncompleteOptions(TypedDict, total=False):
+        max_obs: int
+
+    constructor = importlib.import_module("boxmot.trackers.common.constructor")
+    monkeypatch.setattr(constructor, "CommonTrackerOptions", IncompleteOptions)
+
+    with pytest.raises(AssertionError, match="CommonTrackerOptions must include 'det_thresh'"):
+        check_typing_metadata()
+
+
+def test_release_rejects_required_inherited_constructor_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RequiredOptions(TypedDict):
+        det_thresh: float
+
+    constructor = importlib.import_module("boxmot.trackers.common.constructor")
+    monkeypatch.setattr(constructor, "CommonTrackerOptions", RequiredOptions)
+
+    with pytest.raises(AssertionError, match="CommonTrackerOptions constructor keywords must remain optional"):
         check_typing_metadata()

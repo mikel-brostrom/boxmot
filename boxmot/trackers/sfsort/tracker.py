@@ -6,13 +6,15 @@ from __future__ import annotations
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal
+from typing import Iterable, Literal
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import BoxTrackerOptions
 from boxmot.trackers.common.geometry.obb import (
     align_obb_measurement,
     normalize_angle,
@@ -183,7 +185,7 @@ class SFSORT(BoxTracker):
         frame_height: int | None = None,
         horizontal_margin: int | None = None,
         vertical_margin: int | None = None,
-        **kwargs: Any,
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         if "det_thresh" in kwargs:
             raise TypeError("SFSORT.__init__() got an unexpected keyword argument 'det_thresh'; use 'high_th' instead")

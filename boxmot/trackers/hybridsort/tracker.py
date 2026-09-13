@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, List
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.common.appearance import (
     ema_update_embedding,
@@ -23,6 +24,7 @@ from boxmot.trackers.common.association.hybrid import (
     confidence_difference,
 )
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.tracking.observations import k_previous_obs
@@ -116,8 +118,8 @@ class HybridSort(BoxTracker):
         device: Any = "cpu",
         half: bool = False,
         reid_preprocess: str | None = None,
-        **kwargs: Any,  # BaseTracker parameters
-    ):
+        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+    ) -> None:
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

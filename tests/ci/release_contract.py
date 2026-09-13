@@ -7,7 +7,9 @@ import importlib.metadata
 import importlib.util
 import subprocess
 from pathlib import Path
-from typing import Literal, get_args, get_origin
+from typing import Literal, get_args, get_origin, get_type_hints
+
+from typing_extensions import is_typeddict
 
 EXPECTED_TRACKERS = (
     ("boosttrack", "BoostTrack"),
@@ -39,7 +41,7 @@ EXPECTED_CLI_COMMANDS = (
 
 
 def check_typing_metadata() -> None:
-    """Check installed typing metadata needed for factory-name autocomplete."""
+    """Check installed typing metadata for factory names and tracker constructors."""
     import boxmot
 
     marker = Path(boxmot.__file__).with_name("py.typed")
@@ -53,6 +55,19 @@ def check_typing_metadata() -> None:
         assert get_origin(alias) is Literal and representative in get_args(alias), (
             f"Packaged {module_name}.{alias_name} must include Literal[{representative!r}]"
         )
+    constructor = importlib.import_module("boxmot.trackers.common.constructor")
+    for name, representative in (
+        ("TrackerMetadataOptions", "class_ids"),
+        ("AssociationTrackerOptions", "asso_func"),
+        ("BoxTrackerOptions", "is_obb"),
+        ("KalmanTrackerOptions", "variable_dt"),
+        ("CommonTrackerOptions", "det_thresh"),
+        ("OccluBoostOptions", "use_cmc"),
+    ):
+        options = getattr(constructor, name)
+        assert is_typeddict(options), f"Packaged {name} must be a TypedDict"
+        assert representative in get_type_hints(options), f"Packaged {name} must include {representative!r}"
+        assert not options.__required_keys__, f"Packaged {name} constructor keywords must remain optional"
 
 
 def check_release_contract(expected_version: str | None = None) -> None:

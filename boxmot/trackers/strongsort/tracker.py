@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association.strongsort import (
@@ -16,6 +17,7 @@ from boxmot.trackers.common.association.strongsort import (
     min_cost_matching,
 )
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.geometry import xyxy2tlwh
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.strongsort.track import Track
@@ -118,8 +120,8 @@ class StrongSort(BoxTracker):
         device: Any = "cpu",
         half: bool = False,
         reid_preprocess: str | None = None,
-        **kwargs: Any,
-    ):
+        **kwargs: Unpack[CommonTrackerOptions],
+    ) -> None:
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

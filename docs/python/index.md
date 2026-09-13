@@ -83,6 +83,38 @@ accepted; keyword overrides take precedence without changing the original
 spec. Configure model selection and inference on the detector and ReID
 factories separately.
 
+### Tracker classes and autocomplete
+
+Import a tracker class directly when you want its constructor arguments in your
+editor's completion menu:
+
+```python
+from boxmot import BotSort
+
+tracker = BotSort(
+    track_high_thresh=0.5,
+    per_class=True,
+    max_age=45,
+    class_ids=(0,),
+    class_names={0: "person"},
+    use_embeddings=False,
+    use_cmc=False,
+)
+```
+
+Invoke completion inside `BotSort(...)` to see argument names and types.
+All public tracker classes expose their own arguments and supported shared
+settings, including class metadata. `OccluBoost(...)` also suggests its inherited
+BoostTrack options, such as `use_cmc`, `cmc_method`, and `lambda_iou`.
+Editors that support typed keyword arguments can flag misspelled names and
+incorrect value types before you run the code.
+
+Suggestions follow each tracker's supported controls. For example, `ByteTrack`
+uses `track_thresh` and `SFSORT` uses `high_th` for detection thresholds; ReID
+options appear on trackers that accept embeddings.
+
+### Update inputs and outputs
+
 The public method preserves the input representation:
 
 ```text

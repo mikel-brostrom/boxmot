@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.constructor import AssociationTrackerOptions
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.maf_hda.appearance import MaskedKCF
 from boxmot.trackers.maf_hda.association import (
@@ -115,7 +116,7 @@ class MafHda(BaseTracker):
         s2ta_mode: str = "maf",
         t2ta_mode: str = "maf",
         template_size: int = 96,
-        **kwargs: Any,
+        **kwargs: Unpack[AssociationTrackerOptions],
     ) -> None:
         for name, value in (
             ("det_thresh", det_thresh),

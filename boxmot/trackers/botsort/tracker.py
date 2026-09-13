@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.botsort.track import STrack, TrackState
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import embedding_distance, fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
 from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
@@ -97,8 +99,8 @@ class BotSort(BoxTracker):
         device: Any = "cpu",
         half: bool = False,
         reid_preprocess: str | None = None,
-        **kwargs: Any,  # BaseTracker parameters
-    ):
+        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+    ) -> None:
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

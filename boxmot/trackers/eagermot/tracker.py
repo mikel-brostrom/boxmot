@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import torch
+from typing_extensions import Unpack
 
 from boxmot.structures import (
     Boxes3D,
@@ -25,6 +25,7 @@ from boxmot.structures import (
     Tracks3D,
 )
 from boxmot.trackers.common.base import BaseTracker
+from boxmot.trackers.common.constructor import TrackerMetadataOptions
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.common.tracking.per_class import ClassTrackState
 from boxmot.trackers.eagermot.association import (
@@ -118,7 +119,7 @@ class EagerMot(BaseTracker):
         kf_measurement_noise_scale: float = 1.0,
         kf_initial_position_scale: float = 1.0,
         kf_initial_velocity_scale: float = 1.0,
-        **kwargs: Any,
+        **kwargs: Unpack[TrackerMetadataOptions],
     ) -> None:
         """Configure fusion, 3D matching, and the image-only recovery stage.
 

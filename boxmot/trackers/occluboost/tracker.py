@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
+from typing_extensions import Unpack
 
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.boosttrack.tracker import BoostTrack
@@ -42,6 +43,7 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
+from boxmot.trackers.common.constructor import OccluBoostOptions
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
@@ -122,8 +124,8 @@ class OccluBoost(BoostTrack):
         device: Any = "cpu",
         half: bool = False,
         reid_preprocess: str | None = None,
-        **kwargs: Any,
-    ):
+        **kwargs: Unpack[OccluBoostOptions],
+    ) -> None:
         super().__init__(
             use_embeddings=use_embeddings,
             reid_model=reid_model,

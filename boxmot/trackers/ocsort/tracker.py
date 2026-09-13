@@ -4,9 +4,8 @@
 This script is adopted from the SORT script by Alex Bewley alex@bewley.ai
 """
 
-from typing import Any
-
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.common.association import (
     AssociationStage,
@@ -16,6 +15,7 @@ from boxmot.trackers.common.association import (
 )
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.tracking.observations import k_previous_obs
 from boxmot.trackers.ocsort.track import KalmanBoxTracker
@@ -52,8 +52,8 @@ class OcSort(BoxTracker):
         delta_t: int = 3,
         inertia: float = 0.2,
         use_byte: bool = False,
-        **kwargs: Any,  # BaseTracker parameters
-    ):
+        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+    ) -> None:
         super().__init__(**kwargs)
 
         # Store OcSort-specific parameters

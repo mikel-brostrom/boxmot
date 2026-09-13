@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, List, Optional
 
 import numpy as np
+from typing_extensions import Unpack
 
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.common.appearance import (
@@ -20,6 +21,7 @@ from boxmot.trackers.common.association.boost import (
 )
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import CommonTrackerOptions
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
@@ -92,8 +94,8 @@ class BoostTrack(BoxTracker):
         device: Any = "cpu",
         half: bool = False,
         reid_preprocess: str | None = None,
-        **kwargs: Any,  # BaseTracker parameters
-    ):
+        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+    ) -> None:
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,
