@@ -119,6 +119,8 @@ class ValidationResult:
     workflow_rendered: bool = False
     reference_raw: dict[str, Any] | None = None
     reference_name: str | None = None
+    detection_metrics: dict[str, dict[str, dict[str, float | None]]] | None = None
+    tracking_2d_metrics: dict[str, Any] | None = None
 
     def __str__(self) -> str:
         if self.workflow_rendered:
@@ -147,6 +149,8 @@ class ValidationResult:
         return reporting.render_validation_cli_report(
             self.raw,
             args=self.args,
+            detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=report_title,
             include_sequences=include_sequences,
@@ -175,6 +179,8 @@ class ValidationResult:
         return reporting.build_validation_cli_renderable(
             self.raw,
             args=self.args,
+            detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=resolved_title,
             include_sequences=include_sequences,
@@ -191,6 +197,8 @@ class ValidationResult:
         return reporting.format_validation_report(
             self.raw,
             args=self.args,
+            detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             title=report_title,
             include_sequences=include_sequences,
         )
@@ -214,6 +222,8 @@ class ValidationResult:
         reporting.print_validation_cli_report(
             self.raw,
             args=self.args,
+            detection_metrics=self.detection_metrics,
+            tracking_2d_metrics=self.tracking_2d_metrics,
             timings=self.timings,
             title=report_title,
             include_sequences=include_sequences,
@@ -231,6 +241,10 @@ class ValidationResult:
             "timings": dict(self.timings),
             "exp_dir": None if self.exp_dir is None else str(self.exp_dir),
         }
+        if self.detection_metrics is not None:
+            payload["detection_metrics"] = self.detection_metrics
+        if self.tracking_2d_metrics is not None:
+            payload["tracking_2d_metrics"] = self.tracking_2d_metrics
         if include_raw:
             payload["raw"] = self.raw
             if self.reference_raw is not None:

@@ -13,7 +13,7 @@ from typing_extensions import Self
 
 from boxmot.engine.tracking.profiling import timed_runtime_stage
 from boxmot.pipelines import PipelineResult
-from boxmot.structures import Boxes, Frame, OrientedBoxes
+from boxmot.structures import Boxes, CameraModel, Frame, OrientedBoxes, Tracks3D
 
 
 class _StopTrackingRequested(Exception):
@@ -237,16 +237,38 @@ def render_result(
     *,
     class_names: Mapping[int, str] | None = None,
     line_width: int = 2,
+    spatial_tracks: Tracks3D | None = None,
+    camera: CameraModel | None = None,
 ) -> np.ndarray:
-    """Render canonical tracks while exposing engine-owned render timing."""
+    """Render image tracks and optional calibrated 3D estimates with shared IDs."""
+
+    if (spatial_tracks is None) != (camera is None):
+        raise ValueError("Rendering 3D tracks requires both spatial_tracks and camera.")
+    if spatial_tracks is not None:
+        if spatial_tracks.sample_id != frame.sample_id or result.tracks.sample_id != frame.sample_id:
+            raise ValueError("Rendered image and spatial tracks must belong to the current frame.")
+        if camera.image_size != frame.image_size:
+            raise ValueError("3D visualization camera dimensions must match the image.")
 
     with timed_runtime_stage("rendering"):
-        return _render_result(
+        image = _render_result(
             frame,
             result,
             class_names=class_names,
             line_width=line_width,
         )
+        if spatial_tracks is not None:
+            from boxmot.engine.tracking.spatial_visualization import draw_spatial_tracks
+
+            image = draw_spatial_tracks(
+                image,
+                spatial_tracks,
+                camera,
+                class_names=class_names,
+                image_track_ids=frozenset(result.tracks.track_ids.tolist()),
+                line_width=line_width,
+            )
+        return image
 
 
 def _render_result(

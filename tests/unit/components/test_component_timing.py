@@ -55,3 +55,68 @@ def test_timing_event_sink_requires_a_callable() -> None:
     with pytest.raises(TypeError, match="sink must be callable"):
         with timing.timing_event_sink(None):  # type: ignore[arg-type]
             pass
+
+
+def test_component_call_is_inactive_without_a_sink(monkeypatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr(timing, "synchronize_torch_device", calls.append)
+    monkeypatch.setattr(
+        timing.time,
+        "perf_counter",
+        lambda: (_ for _ in ()).throw(AssertionError("inactive timing must not read the clock")),
+    )
+    with timing.timed_component_call("reid", device="cuda:0"):
+        calls.append("work")
+    assert calls == ["work"]
+
+
+def test_component_call_supplies_process_fallback_and_keeps_other_component_events(monkeypatch) -> None:
+    clock = iter((1.0, 1.125, 1.250, 1.500))
+    events: list[timing.ComponentTimingEvent] = []
+    synchronizations: list[object] = []
+    monkeypatch.setattr(timing.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(timing, "synchronize_torch_device", synchronizations.append)
+    with timing.timing_event_sink(events.append):
+        with timing.timed_component_call("reid", device="cpu"):
+            with timing.timed_component_phase("detector", "process", device="cpu"):
+                pass
+    assert events == [
+        timing.ComponentTimingEvent("detector", "process", 125.0),
+        timing.ComponentTimingEvent("reid", "process", 500.0),
+    ]
+    assert synchronizations == ["cpu"] * 4
+
+
+def test_component_call_forwards_internal_events_without_double_counting(monkeypatch) -> None:
+    clock = iter((1.0, 1.125, 1.250, 1.375, 1.500))
+    events: list[timing.ComponentTimingEvent] = []
+    monkeypatch.setattr(timing.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(timing, "synchronize_torch_device", lambda _: None)
+    with timing.timing_event_sink(events.append):
+        with timing.timed_component_call("ReID"):
+            with timing.timed_component_phase("reid", "preprocess"):
+                pass
+            with timing.timed_component_phase("reid", "process"):
+                pass
+    assert events == [
+        timing.ComponentTimingEvent("reid", "preprocess", 125.0),
+        timing.ComponentTimingEvent("reid", "process", 125.0),
+    ]
+
+
+def test_nested_component_calls_emit_one_fallback_and_restore_sink_after_interrupt(monkeypatch) -> None:
+    clock = iter((1.0, 1.125, 1.250, 2.0, 2.500))
+    events: list[timing.ComponentTimingEvent] = []
+    monkeypatch.setattr(timing.time, "perf_counter", lambda: next(clock))
+    monkeypatch.setattr(timing, "synchronize_torch_device", lambda _: None)
+    with timing.timing_event_sink(events.append):
+        with pytest.raises(KeyboardInterrupt):
+            with timing.timed_component_call("reid"):
+                with timing.timed_component_call("reid"):
+                    raise KeyboardInterrupt
+        with timing.timed_component_phase("tracker", "process"):
+            pass
+    assert events == [
+        timing.ComponentTimingEvent("reid", "process", 125.0),
+        timing.ComponentTimingEvent("tracker", "process", 500.0),
+    ]

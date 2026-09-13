@@ -13,6 +13,8 @@ repo-to-text_*.txt
 # experiment results
 runs/
 videos/
+# Derived replay caches beside user-supplied datasets
+**/.boxmot/replay_cache/
 
 # experiment files
 *.pkl
@@ -62,7 +64,7 @@ dist/
 site/
 
 # cmc debug images
-boxmot/motion/cmc/*.jpg
+boxmot/trackers/common/motion/cmc/*.jpg
 
 # json outputs
 *_output.json

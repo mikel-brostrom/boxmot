@@ -9,15 +9,12 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping, TypeVar
 
-import torch
-
 from boxmot import __version__
+from boxmot.datasets.config import resolve_dataset_storage_root
 from boxmot.detectors import DetectorSpec
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.detectors.factory import detector_capabilities
-from boxmot.engine.dataset_resources import ensure_dataset_split_available
-from boxmot.engine.experiment_config import resolve_experiment_config
-from boxmot.engine.logging import suppress_boxmot_logs
+from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.materialization import (
     BuildPlan,
     DatasetMaterializer,
@@ -32,41 +29,28 @@ from boxmot.engine.materialization import (
     default_source_metadata_cache_path,
     fingerprint,
 )
-from boxmot.engine.materialization.builds import find_fps_parent_build, import_former_default_build
+from boxmot.engine.materialization.builds import (
+    find_fps_parent_build,
+    find_matching_build,
+    import_former_default_build,
+)
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
-    resolve_dataset_root,
 )
 from boxmot.engine.materialization.progress import MaterializationProgress, MaterializationProgressReporter
+from boxmot.engine.materialization.resources import ensure_dataset_split_available
 from boxmot.engine.materialization.settings import load_executor_settings
 from boxmot.engine.ui.core.ui import get_console
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.materialize import MaterializeWorkflowReporter
 from boxmot.reid import ReIDEncoderSpec
 from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors import SegmentorSpec
 from boxmot.segmentors.config import resolve_segmentor_spec
+from boxmot.utils.devices import normalize_device
 
 _ComponentSpec = TypeVar("_ComponentSpec", DetectorSpec, SegmentorSpec, ReIDEncoderSpec)
-
-
-def _normalize_device(value: object) -> str:
-    """Return one canonical single-device selector for component specs."""
-
-    device = str(value).strip().lower()
-    if not device:
-        raise ValueError("--device must be a non-empty device selector.")
-    if device.isdecimal():
-        return f"cuda:{int(device)}"
-    if device == "cuda":
-        return "cuda:0"
-    if device.startswith("cuda:"):
-        index = device.removeprefix("cuda:")
-        if index.isdecimal():
-            return f"cuda:{int(index)}"
-    if device in {"cpu", "mps"}:
-        return device
-    raise ValueError(f"Unsupported materialization device {value!r}; expected cpu, mps, cuda, cuda:N, or N.")
 
 
 def _device_override(args: Any) -> str | None:
@@ -76,29 +60,7 @@ def _device_override(args: Any) -> str | None:
     if explicit_keys is not None and "device" not in explicit_keys:
         return None
     value = getattr(args, "device", None)
-    return None if value is None else _normalize_device(value)
-
-
-def _require_available_device(device: str) -> None:
-    """Fail before artifact loading when an explicit accelerator is unavailable."""
-
-    if device == "mps":
-        mps = getattr(torch.backends, "mps", None)
-        if mps is None or not mps.is_built() or not mps.is_available():
-            raise RuntimeError(
-                "--device mps is unavailable in this PyTorch runtime. "
-                "Use --device cpu or install an MPS-enabled PyTorch build on a supported macOS host."
-            )
-        return
-    if not device.startswith("cuda:"):
-        return
-    index = int(device.removeprefix("cuda:"))
-    count = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    if index >= count:
-        raise RuntimeError(
-            f"--device {device} is unavailable; PyTorch reports {count} CUDA device(s). "
-            "Use --device cpu or select an available CUDA index."
-        )
+    return None if value is None else normalize_device(value)
 
 
 def _with_device(
@@ -110,11 +72,13 @@ def _with_device(
 ) -> tuple[_ComponentSpec, Mapping[str, Any]]:
     """Apply an execution-device override to runtime and fingerprint provenance."""
 
+    has_override = device is not None
     if device is None:
-        if spec.device.strip().lower() != "auto":
-            return spec, provenance
-        device = auto_device
-    resolved = replace(spec, device=device)
+        device = auto_device if spec.device.strip().lower() == "auto" else spec.device
+    normalized = normalize_device(device)
+    if not has_override and normalized == spec.device:
+        return spec, provenance
+    resolved = replace(spec, device=normalized)
     resolved_provenance = dict(provenance)
     resolved_provenance["spec"] = asdict(resolved)
     return resolved, resolved_provenance
@@ -167,7 +131,7 @@ def _resolved_inputs(
     resolved = resolve_experiment_config(experiment, **resolve_options)
     dataset = resolved["dataset"]
     data_root = getattr(args, "data_root", None)
-    source_root = resolve_dataset_root(dataset, data_root)
+    source_root = resolve_dataset_storage_root(dataset, data_root)
     ensure_dataset_split_available(
         dataset,
         split=str(dataset["split"]),
@@ -245,9 +209,7 @@ def materialize(
 
     progress = progress or MaterializationProgress()
     device_override = _device_override(args)
-    command_device = _normalize_device(getattr(args, "device", None) or "cpu")
-    if device_override is not None:
-        _require_available_device(device_override)
+    command_device = normalize_device(getattr(args, "device", None) or "cpu")
     progress.setup_status("Cataloging source samples…")
 
     (
@@ -431,11 +393,17 @@ def materialize(
             },
         },
     )
+    import_former_default_build(plan, status_callback=progress.setup_status)
+    matching_build = find_matching_build(plan, status_callback=progress.setup_status)
+    if matching_build is not None:
+        progress.build_started(replace(plan, build_id=matching_build.name, build_root=matching_build.parent))
+        progress.build_reused(matching_build)
+        return matching_build
+
     if not bool(getattr(args, "resume", True)) and plan.staging_root.exists():
         if plan.staging_root.parent != plan.build_root / ".staging":
             raise RuntimeError("Refusing to discard staging outside the selected build root.")
         shutil.rmtree(plan.staging_root)
-    import_former_default_build(plan, status_callback=progress.setup_status)
 
     def load_native_catalog() -> SourceCatalog:
         """Resolve native frames only when a matching perception build exists."""
@@ -464,14 +432,13 @@ def materialize(
             sample_map=sample_map,
             plan=plan,
             progress=progress,
-            embedding_metadata=embedding_metadata,
             target_shard_rows=int(settings["writer"]["instance_rows_per_shard"]),
         )
 
     # Keep every runtime as its immutable specification until the first pending
     # shard reaches that stage. The stage worker then constructs and caches the
-    # model. Completed stages and published builds therefore never initialize
-    # unused accelerator runtimes merely to validate resumable state.
+    # model and validates its device. Completed stages and published builds
+    # therefore do not require the requested accelerator merely to reuse data.
     source_metadata_cache = FileMetadataCache(
         default_source_metadata_cache_path(catalog.source_root),
     )

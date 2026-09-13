@@ -33,9 +33,24 @@ During materialization the engine resolves the artifact and SHA-256 before the
 build ID is established. Python callers use the resulting values in a frozen
 `ReIDEncoderSpec`. The live tracking workflow gives that complete spec to a
 ReID-enabled tracker adapter, which constructs its encoder only when a non-empty
-update arrives without embeddings. For a direct real-time loop, callers can use
-`tracker.configure_reid(spec)` or the shared `reid_model`, `reid_weights`,
-`device`, `half`, and `reid_preprocess` constructor options. A separately
+update arrives without embeddings. For a direct real-time loop, pass a grouped
+`ReIDConfig` through the tracker's `reid` argument:
+
+```python
+from boxmot import BotSort, ReIDConfig
+from boxmot.reid import create_reid_encoder
+
+config = ReIDConfig(model="osnet-x0-25-msmt17", device="cpu", precision="fp32")
+tracker = BotSort(reid=config)
+encoder = create_reid_encoder(config)
+```
+
+`ReIDConfig` groups the model selection, runtime device and precision,
+preprocessing, image size, embedding dimension, and batch size. Optional
+overrides preserve profile defaults when omitted. `use_embeddings` and
+association, smoothing, and gallery settings remain tracker parameters.
+Pass a prebuilt `AppearanceEncoder` as `reid=encoder` to reuse it, or install a
+resolved `ReIDEncoderSpec` with `tracker.configure_reid(spec)`. A separately
 composed `AppearanceEncoder` remains available when embeddings should be shared
 or exposed as pipeline output. Native adapters support the same lazy path;
 their low-level C++ tracker libraries remain model-free consumers of embedding

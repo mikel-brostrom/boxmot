@@ -89,10 +89,23 @@ def _parse_int_tuple(_ctx: click.Context, _param: click.Parameter, value: Any) -
     return tuple(dict.fromkeys(parts))
 
 
+def _parse_device(_ctx: click.Context, _param: click.Parameter, value: str | None) -> str | None:
+    """Validate one device selector without loading accelerator runtimes for help."""
+
+    if value is None:
+        return None
+    from boxmot.utils.devices import normalize_device
+
+    try:
+        return normalize_device(value)
+    except (TypeError, ValueError) as exc:
+        raise click.BadParameter(str(exc)) from exc
+
+
 def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Callable]:
     """Build the ordered runtime decorators used by tracking and replay commands."""
 
-    from boxmot.trackers.registry import TRACKER_MAPPING
+    from boxmot.trackers.common.registry import TRACKER_MAPPING
 
     tracker_help = ", ".join(TRACKER_MAPPING)
     return {
@@ -122,13 +135,26 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
         "device": click.option(
             "--device",
             default=defaults.device,
-            help="cuda device(s), e.g. 0 or 0,1,2,3, mps, or cpu",
+            callback=_parse_device,
+            help="One device: cpu, mps, cuda:N, or N (e.g. 0). GPU lists are not supported.",
         ),
         "sequence_workers": click.option(
             "--sequence-workers",
             type=click.IntRange(min=1),
             default=defaults.sequence_workers,
-            help="Maximum number of sequence worker processes. During tuning, this limit applies per trial.",
+            help=(
+                "Maximum sequence worker processes. Default: min(sequences, CPU cores - 2), at least 1. "
+                "During tuning, this limit applies per trial."
+            ),
+        ),
+        "cache_inputs": click.option(
+            "--cache-inputs/--no-cache-inputs",
+            default=defaults.cache_inputs,
+            show_default=True,
+            help=(
+                "Build and reuse mapped inputs for repeated eval/tune runs, including images, detections, "
+                "embeddings, masks, sensors, and annotations. Uses extra disk space."
+            ),
         ),
         "project": click.option(
             "--project",
@@ -237,7 +263,7 @@ def _apply_core_options(
 def track_options(func: Callable) -> Callable:
     """Attach only runtime options consumed by direct tracking."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     return _apply_core_options(
         func,
@@ -250,10 +276,12 @@ def track_options(func: Callable) -> Callable:
 def replay_options(*, mode: str, parallel: bool = False) -> Callable:
     """Attach tracker/replay controls for a cached workflow mode."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     defaults = getattr(BOXMOT_DEFAULTS, mode)
     option_names = _REPLAY_CORE_OPTION_NAMES
+    if mode in {"eval", "tune"}:
+        option_names = ("cache_inputs", *option_names)
     if parallel:
         option_names = ("sequence_workers", *option_names)
 
@@ -280,6 +308,18 @@ def split_option(func: Callable) -> Callable:
     )(func)
 
 
+def sequence_option(func: Callable) -> Callable:
+    """Attach a repeatable sequence selection shared by evaluation and tuning."""
+    return click.option(
+        "--sequence",
+        "sequence_names",
+        type=str,
+        multiple=True,
+        metavar="NAME",
+        help="Limit the selected split to one sequence. Repeat to select multiple sequences.",
+    )(func)
+
+
 def experiment_option(func: Callable | None = None, *, required: bool = False) -> Callable:
     """Attach the experiment-config option, optionally making it mandatory."""
 
@@ -296,13 +336,13 @@ def experiment_option(func: Callable | None = None, *, required: bool = False) -
 
 
 def dataset_option(*, default: str | None = None) -> Callable:
-    """Attach the model-free dataset-config option."""
+    """Attach the dataset profile or saved-sensor bundle selection."""
 
     return click.option(
         "--dataset",
         type=str,
         default=default,
-        help="dataset id or YAML file, e.g. mot17 or boxmot/configs/datasets/mot17.yaml",
+        help="Dataset id, YAML file, or sensor dataset folder containing dataset.yaml (eval and tune).",
     )
 
 
@@ -384,7 +424,7 @@ def data_root_option(func: Callable) -> Callable:
 def replay_build_options(*, dataset_default: str | None = None) -> Callable:
     """Attach shared eval/tune inputs for build reuse or automatic materialization."""
 
-    from boxmot.engine.config import BOXMOT_DEFAULTS
+    from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
 
     def decorator(func: Callable) -> Callable:
         options = (
@@ -403,13 +443,17 @@ def replay_build_options(*, dataset_default: str | None = None) -> Callable:
                 "--reid",
                 type=str,
                 default=None,
-                help="ReID profile used to resolve an authored experiment; omit only for experiments without ReID.",
+                help=(
+                    "ReID profile for an authored experiment or for encoding saved 2D detections during eval. "
+                    "Omit when appearance is disabled."
+                ),
             ),
             build_selection_options(required=False),
             click.option(
                 "--device",
                 default=BOXMOT_DEFAULTS.materialize.device,
-                help="Perception device used for automatic materialization, e.g. cpu, mps, cuda:0, or 0.",
+                callback=_parse_device,
+                help="One device for uncached perception: cpu, mps, cuda:N, or N (e.g. 0). Matching builds are reused.",
             ),
         )
         for option in reversed(options):
@@ -445,6 +489,17 @@ def tracker_config_option(func: Callable) -> Callable:
     )(func)
 
 
+def eval_masks_option(func: Callable) -> Callable:
+    """Select segmentation scoring for KITTI-MOTS evaluation and tuning."""
+
+    return click.option(
+        "--eval-masks",
+        is_flag=True,
+        default=False,
+        help="Evaluate KITTI-MOTS with mask IoU. Image workflows default to boxes; sensor workflows default to masks.",
+    )(func)
+
+
 def kalman_calibration_option(*, mode: str) -> Callable:
     """Expose direct covariance calibration before evaluation or tracker tuning."""
     outcome = {
@@ -455,7 +510,10 @@ def kalman_calibration_option(*, mode: str) -> Callable:
         "--calibrate-kf",
         is_flag=True,
         default=False,
-        help=f"Calibrate Kalman noise from cached detections and ground truth, {outcome}; Python Kalman trackers only.",
+        help=(
+            f"Calibrate Kalman noise from detections and ground truth, {outcome}; "
+            "Python Kalman trackers only. EagerMOT requires ground_truth_3d with track IDs."
+        ),
     )
 
 
@@ -483,6 +541,7 @@ __all__ = (
     "data_root_option",
     "dataset_fps_option",
     "dataset_option",
+    "eval_masks_option",
     "experiment_option",
     "kalman_calibration_option",
     "replay_build_options",

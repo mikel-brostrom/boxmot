@@ -9,8 +9,8 @@ import pytest
 import torch
 
 from boxmot.structures import Boxes, GeometryKind, OrientedBoxes
-from boxmot.trackers.box.base import BoxTracker
-from boxmot.trackers.box.geometry import (
+from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.box.geometry import (
     AABB_GEOMETRY_OPS,
     OBB_GEOMETRY_OPS,
     BoxGeometryOps,

@@ -8,14 +8,19 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .cached import CachedVisionDataset, DatasetSample
     from .manifest import ArtifactRecord, DatasetManifest, ManifestError, PublishedContent, ShardRecord, StageProvenance
+    from .sequence import ImageDataset, ImageSample, MultimodalSequence, SensorFrame
 
 __all__ = (
     "ArtifactRecord",
     "CachedVisionDataset",
     "DatasetSample",
     "DatasetManifest",
+    "ImageDataset",
+    "ImageSample",
     "ManifestError",
+    "MultimodalSequence",
     "PublishedContent",
+    "SensorFrame",
     "ShardRecord",
     "StageProvenance",
 )
@@ -25,8 +30,12 @@ _EXPORTS = {
     "CachedVisionDataset": ("boxmot.datasets.cached", "CachedVisionDataset"),
     "DatasetSample": ("boxmot.datasets.cached", "DatasetSample"),
     "DatasetManifest": ("boxmot.datasets.manifest", "DatasetManifest"),
+    "ImageDataset": ("boxmot.datasets.sequence", "ImageDataset"),
+    "ImageSample": ("boxmot.datasets.sequence", "ImageSample"),
     "ManifestError": ("boxmot.datasets.manifest", "ManifestError"),
+    "MultimodalSequence": ("boxmot.datasets.sequence", "MultimodalSequence"),
     "PublishedContent": ("boxmot.datasets.manifest", "PublishedContent"),
+    "SensorFrame": ("boxmot.datasets.sequence", "SensorFrame"),
     "ShardRecord": ("boxmot.datasets.manifest", "ShardRecord"),
     "StageProvenance": ("boxmot.datasets.manifest", "StageProvenance"),
 }

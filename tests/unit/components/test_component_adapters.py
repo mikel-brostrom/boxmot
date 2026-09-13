@@ -40,8 +40,11 @@ def _aabb_detections(frame: Frame, *, empty: bool = False) -> Detections:
     )
 
 
-def test_reid_adapter_preserves_canonical_cuda_index(monkeypatch) -> None:
+@pytest.mark.parametrize("device", ("1", "cuda:1"))
+def test_reid_adapter_preserves_canonical_cuda_index(monkeypatch, device) -> None:
     calls = {}
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
     class Runtime:
         def __init__(self, **kwargs):
@@ -54,7 +57,7 @@ def test_reid_adapter_preserves_canonical_cuda_index(monkeypatch) -> None:
         "import_module",
         lambda _module: SimpleNamespace(ReID=Runtime),
     )
-    spec = ReIDEncoderSpec("pytorch", artifact="model.pt", device="cuda:1")
+    spec = ReIDEncoderSpec("pytorch", artifact="model.pt", device=device)
 
     encoder = reid_adapters.create_python_reid_encoder(spec)
 
@@ -370,8 +373,11 @@ def test_runtime_appearance_encoder_crop_is_invariant_to_equivalent_obb_forms() 
     assert result[0].shape == (2, 2)
 
 
-def test_sam_segmentor_aligns_and_resizes_prompt_masks_without_calling_for_empty() -> None:
+@pytest.mark.parametrize("device", ("cpu", "1", "cuda:1"))
+def test_sam_segmentor_aligns_and_resizes_prompt_masks_without_calling_for_empty(monkeypatch, device) -> None:
     calls = []
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 2)
 
     class Model:
         def predict(self, **kwargs):
@@ -380,13 +386,13 @@ def test_sam_segmentor_aligns_and_resizes_prompt_masks_without_calling_for_empty
             return [SimpleNamespace(masks=SimpleNamespace(data=mask))]
 
     first, second = _frame("first"), _frame("second")
-    segmentor = SamSegmentor(SegmentorSpec("sam", artifact="sam.pt"), model=Model())
+    segmentor = SamSegmentor(SegmentorSpec("sam", artifact="sam.pt", device=device), model=Model())
 
     results = segmentor.segment([first, second], [_aabb_detections(first), _aabb_detections(second, empty=True)])
 
     assert len(calls) == 1
     assert calls[0]["bboxes"].tolist() == [[1.0, 1.0, 5.0, 5.0]]
-    assert calls[0]["device"] == torch.device("cpu")
+    assert calls[0]["device"] == torch.device("cpu" if device == "cpu" else "cuda:1")
     assert results[0].values.shape == (1, 6, 8)
     assert results[1].values.shape == (0, 6, 8)
 

@@ -25,21 +25,22 @@ def order_corners(corners: np.ndarray) -> np.ndarray:
     if arr.ndim != 3 or arr.shape[1:] != (4, 2):
         raise ValueError(f"Expected corners with shape (4, 2) or (N, 4, 2), got {arr.shape}")
 
-    ordered = np.empty_like(arr)
-    for row_index, points in enumerate(arr):
-        center = points.mean(axis=0)
-        angles = np.arctan2(points[:, 1] - center[1], points[:, 0] - center[0])
-        cyclic = points[np.argsort(angles, kind="stable")]
+    center = arr.mean(axis=1, keepdims=True)
+    offsets = arr - center
+    angles = np.arctan2(offsets[:, :, 1], offsets[:, :, 0])
+    cyclic = np.take_along_axis(arr, np.argsort(angles, axis=1, kind="stable")[:, :, None], axis=1)
 
-        # Image coordinates grow downward, so TL->TR->BR->BL has positive
-        # shoelace area. Unlike sum/difference extrema, cyclic sorting cannot
-        # select the same vertex twice when a square diamond has tied extrema.
-        twice_area = np.dot(cyclic[:, 0], np.roll(cyclic[:, 1], -1)) - np.dot(cyclic[:, 1], np.roll(cyclic[:, 0], -1))
-        if twice_area < 0:
-            cyclic = cyclic[::-1]
-
-        start = int(np.lexsort((cyclic[:, 0], cyclic[:, 1]))[0])
-        ordered[row_index] = np.roll(cyclic, -start, axis=0)
+    # Image coordinates grow downward, so TL->TR->BR->BL has positive
+    # shoelace area. Cyclic sorting preserves four distinct vertices even
+    # when a square diamond has tied coordinate extrema.
+    following = np.roll(cyclic, -1, axis=1)
+    twice_area = (cyclic[:, None, :, 0] @ following[:, :, 1, None])[:, 0, 0] - (
+        cyclic[:, None, :, 1] @ following[:, :, 0, None]
+    )[:, 0, 0]
+    cyclic = np.where((twice_area < 0)[:, None, None], cyclic[:, ::-1], cyclic)
+    start = np.lexsort((cyclic[:, :, 0], cyclic[:, :, 1]), axis=1)[:, 0]
+    indices = (start[:, None] + np.arange(4)) % 4
+    ordered = np.take_along_axis(cyclic, indices[:, :, None], axis=1)
     return ordered[0] if single else ordered
 
 
@@ -50,18 +51,14 @@ def xywha_to_corners(boxes: np.ndarray) -> np.ndarray:
     if single:
         arr = arr.reshape(1, 5)
 
-    corners = np.empty((arr.shape[0], 4, 2), dtype=np.float32)
-    for i, (cx, cy, w, h, angle) in enumerate(arr):
-        w = max(float(w), 1e-4)
-        h = max(float(h), 1e-4)
-        c = float(np.cos(angle))
-        s = float(np.sin(angle))
-        rot = np.array([[c, -s], [s, c]], dtype=np.float32)
-        rect = np.array(
-            [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]],
-            dtype=np.float32,
-        )
-        corners[i] = rect @ rot.T + np.array([cx, cy], dtype=np.float32)
+    if arr.ndim != 2 or arr.shape[1] != 5:
+        raise ValueError(f"Expected boxes with shape (5,) or (N, 5), got {arr.shape}")
+    sizes = np.maximum(arr[:, 2:4].astype(np.float64), 1e-4)
+    rect = (sizes[:, None, :] * np.array([[-0.5, -0.5], [0.5, -0.5], [0.5, 0.5], [-0.5, 0.5]])).astype(np.float32)
+    cosine = np.cos(arr[:, 4])
+    sine = np.sin(arr[:, 4])
+    rotations = np.stack([cosine, -sine, sine, cosine], axis=1).reshape(-1, 2, 2)
+    corners = rect @ rotations.swapaxes(1, 2) + arr[:, None, :2]
 
     corners = order_corners(corners)
     flattened = corners.reshape(arr.shape[0], 8)
@@ -136,6 +133,30 @@ def align_obb_measurement(measurement: np.ndarray, reference: np.ndarray) -> np.
     return aligned
 
 
+def align_obb_measurements(measurements: np.ndarray, references: np.ndarray) -> np.ndarray:
+    """Align rows of equivalent OBB forms without changing their angle continuity."""
+    values = np.asarray(measurements)
+    dtype = np.result_type(values.dtype, np.float32)
+    aligned = np.asarray(values, dtype=dtype).copy()
+    refs = np.asarray(references, dtype=dtype)
+    if aligned.ndim != 2 or aligned.shape[1] < 5 or refs.shape != aligned.shape:
+        raise ValueError("OBB measurements and references must have matching (N, M >= 5) shapes")
+    sizes = np.maximum(aligned[:, 2:4].astype(np.float64), 1e-6)
+    reference_sizes = np.maximum(refs[:, 2:4].astype(np.float64), 1e-6)
+    angles = aligned[:, 4].astype(np.float64)
+    reference_angles = refs[:, 4].astype(np.float64)
+    candidate_sizes = sizes[:, np.array([[0, 1], [0, 1], [1, 0], [1, 0]])]
+    candidate_angles = angles[:, None] + np.array([0.0, np.pi, np.pi / 2.0, -np.pi / 2.0])
+    candidate_angles = reference_angles[:, None] + normalize_angle(candidate_angles - reference_angles[:, None])
+    angle_cost = np.abs(candidate_angles - reference_angles[:, None])
+    size_cost = np.abs(np.log(candidate_sizes / reference_sizes[:, None, :])).sum(axis=2)
+    best = np.argmin(angle_cost + 0.05 * size_cost, axis=1)
+    rows = np.arange(len(aligned))
+    aligned[:, 2:4] = candidate_sizes[rows, best]
+    aligned[:, 4] = candidate_angles[rows, best]
+    return aligned
+
+
 def xywha_to_xyxy(boxes: np.ndarray) -> np.ndarray:
     """Return enclosing AABBs for ``(cx, cy, w, h, theta)`` OBB boxes."""
     boxes = np.asarray(boxes, dtype=np.float32)
@@ -187,6 +208,19 @@ def transform_aabb(box: np.ndarray, transform: np.ndarray) -> np.ndarray:
         warped[:, 0].max(),
         warped[:, 1].max(),
     )
+    return result
+
+
+def transform_aabbs(boxes: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """Warp all corners of AABB rows together, preserving trailing metadata."""
+    values = np.asarray(boxes, dtype=np.float64)
+    if values.ndim != 2 or values.shape[1] < 4:
+        raise ValueError(f"Expected AABB rows with shape (N, M >= 4), got {values.shape}")
+    corners = values[:, np.array([[0, 1], [2, 1], [2, 3], [0, 3]])]
+    warped = transform_points(corners, transform).reshape(-1, 4, 2)
+    result = values.copy()
+    result[:, :2] = warped.min(axis=1)
+    result[:, 2:4] = warped.max(axis=1)
     return result
 
 
@@ -364,6 +398,87 @@ def transform_obb(
         expected[4] = normalize_angle(source[4] + _rotation_from_linear(local))
         reference = expected
     return align_obb_measurement(warped, reference).astype(np.float64)
+
+
+def transform_obbs(
+    boxes: np.ndarray,
+    transform: np.ndarray,
+    *,
+    reference: np.ndarray | None = None,
+) -> np.ndarray:
+    """Warp OBB rows together and retain the scalar rectangle-fitting contract.
+
+    Similarities use batched centre, scale, and angle updates. Other transforms
+    batch their corner warps, local Jacobians, and representation alignment;
+    OpenCV's single-rectangle fitting API remains one call per box.
+    """
+    source = np.asarray(boxes, dtype=np.float64)
+    if source.ndim != 2 or source.shape[1] != 5:
+        raise ValueError(f"Expected OBB rows with shape (N, 5), got {source.shape}")
+    matrix = np.asarray(transform, dtype=np.float64)
+    if matrix.shape not in ((2, 3), (3, 3)):
+        raise ValueError(f"Expected a 2x3 affine or 3x3 homography, got {matrix.shape}")
+    refs = None if reference is None else np.asarray(reference, dtype=np.float64)
+    if refs is not None and refs.shape != source.shape:
+        raise ValueError(f"Expected OBB reference shape {source.shape}, got {refs.shape}")
+    if len(source) == 0:
+        return source.copy()
+
+    affine = None
+    if matrix.shape == (2, 3):
+        affine = matrix
+    elif abs(matrix[2, 2]) > 1e-12:
+        normalized = matrix / matrix[2, 2]
+        if np.allclose(normalized[2], [0.0, 0.0, 1.0], atol=1e-12):
+            affine = normalized[:2]
+    if affine is not None:
+        linear = affine[:, :2]
+        scale_sq = float(np.trace(linear.T @ linear) / 2.0)
+        if (
+            scale_sq > 0.0
+            and np.linalg.det(linear) > 0.0
+            and np.allclose(linear.T @ linear, scale_sq * np.eye(2), rtol=1e-7, atol=1e-10)
+        ):
+            warped = source.copy()
+            warped[:, :2] = (linear @ source[:, :2, None])[:, :, 0] + affine[:, 2]
+            warped[:, 2:4] *= np.sqrt(scale_sq)
+            warped[:, 4] = normalize_angle(source[:, 4] + np.arctan2(linear[1, 0], linear[0, 0]))
+            return warped if refs is None else align_obb_measurements(warped, refs)
+
+    corners = xywha_to_corners(source).reshape(-1, 4, 2)
+    warped_corners = transform_points(corners, matrix).astype(np.float32).reshape(-1, 4, 2)
+    # minAreaRect exposes no batch API. Keep its exact fitting behavior for
+    # non-similarity warps; all surrounding numerical work is vectorized.
+    rectangles = [cv2.minAreaRect(points) for points in warped_corners]
+    centers = np.asarray([rectangle[0] for rectangle in rectangles], dtype=np.float64)
+    sizes = np.maximum(np.asarray([rectangle[1] for rectangle in rectangles], dtype=np.float64), 1e-4)
+    angles = np.deg2rad(np.asarray([rectangle[2] for rectangle in rectangles], dtype=np.float64))
+    warped = np.column_stack([centers, sizes, angles])
+
+    if refs is None:
+        if matrix.shape == (2, 3):
+            rotation = _rotation_from_linear(matrix[:, :2])
+        else:
+            x, y = source[:, 0], source[:, 1]
+            den = matrix[2, 0] * x + matrix[2, 1] * y + matrix[2, 2]
+            if np.any(np.abs(den) <= 1e-12):
+                raise ValueError("CMC homography maps the OBB centre to infinity")
+            numerators = np.column_stack(
+                [matrix[0, 0] * x + matrix[0, 1] * y + matrix[0, 2], matrix[1, 0] * x + matrix[1, 1] * y + matrix[1, 2]]
+            )
+            jacobians = (matrix[None, :2, :2] * den[:, None, None] - numerators[:, :, None] * matrix[None, 2, :2]) / (
+                den * den
+            )[:, None, None]
+            u, _, vh = np.linalg.svd(jacobians)
+            rotations = u @ vh
+            reflected = np.linalg.det(rotations) < 0
+            u[reflected, :, -1] *= -1.0
+            rotations[reflected] = u[reflected] @ vh[reflected]
+            rotation = np.arctan2(rotations[:, 1, 0], rotations[:, 0, 0])
+        refs = source.copy()
+        refs[:, :2] = transform_points(source[:, :2], matrix)
+        refs[:, 4] = normalize_angle(source[:, 4] + rotation)
+    return align_obb_measurements(warped, refs)
 
 
 def transform_obb_kalman_state(

@@ -4,20 +4,18 @@ OccluBoost is an occlusion-aware hybrid tracker built on top of BoostTrack. It
 keeps BoostTrack's multi-cue association and confidence boosting, then adds
 tentative-track confirmation, ReID recovery, a guarded low-confidence second
 pass, duplicate suppression, and an **Abnormal Motion Suppression (AMS)**
-Kalman update. The Python implementation can also enable online global
-trajectory association (GTA) for longer appearance-based recovery.
+Kalman update.
 
 ## What's layered on top of BoostTrack
 
-- **AMS Kalman update.** Every matched Kalman update (first pass, ReID recovery, low-conf second pass) is routed through `_ams_update`, which scales the Kalman gain on the mean update by `alpha ∈ [ams_alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.
-    - **Trigger.** A per-track ring buffer of length `ams_buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `ams_threshold`, the speed gate fires.
-    - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < ams_shrink_ratio * mean_area`. This keeps pure speed spikes from being treated as partial occlusion.
-    - **OBB safety.** OBB tracks bypass AMS (`alpha=1.0`) — the suppression model is defined for AABB motion only.
+- **AMS Kalman update.** Matched AABB updates (first pass, ReID recovery, and low-confidence second pass) scale the Kalman gain on the mean update by `alpha ∈ [kalman.ams.alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.
+    - **Trigger.** A per-track ring buffer of length `kalman.ams.buffer_size` tracks `[cx, cy, w, h]`. We compute the relative speed spike of the centre and aspect against the buffer mean; if either exceeds `kalman.ams.threshold`, the speed gate fires.
+    - **Shrink gate (key addition over the OccluTrack paper).** Suppression only kicks in when the new detection is also physically smaller than the running mean: `cur_area < kalman.ams.shrink_ratio * mean_area`. This keeps pure speed spikes from being treated as partial occlusion.
+    - **OBB behavior.** AMS applies to AABB motion only. OBB tracks bypass suppression (`alpha=1.0`) even when `kalman.ams.enabled=True`.
 - **BotSort-style track confirmation** (`tentative -> activated`). New tracks born from medium-confidence detections must accumulate `confirm_hits` consecutive matches before being emitted; detections above `instant_confirm_thresh` skip the wait. Tentative tracks expire after `tentative_max_age` frames, slashing ghost IDs from one-frame flickers.
 - **ReID-only recovery pass.** Unmatched high-confidence detections are re-attached to recently lost tracks when cosine appearance similarity exceeds `recovery_appearance_thresh` and a loose IoU sanity gate (`recovery_iou_thresh`) is satisfied. Recovered embeddings are EMA-blended with `feat_alpha`.
 - **Safe appearance-gated second pass.** Low-confidence detections (`track_low_thresh ≤ conf < det_thresh`) can re-attach **only** to confirmed tracks (`is_activated=True`) under strict IoU + appearance gates. This lifts MOTA without the ID switches an unrestricted ByteTrack-style second pass introduces.
 - **Duplicate suppression.** `duplicate_iou_thresh` controls removal of the younger of two near-identical emitted tracks.
-- **Optional online GTA.** When `gta_enabled` is set, appearance-only recovery can reconnect eligible live tracks, resurrect recently removed tracks from a graveyard, and optionally interpolate and smooth recovered gaps. The built-in tracker config leaves GTA disabled.
 
 ## What BoxMOT Needs For OccluBoost
 
@@ -43,8 +41,8 @@ supports:
 - typed generated or precomputed embeddings for association and recovery through the v2 update ABI
 - model-free C++ tracker code; optional ReID inference is owned by its Python adapter
 
-Online GTA and adaptive-Kalman controls are currently Python-only; selecting
-the C++ backend does not enable those two extensions.
+Adaptive-Kalman controls are currently Python-only; selecting the C++ backend
+does not enable adaptive Kalman filtering.
 
 Requirements:
 
@@ -65,9 +63,10 @@ canonical `Detections`. When `use_embeddings=True` and a non-empty batch has no
 embeddings, the high-level tracker lazily initializes its configured encoder or
 backend and extracts embeddings from the supplied `Frame`. A native adapter
 then passes that typed feature buffer to its model-free C++ library.
-Configuration may come from a complete `ReIDEncoderSpec`, an injected
-`reid_model`, or `reid_weights`, `device`, `half`, and `reid_preprocess`. If no
-weights or spec are supplied, the default ReID model is used.
+Pass `reid=ReIDConfig(...)` to group model, device, precision, preprocessing,
+and batching settings, or inject a prebuilt `AppearanceEncoder` with `reid=encoder`.
+The workflow API also accepts a complete `ReIDEncoderSpec` through
+`tracker.configure_reid(spec)`. Omitting ReID configuration uses the default model.
 Attached embeddings bypass inference, and empty batches do not initialize the
 model. See [Live embeddings in ReID-enabled
 trackers](../python/index.md#live-embeddings-in-reid-enabled-trackers).
@@ -81,8 +80,9 @@ The canonical defaults and tuning metadata live together in
 `boxmot/configs/trackers/occluboost.yaml`; consult that file instead of copying
 numeric values into a custom config. The main parameter groups are:
 
-- `ams_enabled`, `ams_alpha0`, `ams_threshold`, `ams_shrink_ratio`, and
-  `ams_buffer_size` for AABB abnormal-motion suppression. Lower `ams_alpha0`
+- `kalman.ams.enabled`, `kalman.ams.alpha0`, `kalman.ams.threshold`,
+  `kalman.ams.shrink_ratio`, and `kalman.ams.buffer_size` for AABB abnormal-motion
+  suppression. Lower `kalman.ams.alpha0`
   suppresses the mean update more strongly when both the motion and shrink
   gates fire.
 - `confirm_hits`, `instant_confirm_thresh`, and `tentative_max_age` for the
@@ -91,47 +91,51 @@ numeric values into a custom config. The main parameter groups are:
 - `recovery_*`, `feat_alpha`, and `use_embeddings` for appearance recovery.
 - `use_second_pass`, `second_*`, and `track_low_thresh` for guarded
   low-confidence association.
-- `gta_*` for the optional Python-only global trajectory association path.
 - `obb_*` for thresholds and lifetimes that intentionally differ in OBB mode.
 - `new_track_thresh` and `max_age` for new-track creation and gap tolerance.
 
-### Adaptive Kalman Filter (`adaptive_kf`)
+### Adaptive Kalman Filter (`kalman.adaptive_kf`)
 
-When `adaptive_kf: true` is set in the tracker config, the process noise covariance **Q** is estimated online from innovation statistics (Mehra 1970) rather than kept constant. A sliding window (30 frames, warmup 15) accumulates the outer products of the Kalman innovations, and once warmed up the estimated Q is blended (α = 0.7) with the default static Q.
+The Python implementation supports experimental online process-noise estimation
+with `kalman.adaptive_kf=True` (default: `False`). It uses a window of up to 30 Kalman
+innovations per track, starts adapting after 15 measurement corrections, and
+blends the estimate with baseline noise (70% adaptive, 30% baseline).
+Initialization and prediction-only updates do not count toward warmup.
+Measurement noise is configured under `kalman.noise`.
 
-**When to use it:**
+Consider adaptation for long tracks whose motion predictability changes, then
+compare against validated fixed noise settings. Short tracks may never leave
+warmup; detector, association, and camera-compensation errors can distort the
+estimate. `kalman.variable_dt=True` independently handles irregular capture intervals
+and can be combined with adaptation. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios and CLI examples.
 
-- Deploying to a new domain where you do not yet have tuned static motion parameters.
-- Scenes where camera motion compensation (CMC) may fail intermittently (low-texture, rain, night).
-- Camera dynamics that vary significantly within a single sequence (e.g., drone footage alternating hover and fast sweep).
-
-**When NOT to use it:**
-
-- You already have validated static motion parameters — the static solution is cheaper and deterministic.
-- Very short tracks (< 15 frames) dominate; the estimator never exits warmup so it adds overhead with no benefit.
-
-Enable it through the structured factory:
+Enable it with a typed Kalman configuration:
 
 ```python
-from boxmot import create_tracker
-from boxmot.trackers import TrackerSpec
+from boxmot import KalmanConfig, create_tracker
 
 tracker = create_tracker(
-    TrackerSpec(
-        name="occluboost",
-        options=(("adaptive_kf", True),),
-    )
+    "occluboost",
+    kalman=KalmanConfig(adaptive_kf=True),
 )
 ```
 
 Or set it in a custom tracker config YAML:
 
 ```yaml
-adaptive_kf: true
+kalman:
+  adaptive_kf: true
 ```
 
-Use a custom tracker configuration when you have calibrated static Kalman
-parameters. `adaptive_kf` is a runtime setting and stays fixed during tracker
-tuning, along with the calibrated covariance scales.
+AMS settings live under `kalman.ams` in YAML. In Python, pass an
+`AbnormalMotionSuppressionConfig` as `KalmanConfig.ams` to customize them.
+OBB updates bypass AMS regardless of these settings.
+
+Use a calibrated tracker configuration to load fitted covariance scales under
+`kalman.noise`. `kalman.adaptive_kf` stays fixed during tracker tuning.
+Calibrated scales stay fixed by default; `--tune-kf` selects individual scales
+for refinement.
 
 ::: boxmot.OccluBoost

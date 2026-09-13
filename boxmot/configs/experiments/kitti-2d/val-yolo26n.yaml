@@ -1,0 +1,10 @@
+dataset:
+  ref: kitti-2d
+  split: val
+detector:
+  ref: yolo26n
+  checkpoint: default
+evaluation:
+  class_map:
+    car: car
+    pedestrian: person

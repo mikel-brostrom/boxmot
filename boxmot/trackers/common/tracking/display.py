@@ -89,8 +89,8 @@ class TrackDisplayMixin:
 
         module_name = getattr(track.__class__, "__module__", "")
         byte_or_bot_state = module_name in {
-            "boxmot.trackers.box.bytetrack.tracker",
-            "boxmot.trackers.box.botsort.tracker",
+            "boxmot.trackers.bytetrack.tracker",
+            "boxmot.trackers.botsort.tracker",
         }
         if isinstance(state, (int, np.integer)) and byte_or_bot_state:
             if int(state) == 1:

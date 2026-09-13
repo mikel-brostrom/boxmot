@@ -7,8 +7,8 @@ from typing import IO, Any
 import pytest
 import yaml
 
-import boxmot.engine.experiment_config as experiment_config
-from boxmot.engine.experiment_config import (
+import boxmot.engine.config.experiments as experiment_config
+from boxmot.engine.config.experiments import (
     EXPERIMENT_CONFIGS_DIR,
     ConfigurationError,
     resolve_experiment_config,
@@ -18,16 +18,23 @@ from boxmot.engine.experiment_config import (
 from boxmot.utils.config import load_yaml_mapping
 
 
-def test_every_built_in_experiment_has_a_materializable_detector() -> None:
+def test_every_built_in_experiment_resolves_its_declared_prediction_source() -> None:
+    """Catalog experiments select either saved boxes or detector inference."""
     paths = sorted(EXPERIMENT_CONFIGS_DIR.rglob("*.yaml"))
 
     assert paths
     for path in paths:
-        resolved = resolve_experiment_config(path, mode="materialize")
+        resolved = resolve_experiment_config(path)
         relative = path.relative_to(EXPERIMENT_CONFIGS_DIR).with_suffix("")
         assert "id" not in load_yaml_mapping(path), path
         assert resolved["id"] == "-".join(relative.parts), path
         assert "detections" not in resolved, path
+        if resolved["detector"] is None:
+            assert resolved["dataset"]["modalities"]["detections_2d"]["options"]["load_masks"] is False, path
+            assert Path(resolved["dataset"]["config_path"]).is_file(), path
+            if resolved["reid"] is not None:
+                assert Path(resolved["reid"]["config_path"]).is_file(), path
+            continue
         assert resolved["detector"]["ref"], path
         assert resolved["detector"]["checkpoint"], path
         assert resolved["detector"]["model"], path
@@ -36,6 +43,231 @@ def test_every_built_in_experiment_has_a_materializable_detector() -> None:
         if resolved["reid"] is not None:
             assert "crop_strategy" not in resolved["reid"], path
             assert "config_path" not in resolved["reid"], path
+
+
+def _write_saved_2d_experiment(
+    root: Path,
+    *,
+    reid: str | None = None,
+    split: str = "val",
+    fields: dict[str, Any] | None = None,
+) -> Path:
+    """Author a local saved-input experiment without creating dataset payloads."""
+    dataset = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-2d-detections.yaml")
+    dataset["storage"]["root"] = "LOCAL-SAVED-KITTI"
+    (root / "dataset.yaml").write_text(yaml.safe_dump(dataset), encoding="utf-8")
+    authored: dict[str, Any] = {"dataset": {"ref": "dataset.yaml", "split": split}}
+    if reid is not None:
+        authored["reid"] = {"ref": reid}
+    authored.update(fields or {})
+    experiment = root / "saved-kitti.yaml"
+    experiment.write_text(yaml.safe_dump(authored), encoding="utf-8")
+    return experiment
+
+
+@pytest.mark.parametrize("mode", (None, "eval", "evaluation"))
+@pytest.mark.parametrize("reid", (None, "osnet-x0-25-msmt17"))
+def test_saved_2d_experiment_resolves_existing_inputs_without_detector(
+    tmp_path: Path, mode: str | None, reid: str | None
+) -> None:
+    experiment = _write_saved_2d_experiment(tmp_path, reid=reid)
+
+    resolved = resolve_experiment_config(experiment, mode=mode)
+
+    assert resolved["detector"] is None
+    assert resolved["segmentor"] is None
+    assert resolved["dataset"]["config_path"] == tmp_path / "dataset.yaml"
+    assert resolved["dataset"]["root"] == "LOCAL-SAVED-KITTI"
+    assert resolved["dataset"]["split"] == "val"
+    assert resolved["evaluation"] == {
+        "classes": [{"name": "car", "dataset_id": 1}, {"name": "pedestrian", "dataset_id": 2}],
+        "ignore_dataset_ids": [],
+    }
+    if reid:
+        assert resolved["reid"]["id"] == reid
+        assert resolved["reid"]["config_path"] == experiment_config.CONFIG_ROOT / "reid" / f"{reid}.yaml"
+    else:
+        assert resolved["reid"] is None
+
+
+@pytest.mark.parametrize("mode", ("materialize", "tune", "research", "inference"))
+@pytest.mark.parametrize("authored", (False, True))
+def test_saved_2d_experiment_rejects_unsupported_workflows_before_model_resolution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str, authored: bool
+) -> None:
+    experiment = _write_saved_2d_experiment(tmp_path, fields={"mode": mode} if authored else {})
+    monkeypatch.setattr(experiment_config, "_resolve_reid", lambda *_args, **_kwargs: pytest.fail("Model resolved"))
+
+    with pytest.raises(ConfigurationError, match=f"supports only eval; {mode} is not supported"):
+        resolve_experiment_config(experiment, mode=None if authored else mode)
+
+
+@pytest.mark.parametrize("field", ("detector", "segmentor", "evaluation"))
+@pytest.mark.parametrize("value", (None, {}))
+def test_saved_2d_experiment_rejects_replaced_predictions_and_class_mapping(
+    tmp_path: Path, field: str, value: Any
+) -> None:
+    experiment = _write_saved_2d_experiment(tmp_path, fields={field: value})
+
+    with pytest.raises(ConfigurationError, match=f"must omit {field}"):
+        resolve_experiment_config(experiment, mode="eval")
+
+
+@pytest.mark.parametrize("mode", (None, "eval"))
+def test_saved_2d_experiment_requires_scoring_ground_truth(tmp_path: Path, mode: str | None) -> None:
+    experiment = _write_saved_2d_experiment(tmp_path, split="test")
+
+    with pytest.raises(ConfigurationError, match="has no ground truth"):
+        resolve_experiment_config(experiment, mode=mode)
+
+
+def test_saved_2d_experiment_validates_and_applies_split_override(tmp_path: Path) -> None:
+    experiment = _write_saved_2d_experiment(tmp_path)
+
+    assert resolve_experiment_config(experiment, split="train")["dataset"]["split"] == "train"
+    with pytest.raises(ConfigurationError, match='has no split "absent"'):
+        resolve_experiment_config(experiment, split="absent")
+
+
+@pytest.mark.parametrize("absolute", (False, True))
+def test_saved_2d_experiment_preserves_custom_reid_and_local_dataset_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, absolute: bool
+) -> None:
+    """Replay must load the authored custom profile even if its ID is built-in."""
+    from boxmot.reid.config import resolve_reid_spec
+
+    root = tmp_path / "bundle"
+    root.mkdir()
+    model = root / "custom.pt"
+    model.write_bytes(b"fixture model")
+    profile = load_yaml_mapping(experiment_config.CONFIG_ROOT / "reid/osnet-x0-25-msmt17.yaml")
+    profile["weights"] = {"path": "custom.pt"}
+    profile["preprocessing"]["image_size"] = [128, 64]
+    profile_path = root / "custom-reid.yaml"
+    profile_path.write_text(yaml.safe_dump(profile), encoding="utf-8")
+    experiment = _write_saved_2d_experiment(root, reid=str(profile_path) if absolute else "./custom-reid.yaml")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "custom-reid.yaml").write_text("unrelated: true\n", encoding="utf-8")
+    (elsewhere / "dataset.yaml").write_text("unrelated: true\n", encoding="utf-8")
+    monkeypatch.chdir(elsewhere)
+
+    resolved = resolve_experiment_config(experiment, mode="eval")
+    encoder, _provenance = resolve_reid_spec(resolved["reid"]["config_path"], allow_download=False)
+
+    assert resolved["dataset"]["config_path"] == root / "dataset.yaml"
+    assert resolved["reid"]["config_path"] == profile_path
+    assert resolved["reid"]["id"] == "osnet-x0-25-msmt17"
+    assert Path(encoder.artifact) == model
+    assert dict(encoder.options)["image_size"] == (128, 64)
+
+
+def test_saved_2d_experiment_missing_relative_reid_does_not_fall_back_to_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "bundle"
+    root.mkdir()
+    experiment = _write_saved_2d_experiment(root, reid="./osnet-x0-25-msmt17.yaml")
+    monkeypatch.chdir(experiment_config.CONFIG_ROOT / "reid")
+
+    with pytest.raises(FileNotFoundError):
+        resolve_experiment_config(experiment, mode="eval")
+
+
+def test_detector_free_experiment_does_not_accept_an_image_only_dataset(tmp_path: Path) -> None:
+    """Omitting a detector is valid only when predictions are declared as input."""
+    experiment = tmp_path / "missing-predictions.yaml"
+    experiment.write_text("dataset:\n  ref: kitti-2d\n  split: val\n", encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match='must define a "detector" mapping'):
+        resolve_experiment_config(experiment, mode="eval")
+
+
+def _write_kitti_2d_dataset(path: Path, *, root: str) -> None:
+    """Write a distinguishable dataset without creating payload images or models."""
+    config = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-2d.yaml")
+    config["storage"]["root"] = root
+    config["modalities"]["images"]["path"] = "sequences/{partition}/{sequence}/images"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+def _write_kitti_2d_experiment(path: Path, dataset_ref: str) -> None:
+    """Use the authored detector and class bridge with a selected dataset path."""
+    config = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "kitti-2d/val-yolo26n-osnet.yaml")
+    config["dataset"]["ref"] = dataset_ref
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("reference", "location"),
+    (
+        ("kitti-2d.yaml", "kitti-2d.yaml"),
+        ("./kitti-2d.yaml", "kitti-2d.yaml"),
+        ("datasets/kitti-2d.yaml", "datasets/kitti-2d.yaml"),
+        ("../datasets/kitti-2d.yaml", "../datasets/kitti-2d.yaml"),
+        ("kitti-2d", "kitti-2d/dataset.yaml"),
+        (".", "dataset.yaml"),
+        ("absolute", "../datasets/kitti-2d.yaml"),
+    ),
+)
+def test_experiment_dataset_paths_resolve_beside_yaml_independently_of_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str, location: str
+) -> None:
+    experiment = tmp_path / "bundle/experiments/local-kitti.yaml"
+    dataset = (experiment.parent / location).resolve()
+    _write_kitti_2d_dataset(dataset, root="LOCAL-KITTI")
+    _write_kitti_2d_experiment(experiment, str(dataset) if reference == "absolute" else reference)
+    elsewhere = tmp_path / "elsewhere"
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
+    monkeypatch.chdir(elsewhere)
+
+    resolved = resolve_experiment_config(experiment, mode="eval")
+
+    assert Path(resolved["dataset"]["config_path"]) == dataset
+    assert resolved["dataset"]["root"] == "LOCAL-KITTI"
+    assert resolved["dataset"]["modalities"]["images"]["paths"] == ["sequences/{partition}/{sequence}/images"]
+    assert resolved["reid"]["id"] == "osnet-x0-25-msmt17"
+
+
+@pytest.mark.parametrize("reference", ("kitti-2d", "kitti-2d.yaml"))
+def test_experiment_dataset_catalog_fallback_ignores_cwd_profiles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    experiment = tmp_path / "bundle/local-kitti.yaml"
+    _write_kitti_2d_experiment(experiment, reference)
+    elsewhere = tmp_path / "elsewhere"
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
+    _write_kitti_2d_dataset(elsewhere / "kitti-2d/dataset.yaml", root="WRONG-CWD-FOLDER")
+    monkeypatch.chdir(elsewhere)
+
+    resolved = resolve_experiment_config(experiment, mode="eval")
+
+    assert resolved["dataset"]["root"] == "KITTI"
+    assert "config_path" not in resolved["dataset"]
+
+
+@pytest.mark.parametrize(
+    "reference", ("./kitti-2d.yaml", "datasets/kitti-2d.yaml", "../data/kitti-2d.yaml", "./kitti-2d")
+)
+def test_missing_explicit_dataset_paths_do_not_fall_back_to_cwd_or_catalog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
+) -> None:
+    experiment = tmp_path / "bundle/local-kitti.yaml"
+    _write_kitti_2d_experiment(experiment, reference)
+    elsewhere = tmp_path / "elsewhere/nested"
+    elsewhere.mkdir(parents=True)
+    unrelated = elsewhere / reference
+    if not unrelated.suffix:
+        unrelated /= "dataset.yaml"
+    _write_kitti_2d_dataset(unrelated, root="WRONG-CWD")
+    monkeypatch.chdir(elsewhere)
+
+    with pytest.raises(FileNotFoundError, match="Dataset config path does not exist") as raised:
+        resolve_experiment_config(experiment, mode="eval")
+
+    assert str(experiment.parent) in str(raised.value)
 
 
 @pytest.mark.parametrize("reference", ("test-yolo11l-lmbn", "test-yolo11l-lmbn.yaml"))

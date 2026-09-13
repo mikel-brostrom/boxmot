@@ -20,7 +20,7 @@ structures but never pipelines or engine code. Pipelines compose components
 without owning I/O. The engine owns process lifetime and external boundaries.
 Dataset configuration and persisted-format concerns live under
 `boxmot.datasets`; finite source catalogs live with materialization, while
-authored experiment resolution lives in `boxmot.engine.experiment_config` and
+authored experiment resolution lives in `boxmot.engine.config.experiments` and
 build compatibility lives with materialization. Artifact identity is shared
 component infrastructure, while detector, segmentor, and ReID specification
 resolution belongs to each corresponding domain package.

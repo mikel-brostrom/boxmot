@@ -39,6 +39,17 @@ def validate_finite(value: torch.Tensor, *, name: str) -> None:
         raise ValueError(f"{name} must contain only finite values.")
 
 
+def validate_scores_and_classes(scores: torch.Tensor, class_ids: torch.Tensor, *, owner: str) -> None:
+    """Validate confidence scores and class IDs without implicit conversion."""
+    validate_tensor(scores, name=f"{owner}.scores", dtype=torch.float32, ndim=1)
+    validate_tensor(class_ids, name=f"{owner}.class_ids", dtype=torch.int64, ndim=1)
+    validate_finite(scores, name=f"{owner}.scores")
+    if scores.numel() and bool(((scores < 0) | (scores > 1)).any()):
+        raise ValueError(f"{owner}.scores must be in the inclusive range [0, 1].")
+    if class_ids.numel() and bool((class_ids < 0).any()):
+        raise ValueError(f"{owner}.class_ids must be non-negative.")
+
+
 def validate_nonempty_string(value: str, *, name: str) -> None:
     if not isinstance(value, str):
         raise TypeError(f"{name} must be a string, got {type(value).__name__}.")

@@ -136,7 +136,7 @@ def prepare_coreml_export_model(model: nn.Module) -> nn.Module:
 class CoreMLExporter(BaseExporter):
     """Export FP16 MLProgram packages for a bounded set of static batch buckets."""
 
-    group = "coreml"
+    extra = "coreml"
 
     def __init__(
         self,

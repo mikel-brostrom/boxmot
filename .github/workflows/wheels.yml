@@ -71,6 +71,7 @@ jobs:
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra mots \
             --group dev \
             --group test \
             --group docs
@@ -202,7 +203,11 @@ jobs:
           RELEASE_VERSION: ${{ needs.build.outputs.version }}
         run: |
           python -I "$GITHUB_WORKSPACE/source/tests/ci/release_contract.py" \
-            --expected-version "$RELEASE_VERSION" --check-cli-help
+            --expected-version "$RELEASE_VERSION" --check-cli-help --check-trackers
+
+      - name: Smoke-test lazy imports and auxiliary entrypoints
+        working-directory: ${{ runner.temp }}
+        run: |
           python -I - <<'PY'
           import sys
 

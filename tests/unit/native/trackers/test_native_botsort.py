@@ -6,8 +6,8 @@ import torch
 
 from boxmot.native.trackers import botsort as native_binding
 from boxmot.structures import Boxes, Detections, Tracks
-from boxmot.trackers.box.botsort import native as native_module
-from boxmot.trackers.box.botsort.tracker import BotSort
+from boxmot.trackers.botsort import native as native_module
+from boxmot.trackers.botsort.tracker import BotSort
 
 from ._helpers import detections_from_rows, empty_native_batch, update_rows
 

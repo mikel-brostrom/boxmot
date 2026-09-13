@@ -38,6 +38,25 @@ from boxmot.engine.research.runner import TrackerResearcher
 from boxmot.utils import ROOT
 
 
+def test_research_reports_missing_dependencies_before_loading_the_sdk(monkeypatch) -> None:
+    """Research startup validates installed extras without attempting installation."""
+
+    failure = ImportError("Install research dependencies with boxmot install --extra research")
+
+    def require_extra(extra: str, *, purpose: str) -> None:
+        assert extra == "research"
+        raise failure
+
+    monkeypatch.setattr(runner_module, "require_extra", require_extra)
+    monkeypatch.setattr(runner_module, "_import_installed_gepa", lambda: pytest.fail("Unexpected SDK import"))
+    researcher = object.__new__(TrackerResearcher)
+
+    with pytest.raises(ImportError) as raised:
+        researcher._ensure_dependencies()
+
+    assert raised.value is failure
+
+
 def test_regression_penalties_reject_negative_values():
     with pytest.raises(ValueError) as exc:
         RegressionPenalties(idf1_penalty=-1.0)
@@ -47,15 +66,15 @@ def test_regression_penalties_reject_negative_values():
 def test_validate_candidate_keys_rejects_missing_or_unexpected():
     with pytest.raises(ValueError) as exc:
         _validate_candidate_keys(
-            {"boxmot/trackers/box/strongsort/tracker.py": "pass", "unexpected.py": "pass"},
-            ("boxmot/trackers/box/strongsort/tracker.py",),
+            {"boxmot/trackers/strongsort/tracker.py": "pass", "unexpected.py": "pass"},
+            ("boxmot/trackers/strongsort/tracker.py",),
         )
     assert "unexpected keys" in str(exc.value)
 
 
 def test_validate_candidate_keys_preserves_underlying_proposal_text():
     candidate = {
-        "boxmot/trackers/box/bytetrack/tracker.py": _ProposalLogText(
+        "boxmot/trackers/bytetrack/tracker.py": _ProposalLogText(
             "print('ok')",
             "[summary]",
         )
@@ -63,10 +82,10 @@ def test_validate_candidate_keys_preserves_underlying_proposal_text():
 
     validated = _validate_candidate_keys(
         candidate,
-        ("boxmot/trackers/box/bytetrack/tracker.py",),
+        ("boxmot/trackers/bytetrack/tracker.py",),
     )
 
-    assert validated["boxmot/trackers/box/bytetrack/tracker.py"] == "print('ok')"
+    assert validated["boxmot/trackers/bytetrack/tracker.py"] == "print('ok')"
 
 
 def test_ensure_not_local_gepa_path_rejects_repo_checkout():
@@ -82,8 +101,9 @@ def test_ensure_not_local_gepa_path_accepts_site_packages():
 @pytest.mark.parametrize(
     ("tracker", "expected_file"),
     (
-        ("strongsort", "boxmot/trackers/box/strongsort/tracker.py"),
-        ("sam2mot", "boxmot/trackers/multimodal/sam2mot/tracker.py"),
+        ("strongsort", "boxmot/trackers/strongsort/tracker.py"),
+        ("maf_hda", "boxmot/trackers/maf_hda/tracker.py"),
+        ("eagermot", "boxmot/trackers/eagermot/tracker.py"),
     ),
 )
 def test_normalize_editable_files_defaults_to_registered_tracker_source(tracker, expected_file):
@@ -207,7 +227,7 @@ def test_resolve_experiment_runtime_resolves_only_dataset_identity(monkeypatch, 
             "benchmark": {},
         },
     )
-    monkeypatch.setattr(benchmarks_module, "resolve_dataset_root", lambda *_args: source_dir.parent)
+    monkeypatch.setattr(benchmarks_module, "resolve_dataset_storage_root", lambda *_args: source_dir.parent)
 
     source_root, experiment_id, dataset_id, benchmark, cfg = _resolve_experiment_runtime("mot17-mini")
 
@@ -220,12 +240,12 @@ def test_resolve_experiment_runtime_resolves_only_dataset_identity(monkeypatch, 
 
 def test_build_reflection_prompt_templates_embed_objective_and_background():
     templates = _build_reflection_prompt_templates(
-        ("boxmot/trackers/box/bytetrack/tracker.py",),
+        ("boxmot/trackers/bytetrack/tracker.py",),
         objective="Improve HOTA.",
         background="Detector: /tmp/yolox.pt\nReID: /tmp/lmbn.pt",
     )
 
-    template = templates["boxmot/trackers/box/bytetrack/tracker.py"]
+    template = templates["boxmot/trackers/bytetrack/tracker.py"]
     assert "Improve HOTA." in template
     assert "Detector: /tmp/yolox.pt" in template
     assert "Prefer algorithmic tracking improvements" in template
@@ -322,7 +342,7 @@ def test_run_instruction_proposal_signature_prefers_run_with_metadata():
 
 def test_proposal_log_text_keeps_full_value_but_renders_compact_summary():
     summary = _proposal_log_summary(
-        "boxmot/trackers/box/bytetrack/tracker.py",
+        "boxmot/trackers/bytetrack/tracker.py",
         "line1\nline2\n",
         "line1\nline2 changed\nline3\n",
     )
@@ -435,25 +455,25 @@ def test_checked_candidate_proposer_retries_invalid_candidate_before_returning()
     def fake_runner(_candidate, reflective_dataset, _components_to_update):
         attempts.append(reflective_dataset)
         if len(attempts) == 1:
-            return {"boxmot/trackers/box/bytetrack/tracker.py": "def broken(:\n"}
-        return {"boxmot/trackers/box/bytetrack/tracker.py": "def fixed():\n    return 1\n"}
+            return {"boxmot/trackers/bytetrack/tracker.py": "def broken(:\n"}
+        return {"boxmot/trackers/bytetrack/tracker.py": "def fixed():\n    return 1\n"}
 
     proposer = _make_checked_candidate_proposer(
         fake_runner,
-        expected_keys=("boxmot/trackers/box/bytetrack/tracker.py",),
+        expected_keys=("boxmot/trackers/bytetrack/tracker.py",),
         candidate_checker=lambda candidate: [],
         max_attempts=2,
     )
 
     updates = proposer(
-        {"boxmot/trackers/box/bytetrack/tracker.py": "def seed():\n    return 0\n"},
-        {"boxmot/trackers/box/bytetrack/tracker.py": [{"Feedback": "improve tracking"}]},
-        ["boxmot/trackers/box/bytetrack/tracker.py"],
+        {"boxmot/trackers/bytetrack/tracker.py": "def seed():\n    return 0\n"},
+        {"boxmot/trackers/bytetrack/tracker.py": [{"Feedback": "improve tracking"}]},
+        ["boxmot/trackers/bytetrack/tracker.py"],
     )
 
-    assert updates["boxmot/trackers/box/bytetrack/tracker.py"] == "def fixed():\n    return 1\n"
+    assert updates["boxmot/trackers/bytetrack/tracker.py"] == "def fixed():\n    return 1\n"
     assert len(attempts) == 2
-    retry_feedback = attempts[1]["boxmot/trackers/box/bytetrack/tracker.py"][-1]
+    retry_feedback = attempts[1]["boxmot/trackers/bytetrack/tracker.py"][-1]
     assert "Rejected Proposal Errors" in retry_feedback
 
 

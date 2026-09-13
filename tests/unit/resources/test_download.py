@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 import sys
 import threading
 import types
@@ -11,6 +12,8 @@ from types import SimpleNamespace
 import pytest
 
 import boxmot.resources.download as download_module
+import boxmot.utils.dependencies as dependencies
+from boxmot.utils.dependencies import MissingDependencyError
 
 
 class _QuietProgress:
@@ -175,6 +178,8 @@ def test_google_drive_failure_preserves_destination_and_cleans_temporary(monkeyp
 
 
 def test_hf_subfolder_workflow_progress_uses_file_units(monkeypatch, tmp_path):
+    monkeypatch.setattr(download_module, "require_packages", lambda *args, **kwargs: None)
+
     class RepoFile:
         def __init__(self, size: int) -> None:
             self.size = size
@@ -274,6 +279,60 @@ def test_hf_subfolder_skips_populated_target_without_marker(tmp_path):
     download_module.download_hf_dataset_subfolder("user/repo", "images/val", tmp_path)
 
     assert (target / ".hf_download_complete").exists()
+
+
+@pytest.mark.parametrize("download_kind", ["dataset", "interrupted-dataset", "subfolder"])
+def test_missing_hub_dependency_stops_download_without_installation(monkeypatch, tmp_path, download_kind) -> None:
+    """An unavailable Hub package produces install guidance before any network work."""
+
+    def missing_distribution(name: str) -> None:
+        raise dependencies.PackageNotFoundError(name)
+
+    def unexpected_operation(*args, **kwargs) -> None:
+        pytest.fail("Missing dependencies must not trigger downloads or package installation")
+
+    monkeypatch.setattr(dependencies, "distribution", missing_distribution)
+    monkeypatch.setattr(subprocess, "run", unexpected_operation)
+    monkeypatch.setattr(subprocess, "check_call", unexpected_operation)
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(HfApi=unexpected_operation, snapshot_download=unexpected_operation),
+    )
+    target = tmp_path / "dataset"
+    if download_kind == "interrupted-dataset":
+        incomplete = target / ".cache" / "huggingface" / "download" / "data.incomplete"
+        incomplete.parent.mkdir(parents=True)
+        incomplete.write_bytes(b"partial")
+
+    with pytest.raises(MissingDependencyError, match="huggingface-hub>=1.7.1") as error:
+        if download_kind == "subfolder":
+            download_module.snapshot_download_hf_subfolder("user/repo", "images/val", target)
+        else:
+            download_module.download_hf_dataset("user/repo", target)
+
+    assert "boxmot.engine.cli install --requirement" in str(error.value)
+
+
+@pytest.mark.parametrize("download_kind", ["dataset", "subfolder"])
+def test_complete_hf_dataset_does_not_require_hub(monkeypatch, tmp_path, download_kind) -> None:
+    """Completed local datasets remain usable without the downloading dependency."""
+
+    def unexpected_dependency_check(*args, **kwargs) -> None:
+        pytest.fail("A cached dataset must not require Hugging Face Hub")
+
+    monkeypatch.setattr(download_module, "require_packages", unexpected_dependency_check)
+    monkeypatch.setitem(sys.modules, "huggingface_hub", None)
+    target = tmp_path / "images" / "val"
+    target.mkdir(parents=True)
+    (target / "frame001.jpg").write_bytes(b"image")
+
+    if download_kind == "subfolder":
+        download_module.download_hf_dataset_subfolder("user/repo", "images/val", tmp_path)
+    else:
+        download_module.download_hf_dataset("user/repo", tmp_path)
+
+    assert (target / "frame001.jpg").read_bytes() == b"image"
 
 
 def test_eval_dataset_download_routes_hf_subfolder_to_dataset_root(monkeypatch, tmp_path):

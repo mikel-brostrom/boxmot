@@ -10,7 +10,7 @@ from boxmot.utils import logger as LOGGER
 
 
 class TFLiteExporter(BaseExporter):
-    group = "tflite"
+    extra = "tflite"
     _IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
     _QUANTIZATION_MODES = {"none", "weight", "dynamic", "static"}
     _CALIBRATION_UPDATE_MODES = {"minmax", "moving_average"}

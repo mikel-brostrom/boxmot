@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 
+import boxmot.reid.exporters.backends.base as exporter_base
 import boxmot.reid.exporters.backends.onnx as onnx_exporter_module
 import boxmot.reid.exporters.backends.openvino as openvino_exporter_module
 import boxmot.reid.exporters.backends.tensorrt as tensorrt_exporter_module
@@ -20,7 +21,6 @@ from boxmot.reid.exporters.backends.onnx import ONNXExporter, ensure_onnx_export
 from boxmot.reid.exporters.backends.openvino import OpenVINOExporter
 from boxmot.reid.exporters.backends.tensorrt import EngineExporter
 from boxmot.utils import ROOT, WEIGHTS
-from boxmot.utils.checks import RequirementsChecker
 from tests.performance.reid.benchmark_inference import (
     ModelSpec,
 )
@@ -59,8 +59,8 @@ def _install_fake_onnx(monkeypatch):
     monkeypatch.setitem(sys.modules, "onnx", fake_onnx)
 
 
-def _disable_dep_sync(monkeypatch):
-    monkeypatch.setattr(RequirementsChecker, "sync_extra", lambda *args, **kwargs: None)
+def _disable_dependency_validation(monkeypatch):
+    monkeypatch.setattr(exporter_base, "require_extra", lambda *args, **kwargs: None)
 
 
 def test_benchmark_coreml_cache_rejects_same_mtime_source_replacement(tmp_path):
@@ -93,7 +93,7 @@ def test_benchmark_coreml_cache_rejects_same_mtime_source_replacement(tmp_path):
 
 @pytest.mark.parametrize("batch_size", [1, 2, 4])
 def test_onnx_export_dynamic_uses_dynamic_shapes(monkeypatch, tmp_path, batch_size):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -120,7 +120,7 @@ def test_onnx_export_dynamic_uses_dynamic_shapes(monkeypatch, tmp_path, batch_si
 
 @pytest.mark.parametrize("batch_size", [1, 3])
 def test_onnx_export_dynamic_fallback_uses_dynamic_axes(monkeypatch, tmp_path, batch_size):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -151,7 +151,7 @@ def test_onnx_export_dynamic_fallback_uses_dynamic_axes(monkeypatch, tmp_path, b
 
 @pytest.mark.parametrize("batch_size", [1, 2, 5])
 def test_onnx_export_static_has_no_dynamic_shapes(monkeypatch, tmp_path, batch_size):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -177,7 +177,7 @@ def test_onnx_export_static_has_no_dynamic_shapes(monkeypatch, tmp_path, batch_s
 
 
 def test_onnx_export_quiet_mode_uses_legacy_when_dynamo_unavailable(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -203,7 +203,7 @@ def test_onnx_export_quiet_mode_uses_legacy_when_dynamo_unavailable(monkeypatch,
 
 
 def test_onnx_export_quiet_mode_uses_dynamo_when_available(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -240,7 +240,7 @@ def test_onnx_export_records_actual_opset_and_cleans_only_unused_sidecar(
     tmp_path,
     has_external_initializer,
 ):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     initializer = types.SimpleNamespace(
         data_location=1 if has_external_initializer else 0,
         external_data=[object()] if has_external_initializer else [],
@@ -289,7 +289,7 @@ def test_onnx_export_records_actual_opset_and_cleans_only_unused_sidecar(
 
 
 def test_onnx_export_traces_single_input_inference_wrapper(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     class OptionalFeatureMapModel(torch.nn.Module):
@@ -325,7 +325,7 @@ def test_onnx_export_traces_single_input_inference_wrapper(monkeypatch, tmp_path
 
 
 def test_onnx_export_static_fallback_uses_legacy_exporter(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     _install_fake_onnx(monkeypatch)
 
     calls = []
@@ -593,7 +593,7 @@ def test_tensorrt_export_onnx_forwards_export_settings(monkeypatch, tmp_path):
 
 
 def test_openvino_export_creates_onnx_intermediate(monkeypatch, tmp_path):
-    _disable_dep_sync(monkeypatch)
+    _disable_dependency_validation(monkeypatch)
     calls = {}
     onnx_file = tmp_path / "model.onnx"
 

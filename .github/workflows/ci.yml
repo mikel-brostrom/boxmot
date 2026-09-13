@@ -125,7 +125,7 @@ jobs:
           source .venv/bin/activate
           boxmot build
           python - <<'PY'
-          from boxmot.trackers.registry import supported_native_trackers
+          from boxmot.trackers.common.registry import supported_native_trackers
           names = supported_native_trackers()
           print("Registered cpp backends:", list(names))
           assert names == ("botsort", "bytetrack", "occluboost", "ocsort", "sfsort")
@@ -290,12 +290,18 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra trackeval --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra mots --extra trackeval --group test
 
       - name: Check metric parity with TrackEval
         shell: bash
         run: |
-          .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
+          .venv/bin/python -m pytest -q -s \
+            tests/unit/engine/eval/test_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_metrics.py \
+            tests/unit/engine/eval/test_mots_replay.py \
+            tests/unit/engine/eval/test_kitti_boxes_metrics.py \
+            tests/unit/engine/eval/test_kitti_mots.py
 
       - name: Load materialized detections and embeddings
         run: |
@@ -563,9 +569,12 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+          TRACKERS: "bytetrack maf_hda"
         run: |
           source .venv/bin/activate
-          boxmot track --tracker bytetrack --detector "$BOXMOT_CI_SEG_DETECTOR" --source $IMG
+          for tracker in $TRACKERS; do
+            boxmot track --tracker "$tracker" --detector "$BOXMOT_CI_SEG_DETECTOR" --source "$IMG"
+          done
   
   export:
     runs-on: ubuntu-latest
@@ -707,6 +716,7 @@ jobs:
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra mots \
             --group test
       - name: Pytest tests  # after tracking options as this does not download models
         env:

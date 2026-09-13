@@ -2,14 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from boxmot.datasets.config import ConfigurationError, load_dataset_config
-from boxmot.engine.config import (
+from boxmot.datasets.config import ConfigurationError, dataset_modalities, load_dataset_config
+from boxmot.engine.config.runtime import (
     BOXMOT_DEFAULTS,
     DEFAULT_DETECTOR,
     DEFAULT_REID,
     build_mode_namespace,
     get_mode_default,
     get_mode_defaults,
+    resolve_sequence_workers,
 )
 from boxmot.reid.exporters.config import (
     build_export_namespace,
@@ -113,6 +114,54 @@ def test_mot17_dataset_config_uses_canonical_hugging_face_splits() -> None:
     }
 
 
+def test_kitti_mots_dataset_config_uses_native_classes_paths_and_official_splits() -> None:
+    """Keep the packaged profile aligned with the original KITTI MOTS downloads."""
+
+    config = load_dataset_config("kitti-mots")
+
+    assert config["layout"] == "sequence"
+    assert config["root"] == "KITTI-MOTS"
+    assert config["fps"] == 10.0
+    assert config["classes"]["car"] == {"id": 1, "evaluation": "target"}
+    assert config["classes"]["pedestrian"] == {"id": 2, "evaluation": "target"}
+    for name in ("train", "val", "fulltrain"):
+        assert config["splits"][name]["partition"] == "training"
+        assert dataset_modalities(config, name)["images"]["paths"] == [
+            "data_tracking_image_2/{partition}/image_02/{sequence}"
+        ]
+        assert dataset_modalities(config, name)["ground_truth"]["paths"] == ["instances/{sequence}"]
+        assert config["splits"][name]["has_ground_truth"] is True
+    assert config["splits"]["test"]["partition"] == "testing"
+    assert config["splits"]["test"]["has_ground_truth"] is False
+    assert "ground_truth" not in dataset_modalities(config, "test")
+    assert "sequences" not in config["splits"]["fulltrain"]
+    assert config["splits"]["train"]["sequences"] == [
+        "0000",
+        "0001",
+        "0003",
+        "0004",
+        "0005",
+        "0009",
+        "0011",
+        "0012",
+        "0015",
+        "0017",
+        "0019",
+        "0020",
+    ]
+    assert config["splits"]["val"]["sequences"] == [
+        "0002",
+        "0006",
+        "0007",
+        "0008",
+        "0010",
+        "0013",
+        "0014",
+        "0016",
+        "0018",
+    ]
+
+
 @pytest.mark.parametrize(("split_path", "annotations"), (("../frames", None), ("test/npy", "../mot")))
 def test_dataset_config_rejects_split_paths_outside_storage_root(tmp_path, split_path, annotations):
     path = _write_dataset_config(
@@ -210,9 +259,9 @@ def test_engine_config_rejects_domain_owned_modes(mode: str):
         build_mode_namespace(mode, {})
 
 
-@pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (4, 4), (32, 8)])
+@pytest.mark.parametrize("cpu_count, expected_workers", [(None, 1), (1, 1), (2, 1), (4, 2), (32, 30)])
 def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_count, expected_workers):
-    monkeypatch.setattr("boxmot.engine.config.os.cpu_count", lambda: cpu_count)
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
     defaults = get_mode_defaults("eval")
 
     assert defaults["detector"] == DEFAULT_DETECTOR
@@ -223,6 +272,31 @@ def test_get_mode_defaults_returns_normalized_merged_defaults(monkeypatch, cpu_c
     assert isinstance(defaults["sequence_workers"], int)
     assert defaults["sequence_workers"] == expected_workers
     assert "n_threads" not in defaults
+
+
+@pytest.mark.parametrize(
+    ("sequence_count", "cpu_count", "expected"),
+    [(9, 32, 9), (9, 8, 6), (40, 32, 30), (1, 32, 1), (9, 2, 1), (9, None, 1), (0, 8, 0)],
+)
+def test_sequence_workers_reserve_two_cores_and_limit_to_selected_sequences(
+    monkeypatch, sequence_count, cpu_count, expected
+):
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
+
+    assert resolve_sequence_workers(sequence_count) == expected
+
+
+@pytest.mark.parametrize(("sequence_count", "workers", "expected"), [(9, 3, 3), (2, 8, 2), (0, 3, 0)])
+def test_explicit_sequence_workers_override_the_cpu_default(monkeypatch, sequence_count, workers, expected):
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: 2)
+
+    assert resolve_sequence_workers(sequence_count, workers) == expected
+
+
+@pytest.mark.parametrize("workers", (0, -1, True, 1.5, "2"))
+def test_invalid_sequence_worker_limits_are_rejected(workers):
+    with pytest.raises(ValueError, match="sequence_workers must be a positive integer"):
+        resolve_sequence_workers(9, workers)
 
 
 def test_boxmot_defaults_bundle_exposes_typed_mode_defaults():

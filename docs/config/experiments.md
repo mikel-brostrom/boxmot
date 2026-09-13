@@ -55,9 +55,38 @@ experiment sources and cannot be passed directly to materialization. Define a
 supported dataset plus detector component configs, compose them in an
 experiment, then materialize that experiment into a keyed build.
 
+## Saved 2D detections
+
+An evaluation experiment can omit `detector` when its dataset declares saved
+2D detections. Those predictions already use the dataset class IDs, so no
+detector class map is needed:
+
+```yaml
+dataset:
+  ref: kitti-mots-2d
+  split: val
+reid:
+  ref: osnet-x0-25-msmt17
+```
+
+Run the shipped preset against an existing KITTI multimodal folder:
+
+```bash
+boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
+  --data-root ./kitti-mots --tracker occluboost --cache-inputs \
+  --project runs/kitti-2d
+```
+
+The `kitti-2d/train-trackrcnn` and `kitti-2d/val-trackrcnn` presets omit ReID;
+their `-osnet` variants generate appearance features from the selected images.
+These experiments run saved-box `eval` directly and do not support
+materialization, tuning, or KF calibration. The `*-yolo26n` presets retain
+the detector-based workflow. See the
+[saved 2D dataset layout](datasets.md#existing-2d-detections) for required files.
+
 ## Built-in examples
 
-Materialize any built-in experiment by its catalog-relative YAML filename,
+Materialize a detector-based experiment by its catalog-relative YAML filename,
 then evaluate its exact build:
 
 ```bash

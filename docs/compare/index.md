@@ -12,7 +12,8 @@ portable across detectors, datasets, hardware, or association settings.
 | Abrupt or non-linear motion | OcSort | Observation-centric updates reduce motion-model drift. |
 | Moving camera | BotSort or DeepOcSort | Camera-motion compensation is available. |
 | Crowds and longer occlusions | StrongSort, DeepOcSort, HybridSort, BoostTrack, or OccluBoost | Appearance features can reconnect identities. |
-| Instance masks should affect association | Sam2Mot | Mask overlap participates in matching. |
+| Instance masks and current images are available | MafHda | Combines AABB motion with masked correlation-filter appearance; requires nonempty full-frame masks. |
+| 2D and 3D detections with camera calibration | [EagerMOT](../trackers/eagermot.md) | Tracks in 3D, uses 2D observations during 3D detection gaps, and supports optional ego poses. |
 | In-process native C++ | BotSort, ByteTrack, OcSort, OccluBoost, or SFSORT | These trackers have registered native live backends; cached workflows stream keyed rows through that same API. |
 
 This is a starting-point guide, not a universal ranking. The
@@ -29,8 +30,8 @@ TFLite can have different latency and deployment constraints.
 
 ## Run a fair tracker comparison
 
-Materialize detections and embeddings once, then reuse the same immutable build
-for each tracker:
+For image trackers, materialize detections and embeddings once, then reuse the
+same immutable build for each tracker:
 
 ```bash
 boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
@@ -43,6 +44,10 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --track
 Keep the experiment, detector profile, split, postprocessing, and metric
 configuration fixed. Record the tracker YAML and runtime overrides with every
 result.
+
+For EagerMOT, use `eval --dataset` with the same
+[multimodal dataset](../trackers/eagermot.md#use-your-own-sensor-data). Keep
+2D/3D predictions, calibration, ego poses, and scoring protocol fixed across runs.
 
 ## Read the metrics together
 

@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from boxmot.trackers.registry import get_tracker_definition
+from boxmot.trackers.common.registry import get_tracker_definition
 from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
 

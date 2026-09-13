@@ -1,7 +1,9 @@
 # Research
 
 `research` proposes tracker code changes and scores them against a fixed
-experiment and immutable build. It requires both inputs:
+experiment and immutable build. Prepare its dependencies with
+`boxmot install --extra research`; see [Install dependencies](install.md).
+It requires both inputs:
 
 ```bash
 boxmot research \

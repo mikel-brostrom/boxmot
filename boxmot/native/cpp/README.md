@@ -2,16 +2,17 @@
 
 BoxMOT keeps tracker-domain code separate from native implementation details:
 
-- Python box-tracker implementations: representation-first packages at
-  `boxmot/trackers/box/<name>/tracker.py`, with capabilities declared by each
-  tracker
+- Python tracker implementations: algorithm packages at
+  `boxmot/trackers/<name>/tracker.py`, with representation families and input
+  capabilities declared by each tracker
+- Shared Python tracker support: `boxmot/trackers/common/`
 - Native C++ tracker family: `boxmot/native/cpp/trackers/<name>/`
 - Native C++ model-free tracker base: `boxmot/native/cpp/trackers/base/`
 - Independent native ReID runtime and C ABI: `boxmot/native/cpp/reid/`
 - ABI-neutral native runtime helpers: `boxmot/native/cpp/include/boxmot/native/`
 - Low-level ctypes binding: `boxmot/native/trackers/<name>.py`
-- Canonical tracker adapter: `boxmot/trackers/box/<name>/native.py`
-- Backend selection and validation: `boxmot/trackers/factory.py`
+- Canonical tracker adapter: `boxmot/trackers/<name>/native.py`
+- Backend selection and validation: `boxmot/trackers/common/factory.py`
 
 This keeps `boxmot.native` limited to C++ sources, build support, and raw ABI
 bindings. Canonical Torch structures and tracker requirements remain in the

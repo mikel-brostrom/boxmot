@@ -1,0 +1,12 @@
+dataset:
+  ref: kitti-2d
+  split: train
+detector:
+  ref: yolo26n
+  checkpoint: default
+reid:
+  ref: osnet-x0-25-msmt17
+evaluation:
+  class_map:
+    car: car
+    pedestrian: person

@@ -100,6 +100,15 @@ python -m boxmot.engine.cli --help
 - Follow the existing structure and conventions of the modules you touch.
 - Do not add backwards compatibility layers, legacy aliases, migration shims, compatibility wrappers, or deprecated paths unless explicitly requested. Prefer updating callers, tests, docs, and examples to the new canonical structure.
 - Architecture rule: `boxmot.engine` owns command entrypoints and orchestration. Domain packages such as `boxmot.reid` should keep reusable model, backend, dataset, training, exporter, and algorithm code; CLI/API workflow adapters for those domains belong under `boxmot.engine`.
+- Keep the engine root limited to `__init__.py` and `cli.py`. Shared workflow
+  configuration belongs in `engine/config/`: `runtime.py` owns mode defaults
+  and argument normalization, `experiments.py` resolves authored experiments,
+  and `trackers.py` applies workflow-specific tracker overrides. Import from
+  those modules directly and keep `config/__init__.py` lightweight.
+- Keep dataset acquisition in `engine/materialization/resources.py`, capture
+  timestamps in `engine/tracking/timestamps.py`, execution timing in
+  `engine/tracking/timing.py`, and console logging in `engine/ui/logging.py`.
+  Package installation belongs in `engine/commands/install.py`.
 
 ## 3. Coding Conventions
 
@@ -232,19 +241,30 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
 ## 9. Integrating a New Tracker (Checklist)
 
 1) Implement the tracker
-  - Choose the package by primary track representation: `box` for AABB/OBB
-    state, `mask` for mask state, or `multimodal` when multiple primary
-    representations or model memory are fundamental.
-  - Add the implementation under `boxmot/trackers/<family>/<name>/tracker.py`
+  - Add the implementation under `boxmot/trackers/<name>/tracker.py`
     with a non-re-exporting `__init__.py`. Box-state trackers subclass
     `BoxTracker`; all trackers inherit the validated public `update()` wrapper
     and implement their private tracking kernel.
+  - Put shared tracker infrastructure and reusable helpers under
+    `boxmot/trackers/common/`; shared box support belongs in `common/box/`.
+  - Keep shared motion models, Kalman filters, and camera-motion compensation
+    under `common/motion/`. Use `models.py` for motion adapters, `tracker.py`
+    for tracker integration, and `cmc/registry.py` for CMC construction.
+    Numerical noise fitting belongs beside the filters; dataset calibration
+    workflows belong under `boxmot/engine/calibration/`. Hyperparameter search
+    and search-backend integration belong under `boxmot/engine/tuning/`.
+    Tuning can consume calibrated settings; calibration must not depend on
+    tuning or its search backends.
+  - Declare the primary track representation through `TrackerFamily`: `BOX`
+    for AABB/OBB state, `MASK` for mask state, or `MULTIMODAL` when multiple
+    primary representations or model memory are fundamental. Family is
+    capability metadata, not a directory layer.
   - Declare supported geometry plus accepted/required masks, embeddings, and
     frames as immutable capabilities. Do not infer those contracts from the
     directory name alone.
 
 2) Register the tracker
-  - Add one entry to `_TRACKER_MANIFEST` in `boxmot/_tracker_exports.py`.
+  - Add one entry to `_TRACKER_MANIFEST` in `boxmot/trackers/common/manifest.py`.
   - Use the canonical public class name and fully qualified implementation path.
   - Add static capability metadata to the registry and a `native_class_path`
     only when that backend exists.
@@ -281,9 +301,9 @@ When adding oriented bounding box (OBB) support, follow this generic implementat
   canonical structures or packed NumPy rows against the configured AABB/OBB
   mode.
 - Reuse shared detection plumbing from:
-  - `boxmot/trackers/base.py`
-  - `boxmot/trackers/box/base.py`
-  - `boxmot/trackers/box/geometry.py`
+  - `boxmot/trackers/common/base.py`
+  - `boxmot/trackers/common/box/base.py`
+  - `boxmot/trackers/common/box/geometry.py`
   - `boxmot/trackers/common/detections/layout.py`
 - Do not hardcode column indices if layout helpers already provide them:
   - `self.detection_layout.boxes(...)`

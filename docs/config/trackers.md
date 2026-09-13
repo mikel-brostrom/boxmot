@@ -1,9 +1,12 @@
 # Tracker YAMLs
 
 Each `boxmot/configs/trackers/<tracker>.yaml` file contains both runtime
-defaults and the corresponding tuning search space. Tuned presets remain plain
-scalar overlays under `boxmot/configs/trackers/presets` and declare their owning
-tracker with a top-level `tracker` field.
+defaults and the corresponding tuning search space. Tuned presets live under
+`boxmot/configs/trackers/presets`. Single-profile presets are runtime
+overlays and declare their owning tracker with a top-level `tracker` field.
+The EagerMOT `eagermot-kitti-mots-val.yaml` preset contains both `car` and
+`pedestrian` profiles and loads through `--class-config`; see
+[the evaluation example](../trackers/eagermot.md#saved-kitti-mots-validation-preset).
 
 ## Role
 
@@ -20,6 +23,64 @@ code:
 - `track` and `eval` extract each parameter's scalar `default`
 - a preset overlays those defaults
 - `tune` reads `type`, `range`, `options`, `values`, and `activates`
+
+## Kalman noise
+
+Runtime YAML groups all configurable Kalman settings under `kalman`. Covariance
+scales and their unit metadata belong to its `noise` group:
+
+```yaml title="ocsort-noise.yaml"
+tracker: ocsort
+kalman:
+  variable_dt: false
+  noise:
+    process_position_scale: 1.0
+    process_velocity_scale: 1.0
+    measurement_noise_scale: 1.0
+    initial_position_scale: 1.0
+    initial_velocity_scale: 1.0
+    reference_dt_s: 0.03333333333333333
+    time_unit: frames
+```
+
+Pass the file through `--tracker-config`. Partial profiles override individual
+fields; omitted fields retain the tracker defaults. Python uses the corresponding
+`KalmanConfig` object through the `kalman` constructor argument. Its `noise`
+field accepts a `KalmanNoiseConfig`.
+
+`kalman.variable_dt` selects capture timing. Fresh noise settings can use
+`time_unit: null` to derive units from it; calibrated profiles save the resolved
+unit. Timing and the reference interval remain fixed during tuning.
+
+`kalman.adaptive_kf` selects innovation-based adaptation in BoostTrack and
+OccluBoost. `kalman.is_angular` selects EagerMOT's object yaw-velocity state.
+OccluBoost's `kalman.ams` group holds `enabled`, `alpha0`, `threshold`,
+`buffer_size`, and `shrink_ratio` for its AABB gain-suppression policy. Other
+trackers reject these policy groups. Filter implementation and dimensions follow
+the tracker and box geometry automatically.
+
+With per-class tracking, `kalman.noise.by_class` maps detector class IDs to
+complete noise profiles. Unlisted classes use the global profile. Calibration
+with `--per-class` writes these profiles and records when a class used pooled
+estimates because it lacked sufficient evidence.
+
+Calibrated files also carry a `calibration` mapping describing the tracker,
+backend, geometry, filter dimensions, and timing basis. Loading validates that
+signature before creating a tracker. A single-class profile also binds the
+factory's class selection. The YAML is portable without its report sidecar;
+dataset and split identify the calibration evidence and allow reuse on held-out
+data.
+
+Built-in search schemas use the same group, with a `default` entry for each
+field. Search backends address scalar leaves such as
+`kalman.noise.measurement_noise_scale`. Noise scales stay fixed unless selected
+with `--tune-kf`; see [Kalman tuning](../modes/tune.md#kalman-noise-and-timing).
+
+## EagerMOT class profiles
+
+EagerMOT sensor evaluation loads both class profiles from one YAML through
+`--class-config`. The saved `eagermot-kitti-mots-val.yaml` preset contains
+`car` and `pedestrian` mappings; tuning writes the same format to `best.yaml`.
 
 ## Association function
 
@@ -94,7 +155,7 @@ track_buffer:
 ```
 
 The tracker name selects its combined built-in file. `track` and `eval` accept
-`--tracker-config` to overlay a scalar YAML file or a built-in preset. Explicit
+`--tracker-config` to overlay a runtime YAML file or a built-in preset. Explicit
 runtime flags override the loaded values. The Python factory accepts a canonical
 `TrackerSpec`; place scalar overrides in its sorted `options` tuple. Tuning
-writes resolved scalar YAML that can be reused with `--tracker-config`.
+writes resolved runtime YAML that can be reused with `--tracker-config`.

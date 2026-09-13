@@ -1,0 +1,333 @@
+"""Saved boxes reach real image trackers and native KITTI 2D scoring."""
+
+from __future__ import annotations
+
+import errno
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+import cv2
+import numpy as np
+import pytest
+import torch
+import yaml
+from click.testing import CliRunner
+
+from boxmot.engine.cli import boxmot
+from boxmot.engine.eval import saved_detections
+from boxmot.reid.protocols import EncoderRequirements
+from boxmot.reid.specs import ReIDEncoderSpec
+
+
+class _Encoder:
+    """Exercise real tracking without downloading appearance weights."""
+
+    requirements = EncoderRequirements()
+    embedding_dim = 2
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def encode(self, frames, detections):
+        self.calls += 1
+        result = []
+        for frame, batch in zip(frames, detections, strict=True):
+            assert frame.image.shape == (3, 192, 192)
+            assert batch.masks is None
+            result.append(torch.nn.functional.one_hot(batch.class_ids - 1, num_classes=2).float())
+        return result
+
+
+def _dataset(root: Path, *, sequences: tuple[str, ...] = ("0000",)) -> Path:
+    """Include an empty final frame and invalid mask RLEs that must stay unread."""
+    pixels = np.random.default_rng(13).integers(0, 256, (192, 192, 3), dtype=np.uint8)
+    for sequence in sequences:
+        images = root / "images" / sequence
+        images.mkdir(parents=True)
+        detections, annotations = [], []
+        for frame in range(3):
+            assert cv2.imwrite(str(images / f"{frame:06d}.png"), pixels)
+            if frame == 2:
+                continue
+            for identity, label, left in ((1, "Car", 10), (2, "Pedestrian", 100)):
+                bounds = f"{left} 20 {left + 50} 80"
+                detections.append(f"{frame} {bounds} 0.99 {identity} 192 192 not-decoded " + " ".join(["0"] * 128))
+                annotations.append(f"{frame} {identity} {label} 0 0 -10 {bounds} -1 -1 -1 -1000 -1000 -1000 -10")
+        (root / f"{sequence}-detections.txt").write_text("\n".join(detections) + "\n")
+        (root / f"{sequence}-gt.txt").write_text("\n".join(annotations) + "\n")
+    config = {
+        "id": "saved-kitti",
+        "format": {"layout": "sequence", "box_type": "aabb"},
+        "storage": {"root": "."},
+        "default_split": "val",
+        "fps": 10,
+        "modalities": {
+            "images": {"format": "image-directory", "path": "images/{sequence}"},
+            "detections_2d": {
+                "format": "trackrcnn",
+                "path": "{sequence}-detections.txt",
+                "options": {"load_masks": False},
+            },
+            "ground_truth": {"format": "kitti-tracking-labels", "path": "{sequence}-gt.txt"},
+        },
+        "classes": {"target": {"car": 1, "pedestrian": 2}},
+        "splits": {"val": {"partition": "training", "has_ground_truth": True, "sequences": list(sequences)}},
+    }
+    path = root / "dataset.yaml"
+    path.write_text(yaml.safe_dump(config))
+    return path
+
+
+def _args(root: Path, dataset: Path, **options) -> SimpleNamespace:
+    return SimpleNamespace(
+        **{
+            "dataset": str(dataset),
+            "tracker": "occluboost",
+            "tracker_backend": "python",
+            "tracker_config": None,
+            "project": root / "runs",
+            "split": "val",
+            "sequence_names": (),
+            "reid": "fixture-reid",
+            "cache_inputs": False,
+            **options,
+        }
+    )
+
+
+def _stub_encoder(monkeypatch, encoder: _Encoder) -> None:
+    monkeypatch.setattr(
+        saved_detections,
+        "resolve_reid_spec",
+        lambda reference: (
+            ReIDEncoderSpec("torch", artifact="fixture.pt", artifact_sha256="a" * 64),
+            {"profile": reference},
+        ),
+    )
+    monkeypatch.setattr(saved_detections, "create_reid_encoder", lambda spec: encoder)
+
+
+@pytest.fixture(autouse=True)
+def unavailable_trackeval(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default scoring must work even when the optional evaluator cannot import."""
+    monkeypatch.setitem(sys.modules, "trackeval", None)
+
+
+@pytest.mark.parametrize("per_class", (False, True))
+def test_saved_boxes_use_real_occluboost_and_kitti_2d_metrics(monkeypatch, tmp_path: Path, per_class: bool) -> None:
+    dataset = _dataset(tmp_path, sequences=("0000", "0001"))
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    result = saved_detections.run_saved_detections(_args(tmp_path, dataset, per_class=per_class))
+
+    assert result.timings["frames"] == 6
+    assert encoder.calls == 4
+    for name in ("car", "pedestrian"):
+        assert result.raw[name]["HOTA"] == result.raw[name]["MOTA"] == result.raw[name]["IDF1"] == 100
+    for name in ("0000", "0001"):
+        rows = (result.exp_dir / f"{name}.txt").read_text().splitlines()
+        assert len(rows) == 4
+        assert {int(row.split(",")[0]) for row in rows} == {1, 2}
+    metadata = json.loads((result.exp_dir / "run.json").read_text())
+    assert metadata["status"] == "complete"
+    assert metadata["per_class"] is per_class
+    assert metadata["sequences"] == {"0000": 3, "0001": 3}
+    assert metadata["reid"]["profile"] == "fixture-reid"
+    protocol = json.loads((result.exp_dir / "evaluation.json").read_text())
+    assert protocol["tracking"]["geometry"] == "2d"
+
+
+def test_saved_experiment_runs_builtin_metrics_and_records_provenance(monkeypatch, tmp_path: Path) -> None:
+    """Resolve an authored encoder and dataset through the CLI into real scoring."""
+    _dataset(tmp_path)
+    reid = tmp_path / "custom-reid.yaml"
+    reid.write_text(
+        "id: custom-reid\nweights:\n  path: custom-weights.pt\n"
+        "runtime:\n  device: cpu\n  precision: fp32\n"
+        "preprocessing:\n  mode: resize\n  image_size: [256, 128]\n"
+    )
+    experiment = tmp_path / "saved.yaml"
+    experiment.write_text("dataset:\n  ref: dataset.yaml\nreid:\n  ref: ./custom-reid.yaml\n")
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    original_resolver = saved_detections.resolve_reid_spec
+
+    def resolve_encoder(reference):
+        assert Path(reference) == reid.resolve()
+        return original_resolver(str(reference))
+
+    monkeypatch.setattr(saved_detections, "resolve_reid_spec", resolve_encoder)
+    result = CliRunner().invoke(
+        boxmot,
+        [
+            "eval",
+            "--experiment",
+            str(experiment),
+            "--tracker",
+            "occluboost",
+            "--cache-inputs",
+            "--project",
+            str(tmp_path / "runs"),
+        ],
+    )
+
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert "HOTA" in result.output
+    assert encoder.calls == 2
+    metadata = json.loads((tmp_path / "runs/val/run.json").read_text())
+    assert metadata["status"] == "complete"
+    assert metadata["experiment_id"] == "saved"
+    assert metadata["experiment_config"] == str(experiment.resolve())
+    assert metadata["reid"]["profile"] == str(reid.resolve())
+    protocol = json.loads((tmp_path / "runs/val/evaluation.json").read_text())
+    assert protocol["tracking"]["geometry"] == "2d"
+
+
+def test_saved_boxes_can_disable_appearance_without_loading_reid(monkeypatch, tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    profile = tmp_path / "tracker.yaml"
+    profile.write_text("use_embeddings: false\n")
+    monkeypatch.setattr(saved_detections, "resolve_reid_spec", lambda reference: pytest.fail("ReID is disabled"))
+    result = saved_detections.run_saved_detections(_args(tmp_path, dataset, reid=None, tracker_config=str(profile)))
+    assert result.raw["car"]["HOTA"] == 100
+    assert json.loads((result.exp_dir / "run.json").read_text())["reid"] is None
+
+
+@pytest.mark.parametrize("unused", (False, True))
+def test_saved_boxes_reject_missing_or_unused_reid_before_tracking(monkeypatch, tmp_path: Path, unused: bool) -> None:
+    dataset = _dataset(tmp_path)
+    profile = tmp_path / "tracker.yaml"
+    profile.write_text(f"use_embeddings: {str(not unused).lower()}\n")
+    monkeypatch.setattr(saved_detections, "resolve_reid_spec", lambda reference: pytest.fail("invalid ReID selection"))
+    with pytest.raises(ValueError, match="does not use ReID" if unused else "requires appearance embeddings"):
+        saved_detections.run_saved_detections(
+            _args(tmp_path, dataset, tracker_config=str(profile), reid="fixture-reid" if unused else None)
+        )
+    assert not (tmp_path / "runs").exists()
+
+
+def test_saved_boxes_honor_sequence_selection(monkeypatch, tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path, sequences=("0000", "0001"))
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    result = saved_detections.run_saved_detections(_args(tmp_path, dataset, sequence_names=("0001",)))
+    assert result.timings["frames"] == 3
+    assert (result.exp_dir / "0001.txt").is_file()
+    assert not (result.exp_dir / "0000.txt").exists()
+    assert encoder.calls == 2
+
+
+def test_saved_boxes_render_standard_evaluation_panel(monkeypatch, tmp_path: Path, capsys) -> None:
+    dataset = _dataset(tmp_path)
+    _stub_encoder(monkeypatch, _Encoder())
+    result = saved_detections.main(_args(tmp_path, dataset))
+    captured = capsys.readouterr()
+    assert result.workflow_rendered
+    assert "HOTA" in captured.out + captured.err
+    assert "car" in captured.out + captured.err
+    assert "Results:" in captured.out + captured.err
+
+
+def test_saved_input_cache_reuses_boxes_images_features_and_rebuilds_changed_inputs(
+    monkeypatch, tmp_path: Path
+) -> None:
+    dataset = _dataset(tmp_path)
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    uncached = saved_detections.run_saved_detections(_args(tmp_path, dataset))
+    initial = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    calls = encoder.calls
+    assert calls == 4
+    original = (initial.exp_dir / "0000.txt").read_bytes()
+    assert original == (uncached.exp_dir / "0000.txt").read_bytes()
+    assert initial.raw == uncached.raw
+    repeated = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    assert encoder.calls == calls
+    assert (repeated.exp_dir / "0000.txt").read_bytes() == original
+    assert repeated.raw == initial.raw
+    predictions = tmp_path / "0000-detections.txt"
+    predictions.write_text(predictions.read_text().replace("10 20 60 80", "11 20 61 80", 1))
+    saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    assert encoder.calls == calls + 1
+    pixels = np.zeros((192, 192, 3), dtype=np.uint8)
+    assert cv2.imwrite(str(tmp_path / "images/0000/000001.png"), pixels)
+    saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    assert encoder.calls == calls + 2
+
+
+def test_saved_replay_streams_images_when_pixel_cache_does_not_fit(monkeypatch, tmp_path: Path) -> None:
+    """Low disk space changes caching, while pixels, observations and metrics stay identical."""
+    from boxmot.datasets import sensor_cache
+
+    dataset = _dataset(tmp_path)
+    encoder = _Encoder()
+    _stub_encoder(monkeypatch, encoder)
+    original = saved_detections.run_saved_detections(_args(tmp_path, dataset))
+    monkeypatch.setattr(sensor_cache.shutil, "disk_usage", lambda _: SimpleNamespace(free=0))
+    messages = []
+    monkeypatch.setattr(saved_detections.logger, "warning", lambda message, *args: messages.append(message % args))
+    initial = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+    calls = encoder.calls
+    repeated = saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+
+    assert calls == 4
+    assert encoder.calls == calls  # The smaller appearance cache still works.
+    assert repeated.raw == initial.raw == original.raw
+    assert (initial.exp_dir / "0000.txt").read_bytes() == (original.exp_dir / "0000.txt").read_bytes()
+    metadata = json.loads((initial.exp_dir / "run.json").read_text())
+    assert metadata["status"] == "complete"
+    assert metadata["image_cache"] == {"0000": "source"}
+    assert any("insufficient disk space" in message for message in messages)
+    cache = tmp_path / ".boxmot/replay_cache"
+    assert list(cache.glob("*/boxes2d.bin"))
+    assert not list(cache.glob("*/images.bin"))
+
+
+def test_saved_replay_does_not_hide_unrelated_cache_io_errors(monkeypatch, tmp_path: Path) -> None:
+    """Only capacity failures may select source-image replay."""
+    from boxmot.datasets import sensor_cache
+
+    dataset = _dataset(tmp_path)
+    _stub_encoder(monkeypatch, _Encoder())
+
+    def fail_prepare(*args, **kwargs):
+        raise OSError(errno.EIO, "device I/O failure")
+
+    monkeypatch.setattr(sensor_cache, "prepare_sensor_sequence", fail_prepare)
+    with pytest.raises(OSError, match="device I/O failure"):
+        saved_detections.run_saved_detections(_args(tmp_path, dataset, cache_inputs=True))
+
+
+def test_saved_boxes_save_video_on_the_authored_timeline(monkeypatch, tmp_path: Path) -> None:
+    dataset = _dataset(tmp_path)
+    _stub_encoder(monkeypatch, _Encoder())
+    result = saved_detections.run_saved_detections(_args(tmp_path, dataset, save=True))
+    video = result.exp_dir / "videos/0000.mp4"
+    capture = cv2.VideoCapture(str(video))
+    try:
+        assert capture.isOpened()
+        assert capture.get(cv2.CAP_PROP_FRAME_COUNT) == 3
+        assert capture.get(cv2.CAP_PROP_FPS) == 10
+    finally:
+        capture.release()
+    assert result.args.video_paths == (video,)
+
+
+@pytest.mark.parametrize("cache_inputs", (False, True))
+def test_saved_boxes_skip_image_pixels_when_features_are_disabled(
+    monkeypatch, tmp_path: Path, cache_inputs: bool
+) -> None:
+    from boxmot.datasets import sensor_cache
+
+    dataset = _dataset(tmp_path)
+    profile = tmp_path / "tracker.yaml"
+    profile.write_text("use_embeddings: false\nuse_cmc: false\n")
+    fail = lambda *args: pytest.fail("Disabled CMC/ReID must not load image pixels")
+    monkeypatch.setattr(saved_detections, "read_rgb_chw_uint8", fail)
+    monkeypatch.setattr(sensor_cache, "read_rgb_chw_uint8", fail)
+    result = saved_detections.run_saved_detections(
+        _args(tmp_path, dataset, reid=None, tracker_config=str(profile), cache_inputs=cache_inputs)
+    )
+    assert result.raw["car"]["HOTA"] == 100

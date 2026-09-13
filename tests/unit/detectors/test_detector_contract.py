@@ -65,5 +65,6 @@ def test_capability_lookup_is_model_free_and_geometry_specific() -> None:
         "backends": [],
     }
     assert detector_capabilities(DetectorSpec("yolox", geometry_mode="aabb")) == DetectorCapabilities()
+    assert detector_capabilities(DetectorSpec("ultralytics", artifact="FastSAM-s.pt")).provides_masks
     with pytest.raises(ValueError, match="Unknown detector backend"):
         detector_capabilities(DetectorSpec("missing"))

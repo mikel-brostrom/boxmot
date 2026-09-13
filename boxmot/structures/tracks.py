@@ -4,8 +4,14 @@ from dataclasses import dataclass, replace
 
 import torch
 
-from ._validation import normalize_row_indices, validate_finite, validate_nonempty_string, validate_tensor
-from .geometry import Boxes, Geometry, OrientedBoxes
+from ._validation import (
+    normalize_row_indices,
+    validate_finite,
+    validate_nonempty_string,
+    validate_scores_and_classes,
+    validate_tensor,
+)
+from .geometry import Boxes, Boxes3D, Geometry, OrientedBoxes
 from .masks import MaskBatch
 
 
@@ -119,4 +125,94 @@ class Tracks:
         ).contiguous()
 
 
-__all__ = ("Tracks",)
+@dataclass(frozen=True, slots=True, eq=False)
+class Tracks3D:
+    """Camera-space 3D track rows, including objects outside the image view.
+
+    ``detection_indices`` refers to the independent current Detections3D batch,
+    with -1 for tracks without a current 3D observation.
+    """
+
+    geometry: Boxes3D
+    track_ids: torch.Tensor
+    scores: torch.Tensor
+    class_ids: torch.Tensor
+    detection_indices: torch.Tensor
+    sample_id: str
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def __len__(self) -> int:
+        return len(self.geometry)
+
+    def validate(self) -> None:
+        """Validate spatial tracks independently of their visible 2D projections."""
+        if not isinstance(self.geometry, Boxes3D):
+            raise TypeError("Tracks3D.geometry must be Boxes3D.")
+        self.geometry.validate()
+        validate_scores_and_classes(self.scores, self.class_ids, owner="Tracks3D")
+        validate_tensor(self.track_ids, name="Tracks3D.track_ids", dtype=torch.int64, ndim=1)
+        validate_tensor(self.detection_indices, name="Tracks3D.detection_indices", dtype=torch.int64, ndim=1)
+        validate_nonempty_string(self.sample_id, name="Tracks3D.sample_id")
+        if any(
+            len(values) != len(self) for values in (self.track_ids, self.scores, self.class_ids, self.detection_indices)
+        ):
+            raise ValueError("Tracks3D geometry and all metadata must be aligned.")
+        if self.track_ids.numel() and bool((self.track_ids < 0).any()):
+            raise ValueError("Tracks3D.track_ids must be non-negative.")
+        if self.track_ids.unique().numel() != self.track_ids.numel():
+            raise ValueError("Tracks3D.track_ids must be unique.")
+        if self.detection_indices.numel() and bool((self.detection_indices < -1).any()):
+            raise ValueError("Tracks3D.detection_indices may only use -1 for an unmatched track.")
+
+    def select(self, indices: torch.Tensor) -> Tracks3D:
+        """Select or reorder aligned 3D tracking rows."""
+        selected = normalize_row_indices(indices, count=len(self))
+        return Tracks3D(
+            geometry=self.geometry.select(selected),
+            track_ids=self.track_ids.index_select(0, selected),
+            scores=self.scores.index_select(0, selected),
+            class_ids=self.class_ids.index_select(0, selected),
+            detection_indices=self.detection_indices.index_select(0, selected),
+            sample_id=self.sample_id,
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class MultimodalTracks:
+    """Independent image and spatial outputs sharing one track-ID namespace.
+
+    The collections can differ in length: an off-camera 3D object needs no
+    artificial image box. Matching IDs identify the same object in both views.
+    """
+
+    image_tracks: Tracks
+    spatial_tracks: Tracks3D
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    def __len__(self) -> int:
+        return len(set(self.image_tracks.track_ids.tolist()) | set(self.spatial_tracks.track_ids.tolist()))
+
+    @property
+    def sample_id(self) -> str:
+        """Return the common frame identity."""
+        return self.spatial_tracks.sample_id
+
+    def validate(self) -> None:
+        """Validate both collections and their shared identity metadata."""
+        if not isinstance(self.image_tracks, Tracks) or not isinstance(self.spatial_tracks, Tracks3D):
+            raise TypeError("MultimodalTracks requires image Tracks and spatial Tracks3D.")
+        self.image_tracks.validate()
+        self.spatial_tracks.validate()
+        if self.image_tracks.sample_id != self.spatial_tracks.sample_id:
+            raise ValueError("MultimodalTracks collections must identify the same sample.")
+        classes = dict(zip(self.image_tracks.track_ids.tolist(), self.image_tracks.class_ids.tolist()))
+        for track_id, class_id in zip(self.spatial_tracks.track_ids.tolist(), self.spatial_tracks.class_ids.tolist()):
+            if track_id in classes and classes[track_id] != class_id:
+                raise ValueError("MultimodalTracks must assign the same class to a shared track ID.")
+
+
+__all__ = ("MultimodalTracks", "Tracks", "Tracks3D")

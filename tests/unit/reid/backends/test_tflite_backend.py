@@ -1,24 +1,16 @@
 import types
 
 import numpy as np
+import pytest
 import torch
 
 import boxmot.reid.backends.tflite_backend as tflite_backend_module
 from boxmot.reid.backends.tflite_backend import TFLiteBackend
-
-
-class DummyChecker:
-    def __init__(self):
-        self.calls = []
-
-    def check_packages(self, requirements):
-        self.calls.append(tuple(requirements))
+from boxmot.utils.dependencies import MissingDependencyError
 
 
 def make_backend() -> TFLiteBackend:
-    backend = TFLiteBackend.__new__(TFLiteBackend)
-    backend.checker = DummyChecker()
-    return backend
+    return TFLiteBackend.__new__(TFLiteBackend)
 
 
 def test_tflite_backend_prefers_litert_interpreter(monkeypatch):
@@ -31,39 +23,32 @@ def test_tflite_backend_prefers_litert_interpreter(monkeypatch):
         raise AssertionError(f"Unexpected import: {name}")
 
     monkeypatch.setattr(tflite_backend_module, "import_module", fake_import_module)
+    requirements = []
+    monkeypatch.setattr(tflite_backend_module, "require_reid_backend_requirements", requirements.append)
 
     interpreter_class = backend._get_interpreter_class()
 
     assert interpreter_class is litert_interpreter
-    assert backend.checker.calls == []
+    assert requirements == ["tflite"]
 
 
-def test_tflite_backend_installs_litert_when_no_runtime_is_available(monkeypatch):
+def test_tflite_backend_reports_missing_litert_without_importing_or_installing(monkeypatch):
     backend = make_backend()
-    litert_interpreter = type("LiteRTInterpreter", (), {})
 
-    calls = []
+    def missing_runtime(_backend: str) -> None:
+        raise MissingDependencyError("Install ai-edge-litert explicitly")
 
-    def fake_import_module(name):
-        calls.append(name)
-        if name != "ai_edge_litert.interpreter":
-            raise AssertionError(f"Unexpected import: {name}")
-        if len(calls) == 1:
-            raise ModuleNotFoundError(name)
-        return types.SimpleNamespace(Interpreter=litert_interpreter)
-
-    monkeypatch.setattr(tflite_backend_module, "import_module", fake_import_module)
+    monkeypatch.setattr(
+        tflite_backend_module, "import_module", lambda name: pytest.fail(f"Unexpected import: {name}")
+    )
     monkeypatch.setattr(
         tflite_backend_module,
-        "ensure_reid_backend_requirements",
-        lambda checker, _backend: checker.check_packages(("ai-edge-litert>=2.1.0",)),
+        "require_reid_backend_requirements",
+        missing_runtime,
     )
 
-    interpreter_class = backend._get_interpreter_class()
-
-    assert interpreter_class is litert_interpreter
-    assert backend.checker.calls == [("ai-edge-litert>=2.1.0",)]
-    assert calls == ["ai_edge_litert.interpreter", "ai_edge_litert.interpreter"]
+    with pytest.raises(MissingDependencyError, match="Install ai-edge-litert"):
+        backend._get_interpreter_class()
 
 
 def test_tflite_backend_resizes_using_model_input_shape(monkeypatch):

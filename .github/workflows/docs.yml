@@ -75,11 +75,11 @@ jobs:
           test -f site/reference/index.html
           test -f site/reference/boxmot/structures/frame/index.html
           test -f site/reference/boxmot/pipelines/tracking/index.html
-          test -f site/reference/boxmot/trackers/specs/index.html
+          test -f site/reference/boxmot/trackers/common/specs/index.html
           test ! -e site/reference/SUMMARY
           grep -q 'id="boxmot.structures.frame.Frame"' site/reference/boxmot/structures/frame/index.html
           grep -q 'id="boxmot.pipelines.tracking.TrackingPipeline"' site/reference/boxmot/pipelines/tracking/index.html
-          grep -q 'id="boxmot.trackers.specs.TrackerSpec"' site/reference/boxmot/trackers/specs/index.html
+          grep -q 'id="boxmot.trackers.common.specs.TrackerSpec"' site/reference/boxmot/trackers/common/specs/index.html
           grep -q 'id="boxmot.ByteTrack"' site/trackers/bytetrack/index.html
 
       - name: Upload GitHub Pages artifact

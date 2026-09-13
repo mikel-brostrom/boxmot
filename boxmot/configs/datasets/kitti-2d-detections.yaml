@@ -1,0 +1,48 @@
+# Saved TrackR-CNN boxes for image trackers; masks and stored embeddings are omitted.
+id: kitti-2d-detections
+
+format:
+  layout: sequence
+  box_type: aabb
+
+storage:
+  root: KITTI
+
+default_split: val
+fps: 10
+
+modalities:
+  images:
+    format: image-directory
+    path: "{partition}/image_02/{sequence}"
+  detections_2d:
+    format: trackrcnn
+    path: "predictions/trackrcnn/{partition}/{sequence}.txt"
+    options:
+      load_masks: false
+  ground_truth:
+    format: kitti-tracking-labels
+    path: "{partition}/label_02/{sequence}.txt"
+
+classes:
+  target:
+    car: 1
+    pedestrian: 2
+
+splits:
+  train:
+    partition: training
+    has_ground_truth: true
+    sequences: ["0000", "0001", "0003", "0004", "0005", "0009", "0011", "0012", "0015", "0017", "0019", "0020"]
+  val:
+    partition: training
+    has_ground_truth: true
+    sequences: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
+  fulltrain:
+    partition: training
+    has_ground_truth: true
+  test:
+    partition: testing
+    has_ground_truth: false
+    modalities:
+      ground_truth: null

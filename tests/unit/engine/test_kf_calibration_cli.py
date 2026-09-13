@@ -30,7 +30,7 @@ def test_dispatch_preserves_kalman_calibration_selection(monkeypatch, mode, flag
     monkeypatch.setattr(_support, "_run_engine_workflow", run_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", *flags],
     )
 
     assert result.exit_code == 0, result.output
@@ -50,7 +50,7 @@ def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_o
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--build", "fixture-build", *flags, *removed_options],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", *flags, *removed_options],
     )
 
     assert result.exit_code == 2
@@ -60,7 +60,7 @@ def test_removed_kalman_options_are_rejected(monkeypatch, mode, flags, removed_o
 @pytest.mark.parametrize("mode", ["eval", "tune"])
 @pytest.mark.parametrize(
     "tracker, backend",
-    [("sfsort", "python"), ("sam2mot", "python"), ("botsort", "cpp")],
+    [("sfsort", "python"), ("maf_hda", "python"), ("botsort", "cpp")],
 )
 def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode, tracker, backend) -> None:
     def unexpected_workflow(*args):
@@ -72,7 +72,7 @@ def test_unsupported_kalman_calibration_fails_before_workflow(monkeypatch, mode,
         [
             mode,
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--calibrate-kf",
             "--tracker",
             tracker,
@@ -104,7 +104,7 @@ def test_kalman_calibration_dispatch_needs_no_search_dependencies(monkeypatch) -
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
-        ["eval", "--experiment", "fixture", "--build", "fixture-build", "--calibrate-kf"],
+        ["eval", "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build", "--calibrate-kf"],
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].calibrate_kf is True
@@ -118,17 +118,29 @@ def test_unsupported_timestamp_mode_fails_before_materialization(monkeypatch, mo
 
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
-        boxmot, [mode, "--experiment", "fixture", "--tracker", tracker, "--tracker-backend", backend, "--variable-dt"]
+        boxmot,
+        [
+            mode,
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--tracker",
+            tracker,
+            "--tracker-backend",
+            backend,
+            "--variable-dt",
+        ],
     )
     assert result.exit_code == 2
-    assert "does not support variable_dt" in result.output
+    assert (
+        "does not support kalman settings" if tracker == "sfsort" else "kalman.variable_dt=True requires"
+    ) in result.output
 
 
 def test_live_config_unit_conflict_fails_before_detector_loading(monkeypatch, tmp_path) -> None:
     from boxmot.engine.tracking import workflow
 
     profile = tmp_path / "seconds.yaml"
-    profile.write_text(yaml.safe_dump({"variable_dt": True, "kf_time_unit": "seconds"}))
+    profile.write_text(yaml.safe_dump({"kalman.variable_dt": True, "kalman.noise.time_unit": "seconds"}))
 
     def unexpected_detector(*args):
         pytest.fail("Conflicting calibration units must fail before loading perception")
@@ -151,7 +163,7 @@ def test_supported_kalman_trackers_reach_workflow(monkeypatch, mode, tracker) ->
         [
             mode,
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--tracker",
@@ -176,7 +188,7 @@ def test_tune_calibration_cannot_replace_a_resumed_search(monkeypatch) -> None:
         [
             "tune",
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--calibrate-kf",
@@ -193,7 +205,15 @@ def test_tune_resume_dispatches_without_recalibrating(monkeypatch) -> None:
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
     result = CliRunner().invoke(
         boxmot,
-        ["tune", "--experiment", "fixture", "--build", "fixture-build", "--resume-tune", "previous-run"],
+        [
+            "tune",
+            "--experiment",
+            "mot17/ablation-yolox-lmbn.yaml",
+            "--build",
+            "fixture-build",
+            "--resume-tune",
+            "previous-run",
+        ],
     )
     assert result.exit_code == 0, result.output
     assert captured["args"].calibrate_kf is False
@@ -202,7 +222,7 @@ def test_tune_resume_dispatches_without_recalibrating(monkeypatch) -> None:
 
 def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch, tmp_path) -> None:
     path = tmp_path / "seconds.yaml"
-    path.write_text("tracker: botsort\nvariable_dt: true\nkf_time_unit: seconds\n")
+    path.write_text("tracker: botsort\nkalman.variable_dt: true\nkalman.noise.time_unit: seconds\n")
 
     def unexpected_workflow(*args):
         pytest.fail("Conflicting calibration units must fail before tuning")
@@ -213,7 +233,7 @@ def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch,
         [
             "tune",
             "--experiment",
-            "fixture",
+            "mot17/ablation-yolox-lmbn.yaml",
             "--build",
             "fixture-build",
             "--tracker",
@@ -225,7 +245,7 @@ def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch,
         ],
     )
     assert result.exit_code == 2
-    assert "kf_time_unit" in result.output
+    assert "kalman.noise.time_unit" in result.output
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])
@@ -236,7 +256,7 @@ def test_tracker_config_selector_reaches_runtime_namespace(monkeypatch, mode) ->
     if mode == "track":
         argv += ["--source", "video.mp4"]
     else:
-        argv += ["--experiment", "fixture", "--build", "fixture-build"]
+        argv += ["--experiment", "mot17/ablation-yolox-lmbn.yaml", "--build", "fixture-build"]
     result = CliRunner().invoke(boxmot, argv)
 
     assert result.exit_code == 0, result.output
@@ -250,15 +270,15 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
 ) -> None:
     saved = {
         "tracker": "bytetrack",
-        "variable_dt": saved_mode,
-        "kf_time_unit": "seconds" if saved_mode else "frames",
-        "kf_reference_dt_s": 0.04,
+        "kalman.variable_dt": saved_mode,
+        "kalman.noise.time_unit": "seconds" if saved_mode else "frames",
+        "kalman.noise.reference_dt_s": 0.04,
         "asso_func": "giou",
-        "kf_process_position_scale": 2.0,
-        "kf_process_velocity_scale": 3.0,
-        "kf_measurement_noise_scale": 0.5,
-        "kf_initial_position_scale": 0.75,
-        "kf_initial_velocity_scale": 4.0,
+        "kalman.noise.process_position_scale": 2.0,
+        "kalman.noise.process_velocity_scale": 3.0,
+        "kalman.noise.measurement_noise_scale": 0.5,
+        "kalman.noise.initial_position_scale": 0.75,
+        "kalman.noise.initial_velocity_scale": 4.0,
     }
     path = tmp_path / "calibrated.yaml"
     path.write_text(yaml.safe_dump(saved))
@@ -266,17 +286,17 @@ def test_saved_kalman_config_preserves_units_and_accepts_matching_overrides(
 
     options = _tracker_spec(args, "aabb").option_dict if mode == "track" else dict(_tracker_options(args, None))
 
-    assert options["variable_dt"] is saved_mode
+    assert options["kalman.variable_dt"] is saved_mode
     assert options["asso_func"] == "iou"
     assert "tracker" not in options
     for name in (
-        "kf_time_unit",
-        "kf_reference_dt_s",
-        "kf_process_position_scale",
-        "kf_process_velocity_scale",
-        "kf_measurement_noise_scale",
-        "kf_initial_position_scale",
-        "kf_initial_velocity_scale",
+        "kalman.noise.time_unit",
+        "kalman.noise.reference_dt_s",
+        "kalman.noise.process_position_scale",
+        "kalman.noise.process_velocity_scale",
+        "kalman.noise.measurement_noise_scale",
+        "kalman.noise.initial_position_scale",
+        "kalman.noise.initial_velocity_scale",
     ):
         assert options[name] == saved[name]
     assert "track_thresh" in options
@@ -290,16 +310,16 @@ def test_calibrated_config_rejects_conflicting_timing_override(tmp_path, mode, s
         yaml.safe_dump(
             {
                 "tracker": "bytetrack",
-                "variable_dt": saved_mode,
-                "kf_time_unit": "seconds" if saved_mode else "frames",
-                "kf_reference_dt_s": 1 / 30,
-                "kf_process_velocity_scale": 2.0,
+                "kalman.variable_dt": saved_mode,
+                "kalman.noise.time_unit": "seconds" if saved_mode else "frames",
+                "kalman.noise.reference_dt_s": 1 / 30,
+                "kalman.noise.process_velocity_scale": 2.0,
             }
         )
     )
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path, variable_dt=not saved_mode)
 
-    with pytest.raises(ValueError, match="kf_time_unit"):
+    with pytest.raises(ValueError, match="kalman.noise.time_unit"):
         if mode == "track":
             _tracker_spec(args, "aabb")
         else:
@@ -314,9 +334,9 @@ def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_pa
         yaml.safe_dump(
             {
                 "tracker": "bytetrack",
-                "variable_dt": saved_mode,
-                "kf_time_unit": "seconds" if saved_mode else "frames",
-                "kf_reference_dt_s": 1 / 30,
+                "kalman.variable_dt": saved_mode,
+                "kalman.noise.time_unit": "seconds" if saved_mode else "frames",
+                "kalman.noise.reference_dt_s": 1 / 30,
             }
         )
     )
@@ -327,11 +347,11 @@ def test_rejects_calibrated_unit_flip_before_materialization(monkeypatch, tmp_pa
     monkeypatch.setattr(_support, "_run_engine_workflow", unexpected_workflow)
     result = CliRunner().invoke(
         boxmot,
-        [mode, "--experiment", "fixture", "--tracker-config", str(path), flag],
+        [mode, "--experiment", "mot17/ablation-yolox-lmbn.yaml", "--tracker-config", str(path), flag],
     )
 
     assert result.exit_code == 2
-    assert "kf_time_unit" in result.output
+    assert "kalman.noise.time_unit" in result.output
 
 
 @pytest.mark.parametrize("mode", ["track", "eval"])
@@ -347,7 +367,7 @@ def test_tracker_config_accepts_builtin_preset(mode) -> None:
 @pytest.mark.parametrize("mode", ["track", "eval"])
 def test_tracker_config_rejects_metadata_for_a_different_tracker(tmp_path, mode) -> None:
     path = tmp_path / "calibrated.yaml"
-    path.write_text("tracker: botsort\nkf_process_position_scale: 2.0\n")
+    path.write_text("tracker: botsort\nkalman.noise.process_position_scale: 2.0\n")
     args = SimpleNamespace(tracker="bytetrack", tracker_config=path)
 
     with pytest.raises(ValueError, match="botsort.*bytetrack"):

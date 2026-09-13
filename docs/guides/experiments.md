@@ -15,6 +15,12 @@ detector, segmentor, ReID encoder, and class map are part of that experiment's
 semantic identity. Direct component selectors cannot override an authored
 `--experiment`; create another experiment when its configuration should change.
 
+An experiment's `dataset.ref` can name a neighboring dataset YAML, such as
+`kitti-2d.yaml`, or use a relative path such as `../datasets/custom.yaml`.
+Local references resolve from the experiment's directory. A neighboring file
+takes precedence over a built-in dataset with the same filename. Bare catalog
+IDs and filenames still select built-in datasets when no local config exists.
+
 Evaluation and tuning also accept `--dataset` and `--detector` with an optional `--reid`
 selector as shorthand for an authored catalog experiment:
 

@@ -7,7 +7,7 @@ import logging
 from click.testing import CliRunner
 from rich.logging import RichHandler
 
-import boxmot.engine.logging as engine_logging
+import boxmot.engine.ui.logging as engine_logging
 from boxmot.engine.cli import boxmot
 from boxmot.engine.ui.core.ui import get_console
 

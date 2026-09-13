@@ -17,7 +17,7 @@ from boxmot.engine.ui.reporters.research import ResearchWorkflowReporter
 from boxmot.engine.ui.workflow.pipeline import PipelineTracker
 from boxmot.utils import ROOT
 from boxmot.utils import logger as LOGGER
-from boxmot.utils.checks import RequirementsChecker
+from boxmot.utils.dependencies import require_extra
 
 from .benchmarks import (
     _discover_sequences,
@@ -52,6 +52,9 @@ from .proposal import _build_reflection_lm, _import_installed_gepa, _run_instruc
 
 class TrackerResearcher:
     def __init__(self, config: ResearchConfig):
+        from boxmot.engine.config.trackers import validate_image_tracker
+
+        validate_image_tracker(config.tracker)
         self.config = config
         self.build_path = resolve_build_path(config.build, build_root=config.build_root)
         run_name = f"{_slugify(config.tracker)}_{_slugify(config.experiment)}"
@@ -114,7 +117,8 @@ class TrackerResearcher:
         self.baseline_per_class_metrics: dict[str, dict[str, int | float]] = {}
 
     def _ensure_dependencies(self) -> None:
-        RequirementsChecker().sync_extra(RESEARCH_EXTRA, verbose=False)
+        """Validate research dependencies without changing the active environment."""
+        require_extra(RESEARCH_EXTRA, purpose="Tracker research")
         _import_installed_gepa()
 
     def _reset_gepa_run_dir(self) -> None:

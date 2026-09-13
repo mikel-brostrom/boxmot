@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from boxmot.engine.eval import results as eval_results
 from boxmot.engine.ui.core.ui import capture_renderable
 from boxmot.engine.ui.reporters import validation
@@ -90,3 +92,43 @@ def test_supports_ansi_color_honors_terminal_and_environment() -> None:
     assert validation.supports_ansi_color(non_tty, environ={}) is False
     assert validation.supports_ansi_color(tty, environ={"NO_COLOR": "1"}) is False
     assert validation.supports_ansi_color(tty, environ={"TERM": "dumb"}) is False
+
+
+@pytest.mark.parametrize("rich", (False, True))
+def test_3d_tracking_report_identifies_volumetric_metrics_without_optional_ap(rich: bool) -> None:
+    options = {"args": SimpleNamespace(eval_3d=True, eval_ap=False)}
+    if rich:
+        rendered = capture_renderable(validation.build_validation_cli_renderable(_metrics(), **options), width=160)
+    else:
+        rendered = validation.render_validation_cli_report(_metrics(), colorize=False, **options)
+
+    assert "3D tracking — volumetric IoU" in rendered
+    assert "HOTA" in rendered and "MOTA" in rendered and "IDF1" in rendered
+    assert "AP40" not in rendered
+    assert "Easy" not in rendered and "Moderate" not in rendered and "Hard" not in rendered
+    assert "2D tracking" not in rendered
+
+
+@pytest.mark.parametrize("rich", (False, True))
+def test_optional_ap_report_keeps_difficulties_and_projected_2d_separate_from_main_3d(rich: bool) -> None:
+    options = {
+        "args": SimpleNamespace(eval_3d=True, eval_ap=True),
+        "detection_metrics": {
+            geometry: {"car": {"easy": 96.0, "moderate": 84.0, "hard": None}} for geometry in ("2d", "3d")
+        },
+        "tracking_2d_metrics": {"car": _metrics(HOTA=43.0, MOTA=54.0, IDF1=65.0)},
+    }
+    if rich:
+        rendered = capture_renderable(
+            validation.build_validation_cli_renderable({"car": _metrics(HOTA=71.0)}, **options), width=160
+        )
+    else:
+        rendered = validation.render_validation_cli_report({"car": _metrics(HOTA=71.0)}, colorize=False, **options)
+
+    assert "AP40" in rendered
+    assert "Easy" in rendered and "Moderate" in rendered and "Hard" in rendered
+    main_heading = rendered.index("3D tracking — volumetric IoU")
+    projected_heading = rendered.index("2D tracking")
+    assert main_heading < projected_heading
+    assert "71.00" in rendered[main_heading:projected_heading]
+    assert "43.00" in rendered[projected_heading:]

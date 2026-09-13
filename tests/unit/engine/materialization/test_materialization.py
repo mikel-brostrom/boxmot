@@ -866,28 +866,56 @@ def test_embed_stage_bounds_model_rows_and_resume_preserves_keyed_output(tmp_pat
         )
 
 
-def test_materializer_persists_failure_for_resume(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("error", "expected_error", "expected_attempts"),
+    [
+        (RuntimeError("boom"), "boom", 2),
+        (RuntimeError(), "RuntimeError", 2),
+        (KeyboardInterrupt(), "KeyboardInterrupt", 1),
+        (SystemExit(), "SystemExit", 1),
+    ],
+)
+def test_materializer_persists_failure_for_resume(tmp_path, error, expected_error, expected_attempts) -> None:
     plan = BuildPlan.create(
         build_root=tmp_path,
         dataset_name="failure",
         box_type="aabb",
         source_fingerprint=fingerprint("source"),
         publish=PublishOptions(),
-        stages=(StagePlan.create("explode"),),
+        stages=(StagePlan.create("explode", max_attempts=2),),
     )
 
     class Explode:
         name = "explode"
 
-        def run(self, context):
-            del context
-            raise RuntimeError("boom")
+        def __init__(self) -> None:
+            self.released = False
 
-    materializer = DatasetMaterializer(plan, [Explode()])
-    with pytest.raises(RuntimeError, match="boom"):
+        def run(self, context: MaterializationContext) -> StageOutcome:
+            context.state.record_shard(self.name, "00000")
+            raise error
+
+        def release(self) -> None:
+            self.released = True
+
+    stage = Explode()
+    materializer = DatasetMaterializer(plan, [stage])
+    with pytest.raises(type(error)) as raised:
         materializer.run()
-    assert materializer.state.state.by_name["explode"].status == "failed"
-    assert materializer.state.state.by_name["explode"].error == "boom"
+    assert raised.value is error
+    assert stage.released
+
+    store = MaterializationStateStore(plan.state_path)
+    state = store.initialize(plan).by_name["explode"]
+    assert state.status == "failed"
+    assert state.error == expected_error
+    assert state.attempts == expected_attempts
+    assert state.completed_shards == ("00000",)
+
+    resumed = store.begin("explode")
+    assert resumed.status == "running"
+    assert resumed.error is None
+    assert resumed.completed_shards == ("00000",)
 
 
 def test_source_mutation_after_plan_creation_prevents_publication(tmp_path) -> None:

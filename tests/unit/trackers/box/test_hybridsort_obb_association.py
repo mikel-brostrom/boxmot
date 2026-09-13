@@ -7,10 +7,10 @@ import torch
 
 from boxmot.engine.tuning.search_space import load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
-from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.hybridsort.tracker import HybridSort
+from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
+from boxmot.trackers.sfsort.tracker import SFSORT
 
 
 def _frame(sample_id: str, frame_index: int) -> Frame:
@@ -150,7 +150,7 @@ def test_hybridsort_obb_discards_tracks_with_invalid_predictions() -> None:
     row = np.array([[64, 64, 40, 12, 0.2, 0.95, 0]], dtype=np.float32)
     first = _update(tracker, row, frame_index=0)
     first_id = first.track_ids.item()
-    tracker.active_tracks[0].predict = lambda *, dt=None: np.full((1, 6), np.nan, dtype=float)
+    tracker.active_tracks[0]._finish_prediction = lambda: np.full((1, 6), np.nan, dtype=float)
 
     second = _update(tracker, row, frame_index=1)
 

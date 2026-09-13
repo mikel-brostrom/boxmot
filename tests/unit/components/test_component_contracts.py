@@ -230,7 +230,7 @@ def test_lazy_component_registry_rejects_non_callable_target(monkeypatch) -> Non
         (
             "boxmot.reid",
             "boxmot.reid.factory",
-            ["AppearanceEncoder", "EncoderRequirements", "ReIDEncoderSpec", "create_reid_encoder"],
+            ["AppearanceEncoder", "EncoderRequirements", "ReIDConfig", "ReIDEncoderSpec", "create_reid_encoder"],
             ("boxmot.reid.adapters", "boxmot.reid.backends."),
         ),
     ),
@@ -293,7 +293,7 @@ def test_public_component_exports_preserve_lazy_implementation_boundary(
         ),
     ),
 )
-def test_factories_accept_only_specs_and_delegate_to_lazy_registry(
+def test_factories_accept_specs_and_delegate_to_lazy_registry(
     monkeypatch,
     factory_module,
     registry_name,
@@ -320,7 +320,7 @@ def test_factories_accept_only_specs_and_delegate_to_lazy_registry(
     assert factory(spec) is component
     assert calls == [(spec.backend, spec)]
     with pytest.raises(TypeError, match="spec must be"):
-        factory(spec.backend)
+        factory(None)
 
 
 @pytest.mark.parametrize(

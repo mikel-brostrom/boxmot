@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -56,6 +56,9 @@ class PerClassUpdateMixin:
         per_class_masks = []
         frame_count = self.frame_count
         classes_to_update = self._class_update_ids(dets)
+        pooled_config = self.kalman_config
+        pooled_noise = pooled_config.noise
+        pooled_filter = getattr(self, "kalman_filter", None)
         original_cmc = getattr(self, "cmc", None)
         precomputed_cmc = self._precompute_per_frame_cmc(original_cmc, dets, img, len(classes_to_update))
 
@@ -83,6 +86,20 @@ class PerClassUpdateMixin:
                 )
 
                 self._load_class_track_state(cls_id)
+                if pooled_noise.by_class:
+                    canonical_id = self._decode_kernel_class_id(int(cls_id))
+                    self.kalman_config = replace(pooled_config, noise=pooled_noise.for_class(canonical_id))
+                    if pooled_filter is not None:
+                        # ByteTrack and BotSort own stateless filter helpers at
+                        # tracker level. Keep distinct helpers per class so new
+                        # tracks retain the correct owner during batch updates.
+                        state = self._ensure_class_track_state(cls_id)
+                        if "kalman_filter" not in state.attrs:
+                            state.attrs["kalman_filter"] = type(pooled_filter)(
+                                ndim=pooled_filter.ndim,
+                                noise_config=self.kalman_noise_config,
+                            )
+                        self.kalman_filter = state.attrs["kalman_filter"]
                 self.frame_count = frame_count
 
                 result = self._track_detections(dets=class_dets, img=img, embs=class_embs, masks=class_masks)
@@ -97,6 +114,9 @@ class PerClassUpdateMixin:
                     per_class_tracks.append(tracks)
                     per_class_masks.append(track_masks)
         finally:
+            self.kalman_config = pooled_config
+            if pooled_filter is not None:
+                self.kalman_filter = pooled_filter
             if precomputed_cmc is not None:
                 self.cmc = original_cmc
 

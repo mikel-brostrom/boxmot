@@ -42,15 +42,19 @@ def _score_summary(
 
 
 def build_tune_artifacts_renderable(saved_artifacts: dict[str, Any]) -> RenderableType:
+    """Present the artifacts produced by the selected tuning backend."""
     artifact_table = Table.grid(expand=True, padding=(0, 1))
     artifact_table.add_column(style=ui.STYLE_ACCENT, no_wrap=True)
-    artifact_table.add_column(style=ui.STYLE_TEXT, ratio=1)
-    artifact_table.add_row("Results CSV", str(saved_artifacts["csv_path"]))
+    artifact_table.add_column(style=ui.STYLE_TEXT, ratio=1, overflow="fold")
+    if saved_artifacts.get("csv_path") is not None:
+        artifact_table.add_row("Results CSV", str(saved_artifacts["csv_path"]))
     artifact_table.add_row(
         f"Best config ({saved_artifacts['best_trial_id']})",
         str(saved_artifacts["best_yaml_path"]),
     )
-    artifact_table.add_row("Summary", str(saved_artifacts["summary_path"]))
+    for key, label in (("summary_path", "Summary"), ("study_path", "Study"), ("manifest_path", "Run manifest")):
+        if saved_artifacts.get(key) is not None:
+            artifact_table.add_row(label, str(saved_artifacts[key]))
     return Group(
         Text("Saved Artifacts", style=ui.STYLE_TITLE),
         artifact_table,
@@ -71,7 +75,9 @@ def build_tune_workflow_fields(args: Any, *, maximize: list[str], minimize: list
         ("Tracker", getattr(args, "tracker", None)),
         ("Build", getattr(args, "build", None)),
         ("Experiment", getattr(args, "experiment", None) or getattr(args, "benchmark", None)),
+        ("Dataset", getattr(args, "dataset_id", None) or getattr(args, "dataset", None)),
         ("Trials", getattr(args, "n_trials", None)),
+        ("Sequence workers", getattr(args, "sequence_workers", None)),
         ("Objective", _format_tune_objective(maximize=maximize, minimize=minimize)),
     ]
     return fields

@@ -14,7 +14,7 @@ from boxmot.components.timing import timed_component_phase
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.reid.specs import ReIDEncoderSpec
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes
-from boxmot.utils.torch_utils import canonical_torch_device
+from boxmot.utils.devices import resolve_device
 
 _DEFAULT_INFERENCE_BATCH_SIZE = 64
 
@@ -274,7 +274,7 @@ def create_python_reid_encoder(spec: ReIDEncoderSpec) -> RuntimeAppearanceEncode
     preprocessing = None if spec.preprocessing == "default" else spec.preprocessing
     runtime = runtime_class(
         weights=spec.artifact,
-        device=canonical_torch_device(spec.device),
+        device=resolve_device(spec.device),
         half=spec.precision == "fp16",
         preprocess_name=preprocessing,
     )

@@ -6,9 +6,9 @@ BoxMOT v24 separates values, components, composition, and orchestration:
 structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
-The package root deliberately exports only `__version__`, `create_tracker`, and
-the ten lazily loaded tracker classes. Import every other public contract from
-its domain package.
+The package root exports `__version__`, `create_tracker`, and the lazily loaded
+tracker algorithm classes. Import every other public contract from its domain
+package.
 
 ## Canonical values
 
@@ -49,6 +49,11 @@ wire boundary requires the legacy 6/7- or 8/9-column representation.
 
 ## Tracker factory
 
+For calibrated 2D/3D sensor fusion, see [EagerMot](../trackers/eagermot.md).
+Its extended update interface consumes independent `Detections3D` and a
+`CameraModel` and returns `MultimodalTracks` with separate image and spatial
+collections. The image-only interfaces below apply to the other trackers.
+
 Tracker specifications contain algorithm configuration; pipelines can keep
 appearance models and segmentors as separate reusable components. Every
 high-level ReID-enabled tracker adapter supports live appearance extraction: it
@@ -59,22 +64,56 @@ tracker library.
 
 ```python
 from boxmot import create_tracker
-from boxmot.trackers import TrackerSpec
 
 tracker = create_tracker(
-    TrackerSpec(
-        name="bytetrack",
-        backend="python",
-        geometry="aabb",
-        per_class=False,
-        options=(("track_thresh", 0.55),),
-    )
+    "bytetrack",
+    backend="python",
+    geometry="aabb",
+    per_class=False,
+    track_thresh=0.55,
 )
 
 tracks = tracker.update(detections)
 print(tracks.geometry.values, tracks.track_ids)
 tracker.reset()
 ```
+
+Pass algorithm settings as keywords. An explicit `TrackerSpec` is also
+accepted; keyword overrides take precedence without changing the original
+spec. Configure model selection and inference on the detector and ReID
+factories separately.
+
+### Tracker classes and autocomplete
+
+Import a tracker class directly when you want its constructor arguments in your
+editor's completion menu:
+
+```python
+from boxmot import BotSort
+
+tracker = BotSort(
+    track_high_thresh=0.5,
+    per_class=True,
+    max_age=45,
+    class_ids=(0,),
+    class_names={0: "person"},
+    use_embeddings=False,
+    use_cmc=False,
+)
+```
+
+Invoke completion inside `BotSort(...)` to see argument names and types.
+All public tracker classes expose their own arguments and supported shared
+settings, including class metadata. `OccluBoost(...)` also suggests its inherited
+BoostTrack options, such as `use_cmc`, `cmc_method`, and `lambda_iou`.
+Editors that support typed keyword arguments can flag misspelled names and
+incorrect value types before you run the code.
+
+Suggestions follow each tracker's supported controls. For example, `ByteTrack`
+uses `track_thresh` and `SFSORT` uses `high_th` for detection thresholds; ReID
+options appear on trackers that accept embeddings.
+
+### Update inputs and outputs
 
 The public method preserves the input representation:
 
@@ -91,7 +130,7 @@ metadata and stores an RGB CHW tensor in `Frame.image`.
 A tracker configured for AABB expects exactly `N x 6`
 `(x1, y1, x2, y2, confidence, class_id)` rows; OBB expects exactly `N x 7`
 `(cx, cy, w, h, angle, confidence, class_id)` rows. Real numeric arrays are
-normalized to canonical dtypes. Geometry is still fixed by `TrackerSpec`, not
+normalized to canonical dtypes. Geometry is fixed at construction, not
 inferred from the first matrix.
 
 Class IDs retain only the integer precision present in the packed array. Use
@@ -114,17 +153,91 @@ embeddings lazily; the return value remains a NumPy matrix without sample
 metadata. A `detection_index == -1` value identifies a propagated track without
 a current detection.
 
+Use the [tracker input matrix](../trackers/index.md#input-support) to compare
+geometry, embeddings, masks, frames, and sensor inputs across implementations.
 Read `tracker.requirements` after construction. When `embeddings`, `masks`, or
 `frame` is true, attach/provide that value before calling `update`. For a
 ReID-enabled tracker adapter, `requirements.embeddings` means appearance is
 required by the algorithm; the direct update boundary can satisfy it from
 either attached embeddings or a supplied `Frame` or NumPy image.
 
+### Kalman noise configuration
+
+Python trackers that use Kalman filters accept an immutable configuration with
+typed fields, defaults, and editor autocomplete:
+
+```python
+from boxmot import KalmanConfig, KalmanNoiseConfig, OcSort, create_tracker
+
+noise = KalmanNoiseConfig(
+    process_position_scale=1.0,
+    process_velocity_scale=1.0,
+    measurement_noise_scale=1.0,
+    initial_position_scale=1.0,
+    initial_velocity_scale=1.0,
+    reference_dt_s=1 / 30,
+)
+config = KalmanConfig(noise=noise)
+tracker = OcSort(kalman=config)
+tracker_from_factory = create_tracker("ocsort", kalman=config)
+```
+
+`1.0` preserves each filter's own covariance priors. These values multiply
+covariance, not standard deviation. Omitting `kalman` uses the defaults.
+The tracker resolves `time_unit=None` from `kalman.variable_dt` without mutating the
+provided object. A saved explicit unit must match the selected timing mode.
+
+Use `by_class` for complete class-specific settings. Unlisted class IDs use the
+global settings. Box trackers require `per_class=True` when these profiles are
+present:
+
+```python
+noise = KalmanNoiseConfig(
+    measurement_noise_scale=1.5,
+    by_class={
+        0: KalmanNoiseConfig(measurement_noise_scale=0.8),
+        1: KalmanNoiseConfig(measurement_noise_scale=2.0),
+    },
+)
+tracker = OcSort(per_class=True, kalman=KalmanConfig(noise=noise))
+```
+
+Each track keeps independent state and covariance. Class profiles share the
+same timing units and reference interval. EagerMot accepts the same configuration
+for its 3D filter with frame-based timing. SFSORT and MafHda do not accept Kalman
+configuration. See [tracker YAMLs](../config/trackers.md#kalman-noise) and
+[calibration and tuning](../modes/tune.md#kalman-noise-and-timing) for saved profiles.
+
+Filter behavior also belongs to `KalmanConfig`. Optional policies select the
+owning tracker's defaults when omitted and are rejected by trackers that do not
+implement them:
+
+```python
+from boxmot import AbnormalMotionSuppressionConfig, EagerMot, KalmanConfig, OccluBoost
+
+tracker = OccluBoost(
+    kalman=KalmanConfig(
+        adaptive_kf=True,
+        ams=AbnormalMotionSuppressionConfig(alpha0=0.4, buffer_size=30),
+    )
+)
+spatial_tracker = EagerMot(kalman=KalmanConfig(is_angular=True))
+```
+
+`adaptive_kf` is available in BoostTrack and OccluBoost. `is_angular` is specific
+to EagerMOT. AMS is specific to OccluBoost's AABB updates; its OBB path bypasses
+that policy. Per-class noise settings vary covariance only. Association weights,
+CMC, and track lifetime remain tracker arguments.
+
 ### Elapsed time
 
-Trackers default to fixed-step prediction (`variable_dt=False`), preserving the
+Trackers default to fixed-step prediction (`kalman.variable_dt=False`), preserving the
 motion behavior used by established benchmarks and tuning. Timestamps remain
 metadata in this mode; supplying them does not enable variable timing.
+
+Variable timing and online noise adaptation are independent settings. See
+[choosing Kalman timing and adaptation](../modes/track.md#choose-kalman-timing-and-adaptation)
+for scenarios, recommended starting points, and configuration examples.
 
 Python ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
 and OccluBoost offer an experimental seconds-based mode. Enable it explicitly
@@ -132,11 +245,8 @@ when constructing the tracker:
 
 ```python
 tracker = create_tracker(
-    TrackerSpec(
-        name="bytetrack",
-        backend="python",
-        options=(("variable_dt", True),),
-    )
+    "bytetrack",
+    kalman=KalmanConfig(variable_dt=True),
 )
 tracks = tracker.update(detections, frame=frame)
 ```
@@ -160,9 +270,9 @@ experimental mode, or `--fixed-dt` to select fixed steps explicitly. Omitting
 both flags preserves the tracker YAML setting, which defaults to fixed steps.
 Tuning holds this mode constant, records it with the tuned configuration, and
 requires the same timing settings when resuming a run. Saved configurations
-declare `kf_time_unit: frames` or `kf_time_unit: seconds`; an override that
-conflicts with those units is rejected. Untuned defaults use `kf_time_unit: null`
-to resolve the units from the chosen mode. Video sources provide media
+declare `time_unit: frames` or `time_unit: seconds` under `kalman.noise`; an
+override that conflicts with those units is rejected. Untuned defaults use
+`time_unit: null` to resolve the units from the chosen mode. Video sources provide media
 timestamps, falling back to the
 nominal frame rate when timestamps are unavailable or stop advancing and that
 rate is known.
@@ -177,7 +287,7 @@ for seconds requires an explicit measured interval in these low-level methods;
 the reference interval never substitutes for a missing capture interval.
 
 The seconds-based mode converts historic per-frame priors using the fixed
-reference interval `h = kf_reference_dt_s`, which defaults to `1/30` second.
+reference interval `h = kalman.noise.reference_dt_s`, which defaults to `1/30` second.
 This is the basis of the original noise priors, not a measured source frame
 interval. The conversion is:
 
@@ -197,12 +307,12 @@ Five independent, dimensionless multipliers then calibrate position and
 velocity process noise, measurement noise, and initial position and velocity
 covariance. They default to `1.0` and are estimated by
 [Kalman calibration](../modes/eval.md#kalman-calibration), with timing mode,
-units, and reference interval held fixed. New tracker tuning runs preserve the
-default or loaded Kalman settings; they have no YAML search ranges.
+units, and reference interval held fixed. Tracker tuning preserves the default
+or loaded covariance scales unless `--tune-kf` enables noise refinement.
 Unit conversion provides coherent priors; it does not guarantee that existing
 benchmark accuracy transfers without calibration and held-out evaluation.
 
-SFSORT, SAM2, and native C++ tracker adapters reject `variable_dt=True` and
+EagerMot, MafHda, SFSORT, and native C++ tracker adapters reject `kalman.variable_dt=True` and
 retain fixed-step behavior. Native C++ elapsed-time prediction is not
 implemented. Track expiration and confirmation settings such as `max_age`,
 `track_buffer`, and `min_hits`
@@ -212,29 +322,55 @@ durations.
 ### Live embeddings in ReID-enabled trackers
 
 `BotSort`, `StrongSort`, `DeepOcSort`, `HybridSort`, `BoostTrack`, and
-`OccluBoost` share the same Python direct-construction options. The native
-BotSort and OccluBoost adapters expose the same live fallback:
+`OccluBoost` accept one `reid` argument for appearance inference. The native
+BotSort and OccluBoost adapters expose the same live fallback. Pass an immutable
+`ReIDConfig` to configure lazy model construction:
 
-- `reid_model` injects a pre-built backend exposing `get_features(boxes, image)`.
-- `reid_weights` selects the weights for a lazily built backend; omitting it
-  selects the default ReID model.
-- `device`, `half`, and `reid_preprocess` configure that lazy backend.
+```python
+from boxmot import OccluBoost, ReIDConfig, create_tracker
+
+reid = ReIDConfig(
+    model="osnet-x0-25-msmt17",
+    device="cpu",
+    precision="fp32",
+    batch_size=32,
+)
+tracker = OccluBoost(reid=reid, use_embeddings=True)
+tracker_from_factory = create_tracker("occluboost", reid=reid, use_embeddings=True)
+```
+
+`model` accepts a profile ID, trained checkpoint name, YAML file, or artifact
+path. Optional `device`, `precision`, `preprocessing`, `batch_size`,
+`image_size`, and `embedding_dim` override the selected profile; unset fields
+retain its settings. Set `allow_download=False` to require local weights.
+Omitting `reid` selects the default configuration. Keep `use_embeddings`,
+association thresholds, feature smoothing, and gallery limits on the tracker.
+
+To reuse an encoder that has already been constructed, pass that
+`AppearanceEncoder` directly:
+
+```python
+from boxmot.reid import create_reid_encoder
+
+encoder = create_reid_encoder(reid)
+tracker = OccluBoost(reid=encoder, use_embeddings=True)
+```
 
 When embeddings are already attached, the tracker uses them without invoking
-its backend. A non-empty batch without embeddings requires a `Frame` or NumPy
+its encoder. A non-empty batch without embeddings requires a `Frame` or NumPy
 image, then extracts one embedding per detection. An empty batch bypasses ReID
 extraction and does not initialize the model; independent frame requirements
 such as CMC still apply. For trackers with a `use_embeddings` option, disabling
 it also disables extraction. The resolved `tracker.generates_embeddings`
 property reports whether this fallback is active for either backend.
 
-These are direct class-construction options for real-time tracking loops. A
-resolved `ReIDEncoderSpec` can instead be installed before the first update of
+The same configuration works for standalone `create_reid_encoder(config)` and
+tracker-owned extraction. A resolved `ReIDEncoderSpec` can also be installed before the first update of
 a sequence with `tracker.configure_reid(spec)`; the tracker keeps the full
 backend, artifact hash, preprocessing, and encoder options and still constructs
 the encoder lazily. A composed pipeline can also share one `AppearanceEncoder`
-and attach its output before the tracker runs. Model settings do not belong in
-`TrackerSpec` for either backend. A native adapter owns the optional encoder;
+and attach its output before the tracker runs. Pass `reid=` separately from
+the algorithm-only `TrackerSpec` for either backend. A native adapter owns the optional encoder;
 the underlying C++ tracker library accepts only the resulting typed embedding
 buffer and never loads a model.
 
@@ -245,9 +381,9 @@ installing a complete encoder specification:
 
 ```python
 from boxmot.reid import ReIDEncoderSpec
-from boxmot.trackers import ReIDConfigurableTracker, TrackerSpec, create_tracker
+from boxmot.trackers import ReIDConfigurableTracker, create_tracker
 
-tracker = create_tracker(TrackerSpec(name="botsort", backend="cpp"))
+tracker = create_tracker("botsort", backend="cpp")
 spec = ReIDEncoderSpec(backend="onnx", artifact="/models/reid.onnx")
 
 if not isinstance(tracker, ReIDConfigurableTracker) or not tracker.generates_embeddings:
@@ -257,12 +393,104 @@ tracker.configure_reid(spec)
 
 ## Component factories
 
-Each factory accepts one frozen, immutable specification:
+Create detectors, ReID encoders, and trackers by name. Detector and ReID
+factories resolve the model config and weights internally, downloading missing
+weights when a download source is configured. Use `allow_download=False` to
+require local weights. Detector geometry comes from its config; an explicit
+`geometry="aabb"` or `geometry="obb"` must agree with that config.
+
+```python
+from boxmot import create_tracker
+from boxmot.detectors import create_detector
+from boxmot.reid import create_reid_encoder
+
+detector = create_detector("yolo26n", device="cpu")
+encoder = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
+tracker = create_tracker("occluboost", per_class=True, use_embeddings=True)
+```
+
+Editors that support Python literal completions can suggest model names inside
+the first argument's quotes. Detector suggestions combine BoxMOT profiles with
+the official box-producing checkpoints from Ultralytics. ReID suggestions combine
+runtime profiles with BoxMOT's pretrained checkpoint catalog. Invoke your editor's completion menu
+while typing `create_detector("...")`, `create_reid_encoder("...")`, or
+`create_tracker("...")`. Detector suggestions include checkpoint selections such
+as `"yolox/n"` when a profile has multiple checkpoints.
+`ReIDConfig(model="...")` offers the same ReID model suggestions.
+
+Suggestions ship with BoxMOT; detector suggestions record the Ultralytics version
+used to generate them. Custom paths, config mappings, string variables, and
+explicit specs remain accepted. Adding a local model file does not automatically
+add an editor suggestion.
+
+ReID checkpoints cover OSNet (including IBN and AIN), ResNet50, MobileNetV2,
+MLFN, HACNN, and LMBN. Checkpoint suggestions retain their filenames' underscores
+and omit `.pt`; profile IDs such as `"osnet-x0-25-msmt17"` retain their hyphens.
+Use either kind directly:
+
+```python
+encoder = create_reid_encoder("osnet_x1_0_msmt17", device="cpu")
+# Other suggestions: "mobilenetv2_x1_0_market1501", "lmbn_n_market", etc.
+```
+
+Backbones without a cataloged ReID checkpoint require your own trained weights
+and are not suggested by this inference factory.
+
+Ultralytics models include YOLO detection, instance segmentation, pose, and OBB
+variants, YOLO-World, YOLOE, RT-DETR, FastSAM, and YOLO-NAS. For example,
+`create_detector("yolov8n-seg")` returns boxes and masks, while
+`create_detector("rtdetr-l")` uses the Ultralytics RT-DETR checkpoint. Hugging
+Face `rtdetr_v2_*` selectors continue to use the separate RT-DETR backend.
+YOLO-NAS requires its upstream `super_gradients` dependency.
+
+Pose models contribute detection boxes; keypoints are not part of `Detections`.
+World and YOLOE use the checkpoint's vocabulary. Classification and semantic
+segmentation produce different outputs and are rejected by the detector API.
+SAM models that require their own prompt workflow are not detector suggestions.
+
+Detectors and ReID encoders also accept a local model path, YAML path, or config
+mapping. Set inference options with an `options` mapping:
+
+```python
+detector = create_detector(
+    "yolo26n",
+    device="cuda:0",
+    precision="fp16",
+    options={"confidence": 0.3, "image_size": [640, 640]},
+)
+```
+
+Keyword overrides take precedence over the selected config or spec. Options
+merge by key, preserving settings you did not override. Explicit specs remain
+immutable, and their resolved artifact identity is still validated.
+
+### Independent calls
+
+Using a canonical `Frame` as shown above, call any component independently:
+
+```python
+detections = detector.predict([frame])[0]
+embeddings = encoder.encode([frame], [detections])[0]
+tracks = tracker.update(detections.with_embeddings(embeddings), frame)
+```
+
+The encoder accepts boxes from any source, including saved detections. The
+tracker consumes attached embeddings without invoking another ReID encoder.
+Keep the same tracker through a sequence, update it even on empty detection
+frames, and call `tracker.reset()` before the next sequence. Image and
+embedding requirements depend on the tracker configuration.
+
+### Explicit specifications
+
+For advanced configuration, pass a frozen specification. These calls use
+already resolved local artifact paths and SHA-256 hashes. Segmentor
+construction uses this form as well:
 
 ```python
 from boxmot.detectors import DetectorSpec, create_detector
 from boxmot.reid import ReIDEncoderSpec, create_reid_encoder
 from boxmot.segmentors import SegmentorSpec, create_segmentor
+from boxmot.trackers import TrackerSpec
 
 # Values produced by your artifact resolver before component construction.
 detector_sha256 = "..."
@@ -299,11 +527,21 @@ encoder = create_reid_encoder(
         precision="fp16",
     )
 )
+
+tracker = create_tracker(
+    TrackerSpec(name="occluboost", per_class=True),
+    max_age=60,
+)
 ```
 
 Resolve real artifact paths and hashes before creating a materialization plan.
 Backend `options` are sorted tuples of key/value pairs so specs remain
 canonical-JSON serializable.
+
+ReID inference uses the shared [device selectors](../modes/track.md#device-selection):
+for example, `device="0"` and `device="cuda:0"` select the first visible CUDA GPU.
+Select one device supported by the backend; GPU lists are rejected, and device
+selection preserves the process's `CUDA_VISIBLE_DEVICES` setting.
 
 The encoder derives each crop from the supplied detection geometry: AABBs use
 clipped axis-aligned crops and OBBs use the canonical rectified transform.
@@ -345,7 +583,7 @@ and runtime-validation path. A `PipelineResult` has exactly two fields:
 
 ### Capture timestamps
 
-Enable `variable_dt` on the tracker and pass timestamp-bearing frames to the
+Enable `KalmanConfig(variable_dt=True)` on the tracker and pass timestamp-bearing frames to the
 pipeline normally. The tracker derives prediction intervals internally.
 Here, `samples` contains consecutive `(Frame, Detections)` pairs with capture
 timestamps:
@@ -353,13 +591,7 @@ timestamps:
 ```python
 pipeline = TrackingPipeline(
     detector=None,
-    tracker=create_tracker(
-        TrackerSpec(
-            name="bytetrack",
-            backend="python",
-            options=(("variable_dt", True),),
-        )
-    ),
+    tracker=create_tracker("bytetrack", kalman=KalmanConfig(variable_dt=True)),
 )
 for frame, detections in samples:
     result = pipeline.step_detections(frame, detections)
@@ -374,7 +606,7 @@ timestamps rather than processing or network arrival times.
 
 The same behavior applies to `step(frame)` when the pipeline owns a detector.
 No pipeline timing option or interval argument is needed. With the default
-`variable_dt=False`, timestamps are metadata and prediction uses fixed steps.
+`kalman.variable_dt=False`, timestamps are metadata and prediction uses fixed steps.
 Variable timing requires one of the [supported Python trackers](#elapsed-time)
 and timestamps on every frame.
 

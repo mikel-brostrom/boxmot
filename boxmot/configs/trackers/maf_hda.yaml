@@ -1,0 +1,65 @@
+# MOTS20 training defaults from the upstream GMPHD_MAF implementation.
+det_thresh:
+  type: uniform
+  default: 0.7
+  range: [0.3, 0.9]
+
+max_age:
+  type: randint
+  default: 30
+  range: [10, 61]
+
+min_hits:
+  type: randint
+  default: 1
+  range: [1, 5]
+
+iou_threshold:
+  type: uniform
+  default: 0.1
+  range: [0.0, 0.4]
+
+asso_func:
+  type: choice
+  default: iou
+  options: [iou, giou, diou, ciou, hmiou, centroid]
+
+velocity_alpha:
+  type: uniform
+  default: 0.4
+  range: [0.1, 0.9]
+
+merge_iou_thresh:
+  type: uniform
+  default: 0.4
+  range: [0.2, 0.8]
+
+appearance_lower:
+  type: uniform
+  default: 0.1
+  range: [0.0, 0.3]
+
+appearance_upper:
+  type: uniform
+  default: 0.7
+  range: [0.5, 0.9]
+
+appearance_gate:
+  type: choice
+  default: true
+  options: [false, true]
+
+s2ta_mode:
+  type: choice
+  default: maf
+  options: [motion, appearance, maf]
+
+t2ta_mode:
+  type: choice
+  default: maf
+  options: [motion, appearance, maf]
+
+template_size:
+  type: choice
+  default: 96
+  options: [64, 96, 128]
