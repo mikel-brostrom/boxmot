@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
 
@@ -59,6 +60,18 @@ def _inherited_parameters(tracker: type, tracker_name: str) -> dict[str, Any]:
     return {name: annotation for name, annotation in inherited.items() if name not in omitted}
 
 
+def _documented_arguments(docstring: str) -> list[tuple[str, str]]:
+    """Read names and descriptions from one conventional Google Args section."""
+    section = re.search(r"(?ms)^Args:\n(.*?)(?=^\S|\Z)", inspect.cleandoc(docstring))
+    assert section is not None, "Constructor tooltip must contain a Google Args section"
+    content = section.group(1)
+    rows = list(re.finditer(r"(?m)^    (\*{0,2}[a-zA-Z_]\w*)(?: \([^\n]*\))?:", content))
+    return [
+        (row.group(1), content[row.end():rows[index + 1].start() if index + 1 < len(rows) else len(content)].strip())
+        for index, row in enumerate(rows)
+    ]
+
+
 def test_public_static_tracker_exports_match_manifest() -> None:
     """Editors must see the same canonical tracker classes as lazy runtime imports."""
     source = Path(boxmot.__file__).read_text(encoding="utf-8")
@@ -100,3 +113,53 @@ def test_authored_defaults_are_discoverable_in_public_constructor(tracker_name: 
     advertised = set(_keyword_parameters(constructor)) | set(get_type_hints(options))
     missing = set(load_tracker_defaults(tracker_name)) - advertised
     assert not missing, f"{public_name} config defaults lack constructor autocomplete: {sorted(missing)}"
+
+
+@pytest.mark.parametrize("tracker_name", tuple(_TRACKER_MANIFEST))
+def test_constructor_tooltip_documents_its_own_current_parameters(tracker_name: str) -> None:
+    public_name = _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1]
+    tracker = getattr(boxmot, public_name)
+    constructor = tracker.__dict__["__init__"]
+    assert tracker.__dict__["__doc__"], f"{public_name} must own a class overview docstring"
+    docstring = constructor.__doc__
+    assert docstring and docstring.strip(), f"{public_name}.__init__ must own its tooltip docstring"
+    assert inspect.getdoc(constructor) == inspect.cleandoc(docstring)
+    assert len(re.findall(r"(?m)^Args:$", inspect.cleandoc(docstring))) == 1
+    assert not re.search(r"(?m)^Args:$", inspect.cleandoc(tracker.__doc__ or "")), (
+        f"{public_name} constructor arguments must have one canonical docstring on __init__"
+    )
+
+    arguments = _documented_arguments(docstring)
+    names = [name for name, _ in arguments]
+    assert len(names) == len(set(names)), f"{public_name} repeats constructor argument documentation"
+    assert set(names) == set(_keyword_parameters(constructor)) | {"**kwargs"}
+    assert all(description for _, description in arguments), f"{public_name} has an empty argument description"
+
+
+@pytest.mark.parametrize("tracker_name", tuple(_TRACKER_MANIFEST))
+def test_constructor_kwargs_docs_only_advertise_supported_options(tracker_name: str) -> None:
+    public_name = _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1]
+    tracker = getattr(boxmot, public_name)
+    constructor = tracker.__dict__["__init__"]
+    assert constructor.__doc__, f"{public_name}.__init__ must own its tooltip docstring"
+    arguments = dict(_documented_arguments(constructor.__doc__))
+    (options,) = get_args(get_type_hints(constructor)["kwargs"])
+    supported = set(get_type_hints(options))
+    kwargs_docs = arguments["**kwargs"]
+    advertised = set(re.findall(r"`{1,2}([a-z]\w*)`{1,2}", kwargs_docs))
+    assert advertised <= supported, f"{public_name} documents unsupported inherited options: {advertised - supported}"
+    assert advertised, f"{public_name} must describe meaningful forwarded constructor options"
+
+    forbidden = set()
+    if not tracker.accepts_embeddings:
+        forbidden.update(_REID_OPTIONS)
+    if not tracker.supports_obb:
+        forbidden.add("is_obb")
+    if not tracker.supports_variable_dt:
+        forbidden.update(_TIMING_OPTIONS)
+    if not (tracker.supports_variable_dt or tracker.supports_kalman_noise):
+        forbidden.update(_NOISE_OPTIONS)
+    if tracker_name in {"bytetrack", "sfsort"}:
+        forbidden.add("det_thresh")
+    mentioned = set(re.findall(r"\b[a-z]\w*\b", kwargs_docs))
+    assert not forbidden.intersection(mentioned), f"{public_name} kwargs docs advertise unavailable settings"

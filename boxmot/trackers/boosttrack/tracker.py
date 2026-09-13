@@ -29,33 +29,7 @@ from boxmot.trackers.common.motion.models import MotionModelKind, create_motion_
 
 
 class BoostTrack(BoxTracker):
-    """Initialize the BoostTrack tracker.
-
-    Args:
-        use_cmc (bool): Whether to enable camera-motion compensation.
-        min_box_area (int): Minimum detection area.
-        aspect_ratio_thresh (float): Maximum accepted aspect ratio.
-        cmc_method (str): Camera-motion compensation method.
-        lambda_iou (float): Weight applied to IoU association.
-        lambda_mhd (float): Weight applied to Mahalanobis association.
-        lambda_shape (float): Weight applied to shape similarity.
-        use_dlo_boost (bool): Whether to enable DLO boosting.
-        use_duo_boost (bool): Whether to enable DUO boosting.
-        dlo_boost_coef (float): Coefficient used by DLO boosting.
-        s_sim_corr (bool): Whether to enable shape-similarity correction.
-        use_rich_s (bool): Whether to enable rich shape features.
-        use_sb (bool): Whether to enable soft-BIoU.
-        use_vt (bool): Whether to enable visual tracking cues.
-        use_embeddings (bool): Whether to use appearance embeddings, generating
-            them from the frame when absent.
-        reid_model (Any | None): Optional pre-built ReID backend used when
-            embeddings are absent.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            Weights for the lazily constructed ReID backend.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazy ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`.
+    """Track AABB or OBB detections with confidence boosting and multi-cue matching.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -96,6 +70,39 @@ class BoostTrack(BoxTracker):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure confidence boosting, association, and optional appearance features.
+
+        Args:
+            use_cmc: Enable camera-motion compensation; requires image frames.
+            min_box_area: Minimum area of emitted track boxes in pixels squared.
+            aspect_ratio_thresh: Maximum aspect ratio of emitted track boxes.
+            cmc_method: Camera-motion compensation method used when CMC is enabled.
+            lambda_iou: Weight of geometric similarity in association.
+            lambda_mhd: Weight of Mahalanobis similarity in association.
+            lambda_shape: Weight of shape similarity in association.
+            use_dlo_boost: Boost confidence of detections similar to existing tracks.
+            use_duo_boost: Boost confidence of detections far from existing tracks.
+            dlo_boost_coef: Similarity multiplier for basic DLO boosting, used when
+                soft boosting and varying thresholds are both disabled.
+            s_sim_corr: Use the corrected AABB shape-similarity formula.
+            use_rich_s: Combine Mahalanobis, shape, and soft IoU similarities for DLO.
+            use_sb: Blend detection confidence with DLO similarity for soft boosting.
+            use_vt: Use track-age-dependent similarity thresholds for DLO boosting.
+            use_embeddings: Use supplied appearance embeddings, generating missing
+                embeddings from image frames with the configured ReID backend.
+            adaptive_kf: Adapt Kalman noise using measurement innovations.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

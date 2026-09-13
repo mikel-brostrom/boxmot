@@ -65,3 +65,15 @@ option groups in `boxmot/trackers/common/constructor.py`. Update those groups wh
 shared constructor options change, keeping tracker-specific restrictions intact.
 The constructor typing tests check their names and types against the actual
 parent constructors and ensure packaged defaults remain discoverable.
+
+Keep constructor argument documentation directly on each public tracker's
+`__init__` so editor tooltips show that tracker's options. Use one Google-style
+`Args:` section covering every explicit parameter and `**kwargs`; keep the class
+docstring for its overview and attributes. Describe supported inherited settings
+under `**kwargs`, using names from that constructor's typed option group. Update
+the docstring with signature changes and avoid advertising unsupported ReID,
+geometry, timing, or Kalman settings. Check the tooltip contract with:
+
+```bash
+uv run --no-sync pytest tests/unit/trackers/test_constructor_typing.py
+```

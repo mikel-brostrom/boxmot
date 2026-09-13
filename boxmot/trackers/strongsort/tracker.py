@@ -70,6 +70,13 @@ class _Detection:
 
 
 class StrongSort(BoxTracker):
+    """Track AABB or OBB detections with appearance matching and ECC camera motion.
+
+    Attributes:
+        tracks: Active StrongSORT track states.
+        cmc: Camera-motion compensation method.
+    """
+
     accepts_embeddings = True
 
     supports_variable_dt = True
@@ -77,33 +84,6 @@ class StrongSort(BoxTracker):
     requires_frame = True
     use_embeddings = True
     _requires_frame = True
-
-    """Initialize the StrongSort tracker.
-
-    Args:
-        min_conf (float): Minimum confidence threshold for detections.
-        max_cos_dist (float): Maximum cosine distance accepted by the
-            nearest-neighbor metric.
-        max_iou_dist (float): Maximum IoU distance used during association.
-        n_init (int): Number of consecutive hits required to confirm a track.
-        nn_budget (int): Maximum number of appearance features stored per
-            track.
-        mc_lambda (float): Motion-consistency weight used by StrongSORT.
-        ema_alpha (float): Exponential moving average coefficient for
-            appearance features.
-        reid_model (Any | None): Optional pre-built ReID backend used when
-            embeddings are absent.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            Weights for the lazily constructed ReID backend.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazy ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
-
-    Attributes:
-        tracks: Active StrongSORT track states.
-        cmc: Camera-motion compensation method.
-    """
 
     def __init__(
         self,
@@ -122,6 +102,35 @@ class StrongSort(BoxTracker):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[CommonTrackerOptions],
     ) -> None:
+        """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
+
+        Image frames are required for ECC camera-motion compensation. Appearance
+        embeddings are required and are generated with ReID when absent from inputs.
+        Detection filtering uses min_conf, confirmation uses n_init, and geometric
+        fallback matching uses max_iou_dist.
+
+        Args:
+            min_conf: Minimum detection confidence accepted for tracking.
+            max_cos_dist: Maximum cosine distance for appearance-gallery matching.
+            max_iou_dist: Maximum geometry distance for fallback association.
+            n_init: Consecutive hits required to confirm a track.
+            nn_budget: Maximum number of appearance-gallery features stored per track.
+            mc_lambda: Appearance-cost weight in the blend with Mahalanobis distance;
+                the motion-distance weight is one minus this value.
+            ema_alpha: Previous-embedding weight in exponential smoothing; higher values
+                retain more history and adapt more slowly.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

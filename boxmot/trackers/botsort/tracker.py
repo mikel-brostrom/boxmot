@@ -21,45 +21,7 @@ from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_dupl
 
 
 class BotSort(BoxTracker):
-    """Initialize the BotSort tracker.
-
-    Args:
-        track_high_thresh (float): Confidence threshold for the first
-            association pass.
-        track_low_thresh (float): Lower confidence bound for candidate
-            detections.
-        new_track_thresh (float): Threshold required to initialize a new track.
-        track_buffer (int): Number of frames to keep unmatched tracks alive.
-        match_thresh (float): Matching threshold used during association.
-        proximity_thresh (float): IoU gate used before appearance matching.
-        appearance_thresh (float): Maximum embedding distance accepted for ReID
-            matching.
-        use_cmc (bool): Whether to apply camera-motion compensation.
-        cmc_method (str): Camera-motion compensation method.
-        frame_rate (int): Frame rate used to scale the internal track buffer.
-        fuse_first_associate (bool): Whether to fuse motion and appearance in
-            the first association step.
-        use_embeddings (bool): Whether to use appearance embeddings, generating
-            them from the frame when absent.
-        second_match_thresh (float): Matching threshold for the second
-            association pass over low-confidence detections.
-        unconfirmed_match_thresh (float): Matching threshold for tentative
-            tracks that have not yet been confirmed.
-        unconfirmed_emb_scale (float): Divisor applied to embedding distances
-            during unconfirmed-track matching.
-        removed_stracks_buffer (int): Maximum number of removed tracks retained
-            for duplicate bookkeeping.
-        reid_model (Any | None): Optional pre-built ReID backend used when
-            embeddings are absent.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            Weights for the lazily constructed ReID backend.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazy ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+    """Track AABB or OBB detections with two-stage matching, CMC, and optional ReID.
 
     Attributes:
         lost_stracks (list[STrack]): Tracks kept in the lost state.
@@ -101,6 +63,41 @@ class BotSort(BoxTracker):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure confidence stages, lost-track retention, and appearance matching.
+
+        Detection filtering uses track_high_thresh and track_low_thresh; lost-track
+        retention uses track_buffer scaled by frame_rate.
+
+        Args:
+            track_high_thresh: Detection confidence threshold for first-pass matching.
+            track_low_thresh: Lower confidence bound for second-pass candidates.
+            new_track_thresh: Minimum confidence required to initialize a new track.
+            track_buffer: Lost-track lifetime in frames at 30 FPS, scaled by frame_rate.
+            match_thresh: Maximum assignment cost for first-pass matching.
+            proximity_thresh: Maximum geometry distance that permits appearance matching.
+            appearance_thresh: Maximum embedding distance accepted for appearance matching.
+            use_cmc: Enable camera-motion compensation; requires image frames.
+            cmc_method: Camera-motion compensation method used when CMC is enabled.
+            frame_rate: Frame rate used to scale track_buffer relative to 30 FPS.
+            fuse_first_associate: Fuse detection confidence into the first-pass geometry cost.
+            use_embeddings: Use supplied appearance embeddings, generating missing
+                embeddings from image frames with the configured ReID backend.
+            second_match_thresh: Maximum assignment cost for low-confidence detections.
+            unconfirmed_match_thresh: Maximum assignment cost for tentative tracks.
+            unconfirmed_emb_scale: Divisor applied to tentative-track embedding distances.
+            removed_stracks_buffer: Maximum number of removed tracks retained in history.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

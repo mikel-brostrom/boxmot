@@ -123,17 +123,39 @@ class EagerMot(BaseTracker):
     ) -> None:
         """Configure fusion, 3D matching, and the image-only recovery stage.
 
-        ``distance_threshold`` is a positive maximum distance for the source
-        ``dist_2d``, ``dist_2d_dims``, and ``dist_2d_full`` methods. The last
-        method includes center, dimension, and yaw disagreement.
-        ``iou_3d_threshold`` applies only to ``first_matching_method='iou_3d'``.
-        ``max_age_2d`` controls confidence decay after missing image support;
-        ``max_age`` controls expiry after missing both sensor modalities.
-        ``iou_threshold=1`` disables the second association stage, as upstream.
-        The five ``kf_*_scale`` settings multiply the 3D filter's covariance
-        priors. Position includes all seven box coordinates; velocity includes
-        xyz derivatives and, with ``is_angular``, yaw velocity. Prediction
-        remains one frame per update, independent of the supplied ego poses.
+        The five covariance scales multiply the 3D Kalman filter's source
+        priors. Position includes xyz, yaw, and dimensions; velocity includes
+        xyz derivatives and optional object yaw velocity. Prediction advances
+        one frame per update, independent of capture timestamps and ego poses.
+
+        Args:
+            det_thresh: Minimum confidence for 2D image detections.
+            det_thresh_3d: Minimum confidence for 3D detections.
+            max_age: Consecutive updates without either sensor modality at which
+                a track expires.
+            min_hits: Observations needed for confirmation after initial warmup.
+            max_age_2d: Missing-image age at which track confidence starts decaying.
+            fusion_iou_threshold: Minimum image IoU for fusing projected 3D boxes
+                with 2D detections of the same class.
+            iou_threshold: Minimum image IoU for second-stage recovery; 1 disables
+                that stage.
+            first_matching_method: 3D association using ``dist_2d``,
+                ``dist_2d_dims``, ``dist_2d_full``, or ``iou_3d``. The full
+                distance includes center, dimension, and yaw disagreement.
+            distance_threshold: Positive maximum distance for distance-based
+                first-stage matching.
+            iou_3d_threshold: Minimum volumetric IoU when using ``iou_3d`` matching.
+            is_angular: Include object yaw velocity in the 3D motion state.
+            per_class: Maintain separate class state collections. Association
+                always matches only detections and tracks of the same class.
+            asso_func: Image association geometry; must be ``iou``.
+            kf_process_position_scale: Scale process covariance for box coordinates.
+            kf_process_velocity_scale: Scale process covariance for derivatives.
+            kf_measurement_noise_scale: Scale 3D measurement covariance.
+            kf_initial_position_scale: Scale initial box-coordinate covariance.
+            kf_initial_velocity_scale: Scale initial derivative covariance.
+            **kwargs: ``max_obs`` for observation history, and ``class_ids`` and
+                ``class_names`` for detector class metadata.
         """
         for name, value in (
             ("det_thresh", det_thresh),

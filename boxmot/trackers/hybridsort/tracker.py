@@ -33,56 +33,18 @@ from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
 
 
 class HybridSort(BoxTracker):
-    accepts_embeddings = True
-
-    supports_variable_dt = True
-    uses_frame_dimensions_for_association = True
-
-    """Initialize the HybridSort tracker.
-
-    Args:
-        cmc_method (str | None): Camera-motion compensation method; None disables it.
-        use_embeddings (bool): Whether to use appearance embeddings, generating
-            them from the frame when absent.
-        low_thresh (float): Low-confidence threshold for second-pass matching.
-        delta_t (int): Time window used for motion estimation.
-        inertia (float): Motion-consistency weight.
-        use_byte (bool): Whether to enable ByteTrack-style second association.
-        longterm_bank_length (int): Number of appearance features to keep in
-            the long-term bank.
-        alpha (float): Feature update coefficient.
-        adapfs (bool): Whether to enable adaptive feature smoothing.
-        track_thresh (float): High-confidence threshold for the first
-            association pass.
-        EG_weight_high_score (float): Embedding-guided association weight for
-            high-score detections.
-        EG_weight_low_score (float): Embedding-guided association weight for
-            low-score detections.
-        TCM_first_step (bool): Whether to enable TCM in the first step.
-        TCM_byte_step (bool): Whether to enable TCM in the Byte step.
-        TCM_byte_step_weight (float): TCM weight in the Byte step.
-        with_longterm_reid (bool): Whether to enable long-term ReID features.
-        longterm_reid_weight (float): Weight applied to long-term ReID scores.
-        with_longterm_reid_correction (bool): Whether to enable long-term ReID
-            correction.
-        longterm_reid_correction_thresh (float): Correction threshold for
-            regular detections.
-        longterm_reid_correction_thresh_low (float): Correction threshold for
-            low-score detections.
-        reid_model (Any | None): Optional pre-built ReID backend used when
-            embeddings are absent.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            Weights for the lazily constructed ReID backend.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazy ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`.
+    """Track AABB or OBB detections using motion, confidence, and optional appearance.
 
     Attributes:
         use_embeddings (bool): Whether appearance features are enabled.
         cmc: Camera-motion compensation method.
         active_tracks (list[KalmanBoxTracker]): Currently active tracks.
     """
+
+    accepts_embeddings = True
+
+    supports_variable_dt = True
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -120,6 +82,50 @@ class HybridSort(BoxTracker):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure HybridSORT association, confidence prediction, and appearance memory.
+
+        Detection selection uses the shared det_thresh. The OBB path uses geometric
+        and appearance matching without the AABB confidence-prediction, TCM, or
+        long-term-bank stages.
+
+        Args:
+            cmc_method: Camera-motion compensation method; None disables CMC.
+            use_embeddings: Use supplied appearance embeddings, generating missing
+                embeddings from image frames with the configured ReID backend.
+            low_thresh: Lower detection confidence bound for second-pass matching.
+            delta_t: Observation lookback in frames for estimating motion direction.
+            inertia: Weight of observed velocity direction in AABB matching.
+            use_byte: Enable a second association pass for low-confidence detections.
+            longterm_bank_length: Number of appearance features retained per AABB track.
+            alpha: Previous-embedding weight in feature smoothing; higher values
+                retain more history. Adaptive smoothing also incorporates confidence.
+            adapfs: Enable confidence-adaptive feature smoothing for AABB tracks.
+            track_thresh: Clamp separating high and low AABB confidence predictions;
+                does not select input detections.
+            EG_weight_high_score: Appearance-distance weight for high-confidence matches.
+            EG_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
+            TCM_first_step: Enable the first AABB association pass with motion-direction cues.
+            TCM_byte_step: Add a confidence-difference penalty to low-score AABB matching.
+            TCM_byte_step_weight: Weight of that low-score confidence-difference penalty.
+            with_longterm_reid: Include the AABB long-term appearance bank during matching.
+            longterm_reid_weight: Contribution of long-term appearance distance in AABB matching.
+            with_longterm_reid_correction: Reject AABB matches using appearance-distance gates.
+            longterm_reid_correction_thresh: Appearance-distance gate for high-score matches;
+                in OBB mode, good appearance may rescue a poor geometry match.
+            longterm_reid_correction_thresh_low: Appearance-distance gate for low-score
+                AABB matches when correction is enabled.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,

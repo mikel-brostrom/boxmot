@@ -127,40 +127,11 @@ class Track:
 
 
 class SFSORT(BoxTracker):
-    """Initialize the SFSORT tracker.
+    """Track AABB or OBB detections with geometric matching and region timeouts.
 
-    Args:
-        high_th (float | None): High-confidence threshold for detections.
-        match_th_first (float | None): Match threshold for the first
-            association pass.
-        new_track_th (float | None): Confidence threshold for initializing new
-            tracks.
-        low_th (float | None): Low-confidence threshold for the second
-            association pass.
-        match_th_second (float | None): Match threshold for the second
-            association pass.
-        dynamic_tuning (bool): Whether to enable density-based threshold
-            tuning.
-        cth (float | None): Confidence threshold used by dynamic tuning.
-        high_th_m (float | None): Dynamic adjustment scale for ``high_th``.
-        new_track_th_m (float | None): Dynamic adjustment scale for
-            ``new_track_th``.
-        match_th_first_m (float | None): Dynamic adjustment scale for
-            ``match_th_first``.
-        obb_theta_damping (float): Damping factor applied to OBB angle updates.
-        marginal_timeout (int | None): Timeout for marginally lost tracks.
-        central_timeout (int | None): Timeout for centrally lost tracks.
-        frame_width (int | None): Optional frame width for margin computation.
-        frame_height (int | None): Optional frame height for margin
-            computation.
-        horizontal_margin (int | None): Horizontal margin for central-loss
-            detection.
-        vertical_margin (int | None): Vertical margin for central-loss
-            detection.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+    Uses observed boxes and OBB angle smoothing without a Kalman filter.
+    Frame dimensions define central and marginal regions; image pixels and
+    appearance embeddings are unused.
     """
 
     requires_frame = False
@@ -187,6 +158,38 @@ class SFSORT(BoxTracker):
         vertical_margin: int | None = None,
         **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
+        """Configure confidence stages, density adjustments, and image regions.
+
+        Args:
+            high_th: Confidence threshold for first-pass detections.
+            match_th_first: Maximum geometric cost for the first association
+                pass; smaller values require closer matches.
+            new_track_th: Minimum confidence for creating a new track.
+            low_th: Minimum confidence for second-pass detections.
+            match_th_second: Maximum geometric cost for the second association
+                pass.
+            dynamic_tuning: Adjust thresholds using the current detection count.
+            cth: Confidence cutoff for detections counted by dynamic tuning.
+            high_th_m: Scale for decreasing ``high_th`` during dynamic tuning.
+            new_track_th_m: Scale for increasing ``new_track_th`` during dynamic
+                tuning.
+            match_th_first_m: Scale for decreasing ``match_th_first`` during
+                dynamic tuning.
+            obb_theta_damping: Previous angular-update weight in OBB smoothing;
+                larger values reduce the influence of the latest angle change.
+            marginal_timeout: Frames to retain tracks lost near an image edge.
+            central_timeout: Frames to retain tracks lost inside the central
+                region.
+            frame_width: Optional width in pixels; configure together with
+                ``frame_height``, or supply frame dimensions during updates.
+            frame_height: Optional height in pixels, paired with ``frame_width``.
+            horizontal_margin: Left and right margin size in pixels.
+            vertical_margin: Top and bottom margin size in pixels.
+            **kwargs: Shared history/display settings, ``per_class``,
+                ``class_ids``, ``class_names``, ``asso_func``, and ``is_obb``.
+                Detection and association thresholds come from this constructor's
+                explicit settings; the regional timeouts control tracking expiry.
+        """
         if "det_thresh" in kwargs:
             raise TypeError("SFSORT.__init__() got an unexpected keyword argument 'det_thresh'; use 'high_th' instead")
         det_thresh = 0.6 if high_th is None else float(high_th)

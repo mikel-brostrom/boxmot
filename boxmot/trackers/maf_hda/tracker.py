@@ -74,22 +74,6 @@ class MafHda(BaseTracker):
     run with ``motion`` alone without image pixels.
     Only observed, confirmed tracks are emitted. Missing tracks retain their
     appearance and trajectory for ``max_age`` frames of track-to-track recovery.
-
-    Args:
-        det_thresh: Minimum detection confidence (MOTS20 source default).
-        max_age: Maximum frame gap for reconnecting a lost tracklet.
-        min_hits: Observations required for confirmation; output is current-frame.
-        iou_threshold: Lower geometry-affinity bound for appearance gating/fusion.
-        per_class: Process each detector class in its own track collection.
-        velocity_alpha: Previous-velocity weight in the source motion update.
-        merge_iou_thresh: Mask IoU threshold for merging duplicate instances.
-        appearance_lower: Minimum KCF affinity for track-to-track recovery.
-        appearance_upper: Strong KCF affinity allowing overlap-based recovery.
-        appearance_gate: Gate KCF evaluation by geometry affinity.
-        s2ta_mode: Segment-to-track affinity: ``motion``, ``appearance``, or ``maf``.
-        t2ta_mode: Track-to-track affinity: ``motion``, ``appearance``, or ``maf``.
-        template_size: KCF feature template's maximum spatial dimension.
-        **kwargs: Shared BaseTracker options, including ``asso_func`` and ``max_obs``.
     """
 
     capabilities = TrackerCapabilities(
@@ -118,6 +102,31 @@ class MafHda(BaseTracker):
         template_size: int = 96,
         **kwargs: Unpack[AssociationTrackerOptions],
     ) -> None:
+        """Configure mask association, KCF appearance, and tracklet recovery.
+
+        Args:
+            det_thresh: Minimum detection confidence.
+            max_age: Maximum frame gap for reconnecting a lost tracklet.
+            min_hits: Observations required for confirmation; only current-frame
+                observations are emitted.
+            iou_threshold: Lower geometry-affinity bound for appearance gating
+                and fusion.
+            per_class: Process each detector class in its own track collection.
+            velocity_alpha: Previous-velocity weight in the motion update.
+            merge_iou_thresh: Mask IoU threshold for merging duplicate instances.
+            appearance_lower: Minimum KCF affinity for track-to-track recovery.
+            appearance_upper: Strong KCF affinity allowing overlap-based recovery.
+            appearance_gate: Gate KCF evaluation by geometry affinity.
+            s2ta_mode: Segment-to-track affinity: ``motion``, ``appearance``, or
+                ``maf``. Appearance modes require image pixels.
+            t2ta_mode: Track-to-track affinity, using the same modes as
+                ``s2ta_mode``.
+            template_size: Maximum spatial dimension of the KCF feature template.
+            **kwargs: ``max_obs`` for observation history, ``class_ids`` and
+                ``class_names`` for detector metadata, and ``asso_func`` for
+                AABB geometry affinity. Instance masks remain required in every
+                association mode.
+        """
         for name, value in (
             ("det_thresh", det_thresh),
             ("iou_threshold", iou_threshold),

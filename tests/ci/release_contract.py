@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.metadata
 import importlib.util
 import subprocess
@@ -68,6 +69,26 @@ def check_typing_metadata() -> None:
         assert is_typeddict(options), f"Packaged {name} must be a TypedDict"
         assert representative in get_type_hints(options), f"Packaged {name} must include {representative!r}"
         assert not options.__required_keys__, f"Packaged {name} constructor keywords must remain optional"
+    check_tracker_constructor_docs()
+
+
+def check_tracker_constructor_docs() -> None:
+    """Require wheel sources to retain constructor-specific editor tooltip docs."""
+    import boxmot
+    from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
+
+    root = Path(boxmot.__file__).parent
+    for entry in _TRACKER_MANIFEST.values():
+        module_name, class_name = entry.class_path.rsplit(".", 1)
+        source = root.joinpath(*module_name.split(".")[1:]).with_suffix(".py")
+        tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
+        tracker = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == class_name)
+        constructor = next(
+            (node for node in tracker.body if isinstance(node, ast.FunctionDef) and node.name == "__init__"), None
+        )
+        assert constructor is not None, f"Packaged {class_name} must own its constructor"
+        docstring = ast.get_docstring(constructor)
+        assert docstring and "\nArgs:\n" in docstring, f"Packaged {class_name}.__init__ must own Args documentation"
 
 
 def check_release_contract(expected_version: str | None = None) -> None:

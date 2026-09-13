@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 from pathlib import Path
 
@@ -9,6 +10,7 @@ import pytest
 from typing_extensions import TypedDict
 
 import boxmot
+from tests.ci import release_contract
 from tests.ci.release_contract import check_typing_metadata
 
 
@@ -68,3 +70,19 @@ def test_release_rejects_required_inherited_constructor_options(monkeypatch: pyt
 
     with pytest.raises(AssertionError, match="CommonTrackerOptions constructor keywords must remain optional"):
         check_typing_metadata()
+
+
+@pytest.mark.parametrize("missing_doc", (None, "A summary without constructor arguments."))
+def test_release_rejects_missing_constructor_tooltip_docs(
+    monkeypatch: pytest.MonkeyPatch, missing_doc: str | None
+) -> None:
+    get_docstring = ast.get_docstring
+
+    def constructor_without_docs(node: ast.AST, clean: bool = True) -> str | None:
+        if isinstance(node, ast.FunctionDef) and node.name == "__init__":
+            return missing_doc
+        return get_docstring(node, clean=clean)
+
+    monkeypatch.setattr(release_contract.ast, "get_docstring", constructor_without_docs)
+    with pytest.raises(AssertionError, match=r"__init__ must own Args documentation"):
+        release_contract.check_tracker_constructor_docs()

@@ -22,19 +22,10 @@ from boxmot.trackers.ocsort.track import KalmanBoxTracker
 
 
 class OcSort(BoxTracker):
-    """Initialize the OcSort tracker.
+    """Track AABB or OBB detections using observation-centric Kalman motion.
 
-    Args:
-        min_conf (float): Minimum confidence threshold used in the second-stage
-            association pass.
-        delta_t (int): Time window used for motion estimation.
-        inertia (float): Weight applied to the velocity-direction term during
-            matching.
-        use_byte (bool): Whether to enable ByteTrack-style second association.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+    Matching combines geometric similarity with observed motion direction.
+    Centroid association additionally uses frame dimensions.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -54,6 +45,22 @@ class OcSort(BoxTracker):
         use_byte: bool = False,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure observation history and optional low-confidence recovery.
+
+        Args:
+            min_conf: Minimum confidence for the low-score association pass
+                when ``use_byte`` is enabled.
+            delta_t: Observation lookback in frames for estimating motion
+                direction.
+            inertia: Weight of the observed velocity-direction term in matching.
+            use_byte: Enable a second association pass for detections between
+                ``min_conf`` and the shared detection threshold.
+            **kwargs: ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
+                ``iou_threshold``, class metadata and separation, ``asso_func``,
+                and ``is_obb``. Kalman settings include the five covariance
+                scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(**kwargs)
 
         # Store OcSort-specific parameters

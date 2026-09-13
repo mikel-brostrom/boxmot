@@ -28,40 +28,16 @@ from boxmot.trackers.deepocsort.track import DeepOBBKalmanBoxTracker, KalmanBoxT
 
 
 class DeepOcSort(BoxTracker):
-    accepts_embeddings = True
-
-    supports_variable_dt = True
-    uses_frame_dimensions_for_association = True
-
-    """Initialize the DeepOcSort tracker.
-
-    Args:
-        delta_t (int): Time window used for motion estimation.
-        inertia (float): Motion-consistency weight.
-        w_association_emb (float): Weight applied to appearance distance during
-            matching.
-        alpha_fixed_emb (float): Fixed update rate for track embeddings.
-        aw_param (float): Adaptive-weighting parameter for motion versus
-            appearance.
-        use_embeddings (bool): Whether to use appearance embeddings, generating
-            them from the frame when absent.
-        cmc_off (bool): Whether to disable camera-motion compensation.
-        aw_off (bool): Whether to disable adaptive appearance weighting.
-        reid_model (Any | None): Optional pre-built ReID backend used when
-            embeddings are absent.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            Weights for the lazily constructed ReID backend.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazy ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        **kwargs (Any): Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            ``asso_func``, and ``is_obb``.
+    """Track AABB or OBB detections with observation-centric motion and optional ReID.
 
     Attributes:
         cmc: Camera-motion compensation method.
     """
+
+    accepts_embeddings = True
+
+    supports_variable_dt = True
+    uses_frame_dimensions_for_association = True
 
     def __init__(
         self,
@@ -82,6 +58,31 @@ class DeepOcSort(BoxTracker):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure motion-direction matching and adaptive appearance weighting.
+
+        Args:
+            delta_t: Observation lookback in frames for estimating motion direction.
+            inertia: Weight of the observed velocity-direction term in matching.
+            w_association_emb: Base weight of appearance similarity during matching.
+            alpha_fixed_emb: Previous-embedding weight for fully confident detections.
+                Lower-confidence updates retain more of the previous embedding.
+            aw_param: Similarity-ratio cutoff for reducing ambiguous appearance weights.
+            use_embeddings: Use supplied appearance embeddings, generating missing
+                embeddings from image frames with the configured ReID backend.
+            cmc_off: Disable sparse-optical-flow camera-motion compensation.
+            aw_off: Disable adaptive weighting of appearance similarity.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+        """
         super().__init__(
             reid_model=reid_model,
             reid_weights=reid_weights,
@@ -91,9 +92,6 @@ class DeepOcSort(BoxTracker):
             **kwargs,
         )
 
-        """
-        Sets key parameters for SORT
-        """
         self.delta_t = delta_t
         self.inertia = inertia
         self.w_association_emb = w_association_emb

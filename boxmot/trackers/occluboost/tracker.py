@@ -21,9 +21,9 @@ A hybrid tracker that combines:
 * Tuned defaults (longer ``max_age``) that favour identity retention.
 * Optional Oriented Bounding Box (OBB) support, dispatched via a separate
   OBB-only update path that mirrors the AABB flow but uses oriented IoU
-  and a 9-column output schema. AABB-only behaviour (DLO/DUO confidence
-  boosting and Mahalanobis association on xyhr state) is intentionally
-  disabled in OBB mode.
+  and a 9-column output schema. DLO/DUO boosting uses oriented geometry;
+  first-pass OBB matching combines geometry and optional appearance.
+  Abnormal-motion suppression is limited to AABB updates.
 """
 
 from __future__ import annotations
@@ -50,35 +50,7 @@ from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
 
 
 class OccluBoost(BoostTrack):
-    """BoostTrack augmented with an appearance-only recovery pass.
-
-    Args:
-        reid_model (Any | None): Optional pre-built ReID backend exposing
-            ``get_features(boxes, image)``. When omitted, the backend is built
-            lazily from ``reid_weights`` the first time live embeddings are
-            needed.
-        reid_weights (str | Path | list[str | Path] | tuple[str | Path, ...] | None):
-            ReID weights used for live embedding extraction. The BoxMOT default
-            ReID weights are used when omitted.
-        device (Any): Device used by the lazily constructed ReID backend.
-        half (bool): Whether the lazily constructed ReID backend uses FP16 inference.
-        reid_preprocess (str | None): Optional ReID preprocessing profile.
-        recovery_appearance_thresh (float): Minimum cosine similarity required
-            between a detection embedding and a track embedding for the
-            recovery pass to accept a match. Higher = stricter (fewer recoveries
-            but safer identities).
-        recovery_iou_thresh (float): Minimum IoU between detection box and the
-            predicted track box (sanity gate; kept low because predicted boxes
-            of long-lost tracks are inaccurate).
-        recovery_max_age (int): Maximum ``time_since_update`` (after predict) of
-            a tracker eligible for the recovery pass.
-        feat_alpha (float): EMA factor used when updating embeddings during
-            recovery (lower = slower update; preserves identity feature).
-        **kwargs: Forwarded to :class:`BoostTrack`.
-
-    Class attribute ``supports_obb = True`` advertises Oriented Bounding Box
-    capability; oriented detections are dispatched to :meth:`_update_obb`.
-    """
+    """Track AABB or OBB detections with confidence boosting and appearance recovery."""
 
     supports_variable_dt = True
 
@@ -126,6 +98,62 @@ class OccluBoost(BoostTrack):
         reid_preprocess: str | None = None,
         **kwargs: Unpack[OccluBoostOptions],
     ) -> None:
+        """Configure recovery, track confirmation, and occlusion-aware motion updates.
+
+        The OBB path has separate detection, matching, and lifetime thresholds.
+        Abnormal-motion suppression and lambda_emb_multiplier affect AABB tracking.
+
+        Args:
+            use_embeddings: Use supplied appearance embeddings, generating missing
+                embeddings from image frames with the configured ReID backend.
+            recovery_appearance_thresh: Minimum cosine similarity for appearance recovery.
+            recovery_iou_thresh: Minimum geometric similarity for appearance recovery.
+            recovery_max_age: Maximum unmatched age after prediction for AABB recovery.
+            feat_alpha: Previous-embedding weight for recovery and second-pass updates;
+                higher values retain more history and adapt more slowly.
+            track_low_thresh: Lower confidence bound for second-pass detections.
+            second_iou_thresh: Minimum geometric similarity for the AABB second pass.
+            second_appearance_thresh: Minimum cosine similarity for second-pass matching
+                when appearance is enabled.
+            second_pass_max_age: Maximum unmatched age for second-pass recovery.
+            second_pass_min_hits: Minimum hit streak of tracks eligible for the second pass.
+            use_second_pass: Enable low-confidence matching to eligible confirmed tracks.
+            new_track_thresh: Minimum detection confidence to create an AABB track.
+            confirm_hits: Consecutive matched updates needed to activate tentative tracks.
+            instant_confirm_thresh: Confidence that immediately activates a new AABB track.
+            tentative_max_age: Maximum unmatched age before a tentative track expires.
+            duplicate_iou_thresh: Geometric similarity above which duplicate tracks
+                are suppressed, retaining the older track.
+            ams_enabled: Enable abnormal-motion suppression of AABB Kalman updates.
+            ams_alpha0: Kalman-gain multiplier for abnormal AABB motion components;
+                lower values suppress observation corrections more strongly.
+            ams_threshold: Relative excess over historical speed that triggers suppression.
+            ams_buffer_size: Observation history length for estimating normal motion.
+            ams_shrink_ratio: Suppress only when the AABB area falls below this fraction
+                of the historical mean area.
+            lambda_emb_multiplier: Appearance-weight multiplier in AABB first-pass matching.
+            adaptive_kf: Adapt Kalman noise using measurement innovations.
+            obb_det_thresh: Detection confidence threshold for OBB first-pass matching.
+            obb_iou_threshold: Minimum geometric similarity for OBB first-pass matching.
+            obb_new_track_thresh: Minimum detection confidence to create an OBB track.
+            obb_instant_confirm_thresh: Confidence that immediately activates a new OBB track.
+            obb_max_age: Maximum unmatched age before an OBB track expires.
+            obb_recovery_max_age: Maximum unmatched age after prediction for OBB recovery.
+            obb_second_iou_thresh: Minimum geometric similarity for the OBB second pass.
+            reid_model: Pre-built ReID backend exposing ``get_features(boxes, image)``,
+                used when appearance is enabled and input embeddings are absent.
+            reid_weights: Weights for the ReID backend constructed lazily when
+                embeddings are needed. None selects the default ReID weights.
+            device: Inference device for the lazily constructed ReID backend.
+            half: Use FP16 inference in the lazily constructed ReID backend.
+            reid_preprocess: Preprocessing profile for the lazy ReID backend.
+            **kwargs: Shared detection, lifecycle, class metadata and separation,
+                ``asso_func``, and ``is_obb`` settings. Kalman settings include the five
+                covariance scales, ``variable_dt``, ``kf_reference_dt_s``, and
+                ``kf_time_unit``.
+                BoostTrack options additionally configure ``use_cmc``, ``cmc_method``,
+                output size filtering, multi-cue weights, and DLO/DUO confidence boosting.
+        """
         super().__init__(
             use_embeddings=use_embeddings,
             reid_model=reid_model,

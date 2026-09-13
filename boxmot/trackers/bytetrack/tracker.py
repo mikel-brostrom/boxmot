@@ -14,20 +14,10 @@ from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_dupl
 
 
 class ByteTrack(BoxTracker):
-    """Initialize the ByteTrack tracker.
+    """Associate high- and low-confidence boxes using Kalman motion estimates.
 
-    Args:
-        min_conf (float): Minimum confidence used for the low-score association
-            stage. Detections below this value are discarded.
-        track_thresh (float): Confidence threshold for detections that enter the
-            first association pass.
-        match_thresh (float): Matching threshold used during association.
-        track_buffer (int): Number of frames to keep unmatched tracks alive.
-        frame_rate (int): Frame rate used to scale the internal track buffer.
-        **kwargs: Base tracker settings forwarded to :class:`BaseTracker`,
-            including ``max_age``, ``max_obs``, ``min_hits``,
-            ``iou_threshold``, ``per_class``, ``class_ids``, ``class_names``,
-            and ``is_obb``.
+    Supports AABB and OBB detections. Frame dimensions are needed when using
+    centroid association; matching otherwise uses detection geometry alone.
 
     Attributes:
         frame_count (int): Number of processed frames.
@@ -36,7 +26,7 @@ class ByteTrack(BoxTracker):
         removed_stracks (list[STrack]): Tracks removed from the tracker state.
         buffer_size (int): Track buffer size after frame-rate scaling.
         max_time_lost (int): Maximum number of frames a track may stay lost.
-        kalman_filter (KalmanFilterXYAH): Motion model used for prediction.
+        kalman_filter: XYAH motion model for AABB, or XYWH with angle for OBB.
     """
 
     supports_variable_dt = True
@@ -51,6 +41,24 @@ class ByteTrack(BoxTracker):
         frame_rate: int = 30,
         **kwargs: Unpack[KalmanTrackerOptions],  # BaseTracker parameters
     ) -> None:
+        """Configure ByteTrack's confidence stages and lost-track buffer.
+
+        Args:
+            min_conf: Minimum confidence for the low-score association stage.
+            track_thresh: Confidence threshold for the first association pass
+                and for creating new tracks.
+            match_thresh: Maximum score-fused geometric cost for the first
+                association pass; smaller values require closer matches.
+            track_buffer: Lost-track retention in frames at 30 FPS, scaled by
+                ``frame_rate``. This controls tracking expiry.
+            frame_rate: Frame rate used to scale ``track_buffer``.
+            **kwargs: Shared history/display settings, class metadata and
+                separation, ``asso_func``, and ``is_obb``. Kalman settings include
+                the five covariance scales, ``variable_dt``,
+                ``kf_reference_dt_s``, and ``kf_time_unit``. ``max_age`` and
+                ``min_hits`` affect shared history/display rather than the
+                tracker-specific buffer and activation rules.
+        """
         if "det_thresh" in kwargs:
             raise TypeError(
                 "ByteTrack.__init__() got an unexpected keyword argument 'det_thresh'; use 'track_thresh' instead"
