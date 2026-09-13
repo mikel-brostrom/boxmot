@@ -1,9 +1,10 @@
 """Generate static model-name Literal aliases from catalogs and Ultralytics.
 
 Run ``uv run --no-sync python -m tools.generate_model_names`` after changing a
-detector/ReID profile, tracker manifest, or locked Ultralytics release. Install
-the yolo extra before generating. ``--check`` reports stale files without
-modifying them. Generated modules need only the Python standard library.
+detector/ReID profile, pretrained ReID catalog, tracker manifest, or locked
+Ultralytics release. Install the yolo extra before generating. ``--check``
+reports stale files without modifying them. Generated modules need only the
+Python standard library.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pathlib import Path
 from boxmot.detectors._ultralytics_models import ultralytics_detector_names, ultralytics_inventory_version
 from boxmot.detectors.config import load_detector_config
 from boxmot.reid.config import load_reid_config
+from boxmot.reid.core.catalog import TRAINED_URLS
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.utils.config import ConfigurationError, index_config_ids
 
@@ -46,6 +48,20 @@ def reid_names(config_dir: Path) -> tuple[str, ...]:
     return tuple(sorted(indexed))
 
 
+def reid_checkpoint_names() -> tuple[str, ...]:
+    """Return existing downloadable checkpoint selectors without new aliases.
+
+    Plain PyTorch names can omit ``.pt`` because resolution appends it. Keep the
+    full filename for other formats or dotted stems, where dropping an extension
+    would change the path interpreted by the resolver.
+    """
+    names = []
+    for filename in TRAINED_URLS:
+        stem = filename.removesuffix(".pt")
+        names.append(filename if Path(stem).suffix else stem)
+    return tuple(sorted(names))
+
+
 def render_alias(alias: str, names: Iterable[str], *, provenance: str | None = None) -> str:
     """Render deterministic Python 3.10-compatible source without dynamic lookups."""
     ordered_names = tuple(sorted(set(names)))
@@ -71,7 +87,9 @@ def generated_sources(root: Path = REPO_ROOT, *, trackers: Iterable[str] | None 
             detector_selectors,
             provenance=f"Includes box-producing assets from Ultralytics {ultralytics_inventory_version()}.",
         ),
-        root / "boxmot/reid/_model_names.py": render_alias("ReIDName", reid_names(configs / "reid")),
+        root / "boxmot/reid/_model_names.py": render_alias(
+            "ReIDName", (*reid_names(configs / "reid"), *reid_checkpoint_names())
+        ),
         root / "boxmot/trackers/common/_model_names.py": render_alias(
             "TrackerName", _TRACKER_MANIFEST if trackers is None else trackers
         ),

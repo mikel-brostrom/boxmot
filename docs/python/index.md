@@ -285,15 +285,29 @@ tracker = create_tracker("occluboost", per_class=True, use_embeddings=True)
 
 Editors that support Python literal completions can suggest model names inside
 the first argument's quotes. Detector suggestions combine BoxMOT profiles with
-the official box-producing checkpoints from Ultralytics. Invoke your editor's completion menu
+the official box-producing checkpoints from Ultralytics. ReID suggestions combine
+runtime profiles with BoxMOT's pretrained checkpoint catalog. Invoke your editor's completion menu
 while typing `create_detector("...")`, `create_reid_encoder("...")`, or
 `create_tracker("...")`. Detector suggestions include checkpoint selections such
 as `"yolox/n"` when a profile has multiple checkpoints.
 
-Suggestions ship with BoxMOT and record the Ultralytics version used to generate
-them. Custom paths, config mappings,
-string variables, and explicit specs remain accepted. Adding a local model file
-does not automatically add an editor suggestion.
+Suggestions ship with BoxMOT; detector suggestions record the Ultralytics version
+used to generate them. Custom paths, config mappings, string variables, and
+explicit specs remain accepted. Adding a local model file does not automatically
+add an editor suggestion.
+
+ReID checkpoints cover OSNet (including IBN and AIN), ResNet50, MobileNetV2,
+MLFN, HACNN, and LMBN. Checkpoint suggestions retain their filenames' underscores
+and omit `.pt`; profile IDs such as `"osnet-x0-25-msmt17"` retain their hyphens.
+Use either kind directly:
+
+```python
+encoder = create_reid_encoder("osnet_x1_0_msmt17", device="cpu")
+# Other suggestions: "mobilenetv2_x1_0_market1501", "lmbn_n_market", etc.
+```
+
+Backbones without a cataloged ReID checkpoint require your own trained weights
+and are not suggested by this inference factory.
 
 Ultralytics models include YOLO detection, instance segmentation, pose, and OBB
 variants, YOLO-World, YOLOE, RT-DETR, FastSAM, and YOLO-NAS. For example,

@@ -15,6 +15,8 @@ import yaml
 from boxmot.detectors._model_names import DetectorName
 from boxmot.detectors._ultralytics_models import ultralytics_detector_names, ultralytics_inventory_version
 from boxmot.detectors.config import load_detector_profile
+from boxmot.reid._model_names import ReIDName
+from boxmot.reid.core.catalog import TRAINED_URLS
 from boxmot.utils.config import ConfigurationError
 from tools import generate_model_names as generator
 
@@ -59,6 +61,7 @@ def _reid(root: Path, identifier: str, *, filename: str | None = None) -> Path:
 def catalog_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(generator, "ultralytics_detector_names", lambda: ("yolo99n",))
     monkeypatch.setattr(generator, "ultralytics_inventory_version", lambda: "fixture-version")
+    monkeypatch.setattr(generator, "TRAINED_URLS", {"fixture_reid.pt": "https://example.test/fixture_reid.pt"})
     _detector(tmp_path, "base-detector")
     _reid(tmp_path, "base-reid")
     return tmp_path
@@ -85,6 +88,14 @@ def test_every_suggested_detector_name_selects_a_profile_or_official_checkpoint(
 def test_detector_alias_records_installed_inventory_version() -> None:
     detector_module = generator.REPO_ROOT / "boxmot/detectors/_model_names.py"
     assert f"Ultralytics {ultralytics_inventory_version()}" in detector_module.read_text(encoding="utf-8")
+
+
+def test_every_suggested_reid_name_selects_a_profile_or_downloadable_checkpoint() -> None:
+    profiles = generator.reid_names(generator.REPO_ROOT / "boxmot/configs/reid")
+    assert set(get_args(ReIDName)) == set(profiles) | {Path(filename).stem for filename in TRAINED_URLS}
+    assert {f"{name}.pt" for name in generator.reid_checkpoint_names()} == set(TRAINED_URLS)
+    assert {"osnet_x0_25_msmt17", "mobilenetv2_x1_4_market1501", "lmbn_n_duke"} <= set(get_args(ReIDName))
+    assert not {"osnet_x0_25", "resnet50", "mlfn"}.intersection(get_args(ReIDName))
 
 
 @pytest.mark.parametrize("kind", ("detectors", "reid"))
@@ -197,6 +208,35 @@ def test_detector_alias_merges_and_tracks_installed_inventory_changes(
     assert '"base-detector"' in second
     monkeypatch.setattr(generator, "ultralytics_inventory_version", lambda: "updated-version")
     assert "Ultralytics updated-version" in generator.generated_sources(catalog_root)[output]
+
+
+def test_reid_alias_tracks_download_catalog_changes_and_preserves_selectors(
+    catalog_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = {
+        "osnet_x0_25_dataset.pt": "https://example.test/osnet.pt",
+        "base-reid.pt": "https://example.test/profile.pt",
+        "encoder.v2.pt": "https://example.test/encoder.pt",
+        "exported.onnx": "https://example.test/exported.onnx",
+    }
+    monkeypatch.setattr(generator, "TRAINED_URLS", catalog)
+    output = catalog_root / "boxmot/reid/_model_names.py"
+    original = catalog.copy()
+    first = generator.generated_sources(catalog_root)[output]
+    assert first.count('"base-reid"') == 1
+    assert '"osnet_x0_25_dataset"' in first
+    assert '"osnet_x0_25_dataset.pt"' not in first
+    assert '"encoder.v2.pt"' in first
+    assert '"exported.onnx"' in first
+    assert catalog == original
+    assert generator.generated_sources(catalog_root)[output] == first
+
+    catalog["added_dataset.pt"] = "https://example.test/added.pt"
+    del catalog["osnet_x0_25_dataset.pt"]
+    updated = generator.generated_sources(catalog_root)[output]
+    assert '"added_dataset"' in updated
+    assert '"osnet_x0_25_dataset"' not in updated
+    assert '"base-reid"' in updated
 
 
 def test_check_detects_missing_and_modified_outputs_without_repairing_them(catalog_root: Path) -> None:

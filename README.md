@@ -354,8 +354,8 @@ pipeline = TrackingPipeline(detector=detector, reid=reid, tracker=tracker)
 ```
 
 Factories resolve model configs and weights internally. Python editors that
-support literal completions can suggest profiles and supported Ultralytics
-checkpoints inside the model string.
+support literal completions can suggest profiles, supported Ultralytics
+checkpoints, and pretrained ReID checkpoints inside the model string.
 See the
 [Python API](docs/python/index.md#component-factories) for independent component
 calls, frame construction, and explicit specs.

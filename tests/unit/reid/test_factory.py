@@ -15,7 +15,9 @@ import yaml
 
 import boxmot.reid.config as reid_config
 import boxmot.reid.factory as reid_factory
+import boxmot.resources.paths as resource_paths
 from boxmot.reid import ReIDEncoderSpec, create_reid_encoder
+from boxmot.reid.core.catalog import TRAINED_URLS
 from boxmot.reid.protocols import EncoderRequirements
 
 
@@ -205,6 +207,43 @@ def test_reid_factory_controls_downloads_through_real_reference_resolution(
         assert not downloads
         assert not capture_encoder
         assert not artifact.exists()
+
+
+@pytest.mark.parametrize("filename", sorted(TRAINED_URLS))
+def test_reid_factory_resolves_every_pretrained_catalog_stem(
+    filename: str, tmp_path: Path, capture_encoder, monkeypatch
+) -> None:
+    """Autocomplete checkpoint stems retain catalog URLs and profile defaults."""
+    weights = tmp_path / "models"
+    weights.mkdir()
+    artifact = weights / filename
+    downloads = []
+    content = b"catalog fixture weights"
+
+    def download(url: str, destination: Path) -> None:
+        downloads.append((url, destination))
+        destination.write_bytes(content)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(resource_paths, "_default_weights_directory", lambda: weights)
+    monkeypatch.setitem(sys.modules, "boxmot.resources.download", SimpleNamespace(download_file=download))
+
+    encoder = create_reid_encoder(Path(filename).stem, device="cpu", options={"batch_size": 7})
+
+    assert downloads == [(TRAINED_URLS[filename], artifact)]
+    assert capture_encoder == [encoder.spec]
+    assert encoder.spec.backend == "pytorch"
+    assert encoder.spec.artifact == str(artifact)
+    assert encoder.spec.artifact_sha256 == hashlib.sha256(content).hexdigest()
+    assert encoder.spec.device == "cpu"
+    expected_options = {"batch_size": 7}
+    if filename in {"osnet_x0_25_msmt17.pt", "lmbn_n_duke.pt"}:
+        expected_options["image_size"] = (384, 128) if filename == "lmbn_n_duke.pt" else (256, 128)
+        assert encoder.spec.preprocessing == "resize"
+    else:
+        assert encoder.spec.preprocessing == "default"
+    assert encoder.spec.precision == ("fp16" if filename == "lmbn_n_duke.pt" else "fp32")
+    assert encoder.spec.option_values() == expected_options
 
 
 @pytest.mark.parametrize("reference", (None, 123, False, [], object()))
