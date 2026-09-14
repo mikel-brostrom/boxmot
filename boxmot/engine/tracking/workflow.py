@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from boxmot import create_tracker
 from boxmot.detectors import Detector, DetectorSpec, create_detector
 from boxmot.detectors.config import resolve_detector_spec
-from boxmot.engine.config.trackers import resolve_tracker_options
+from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.tracking.profiling import RuntimeProfiler, profile_components, startup_stage
 from boxmot.engine.tracking.runner import RunSummary, TrackingRunner
 from boxmot.engine.tracking.sinks import (
@@ -32,6 +33,11 @@ from boxmot.segmentors import Segmentor, create_segmentor
 from boxmot.segmentors.config import resolve_segmentor_spec
 from boxmot.trackers import ReIDConfigurableTracker, Tracker, TrackerSpec
 from boxmot.utils.devices import resolve_device
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +129,50 @@ def _tracker_spec(args: Any, geometry: str) -> TrackerSpec:
     )
 
 
+def _mask_guidance_config(args: Any, tracker_spec: TrackerSpec) -> MaskGuidanceConfig | None:
+    """Configure propagation of the frames delivered by the tracking workflow."""
+    checkpoint = edgetam_checkpoint(args)
+    if checkpoint is None:
+        return None
+    from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+    from boxmot.trackers.common.config import load_tracker_config
+    from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options, validate_mask_guidance_spec
+
+    validate_mask_guidance_spec(tracker_spec)
+    config = mask_guidance_config_from_options(
+        checkpoint=checkpoint,
+        device=_component_device(args, "cuda"),
+        options=load_tracker_config(tracker_spec.name, None, tracker_spec.option_dict),
+    )
+    return replace(config, checkpoint=resolve_edgetam_checkpoint(checkpoint))
+
+
+def _share_edgetam_model(
+    args: Any, config: MaskGuidanceConfig,
+) -> tuple[MaskGuidanceConfig | MaskGuidance, Segmentor | None]:
+    """Share matching segmentor/guidance weights within this tracking run only."""
+    from boxmot.components.artifacts import sha256_artifact
+    from boxmot.segmentors.propagation.edgetam import EdgeTAMMaskPropagator
+    from boxmot.segmentors.propagation.model import effective_precision
+    from boxmot.trackers.common.mask_guidance import MaskGuidance
+
+    spec, _ = resolve_segmentor_spec(args.segmentor, geometry="aabb")
+    spec = replace(spec, device=_component_device(args, spec.device))
+    if (
+        spec.backend != "edgetam"
+        or resolve_device(spec.device) != resolve_device(config.device)
+        or spec.precision != effective_precision(config.device)
+        or spec.artifact_sha256 != sha256_artifact(config.checkpoint)
+    ):
+        return config, None
+    propagator = EdgeTAMMaskPropagator(
+        config.checkpoint, device=config.device, max_objects=config.max_objects,
+        prompt_overlap=config.prompt_overlap,
+    )
+    segmentor = create_segmentor(spec, model=propagator.predictor)
+    return MaskGuidance(config, propagator=propagator), segmentor
+
+
 def _output_directory(args: Any) -> Path:
     project = Path(getattr(args, "project", "runs/track"))
     name = str(getattr(args, "name", "track") or "track")
@@ -131,7 +181,10 @@ def _output_directory(args: Any) -> Path:
     return output
 
 
-def _default_sinks(args: Any) -> tuple[tuple[TrackSink, ...], Path | None, Path | None, Path | None]:
+def _default_sinks(
+    args: Any, *, guidance_mask_provider: Callable[[], Mapping[int, np.ndarray]] | None = None
+) -> tuple[tuple[TrackSink, ...], Path | None, Path | None, Path | None]:
+    """Build output sinks, sharing one optional guidance overlay per frame."""
     sinks: list[TrackSink] = []
     video_path = mot_path = json_path = None
     video_sink: VideoSink | None = None
@@ -154,10 +207,15 @@ def _default_sinks(args: Any) -> tuple[tuple[TrackSink, ...], Path | None, Path 
             SharedRenderingSink(
                 (video_sink, display_sink),
                 line_width=line_width,
+                guidance_mask_provider=guidance_mask_provider,
             )
         )
     elif video_sink is not None:
-        sinks.append(video_sink)
+        sinks.append(
+            SharedRenderingSink((video_sink,), line_width=line_width, guidance_mask_provider=guidance_mask_provider)
+            if guidance_mask_provider is not None
+            else video_sink
+        )
     if bool(getattr(args, "save_txt", False)):
         assert output is not None
         mot_path = output / "tracks.txt"
@@ -169,7 +227,11 @@ def _default_sinks(args: Any) -> tuple[tuple[TrackSink, ...], Path | None, Path 
         json_path.unlink(missing_ok=True)
         sinks.append(JsonLinesSink(json_path))
     if display_sink is not None and video_sink is None:
-        sinks.append(display_sink)
+        sinks.append(
+            SharedRenderingSink((display_sink,), line_width=line_width, guidance_mask_provider=guidance_mask_provider)
+            if guidance_mask_provider is not None
+            else display_sink
+        )
     if not sinks:
         sinks.append(NullSink())
     return tuple(sinks), video_path, mot_path, json_path
@@ -197,6 +259,12 @@ def run_track(
         resolve_device(args.device)
     tracker_was_injected = tracker is not None
     tracker_spec = _tracker_spec(args, geometry) if tracker is None else None
+    if edgetam_checkpoint(args) is not None and tracker is not None:
+        raise ValueError(
+            "Configure mask guidance on the supplied tracker instead of combining "
+            "--edgetam with an injected tracker."
+        )
+    mask_guidance = _mask_guidance_config(args, tracker_spec) if tracker_spec is not None else None
 
     if detector is None:
         if ui_pipeline is not None:
@@ -207,7 +275,18 @@ def run_track(
         if ui_pipeline is not None:
             ui_pipeline.update("Loading tracker…")
         with startup_stage(startup_timings_ms, "tracker_load"):
-            tracker = create_tracker(tracker_spec)
+            if (
+                mask_guidance is not None
+                and segmentor is None
+                and getattr(args, "segmentor", None) is not None
+                and not detector.capabilities.provides_masks
+            ):
+                mask_guidance, segmentor = _share_edgetam_model(args, mask_guidance)
+            tracker = (
+                create_tracker(tracker_spec, mask_guidance=mask_guidance)
+                if mask_guidance is not None
+                else create_tracker(tracker_spec)
+            )
             requirements = tracker.requirements
             generates_embeddings = getattr(tracker, "generates_embeddings", False)
             if not isinstance(generates_embeddings, bool):
@@ -267,7 +346,12 @@ def run_track(
             )
     if sinks is None:
         with startup_stage(startup_timings_ms, "output_prepare"):
-            sinks, video_path, mot_path, json_path = _default_sinks(args)
+            provider = (
+                (lambda owner=tracker: owner.guidance_masks)
+                if getattr(tracker, "guidance_masks", None) is not None
+                else None
+            )
+            sinks, video_path, mot_path, json_path = _default_sinks(args, guidance_mask_provider=provider)
     else:
         video_path = mot_path = json_path = None
 

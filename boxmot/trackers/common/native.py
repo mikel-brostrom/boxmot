@@ -21,6 +21,7 @@ from boxmot.trackers.common.input import (
     parse_numpy_detection_rows,
     prepare_frame,
 )
+from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
@@ -82,9 +83,14 @@ def load_native_tracker_config(
 ) -> dict[str, Any]:
     """Load defaults and reject options unsupported by one native backend."""
 
-    resolved = load_tracker_defaults(tracker_name)
+    resolved = {
+        key: value for key, value in load_tracker_defaults(tracker_name).items() if key not in MASK_GUIDANCE_OPTIONS
+    }
     if options is not None:
         options = flatten_tracker_options(options)
+        mask_options = sorted(set(options).intersection(MASK_GUIDANCE_OPTIONS))
+        if mask_options:
+            raise ValueError("Native trackers do not support mask guidance options: " + ", ".join(mask_options))
         accepted_keys = (
             set(resolved)
             | set(native_only_keys)

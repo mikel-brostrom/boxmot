@@ -36,7 +36,10 @@ from boxmot.structures import Boxes, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from boxmot.engine.eval.session import ReplaySession
+    from boxmot.trackers.common.mask_guidance import MaskGuidanceConfig
 
 ReplayProgressStatus = Literal["queued", "running", "completed", "failed"]
 ReplayProgressCallback = Callable[["ReplayProgressEvent"], None]
@@ -50,10 +53,11 @@ _WORKER_INPUT_LIMIT = 8
 
 @dataclass(frozen=True, slots=True)
 class ReplayFrame:
-    """One cached sample and its canonical tracking result."""
+    """One cached result and optional masks borrowed for synchronous rendering."""
 
     sample: DatasetSample
     result: PipelineResult
+    guidance_masks: Mapping[int, np.ndarray] | None = None
 
 
 ReplayFrameCallback = Callable[[ReplayFrame], None]
@@ -113,6 +117,8 @@ class _SequenceReplayTask:
     input_cache_path: str | None = None
     run_id: str | None = None
     report_progress: bool = True
+    mask_guidance_weights: str | None = None
+    mask_guidance_device: str = "cpu"
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +187,7 @@ def iter_cached_tracks(
         result = pipeline.step_detections(frame, sample.detections)
         if output_format == "mots":
             result = PipelineResult(result.detections, prepare_mots_tracks(result, sample.image_size))
-        yield ReplayFrame(sample=sample, result=result)
+        yield ReplayFrame(sample=sample, result=result, guidance_masks=getattr(tracker, "guidance_masks", None))
 
 
 def _obb_corners(geometry: torch.Tensor) -> torch.Tensor:
@@ -398,10 +404,10 @@ def _worker_inputs(task: _SequenceReplayTask, *, load_images: bool, load_masks: 
 
 
 @contextmanager
-def _owned_tracker(spec: TrackerSpec) -> Iterator[Tracker]:
+def _owned_tracker(spec: TrackerSpec, mask_guidance: MaskGuidanceConfig | None = None) -> Iterator[Tracker]:
     """Create and deterministically release a worker-local tracker."""
 
-    tracker = create_tracker(spec)
+    tracker = create_tracker(spec) if mask_guidance is None else create_tracker(spec, mask_guidance=mask_guidance)
     primary_error: BaseException | None = None
     try:
         yield tracker
@@ -469,7 +475,12 @@ def _prefetch_samples(dataset: Iterable[DatasetSample]) -> Iterator[Iterator[Dat
                     add_note(f"Cached input cleanup also failed: {cleanup_error}")
 
 
-def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
+def _replay_sequence_task(
+    task: _SequenceReplayTask,
+    *,
+    frame_callback: ReplayFrameCallback | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
+) -> _SequenceReplayResult:
     """Replay exactly one sequence in a spawned process."""
 
     global _WORKER_RUN_ID, _WORKER_REPORT_PROGRESS
@@ -478,7 +489,15 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
     completed = 0
     total = 0
     track_rows = 0
-    _emit_worker_progress(
+    latest: dict[int, ReplayProgressEvent] = {}
+
+    def emit(event: ReplayProgressEvent) -> None:
+        if progress_callback is None:
+            _emit_worker_progress(event)
+        else:
+            _publish_progress(event, progress_callback, latest)
+
+    emit(
         ReplayProgressEvent(
             sequence_id=task.sequence_id,
             status="running",
@@ -490,7 +509,20 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
         )
     )
     try:
-        with _owned_tracker(task.tracker_spec) as tracker, ExitStack() as inputs:
+        with ExitStack() as inputs:
+            guidance = None
+            if task.mask_guidance_weights is not None:
+                from boxmot.trackers.common.config import load_tracker_config
+                from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options
+
+                guidance = mask_guidance_config_from_options(
+                    checkpoint=task.mask_guidance_weights,
+                    device=task.mask_guidance_device,
+                    options=load_tracker_config(task.tracker_spec.name, None, task.tracker_spec.option_dict),
+                )
+            tracker = inputs.enter_context(
+                _owned_tracker(task.tracker_spec) if guidance is None else _owned_tracker(task.tracker_spec, guidance)
+            )
             requirements = tracker.requirements
             needs_masks = requirements.masks or task.output_format == "mots"
             dataset = _worker_inputs(
@@ -514,7 +546,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                     f"Sequence {task.sequence_id!r} changed while replay was starting: "
                     f"expected {task.frame_total} frames, loaded {total}."
                 )
-            _emit_worker_progress(
+            emit(
                 ReplayProgressEvent(
                     sequence_id=task.sequence_id,
                     status="running",
@@ -557,9 +589,11 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                         else result.tracks
                     )
                     row_count = _write_tracks(handle, tracks, sample.frame_index, task.output_format)
+                    if frame_callback is not None:
+                        frame_callback(ReplayFrame(sample, result, getattr(tracker, "guidance_masks", None)))
                     completed += 1
                     track_rows += row_count
-                    _emit_worker_progress(
+                    emit(
                         ReplayProgressEvent(
                             sequence_id=task.sequence_id,
                             status="running",
@@ -573,7 +607,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
                 handle.flush()
                 os.fsync(handle.fileno())
     except Exception as exc:
-        _emit_worker_progress(
+        emit(
             ReplayProgressEvent(
                 sequence_id=task.sequence_id,
                 status="failed",
@@ -586,7 +620,7 @@ def _replay_sequence_task(task: _SequenceReplayTask) -> _SequenceReplayResult:
         )
         raise RuntimeError(f"Cached replay failed for sequence {task.sequence_id!r}.") from exc
 
-    _emit_worker_progress(
+    emit(
         ReplayProgressEvent(
             sequence_id=task.sequence_id,
             status="completed",
@@ -1078,6 +1112,9 @@ def replay_build(
     output_format: str = "mot",
     session: ReplaySession | None = None,
     cache_inputs: bool = False,
+    mask_guidance_weights: str | Path | None = None,
+    mask_guidance_device: str = "cpu",
+    mask_guidance_max_objects: int | None = None,
 ) -> ReplayResult:
     """Replay keyed detections, isolating each sequence in a spawned process.
 
@@ -1091,9 +1128,45 @@ def replay_build(
     Callback failures propagate without publishing partial MOT result files.
     ``output_format='mots'`` requires published detection masks and writes
     zero-based KITTI MOTS segmentation rows with deterministic, disjoint masks.
+
+    ``mask_guidance_weights`` enables the paper-inspired EdgeTAM association cue
+    for Python AABB box trackers. Each sequence streams its decoded sample frames
+    through a fresh temporal model on ``mask_guidance_device``. The default
+    worker count becomes one, and output remains MOT bounding-box rows.
+    Mask settings come from ``tracker_spec`` and its nested ``edgetam`` YAML
+    defaults; an explicit ``mask_guidance_max_objects`` overrides
+    ``edgetam.max_objects``.
     """
 
     _validate_output_format(output_format)
+    if not isinstance(tracker_spec, TrackerSpec):
+        raise TypeError("tracker_spec must be a TrackerSpec")
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+        from boxmot.trackers.common.config import load_tracker_config
+        from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options
+        from boxmot.utils.devices import resolve_device
+
+        if mask_guidance_max_objects is not None:
+            options = {**tracker_spec.option_dict, "edgetam.max_objects": mask_guidance_max_objects}
+            tracker_spec = replace(
+                tracker_spec,
+                options=tuple(sorted(options.items())),
+            )
+        validate_mask_guidance_tracker(tracker_spec, output_format=output_format)
+        if tracker is not None:
+            raise ValueError("Mask guidance evaluation requires sequence-local, worker-owned trackers.")
+        mask_guidance_config_from_options(
+            checkpoint=mask_guidance_weights,
+            device=mask_guidance_device,
+            options=load_tracker_config(tracker_spec.name, None, tracker_spec.option_dict),
+        )
+        checkpoint = resolve_edgetam_checkpoint(mask_guidance_weights)
+        mask_guidance_weights = str(checkpoint)
+        mask_guidance_device = str(resolve_device(mask_guidance_device))
+        if workers is None:
+            workers = 1
     if not isinstance(cache_inputs, bool):
         raise TypeError("cache_inputs must be bool.")
     if session is not None:
@@ -1104,8 +1177,6 @@ def replay_build(
         if tracker is not None or frame_callback is not None:
             raise ValueError("ReplaySession requires worker-owned trackers without frame callbacks.")
         cache_inputs = cache_inputs or session.cache_inputs
-    if not isinstance(tracker_spec, TrackerSpec):
-        raise TypeError("tracker_spec must be a TrackerSpec")
     validate_image_tracker(tracker_spec.name)
     if split is not None and (not isinstance(split, str) or not split or split != split.strip()):
         raise ValueError("split must be a non-empty canonical string or None")
@@ -1116,7 +1187,7 @@ def replay_build(
     # directories between trials. Send and publish absolute destinations.
     destination = Path(output_dir).resolve()
     destination.mkdir(parents=True, exist_ok=True)
-    if frame_callback is not None:
+    if frame_callback is not None and mask_guidance_weights is None:
         return _replay_with_frame_callback(
             build_path,
             tracker_spec,
@@ -1167,7 +1238,7 @@ def replay_build(
             require_masks=requirements.masks or output_format == "mots",
             require_embeddings=requirements.embeddings,
         )
-        if requirements.frame_pixels and not manifest.publish.image_references:
+        if (requirements.frame_pixels or mask_guidance_weights is not None) and not manifest.publish.image_references:
             raise BuildCompatibilityError(
                 f"Build {manifest.build_id!r} is missing required image references. "
                 "Run `boxmot materialize ... --publish-image-refs` and pass the resulting --build."
@@ -1182,7 +1253,7 @@ def replay_build(
         else _validated_sequence_frame_counts(sequence_frame_counts)
     )
     selected = _select_sequence_ids(tuple(frame_counts), sequence_ids)
-    worker_count = resolve_sequence_workers(len(selected), workers)
+    worker_count = resolve_sequence_workers(len(selected), 1 if frame_callback is not None else workers)
     if session is not None and worker_count != session.workers:
         raise ValueError("ReplaySession worker count must match the selected replay worker count.")
     if not selected:
@@ -1204,7 +1275,7 @@ def replay_build(
                 sequence_id=sequence_id,
                 split=split,
                 load_embeddings=requirements.embeddings,
-                load_images=requirements.frame_pixels,
+                load_images=requirements.frame_pixels or mask_guidance_weights is not None,
                 load_masks=requirements.masks or output_format == "mots",
             )
             for sequence_id in selected
@@ -1222,14 +1293,24 @@ def replay_build(
                 ordinal=ordinal,
                 output_format=output_format,
                 input_cache_path=None if sequence_id not in input_paths else str(input_paths[sequence_id]),
+                mask_guidance_weights=mask_guidance_weights,
+                mask_guidance_device=mask_guidance_device,
             )
             for ordinal, sequence_id in enumerate(selected)
         )
-        replayed = (
-            _run_spawned_sequence_tasks(tasks, workers=worker_count, progress_callback=progress_callback)
-            if session is None
-            else session.run(tasks, progress_callback=progress_callback)
-        )
+        if frame_callback is not None:
+            # Rendering stays on the caller's thread, with a fresh model and
+            # tracker for each sequence just as in the spawned replay path.
+            replayed = tuple(
+                _replay_sequence_task(task, frame_callback=frame_callback, progress_callback=progress_callback)
+                for task in tasks
+            )
+        else:
+            replayed = (
+                _run_spawned_sequence_tasks(tasks, workers=worker_count, progress_callback=progress_callback)
+                if session is None
+                else session.run(tasks, progress_callback=progress_callback)
+            )
 
         sequence_paths: list[Path] = []
         for result in replayed:

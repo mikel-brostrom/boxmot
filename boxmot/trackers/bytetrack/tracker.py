@@ -24,7 +24,7 @@ class ByteTrack(BoxTracker):
         frame_count (int): Number of processed frames.
         active_tracks (list[STrack]): Currently active tracks.
         lost_stracks (list[STrack]): Tracks kept in the lost state.
-        removed_stracks (list[STrack]): Tracks removed from the tracker state.
+        removed_stracks (list[STrack]): Recently removed tracks retained for display and lifecycle cleanup.
         buffer_size (int): Track buffer size after frame-rate scaling.
         max_time_lost (int): Maximum number of frames a track may stay lost.
         kalman_filter: XYAH motion model for AABB, or XYWH with angle for OBB.
@@ -50,8 +50,9 @@ class ByteTrack(BoxTracker):
             min_conf: Minimum confidence for the low-score association stage.
             track_thresh: Confidence threshold for the first association pass
                 and for creating new tracks.
-            match_thresh: Maximum score-fused geometric cost for the first
-                association pass; smaller values require closer matches.
+            match_thresh: Maximum score-fused geometric cost for ordinary
+                ByteTrack's first association pass, including when mask
+                guidance is enabled.
             track_buffer: Lost-track retention in frames at 30 FPS, scaled by
                 ``frame_rate``. This controls tracking expiry.
             frame_rate: Frame rate used to scale ``track_buffer``.
@@ -59,7 +60,9 @@ class ByteTrack(BoxTracker):
                 None preserves tracker defaults. Per-class noise overrides require
                 ``per_class=True``.
             **kwargs: Shared history/display settings, class metadata and
-                separation, ``asso_func``, and ``is_obb``. ``max_age`` and
+                separation, ``asso_func``, ``is_obb``, and optional ``mask_guidance``.
+                Guidance accepts a configuration or a dedicated runtime and
+                requires Python AABB tracking with IoU association. ``max_age`` and
                 ``min_hits`` affect shared history/display rather than the
                 tracker-specific buffer and activation rules.
         """
@@ -181,7 +184,7 @@ class ByteTrack(BoxTracker):
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
         second_stage = AssociationStage(
             name="bytetrack_low",
-            cost=self.association_distance,
+            cost=self._low_association_cost,
             threshold=0.5,
         )
         second_result = run_association_stage(
@@ -215,7 +218,7 @@ class ByteTrack(BoxTracker):
         detections = [detections[i] for i in u_detection]
         unconfirmed_stage = AssociationStage(
             name="bytetrack_unconfirmed",
-            cost=self._fused_association_cost,
+            cost=self._unconfirmed_association_cost,
             threshold=0.7,
         )
         unconfirmed_result = run_association_stage(
@@ -254,6 +257,19 @@ class ByteTrack(BoxTracker):
         self.lost_stracks.extend(lost_stracks)
         self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
         self.removed_stracks.extend(removed_stracks)
+        # Removal is applied to the lost pool on the following frame. Keep
+        # that lifecycle behavior and the removed-track display window, but
+        # release older identities instead of archiving every track forever.
+        removed_cutoff = self.frame_count - self.max_time_lost - max(1, int(self.removed_display_frames))
+        recent_removals = []
+        for track in self.removed_stracks:
+            if track.end_frame >= removed_cutoff:
+                recent_removals.append(track)
+            else:
+                display_key = self._removed_track_display_key(track)
+                self._removed_first_seen.pop(display_key, None)
+                self._removed_expired.discard(display_key)
+        self.removed_stracks = recent_removals
         self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
         # get confs of lost tracks
         output_stracks = [track for track in self.active_tracks if track.is_activated]
@@ -261,9 +277,22 @@ class ByteTrack(BoxTracker):
 
     def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
         """Build the ByteTrack score-fused geometric distance matrix."""
-        return fuse_score(self.association_distance(tracks, detections), detections)
+        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+
+    def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Condition the low-confidence association pass at its own threshold."""
+        return self._condition_association(
+            self.association_distance(tracks, detections), tracks, detections, threshold=0.5
+        )
+
+    def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Condition confirmation using the reference's 0.7 cost threshold."""
+        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        return self._condition_association(costs, tracks, detections, threshold=0.7)
 
     def reset(self) -> None:
+        """Reset tracks and temporal mask memory for a new pass over the source."""
         self._reset_common_state()
         self.frame_id = 0
         self.kalman_filter = (

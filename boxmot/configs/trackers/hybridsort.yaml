@@ -47,17 +47,17 @@ use_byte:
       type: uniform
       default: 0.1
       range: [0.05, 0.5]
-    TCM_byte_step:
+    tcm_byte_step:
       type: choice
       default: True
       options: [False, True]
       activates:
-        TCM_byte_step_weight:
+        tcm_byte_step_weight:
           type: uniform
           default: 1.0
           range: [0.5, 2.0]
 
-TCM_first_step:
+tcm_first_step:
   type: choice
   default: True
   options: [False, True]
@@ -89,11 +89,11 @@ use_embeddings:
       type: choice
       default: True
       options: [False, True]
-    EG_weight_high_score:
+    eg_weight_high_score:
       type: uniform
       default: 3.8961609177336562
       range: [1.5, 8.0]
-    EG_weight_low_score:
+    eg_weight_low_score:
       type: uniform
       default: 0.5096125821683565
       range: [0.5, 3.0]
@@ -142,3 +142,25 @@ kalman:
       default: 1.0
     initial_velocity_scale:
       default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 32
+    options: [8, 16, 24, 32]

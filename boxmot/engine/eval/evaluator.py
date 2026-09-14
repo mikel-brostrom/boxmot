@@ -1,8 +1,9 @@
 """Tracking evaluation from perception builds or saved sensor datasets.
 
 Evaluation consumes explicit immutable builds or declared saved sensor inputs.
-It never creates detections, masks, or embeddings and never selects a "latest"
-cache. Ground truth follows the dataset adapter's frame selection.
+Optional EdgeTAM guidance generates temporal masks during tracker replay.
+Perception artifacts remain immutable; ground truth follows the dataset
+adapter's frame selection.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.config.datasets import validate_mots_evaluation_inputs
 from boxmot.engine.config.experiments import resolve_experiment_config
 from boxmot.engine.config.runtime import resolve_sequence_workers
-from boxmot.engine.config.trackers import resolve_tracker_options, validate_image_tracker
+from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options, validate_image_tracker
 from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
@@ -342,7 +343,10 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     args.seq_paths = tuple(sequence_paths)
     args.seq_info = sequence_lengths
     args.sequence_frame_counts = sequence_frame_counts
-    args.sequence_workers = resolve_sequence_workers(len(sequence_lengths), getattr(args, "sequence_workers", None))
+    workers = getattr(args, "sequence_workers", None)
+    if workers is None and edgetam_checkpoint(args) is not None:
+        workers = 1
+    args.sequence_workers = resolve_sequence_workers(len(sequence_lengths), workers)
     if getattr(args, "show", False) or getattr(args, "save", False):
         args.sequence_workers = 1
     args.evaluation_config = {
@@ -432,6 +436,16 @@ def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None 
 
 def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | None) -> Path:
     base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
+    checkpoint = edgetam_checkpoint(args)
+    if checkpoint is not None:
+        from boxmot.engine.eval.provenance import mask_guidance_output_path
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+
+        checkpoint = args.mask_guidance_weights = resolve_edgetam_checkpoint(checkpoint)
+        base = mask_guidance_output_path(
+            base, checkpoint=checkpoint, device=str(getattr(args, "device", "cpu")),
+            tracker_spec=_tracker_spec(args, overrides),
+        )
     if overrides:
         base = base / "trials" / fingerprint(dict(_tracker_options(args, overrides)))[:16]
         base.mkdir(parents=True, exist_ok=True)
@@ -650,7 +664,7 @@ def run_eval(
     output_dir: Path | None = None,
     replay_session: ReplaySession | None = None,
 ) -> ValidationResult:
-    """Evaluate one perception build or declared sensor dataset without running perception."""
+    """Evaluate cached inputs, optionally with temporal mask guidance during replay."""
 
     sensor_result = _run_sensor_evaluation(
         args,
@@ -681,6 +695,14 @@ def run_eval(
         pipeline.advance("Replaying materialized detections through the tracker…")
     spec = _tracker_spec(args, evolve_config)
 
+    mask_guidance_weights = edgetam_checkpoint(args)
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+
+        validate_mask_guidance_tracker(spec, output_format="mots" if getattr(args, "eval_masks", False) else "mot")
+        mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_checkpoint(mask_guidance_weights)
+
     output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
     presenter = None
     if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
@@ -692,6 +714,9 @@ def run_eval(
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
+        if mask_guidance_weights is not None:
+            replay_callbacks["mask_guidance_weights"] = mask_guidance_weights
+            replay_callbacks["mask_guidance_device"] = str(getattr(args, "device", "cpu"))
         if replay_session is not None:
             replay_callbacks["session"] = replay_session
         if bool(getattr(args, "cache_inputs", False)):
@@ -721,6 +746,17 @@ def run_eval(
             sequence_frame_counts=getattr(args, "sequence_frame_counts", args.seq_info),
             workers=getattr(args, "sequence_workers", None),
             **replay_callbacks,
+        )
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.provenance import write_mask_guidance_provenance
+
+        write_mask_guidance_provenance(
+            replay.output_dir,
+            checkpoint=mask_guidance_weights,
+            device=str(getattr(args, "device", "cpu")),
+            build=args.build_path,
+            tracker_spec=spec,
+            sequence_names=args.sequence_names,
         )
     args.video_paths = () if visualization is None else tuple(visualization.video_paths)
     if presenter is not None:

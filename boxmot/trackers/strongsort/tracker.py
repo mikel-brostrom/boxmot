@@ -247,13 +247,22 @@ class StrongSort(BoxTracker):
             features = np.asarray([dets[index].feat for index in detection_indices])
             targets = np.asarray([tracks[index].id for index in track_indices])
             cost_matrix = self.metric.distance(features, targets)
-            return gate_cost_matrix(
+            gated_mask = np.empty(cost_matrix.shape, dtype=bool) if self._mask_guidance is not None else None
+            cost_matrix = gate_cost_matrix(
                 cost_matrix,
                 tracks,
                 dets,
                 track_indices,
                 detection_indices,
                 self.mc_lambda,
+                gated_mask=gated_mask,
+            )
+            return self._condition_gated_association(
+                cost_matrix,
+                [tracks[index] for index in track_indices],
+                [dets[index] for index in detection_indices],
+                threshold=self.metric.matching_threshold,
+                gated_mask=gated_mask,
             )
 
         confirmed_tracks = [index for index, track in enumerate(self.tracks) if track.is_confirmed()]
@@ -303,7 +312,31 @@ class StrongSort(BoxTracker):
         for row, track in enumerate(selected_tracks):
             if track.time_since_update > 1:
                 cost_matrix[row, :] = INFTY_COST
-        return cost_matrix
+        return self._condition_gated_association(
+            cost_matrix,
+            selected_tracks,
+            selected_detections,
+            threshold=self.max_iou_dist,
+            gated_mask=cost_matrix >= INFTY_COST if self._mask_guidance is not None else None,
+        )
+
+    def _condition_gated_association(
+        self,
+        costs: np.ndarray,
+        tracks,
+        detections,
+        *,
+        threshold: float,
+        gated_mask: np.ndarray | None,
+    ) -> np.ndarray:
+        """Apply masks while preserving motion and stale-track hard gates."""
+        if self._mask_guidance is None:
+            return costs
+        protected_costs = costs[gated_mask]
+        costs[gated_mask] = np.inf
+        adjusted = self._condition_association(costs, tracks, detections, threshold=threshold)
+        adjusted[gated_mask] = protected_costs
+        return adjusted
 
     def _initiate_track(self, detection: _Detection) -> None:
         """Create one track from an unmatched detection."""

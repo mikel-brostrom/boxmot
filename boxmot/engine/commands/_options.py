@@ -143,7 +143,8 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
             type=click.IntRange(min=1),
             default=defaults.sequence_workers,
             help=(
-                "Maximum sequence worker processes. Default: min(sequences, CPU cores - 2), at least 1. "
+                "Maximum sequence worker processes. Default: 1 for EdgeTAM evaluation/tuning; "
+                "otherwise min(sequences, CPU cores - 2), at least 1. "
                 "During tuning, this limit applies per trial."
             ),
         ),
@@ -421,7 +422,7 @@ def data_root_option(func: Callable) -> Callable:
     )(func)
 
 
-def replay_build_options(*, dataset_default: str | None = None) -> Callable:
+def replay_build_options(*, dataset_default: str | None = None, device_help: str | None = None) -> Callable:
     """Attach shared eval/tune inputs for build reuse or automatic materialization."""
 
     from boxmot.engine.config.runtime import BOXMOT_DEFAULTS
@@ -453,7 +454,8 @@ def replay_build_options(*, dataset_default: str | None = None) -> Callable:
                 "--device",
                 default=BOXMOT_DEFAULTS.materialize.device,
                 callback=_parse_device,
-                help="One device for uncached perception: cpu, mps, cuda:N, or N (e.g. 0). Matching builds are reused.",
+                help=device_help
+                or ("One device for uncached perception: cpu, mps, cuda:N, or N (e.g. 0). Matching builds are reused."),
             ),
         )
         for option in reversed(options):
@@ -532,6 +534,42 @@ def association_function_option(func: Callable) -> Callable:
     )(func)
 
 
+def edgetam_option(func: Callable) -> Callable:
+    """Enable temporal EdgeTAM guidance independently of checkpoint selection."""
+    return click.option(
+        "--edgetam/--no-edgetam",
+        default=False,
+        show_default=True,
+        help="Enable EdgeTAM mask guidance with tracker YAML settings; uses edgetam.pt unless weights are supplied.",
+    )(func)
+
+
+def mask_guidance_weights_option(func: Callable) -> Callable:
+    """Attach the optional EdgeTAM checkpoint shared by track, eval and tune."""
+    return click.option(
+        "--mask-guidance-weights",
+        type=click.Path(dir_okay=False, path_type=Path),
+        default=None,
+        help=(
+            "Checkpoint used with --edgetam; selecting weights alone does not enable guidance. "
+            "edgetam.pt downloads into ./models. Python AABB box trackers with IoU only."
+        ),
+    )(func)
+
+
+def mask_guidance_max_objects_option(func: Callable) -> Callable:
+    """Bound retained EdgeTAM identities independently of the tracker population."""
+    return click.option(
+        "--mask-guidance-max-objects",
+        type=click.IntRange(min=1),
+        default=None,
+        help=(
+            "Override the tracker config's edgetam.max_objects (default 32) when --edgetam is enabled. "
+            "Maximum identities with temporal mask memory; fixed when tuning."
+        ),
+    )(func)
+
+
 __all__ = (
     "_click_imgsz_default",
     "_parse_imgsz",
@@ -539,11 +577,14 @@ __all__ = (
     "association_function_option",
     "build_selection_options",
     "data_root_option",
+    "edgetam_option",
     "dataset_fps_option",
     "dataset_option",
     "eval_masks_option",
     "experiment_option",
     "kalman_calibration_option",
+    "mask_guidance_weights_option",
+    "mask_guidance_max_objects_option",
     "replay_build_options",
     "replay_options",
     "source_option",

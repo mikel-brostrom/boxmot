@@ -242,6 +242,29 @@ Use `boxmot track --tracker maf_hda --detections DIR --images DIR --instances DI
 predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
 MafHda is not included in the box-only benchmark table above.
 
+The nine Python box trackers support optional
+[temporal mask guidance](docs/tasks/masks.md#use-temporal-masks-in-association):
+ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
+OccluBoost, and SFSORT. For example, run
+`boxmot track --tracker botsort --tracker-backend python --asso-func iou --source 0 --edgetam`.
+Guidance is off by default. `--edgetam` uses the default checkpoint;
+`--mask-guidance-weights PATH` selects another. Weights alone do not enable
+guidance; `--no-edgetam` disables it even when weights are supplied.
+Guidance requires AABB geometry, IoU association, and `per_class=False`.
+Install the official EdgeTAM package from a source checkout with
+`uv sync --extra cpu --extra yolo --group mask-guidance` (use `--extra cu130` for CUDA).
+Its full checkpoint downloads into `./models` on first use. Guidance retains at most
+32 identities by default; `--mask-guidance-max-objects N` overrides that memory budget.
+Tracker YAMLs group coverage, fill, prompt overlap, and identity-cap settings
+under `edgetam` for [guided tuning](docs/modes/tune.md#tune-mask-guidance) and
+`--tracker-config` profiles.
+Each tracker keeps its existing association stages, thresholds, and appearance
+and motion rules. Accuracy gains have not been established for these extensions.
+For detection-aligned box-to-mask segmentation, pass
+`--segmentor boxmot/configs/segmentors/edgetam.yaml`; see [mask generation](docs/tasks/masks.md#generate-masks-with-edgetam).
+The guide covers CPU, CUDA, and MPS execution, live webcam and RTSP inputs, and
+[MOT17 ablation evaluation with EdgeTAM](docs/trackers/bytetrack.md#evaluate-mot17-ablation-with-edgetam).
+
 [KITTI 2D](docs/config/datasets.md#kitti-2d-tracking) supports image and box
 trackers with native tracking annotations. For example:
 

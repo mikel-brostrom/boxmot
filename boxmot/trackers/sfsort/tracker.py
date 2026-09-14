@@ -234,10 +234,10 @@ class SFSORT(BoxTracker):
         self.b_margin = 0.0
         self._margins_ready = False
         self._maybe_set_margins(frame_width, frame_height)
-        # Region metadata and optional centroid association use dimensions,
-        # but SFSORT never consumes source-image pixels.
-        self._requires_frame = not self._margins_ready
-        self._requires_frame_dimensions_only = self._requires_frame
+        # Region metadata and centroid association use dimensions; optional
+        # temporal guidance also needs the source-image pixels.
+        self._requires_frame = self._mask_guidance is not None or not self._margins_ready
+        self._requires_frame_dimensions_only = self._requires_frame and self._mask_guidance is None
 
         self.id_counter = self.id_allocator.next_id
         self.active_tracks: list[Track] = []
@@ -285,6 +285,7 @@ class SFSORT(BoxTracker):
                     is_obb=self.is_obb,
                     association_function=self.asso_func,
                 )
+                cost = self._condition_association(cost, track_pool, definite_boxes, threshold=mth)
                 matches, unmatched_tracks, unmatched_detections = linear_assignment(cost, mth)
                 for track_idx, detection_idx in matches:
                     track = track_pool[track_idx]
@@ -338,6 +339,9 @@ class SFSORT(BoxTracker):
                 iou_only=True,
                 is_obb=self.is_obb,
                 association_function=self.asso_func,
+            )
+            cost = self._condition_association(
+                cost, unmatched_track_pool, possible_boxes, threshold=self.match_th_second
             )
             matches, _, unmatched_detections = linear_assignment(cost, self.match_th_second)
 

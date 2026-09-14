@@ -313,7 +313,7 @@ def test_tracker_config_rejects_collection_values(tmp_path) -> None:
     config_path = tmp_path / "invalid.yaml"
     config_path.write_text(yaml.safe_dump({"track_thresh": [0.5, 0.7]}), encoding="utf-8")
 
-    with pytest.raises(ValueError, match="Kalman fields grouped under kalman"):
+    with pytest.raises(ValueError, match="fields grouped under kalman or edgetam"):
         load_tracker_config("bytetrack", config_path)
 
 

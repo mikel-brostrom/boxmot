@@ -150,6 +150,9 @@ class OcSort(BoxTracker):
                 k_observations,
                 self.inertia,
                 is_obb=self.is_obb,
+                similarity_conditioner=lambda similarity: self._condition_similarity(
+                    similarity, _tracks, _detections, threshold=self.iou_threshold
+                ),
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -170,6 +173,12 @@ class OcSort(BoxTracker):
         if self.use_byte and len(dets_second) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
             similarity = np.asarray(self.asso_func(dets_second, u_trks))
+            similarity = self._condition_similarity(
+                similarity,
+                [self.active_tracks[t] for t in unmatched_trks],
+                dets_second,
+                threshold=self.iou_threshold,
+            )
             low_stage = AssociationStage(
                 name="ocsort_low",
                 threshold=self.iou_threshold,
@@ -198,6 +207,12 @@ class OcSort(BoxTracker):
             if rematch_trk_indices.size:
                 left_trks = last_boxes[rematch_trk_indices]
                 similarity = np.asarray(self.asso_func(left_dets, left_trks))
+                similarity = self._condition_similarity(
+                    similarity,
+                    [self.active_tracks[t] for t in rematch_trk_indices],
+                    left_dets,
+                    threshold=self.iou_threshold,
+                )
                 rematch_stage = AssociationStage(
                     name="ocsort_high_rematch",
                     threshold=self.iou_threshold,

@@ -33,7 +33,7 @@ def _configure_ray_environment() -> None:
 
 
 from boxmot.engine.config.runtime import resolve_sequence_workers
-from boxmot.engine.config.trackers import resolve_tracker_options
+from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
 from boxmot.engine.tuning.backends import build_search_backend, resolve_search_backend
 from boxmot.engine.tuning.kalman_refinement import (
@@ -42,6 +42,12 @@ from boxmot.engine.tuning.kalman_refinement import (
     refine_kalman_schema,
     selected_kalman_options,
     validate_kalman_refinement,
+)
+from boxmot.engine.tuning.mask_guidance import (
+    condition_mask_guidance_schema,
+    mask_guidance_trial_resources,
+    prepare_mask_guidance_tuning,
+    record_mask_guidance_tuning,
 )
 from boxmot.engine.tuning.postprocessing import (
     ALL_TUNE_METRICS,
@@ -218,7 +224,16 @@ class Tuner:
             init_kwargs["log_to_driver"] = False
         else:
             init_kwargs["logging_level"] = logging.WARNING
-        ray.init(**init_kwargs)
+        # Ray snapshots this flag at import. Disable its uv relaunch/upload
+        # hook for local replay, including when callers already imported Ray.
+        # Normal workers inherit the selected Python environment and paths.
+        ray_defaults = ray._private.ray_constants
+        uv_runtime_env = ray_defaults.RAY_ENABLE_UV_RUN_RUNTIME_ENV
+        ray_defaults.RAY_ENABLE_UV_RUN_RUNTIME_ENV = False
+        try:
+            ray.init(**init_kwargs)
+        finally:
+            ray_defaults.RAY_ENABLE_UV_RUN_RUNTIME_ENV = uv_runtime_env
 
     def _run(self):
         args = self.args
@@ -235,12 +250,13 @@ class Tuner:
 
         baseline_overlay = normalize_trial_config(self.baseline_config)
         runtime_config = resolve_tracker_options(args, baseline_overlay, include_defaults=True, stamp_timing=True)
+        runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
         if runtime_config.get("per_class"):
             args.per_class = True
 
         max_concurrent = int(getattr(args, "max_concurrent_trials", 0)) or None
         if max_concurrent is None:
-            max_concurrent = min(4, os.cpu_count() or 4)
+            max_concurrent = 1 if edgetam_checkpoint(args) is not None else min(4, os.cpu_count() or 4)
 
         opt_metrics = maximize + minimize
         opt_modes = ["max"] * len(maximize) + ["min"] * len(minimize)
@@ -301,6 +317,9 @@ class Tuner:
                     getattr(args, "tune_kf", ()),
                     class_ids=getattr(args, "tracker_class_ids", None),
                 )
+                runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
+                yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)
+                record_mask_guidance_tuning(tune_dir, args, runtime_config, yaml_cfg)
                 self._yaml_cfg = yaml_cfg
                 self._runtime_config = runtime_config
                 flat_schema = flatten_yaml_config(yaml_cfg)
@@ -346,10 +365,9 @@ class Tuner:
 
                 from boxmot.engine.tuning.trainable import build_tracker_trainable
 
-                sequence_workers = int(args.sequence_workers)
                 trainable = tune.with_resources(
                     build_tracker_trainable(tune, self._make_safe_namespace()),
-                    {"cpu": sequence_workers, "gpu": 0},
+                    mask_guidance_trial_resources(args),
                 )
 
                 # Build or restore the Ray Tuner

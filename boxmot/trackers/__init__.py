@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from boxmot.trackers.common.factory import create_tracker as create_tracker
+    from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
     from boxmot.trackers.common.protocols import ReIDConfigurableTracker, Tracker, TrackerRequirements
     from boxmot.trackers.common.specs import GeometryKind, TrackerCapabilities, TrackerFamily, TrackerSpec
 
 __all__ = (
     "GeometryKind",
+    "MaskGuidance",
+    "MaskGuidanceConfig",
     "ReIDConfigurableTracker",
     "Tracker",
     "TrackerCapabilities",
@@ -23,6 +26,8 @@ __all__ = (
 
 _EXPORTS = {
     "GeometryKind": ("boxmot.trackers.common.specs", "GeometryKind"),
+    "MaskGuidance": ("boxmot.trackers.common.mask_guidance", "MaskGuidance"),
+    "MaskGuidanceConfig": ("boxmot.trackers.common.mask_guidance", "MaskGuidanceConfig"),
     "ReIDConfigurableTracker": ("boxmot.trackers.common.protocols", "ReIDConfigurableTracker"),
     "Tracker": ("boxmot.trackers.common.protocols", "Tracker"),
     "TrackerCapabilities": ("boxmot.trackers.common.specs", "TrackerCapabilities"),

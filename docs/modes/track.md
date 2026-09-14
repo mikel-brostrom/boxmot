@@ -60,6 +60,41 @@ policy, and stable sequence/frame identity. A runner resets state between
 sequences and forwards each `PipelineResult` to configured rendering, video,
 MOT text, JSON, composite, or null sinks.
 
+The nine Python box trackers support EdgeTAM mask guidance on incoming frames,
+including webcams and RTSP streams. Select an algorithm with `--tracker`:
+
+```bash
+boxmot track --tracker botsort --tracker-backend python --asso-func iou --source 0 \
+  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 32 \
+  --device cuda:0 --show
+```
+
+Guidance is off by default. `--edgetam` enables it with the default `edgetam.pt`
+checkpoint; `--mask-guidance-weights` selects another path. Weights alone do
+not enable it, and `--no-edgetam` disables it even when weights are supplied.
+
+EdgeTAM uses the frame delivered to the tracker without preloading the source.
+Install it with `uv sync --extra cpu --extra yolo --group mask-guidance`, or
+select `--extra cu130` for CUDA. The full checkpoint downloads into `./models`
+on first use. CPU and MPS use FP32; capable CUDA devices use BF16, otherwise FP32.
+The tracker YAML's `edgetam.max_objects` cap defaults to 32; an explicit
+`--mask-guidance-max-objects` overrides it. Set the cap, mask coverage/fill
+thresholds, and prompt overlap gate through `--tracker-config`; see
+[guidance settings and tuning](../tasks/masks.md#tracker-yaml-and-tuning).
+Identities outside that budget continue ordinary association with the selected tracker.
+Processing speed depends on the detector, EdgeTAM, and device; accepting a live
+stream does not guarantee camera-rate throughput. See
+[temporal mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+for the tracker list and configuration. Guidance requires AABB, IoU association,
+and `per_class=False`; native C++, EagerMOT, and MafHda do not support this cue.
+
+With guidance enabled, `--show` previews propagated masks tinted by track ID,
+and `--save` includes them in the annotated video. Masks appear after
+confirmation and next-frame propagation; objects without guidance have no
+propagated overlay. Retained lost identities can keep a visible mask during
+recovery. See [mask visualization](../tasks/masks.md#view-propagated-masks) for
+the overlay lifecycle and its distinction from detection masks.
+
 ## Geometry
 
 Select a fixed tracker geometry with `--geometry aabb|obb`. Detector output and
@@ -85,13 +120,29 @@ it needs embeddings, masks, or frame pixels. The pipeline adds only missing
 requirements:
 
 - A detector-native mask or embedding payload is preserved.
-- A configured segmentor runs only when masks are needed and absent.
+- A configured segmentor supplies absent masks when required or explicitly
+  requested with `--segmentor`.
 - A configured appearance encoder runs only when embeddings are needed and
   absent.
 - Without an external encoder, a ReID-enabled tracker adapter receives the
   `Frame` and extracts its private embeddings internally.
 - Transitive requirements are honored: a mask-aware encoder triggers
   segmentation first.
+
+Generate masks from detection boxes with the built-in EdgeTAM YAML:
+
+```bash
+boxmot track --source video.mp4 --detector yolo26n --tracker bytetrack \
+  --segmentor boxmot/configs/segmentors/edgetam.yaml --device cpu --save
+```
+
+`--segmentor` produces detection-aligned masks. Add `--edgetam`
+to enable temporal masks for a supported Python box tracker too. Matching EdgeTAM
+weights, device, and precision share one model within the tracking run; image
+and propagation state stay separate. The supplied YAML uses FP32; select
+`precision: bf16` for sharing with guidance on a capable CUDA device.
+See [mask generation](../tasks/masks.md#generate-masks-with-edgetam) for the
+segmentor interface and threshold semantics.
 
 MafHda requires AABB detections, nonempty full-frame masks aligned to those
 detections, and the current image on every update. Trackers with `use_embeddings`

@@ -15,6 +15,28 @@ Setting `use_embeddings: false` in `--tracker-config` skips the embedding stage,
 as do motion-only trackers such as SFSORT. Appearance-enabled replay requires
 cached embeddings; the live API's image-to-ReID fallback does not run during replay.
 
+The nine Python box trackers can additionally run EdgeTAM mask propagation
+during replay with `--edgetam`. Guidance is off by default; the flag resolves
+the default `edgetam.pt` checkpoint into `./models`. Select another checkpoint
+with `--mask-guidance-weights`. Weights alone do not enable guidance, and
+`--no-edgetam` disables it even when a path is supplied. The
+[temporal mask guide](../tasks/masks.md#use-temporal-masks-in-association)
+lists supported trackers and their association behavior. Change `--tracker`
+while retaining `--tracker-backend python --asso-func iou`, AABB geometry,
+and `per_class=False`. Install the official package with
+`uv sync --extra cpu --extra yolo --group mask-guidance` (select `--extra cu130`
+for CUDA); the full checkpoint downloads into `./models` on first use.
+The tracker YAML's `edgetam.max_objects` defaults to 32;
+`--mask-guidance-max-objects N` explicitly overrides that cap. The mask
+thresholds and prompt overlap gate also come from the tracker configuration.
+Replay a tuned `best.yaml` with `--tracker-config` and `--edgetam`, using
+`--mask-guidance-weights` again if a custom checkpoint was selected; see
+[guided tuning](tune.md#tune-mask-guidance).
+Replay loads source frames even with a cached build and defaults to one
+sequence worker. See the
+[MOT17 ablation evaluation example](../trackers/bytetrack.md#evaluate-mot17-ablation-with-edgetam)
+for installation, device selection, and source requirements.
+
 Matching complete builds are reused across BoxMOT releases and CPU, MPS, or
 CUDA devices. Source data, weights, precision, preprocessing, class mapping,
 stage settings, and requested outputs must still match. Reuse validates the
@@ -66,8 +88,9 @@ cannot be combined with `--experiment`.
 
 `--device` selects the detector, segmentor, and ReID execution device when
 automatic preparation needs new inference. It does not force regeneration of
-matching saved outputs. It is rejected with an explicit `--build`, where no
-perception model runs.
+matching saved outputs. With `--edgetam`, it also selects the
+EdgeTAM replay device and can accompany an explicit `--build`. Other
+perception-build workflows reject `--device` with an explicit `--build`.
 
 After materialization completes, evaluation consumes the exact path returned
 by that build operation. It does not scan `--build-root`, select a latest
@@ -317,8 +340,8 @@ See the [EagerMOT evaluation example](../trackers/eagermot.md#evaluate-downloade
 ## View tracking results
 
 Add `--show` to preview annotated tracks, `--save` to write one MP4 per sequence,
-or both. Replay uses the cached detections and embeddings, so no perception
-models run with an explicit `--build`:
+or both. Replay uses cached detections and embeddings with an explicit `--build`;
+optional EdgeTAM guidance still runs temporal inference on source frames:
 
 ```bash
 boxmot eval \
@@ -334,6 +357,26 @@ Use the `calibrated.yaml` printed by a previous calibration run; omit
 `--tracker-config` to use the tracker defaults. The saved configuration retains
 its timing mode. `--show` and `--save` also work with `--calibrate-kf`: the tracker
 replay is displayed or recorded after noise calibration finishes.
+
+When `--edgetam` is enabled, `--show` and `--save` automatically
+include propagated masks tinted by track ID. For example, preview and record
+one MOT17 ablation sequence on MPS:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
+  --sequence MOT17-02-FRCNN --tracker bytetrack --tracker-backend python \
+  --asso-func iou --edgetam --mask-guidance-weights models/edgetam.pt \
+  --mask-guidance-max-objects 32 --device mps --sequence-workers 1 \
+  --show --save
+```
+
+This example uses the checkpoint installed through the
+[EdgeTAM guidance setup](../trackers/bytetrack.md#optional-mcbyte-mask-guidance).
+Overlays appear after confirmation and next-frame propagation. Objects without
+guidance have no propagated overlay; retained lost masks may remain visible
+during recovery. These masks aid box association and do not enable mask
+metrics. Detection and standalone masks keep their existing rendering when
+temporal guidance is absent.
 
 Preview follows source timestamps when available. Press **q** or **Esc** to
 close the preview while evaluation continues. Annotated videos are written to
@@ -592,6 +635,10 @@ Image-build previews and saved videos use serial replay. EagerMOT sensor
 replay runs serially with `--show`; `--save` alone supports parallel video
 writing.
 
+EdgeTAM mask guidance defaults to one sequence worker. An explicit higher
+`--sequence-workers` value loads a separate model and temporal state in each
+worker, increasing memory use.
+
 Use `--sequence` to replay only one sequence while diagnosing a run. Repeat
 the option to select more than one sequence:
 
@@ -653,6 +700,14 @@ Tracker output is serialized to MOT text only at the evaluation boundary.
 Reusable postprocessors can consume those files separately and never rewrite
 the immutable perception build. `--compare-trackeval` is available for
 supported AABB MOTChallenge datasets.
+
+Guided box trackers report box tracking metrics. Their output directory includes a
+guidance fingerprint, and `mask-guidance.json` records the official EdgeTAM
+revision, checkpoint SHA-256, precision, postprocessing, identity cap, effective
+tracker thresholds, resolved tracker options, and named association behavior.
+Changing these settings produces
+a distinct output identity. Detection masks and `--eval-masks` are separate
+from this auxiliary association cue.
 
 ## Arguments
 

@@ -1,0 +1,14 @@
+# Install with: uv sync --extra cpu --group mask-guidance
+# Usage: boxmot track --segmentor boxmot/configs/segmentors/edgetam.yaml ...
+backend: edgetam
+artifact:
+  path: models/edgetam.pt
+  uri: https://huggingface.co/facebook/EdgeTAM/resolve/main/edgetam.pt
+  sha256: ed2d4850b8792c239689b043c47046ec239b6e808a3d9b6ae676c803fd8780df
+device: cpu
+precision: fp32
+preprocessing: default
+geometry_mode: auto
+options:
+  # Native mask logits: zero is the official threshold.
+  mask_threshold: 0.0

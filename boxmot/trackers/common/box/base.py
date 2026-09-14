@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import numpy as np
 
 from boxmot.structures import Geometry, GeometryKind
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.box.geometry import get_box_geometry_ops
+from boxmot.trackers.common.box.mask_guidance import BoxMaskGuidanceMixin
 from boxmot.trackers.common.detections.layout import DetectionLayout
+from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 
 
-class BoxTracker(BaseTracker):
+class BoxTracker(BoxMaskGuidanceMixin, BaseTracker):
     """Base class for trackers whose primary state is an AABB or OBB.
 
     The class selects one immutable geometry policy at construction. That
@@ -21,9 +23,7 @@ class BoxTracker(BaseTracker):
     and association-mode dispatch for the lifetime of the tracker.
     """
 
-    supported_geometry_kinds: frozenset[GeometryKind] = frozenset(
-        {GeometryKind.AABB, GeometryKind.OBB}
-    )
+    supported_geometry_kinds: frozenset[GeometryKind] = frozenset({GeometryKind.AABB, GeometryKind.OBB})
     supports_obb = GeometryKind.OBB in supported_geometry_kinds
     accepts_embeddings = False
     accepts_masks = False
@@ -53,10 +53,18 @@ class BoxTracker(BaseTracker):
             accepts_frame=bool(cls.accepts_frame),
         )
 
-    def __init__(self, *args, is_obb: bool = False, **kwargs) -> None:
+    def __init__(
+        self,
+        *args,
+        is_obb: bool = False,
+        mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+        edgetam: Mapping[str, object] | None = None,
+        **kwargs,
+    ) -> None:
         self.geometry_ops = get_box_geometry_ops(is_obb=is_obb)
         self.validate_geometry_kind(self.geometry_ops.kind)
         super().__init__(*args, is_obb=is_obb, **kwargs)
+        self._init_mask_guidance(mask_guidance, edgetam=edgetam)
 
     def validate_geometry_kind(self, kind: GeometryKind) -> None:
         """Validate a fixed geometry kind before allocating tracker state."""

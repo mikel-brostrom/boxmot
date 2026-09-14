@@ -23,6 +23,7 @@ videos/
 *.part
 
 # Downloaded weights
+/models/
 weights/*.pt
 weights/*.torchscript
 weights/*.onnx

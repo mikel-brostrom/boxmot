@@ -169,6 +169,7 @@ def _prepare_replay_build(
     tracker_config: str | Path | None = None,
     eval_masks: bool = False,
     allow_noncanonical_build: bool = False,
+    runtime_device: bool = False,
 ) -> tuple[str | None, str | None, str | Path]:
     """Resolve replay inputs and reuse or create one canonical build before dispatch."""
 
@@ -200,7 +201,7 @@ def _prepare_replay_build(
             f"{mode} with --dataset requires --detector for automatic materialization, or --build to replay an "
             "existing materialized build."
         )
-    if build_ref is not None and _is_option_explicit(ctx, "device"):
+    if build_ref is not None and _is_option_explicit(ctx, "device") and not runtime_device:
         raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
     if build_ref is None and allow_noncanonical_build:
         raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")

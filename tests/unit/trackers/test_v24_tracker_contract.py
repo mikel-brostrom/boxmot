@@ -127,6 +127,8 @@ class _RecordingTracker(BaseTracker):
 def test_public_package_exports_only_contracts_and_factory() -> None:
     assert public_trackers.__all__ == (
         "GeometryKind",
+        "MaskGuidance",
+        "MaskGuidanceConfig",
         "ReIDConfigurableTracker",
         "Tracker",
         "TrackerCapabilities",

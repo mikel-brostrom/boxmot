@@ -13,6 +13,12 @@ from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+from boxmot.trackers.common.mask_guidance import (
+    MASK_GUIDANCE_OPTIONS,
+    MaskGuidance,
+    MaskGuidanceConfig,
+    validate_mask_guidance_spec,
+)
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
@@ -39,7 +45,9 @@ _REID_MODEL_OPTIONS = frozenset(
         "weights",
     }
 )
-_FORBIDDEN_NATIVE_MASK_OPTIONS = frozenset({"masks", "supports_masks", "use_masks"})
+_FORBIDDEN_NATIVE_MASK_OPTIONS = frozenset(
+    {"mask_guidance", "masks", "supports_masks", "use_masks", *MASK_GUIDANCE_OPTIONS}
+)
 _UNSUPPORTED_NATIVE_OPTIONS = {
     "botsort": frozenset({"removed_stracks_buffer"}),
     "occluboost": frozenset({"kalman.adaptive_kf"}),
@@ -199,18 +207,30 @@ def _validate_model_options(name: str, options: Mapping[str, Any]) -> None:
 
 @overload
 def create_tracker(
-    spec: TrackerName, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+    spec: TrackerName,
+    *,
+    reid: ReIDConfig | AppearanceEncoder | None = None,
+    mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    **overrides: Any,
 ) -> Tracker: ...
 
 
 @overload
 def create_tracker(
-    spec: TrackerSpec | str, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+    spec: TrackerSpec | str,
+    *,
+    reid: ReIDConfig | AppearanceEncoder | None = None,
+    mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    **overrides: Any,
 ) -> Tracker: ...
 
 
 def create_tracker(
-    spec: TrackerSpec | str, *, reid: ReIDConfig | AppearanceEncoder | None = None, **overrides: Any
+    spec: TrackerSpec | str,
+    *,
+    reid: ReIDConfig | AppearanceEncoder | None = None,
+    mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
+    **overrides: Any,
 ) -> Tracker:
     """Create a tracker from its registered name or an immutable specification.
 
@@ -219,6 +239,9 @@ def create_tracker(
     Omitted values retain the spec selection and the tracker's configured defaults.
     ``reid`` supplies an encoder configuration or prebuilt AppearanceEncoder
     separately from the serializable tracking algorithm specification.
+    ``mask_guidance`` enables the McByte++ mask cue for Python box trackers with
+    AABB IoU matching. Supply a config for lazy construction or a MaskGuidance
+    runtime dedicated to this tracker to share an already loaded model.
 
     The factory does not construct models eagerly. Trackers consume required
     masks, embeddings, or frames through their structured update boundary;
@@ -227,6 +250,10 @@ def create_tracker(
     """
 
     spec = _resolve_spec(spec, overrides)
+    if mask_guidance is not None:
+        if not isinstance(mask_guidance, (MaskGuidanceConfig, MaskGuidance)):
+            raise TypeError("mask_guidance must be a MaskGuidanceConfig, MaskGuidance, or None.")
+        validate_mask_guidance_spec(spec)
     definition = get_tracker_definition(spec.name)
     if reid is not None and not definition.capabilities.accepts_embeddings:
         raise ValueError(f"Tracker {spec.name!r} does not accept ReID configuration.")
@@ -258,6 +285,18 @@ def create_tracker(
     tracker_args = {key: value for key, value in tracker_args.items() if not key.startswith("calibration.")}
     if reid is not None:
         tracker_args["reid"] = reid
+    if mask_guidance is not None:
+        # An injected configuration outranks inherited YAML defaults. Explicit
+        # spec options still reach BoxTracker as validated scalar overrides.
+        tracker_args = {
+            key: value
+            for key, value in tracker_args.items()
+            if key not in MASK_GUIDANCE_OPTIONS or key in spec.option_dict
+        }
+        tracker_args["mask_guidance"] = mask_guidance
+    edgetam = {field: tracker_args.pop(key) for key, field in MASK_GUIDANCE_OPTIONS.items() if key in tracker_args}
+    if edgetam:
+        tracker_args["edgetam"] = edgetam
 
     tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
     if definition.accepts_per_class:

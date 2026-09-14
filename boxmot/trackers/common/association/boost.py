@@ -1,4 +1,5 @@
 import warnings
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Optional
 
@@ -193,6 +194,7 @@ def associate(
     lambda_emb_multiplier: float = 1.5,
     geometry_matrix: Optional[np.ndarray] = None,
     shape_matrix: Optional[np.ndarray] = None,
+    geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ):
     if len(trackers) == 0:
         return (
@@ -231,6 +233,13 @@ def associate(
     if emb_cost is not None:
         lambda_emb = (1 + lambda_iou + lambda_shape + lambda_mhd) * lambda_emb_multiplier
         cost_matrix += lambda_emb * emb_cost
+
+    if geometry_conditioner is not None:
+        guided_geometry = geometry_conditioner(geometry_matrix)
+        # Guidance adjusts the existing multi-cue ranking once, without
+        # reweighting confidence, shape, motion, or appearance contributions.
+        cost_matrix += guided_geometry - geometry_matrix
+        geometry_matrix = guided_geometry
 
     return linear_assignment(
         detections,

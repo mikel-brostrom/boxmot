@@ -15,7 +15,7 @@ import yaml
 import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
 from boxmot.engine.config.trackers import resolve_tracker_options
-from boxmot.engine.tuning.search_space import flatten_yaml_config
+from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.trackers.common.config import nest_tracker_options
 from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 
@@ -216,6 +216,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
         choice=lambda choices: _Domain(choices[0]),
     )
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured["events"].append("ray_init"),
@@ -298,6 +299,44 @@ def test_kf_is_calibrated_once_before_ray_and_frozen_in_every_trial(
     report = json.loads(captured["report_path"].read_text())
     assert report["tuning"]["fixed_options"] == frozen
     assert "type" in flatten_yaml_config(tuner._yaml_cfg)["match_thresh"]
+
+
+@pytest.mark.parametrize("search_alg", ["optuna", "random"])
+@pytest.mark.parametrize("guided", [False, True])
+def test_driver_conditions_mask_search_before_dispatching_trials(
+    fake_tuning: SimpleNamespace, tmp_path: Path, search_alg: str, guided: bool
+) -> None:
+    """Exercise the driver, real schema converters and reused trial actor together."""
+    from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
+
+    checkpoint = tmp_path / "edgetam.pt"
+    checkpoint.write_bytes(b"local checkpoint content")
+    args = fake_tuning.args(
+        tracker="bytetrack",
+        search_alg=search_alg,
+        calibrate_kf=False,
+        edgetam=guided,
+        mask_guidance_weights=checkpoint if guided else None,
+        mask_guidance_max_objects=7 if guided else None,
+        device="cpu",
+    )
+    driver = tuner_module.Tuner(args)
+    driver.fit()
+    captured = fake_tuning.captured
+    assert len(captured["trial_configs"]) == 2
+    for config in captured["trial_configs"]:
+        if guided:
+            assert config["asso_func"] == "iou"
+            assert config["edgetam.max_objects"] == 7
+            assert 0 <= config["edgetam.min_coverage"] <= 1
+            assert 0 <= config["edgetam.min_fill"] <= 1
+            assert 0 < config["edgetam.prompt_overlap"] <= 1
+        else:
+            assert not set(MASK_GUIDANCE_OPTIONS).intersection(config)
+    assert captured["trial_args"].mask_guidance_weights == (checkpoint if guided else None)
+    assert driver._yaml_cfg["asso_func"] == (
+        {"default": "iou"} if guided else load_yaml_config("bytetrack")["asso_func"]
+    )
 
 
 @pytest.mark.parametrize(

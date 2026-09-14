@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,6 +20,88 @@ from boxmot.engine.tuning.search_space import default_tune_config, flatten_yaml_
 from boxmot.trackers.common.config import load_tracker_defaults
 from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+
+
+def test_ray_setup_under_uv_uses_driver_environment_without_packaging(monkeypatch) -> None:
+    """Preimported Ray must not upload cwd or launch workers through uv."""
+    ray = pytest.importorskip("ray")
+    from ray._private import ray_constants
+    from ray._private.runtime_env import uv_runtime_env_hook
+    from ray._private.worker import _maybe_modify_runtime_env
+    from ray.runtime_env import RuntimeEnv
+
+    captured = {}
+    monkeypatch.setattr(ray_constants, "RAY_ENABLE_UV_RUN_RUNTIME_ENV", True)
+    monkeypatch.delenv(ray_constants.RAY_RUNTIME_ENV_HOOK, raising=False)
+    monkeypatch.setattr(
+        uv_runtime_env_hook, "_get_uv_run_cmdline", lambda: ["uv", "run", "--no-sync", "boxmot", "tune"]
+    )
+    baseline = _maybe_modify_runtime_env(None, _skip_env_hook=False)
+    assert baseline["working_dir"] == os.getcwd()
+    assert baseline["py_executable"] == "uv run --no-sync"
+
+    def initialize(**kwargs):
+        assert "runtime_env" not in kwargs
+        modified = _maybe_modify_runtime_env(kwargs.get("runtime_env"), _skip_env_hook=False)
+        captured.update(RuntimeEnv(**(modified or {})))
+
+    monkeypatch.setattr(ray, "is_initialized", lambda: False)
+    monkeypatch.setattr(ray, "init", initialize)
+    tuner_module.Tuner(SimpleNamespace(verbose=False))._setup_ray()
+
+    assert captured == {}
+    assert ray_constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is True
+
+
+@pytest.mark.parametrize("uv_enabled", [False, True])
+@pytest.mark.parametrize("init_fails", [False, True])
+def test_ray_setup_restores_uv_setting_after_initialization(monkeypatch, uv_enabled, init_fails) -> None:
+    """Suppress the hook only during initialization, including failed startup."""
+    constants = SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=uv_enabled)
+    failure = RuntimeError("Ray startup failed")
+
+    def initialize(**kwargs):
+        assert constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is False
+        if init_fails:
+            raise failure
+
+    monkeypatch.setitem(
+        sys.modules,
+        "ray",
+        SimpleNamespace(
+            _private=SimpleNamespace(ray_constants=constants),
+            is_initialized=lambda: False,
+            init=initialize,
+        ),
+    )
+    tuner = tuner_module.Tuner(SimpleNamespace(verbose=False))
+
+    if init_fails:
+        with pytest.raises(RuntimeError) as raised:
+            tuner._setup_ray()
+        assert raised.value is failure
+    else:
+        tuner._setup_ray()
+
+    assert constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is uv_enabled
+
+
+def test_ray_setup_preserves_an_initialized_runtime(monkeypatch) -> None:
+    """An API caller's existing Ray runtime remains caller-owned."""
+    constants = SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)
+    monkeypatch.setitem(
+        sys.modules,
+        "ray",
+        SimpleNamespace(
+            _private=SimpleNamespace(ray_constants=constants),
+            is_initialized=lambda: True,
+            init=lambda **kwargs: pytest.fail("Ray was already initialized"),
+        ),
+    )
+
+    tuner_module.Tuner(SimpleNamespace(verbose=False))._setup_ray()
+
+    assert constants.RAY_ENABLE_UV_RUN_RUNTIME_ENV is True
 
 
 def test_tuner_reports_missing_dependencies_before_evaluation_setup(monkeypatch) -> None:
@@ -151,6 +234,10 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "match_thresh": 0.9,
         "asso_func": "iou",
         "frame_rate": 30,
+        "edgetam.min_coverage": 0.9,
+        "edgetam.min_fill": 0.05,
+        "edgetam.prompt_overlap": 0.1,
+        "edgetam.max_objects": 32,
     }
 
 
@@ -331,6 +418,7 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     )
 
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
@@ -533,6 +621,7 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
     )
 
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
@@ -737,6 +826,7 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     )
 
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
@@ -895,6 +985,7 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         Callback=object,
     )
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),
@@ -1131,6 +1222,7 @@ def test_tuner_renders_sequence_metric_deltas_against_default_config(monkeypatch
         Callback=object,
     )
     fake_ray = SimpleNamespace(
+        _private=SimpleNamespace(ray_constants=SimpleNamespace(RAY_ENABLE_UV_RUN_RUNTIME_ENV=True)),
         tune=fake_tune,
         is_initialized=lambda: False,
         init=lambda **kwargs: captured.setdefault("ray_init_kwargs", kwargs),

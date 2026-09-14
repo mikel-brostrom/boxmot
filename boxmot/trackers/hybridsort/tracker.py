@@ -64,12 +64,12 @@ class HybridSort(BoxTracker):
         adapfs: bool = False,
         track_thresh: float = 0.5,
         # Embedding-guided association
-        EG_weight_high_score: float = 4.6,
-        EG_weight_low_score: float = 1.3,
+        eg_weight_high_score: float = 4.6,
+        eg_weight_low_score: float = 1.3,
         # Two-step toggles / thresholds
-        TCM_first_step: bool = True,
-        TCM_byte_step: bool = True,
-        TCM_byte_step_weight: float = 1.0,
+        tcm_first_step: bool = True,
+        tcm_byte_step: bool = True,
+        tcm_byte_step_weight: float = 1.0,
         # Long-term reid
         with_longterm_reid: bool = True,
         longterm_reid_weight: float = 0.0,
@@ -101,11 +101,11 @@ class HybridSort(BoxTracker):
             adapfs: Enable confidence-adaptive feature smoothing for AABB tracks.
             track_thresh: Clamp separating high and low AABB confidence predictions;
                 does not select input detections.
-            EG_weight_high_score: Appearance-distance weight for high-confidence matches.
-            EG_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
-            TCM_first_step: Enable the first AABB association pass with motion-direction cues.
-            TCM_byte_step: Add a confidence-difference penalty to low-score AABB matching.
-            TCM_byte_step_weight: Weight of that low-score confidence-difference penalty.
+            eg_weight_high_score: Appearance-distance weight for high-confidence matches.
+            eg_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
+            tcm_first_step: Enable the first AABB association pass with motion-direction cues.
+            tcm_byte_step: Add a confidence-difference penalty to low-score AABB matching.
+            tcm_byte_step_weight: Weight of that low-score confidence-difference penalty.
             with_longterm_reid: Include the AABB long-term appearance bank during matching.
             longterm_reid_weight: Contribution of long-term appearance distance in AABB matching.
             with_longterm_reid_correction: Reject AABB matches using appearance-distance gates.
@@ -139,11 +139,11 @@ class HybridSort(BoxTracker):
         self.adapfs = bool(adapfs)
         self.track_thresh = float(track_thresh)
 
-        self.EG_weight_high_score = float(EG_weight_high_score)
-        self.EG_weight_low_score = float(EG_weight_low_score)
-        self.TCM_first_step = bool(TCM_first_step)
-        self.TCM_byte_step = bool(TCM_byte_step)
-        self.TCM_byte_step_weight = float(TCM_byte_step_weight)
+        self.eg_weight_high_score = float(eg_weight_high_score)
+        self.eg_weight_low_score = float(eg_weight_low_score)
+        self.tcm_first_step = bool(tcm_first_step)
+        self.tcm_byte_step = bool(tcm_byte_step)
+        self.tcm_byte_step_weight = float(tcm_byte_step_weight)
         self.with_longterm_reid = bool(with_longterm_reid)
         self.longterm_reid_weight = float(longterm_reid_weight)
         self.with_longterm_reid_correction = bool(with_longterm_reid_correction)
@@ -259,8 +259,8 @@ class HybridSort(BoxTracker):
         # ===== First association (optionally embedding-guided)
         if (
             self.use_embeddings
-            and self.EG_weight_high_score > 0
-            and self.TCM_first_step
+            and self.eg_weight_high_score > 0
+            and self.tcm_first_step
             and len(dets_first)
             and len(trks)
         ):
@@ -287,13 +287,16 @@ class HybridSort(BoxTracker):
                 self.inertia,
                 association_function,
                 embedding_cost=emb_dists,
-                embedding_weight=self.EG_weight_high_score,
+                embedding_weight=self.eg_weight_high_score,
                 longterm_embedding_cost=long_emb_dists,
                 longterm_embedding_weight=self.longterm_reid_weight,
                 correct_with_appearance=self.with_longterm_reid_correction,
                 appearance_threshold=self.longterm_reid_correction_thresh,
+                geometry_conditioner=lambda similarity: self._condition_similarity(
+                    similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
+                ),
             )
-        elif self.TCM_first_step and len(dets_first) and len(trks):
+        elif self.tcm_first_step and len(dets_first) and len(trks):
             matched, unmatched_dets, unmatched_trks = associate_hybrid(
                 dets_first,
                 trks,
@@ -302,6 +305,9 @@ class HybridSort(BoxTracker):
                 k_observations,
                 self.inertia,
                 association_function,
+                geometry_conditioner=lambda similarity: self._condition_similarity(
+                    similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
+                ),
             )
         else:
             matched = np.empty((0, 2), dtype=int)
@@ -321,16 +327,22 @@ class HybridSort(BoxTracker):
         if self.use_byte and len(dets_low) > 0 and unmatched_trks.shape[0] > 0:
             u_trks = trks[unmatched_trks]
             similarity = np.asarray(association_function(dets_low, u_trks))
+            similarity = self._condition_similarity(
+                similarity,
+                [self.active_tracks[idx] for idx in unmatched_trks],
+                second_batch.boxes,
+                threshold=self.iou_threshold,
+            )
             threshold_similarity = similarity.copy()
-            if self.TCM_byte_step:
-                similarity -= confidence_difference(dets_low, u_trks) * self.TCM_byte_step_weight
+            if self.tcm_byte_step:
+                similarity -= confidence_difference(dets_low, u_trks) * self.tcm_byte_step_weight
 
             if similarity.max() > self.iou_threshold:
-                if self.EG_weight_low_score > 0 and self.use_embeddings:
+                if self.eg_weight_low_score > 0 and self.use_embeddings:
                     u_tracklets = [self.active_tracks[idx] for idx in unmatched_trks]
                     u_track_features = np.asarray([t.smooth_feat for t in u_tracklets], dtype=float)
                     emb_dists_low = feature_distance(u_track_features, id_feature_second).T
-                    matched_indices = solve_assignment(-similarity + self.EG_weight_low_score * emb_dists_low)
+                    matched_indices = solve_assignment(-similarity + self.eg_weight_low_score * emb_dists_low)
                 else:
                     matched_indices = solve_assignment(-similarity)
                 to_remove_trk_indices = []
@@ -338,7 +350,7 @@ class HybridSort(BoxTracker):
                 for mm in matched_indices:
                     det_rel, trk_rel = mm[0], mm[1]
                     trk_ind = unmatched_trks[trk_rel]
-                    if self.with_longterm_reid_correction and self.EG_weight_low_score > 0 and self.use_embeddings:
+                    if self.with_longterm_reid_correction and self.eg_weight_low_score > 0 and self.use_embeddings:
                         poor_geometry = threshold_similarity[det_rel, trk_rel] < self.iou_threshold
                         bad_emb = emb_dists_low[det_rel, trk_rel] > self.longterm_reid_correction_thresh_low
                         if poor_geometry or bad_emb:
@@ -363,6 +375,12 @@ class HybridSort(BoxTracker):
             left_dets = dets_first[unmatched_dets]
             left_trks = last_boxes[unmatched_trks]
             similarity = np.asarray(association_function(left_dets, left_trks))
+            similarity = self._condition_similarity(
+                similarity,
+                [self.active_tracks[idx] for idx in unmatched_trks],
+                high_batch.boxes[unmatched_dets],
+                threshold=self.iou_threshold,
+            )
             if similarity.max() > self.iou_threshold:
                 rematched = solve_assignment(-similarity)
                 to_remove_det_indices = []
@@ -469,7 +487,7 @@ class HybridSort(BoxTracker):
                 embedding_cost = feature_distance(track_embs, high_embs).T
             assignment_cost = -similarity
             if embedding_cost is not None:
-                assignment_cost += self.EG_weight_high_score * embedding_cost
+                assignment_cost += self.eg_weight_high_score * embedding_cost
             pairs = solve_assignment(assignment_cost)
             accepted = []
             for det_index, track_index in pairs:

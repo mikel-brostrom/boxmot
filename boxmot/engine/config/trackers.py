@@ -3,9 +3,21 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+
+
+def edgetam_checkpoint(args: Any) -> str | Path | None:
+    """Select temporal guidance weights only when its workflow flag is enabled.
+
+    Checkpoint selection does not load the model or resolve/download artifacts.
+    Keeping the configured path intact lets callers toggle guidance independently.
+    """
+    if not getattr(args, "edgetam", False):
+        return None
+    return getattr(args, "mask_guidance_weights", None) or Path("edgetam.pt")
 
 
 def validate_image_tracker(tracker_name: str) -> None:
@@ -53,6 +65,8 @@ def resolve_tracker_options(
     )
     if getattr(args, "asso_func", None):
         options["asso_func"] = str(args.asso_func)
+    if edgetam_checkpoint(args) is not None and getattr(args, "mask_guidance_max_objects", None) is not None:
+        options["edgetam.max_objects"] = args.mask_guidance_max_objects
     if getattr(args, "variable_dt", None) is not None:
         options["kalman.variable_dt"] = args.variable_dt
     if tracker_name is None:

@@ -4,7 +4,8 @@ Built-in tracker YAMLs colocate runtime defaults and tuning metadata. This
 module resolves scalar runtime values;
 interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
 Reusable presets and custom runtime configs group Kalman settings under
-``kalman``. Engine/search code addresses those leaves using dotted paths.
+``kalman`` and mask-guidance settings under ``edgetam``. Engine/search code
+addresses those leaves using dotted paths.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from typing import Any
 import yaml
 
 from boxmot.configs import CONFIG_ROOT
+from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 
 TRACKER_CONFIGS_DIR = CONFIG_ROOT / "trackers"
 TRACKER_PRESETS_DIR = TRACKER_CONFIGS_DIR / "presets"
@@ -23,7 +25,7 @@ TRACKER_METADATA_KEY = "tracker"
 
 
 def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
-    """Normalize authored Kalman settings to scalar parameter paths.
+    """Normalize authored Kalman and EdgeTAM settings to scalar parameter paths.
 
     Nested YAML mappings and the public immutable configuration object resolve
     to the same fields. Other tracker options retain their original values.
@@ -39,6 +41,11 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
             raise TypeError(
                 "Dotted Kalman option paths must address scalar leaves; use the 'kalman' group for mappings."
             )
+        if name.startswith("edgetam."):
+            if name not in MASK_GUIDANCE_OPTIONS:
+                raise TypeError(f"Unknown edgetam parameter {name!r}.")
+            if not isinstance(value, (str, int, float, bool, type(None))):
+                raise TypeError("Dotted EdgeTAM option paths must address scalar leaves.")
         parts = name.split(".")
         prefixes = {".".join(parts[:length]) for length in range(1, len(parts))}
         if name in parents or prefixes.intersection(flattened):
@@ -97,6 +104,8 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
     for name, value in config.items():
         if not isinstance(name, str):
             raise TypeError("Tracker option names must be strings.")
+        if name.startswith("mask_guidance_"):
+            raise TypeError(f"Unknown tracker option {name!r}; configure guidance parameters under 'edgetam'.")
         if (
             name.startswith("kf_")
             or name in {"kalman_noise", "variable_dt", "adaptive_kf", "is_angular"}
@@ -110,6 +119,16 @@ def flatten_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
                 if not isinstance(field, str) or "." in field:
                     raise ValueError("calibration field names must be unqualified strings.")
                 insert(f"calibration.{field}", setting)
+            continue
+        if name == "edgetam":
+            if isinstance(value, tuple):
+                value = dict(value)
+            if not isinstance(value, Mapping):
+                raise TypeError("edgetam must be a mapping of guidance parameters.")
+            for field, setting in value.items():
+                if not isinstance(field, str) or "." in field:
+                    raise ValueError("EdgeTAM field names must be unqualified strings.")
+                insert(f"edgetam.{field}", setting)
             continue
         if name != "kalman":
             insert(name, value)
@@ -128,7 +147,7 @@ def nest_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
     """Serialize resolved tracker settings using the authored YAML structure."""
     nested: dict[str, Any] = {}
     for name, value in flatten_tracker_options(config).items():
-        if name.startswith(("kalman.", "calibration.")):
+        if name.startswith(("kalman.", "calibration.", "edgetam.")):
             target = nested
             parts = name.split(".")
             for part in parts[:-1]:
@@ -177,7 +196,7 @@ def _load_scalar_mapping(path: Path, *, label: str) -> dict[str, Any]:
         names = ", ".join(non_scalar)
         raise ValueError(
             f"{label.capitalize()} config {path} must contain runtime parameter values, "
-            f"with Kalman fields grouped under kalman; invalid entries: {names}"
+            f"with fields grouped under kalman or edgetam; invalid entries: {names}"
         )
     return dict(payload)
 
@@ -189,12 +208,16 @@ def _flatten_tracker_entries(config: Mapping[str, Any], *, path: Path) -> dict[s
 
     def _visit(entries: Mapping[str, Any], prefix: str = "") -> None:
         for parameter, details in entries.items():
-            if (parameter == "kalman" and not prefix) or (prefix == "kalman." and parameter in {"noise", "ams"}):
+            if (parameter in {"kalman", "edgetam"} and not prefix) or (
+                prefix == "kalman." and parameter in {"noise", "ams"}
+            ):
                 if not isinstance(details, Mapping) or not details:
-                    raise ValueError(f"Tracker config {path} kalman must contain parameter definitions.")
+                    raise ValueError(f"Tracker config {path} {parameter} must contain parameter definitions.")
                 _visit(details, prefix + str(parameter) + ".")
                 continue
             parameter = prefix + str(parameter)
+            if prefix == "edgetam." and parameter not in MASK_GUIDANCE_OPTIONS:
+                raise TypeError(f"Unknown edgetam parameter {parameter!r} in tracker config {path}.")
             if not isinstance(details, Mapping):
                 raise ValueError(f'Tracker config {path} entry "{parameter}" must be a mapping containing a default.')
             if parameter in flattened:

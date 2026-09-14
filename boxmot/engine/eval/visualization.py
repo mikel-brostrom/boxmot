@@ -186,6 +186,7 @@ class ReplayVisualization:
             class_names=self.class_names,
             spatial_tracks=spatial_tracks,
             camera=camera,
+            guidance_masks=replayed.guidance_masks,
         )
         if self._previous_image is not None and image.shape != self._previous_image.shape:
             raise ValueError("Replay frame dimensions must remain constant within a sequence.")

@@ -1,5 +1,7 @@
 # Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
 
+from collections.abc import Callable
+
 import numpy as np
 
 from boxmot.trackers.common.association.matching import solve_assignment
@@ -63,7 +65,14 @@ def associate(
     aw_off=None,
     aw_param=None,
     is_obb=False,
+    similarity_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ):
+    """Match geometry and motion, optionally conditioning geometric similarity.
+
+    Conditioning precedes the unique-match fast path and affects both ranking
+    and final geometric acceptance. Appearance gating still uses the original
+    geometry so guidance does not change how motion or embeddings are weighted.
+    """
     if len(trackers) == 0:
         return AssociationResult(
             matches=np.empty((0, 2), dtype=int),
@@ -88,7 +97,12 @@ def associate(
     confidence_idx = 5 if is_obb else 4
     valid_mask[np.where(previous_obs[:, confidence_idx] < 0)] = 0
 
-    similarity_matrix = asso_func(detections, trackers)
+    original_similarity = asso_func(detections, trackers)
+    similarity_matrix = (
+        original_similarity
+        if similarity_conditioner is None
+        else similarity_conditioner(original_similarity)
+    )
     scores = np.repeat(detections[:, -1][:, np.newaxis], trackers.shape[0], axis=1)
     valid_mask = np.repeat(valid_mask[:, np.newaxis], X.shape[1], axis=1)
 
@@ -104,7 +118,7 @@ def associate(
             if emb_cost is None:
                 emb_cost = 0
             else:
-                emb_cost[similarity_matrix <= 0] = 0
+                emb_cost[original_similarity <= 0] = 0
                 if not aw_off:
                     emb_cost = compute_aw_max_metric(emb_cost, w_assoc_emb, bottom=aw_param)
                 else:

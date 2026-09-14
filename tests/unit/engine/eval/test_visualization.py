@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import weakref
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,7 +17,40 @@ def _replay(index, timestamp, sequence="seq"):
     return SimpleNamespace(
         sample=SimpleNamespace(sequence_id=sequence, frame_index=index, timestamp_s=timestamp, frame=object()),
         result=index + 1,
+        guidance_masks=None,
     )
+
+
+def capture_rendered_images(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Keep actual renderers while replacing only OpenCV output devices."""
+    writers = []
+    shown = []
+
+    class Writer:
+        def __init__(self, path, codec, fps, dimensions):
+            self.path = path
+            self.images = []
+            self.closed = False
+            writers.append(self)
+
+        def isOpened(self):
+            return True
+
+        def write(self, image):
+            self.images.append(image.copy())
+
+        def release(self):
+            self.closed = True
+
+    monkeypatch.setattr(visualization.cv2, "VideoWriter", Writer)
+    monkeypatch.setattr(visualization.cv2, "namedWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "resizeWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "imshow", lambda name, image: shown.append(image.copy()))
+    monkeypatch.setattr(visualization.cv2, "destroyWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "waitKey", lambda *args: -1)
+    # Text is irrelevant to mask pixels and would cover most of the tiny replay fixture.
+    monkeypatch.setattr(visualization.cv2, "putText", lambda *args: None)
+    return SimpleNamespace(writers=writers, shown=shown)
 
 
 @pytest.fixture
@@ -217,3 +251,24 @@ def test_rendering_failure_releases_video_and_window(tmp_path, rendering, monkey
         consumer(_replay(1, 0.1))
     assert rendering.writers[0].released
     assert rendering.destroyed == ["BoxMOT evaluation"]
+
+
+def test_visualization_borrows_current_masks_only_during_render(tmp_path, rendering, monkeypatch) -> None:
+    """Keeping the rendered frame for video timing must not retain temporal arrays."""
+    mask = np.ones((8, 10), dtype=bool)
+    reference = weakref.ref(mask)
+    replayed = _replay(0, None)
+    replayed.guidance_masks = {41: mask}
+
+    def render(frame, result, *, guidance_masks, **kwargs):
+        assert guidance_masks is replayed.guidance_masks
+        assert guidance_masks[41] is reference()
+        return np.full((8, 10, 3), 1, np.uint8)
+
+    monkeypatch.setattr(visualization, "render_result", render)
+    with ReplayVisualization(tmp_path, show=True, save=True) as consumer:
+        consumer(replayed)
+        del mask
+        replayed.guidance_masks = None
+        assert reference() is None
+    assert rendering.writers[0].frames == [1]

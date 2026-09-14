@@ -35,7 +35,7 @@ def expand_yaml_groups(yaml_cfg: dict, *, prefix: str = "") -> dict:
     for name, details in yaml_cfg.items():
         key = f"{prefix}{name}"
         if (
-            (key == "kalman" or key.startswith("kalman."))
+            (key in {"kalman", "edgetam"} or key.startswith(("kalman.", "edgetam.")))
             and isinstance(details, dict)
             and not {"default", "type"}.intersection(details)
         ):
@@ -310,7 +310,7 @@ def unpack_nested_dict(dct: dict[str, Any]) -> dict[str, Any]:
     """Recursively flatten nested dicts produced by conditional HyperOpt branches."""
     out: dict[str, Any] = {}
     for key, value in dct.items():
-        if key in {"kalman", "calibration"} and isinstance(value, dict):
+        if key in {"kalman", "calibration", "edgetam"} and isinstance(value, dict):
             out.update(flatten_tracker_options({key: value}))
         elif isinstance(value, dict):
             out.update(unpack_nested_dict(value))

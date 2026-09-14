@@ -4,6 +4,12 @@
 
 BoT-SORT extends the ByteTrack family by combining motion, appearance, and camera-motion compensation more explicitly. The paper improves the Kalman state, uses global motion compensation, and fuses ReID cues with IoU-based association to make identity assignment more stable in crowded scenes and moving-camera footage. The result is a tracker that is still online and practical, but more robust than motion-only alternatives when identities are ambiguous.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker botsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What BoxMOT Needs For BotSort
 
 - A detector plus appearance embeddings when `use_embeddings=True`. Both the

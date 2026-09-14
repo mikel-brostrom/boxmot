@@ -206,6 +206,9 @@ class DeepOcSort(BoxTracker):
                 self.aw_off,
                 self.aw_param,
                 is_obb=self.is_obb,
+                similarity_conditioner=lambda similarity: self._condition_similarity(
+                    similarity, _tracks, _detections, threshold=self.iou_threshold
+                ),
             ),
         )
         first_result = run_association_stage(first_stage, self.active_tracks, dets)
@@ -228,6 +231,12 @@ class DeepOcSort(BoxTracker):
             if rematch_trk_indices.size:
                 left_trks = last_boxes[rematch_trk_indices]
                 similarity = np.asarray(self.asso_func(left_dets, left_trks))
+                similarity = self._condition_similarity(
+                    similarity,
+                    [self.active_tracks[t] for t in rematch_trk_indices],
+                    left_dets,
+                    threshold=self.iou_threshold,
+                )
                 rematch_stage = AssociationStage(
                     name="deepocsort_ocr_rematch",
                     threshold=self.iou_threshold,

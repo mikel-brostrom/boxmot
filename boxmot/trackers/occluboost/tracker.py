@@ -265,6 +265,9 @@ class OccluBoost(BoostTrack):
             s_sim_corr=self.s_sim_corr,
             lambda_emb_multiplier=self.lambda_emb_multiplier,
             geometry_matrix=geometry_similarity,
+            geometry_conditioner=lambda similarity: self._condition_similarity(
+                similarity, self.trackers, high_batch.boxes, threshold=self.iou_threshold
+            ),
         )
 
         dets_alpha = confidence_aware_alpha(
@@ -299,8 +302,14 @@ class OccluBoost(BoostTrack):
                     trks_pos[j, :4] = pos
                     trks_pos[j, 4] = self.trackers[t].get_confidence()
                 ious = self.asso_func(high_batch.boxes[u_det_idx], trks_pos[:, :4])
-
-                gated = sim.copy()
+                guided_ious = self._condition_similarity(
+                    ious,
+                    [self.trackers[t] for t in elig],
+                    high_batch.boxes[u_det_idx],
+                    threshold=self.recovery_iou_thresh,
+                )
+                gated = sim + (guided_ious - ious)
+                ious = guided_ious
                 gated[ious < self.recovery_iou_thresh] = -1.0
                 gated[sim < self.recovery_appearance_thresh] = -1.0
 
@@ -344,6 +353,12 @@ class OccluBoost(BoostTrack):
                     trks_pos[j, :4] = pos
                     trks_pos[j, 4] = self.trackers[t].get_confidence()
                 ious2 = self.asso_func(second_batch.boxes, trks_pos[:, :4])
+                ious2 = self._condition_similarity(
+                    ious2,
+                    [self.trackers[t] for t in elig_sec],
+                    second_batch.boxes,
+                    threshold=self.second_iou_thresh,
+                )
 
                 cost = 1.0 - ious2
                 cost[ious2 < self.second_iou_thresh] = 1.0

@@ -294,6 +294,17 @@ class BaseTracker(
         """Check capture timing without advancing it, before expensive upstream work."""
         return self._resolve_timing(frame, timestamp_s)[1]
 
+    def _validate_frame_context(self, frame: Frame | np.ndarray | None) -> None:
+        """Validate optional tracker-specific frame metadata before model execution."""
+
+    def _before_track_detections(self, img: np.ndarray | None) -> None:
+        """Advance optional family-specific context before association."""
+
+    def _observe_track_outputs(
+        self, boxes: np.ndarray, track_ids: np.ndarray, detection_indices: np.ndarray
+    ) -> None:
+        """Observe validated outputs for optional family-specific context."""
+
     @overload
     def update(
         self,
@@ -335,6 +346,7 @@ class BaseTracker(
         """
         timestamp_s, dt = self._resolve_timing(frame, timestamp_s)
         frame = prepare_frame(frame)
+        self._validate_frame_context(frame)
 
         if (
             detections_3d is not None
@@ -539,6 +551,7 @@ class BaseTracker(
                 img = self._frame_to_bgr(frame)
 
         self._initialize_frame_context(img)
+        self._before_track_detections(img)
         if self.per_class:
             result = self._track_per_class(dets=dets, img=img, embs=embeddings, masks=masks)
         else:
@@ -588,6 +601,7 @@ class BaseTracker(
         )
         if detection_indices.size and np.any(detection_indices >= len(scores)):
             raise ValueError(f"{self.__class__.__name__} kernel returned a detection index outside the current batch.")
+        self._observe_track_outputs(geometry, track_ids, detection_indices)
         track_scores = np.ascontiguousarray(
             raw[:, self.detection_layout.schema.track_conf_index],
             dtype=np.float32,

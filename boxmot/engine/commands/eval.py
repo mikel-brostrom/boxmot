@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping
@@ -12,8 +13,11 @@ from boxmot.engine.commands._options import (
     association_function_option,
     data_root_option,
     dataset_fps_option,
+    edgetam_option,
     eval_masks_option,
     kalman_calibration_option,
+    mask_guidance_max_objects_option,
+    mask_guidance_weights_option,
     replay_build_options,
     replay_options,
     sequence_option,
@@ -28,6 +32,7 @@ from boxmot.engine.commands._support import (
     _require_replay_input,
 )
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, get_mode_default, resolve_sequence_workers
+from boxmot.engine.config.trackers import edgetam_checkpoint
 
 _SENSOR_OPTIONS = frozenset(
     {
@@ -53,6 +58,51 @@ _SENSOR_OPTIONS = frozenset(
         "show_timing",
     }
 )
+
+
+def _validate_mask_guidance_evaluation(payload: Mapping[str, Any]) -> None:
+    """Reject incompatible mask-guided replay before acquiring perception data."""
+    if edgetam_checkpoint(SimpleNamespace(**payload)) is None:
+        return
+
+    from boxmot.datasets.config import dataset_modalities, load_dataset_config
+    from boxmot.engine.config.experiments import resolve_experiment_config
+    from boxmot.engine.config.trackers import resolve_tracker_options
+    from boxmot.trackers.common.mask_guidance import validate_mask_guidance_spec
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    try:
+        spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
+        options = resolve_tracker_options(
+            SimpleNamespace(**{**payload, "tracker": spec.name, "tracker_backend": spec.backend}),
+            include_defaults=True,
+        )
+        validate_mask_guidance_spec(spec, resolved_options=options)
+        if payload.get("per_class") or options.get("per_class", False):
+            raise ValueError("Mask guidance evaluation does not support --per-class.")
+        if options.get("asso_func", "iou") != "iou":
+            raise ValueError("Mask guidance evaluation requires --asso-func iou.")
+        if any(payload.get(name) for name in ("eval_masks", "eval_3d", "eval_ap", "show_3d", "class_config")):
+            raise ValueError("Mask guidance evaluation supports box metrics from image datasets only.")
+        if payload.get("experiment"):
+            resolved = resolve_experiment_config(payload["experiment"], split=payload.get("split"), mode="eval")
+            dataset = resolved["dataset"]
+        else:
+            dataset = load_dataset_config(payload["dataset"])
+        if dataset["box_type"] != "aabb":
+            raise ValueError("Mask guidance evaluation requires an AABB dataset.")
+        split = payload.get("split") or dataset.get("split") or dataset["default_split"]
+        modalities = dataset_modalities(dataset, split)
+        if {"detections_2d", "detections_3d", "calibration", "poses"}.intersection(modalities):
+            raise ValueError("Mask guidance evaluation does not support saved-detection or sensor datasets.")
+        if find_spec("sam2") is None:
+            raise ValueError(
+                "EdgeTAM is not installed. From the BoxMOT checkout, run "
+                "uv sync --extra cpu --extra yolo --group mask-guidance "
+                "(use --extra cu130 instead of --extra cpu for CUDA)."
+            )
+    except (TypeError, ValueError, OSError) as exc:
+        raise click.UsageError(str(exc)) from exc
 
 
 def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -236,7 +286,10 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
 
 
 @click.command(name="eval", help="Evaluate tracking performance from a perception build or saved dataset predictions.")
-@replay_build_options(dataset_default=BOXMOT_DEFAULTS.eval.dataset)
+@replay_build_options(
+    dataset_default=BOXMOT_DEFAULTS.eval.dataset,
+    device_help="One device for uncached perception and EdgeTAM mask guidance: cpu, mps, cuda:N, or N (e.g. 0).",
+)
 @data_root_option
 @split_option
 @dataset_fps_option
@@ -261,6 +314,9 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
     help="EagerMOT: car and pedestrian profiles from tuning's best.yaml or KF calibration's calibrated.yaml.",
 )
 @association_function_option
+@mask_guidance_weights_option
+@edgetam_option
+@mask_guidance_max_objects_option
 @replay_options(mode="eval", parallel=True)
 @click.option(
     "--show",
@@ -330,6 +386,8 @@ def eval(
         raise click.UsageError("Choose either --eval-3d or --eval-masks.")
     if kwargs["show_3d"] and not (kwargs["show"] or kwargs["save"]):
         raise click.UsageError("--show-3d requires --show or --save.")
+    if edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None and "sequence_workers" not in _explicit_cli_keys(ctx):
+        kwargs["sequence_workers"] = 1
 
     dataset_payload = {
         **kwargs,
@@ -348,6 +406,7 @@ def eval(
         "eval_masks": eval_masks,
         "calibrate_kf": calibrate_kf,
     }
+    _validate_mask_guidance_evaluation(dataset_payload)
     saved_2d_payload = _prepare_saved_2d_evaluation(ctx, dataset_payload)
     if saved_2d_payload is not None:
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.saved_detections", saved_2d_payload)
@@ -395,6 +454,7 @@ def eval(
         tracker_config=kwargs.get("tracker_config"),
         eval_masks=eval_masks,
         allow_noncanonical_build=allow_noncanonical_build,
+        runtime_device=edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None,
     )
 
     _dispatch_cli_workflow(

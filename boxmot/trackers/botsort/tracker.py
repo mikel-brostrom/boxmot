@@ -341,13 +341,22 @@ class BotSort(BoxTracker):
         if self.fuse_first_associate:
             geometry_dists = fuse_score(geometry_dists, detections)
 
-        if not self.use_embeddings:
-            return geometry_dists
+        costs = geometry_dists
+        if self.use_embeddings:
+            emb_dists = embedding_distance(tracks, detections)
+            emb_dists[emb_dists > self.appearance_thresh] = 1.0
+            emb_dists[geometry_dists_mask] = 1.0
+            costs = np.minimum(geometry_dists, emb_dists)
+        return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
 
-        emb_dists = embedding_distance(tracks, detections)
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[geometry_dists_mask] = 1.0
-        return np.minimum(geometry_dists, emb_dists)
+    def _second_association_cost(self, tracks, detections) -> np.ndarray:
+        """Apply temporal masks to the low-confidence pass at its own threshold."""
+        return self._condition_association(
+            self.association_distance(tracks, detections),
+            tracks,
+            detections,
+            threshold=self.second_match_thresh,
+        )
 
     def _second_association(
         self,
@@ -375,7 +384,7 @@ class BotSort(BoxTracker):
 
         second_stage = AssociationStage(
             name="botsort_low",
-            cost=self.association_distance,
+            cost=self._second_association_cost,
             threshold=self.second_match_thresh,
         )
         second_result = run_association_stage(
@@ -454,13 +463,13 @@ class BotSort(BoxTracker):
         geometry_dists_mask = geometry_dists > self.proximity_thresh
         geometry_dists = fuse_score(geometry_dists, detections)
 
-        if not self.use_embeddings:
-            return geometry_dists
-
-        emb_dists = embedding_distance(tracks, detections) / self.unconfirmed_emb_scale
-        emb_dists[emb_dists > self.appearance_thresh] = 1.0
-        emb_dists[geometry_dists_mask] = 1.0
-        return np.minimum(geometry_dists, emb_dists)
+        costs = geometry_dists
+        if self.use_embeddings:
+            emb_dists = embedding_distance(tracks, detections) / self.unconfirmed_emb_scale
+            emb_dists[emb_dists > self.appearance_thresh] = 1.0
+            emb_dists[geometry_dists_mask] = 1.0
+            costs = np.minimum(geometry_dists, emb_dists)
+        return self._condition_association(costs, tracks, detections, threshold=self.unconfirmed_match_thresh)
 
     def _initialize_new_tracks(self, u_detections, activated_stracks, detections):
         for inew in u_detections:

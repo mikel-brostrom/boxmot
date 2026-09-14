@@ -10,6 +10,8 @@ from collections.abc import Iterable, Mapping
 
 from typing_extensions import TypedDict
 
+from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
+
 
 class TrackerMetadataOptions(TypedDict, total=False):
     """Observation history and detector class metadata."""
@@ -33,6 +35,8 @@ class BoxTrackerOptions(AssociationTrackerOptions, total=False):
     iou_threshold: float
     per_class: bool
     is_obb: bool
+    mask_guidance: MaskGuidanceConfig | MaskGuidance | None
+    edgetam: Mapping[str, object] | None
 
 
 class CommonTrackerOptions(BoxTrackerOptions, total=False):

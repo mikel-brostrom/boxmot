@@ -102,7 +102,7 @@ def test_hybridsort_obb_equivalent_rectangle_forms_keep_ids() -> None:
 def test_hybridsort_obb_consumes_precomputed_embeddings_for_ambiguous_geometry() -> None:
     tracker = _tracker(
         use_embeddings=True,
-        EG_weight_high_score=4.0,
+        eg_weight_high_score=4.0,
         with_longterm_reid_correction=False,
     )
     rows = np.array(

@@ -137,6 +137,8 @@ def associate_hybrid(
     previous_observations: np.ndarray,
     velocity_weight: float,
     association_function: SimilarityFunction,
+    *,
+    geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections using geometry, motion, and confidence consistency."""
     if len(tracks) == 0:
@@ -147,6 +149,8 @@ def associate_hybrid(
         )
 
     similarity = np.asarray(association_function(detections, tracks), dtype=float)
+    if geometry_conditioner is not None:
+        similarity = geometry_conditioner(similarity)
     ranking_similarity = (
         similarity
         + _four_corner_motion_cost(
@@ -160,7 +164,7 @@ def associate_hybrid(
     candidates = _geometry_candidates(similarity, ranking_similarity, similarity_threshold)
     return _partition_matches(
         candidates,
-        lambda detection_index, track_index: (similarity[detection_index, track_index] >= similarity_threshold),
+        lambda detection_index, track_index: similarity[detection_index, track_index] >= similarity_threshold,
         detection_count=len(detections),
         track_count=len(tracks),
     )
@@ -182,6 +186,7 @@ def associate_hybrid_with_reid(
     longterm_embedding_weight: float = 0.0,
     correct_with_appearance: bool = False,
     appearance_threshold: float = 0.0,
+    geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections with geometry, motion, and appearance."""
     if len(tracks) == 0:
@@ -202,6 +207,10 @@ def associate_hybrid_with_reid(
     assignment_cost += embedding_weight * embedding_cost
     if longterm_embedding_cost is not None:
         assignment_cost += longterm_embedding_weight * longterm_embedding_cost
+    if geometry_conditioner is not None:
+        guided_similarity = geometry_conditioner(similarity)
+        assignment_cost -= guided_similarity - similarity
+        similarity = guided_similarity
     candidates = solve_assignment(assignment_cost)
 
     threshold_similarity = similarity - confidence_difference(

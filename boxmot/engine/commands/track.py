@@ -9,6 +9,9 @@ import click
 
 from boxmot.engine.commands._options import (
     association_function_option,
+    edgetam_option,
+    mask_guidance_max_objects_option,
+    mask_guidance_weights_option,
     sequence_option,
     source_option,
     track_options,
@@ -115,6 +118,9 @@ def _track_saved_detections(ctx: click.Context, payload: dict[str, Any]) -> None
 @track_options
 @_singular_model_options
 @click.option("--segmentor", type=str, default=None, help="Segmentor config ID or YAML path.")
+@mask_guidance_weights_option
+@edgetam_option
+@mask_guidance_max_objects_option
 @click.option("--geometry", type=click.Choice(("aabb", "obb")), default="aabb", show_default=True)
 @click.option("--save-json", is_flag=True, default=False, help="Write canonical JSON Lines track output.")
 @click.option(

@@ -187,8 +187,36 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
 
     assert expected <= {name.split(".", 1)[0] for name in runtime_config}
     assert set(flat_tuning_config) <= set(runtime_config)
-    assert set(tuning_config["use_byte"]["activates"]) == {"low_thresh", "TCM_byte_step"}
+    assert set(tuning_config["use_byte"]["activates"]) == {"low_thresh", "tcm_byte_step"}
     assert "longterm_bank_length" in tuning_config["use_embeddings"]["activates"]
+
+
+@pytest.mark.parametrize("custom_profile", [False, True])
+def test_hybridsort_resolved_config_roundtrips_through_spec_and_factory(tmp_path, custom_profile: bool) -> None:
+    config_path = None
+    if custom_profile:
+        config_path = tmp_path / "hybridsort.yaml"
+        config_path.write_text(
+            "eg_weight_high_score: 3.5\n"
+            "eg_weight_low_score: 1.1\n"
+            "tcm_first_step: false\n"
+            "tcm_byte_step: false\n"
+            "tcm_byte_step_weight: 0.7\n"
+        )
+    resolved = load_tracker_config("hybridsort", config_path)
+    spec = TrackerSpec("hybridsort", options=tuple(sorted(resolved.items())))
+
+    tracker = create_tracker(spec)
+
+    assert spec.option_dict == resolved
+    for key in (
+        "eg_weight_high_score",
+        "eg_weight_low_score",
+        "tcm_first_step",
+        "tcm_byte_step",
+        "tcm_byte_step_weight",
+    ):
+        assert getattr(tracker, key) == resolved[key]
 
 
 @pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort"])

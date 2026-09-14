@@ -85,3 +85,25 @@ kalman:
       default: 1.0
     initial_velocity_scale:
       default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 32
+    options: [8, 16, 24, 32]

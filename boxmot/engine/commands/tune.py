@@ -9,10 +9,14 @@ from typing import Any, Mapping
 import click
 
 from boxmot.engine.commands._options import (
+    association_function_option,
     data_root_option,
     dataset_fps_option,
+    edgetam_option,
     eval_masks_option,
     kalman_calibration_option,
+    mask_guidance_max_objects_option,
+    mask_guidance_weights_option,
     replay_build_options,
     replay_options,
     sequence_option,
@@ -27,6 +31,7 @@ from boxmot.engine.commands._support import (
     _require_replay_input,
 )
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, get_mode_default, resolve_sequence_workers
+from boxmot.engine.config.trackers import edgetam_checkpoint
 
 _SENSOR_OPTIONS = frozenset(
     {
@@ -228,7 +233,7 @@ def _tune_options(func):
             type=int,
             default=0,
             help=(
-                "max concurrent trials (0 = auto, defaults to min(4, cpu_count)); "
+                "max concurrent trials (0 = auto: 1 with mask guidance, otherwise min(4, cpu_count)); "
                 "controls parallelism and improves Bayesian search effectiveness"
             ),
         ),
@@ -304,14 +309,20 @@ def _tune_options(func):
         "EagerMOT jointly tunes car and pedestrian profiles for class-average KITTI mask HOTA."
     ),
 )
-@replay_build_options()
+@replay_build_options(
+    device_help="One device for uncached perception and EdgeTAM mask guidance: cpu, mps, cuda:N, or N (e.g. 0)."
+)
 @data_root_option
 @split_option
 @sequence_option
 @dataset_fps_option
 @eval_masks_option
+@mask_guidance_weights_option
+@edgetam_option
+@mask_guidance_max_objects_option
 @tracker_backend_option(default=BOXMOT_DEFAULTS.tune.tracker_backend)
 @tracker_config_option
+@association_function_option
 @click.option(
     "--class-config",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
@@ -364,6 +375,41 @@ def tune(
         return
     if kwargs.get("class_config") is not None:
         raise click.UsageError("--class-config requires a sensor dataset with --tracker eagermot.")
+    if edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None:
+        from importlib.util import find_spec
+
+        from boxmot.datasets.config import dataset_modalities, load_dataset_config
+        from boxmot.engine.config.experiments import resolve_experiment_config
+        from boxmot.engine.config.trackers import resolve_tracker_options
+        from boxmot.engine.tuning.mask_guidance import prepare_mask_guidance_tuning
+
+        try:
+            options = SimpleNamespace(**kwargs, device=device, eval_masks=eval_masks)
+            prepare_mask_guidance_tuning(options, resolve_tracker_options(options, include_defaults=True))
+            kwargs["asso_func"] = options.asso_func
+            selected = (
+                resolve_experiment_config(experiment, split=split, mode="tune")["dataset"]
+                if experiment
+                else load_dataset_config(dataset)
+            )
+            if selected["box_type"] != "aabb":
+                raise ValueError("Mask guidance tuning requires an AABB dataset.")
+            selected_split = split or selected.get("split") or selected["default_split"]
+            if {"detections_2d", "detections_3d", "calibration", "poses"}.intersection(
+                dataset_modalities(selected, selected_split)
+            ):
+                raise ValueError("Mask guidance tuning requires image datasets.")
+            if find_spec("sam2") is None:
+                raise ValueError(
+                    "EdgeTAM is not installed. Run uv sync --extra cpu --extra yolo --extra evolve "
+                    "--group mask-guidance (use --extra cu130 instead of --extra cpu for CUDA)."
+                )
+        except (TypeError, ValueError, OSError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        if "sequence_workers" not in _explicit_cli_keys(ctx):
+            kwargs["sequence_workers"] = 1
+        if not kwargs.get("max_concurrent_trials"):
+            kwargs["max_concurrent_trials"] = 1
     if calibrate_kf and kwargs.get("resume_tune"):
         raise click.UsageError(
             "--calibrate-kf cannot be combined with --resume-tune; resume reuses the saved calibration."
@@ -406,6 +452,7 @@ def tune(
         fps=kwargs.get("fps"),
         tracker_config=kwargs.get("tracker_config"),
         eval_masks=eval_masks,
+        runtime_device=edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None,
     )
     _dispatch_cli_workflow(
         ctx,

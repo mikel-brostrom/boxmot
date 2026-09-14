@@ -6,6 +6,12 @@ tentative-track confirmation, ReID recovery, a guarded low-confidence second
 pass, duplicate suppression, and an **Abnormal Motion Suppression (AMS)**
 Kalman update.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker occluboost --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What's layered on top of BoostTrack
 
 - **AMS Kalman update.** Matched AABB updates (first pass, ReID recovery, and low-confidence second pass) scale the Kalman gain on the mean update by `alpha ∈ [kalman.ams.alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.

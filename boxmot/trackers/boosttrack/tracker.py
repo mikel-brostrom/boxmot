@@ -240,6 +240,9 @@ class BoostTrack(BoxTracker):
             s_sim_corr=self.s_sim_corr,
             geometry_matrix=geometry_similarity,
             shape_matrix=oriented_shape,
+            geometry_conditioner=lambda similarity: self._condition_similarity(
+                similarity, self.trackers, batch.boxes, threshold=self.iou_threshold
+            ),
         )
 
         dets_alpha = confidence_aware_alpha(batch.confs, self.det_thresh)

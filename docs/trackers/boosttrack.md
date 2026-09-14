@@ -4,6 +4,12 @@
 
 BoostTrack++ focuses on a neglected part of MOT pipelines: deciding which detections are worth trusting in the first place. The paper extends BoostTrack by using tracklet history to build a richer similarity score, then boosts low-confidence detections when past evidence suggests they are real objects. In practice, that improves recall and identity stability without giving up the online tracking-by-detection setup.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker boosttrack --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What BoxMOT Needs For BoostTrack
 
 - A detector plus appearance embeddings when `use_embeddings=True`, as in the
