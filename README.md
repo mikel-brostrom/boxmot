@@ -39,7 +39,7 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `eval`, `tune`, `research`,
+- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
   `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
   workflows.
 - Swappable components with explicit capabilities and requirements.
@@ -63,12 +63,6 @@ CI can explicitly select the lockfile-backed `cpu` or `cu130` profile. For
 those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 `research`, `onnx`, `openvino`, and `tflite`, see the
 [installation guide](docs/getting-started/installation.md).
-
-Add optional dependencies explicitly with `boxmot install --extra onnx`
-(repeat `--extra` for multiple workflows). Download helpers, ReID backends,
-exporters, tuning, and research report missing dependencies when used. See
-[Install dependencies](docs/modes/install.md) for interpreter selection and
-package requirements.
 
 ## Benchmark Results
 
@@ -235,105 +229,6 @@ package requirements.
 
 </div>
 
-[MafHda](docs/trackers/maf_hda.md) is the Python MAF_HDA/GMPHD_MAF port for
-mask-aware tracking. It requires AABB detections, nonempty full-frame instance
-masks, and the current image.
-Use `boxmot track --tracker maf_hda --detections DIR --images DIR --instances DIR` to replay saved KITTI TrackR-CNN
-predictions; the [MAF-HDA guide](docs/trackers/maf_hda.md) provides the complete command.
-MafHda is not included in the box-only benchmark table above.
-
-The nine Python box trackers support optional
-[temporal mask guidance](docs/tasks/masks.md#use-temporal-masks-in-association):
-ByteTrack, BotSort, StrongSort, OcSort, DeepOcSort, HybridSort, BoostTrack,
-OccluBoost, and SFSORT. For example, run
-`boxmot track --tracker botsort --tracker-backend python --asso-func iou --source 0 --edgetam`.
-Guidance is off by default. `--edgetam` uses the default checkpoint;
-`--mask-guidance-weights PATH` selects another. Weights alone do not enable
-guidance; `--no-edgetam` disables it even when weights are supplied.
-Guidance requires AABB geometry, IoU association, and `per_class=False`.
-Install the official EdgeTAM package from a source checkout with
-`uv sync --extra cpu --extra yolo --group mask-guidance` (use `--extra cu130` for CUDA).
-Its full checkpoint downloads into `./models` on first use. Guidance retains at most
-96 identities by default; `--mask-guidance-max-objects N` overrides that memory budget.
-Temporal MPS inference automatically uses FP16 weights, autocast, and mask-memory
-features. CPU uses FP32; capable CUDA devices use BF16 autocast, otherwise FP32.
-Propagation batches up to four compatible objects per call, independently of
-the identity cap; initial prompts remain individual. Masks stay on the inference
-device for propagation and reseeding. Matching transfers only small integer
-overlap counts to the CPU; rendering creates CPU masks lazily when requested.
-Tracker YAMLs group coverage, fill, prompt overlap, and identity-cap settings
-under `edgetam` for [guided tuning](docs/modes/tune.md#tune-mask-guidance) and
-`--tracker-config` profiles.
-Each tracker keeps its existing association stages, thresholds, and appearance
-and motion rules. Mask adjustments follow McByte++'s admissible, ambiguous-pair
-policy and cannot rescue pairs that fail the original stage gate. Accuracy
-gains have not been established for these extensions.
-For detection-aligned box-to-mask segmentation, pass
-`--segmentor boxmot/configs/segmentors/edgetam.yaml`; see [mask generation](docs/tasks/masks.md#generate-masks-with-edgetam).
-To materialize YOLOX detections, EdgeTAM detection masks, and LMBN embeddings,
-use `--experiment mot17/ablation-yolox-edgetam-lmbn.yaml` with
-`boxmot materialize --publish-masks --publish-embeddings`; see
-[materializing detection masks](docs/tasks/masks.md#materialize-detection-masks).
-For [guided tuning](docs/modes/tune.md#tune-mask-guidance), `--edgetam` reuses
-published detections and embeddings and propagates masks from each trial's
-own track history. Published detection masks do not replace temporal inference.
-The guide covers CPU, CUDA, and MPS execution, live webcam and RTSP inputs, and
-[MOT17 ablation evaluation with EdgeTAM](docs/trackers/bytetrack.md#evaluate-mot17-ablation-with-edgetam).
-
-[KITTI 2D](docs/config/datasets.md#kitti-2d-tracking) supports image and box
-trackers with native tracking annotations. For example:
-
-```bash
-boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n --split val
-```
-
-To reuse saved TrackR-CNN boxes and images in an existing `kitti-mots` folder:
-
-```bash
-boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
-  --data-root ./kitti-mots --tracker occluboost --cache-inputs
-```
-
-The [saved-detection YAML](boxmot/configs/datasets/kitti-mots-2d.yaml)
-selects boxes without masks or spatial inputs; the experiment generates OSNet
-appearance features. Use `kitti-2d/val-trackrcnn` for motion-only trackers.
-The [dataset guide](docs/config/datasets.md#existing-2d-detections) describes
-the layout and original KITTI preset. Both KITTI 2D workflows use BoxMOT's built-in HOTA, MOTA,
-and IDF1 metrics; no TrackEval installation is required.
-
-[EagerMot](docs/trackers/eagermot.md) provides 2D/3D sensor fusion through the
-Python API using independent detection batches and camera calibration. It
-returns image and spatial tracks with shared identities. The
-`boxmot eval --tracker eagermot` command evaluates downloaded KITTI PointGNN and
-TrackR-CNN predictions against MOTS masks by default. Add
-[`--eval-3d`](docs/trackers/eagermot.md#evaluate-3d-tracks) to score spatial tracks
-using volumetric **3D HOTA/MOTA/IDF1** from the existing tracking labels.
-Add `--eval-ap` for official KITTI **2D/3D AP40 (Easy / Moderate / Hard)** and
-separate projected **2D tracking** metrics; that option requires exact object labels
-and the [official evaluators](docs/trackers/eagermot.md#evaluate-3d-tracks).
-
-```bash
-boxmot eval --dataset ./kitti-mots --tracker eagermot --split val \
-  --eval-3d --project runs/kitti-3d
-```
-
-The optional 2D reports use projections of the evaluated spatial tracks. Predictions
-are saved in `kitti_3d/<sequence>.txt`; AP and tracking metrics have separate files.
-Use [`boxmot tune --dataset ./kitti-mots --tracker eagermot`](docs/trackers/eagermot.md#tune-separate-class-profiles)
-with a multimodal sequence dataset to optimize separate car and pedestrian profiles
-together for class-average mask HOTA, then evaluate `best.yaml` with
-`boxmot eval --tracker eagermot --dataset ./kitti-mots --class-config`. Each sequence contains
-its images, annotations, calibration, and poses. `dataset.yaml` defines the
-sequences, splits, classes, and per-modality encodings and paths in the same
-schema used by built-in datasets.
-With identity-bearing 3D annotations, add [`--calibrate-kf`](docs/trackers/eagermot.md#calibrate-3d-kalman-noise)
-to fit the 3D Kalman noise before evaluation or tracker tuning.
-For your own multimodal recordings and detector outputs, start from the
-[sensor dataset config](boxmot/configs/datasets/sensor-fusion.yaml) and follow
-the [setup guide](examples/datasets/sensor-fusion/README.md). The config defines
-portable paths, custom sequence/split names, frame timing, and the required
-image, 2D/3D detection, calibration, and ego-pose formats.
-
 Related guides:
 
 - [Evaluation and Postprocessing](docs/guides/evaluation.md)
@@ -362,46 +257,6 @@ boxmot eval \
 
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
-
-For repeated evaluations or tuning, add
-[`--cache-inputs`](docs/modes/eval.md#cache-replay-inputs-for-repeated-runs)
-to reuse detections, masks, requested images and embeddings, sensor calibration
-and poses, and ground truth. Image and sensor tuning reuse sequence workers
-across trials while creating fresh tracker state each time.
-
-For KITTI MOTS, the [mask dataset loader](docs/config/datasets.md#kitti-mots-instance-masks)
-reads original instance PNGs into canonical frames, track IDs, masks, and ignore
-regions. The `kitti-mots` profile supports materialization, evaluation, and
-tuning with the official sequence splits. [MOTS evaluation](docs/guides/evaluation.md#kitti-mots-evaluation)
-uses box IoU by default; add `--eval-masks` for segmentation HOTA, CLEAR, and Identity.
-
-Create independent Python components by name:
-
-```python
-from boxmot import create_tracker
-from boxmot.detectors import create_detector
-from boxmot.pipelines import TrackingPipeline
-from boxmot.reid import create_reid_encoder
-
-detector = create_detector("yolo26n", device="cpu")
-reid = create_reid_encoder("osnet-x0-25-msmt17", device="cpu")
-tracker = create_tracker("occluboost", per_class=True)
-
-pipeline = TrackingPipeline(detector=detector, reid=reid, tracker=tracker)
-# result = pipeline.step(frame)  # A canonical RGB Frame.
-```
-
-Factories resolve model configs and weights internally. Python editors that
-support literal completions can suggest profiles, supported Ultralytics
-checkpoints, and pretrained ReID checkpoints inside the model string.
-Each tracker has a typed, immutable algorithm config, such as
-`BotSort(config=BotSortConfig(match_thresh=0.8))`. Import both classes from
-`boxmot`. Direct construction and the factory share the same algorithm defaults.
-Keep component configs (`kalman`, `reid`, `mask_guidance`) and runtime selection
-such as `per_class` on the tracker constructor.
-See the
-[Python API](docs/python/index.md#component-factories) for independent component
-calls, frame construction, and explicit specs.
 
 Use NumPy detections and BGR images directly:
 
