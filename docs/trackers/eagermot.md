@@ -339,8 +339,9 @@ the evaluation sequences.
 Add `--calibrate-kf` to `eval` or `tune` after supplying the optional
 [`ground_truth_3d` modality](../config/datasets.md#3d-ground-truth-for-kalman-calibration).
 It requires 3D annotations with stable object identities; instance masks alone
-cannot provide the required 3D trajectories. `kitti-mots/dataset.yaml` reads
-`{partition}/label_02/{sequence}.txt`, such as `training/label_02/0000.txt`.
+cannot provide the required 3D trajectories. For KITTI tracking labels, configure
+this modality's path as `{partition}/label_02/{sequence}.txt`, such as
+`training/label_02/0000.txt`.
 Download KITTI tracking labels separately if these files are absent. The dataset
 continues to use its sequence calibration files and any declared ego poses:
 
