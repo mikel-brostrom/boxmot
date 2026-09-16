@@ -44,6 +44,7 @@ EXPECTED_CLI_COMMANDS = (
     "eval-reid",
     "compare-reid",
     "export",
+    "export-edgetam",
     "build",
     "install",
 )
