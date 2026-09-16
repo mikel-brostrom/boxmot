@@ -224,6 +224,9 @@ paths:
 | `edgetam.prompt_overlap` | `0.10` | Uniform `[0.01, 0.50]` | Block a new prompt when a box with a lower bottom edge overlaps this fraction of its area or more. |
 | `edgetam.max_objects` | `96` | Choice `[8, 16, 24, 32, 64, 96]` | Maximum identities retaining propagation state. |
 
+OccluBoost uses a wider `min_fill` search range of `[0.01, 0.30]` and
+`max_objects` choices of `[32, 64, 96, 128]`, with the same runtime defaults.
+
 The built-in YAML entries include `default`, `type`, and `range` or `options`.
 For a custom runtime profile passed with `--tracker-config`, use scalar values
 inside the same group:

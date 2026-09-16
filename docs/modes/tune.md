@@ -75,6 +75,9 @@ and a scalar runtime profile. `--tracker-config` overrides the starting values;
 searchable parameters can still change in later trials. An explicit
 `--mask-guidance-max-objects N` instead holds the cap fixed for every trial.
 
+OccluBoost uses a wider `min_fill` search range of `[0.01, 0.30]` and
+`max_objects` choices of `[32, 64, 96, 128]`, with the same runtime defaults.
+
 Guidance requires AABB, IoU, and `per_class: false`; guided tuning fixes
 `asso_func` to `iou` instead of searching other association functions. Without
 `--edgetam`, all four mask parameters are excluded from search.
