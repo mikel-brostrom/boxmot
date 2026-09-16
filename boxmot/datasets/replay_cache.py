@@ -14,7 +14,7 @@ import os
 import shutil
 import tempfile
 from collections.abc import Iterator
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +24,10 @@ from filelock import FileLock
 
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 
+from ._mask_reader import IndexedMaskReader
 from .cached import CachedVisionDataset, DatasetSample
 from .manifest import DatasetManifest, canonical_json_bytes, sha256_file
-from .masks import pack_mask_batch, packed_mask_size, unpack_mask_batch
+from .masks import packed_mask_size, unpack_mask_batch
 from .readers.images import _local_image_path
 from .schema import (
     EMBEDDINGS_ARTIFACT,
@@ -332,7 +333,7 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
         split=identity["split"],
         load_embeddings=identity["load_embeddings"],
         load_images=identity["load_images"],
-        load_masks=identity["load_masks"],
+        load_masks=False,
     )
     dataset = stream._dataset
     count = sum(len(rows) for rows in dataset._instances_by_sample.values())
@@ -360,7 +361,9 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
             arrays[name] = np.lib.format.open_memmap(
                 staging / f"{name}.npy", mode="w+", dtype=_ARRAY_DTYPES[name], shape=shape
             )
-        with closing(iter(stream)) as samples_iterator:
+        with ExitStack() as resources:
+            masks = resources.enter_context(IndexedMaskReader(dataset)) if identity["load_masks"] else None
+            samples_iterator = resources.enter_context(closing(iter(stream)))
             for sample in samples_iterator:
                 detections = sample.detections
                 end = cursor + len(detections)
@@ -373,11 +376,13 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
                 for name in ("images", "masks"):
                     if not identity[f"load_{name}"]:
                         continue
-                    payload = (
-                        sample.frame.image.numpy().reshape(-1)
-                        if name == "images"
-                        else np.frombuffer(b"".join(pack_mask_batch(detections.masks.values)), dtype=np.uint8)
-                    )
+                    if name == "images":
+                        payload = sample.frame.image.numpy().reshape(-1)
+                    else:
+                        assert masks is not None
+                        keys = tuple((sample.sample_id, instance_id) for instance_id in detections.instance_ids or ())
+                        packed = masks.take_packed(keys, height=sample.image_size[0], width=sample.image_size[1])
+                        payload = np.frombuffer(b"".join(packed), dtype=np.uint8)
                     payload_start = payload_cursors[name]
                     payload_end = payload_start + len(payload)
                     arrays[name][payload_start:payload_end] = payload
@@ -401,6 +406,8 @@ def _write_entry(staging: Path, build: Path, manifest: DatasetManifest, signatur
                     }
                 )
                 cursor = end
+            if masks is not None:
+                masks.finish()
         if cursor != count:
             raise DatasetValidationError("Replay stream row count changed during preparation.")
         if identity["load_images"] and _image_signatures(dataset._samples, image_root) != image_signatures:

@@ -48,7 +48,7 @@ also supports MPS on macOS. Enable guidance when starting the search:
 
 ```bash
 boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
-  --tracker bytetrack --tracker-backend python \
+  --tracker occluboost --tracker-backend python --asso-func iou \
   --edgetam --mask-guidance-weights models/edgetam.pt --device mps \
   --n-trials 20 --max-concurrent-trials 1 --sequence-workers 1
 ```
@@ -57,7 +57,10 @@ The example selects an existing checkpoint at `models/edgetam.pt`. With just
 `--edgetam`, the default `edgetam.pt` resolver downloads or reuses the official
 checkpoint in `./models`. Weights alone do not enable guidance;
 `--no-edgetam` disables it even with `--mask-guidance-weights`. To reuse a
-specific cached build, add `--build BUILD_ID` to this command. Source image pixels must remain
+specific cached build, add `--build BUILD_ID` and select the experiment that
+created it. An existing `mot17/ablation-yolox-edgetam-lmbn.yaml` build can supply
+its detections and embeddings; new builds for guided tuning do not need a
+standalone segmentor or published masks. Source image pixels must remain
 available: each trial propagates masks while replaying cached detections.
 `--device` selects the propagation device even when `--build` is supplied.
 
@@ -66,7 +69,7 @@ with resolved option paths
 `edgetam.min_coverage` (`0.90`, uniform `[0.50, 1.0]`),
 `edgetam.min_fill` (`0.05`, uniform `[0.01, 0.25]`),
 `edgetam.prompt_overlap` (`0.10`, uniform `[0.01, 0.50]`), and
-`edgetam.max_objects` (`32`, choices `[8, 16, 24, 32]`). See
+`edgetam.max_objects` (`96`, choices `[8, 16, 24, 32, 64, 96]`). See
 [guidance settings](../tasks/masks.md#tracker-yaml-and-tuning) for their meanings
 and a scalar runtime profile. `--tracker-config` overrides the starting values;
 searchable parameters can still change in later trials. An explicit
@@ -79,6 +82,13 @@ Use `--max-concurrent-trials 1 --sequence-workers 1` to limit model and temporal
 state duplication on an edge device. Each concurrent trial or sequence worker
 owns its own model and propagation state.
 
+Published detection masks do not replace temporal EdgeTAM inference. Each
+guided trial recomputes masks from its own track history. With `--edgetam`,
+box trackers skip published masks when loading replay inputs; `--cache-inputs`
+reuses images, detections, and embeddings but does not cache temporal masks.
+Start with one sequence worker on MPS: additional workers share the same GPU and duplicate
+model state, so more workers do not guarantee higher throughput.
+
 For CUDA tuning, Ray assigns a GPU to each trial. Select `--device cuda` or
 `--device cuda:0`, the trial's logical GPU; use `CUDA_VISIBLE_DEVICES` to select
 physical GPUs. Nonzero CUDA device indices are rejected for guided tuning.
@@ -89,7 +99,7 @@ profile, using the same checkpoint:
 
 ```bash
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID \
-  --tracker bytetrack --tracker-backend python --asso-func iou \
+  --tracker occluboost --tracker-backend python --asso-func iou \
   --tracker-config path/to/best.yaml \
   --edgetam --mask-guidance-weights models/edgetam.pt --device mps --sequence-workers 1
 ```
@@ -105,6 +115,17 @@ Each guided trial reruns EdgeTAM image encoding and temporal propagation from
 the source frames. Propagated guidance masks are not currently materialized or
 reused between trials; standalone detection-aligned masks remain a separate
 materialization output.
+
+On MPS, temporal guidance automatically loads FP16 weights, uses FP16 autocast,
+and stores mask-memory features in FP16. CPU uses FP32; CUDA uses BF16 autocast
+on supported devices and FP32 otherwise. Propagation batches up to four objects
+with compatible histories per inference call; this is separate from the
+default 96-identity capacity and does not add a tuning parameter. Initial
+prompts remain individual. Each sequence worker owns its model and temporal
+state, so additional workers increase memory use. Masks stay on the inference
+device for propagation and reseeding; matching transfers only small integer
+overlap counts to the CPU. Full CPU masks are created lazily for rendering,
+so tuning without rendering avoids those transfers.
 
 ## KITTI with image trackers
 
@@ -231,7 +252,7 @@ and the payloads needed by the tracker. It never selects a latest build.
 
 `--device` controls perception during automatic preparation, for example
 `mps`, `cuda:0`, or `cpu`. With an explicit `--build`, `--device` is accepted
-when mask guidance needs it for propagation; otherwise it is rejected because
+when temporal EdgeTAM guidance needs it for propagation; otherwise it is rejected because
 no perception models run. Use either an experiment or a dataset to replay a
 specific build:
 
@@ -270,7 +291,7 @@ throughout tuning, both the baseline and search must keep appearance disabled.
 Appearance-enabled trials require cached embeddings rather than live ReID inference.
 
 Each trial uses the [automatic sequence worker count](eval.md#sequence-parallelism)
-unless mask guidance selects one worker by default or `--sequence-workers`
+unless temporal EdgeTAM guidance selects one worker by default or `--sequence-workers`
 supplies a positive integer cap. For example,
 `--sequence-workers 4` allows up to four sequence worker processes per trial,
 bounded by the number of selected sequences. Use `--max-concurrent-trials` to

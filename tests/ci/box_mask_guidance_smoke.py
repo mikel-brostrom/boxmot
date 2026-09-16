@@ -29,7 +29,15 @@ from boxmot.utils.devices import resolve_device
 from tests.ci.mask_guidance_smoke import _arriving_frame, _assert_bounded_history, _synchronize
 
 TRACKERS = (
-    "boosttrack", "botsort", "bytetrack", "deepocsort", "hybridsort", "occluboost", "ocsort", "sfsort", "strongsort"
+    "boosttrack",
+    "botsort",
+    "bytetrack",
+    "deepocsort",
+    "hybridsort",
+    "occluboost",
+    "ocsort",
+    "sfsort",
+    "strongsort",
 )
 FRAME_COUNT = 7
 EMPTY_FRAME = 4
@@ -115,29 +123,30 @@ def _run_tracker(name: str, checkpoint: Path, device: torch.device, predictor: A
             assert propagator.last_frame_index == index
             _assert_bounded_history(propagator)
             outputs.append(result.to_aabb_rows().numpy().copy())
-            assert len(guidance._masks) <= 2
-            mask_digests.append({key: hashlib.sha256(mask).hexdigest() for key, mask in guidance._masks.items()})
-            for mask in guidance._masks.values():
+            masks = guidance.masks
+            assert len(masks) <= 2
+            mask_digests.append({key: hashlib.sha256(mask).hexdigest() for key, mask in masks.items()})
+            for mask in masks.values():
                 assert mask.shape == (96, 128) and mask.dtype == np.bool_
                 assert mask.any(), f"{name}: expected visible synthetic object mask at frame {index}"
                 assert not mask.flags.writeable
             if index == 0:
-                assert guidance._masks == {}, "New tracker or reset inherited previous temporal masks"
+                assert not masks, "New tracker or reset inherited previous temporal masks"
             if index == EMPTY_FRAME - 1:
                 confirmed_ids = set(result.track_ids.tolist())
                 assert len(confirmed_ids) == 2
-                assert set(guidance._masks) == confirmed_ids
+                assert set(masks) == confirmed_ids
             if index == EMPTY_FRAME:
                 assert len(result) == 0
-                assert set(guidance._masks) == confirmed_ids, "Empty frames must advance existing masks"
+                assert set(masks) == confirmed_ids, "Empty frames must advance existing masks"
             if index == FRAME_COUNT - 1:
                 assert set(result.track_ids.tolist()) == confirmed_ids, "Clear recovery changed confirmed identities"
-                assert set(guidance._masks) == confirmed_ids
+                assert set(masks) == confirmed_ids
         output_passes.append(outputs)
         mask_passes.append(mask_digests)
         tracker.reset()
         _assert_reset(propagator)
-        assert guidance._masks == {}
+        assert not guidance.masks
     for first, second in zip(*output_passes, strict=True):
         np.testing.assert_array_equal(first, second)
     assert mask_passes[0] == mask_passes[1], f"{name}: reset changed propagation for identical pixels and prompts"

@@ -14,10 +14,13 @@ import yaml
 
 import boxmot.engine.calibration.kalman as kalman_module
 import boxmot.engine.tuning.tuner as tuner_module
+from boxmot.engine.calibration.kalman import calibrate_kalman
 from boxmot.engine.config.trackers import resolve_tracker_options
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
-from boxmot.trackers.common.config import nest_tracker_options
+from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
+from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.noise import DEFAULT_REFERENCE_DT_S, KALMAN_NOISE_OPTIONS
+from tests.unit.engine.calibration.test_kalman import _data, _load_fixture
 
 
 @dataclass(frozen=True)
@@ -337,6 +340,61 @@ def test_driver_conditions_mask_search_before_dispatching_trials(
     assert driver._yaml_cfg["asso_func"] == (
         {"default": "iou"} if guided else load_yaml_config("bytetrack")["asso_func"]
     )
+
+
+def test_occluboost_guidance_runs_real_calibration_before_tuning(
+    fake_tuning: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Fit from saved detection/GT samples before dispatching guided trials."""
+    calls = _load_fixture(monkeypatch, _data())
+    captured = fake_tuning.captured
+    checkpoint = tmp_path / "edgetam.pt"
+    checkpoint.write_bytes(b"checkpoint identity only; no inference during calibration")
+
+    def calibrate(*args: object, **kwargs: object) -> kalman_module.KalmanCalibrationResult:
+        captured["events"].append("calibrate")
+        result = calibrate_kalman(*args, **kwargs)
+        captured["calibration"] = result
+        return result
+
+    monkeypatch.setattr(kalman_module, "calibrate_kalman", calibrate)
+    args = fake_tuning.args(
+        tracker="occluboost",
+        variable_dt=False,
+        edgetam=True,
+        mask_guidance_weights=checkpoint,
+        mask_guidance_max_objects=64,
+        device="cpu",
+        _build_validated=True,
+    )
+    driver = tuner_module.Tuner(args)
+    driver.fit()
+
+    assert len(calls) == 1
+    assert calls[0].build_path == args.build_path
+    assert captured["events"].count("calibrate") == 1
+    assert captured["events"].index("calibrate") < captured["events"].index("ray_init")
+    calibration = captured["calibration"]
+    assert calibration.matched_detections == 12
+    assert set(calibration.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
+    saved = load_tracker_config("occluboost", calibration.config_path)
+    defaults = load_tracker_config("occluboost")
+    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
+        **{key: defaults[key] for key in MASK_GUIDANCE_OPTIONS},
+        "edgetam.max_objects": args.mask_guidance_max_objects,
+    }
+    report = json.loads(calibration.report_path.read_text())
+    assert not set(MASK_GUIDANCE_OPTIONS).intersection(report["tuning"]["fixed_options"])
+    assert len(captured["trial_configs"]) == 2
+    for config in captured["trial_configs"]:
+        assert config["asso_func"] == "iou"
+        assert config["edgetam.max_objects"] == 64
+        assert {key: config[key] for key in KALMAN_NOISE_OPTIONS} == {
+            key: saved[key] for key in KALMAN_NOISE_OPTIONS
+        }
+    schema = flatten_yaml_config(driver._yaml_cfg)
+    assert schema["edgetam.max_objects"] == {"default": 64}
+    assert "type" in schema["edgetam.min_coverage"]
 
 
 @pytest.mark.parametrize(

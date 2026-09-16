@@ -37,14 +37,15 @@ def _conditioner(
             calls.append([track.id for track in tracks])
             if skip_first and len(calls) == 1:
                 return similarity
-        if not masks:
-            return similarity
-        return 1.0 - apply_mask_guidance(
-            1.0 - similarity.T,
-            np.asarray(detections)[:, :4],
-            [masks.get(track.id) for track in tracks],
-            threshold=1.0 - threshold,
-        ).T
+        return (
+            1.0
+            - apply_mask_guidance(
+                1.0 - similarity.T,
+                np.asarray(detections)[:, :4],
+                [masks.get(track.id) for track in tracks],
+                threshold=1.0 - threshold,
+            ).T
+        )
 
     return condition
 
@@ -69,7 +70,7 @@ def test_first_association_masks_resolve_ambiguity(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.parametrize("kind", ["ocsort", "deepocsort"])
-def test_isolation_bonus_reaches_unique_fast_path_and_final_acceptance(
+def test_isolated_pairs_remain_rejected_through_all_association_stages(
     monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
     tracker = _tracker(kind)
@@ -82,9 +83,10 @@ def test_isolation_bonus_reaches_unique_fast_path_and_final_acceptance(
 
     result = tracker.update(moved, FRAME)
 
-    assert result[:, 4].tolist() == [identity]
-    assert len(tracker.active_tracks) == 1
-    np.testing.assert_allclose(result[0, :4], moved[0, :4])
+    assert identity not in result[:, 4]
+    assert len(result) == 0  # The newly created identity is not confirmed yet.
+    assert len(tracker.active_tracks) == 2
+    assert next(track for track in tracker.active_tracks if track.id == identity).time_since_update == 1
 
 
 @pytest.mark.parametrize("kind", ["ocsort", "deepocsort"])
@@ -104,12 +106,10 @@ def test_ocsort_low_stage_uses_remaining_track_ids(monkeypatch: pytest.MonkeyPat
     masks = {}
     calls = []
     monkeypatch.setattr(tracker, "_condition_similarity", _conditioner(masks, calls), raising=False)
-    initial = np.array(
-        [[10, 10, 30, 40, 0.95, 0], [45, 10, 65, 40, 0.95, 0], [80, 10, 100, 40, 0.95, 0]]
-    )
+    initial = np.array([[10, 10, 30, 40, 0.95, 0], [80, 10, 100, 40, 0.95, 0], [84, 10, 104, 40, 0.95, 0]])
     first = tracker.update(initial, FRAME)
     identities = {int(row[7]): int(row[4]) for row in first}
-    current = np.array([[10, 10, 30, 40, 0.95, 0], [80, 50, 100, 80, 0.2, 0]])
+    current = np.array([[10, 10, 30, 40, 0.95, 0], [82, 10, 102, 40, 0.2, 0]])
     masks[identities[2]] = _mask(current[1])
     calls.clear()
 
@@ -127,16 +127,26 @@ def test_ocr_stage_tracks_stay_aligned_after_invalid_observation_filter(
     masks = {}
     calls = []
     monkeypatch.setattr(tracker, "_condition_similarity", _conditioner(masks, calls, skip_first=True), raising=False)
-    initial = np.array(
-        [[10, 10, 30, 40, 0.95, 0], [45, 10, 65, 40, 0.95, 0], [80, 10, 100, 40, 0.95, 0]]
-    )
+    initial = np.array([[10, 10, 30, 40, 0.95, 0], [80, 10, 100, 40, 0.95, 0], [84, 10, 104, 40, 0.95, 0]])
     tracker.update(initial, FRAME)
     tracker.update(initial, FRAME)
     identities = [track.id for track in tracker.active_tracks]
     tracker.active_tracks[0].last_observation[-1] = -1
-    moved = np.array([[80, 50, 100, 80, 0.95, 0]])
+    moved = np.array([[82, 10, 102, 40, 0.95, 0]])
     masks[identities[2]] = _mask(moved[0])
     calls.clear()
+    association = tracker.asso_func
+    association_calls = 0
+
+    def fail_prediction_match(left: np.ndarray, right: np.ndarray) -> np.ndarray:
+        """Leave all candidates available for the observation recovery stage."""
+        nonlocal association_calls
+        association_calls += 1
+        # Force prediction matching to fail; last-observation matching still
+        # computes actual IoU and admits both overlapping remaining tracks.
+        return np.zeros((len(left), len(right))) if association_calls == 1 else association(left, right)
+
+    monkeypatch.setattr(tracker, "asso_func", fail_prediction_match)
 
     result = tracker.update(moved, FRAME)
 

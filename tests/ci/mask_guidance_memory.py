@@ -232,7 +232,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", type=Path, required=True)
     parser.add_argument("--device", default="mps")
     parser.add_argument("--workers", type=int, default=1)
-    parser.add_argument("--max-objects", type=int, default=32)
+    parser.add_argument("--max-objects", type=int, default=96)
     parser.add_argument("--split", default="ablation")
     parser.add_argument("--sequence", action="append")
     parser.add_argument("--max-frames", type=int, help="Measure only the first N selected frames of each sequence.")

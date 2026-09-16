@@ -65,7 +65,7 @@ including webcams and RTSP streams. Select an algorithm with `--tracker`:
 
 ```bash
 boxmot track --tracker botsort --tracker-backend python --asso-func iou --source 0 \
-  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 32 \
+  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 96 \
   --device cuda:0 --show
 ```
 
@@ -76,9 +76,14 @@ not enable it, and `--no-edgetam` disables it even when weights are supplied.
 EdgeTAM uses the frame delivered to the tracker without preloading the source.
 Install it with `uv sync --extra cpu --extra yolo --group mask-guidance`, or
 select `--extra cu130` for CUDA. The full checkpoint downloads into `./models`
-on first use. CPU and MPS use FP32; capable CUDA devices use BF16, otherwise FP32.
-The tracker YAML's `edgetam.max_objects` cap defaults to 32; an explicit
-`--mask-guidance-max-objects` overrides it. Set the cap, mask coverage/fill
+on first use. MPS automatically uses FP16 weights, autocast, and mask-memory
+features. CPU uses FP32; capable CUDA devices use BF16 autocast, otherwise FP32.
+Propagation batches up to four compatible objects per call. Masks stay on the
+inference device for reseeding; matching transfers only small integer overlap
+counts to the CPU. Rendering creates CPU masks lazily when requested. Initial
+prompts remain individual.
+The tracker YAML's `edgetam.max_objects` cap defaults to 96; an explicit
+`--mask-guidance-max-objects` overrides it independently of the batch size. Set the cap, mask coverage/fill
 thresholds, and prompt overlap gate through `--tracker-config`; see
 [guidance settings and tuning](../tasks/masks.md#tracker-yaml-and-tuning).
 Identities outside that budget continue ordinary association with the selected tracker.
@@ -140,7 +145,8 @@ boxmot track --source video.mp4 --detector yolo26n --tracker bytetrack \
 to enable temporal masks for a supported Python box tracker too. Matching EdgeTAM
 weights, device, and precision share one model within the tracking run; image
 and propagation state stay separate. The supplied YAML uses FP32; select
-`precision: bf16` for sharing with guidance on a capable CUDA device.
+`precision: fp16` for sharing with guidance on MPS or `precision: bf16` on a
+capable CUDA device.
 See [mask generation](../tasks/masks.md#generate-masks-with-edgetam) for the
 segmentor interface and threshold semantics.
 

@@ -457,7 +457,10 @@ def resolve_matching_experiment_path(
     split: str | None = None,
     mode: str = "eval",
 ) -> Path:
-    """Find the one authored experiment matching direct component selectors."""
+    """Match component selectors to an experiment without a standalone segmentor.
+
+    Experiments with a segmentor require explicit selection with --experiment.
+    """
 
     dataset_config = load_dataset_config(dataset)
     split_name = str(split or dataset_config["default_split"])
@@ -487,6 +490,7 @@ def resolve_matching_experiment_path(
             and resolved.detector_path == detector_path
             and (explicit_checkpoint is None or resolved.config["detector"]["checkpoint"] == explicit_checkpoint)
             and resolved.reid_path == reid_path
+            and resolved.config["segmentor"] is None
         ):
             matches.append(candidate.resolve())
 
@@ -501,7 +505,8 @@ def resolve_matching_experiment_path(
     if not matches:
         raise ConfigurationError(
             f"No authored experiment matches {selector}. "
-            "Create a matching experiment YAML or select one explicitly with --experiment."
+            "Create a matching experiment YAML or select one explicitly with --experiment. "
+            "Experiments with a segmentor require explicit --experiment selection."
         )
     if len(matches) > 1:
         catalog_root = EXPERIMENT_CONFIGS_DIR.resolve()

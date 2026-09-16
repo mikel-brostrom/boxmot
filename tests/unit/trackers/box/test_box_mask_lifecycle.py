@@ -46,7 +46,7 @@ class _Call:
 class _Propagator:
     """Record prompts and lifetimes without loading a segmentation checkpoint."""
 
-    max_objects: int = 32
+    max_objects: int = 96
     prompt_overlap: float = 0.10
     device: torch.device = torch.device("cpu")
     calls: list[_Call] = field(default_factory=list)

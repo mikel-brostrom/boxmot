@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -181,6 +182,58 @@ def test_reduced_precision_on_cpu_fails_before_checkpoint_loading(monkeypatch, p
         backend.EdgeTAMSegmentor(SegmentorSpec("edgetam", artifact="edgetam.pt", precision=precision))
 
     build.assert_not_called()
+
+
+@pytest.mark.parametrize("precision", ["fp32", "fp16"])
+def test_standalone_mps_keeps_authored_precision(monkeypatch, image_predictors, precision) -> None:
+    """Temporal defaults must not silently change a materialization's precision."""
+    build = Mock(return_value=object())
+    context = Mock(return_value=nullcontext())
+    monkeypatch.setattr(backend, "resolve_device", lambda value: torch.device(value))
+    monkeypatch.setattr(backend, "build_edgetam_predictor", build)
+    monkeypatch.setattr(backend, "inference_context", context)
+    spec = SegmentorSpec("edgetam", artifact="edgetam.pt", device="mps", precision=precision)
+    segmentor = backend.EdgeTAMSegmentor(spec)
+    build.assert_called_once_with(spec.artifact, torch.device("mps"), precision=precision)
+    context.assert_called_once_with(torch.device("mps"), precision)
+    assert segmentor.model is build.return_value
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_injected_reduced_precision_weights_reject_fp32_before_wrapper_loading(monkeypatch, dtype) -> None:
+    """Sharing must not silently cast another adapter's weights or fail during inference."""
+    model = torch.nn.Linear(2, 2).to(dtype=dtype)
+    original = {name: parameter.clone() for name, parameter in model.named_parameters()}
+    load = Mock(side_effect=AssertionError("Incompatible precision must fail before importing the wrapper"))
+    monkeypatch.setattr(backend, "import_module", load)
+
+    with pytest.raises(ValueError, match="fp32.*requires FP32 weights in an injected model"):
+        backend.EdgeTAMSegmentor(SegmentorSpec("edgetam", artifact="edgetam.pt", precision="fp32"), model=model)
+
+    load.assert_not_called()
+    for name, parameter in model.named_parameters():
+        assert parameter.dtype == dtype
+        assert torch.equal(parameter, original[name])
+
+
+@pytest.mark.parametrize("precision", ["fp16", "fp32"])
+def test_injected_fp32_weights_preserve_shared_storage_with_supported_autocast(
+    monkeypatch, image_predictors, precision
+) -> None:
+    """FP16 autocast may consume FP32 weights without mutating the shared model."""
+    model = torch.nn.Linear(2, 2)
+    original = {name: (parameter, parameter.clone()) for name, parameter in model.named_parameters()}
+    monkeypatch.setattr(backend, "resolve_device", lambda value: torch.device(value))
+    monkeypatch.setattr(backend, "inference_context", lambda *args: nullcontext())
+    spec = SegmentorSpec("edgetam", artifact="edgetam.pt", device="mps", precision=precision)
+
+    segmentor = backend.EdgeTAMSegmentor(spec, model=model)
+
+    assert segmentor.model is model
+    for name, parameter in model.named_parameters():
+        assert parameter is original[name][0]
+        assert torch.equal(parameter, original[name][1])
+        assert parameter.dtype == torch.float32
 
 
 @pytest.mark.parametrize(

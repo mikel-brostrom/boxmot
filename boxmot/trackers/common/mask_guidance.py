@@ -6,7 +6,7 @@ are keyed by track identity and guide association with current detection boxes.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from numbers import Integral, Real
 from pathlib import Path
@@ -14,12 +14,13 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
+import torch
 
 from boxmot.structures import Frame
 from boxmot.utils.devices import normalize_device
 
 if TYPE_CHECKING:
-    from boxmot.segmentors.propagation.edgetam import EdgeTAMMaskPropagator
+    from boxmot.segmentors.propagation.factory import MaskPropagator
     from boxmot.trackers.common.specs import TrackerSpec
 
 
@@ -31,6 +32,57 @@ MASK_GUIDANCE_OPTIONS: Mapping[str, str] = MappingProxyType(
         "edgetam.max_objects": "max_objects",
     }
 )
+
+
+class _CPUMaskView(Mapping[int, np.ndarray]):
+    """Expose CPU pixels lazily while metadata access leaves masks on their device."""
+
+    def __init__(self, masks: Mapping[int, np.ndarray | torch.Tensor]) -> None:
+        self._masks = masks
+        self._arrays: dict[int, np.ndarray] = {}
+
+    def __len__(self) -> int:
+        return len(self._masks)
+
+    def __iter__(self) -> Iterator[int]:
+        return iter(self._masks)
+
+    def __contains__(self, track_id: object) -> bool:
+        return track_id in self._masks
+
+    def __getitem__(self, track_id: int) -> np.ndarray:
+        mask = self._masks[track_id]
+        if isinstance(mask, np.ndarray):
+            return mask
+        if track_id not in self._arrays:
+            if mask.device.type == "cpu":
+                array = mask.detach().numpy()
+                array.setflags(write=False)
+                self._arrays[track_id] = array
+            else:
+                # Rendering consumes a frame's masks together. Download each
+                # matching device/shape group once, without per-ID barriers.
+                group = [
+                    (key, value)
+                    for key, value in self._masks.items()
+                    if key not in self._arrays
+                    and isinstance(value, torch.Tensor)
+                    and value.device == mask.device
+                    and value.shape == mask.shape
+                    and value.dtype == mask.dtype
+                ]
+                with torch.inference_mode():
+                    batch = torch.stack([value for _, value in group])
+                    arrays = batch.cpu().numpy()
+                for index, (key, _) in enumerate(group):
+                    array = arrays[index]
+                    array.setflags(write=False)
+                    self._arrays[key] = array
+        if len(self._arrays) == len(self._masks):
+            # A fully rendered snapshot needs only its CPU arrays. Do not let
+            # an external view keep retired GPU masks alive after an update.
+            self._masks = self._arrays
+        return self._arrays[track_id]
 
 
 def _validated_mask_guidance_values(values: Mapping[str, object]) -> dict[str, int | float]:
@@ -88,8 +140,8 @@ class MaskGuidanceConfig:
     """Configure EdgeTAM guidance for frames delivered to a tracker.
 
     Args:
-        checkpoint: Local EdgeTAM checkpoint, or ``edgetam.pt`` to download into ``models``.
-        device: Torch device on which to run mask propagation.
+        checkpoint: EdgeTAM checkpoint, exported TFLite bundle directory, or ``edgetam.pt`` to download.
+        device: Inference device; exported TFLite bundles require ``cpu``.
         max_objects: Maximum identities with temporal mask memory at one time.
         min_coverage: Minimum fraction of a propagated mask inside a candidate box.
         min_fill: Minimum fraction of a candidate box covered by the mask.
@@ -98,7 +150,7 @@ class MaskGuidanceConfig:
 
     checkpoint: str | Path
     device: str = "cuda"
-    max_objects: int = 32
+    max_objects: int = 96
     min_coverage: float = 0.90
     min_fill: float = 0.05
     prompt_overlap: float = 0.10
@@ -119,7 +171,7 @@ class MaskGuidanceConfig:
 class MaskGuidance:
     """Keep previous observations and propagated masks aligned to track IDs."""
 
-    def __init__(self, config: MaskGuidanceConfig, *, propagator: EdgeTAMMaskPropagator | None = None) -> None:
+    def __init__(self, config: MaskGuidanceConfig, *, propagator: MaskPropagator | None = None) -> None:
         """Own one tracker's temporal state, optionally using a shared-model propagator."""
         if not isinstance(config, MaskGuidanceConfig):
             raise TypeError("config must be a MaskGuidanceConfig.")
@@ -134,7 +186,8 @@ class MaskGuidance:
         self._propagator = propagator
         self._active_boxes: dict[int, np.ndarray] = {}
         self._new_boxes: dict[int, np.ndarray] = {}
-        self._masks: dict[int, np.ndarray] = {}
+        self._masks: dict[int, np.ndarray | torch.Tensor] = {}
+        self._mask_view: _CPUMaskView | None = None
         self._sequence_id: str | None = None
         self._pending_sequence_id: str | None = None
         self._source_frame_index: int | None = None
@@ -142,13 +195,17 @@ class MaskGuidance:
 
     @property
     def masks(self) -> Mapping[int, np.ndarray]:
-        """Borrow current CPU masks for synchronous rendering without copying pixels.
+        """Borrow current masks through a lazy CPU view for synchronous rendering.
 
-        The mapping is read-only and the propagator's arrays are immutable.
+        Accessing keys or length does not download masks. Reading pixel arrays
+        downloads device masks together and caches them for the current view.
+        The mapping and converted arrays are read-only.
         Consume it before the next update; retaining snapshots retains their
         mask storage outside the tracker's temporal memory budget.
         """
-        return MappingProxyType(self._masks)
+        if self._mask_view is None:
+            self._mask_view = _CPUMaskView(self._masks)
+        return self._mask_view
 
     def validate_frame(self, frame: Frame | np.ndarray | None) -> None:
         """Check available source metadata without advancing temporal memory.
@@ -181,9 +238,9 @@ class MaskGuidance:
     def advance(self, frame_index: int, frame: np.ndarray) -> None:
         """Propagate previous observations before any current-frame matching."""
         if self._propagator is None:
-            from boxmot.segmentors.propagation.edgetam import EdgeTAMMaskPropagator
+            from boxmot.segmentors.propagation.factory import create_mask_propagator
 
-            self._propagator = EdgeTAMMaskPropagator(
+            self._propagator = create_mask_propagator(
                 self.config.checkpoint,
                 device=self.config.device,
                 max_objects=self.config.max_objects,
@@ -191,6 +248,7 @@ class MaskGuidance:
             )
         # The propagator owns the previous masks needed for reseeding. Drop our
         # borrowed views before it replaces or evicts those masks during inference.
+        self._mask_view = None
         self._masks = {}
         self._masks = self._propagator.propagate(frame_index, frame, self._active_boxes, self._new_boxes)
         if self._sequence_id is None:
@@ -238,6 +296,7 @@ class MaskGuidance:
             if int(key) in self._active_boxes
         }
         retained = set(retained_track_ids)
+        self._mask_view = None
         self._masks = {key: mask for key, mask in self._masks.items() if key in retained}
         if self._propagator is not None:
             self._propagator.retain_tracks(retained)
@@ -248,6 +307,7 @@ class MaskGuidance:
             self._propagator.reset()
         self._active_boxes.clear()
         self._new_boxes.clear()
+        self._mask_view = None
         self._masks.clear()
         self._sequence_id = None
         self._pending_sequence_id = None

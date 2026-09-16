@@ -60,9 +60,9 @@ def _parity_frame(index: int) -> np.ndarray:
 class _OfflinePropagation:
     """Run official unpruned singleton iterators using one shared loaded model.
 
-    Official EdgeTAM's Perceiver does not support the video predictor's object
-    batching. Separate official inference states avoid that limitation without
-    changing any model operations, preprocessing, or output postprocessing.
+    Separate official inference states provide an independent singleton oracle
+    for production object batching without changing model operations,
+    preprocessing, or output postprocessing.
     """
 
     def __init__(self, predictor: Any, source: Path) -> None:
@@ -174,7 +174,9 @@ def main() -> None:
                 for track_id in actual:
                     assert expected[track_id].any(), f"Offline mask is empty at frame {index}, identity {track_id}"
                     np.testing.assert_array_equal(
-                        actual[track_id], expected[track_id], err_msg=f"frame {index}, identity {track_id}"
+                        actual[track_id].detach().cpu().numpy(),
+                        expected[track_id],
+                        err_msg=f"frame {index}, identity {track_id}",
                     )
                 if index == 17:
                     assert len(offline.states[0]["output_dict"]["non_cond_frame_outputs"]) > 15

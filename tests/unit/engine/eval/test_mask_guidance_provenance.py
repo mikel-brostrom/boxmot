@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -45,6 +46,36 @@ def test_guided_run_never_reuses_ordinary_output_directory_even_with_exist_ok(tm
     assert not (guided / ordinary_tracks.name).exists()
     assert ordinary_tracks.read_text() == "ordinary tracking results\n"
     assert _output_directory(_args(tmp_path), None) == ordinary
+
+
+def test_pytorch_guidance_outputs_do_not_require_tflite_modules(tmp_path: Path, monkeypatch) -> None:
+    """Create OccluBoost/MPS outputs when the optional TFLite code is absent."""
+    monkeypatch.setitem(sys.modules, "boxmot.segmentors.exporters.edgetam.bundle", None)
+    monkeypatch.setitem(sys.modules, "boxmot.segmentors.propagation.tflite", None)
+    weights = tmp_path / "edgetam.pt"
+    weights.write_bytes(b"pytorch checkpoint")
+    args = _args(tmp_path, checkpoint=weights)
+    args.tracker = "occluboost"
+    args.device = "mps"
+    args.mask_guidance_max_objects = 96
+
+    output = _output_directory(args, None)
+    provenance = write_mask_guidance_provenance(
+        output,
+        checkpoint=weights,
+        device=args.device,
+        build=tmp_path / "build",
+        tracker_spec=TrackerSpec(args.tracker),
+        max_objects=args.mask_guidance_max_objects,
+    )
+
+    assert output.name.startswith("ablation-occluboost-edgetam-")
+    metadata = json.loads(provenance.read_text())
+    assert metadata["device"] == "mps"
+    assert metadata["precision"] == "fp16"
+    assert metadata["propagation"]["max_objects"] == 96
+    assert metadata["propagation"]["object_batch_size"] == 4
+    assert metadata["matching"]["adjustment"] == "apply_conditioned_cost_delta_to_geometry_and_fused_ranking"
 
 
 def test_guided_output_identity_tracks_weight_contents_and_device(tmp_path: Path, monkeypatch) -> None:
@@ -130,8 +161,10 @@ def test_guidance_sidecar_identifies_effective_model_tracker_and_build(tmp_path:
     assert saved["device"] == "cpu"
     assert saved["reference"]["commit"] == "7711e012a30a2402c4eaab637bdb00a521302c91"
     assert saved["schema"] == "boxmot.mask-guidance-evaluation/v4"
+    assert saved["policy_version"] == 6
     assert saved["precision"] == "fp32"
-    assert saved["propagation"]["max_objects"] == 32
+    assert saved["propagation"]["max_objects"] == 96
+    assert saved["propagation"]["object_batch_size"] == 4
     assert saved["propagation"]["prompt_overlap"] == 0.10
     assert saved["build"] == str((tmp_path / "immutable-build").resolve())
     assert saved["sequence_names"] == ["MOT17-02"]
@@ -145,8 +178,10 @@ def test_guidance_sidecar_identifies_effective_model_tracker_and_build(tmp_path:
         "high_threshold": 0.2,
         "low_threshold": 0.5,
         "unconfirmed_threshold": 0.7,
-        "isolation_recovery": "both_endpoints_without_admissible_partner",
-        "rasterization": "clipped_floor_ceil",
+        "candidate_policy": "original_cost_at_or_below_gate_and_ambiguous",
+        "isolation_recovery": "disabled",
+        "clear_match_policy": "add_10_to_competing_pairs_per_clear_row_and_column",
+        "rasterization": "truncate_tlwh_clamp_origin_then_clip_bounds",
     }
     assert tracks.read_text() == "freshly replayed tracks\n"
     assert sorted(item.name for item in output.iterdir()) == ["MOT17-02.txt", "mask-guidance.json"]
@@ -166,10 +201,25 @@ def test_guidance_identity_includes_budget_and_actual_matching_threshold(tmp_pat
     default = mask_guidance_output_path(base, checkpoint=weights, device="cpu")
     capped = mask_guidance_output_path(base, checkpoint=weights, device="cpu", max_objects=4)
     tuned = mask_guidance_output_path(
-        base, checkpoint=weights, device="cpu",
+        base,
+        checkpoint=weights,
+        device="cpu",
         tracker_spec=TrackerSpec("bytetrack", options=(("match_thresh", 0.2),)),
     )
     assert len({default, capped, tuned}) == 3
+
+
+def test_changed_object_batching_changes_guided_output_identity(tmp_path: Path, monkeypatch) -> None:
+    from boxmot.segmentors.propagation import edgetam
+
+    weights = tmp_path / "edgetam.pt"
+    weights.write_bytes(b"checkpoint")
+    base = tmp_path / "output"
+    default = mask_guidance_output_path(base, checkpoint=weights, device="cpu")
+
+    monkeypatch.setattr(edgetam, "DEFAULT_OBJECT_BATCH_SIZE", 1)
+
+    assert mask_guidance_output_path(base, checkpoint=weights, device="cpu") != default
 
 
 @pytest.mark.parametrize(
@@ -206,7 +256,9 @@ def test_cap_override_and_tracker_option_have_the_same_effective_fingerprint(tmp
     weights.write_bytes(b"checkpoint")
     assert mask_guidance_output_path(tmp_path / "eval", checkpoint=weights, device="cpu", max_objects=8) == (
         mask_guidance_output_path(
-            tmp_path / "eval", checkpoint=weights, device="cpu",
+            tmp_path / "eval",
+            checkpoint=weights,
+            device="cpu",
             tracker_spec=TrackerSpec("bytetrack", options=(("edgetam.max_objects", 8),)),
         )
     )

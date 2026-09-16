@@ -229,7 +229,7 @@ def test_workflow_configures_guidance_independently_of_source(
     assert spec.name == tracker_name
     assert config.checkpoint == args.mask_guidance_weights.resolve()
     assert config.device == "cpu"
-    assert config.max_objects == 32
+    assert config.max_objects == 96
 
 
 def test_workflow_resolves_guidance_checkpoint_before_creating_tracker(monkeypatch, tmp_path: Path) -> None:

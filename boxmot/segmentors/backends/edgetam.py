@@ -44,6 +44,14 @@ class EdgeTAMSegmentor:
 
         self.spec = spec
         self.device = resolve_device(spec.device)
+        if spec.precision == "fp32" and isinstance(model, torch.nn.Module):
+            if any(
+                parameter.is_floating_point() and parameter.dtype != torch.float32 for parameter in model.parameters()
+            ):
+                raise ValueError(
+                    "EdgeTAM precision='fp32' requires FP32 weights in an injected model. "
+                    "Use a matching segmentor precision or provide an FP32 model."
+                )
         # Validate requested precision before loading checkpoint weights.
         with inference_context(self.device, spec.precision):
             pass
@@ -59,7 +67,11 @@ class EdgeTAMSegmentor:
                 "Install with 'uv sync --extra cpu --group mask-guidance' "
                 "(use --extra cu130 instead of --extra cpu on CUDA hosts)."
             ) from exc
-        self.model = model if model is not None else build_edgetam_predictor(spec.artifact, self.device)
+        self.model = (
+            model
+            if model is not None
+            else build_edgetam_predictor(spec.artifact, self.device, precision=spec.precision)
+        )
         self._predictor = predictor_class(self.model, mask_threshold=mask_threshold)
 
     def segment(

@@ -1143,7 +1143,8 @@ def replay_build(
         raise TypeError("tracker_spec must be a TrackerSpec")
     if mask_guidance_weights is not None:
         from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+        from boxmot.segmentors.propagation.factory import mask_propagation_device
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
         from boxmot.trackers.common.config import load_tracker_config
         from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options
         from boxmot.utils.devices import resolve_device
@@ -1162,9 +1163,9 @@ def replay_build(
             device=mask_guidance_device,
             options=load_tracker_config(tracker_spec.name, None, tracker_spec.option_dict),
         )
-        checkpoint = resolve_edgetam_checkpoint(mask_guidance_weights)
+        checkpoint = resolve_edgetam_artifact(mask_guidance_weights)
         mask_guidance_weights = str(checkpoint)
-        mask_guidance_device = str(resolve_device(mask_guidance_device))
+        mask_guidance_device = str(resolve_device(mask_propagation_device(checkpoint, mask_guidance_device)))
         if workers is None:
             workers = 1
     if not isinstance(cache_inputs, bool):

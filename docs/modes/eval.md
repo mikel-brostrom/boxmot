@@ -26,7 +26,7 @@ while retaining `--tracker-backend python --asso-func iou`, AABB geometry,
 and `per_class=False`. Install the official package with
 `uv sync --extra cpu --extra yolo --group mask-guidance` (select `--extra cu130`
 for CUDA); the full checkpoint downloads into `./models` on first use.
-The tracker YAML's `edgetam.max_objects` defaults to 32;
+The tracker YAML's `edgetam.max_objects` defaults to 96;
 `--mask-guidance-max-objects N` explicitly overrides that cap. The mask
 thresholds and prompt overlap gate also come from the tracker configuration.
 Replay a tuned `best.yaml` with `--tracker-config` and `--edgetam`, using
@@ -116,6 +116,20 @@ and—when applicable—component fingerprints.
 
 If an explicitly selected build is missing or incompatible, evaluation fails
 without modifying it or creating a replacement.
+
+To use temporal masks with a published build, enable `--edgetam`:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-edgetam-lmbn.yaml \
+  --build BUILD_ID --tracker occluboost --tracker-backend python \
+  --asso-func iou --edgetam --device mps --sequence-workers 1
+```
+
+This reuses the build's detections and embeddings. EdgeTAM propagates masks
+from track identities and previous-frame prompts during replay, using the
+source images. Published detection masks do not replace this inference.
+See [temporal mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+for requirements and settings.
 
 ## Cache replay inputs for repeated runs
 
@@ -366,7 +380,7 @@ one MOT17 ablation sequence on MPS:
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
   --sequence MOT17-02-FRCNN --tracker bytetrack --tracker-backend python \
   --asso-func iou --edgetam --mask-guidance-weights models/edgetam.pt \
-  --mask-guidance-max-objects 32 --device mps --sequence-workers 1 \
+  --mask-guidance-max-objects 96 --device mps --sequence-workers 1 \
   --show --save
 ```
 

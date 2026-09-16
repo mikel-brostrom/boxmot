@@ -22,7 +22,7 @@ class _Propagator:
     """Return controlled masks through the real guidance lifecycle."""
 
     device: str = "cpu"
-    max_objects: int = 32
+    max_objects: int = 96
     prompt_overlap: float = 0.10
     masks: dict[int, np.ndarray] = field(default_factory=dict)
 
@@ -140,7 +140,7 @@ def test_absent_masks_preserve_tracking_with_configured_thresholds(name: str, th
 
 
 @pytest.mark.parametrize("name", ["botsort", "sfsort"])
-def test_masks_recover_an_isolated_identity(name: str) -> None:
+def test_masks_do_not_recover_geometrically_isolated_identity(name: str) -> None:
     baseline, _ = _tracker(name)
     guided, propagator = _tracker(name, guided=True)
     original = _rows()[:1]
@@ -154,7 +154,7 @@ def test_masks_recover_an_isolated_identity(name: str) -> None:
     actual = _update(guided, moved)
 
     assert identity not in expected[:, 4]
-    np.testing.assert_array_equal(actual[:, 4], [identity])
+    np.testing.assert_array_equal(actual, expected)
 
 
 @pytest.mark.parametrize("mc_lambda", [0.0, 1e-5, 0.98])

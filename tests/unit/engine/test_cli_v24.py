@@ -21,6 +21,7 @@ EXPECTED_COMMAND_ORDER = (
     "eval-reid",
     "compare-reid",
     "export",
+    "export-edgetam",
     "build",
     "install",
 )

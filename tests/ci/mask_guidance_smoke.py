@@ -49,6 +49,10 @@ def _assert_bounded_history(propagator) -> None:
     assert len(state["cached_features"]) <= 1
     assert len(propagator._objects) <= propagator.max_objects
     assert set(propagator._masks) == set(propagator._objects)
+    for mask in propagator._masks.values():
+        assert isinstance(mask, torch.Tensor)
+        assert mask.dtype == torch.bool and mask.device == propagator._mean.device
+        assert tuple(mask.shape) == propagator.frame_shape
     for outputs in propagator._objects.values():
         conditioned = outputs["cond_frame_outputs"]
         recent = outputs["non_cond_frame_outputs"]
@@ -154,11 +158,14 @@ def main() -> None:
                 # Interleave image inference after temporal memory exists, then
                 # continue streaming. The second pass is an uninterrupted oracle.
                 _assert_shared_segmentation(guidance._propagator, checkpoint, frame, detections)
-            temporal_masks.append({track_id: mask.copy() for track_id, mask in guidance._masks.items()})
+            # Exercise the public lazy rendering view outside tracker timing.
+            public_masks = guidance.masks
+            temporal_masks.append({track_id: mask.copy() for track_id, mask in public_masks.items()})
             if index >= 3:
-                assert set(guidance._masks) == {0, 1}
-                assert all(mask.shape == frame.shape[:2] and mask.dtype == bool for mask in guidance._masks.values())
-                assert all(mask.any() for mask in guidance._masks.values())
+                assert set(public_masks) == {0, 1}
+                assert all(mask.shape == frame.shape[:2] and mask.dtype == bool for mask in public_masks.values())
+                assert all(not mask.flags.writeable for mask in public_masks.values())
+                assert all(mask.any() for mask in public_masks.values())
         runs.append(outputs)
         mask_runs.append(temporal_masks)
         tracker.reset()
@@ -177,7 +184,7 @@ def main() -> None:
     print(
         f"Tracking + EdgeTAM on {device}: {len(latencies) / elapsed:.2f} FPS, "
         f"{1000 * elapsed / len(latencies):.1f} ms/frame across {len(latencies)} timed updates "
-        "(model initialization, standalone segmentation, and detector inference excluded)."
+        "(model initialization, standalone segmentation, rendering mask transfers, and detector inference excluded)."
     )
 
 

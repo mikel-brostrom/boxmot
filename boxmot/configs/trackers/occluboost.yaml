@@ -255,7 +255,7 @@ kalman:
           default: 0.6934881647679682
           range: [0.5, 1.0]
 
-# Optional EdgeTAM guidance; searched only with --edgetam.
+# Optional temporal EdgeTAM guidance; searched only with --edgetam.
 edgetam:
   min_coverage:
     type: uniform
@@ -265,7 +265,7 @@ edgetam:
   min_fill:
     type: uniform
     default: 0.05
-    range: [0.01, 0.25]
+    range: [0.01, 0.3]
 
   prompt_overlap:
     type: uniform
@@ -274,5 +274,5 @@ edgetam:
 
   max_objects:
     type: choice
-    default: 32
-    options: [8, 16, 24, 32]
+    default: 96
+    options: [32, 64, 96, 128]

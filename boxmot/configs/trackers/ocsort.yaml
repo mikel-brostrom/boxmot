@@ -80,5 +80,5 @@ edgetam:
 
   max_objects:
     type: choice
-    default: 32
-    options: [8, 16, 24, 32]
+    default: 96
+    options: [8, 16, 24, 32, 64, 96]

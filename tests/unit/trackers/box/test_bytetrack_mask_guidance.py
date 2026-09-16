@@ -31,7 +31,7 @@ class _Propagator:
     """Supply deterministic temporal masks while recording real prompt inputs."""
 
     frame_shape: tuple[int, int] = FRAME_SHAPE
-    max_objects: int = 32
+    max_objects: int = 96
     prompt_overlap: float = 0.10
     device: torch.device = torch.device("cpu")
     masks: dict[int, np.ndarray] = field(default_factory=dict)
@@ -253,7 +253,7 @@ def test_guidance_preserves_configured_high_stage_threshold_without_masks(match_
 
 
 @pytest.mark.parametrize("canonical", [False, True])
-def test_temporal_mask_recovers_isolated_track_after_abrupt_motion(canonical: bool) -> None:
+def test_temporal_mask_does_not_admit_isolated_track_after_abrupt_motion(canonical: bool) -> None:
     tracker, propagator = _guided_tracker(match_thresh=0.8)
     first = _result_rows(_update(tracker, _rows()[:1], 0, canonical=canonical))
     identity = int(first[0, 4])
@@ -262,10 +262,10 @@ def test_temporal_mask_recovers_isolated_track_after_abrupt_motion(canonical: bo
     mask[10:40, 70:90] = True
     propagator.masks[identity] = mask
 
-    recovered = _result_rows(_update(tracker, moved, 1, canonical=canonical))
+    unmatched = _result_rows(_update(tracker, moved, 1, canonical=canonical))
 
-    np.testing.assert_array_equal(recovered[:, 4], [identity])
-    np.testing.assert_array_equal(recovered[:, 7], [0])
+    assert len(unmatched) == 0
+    assert identity in {track.id for track in tracker.lost_stracks}
 
 
 @pytest.mark.parametrize("factory", [False, True], ids=["constructor", "factory"])
@@ -355,7 +355,7 @@ def test_mask_guidance_config_is_immutable_and_normalizes_paths() -> None:
     config = _config()
 
     assert config.checkpoint == Path("edgetam.pt")
-    assert config.max_objects == 32
+    assert config.max_objects == 96
     with pytest.raises(FrozenInstanceError):
         config.device = "cuda"
 

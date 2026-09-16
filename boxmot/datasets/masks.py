@@ -89,10 +89,12 @@ def pack_mask_batch(masks: torch.Tensor | np.ndarray) -> list[bytes]:
 def unpack_mask_batch(payloads: Iterable[bytes], height: int, width: int) -> torch.Tensor:
     """Decode payloads into a contiguous ``[N,H,W]`` boolean tensor."""
 
-    decoded = [unpack_mask(payload, height, width) for payload in payloads]
-    if not decoded:
-        return torch.empty((0, height, width), dtype=torch.bool)
-    return torch.stack(decoded).contiguous()
+    validated = tuple(_validate_mask_payload(payload, height, width) for payload in payloads)
+    decoded = np.empty((len(validated), height, width), dtype=np.bool_)
+    for index, payload in enumerate(validated):
+        values = np.unpackbits(np.frombuffer(payload, dtype=np.uint8), bitorder="little", count=height * width)
+        decoded[index] = values.reshape(height, width)
+    return torch.from_numpy(decoded)
 
 
 __all__ = (

@@ -439,9 +439,9 @@ def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | N
     checkpoint = edgetam_checkpoint(args)
     if checkpoint is not None:
         from boxmot.engine.eval.provenance import mask_guidance_output_path
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
 
-        checkpoint = args.mask_guidance_weights = resolve_edgetam_checkpoint(checkpoint)
+        checkpoint = args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
         base = mask_guidance_output_path(
             base, checkpoint=checkpoint, device=str(getattr(args, "device", "cpu")),
             tracker_spec=_tracker_spec(args, overrides),
@@ -698,10 +698,10 @@ def run_eval(
     mask_guidance_weights = edgetam_checkpoint(args)
     if mask_guidance_weights is not None:
         from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
 
         validate_mask_guidance_tracker(spec, output_format="mots" if getattr(args, "eval_masks", False) else "mot")
-        mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_checkpoint(mask_guidance_weights)
+        mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_artifact(mask_guidance_weights)
 
     output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
     presenter = None

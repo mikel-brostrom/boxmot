@@ -116,7 +116,7 @@ def fake_propagators(monkeypatch):
     class Propagator:
         frame_shape = (16, 24)
 
-        def __init__(self, checkpoint, *, device, max_objects=32, prompt_overlap=0.10):
+        def __init__(self, checkpoint, *, device, max_objects=96, prompt_overlap=0.10):
             self.checkpoint = Path(checkpoint)
             self.pixels = []
             self.calls = []

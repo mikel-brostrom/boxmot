@@ -15,6 +15,7 @@ from boxmot.engine.calibration.kalman_data import CalibrationData, CalibrationTr
 from boxmot.engine.eval import evaluator
 from boxmot.engine.eval.results import ValidationResult
 from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
+from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
 from boxmot.trackers.common.motion.kalman_filters.config import (
     AbnormalMotionSuppressionConfig,
     KalmanConfig,
@@ -210,6 +211,33 @@ def test_calibration_preserves_grouped_filter_policies(monkeypatch, tmp_path):
     assert not {"adaptive_kf", "variable_dt", "ams_enabled", "kalman_noise"}.intersection(authored)
 
 
+@pytest.mark.parametrize("grouped", [False, True])
+def test_calibration_preserves_custom_guidance_without_changing_fitted_noise(monkeypatch, tmp_path, grouped):
+    """Guidance settings survive export without participating in the KF fit."""
+    _load_fixture(monkeypatch, _data())
+    baseline = calibrate_kalman(_args(tmp_path, tracker="occluboost"), output_dir=tmp_path / "baseline")
+    guidance = {
+        "edgetam.min_coverage": 0.72,
+        "edgetam.min_fill": 0.12,
+        "edgetam.prompt_overlap": 0.24,
+        "edgetam.max_objects": 96,
+    }
+    options = nest_tracker_options(guidance) if grouped else guidance.copy()
+    result = calibrate_kalman(
+        _args(tmp_path, tracker="occluboost"), output_dir=tmp_path / "custom", tracker_options=options
+    )
+    saved = load_tracker_config("occluboost", result.config_path)
+    baseline_config = load_tracker_config("occluboost", baseline.config_path)
+
+    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == guidance
+    assert {key: saved[key] for key in KALMAN_NOISE_OPTIONS} == {
+        key: baseline_config[key] for key in KALMAN_NOISE_OPTIONS
+    }
+    assert options == (nest_tracker_options(guidance) if grouped else guidance)
+    authored = yaml.safe_load(result.config_path.read_text())
+    assert authored["edgetam"] == nest_tracker_options(guidance)["edgetam"]
+
+
 @pytest.mark.parametrize("tracker", sorted(KALMAN_TRACKER_NAMES))
 def test_first_detection_after_obb_angle_wrap_has_no_artificial_birth_error(monkeypatch, tmp_path, tracker):
     scales = []
@@ -240,6 +268,10 @@ def test_all_filter_families_produce_reusable_calibration(monkeypatch, tmp_path,
     saved = load_tracker_config(tracker, result.config_path)
     assert set(result.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
     assert all(np.isfinite(saved[key]) and saved[key] > 0 for key in KALMAN_NOISE_OPTIONS)
+    defaults = load_tracker_config(tracker)
+    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
+        key: defaults[key] for key in MASK_GUIDANCE_OPTIONS
+    }
 
 
 def test_sparse_evidence_retains_custom_baselines_and_resolves_implicit_timing(monkeypatch, tmp_path):

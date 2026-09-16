@@ -1,4 +1,4 @@
-"""Condition tracker searches on the optional temporal mask model."""
+"""Condition tracker searches on optional temporal EdgeTAM guidance."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from typing import Any
 
 from boxmot.engine.config.trackers import edgetam_checkpoint
 from boxmot.engine.tuning.search_space import expand_yaml_groups
+from boxmot.segmentors.propagation.factory import mask_propagation_device
 from boxmot.trackers.common.config import load_tracker_config
 from boxmot.trackers.common.mask_guidance import (
     MASK_GUIDANCE_OPTIONS,
@@ -27,7 +28,7 @@ def prepare_mask_guidance_tuning(
     checkpoint = edgetam_checkpoint(args)
     if checkpoint is None:
         return {key: value for key, value in options.items() if key not in MASK_GUIDANCE_OPTIONS}
-    device = normalize_device(getattr(args, "device", "cpu"))
+    device = normalize_device(mask_propagation_device(checkpoint, str(getattr(args, "device", "cpu"))))
     if device.startswith("cuda:") and device != "cuda:0":
         raise ValueError(
             "Mask guidance tuning uses Ray-allocated GPUs and requires logical cuda:0. "
@@ -67,32 +68,34 @@ def condition_mask_guidance_schema(
     if getattr(args, "asso_func", None) is not None:
         conditioned["asso_func"] = {"default": args.asso_func}
     if not enabled or getattr(args, "tracker_backend", "python") != "python":
-        return {key: entry for key, entry in conditioned.items() if key not in MASK_GUIDANCE_OPTIONS}
-    conditioned["asso_func"] = {"default": "iou"}
-    if getattr(args, "mask_guidance_max_objects", None) is not None:
+        conditioned = {key: entry for key, entry in conditioned.items() if key not in MASK_GUIDANCE_OPTIONS}
+    if enabled:
+        conditioned["asso_func"] = {"default": "iou"}
+    if enabled and getattr(args, "mask_guidance_max_objects", None) is not None:
         conditioned["edgetam.max_objects"] = {"default": runtime_options["edgetam.max_objects"]}
     return conditioned
 
 
 def mask_guidance_trial_resources(args: Any) -> dict[str, int]:
     """Reserve a CUDA accelerator for temporal inference even for detector-free replay."""
-    guided_cuda = edgetam_checkpoint(args) is not None and normalize_device(getattr(args, "device", "cpu")).startswith(
-        "cuda:"
-    )
+    checkpoint = edgetam_checkpoint(args)
+    guided_cuda = checkpoint is not None and normalize_device(
+        mask_propagation_device(checkpoint, str(getattr(args, "device", "cpu")))
+    ).startswith("cuda:")
     return {"cpu": int(args.sequence_workers), "gpu": int(guided_cuda)}
 
 
 def record_mask_guidance_tuning(
     directory: Path, args: Any, options: Mapping[str, Any], schema: Mapping[str, Any]
 ) -> None:
-    """Reject resuming results with different model contents or effective guidance settings."""
+    """Reject resuming results with different effective temporal guidance settings."""
     checkpoint = edgetam_checkpoint(args)
     profile: dict[str, Any] = {"enabled": checkpoint is not None}
     if checkpoint is not None:
         from boxmot.engine.eval.provenance import _mask_guidance_identity
-        from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
 
-        args.mask_guidance_weights = resolve_edgetam_checkpoint(checkpoint)
+        args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
         profile.update(
             identity=_mask_guidance_identity(
                 args.mask_guidance_weights,
@@ -115,7 +118,7 @@ def record_mask_guidance_tuning(
             raise ValueError("Saved mask guidance tuning metadata is invalid; start a new tuning run.") from exc
         if saved != profile:
             raise ValueError(
-                "Resuming tuning requires the same mask guidance checkpoint, device, settings and search space. "
+                "Resuming tuning requires the same mask guidance source, model, build, settings and search space. "
                 "Start a new tuning run to change the guidance profile."
             )
         return

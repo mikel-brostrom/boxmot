@@ -134,23 +134,31 @@ def _mask_guidance_config(args: Any, tracker_spec: TrackerSpec) -> MaskGuidanceC
     checkpoint = edgetam_checkpoint(args)
     if checkpoint is None:
         return None
-    from boxmot.segmentors.propagation.weights import resolve_edgetam_checkpoint
+    from boxmot.segmentors.propagation.factory import mask_propagation_device
+    from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
     from boxmot.trackers.common.config import load_tracker_config
     from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options, validate_mask_guidance_spec
 
     validate_mask_guidance_spec(tracker_spec)
     config = mask_guidance_config_from_options(
         checkpoint=checkpoint,
-        device=_component_device(args, "cuda"),
+        device=str(getattr(args, "device", None) or "cuda"),
         options=load_tracker_config(tracker_spec.name, None, tracker_spec.option_dict),
     )
-    return replace(config, checkpoint=resolve_edgetam_checkpoint(checkpoint))
+    checkpoint = resolve_edgetam_artifact(checkpoint)
+    device = mask_propagation_device(checkpoint, config.device)
+    return replace(config, checkpoint=checkpoint, device=str(resolve_device(device)))
 
 
 def _share_edgetam_model(
     args: Any, config: MaskGuidanceConfig,
 ) -> tuple[MaskGuidanceConfig | MaskGuidance, Segmentor | None]:
     """Share matching segmentor/guidance weights within this tracking run only."""
+    from boxmot.segmentors.propagation.weights import is_edgetam_tflite_bundle
+
+    if is_edgetam_tflite_bundle(config.checkpoint):
+        return config, None
+
     from boxmot.components.artifacts import sha256_artifact
     from boxmot.segmentors.propagation.edgetam import EdgeTAMMaskPropagator
     from boxmot.segmentors.propagation.model import effective_precision

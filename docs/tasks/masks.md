@@ -42,6 +42,12 @@ order. Requested empty outputs are present `bool[0,H,W]` tensors rather than
 
 ## Generate masks with EdgeTAM
 
+The supported runtime uses the full PyTorch `.pt` checkpoint. The consolidated
+EdgeTAM work also retains an unfinished TFLite export draft: `export-edgetam`
+and TFLite bundle loading are not functional yet. The component exporter,
+bundle manifest loader, and TFLite propagator implementations are still missing;
+installing the `edgetam-export` extra alone does not enable them.
+
 From a source checkout, install the optional official EdgeTAM package:
 
 ```bash
@@ -63,8 +69,8 @@ AABB. Outputs retain the detection order and full original image resolution.
 
 The YAML defaults to `device: cpu`, `precision: fp32`, and
 `options: {mask_threshold: 0.0}`. This is a native logit threshold, so any finite
-value is valid; it is not a probability cutoff. CPU and MPS require FP32.
-CUDA also supports FP16 and, on capable devices, BF16. An explicit live
+value is valid; it is not a probability cutoff. CPU requires FP32; MPS supports
+explicit FP32 or FP16. CUDA also supports FP16 and, on capable devices, BF16. An explicit live
 `--device` overrides the YAML's device; precision remains authored in the YAML.
 
 Python callers can resolve and construct the same component:
@@ -85,6 +91,28 @@ Here `frame` is a canonical RGB `Frame`, and `detections` has its matching
 `sample_id`. An injected official model can be passed with
 `create_segmentor(spec, model=model)`; the artifact identity is still verified.
 
+## Materialize detection masks
+
+The `mot17/ablation-yolox-edgetam-lmbn.yaml` experiment combines YOLOX detections,
+EdgeTAM box-prompted segmentation, and LMBN embeddings on the MOT17 ablation split:
+
+```bash
+uv run --no-sync boxmot materialize \
+  --experiment mot17/ablation-yolox-edgetam-lmbn.yaml \
+  --publish-masks --publish-embeddings \
+  --device mps
+```
+
+Use the printed build ID with the same experiment's `eval --build BUILD_ID`.
+The original `mot17/ablation-yolox-lmbn.yaml` experiment has no segmentor.
+Select the segmentation experiment explicitly with `--experiment`; direct
+dataset/detector/ReID selectors match experiments without a standalone segmentor.
+
+Published masks are aligned to individual detections. Trackers that require
+detection masks can consume them from the build. OccluBoost's `--edgetam`
+temporal guidance computes its own track-ID masks during replay and does not
+reuse these detection masks.
+
 ## Use temporal masks in association
 
 The nine Python box trackers can propagate masks from preceding confirmed
@@ -95,12 +123,12 @@ BoostTrack, OccluBoost, and SFSORT**. Enable the same cue with
 ```bash
 uv run --no-sync boxmot track --source video.mp4 \
   --tracker botsort --tracker-backend python --geometry aabb --asso-func iou \
-  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 32 \
+  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 96 \
   --device mps --save
 
 uv run --no-sync boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml \
   --tracker ocsort --tracker-backend python --asso-func iou \
-  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 32 \
+  --edgetam --mask-guidance-weights edgetam.pt --mask-guidance-max-objects 96 \
   --device mps --sequence-workers 1
 ```
 
@@ -146,13 +174,22 @@ for a complete command.
 
 ### Association rules
 
-Guidance classifies candidates before changing their costs. An admissible pair
-is ambiguous when its row or column has multiple admissible partners. An
-isolated pair has no admissible partner at either endpoint. Clear one-to-one
-matches retain their original costs. By default, a mask must be nonempty, have
-at least `0.90` of its pixels inside the clipped detection box, and fill at
-least `0.05` of that box. Its box-fill fraction is subtracted from the association cost, or
-added to an equivalent similarity, before the ordinary assignment solver runs.
+Guidance classifies candidates before changing their costs. A pair is admissible
+when its original cost is at or below the stage threshold, and ambiguous when
+its row or column has multiple admissible partners. Only admissible, ambiguous
+pairs receive mask adjustments; masks cannot rescue an above-threshold pair.
+Clear one-to-one matches retain their own costs. As in McByte++, each clear match
+adds `10` to its competing row and column costs; a competitor sharing both
+protected endpoints receives both penalties. With guidance enabled, this
+clear-match protection also applies when no usable masks are available.
+
+By default, a mask must be nonempty, have at least `0.90` of its pixels inside
+the clipped detection box, and fill at least `0.05` of that box. Its box-fill
+fraction is subtracted from the association cost, or added to an equivalent
+similarity, before the ordinary assignment solver runs. Pixel crops follow
+McByte++: truncate the box's top-left coordinates, width, and height to integers,
+clamp the origin to zero, then clip the crop to the image bounds. Empty or invalid
+crops receive no mask adjustment.
 
 The integration retains each algorithm's own stages and acceptance thresholds:
 
@@ -168,10 +205,11 @@ The integration retains each algorithm's own stages and acceptance thresholds:
 
 These are adaptations of the McByte++ mask cue to each tracker. ByteTrack's
 confidence fusion, mask gating, and assignment order agree with the inspected
-reference implementation. BoxMOT also supports conservative isolation recovery,
-which is described in the paper but absent from that reference's association
-code. See [the reference comparison](../trackers/bytetrack.md#comparison-with-the-mcbyte-implementation)
-for the inspected revision and intentional differences.
+reference implementation. All supported trackers share the reference's
+admissibility, ambiguity, clear-match protection, and pixel-crop rules while
+keeping their own stages and scoring. This does not establish full tracker or
+model-output parity. See [the reference comparison](../trackers/bytetrack.md#comparison-with-the-mcbyte-implementation)
+for the inspected revision and remaining differences.
 
 ### Tracker YAML and tuning
 
@@ -184,7 +222,7 @@ paths:
 | `edgetam.min_coverage` | `0.90` | Uniform `[0.50, 1.0]` | Minimum fraction of mask pixels inside the detection box. |
 | `edgetam.min_fill` | `0.05` | Uniform `[0.01, 0.25]` | Minimum fraction of the clipped box covered by the mask. |
 | `edgetam.prompt_overlap` | `0.10` | Uniform `[0.01, 0.50]` | Block a new prompt when a box with a lower bottom edge overlaps this fraction of its area or more. |
-| `edgetam.max_objects` | `32` | Choice `[8, 16, 24, 32]` | Maximum identities retaining propagation state. |
+| `edgetam.max_objects` | `96` | Choice `[8, 16, 24, 32, 64, 96]` | Maximum identities retaining propagation state. |
 
 The built-in YAML entries include `default`, `type`, and `range` or `options`.
 For a custom runtime profile passed with `--tracker-config`, use scalar values
@@ -202,7 +240,7 @@ edgetam:
 These values configure guidance in `track`, `eval`, and `tune`; enabling it is
 separate, through `--edgetam`. The group has no `enabled` field and does not
 select a checkpoint. An explicit `--mask-guidance-max-objects N` overrides the
-profile's cap; omitting it uses the resolved tracker value, which defaults to 32.
+profile's cap; omitting it uses the resolved tracker value, which defaults to 96.
 
 With `--edgetam`, tuning searches these four settings alongside the
 ordinary tracker parameters and fixes association to IoU. A runtime profile
@@ -216,15 +254,24 @@ for commands and replaying `best.yaml`.
 ### Budget and model sharing
 
 With guidance enabled, use `--mask-guidance-max-objects N` to cap identities holding propagation
-state or set `edgetam.max_objects` in the tracker YAML; the default is 32.
+state or set `edgetam.max_objects` in the tracker YAML; the default is 96.
 The cap is shared across all association stages of
 one tracker. It does not limit the total number of box tracks. Admission
 prioritizes guided visible identities, then promptable visible identities,
 then recently observed lost identities; evictions release mask state.
 
 The runtime uses one model, shared frame features, and compact per-identity
-state. Each identity retains one conditioning memory, six recent spatial
-memories, fifteen recent object pointers, and one current CPU boolean mask.
+state. Temporal inference on MPS loads FP16 weights, uses FP16 autocast, and
+stores mask-memory features in FP16 automatically. CPU uses FP32; CUDA uses
+BF16 autocast on supported devices and FP32 otherwise.
+
+Propagation processes up to four objects with compatible temporal histories
+per inference call and keeps their masks on the inference device. Matching
+transfers only small integer overlap counts to the CPU; rendering creates CPU
+masks lazily when requested. Reseeding reuses the device masks. Initial
+prompts remain individual. This batch size is separate from the identity cap.
+Each identity retains one conditioning memory, six recent spatial
+memories, fifteen recent object pointers, and one current device boolean mask.
 Full-resolution mask storage still depends on image size. Evaluation defaults
 to one sequence worker; additional workers own separate models and state.
 

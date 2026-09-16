@@ -176,3 +176,20 @@ def test_calibration_rejects_wrong_time_basis_and_trackers_without_a_kalman_filt
 def test_calibration_model_rejects_options_runtime_cannot_consume(tracker_name: str, parameter: str) -> None:
     with pytest.raises(ValueError, match=parameter):
         CalibrationModel(tracker_name, "aabb", {parameter: 0.2})
+
+
+@pytest.mark.parametrize(
+    "parameter, value, error",
+    [
+        ("max_object", 64, TypeError),
+        ("max_objects", 0, ValueError),
+        ("max_objects", 64.5, TypeError),
+        ("min_coverage", 1.1, ValueError),
+        ("min_fill", -0.1, ValueError),
+        ("prompt_overlap", 0.0, ValueError),
+    ],
+)
+def test_calibration_rejects_invalid_guidance_options(parameter: str, value: float, error: type[Exception]) -> None:
+    """Accepting the guidance group must retain the runtime value constraints."""
+    with pytest.raises(error, match=parameter):
+        CalibrationModel("occluboost", "aabb", {"edgetam": {parameter: value}})

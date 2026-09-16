@@ -99,20 +99,25 @@ def test_guidance_preserves_clear_matches_and_missing_masks(kind: str) -> None:
     ):
         baseline = _associate(kind, boxes, geometry, 0.5)
         guided = _associate(kind, boxes, geometry, 0.5, _conditioner(boxes, masks, 0.5))
-        for original, actual in zip(baseline, guided, strict=True):
+        for original, actual in zip(baseline[:3], guided[:3], strict=True):
             np.testing.assert_array_equal(actual, original)
+        if kind == "boost":
+            # Clear matches keep their own scores while competing entries
+            # receive the reference policy's row and column penalties.
+            expected_delta = np.array([[0.0, -20.0], [-20.0, 0.0]]) if masks[0] is not None else np.zeros((2, 2))
+            np.testing.assert_allclose(guided[3] - baseline[3], expected_delta)
 
 
 @pytest.mark.parametrize("kind", ["boost", "hybrid", "hybrid_reid"])
-@pytest.mark.parametrize("threshold, accepted", [(0.65, True), (0.75, False)])
-def test_isolation_recovery_keeps_configured_threshold(kind: str, threshold: float, accepted: bool) -> None:
+@pytest.mark.parametrize("threshold", [0.65, 0.75])
+def test_guidance_does_not_admit_isolated_pairs(kind: str, threshold: float) -> None:
     boxes = np.array([[10, 10, 30, 40]], dtype=float)
     foreground = _mask(np.array([10, 10, 22, 40]))  # 60% box fill.
     geometry = np.array([[0.1]])
 
     result = _associate(kind, boxes, geometry, threshold, _conditioner(boxes, [foreground], threshold))
 
-    assert len(result[0]) == int(accepted)
+    assert len(result[0]) == 0
 
 
 def _detections(rows: np.ndarray, embeddings: np.ndarray | None = None) -> Detections:
@@ -170,7 +175,7 @@ def test_low_stage_uses_remaining_track_subset_and_keeps_appearance_gate(
     monkeypatch: pytest.MonkeyPatch, kind: str, appearance_ok: bool
 ) -> None:
     tracker = _tracker(kind, use_embeddings=True)
-    initial = np.array([[10, 10, 30, 40, 0.95], [60, 10, 80, 40, 0.95], [100, 10, 120, 40, 0.95]])
+    initial = np.array([[10, 10, 30, 40, 0.95], [60, 10, 80, 40, 0.95], [64, 10, 84, 40, 0.95]])
     features = np.eye(3)
     calls = []
     masks: dict[int, np.ndarray] = {}
@@ -183,14 +188,15 @@ def test_low_stage_uses_remaining_track_subset_and_keeps_appearance_gate(
     monkeypatch.setattr(tracker, "_condition_similarity", condition, raising=False)
     first = tracker.update(_detections(initial, features)).to_aabb_rows().numpy()
     identities = {int(row[7]): int(row[4]) for row in first}
-    current = np.array([[60, 50, 80, 80, 0.3], [10, 10, 30, 40, 0.95]])
+    # Both remaining tracks admit the low-confidence detection geometrically.
+    current = np.array([[62, 10, 82, 40, 0.3], [10, 10, 30, 40, 0.95]])
     masks[identities[1]] = _mask(current[0, :4])
-    current_features = features[[1 if appearance_ok else 2, 0]]
+    current_features = features[[1 if appearance_ok else 0, 0]]
 
     result = tracker.update(_detections(current, current_features)).to_aabb_rows().numpy()
 
     assert len(result) == 1 + int(appearance_ok)
-    low_calls = [call for call in calls if call[1].shape == (1, 4) and call[1][0, 1] == 50]
+    low_calls = [call for call in calls if call[1].shape == (1, 4) and call[1][0, 0] == 62]
     assert len(low_calls) == 1
     assert low_calls[0][0] == [identities[1], identities[2]]
     assert low_calls[0][2] == (0.55 if kind == "occluboost" else 0.4)
@@ -201,8 +207,8 @@ def test_low_stage_uses_remaining_track_subset_and_keeps_appearance_gate(
 @pytest.mark.parametrize("appearance_ok", [False, True])
 def test_occluboost_recovery_keeps_appearance_gate(monkeypatch: pytest.MonkeyPatch, appearance_ok: bool) -> None:
     tracker = _tracker("occluboost", use_embeddings=True, recovery_iou_thresh=0.12)
-    initial = np.array([[10, 10, 30, 40, 0.95], [60, 10, 80, 40, 0.95]])
-    features = np.eye(2)
+    initial = np.array([[10, 10, 30, 40, 0.95], [60, 10, 80, 40, 0.95], [64, 10, 84, 40, 0.95]])
+    features = np.eye(3)
     masks: dict[int, np.ndarray] = {}
     calls = []
 
@@ -216,20 +222,23 @@ def test_occluboost_recovery_keeps_appearance_gate(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(tracker, "_condition_similarity", condition, raising=False)
     first = tracker.update(_detections(initial, features)).to_aabb_rows().numpy()
     identities = {int(row[7]): int(row[4]) for row in first}
-    current = initial.copy()
-    current[1, 1:4:2] += 40
+    # Its IoU with both remaining tracks is between the recovery threshold
+    # and half the primary threshold, so appearance cannot bypass that stage.
+    current = np.array([[10, 10, 30, 40, 0.95], [62, 32, 82, 62, 0.95]])
     masks[identities[1]] = _mask(current[1, :4])
 
     tracker.update(_detections(current, features[[0, 1 if appearance_ok else 0]]))
 
-    assert calls == [([identities[1]], 0.12)]
+    assert len(calls) == 1
+    assert set(calls[0][0]) == {identities[1], identities[2]}
+    assert calls[0][1] == 0.12
     original_track = next(track for track in tracker.trackers if track.id == identities[1])
     assert original_track.time_since_update == int(not appearance_ok)
 
 
 def test_hybrid_final_rematch_conditions_remaining_subsets(monkeypatch: pytest.MonkeyPatch) -> None:
-    tracker = _tracker("hybrid", tcm_first_step=False, use_byte=False)
-    initial = np.array([[10, 10, 30, 40, 0.95], [60, 10, 80, 40, 0.95]])
+    tracker = _tracker("hybrid", use_byte=False)
+    initial = np.array([[60, 10, 80, 40, 0.95], [64, 10, 84, 40, 0.95]])
     masks: dict[int, np.ndarray] = {}
     calls = []
 
@@ -241,8 +250,10 @@ def test_hybrid_final_rematch_conditions_remaining_subsets(monkeypatch: pytest.M
     monkeypatch.setattr(tracker, "_condition_similarity", condition, raising=False)
     first = tracker.update(_detections(initial)).to_aabb_rows().numpy()
     identities = {int(row[7]): int(row[4]) for row in first}
-    current = initial[[1]].copy()
-    current[:, 1:4:2] += 40
+    # Populate real last observations, then isolate the final matching stage.
+    tracker.update(_detections(initial))
+    tracker.tcm_first_step = False
+    current = np.array([[62, 10, 82, 40, 0.95]])
     masks[identities[1]] = _mask(current[0, :4])
 
     result = tracker.update(_detections(current)).to_aabb_rows().numpy()
@@ -255,22 +266,25 @@ def test_hybrid_final_rematch_conditions_remaining_subsets(monkeypatch: pytest.M
 
 def test_hybrid_reid_guidance_retains_confidence_consistency_gate() -> None:
     detections = np.array([[10, 10, 30, 40, 0.2]])
-    tracks = np.array([[60, 10, 80, 40, 0.95]])
-    foreground = _mask(detections[0, :4])
+    tracks = np.array([[10, 10, 30, 40, 0.95], [14, 10, 34, 40, 0.95]])
+    foreground = _mask(np.array([10, 10, 14, 40]))  # 20% box fill.
+    geometry = np.full((1, 2), 0.6)
+    conditioner = _conditioner(detections[:, :4], [foreground, None], 0.4)
+    np.testing.assert_allclose(conditioner(geometry), [[0.8, 0.6]])
 
     matches, _, _ = associate_hybrid_with_reid(
         detections,
         tracks,
         0.4,
-        (np.zeros((1, 2)),) * 4,
+        (np.zeros((2, 2)),) * 4,
         np.full_like(tracks, -1.0),
         0.1,
-        lambda left, right: np.zeros((1, 1)),
-        embedding_cost=np.zeros((1, 1)),
-        geometry_conditioner=_conditioner(detections[:, :4], [foreground], 0.4),
+        lambda left, right: geometry,
+        embedding_cost=np.zeros((1, 2)),
+        geometry_conditioner=conditioner,
     )
 
-    # A full mask raises geometry to one, while the original confidence
+    # The mask improves an admissible ambiguous pair, while the confidence
     # difference still leaves its acceptance similarity below 0.4.
     assert matches.shape == (0, 2)
 
@@ -280,8 +294,8 @@ def test_hybrid_low_stage_preserves_configured_confidence_penalty(
     monkeypatch: pytest.MonkeyPatch, confidence_penalty: bool
 ) -> None:
     tracker = _tracker("hybrid", tcm_byte_step=confidence_penalty, tcm_byte_step_weight=4.0)
-    initial = np.array([[10, 10, 30, 40, 0.95]])
-    current = np.array([[60, 10, 80, 40, 0.3]])
+    initial = np.array([[10, 10, 30, 40, 0.95], [14, 10, 34, 40, 0.95]])
+    current = np.array([[12, 10, 32, 40, 0.3]])
     masks = {}
 
     def condition(similarity, tracks, detections, *, threshold):
@@ -289,7 +303,7 @@ def test_hybrid_low_stage_preserves_configured_confidence_penalty(
 
     monkeypatch.setattr(tracker, "_condition_similarity", condition)
     first = tracker.update(_detections(initial)).to_aabb_rows().numpy()
-    masks[int(first[0, 4])] = _mask(current[0, :4])
+    masks[int(first[0, 4])] = _mask(np.array([12, 10, 16, 40]))
 
     result = tracker.update(_detections(current))
 

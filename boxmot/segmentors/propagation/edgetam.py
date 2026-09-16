@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Iterator, Mapping
 from numbers import Integral, Real
 from pathlib import Path
+from types import MethodType
 from typing import Any
 
 import numpy as np
@@ -16,6 +17,8 @@ from boxmot.segmentors.propagation.model import build_edgetam_predictor, inferen
 from boxmot.utils.devices import resolve_device
 
 _MEMORY_FIELDS = ("maskmem_features", "maskmem_pos_enc", "obj_ptr")
+DEFAULT_OBJECT_BATCH_SIZE = 4
+_UINT8_TO_FLOAT32 = (np.arange(256, dtype=np.float64) / 255.0).astype(np.float32)
 
 
 def _boxes_by_id(boxes: Mapping[int, np.ndarray], *, name: str) -> dict[int, np.ndarray]:
@@ -51,11 +54,12 @@ def _can_prompt(box: np.ndarray, active_boxes: Mapping[int, np.ndarray], *, prom
 class EdgeTAMMaskPropagator:
     """Propagate previous-frame prompts with bounded objects and temporal state.
 
-    One official model and one image-feature cache serve every object. Independent
-    objects run sequentially, bounding decoder and attention workspaces on every
-    device. New prompts trigger McByte++'s collective reset and reseed lifecycle.
+    One official model and one image-feature cache serve every object. Compatible
+    temporal histories run in bounded object batches, limiting decoder and attention
+    workspaces. New prompts trigger McByte++'s collective reset and reseed lifecycle.
 
-    Returned dictionaries share read-only CPU boolean masks. Call ``retain_tracks``
+    Returned dictionaries borrow device boolean tensors; callers must not modify
+    their contents. Call ``retain_tracks``
     after association to release retired identities. At capacity, visible existing
     objects precede promptable visible newcomers, followed by the most recently
     observed lost objects. IDs break ties.
@@ -67,13 +71,17 @@ class EdgeTAMMaskPropagator:
         *,
         device: str | torch.device = "cuda",
         predictor: Any | None = None,
-        max_objects: int = 32,
+        max_objects: int = 96,
+        batch_size: int = DEFAULT_OBJECT_BATCH_SIZE,
         prompt_overlap: float = 0.10,
     ) -> None:
         """Load a shared model or accept one, retaining at most ``max_objects`` IDs."""
         if isinstance(max_objects, bool) or not isinstance(max_objects, Integral) or max_objects < 1:
             raise ValueError("EdgeTAM max_objects must be a positive integer.")
         self.max_objects = int(max_objects)
+        if isinstance(batch_size, bool) or not isinstance(batch_size, Integral) or batch_size < 1:
+            raise ValueError("EdgeTAM batch_size must be a positive integer.")
+        self.batch_size = int(batch_size)
         if isinstance(prompt_overlap, bool) or not isinstance(prompt_overlap, Real):
             raise TypeError("EdgeTAM prompt_overlap must be a finite number in (0, 1].")
         if not np.isfinite(prompt_overlap) or not 0 < prompt_overlap <= 1:
@@ -95,9 +103,15 @@ class EdgeTAMMaskPropagator:
             or model.max_obj_ptrs_in_encoder < model.num_maskmem
         ):
             raise ValueError("Streaming requires the reference EdgeTAM evaluation memory configuration.")
+        if predictor is not None and (perceiver := getattr(predictor, "spatial_perceiver", None)) is not None:
+            from boxmot.segmentors.propagation.perceiver import _forward_2d
+
+            # A caller can provide an official predictor without going through
+            # our loader. Fix its batch layout while leaving shared weights intact.
+            perceiver.forward_2d = MethodType(_forward_2d, perceiver)
         self._state: dict[str, Any] | None = None
         self._objects: dict[int, dict[str, dict[int, dict[str, Any]]]] = {}
-        self._masks: dict[int, np.ndarray] = {}
+        self._masks: dict[int, torch.Tensor] = {}
         self._last_observed: dict[int, int] = {}
         self.frame_shape: tuple[int, int] | None = None
         self.last_frame_index = -1
@@ -115,7 +129,7 @@ class EdgeTAMMaskPropagator:
         frame: np.ndarray,
         active_tracks: Mapping[int, np.ndarray],
         new_tracks: Mapping[int, np.ndarray],
-    ) -> dict[int, np.ndarray]:
+    ) -> dict[int, torch.Tensor]:
         """Return this frame's masks using only confirmed previous-frame tracks."""
         if isinstance(frame_index, bool) or not isinstance(frame_index, Integral):
             raise TypeError("EdgeTAM frame_index must be an integer.")
@@ -139,8 +153,8 @@ class EdgeTAMMaskPropagator:
                 prompts = self._select_objects(frame_index, active)
                 if prompts:
                     self._seed_previous_frame(frame_index - 1, prompts)
-                for track_id, outputs in self._objects.items():
-                    self._masks[track_id] = self._frame_mask(frame_index, outputs)
+                for track_ids in self._object_batches():
+                    self._frame_masks(frame_index, track_ids)
                 self._prune_history(frame_index)
         self.last_frame_index = frame_index
         return dict(self._masks)
@@ -205,14 +219,93 @@ class EdgeTAMMaskPropagator:
             "frames_already_tracked": {},
         }
 
-    def _frame_mask(self, frame_index: int, outputs: dict[str, Any]) -> np.ndarray:
-        """Run official inference on one object and store only useful memory."""
+    def _object_batches(self) -> Iterator[list[int]]:
+        """Group IDs with identical temporal layouts without padding missing memories."""
+        groups: dict[tuple[Any, ...], list[int]] = {}
+        for track_id, outputs in self._objects.items():
+            layout = tuple(
+                (kind, tuple((index, tuple(sorted(memory))) for index, memory in sorted(history.items())))
+                for kind, history in outputs.items()
+            )
+            groups.setdefault(layout, []).append(track_id)
+        for track_ids in groups.values():
+            for offset in range(0, len(track_ids), self.batch_size):
+                yield track_ids[offset : offset + self.batch_size]
+
+    def _batch_history(self, track_ids: list[int]) -> dict[str, Any]:
+        """Stack compatible objects along the predictor's leading batch dimension."""
+        first = self._objects[track_ids[0]]
+        if len(track_ids) == 1:
+            return first
+        outputs: dict[str, Any] = {}
+        for kind, history in first.items():
+            outputs[kind] = {}
+            for index, memory in history.items():
+                members = [self._objects[track_id][kind][index] for track_id in track_ids]
+                stacked: dict[str, Any] = {}
+                for name, value in memory.items():
+                    if value is None:
+                        stacked[name] = None
+                    elif name == "maskmem_pos_enc":
+                        positions = []
+                        for i, tensor in enumerate(value):
+                            tensors = [item[name][i] for item in members]
+                            shared = all(
+                                other.device == tensor.device
+                                and other.dtype == tensor.dtype
+                                and other.shape == tensor.shape
+                                and other.stride() == tensor.stride()
+                                and other.storage_offset() == tensor.storage_offset()
+                                and other.untyped_storage().data_ptr() == tensor.untyped_storage().data_ptr()
+                                for other in tensors[1:]
+                            )
+                            positions.append(
+                                tensor.expand(len(track_ids), *tensor.shape[1:])
+                                if shared
+                                else torch.cat(tensors, dim=0)
+                            )
+                        stacked[name] = positions
+                    else:
+                        stacked[name] = torch.cat([item[name] for item in members], dim=0)
+                outputs[kind][index] = stacked
+        return outputs
+
+    @staticmethod
+    def _object_memory(current: dict[str, Any], index: int, *, batch_size: int) -> dict[str, Any]:
+        """Own each object's memory while sharing cached singleton position constants."""
+        if batch_size == 1:
+            return {name: current[name] for name in _MEMORY_FIELDS}
+        memory: dict[str, Any] = {}
+        for name in _MEMORY_FIELDS:
+            value = current[name]
+            if value is None:
+                memory[name] = None
+            elif name == "maskmem_pos_enc":
+                positions = []
+                for tensor in value:
+                    position = tensor[index : index + 1]
+                    # Upstream broadcasts a cached, single-object constant. Keep
+                    # sharing that storage, but own any genuinely batched output.
+                    if (
+                        tensor.stride(0) != 0
+                        or tensor.untyped_storage().nbytes() != position.numel() * position.element_size()
+                    ):
+                        position = position.clone()
+                    positions.append(position)
+                memory[name] = positions
+            else:
+                memory[name] = value[index : index + 1].clone()
+        return memory
+
+    def _frame_masks(self, frame_index: int, track_ids: list[int]) -> None:
+        """Infer compatible objects and retain their masks on the predictor device."""
         assert self._state is not None and self.frame_shape is not None
+        batch_size = len(track_ids)
         current, logits = self._predictor._run_single_frame_inference(
             inference_state=self._state,
-            output_dict=outputs,
+            output_dict=self._batch_history(track_ids),
             frame_idx=frame_index,
-            batch_size=1,
+            batch_size=batch_size,
             is_init_cond_frame=False,
             point_inputs=None,
             mask_inputs=None,
@@ -220,19 +313,22 @@ class EdgeTAMMaskPropagator:
             run_mem_encoder=True,
         )
         _, logits = self._predictor._get_orig_video_res_output(self._state, logits)
-        if not isinstance(logits, torch.Tensor) or tuple(logits.shape) != (1, 1, *self.frame_shape):
+        if not isinstance(logits, torch.Tensor) or tuple(logits.shape) != (batch_size, 1, *self.frame_shape):
             raise RuntimeError("EdgeTAM must return one original-resolution mask per object ID.")
-        values = (logits[0, 0] > 0).detach().cpu().numpy()
-        values.setflags(write=False)
-        outputs["non_cond_frame_outputs"][frame_index] = {name: current[name] for name in _MEMORY_FIELDS}
-        return values
+        values = (logits[:, 0] > 0).detach()
+        for index, track_id in enumerate(track_ids):
+            self._masks[track_id] = values[index].clone() if batch_size > 1 else values[index]
+            self._objects[track_id]["non_cond_frame_outputs"][frame_index] = self._object_memory(
+                current, index, batch_size=batch_size
+            )
 
     def _append_frame(self, frame_index: int, frame: np.ndarray) -> None:
         """Match official decoded-image preprocessing while retaining two frames."""
         size = self._predictor.image_size
         rgb = np.array(Image.fromarray(frame[..., ::-1]).resize((size, size)))
-        # Preserve reference NumPy division, float32 conversion and normalization.
-        tensor = torch.from_numpy(rgb / 255.0).permute(2, 0, 1).float().to(self.device)
+        # A byte lookup preserves reference float64 division then float32 rounding
+        # without allocating a full-image float64 intermediate on the CPU.
+        tensor = torch.from_numpy(_UINT8_TO_FLOAT32[rgb]).permute(2, 0, 1).to(self.device)
         tensor = (tensor - self._mean) / self._std
         if self._state is None:
             self.frame_shape = tuple(frame.shape[:2])

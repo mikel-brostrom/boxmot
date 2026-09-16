@@ -15,7 +15,7 @@ ByteTrack's main idea is simple: do not throw away low-confidence detections too
 Python ByteTrack can use the temporal mask cue described in
 [McByte++](https://github.com/tstanczyk95/McBytePlusPlus/tree/be1bbc03f18e33e93e0a359bbcbfdfc4dc4ab6b9).
 Official EdgeTAM propagates masks associated with track IDs and uses their
-coverage to aid ambiguous or isolated box associations. The integration covers
+coverage to aid ambiguous, admissible box associations. The integration covers
 this mask cue; the paper's long-term ReID and camera-motion modules are outside
 its scope.
 
@@ -30,7 +30,7 @@ From a BoxMOT source checkout, install the official package:
 uv sync --extra cpu --extra yolo --group mask-guidance
 uv run --no-sync boxmot track --tracker bytetrack --tracker-backend python \
   --geometry aabb --source 0 --edgetam --mask-guidance-weights edgetam.pt \
-  --mask-guidance-max-objects 32 --device cpu --show
+  --mask-guidance-max-objects 96 --device cpu --show
 ```
 
 Use `--extra cu130` instead of `--extra cpu` for CUDA. Repeat the selected
@@ -44,7 +44,8 @@ An explicit existing checkpoint path is also accepted. The complete checkpoint
 provides backbone weights, so a separate pretrained RepViT download is unnecessary.
 Runtime works without the cloned EdgeTAM repository.
 
-CPU and MPS run temporal inference in FP32. CUDA uses BF16 on supported devices
+MPS loads FP16 weights and uses FP16 autocast and mask-memory features for
+temporal inference. CPU uses FP32. CUDA uses BF16 autocast on supported devices
 and FP32 otherwise. The optional upstream CUDA extension supplies mask hole
 filling where available; effective postprocessing is recorded in evaluation
 provenance. Inference runs without gradients. Guidance is off by default;
@@ -83,18 +84,20 @@ Each ByteTrack pass keeps its normal acceptance threshold, including configured
 and `0.7` for unconfirmed tracks). Candidate classification uses the original
 cost matrix:
 
+- A pair is admissible when its original cost is at or below the pass threshold.
 - An admissible pair is ambiguous when another pair in its row or column is
-  also admissible.
-- A pair is isolated when neither endpoint has an admissible geometric partner.
-  This is the conservative isolation interpretation used by BoxMOT.
-- Clear one-to-one matches and their endpoints retain their original costs.
+  also admissible. Only these pairs receive mask adjustments.
+- Above-threshold pairs remain ineligible, including isolated pairs.
+- Clear one-to-one matches retain their own costs. Their competing row and
+  column costs each receive `+10`, following the reference implementation.
 
 By default, for an eligible pair, the propagated mask must be nonempty, at least `0.90`
 of its pixels must fall inside the detection box, and at least `0.05` of the
 clipped box must be mask foreground. The box-fill fraction is then subtracted
 from the existing cost, and the ordinary assignment solver runs at the same
 threshold. Negative adjusted costs are valid. Tracks without usable masks
-continue ordinary association. The mask coverage and fill thresholds, prompt
+receive no fill adjustment; clear-match protection still applies while guidance
+is enabled. The mask coverage and fill thresholds, prompt
 overlap gate, and identity cap are configurable in the tracker YAML and
 searchable with `tune`; see [guidance settings](../tasks/masks.md#tracker-yaml-and-tuning).
 
@@ -108,17 +111,16 @@ BoxMOT follows that order and uses the same LAPJV assignment solver. Default
 coverage `0.90`, fill `0.05`, and stage thresholds `0.9`, `0.5`, and `0.7`
 also agree. BoxMOT continues to honor configured `match_thresh`.
 
-The published code and paper differ on isolation: both reference association
-variants adjust only ambiguous pairs whose original cost already passes the
-stage threshold. They contain no recovery branch for above-threshold pairs.
-BoxMOT additionally implements the paper-inspired conservative isolation rule
-described above. Consequently, guided BoxMOT results are not guaranteed to match
-the reference tracker exactly.
+Both reference association variants adjust only ambiguous pairs whose original
+cost already passes the stage threshold. BoxMOT follows this rule, including
+the reference's protection of clear matches and integer pixel crops. It does
+not recover above-threshold pairs through masks. Full tracker and model-output
+parity remain unverified; the differences below can still affect results.
 
 | Integration detail | BoxMOT behavior |
 | --- | --- |
-| Clear matches | Protects their endpoints without the reference's debugging `+10` cost penalties; admissible assignments are unchanged. |
-| Pixel overlap | Clips the actual box extent using floor/ceil bounds; the reference truncates `tlwh`, which differs for fractional or partly off-screen boxes. |
+| Clear matches | Keeps the pair's own cost and adds `10` to competing costs in its row and column, as in the reference. A competitor of two clear matches receives both penalties. |
+| Pixel overlap | Truncates `tlwh` to integers, clamps the origin to zero, and clips to image bounds, as in the reference. Empty or invalid crops receive no mask adjustment. |
 | Prompt timing | Uses the preceding frame's matched detection boxes after confirmation, as does the reference demo. New mask admissions reseed retained identities from their latest masks. |
 | Lifetime | Advances on empty detection frames and immediately releases retired or evicted mask states. The reference demo skips updates when detector output is `None`, and mask removal is optional. |
 | Tracker policy | Keeps BoxMOT's existing birth, duplicate-removal, and matching policies. The reference uses a birth threshold of `track_thresh + 0.1` and disables duplicate-track removal. |
@@ -131,7 +133,7 @@ box trackers adapt the same mask cue to their existing association stages; see
 
 ### Memory budget and Python configuration
 
-`edgetam.max_objects` in the tracker YAML defaults to 32.
+`edgetam.max_objects` in the tracker YAML defaults to 96.
 `--mask-guidance-max-objects` accepts a positive integer and overrides that value
 when explicitly supplied.
 It caps identities with propagation memory, including temporarily lost tracks.
@@ -141,11 +143,17 @@ breaks ties. Prompts blocked by the overlap gate consume no slot. Evicted and
 retired identities release their mask state immediately; admission is
 reconsidered each frame, and every identity continues box tracking.
 
-The runtime processes objects individually on CPU, CUDA, and MPS while sharing
-frame features. It retains at most two normalized frames, one frame-feature
+The runtime propagates up to four objects with compatible temporal histories
+per inference call on CPU, CUDA, and MPS while sharing frame features. It
+keeps masks on the inference device for propagation and reseeding. Matching
+transfers only small integer overlap counts to the CPU; rendering creates CPU
+masks lazily when requested. Each identity retains independent memory, so
+retiring one identity releases its storage. Initial
+prompts remain individual. The object batch size is separate from the default
+96-identity cap. It retains at most two normalized frames, one frame-feature
 cache, and shared positional constants. Each retained identity holds one
 conditioning memory, six recent spatial memories, fifteen recent object
-pointers, and one current CPU boolean mask. Historical logits and interactive
+pointers, and one current device boolean mask. Historical logits and interactive
 prompt bookkeeping are discarded. The cap bounds stored identity state;
 full-resolution masks still scale with image size, and framework allocator
 reservations can exceed live tensor storage.
@@ -159,7 +167,7 @@ from boxmot.trackers import MaskGuidanceConfig
 tracker = ByteTrack(mask_guidance=MaskGuidanceConfig(
     checkpoint="edgetam.pt",
     device="cpu",
-    max_objects=32,
+    max_objects=96,
     min_coverage=0.90,
     min_fill=0.05,
     prompt_overlap=0.10,
@@ -177,7 +185,7 @@ there is no process-wide model cache.
 The built-in ByteTrack YAML groups search ranges under `edgetam`, resolving to
 `edgetam.min_coverage`, `edgetam.min_fill`,
 `edgetam.prompt_overlap`, and `edgetam.max_objects`. Their defaults
-remain `0.90`, `0.05`, `0.10`, and `32`. Enable guidance during tuning to search
+are `0.90`, `0.05`, `0.10`, and `96`. Enable guidance during tuning to search
 them with ByteTrack's existing parameters:
 
 ```bash
@@ -205,7 +213,7 @@ uv run --no-sync boxmot eval \
   --experiment mot17/ablation-yolox-lmbn.yaml \
   --sequence MOT17-02-FRCNN --tracker bytetrack --tracker-backend python \
   --asso-func iou --edgetam --mask-guidance-weights models/edgetam.pt \
-  --mask-guidance-max-objects 32 --device mps --sequence-workers 1 \
+  --mask-guidance-max-objects 96 --device mps --sequence-workers 1 \
   --show --save
 ```
 

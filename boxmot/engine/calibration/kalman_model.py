@@ -12,6 +12,10 @@ import numpy as np
 from boxmot.structures.kinds import GeometryKind
 from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
+from boxmot.trackers.common.mask_guidance import (
+    MASK_GUIDANCE_OPTIONS,
+    _validated_mask_guidance_values,
+)
 from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import (
     KALMAN_NOISE_OPTIONS,
@@ -40,6 +44,11 @@ def validate_calibration_options(tracker_name: str, options: Mapping[str, Any], 
     if "kalman" in accepted:
         normalize_kalman_config(flattened, tracker_name=tracker_name)
         accepted.update(name for name in flattened if name.startswith("kalman."))
+    if "edgetam" in accepted:
+        _validated_mask_guidance_values(
+            {field: flattened[name] for name, field in MASK_GUIDANCE_OPTIONS.items() if name in flattened}
+        )
+        accepted.update(MASK_GUIDANCE_OPTIONS)
     unknown = sorted(set(flattened) - accepted)
     if unknown:
         raise ValueError(f"Unsupported {tracker_name} tracker options for KF calibration: {', '.join(unknown)}")

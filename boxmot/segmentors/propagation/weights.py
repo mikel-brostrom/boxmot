@@ -12,6 +12,31 @@ _EDGETAM_URL = "https://huggingface.co/facebook/EdgeTAM/resolve/main/edgetam.pt"
 _EDGETAM_SHA256 = "ed2d4850b8792c239689b043c47046ec239b6e808a3d9b6ae676c803fd8780df"
 
 
+def is_edgetam_tflite_bundle(checkpoint: str | Path) -> bool:
+    """Select directory artifacts without importing the optional bundle runtime.
+
+    Bundle contents are validated when resolving or loading the artifact.
+    Checkpoint files, including weights awaiting download, use PyTorch.
+    """
+    return resolve_model_path(Path(checkpoint).expanduser()).is_dir()
+
+
+def resolve_edgetam_artifact(checkpoint: str | Path) -> Path:
+    """Resolve guidance weights as a PyTorch checkpoint or a complete LiteRT bundle."""
+    path = resolve_model_path(Path(checkpoint).expanduser()).resolve()
+    if path.is_dir():
+        from boxmot.segmentors.exporters.edgetam.bundle import load_bundle
+
+        load_bundle(path)
+        return path
+    if path.suffix.lower() == ".tflite":
+        raise ValueError(
+            "EdgeTAM guidance requires the complete exported TFLite bundle directory, "
+            "including its manifest and temporal memory models; a single .tflite file is insufficient."
+        )
+    return resolve_edgetam_checkpoint(checkpoint)
+
+
 def resolve_edgetam_checkpoint(checkpoint: str | Path) -> Path:
     """Reuse a local checkpoint or download official ``edgetam.pt`` into models.
 

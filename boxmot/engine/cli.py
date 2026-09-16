@@ -59,6 +59,12 @@ _COMMAND_SPECS = (
         "Compare ReID checkpoints across target datasets",
     ),
     _CommandSpec("export", "boxmot.engine.commands.reid.export", "export", "Export ReID models to different formats"),
+    _CommandSpec(
+        "export-edgetam",
+        "boxmot.engine.commands.segmentors.export",
+        "export_edgetam",
+        "Export EdgeTAM to TFLite with a dynamic object count",
+    ),
     _CommandSpec("build", "boxmot.engine.commands.build", "build", "Build native tracker extensions"),
     _CommandSpec("install", "boxmot.engine.commands.install", "install", "Install optional dependencies"),
 )

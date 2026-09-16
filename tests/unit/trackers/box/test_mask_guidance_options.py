@@ -53,7 +53,7 @@ def test_nested_edgetam_schema_and_runtime_defaults_roundtrip(tracker_name: str)
         "edgetam.min_coverage": 0.90,
         "edgetam.min_fill": 0.05,
         "edgetam.prompt_overlap": 0.10,
-        "edgetam.max_objects": 32,
+        "edgetam.max_objects": 96,
     }
     assert flatten_tracker_options(nest_tracker_options(defaults)) == defaults
 
@@ -81,7 +81,7 @@ def test_public_constructor_accepts_nested_edgetam_parameters(tracker_name: str)
     tracker = tracker_class(mask_guidance=config, edgetam=parameters, asso_func="iou")
 
     assert tracker._mask_guidance.config == mask_guidance_config_from_options("model.pt", "cpu", OPTIONS)
-    assert config.max_objects == 32
+    assert config.max_objects == 96
     assert parameters == {field: OPTIONS[key] for key, field in MASK_GUIDANCE_OPTIONS.items()}
 
 
@@ -232,9 +232,9 @@ def test_runtime_applies_configured_coverage_and_fill_boundaries(
     config = replace(MaskGuidanceConfig("model.pt", "cpu"), min_coverage=min_coverage, min_fill=min_fill)
     guidance = MaskGuidance(config)
     guidance._masks[17] = mask
-    costs = np.array([[0.95]])
+    costs = np.array([[0.75, 0.75]])
 
-    result = guidance.condition(costs, [17], np.array([[0, 0, 20, 1]]), threshold=0.8)
+    result = guidance.condition(costs, [17], np.array([[0, 0, 20, 1], [0, 1, 20, 2]]), threshold=0.8)
 
-    np.testing.assert_allclose(result, [[0.45 if adjusted else 0.95]])
-    np.testing.assert_array_equal(costs, [[0.95]])
+    np.testing.assert_allclose(result, [[0.25, 0.25]] if adjusted else [[0.75, 0.75]])
+    np.testing.assert_array_equal(costs, [[0.75, 0.75]])

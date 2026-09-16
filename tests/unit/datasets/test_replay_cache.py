@@ -193,6 +193,63 @@ def test_all_payloads_preserve_variable_frame_sizes_and_empty_masks(tmp_path, mo
         replay.close()
 
 
+def test_mask_cache_copies_key_aligned_packed_bytes_without_dense_decoding(tmp_path, monkeypatch) -> None:
+    import boxmot.datasets._mask_reader as mask_reader
+    import boxmot.datasets.cached as source
+    import boxmot.datasets.masks as mask_codec
+
+    build = _sequence_build(tmp_path, "aabb", payloads=True)
+    expected = list(CachedVisionDataset._stream_sequence(build, sequence_id="sequence", load_masks=True))
+    expected_bytes = b"".join(
+        payload for sample in expected for payload in mask_codec.pack_mask_batch(sample.detections.masks.values)
+    )
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("Packed cache preparation must not expand or repack full-resolution masks.")
+
+    monkeypatch.setattr(mask_reader, "unpack_mask_batch", forbidden)
+    monkeypatch.setattr(source, "unpack_mask_batch", forbidden)
+    monkeypatch.setattr(cache, "unpack_mask_batch", forbidden)
+    monkeypatch.setattr(mask_codec, "pack_mask_batch", forbidden)
+    path = cache.prepare_replay_sequence(build, sequence_id="sequence", load_masks=True)
+    packed = np.load(path / "masks.npy", mmap_mode="r", allow_pickle=False)
+    try:
+        assert packed.tobytes() == expected_bytes
+    finally:
+        packed._mmap.close()
+
+
+@pytest.mark.parametrize("corruption", ["padding", "length", "missing"])
+def test_packed_cache_writer_rejects_bad_mask_payloads_and_missing_keys(tmp_path, corruption) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from boxmot.datasets.masks import MaskCodecError
+    from boxmot.datasets.schema import masks_schema
+
+    build = _sequence_build(tmp_path, "aabb", payloads=True)
+    path = next((build / "masks").glob("*.parquet"))
+    rows = pq.read_table(path).to_pylist()
+    if corruption == "missing":
+        rows.pop()
+    elif corruption == "length":
+        rows[0]["data"] += b"\x00"
+    else:
+        payload = rows[0]["data"]
+        assert rows[0]["height"] * rows[0]["width"] % 8
+        rows[0]["data"] = payload[:-1] + bytes([payload[-1] | 128])
+    pq.write_table(pa.Table.from_pylist(rows, schema=masks_schema()), path)
+    manifest = cache.DatasetManifest.load(build)
+    identity = cache._identity(
+        manifest, sequence_id="sequence", split=None, load_embeddings=False, load_images=False, load_masks=True
+    )
+    staging = tmp_path / "derived-staging"
+    staging.mkdir()
+    with pytest.raises((MaskCodecError, DatasetValidationError)):
+        cache._write_entry(staging, build, manifest, {}, identity)
+    assert not (staging / "_SUCCESS").exists()
+
+
 def test_mapped_replay_is_independently_writable_and_survives_close(materialized_build) -> None:
     path = cache.prepare_replay_sequence(materialized_build["root"], sequence_id="seq-a")
     replay = cache.open_replay_sequence(path)

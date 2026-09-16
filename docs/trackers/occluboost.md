@@ -12,6 +12,13 @@ It requires IoU association and `per_class=False`, retains this tracker's
 existing association rules, and adds temporal model inference. Accuracy
 gains have not been established for this extension.
 
+Mask matching follows McByte++: only ambiguous pairs already passing the
+original stage gate receive a mask adjustment. Clear one-to-one pairs keep
+their own cost and penalize competing pairs; masks cannot rescue pairs that
+fail the gate. OccluBoost retains its combined appearance/motion scoring,
+recovery pass, and low-confidence appearance gates, so this policy alignment
+does not make it the same tracker as McByte++.
+
 ## What's layered on top of BoostTrack
 
 - **AMS Kalman update.** Matched AABB updates (first pass, ReID recovery, and low-confidence second pass) scale the Kalman gain on the mean update by `alpha ∈ [kalman.ams.alpha0, 1]` when an abnormal-motion event is detected. The covariance still uses the standard update; only the mean correction is suppressed.

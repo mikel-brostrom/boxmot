@@ -254,14 +254,29 @@ Guidance requires AABB geometry, IoU association, and `per_class=False`.
 Install the official EdgeTAM package from a source checkout with
 `uv sync --extra cpu --extra yolo --group mask-guidance` (use `--extra cu130` for CUDA).
 Its full checkpoint downloads into `./models` on first use. Guidance retains at most
-32 identities by default; `--mask-guidance-max-objects N` overrides that memory budget.
+96 identities by default; `--mask-guidance-max-objects N` overrides that memory budget.
+Temporal MPS inference automatically uses FP16 weights, autocast, and mask-memory
+features. CPU uses FP32; capable CUDA devices use BF16 autocast, otherwise FP32.
+Propagation batches up to four compatible objects per call, independently of
+the identity cap; initial prompts remain individual. Masks stay on the inference
+device for propagation and reseeding. Matching transfers only small integer
+overlap counts to the CPU; rendering creates CPU masks lazily when requested.
 Tracker YAMLs group coverage, fill, prompt overlap, and identity-cap settings
 under `edgetam` for [guided tuning](docs/modes/tune.md#tune-mask-guidance) and
 `--tracker-config` profiles.
 Each tracker keeps its existing association stages, thresholds, and appearance
-and motion rules. Accuracy gains have not been established for these extensions.
+and motion rules. Mask adjustments follow McByte++'s admissible, ambiguous-pair
+policy and cannot rescue pairs that fail the original stage gate. Accuracy
+gains have not been established for these extensions.
 For detection-aligned box-to-mask segmentation, pass
 `--segmentor boxmot/configs/segmentors/edgetam.yaml`; see [mask generation](docs/tasks/masks.md#generate-masks-with-edgetam).
+To materialize YOLOX detections, EdgeTAM detection masks, and LMBN embeddings,
+use `--experiment mot17/ablation-yolox-edgetam-lmbn.yaml` with
+`boxmot materialize --publish-masks --publish-embeddings`; see
+[materializing detection masks](docs/tasks/masks.md#materialize-detection-masks).
+For [guided tuning](docs/modes/tune.md#tune-mask-guidance), `--edgetam` reuses
+published detections and embeddings and propagates masks from each trial's
+own track history. Published detection masks do not replace temporal inference.
 The guide covers CPU, CUDA, and MPS execution, live webcam and RTSP inputs, and
 [MOT17 ablation evaluation with EdgeTAM](docs/trackers/bytetrack.md#evaluate-mot17-ablation-with-edgetam).
 

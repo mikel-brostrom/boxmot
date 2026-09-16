@@ -308,6 +308,11 @@ tflite = [
   "litert-torch==0.9.1",
 ]
 
+edgetam-export = [
+  "onnx>=1.20.1",
+  "ai-edge-litert>=2.1.2",
+]
+
 rtdetr = [
   "transformers>=5.0.0",
 ]

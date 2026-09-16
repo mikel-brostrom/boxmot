@@ -106,7 +106,7 @@ class BoxMaskGuidanceMixin:
         self, costs: np.ndarray, tracks: Sequence, detections: Sequence, *, threshold: float
     ) -> np.ndarray:
         """Condition a track-by-detection cost matrix at the stage's own gate."""
-        if self._mask_guidance is None or not self._mask_guidance._masks:
+        if self._mask_guidance is None:
             return costs
         return self._mask_guidance.condition(
             costs, [track.id for track in tracks], self._association_boxes(detections), threshold=threshold
@@ -116,7 +116,7 @@ class BoxMaskGuidanceMixin:
         self, similarity: np.ndarray, tracks: Sequence, detections: Sequence, *, threshold: float
     ) -> np.ndarray:
         """Apply the same cue to detection-by-track geometry similarities."""
-        if self._mask_guidance is None or not self._mask_guidance._masks:
+        if self._mask_guidance is None:
             return similarity
         costs = 1.0 - np.asarray(similarity, dtype=float).T
         adjusted = self._condition_association(costs, tracks, detections, threshold=1.0 - threshold)

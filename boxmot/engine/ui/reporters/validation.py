@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any, Sequence
 
-from rich.console import Group, RenderableType
+from rich.cells import cell_len
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
@@ -116,14 +118,29 @@ def _format_metric_delta(metric: str, value: Any, baseline_value: Any | None) ->
     return Text(f"({delta:+.2f})", style=_metric_delta_style(metric, delta))
 
 
-def _build_sequence_table(
-    rows: Sequence[tuple[str, dict[str, Any]]],
+@dataclass
+class _ResponsiveResultTable:
+    """Switch to labelled values when a terminal cannot fit the numeric columns."""
+
+    table: Table
+    narrow: Group
+    minimum_width: int
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield self.table if options.max_width >= self.minimum_width else self.narrow
+
+
+def _build_result_table(
+    headers: Sequence[str],
+    rows: Sequence[tuple[Sequence[str | Text], str | None]],
     *,
     show_header: bool = True,
-    name_header: str = "Sequence",
-    compare_rows: Sequence[dict[str, Any] | None] | None = None,
-    compare_label: str | None = None,
-) -> Table:
+) -> RenderableType:
+    """Reserve full numeric widths and fold labels or stack values as needed."""
+    widths = [
+        max([cell_len(header), *(cell_len(str(values[index])) for values, _ in rows)])
+        for index, header in enumerate(headers)
+    ]
     table = Table(
         expand=True,
         box=None,
@@ -132,28 +149,64 @@ def _build_sequence_table(
         row_styles=["", STYLE_MUTED],
         pad_edge=False,
         show_edge=False,
-        padding=(0, 2),
+        padding=(0, 1),
         collapse_padding=False,
     )
-    table.add_column(name_header, style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
-    for column in SUMMARY_COLUMNS:
-        table.add_column(column, justify="right", no_wrap=True, ratio=1)
+    table.add_column(headers[0], style=STYLE_TEXT_STRONG, ratio=1, overflow="fold")
+    for header, width in zip(headers[1:], widths[1:]):
+        table.add_column(header, justify="right", no_wrap=True, width=width)
 
+    narrow_rows: list[RenderableType] = []
+    for values, style in rows:
+        table.add_row(*values, style=style)
+        label = values[0].copy() if isinstance(values[0], Text) else Text(values[0], style=STYLE_TEXT_STRONG)
+        if style:
+            label.stylize(style)
+        narrow_rows.append(label)
+        if any(str(value) for value in values[1:]):
+            metrics = Table.grid(expand=True, padding=(0, 1))
+            metrics.add_column(style=STYLE_TABLE_HEADER, ratio=1, overflow="fold")
+            metrics.add_column(justify="right", no_wrap=True, width=max(widths[1:]))
+            for header, value in zip(headers[1:], values[1:]):
+                metrics.add_row(header, value, style=style)
+            narrow_rows.append(metrics)
+
+    # Keep at least one whole label word beside the fixed-width numeric cells.
+    label_width = max(
+        [
+            cell_len(headers[0]),
+            *(cell_len(word) for values, _ in rows for word in str(values[0]).split()),
+        ]
+    )
+    minimum_width = label_width + sum(widths[1:]) + 2 * (len(headers) - 1)
+    return _ResponsiveResultTable(table, Group(*narrow_rows), minimum_width)
+
+
+def _build_sequence_table(
+    rows: Sequence[tuple[str, dict[str, Any]]],
+    *,
+    show_header: bool = True,
+    name_header: str = "Sequence",
+    compare_rows: Sequence[dict[str, Any] | None] | None = None,
+    compare_label: str | None = None,
+) -> RenderableType:
+    """Format combined or per-sequence metrics without clipping numeric values."""
+    formatted_rows: list[tuple[Sequence[str | Text], str | None]] = []
     compare_values = list(compare_rows) if compare_rows is not None else []
 
     for index, (row_name, metrics) in enumerate(rows):
         compare_metrics = compare_values[index] if index < len(compare_values) else None
         style = STYLE_COMBINED_ROW if row_name.startswith("COMBINED") else None
         values = [_format_metric_value(column, metrics.get(column, 0)) for column in SUMMARY_COLUMNS]
-        table.add_row(row_name, *values, style=style)
+        formatted_rows.append(([row_name, *values], style))
         if compare_metrics is not None:
             delta_values = [
                 _format_metric_delta(column, metrics.get(column, 0), compare_metrics.get(column))
                 for column in SUMMARY_COLUMNS
             ]
-            table.add_row(Text(compare_label or "", style=STYLE_MUTED), *delta_values)
+            formatted_rows.append(([Text(compare_label or "", style=STYLE_MUTED), *delta_values], None))
 
-    return table
+    return _build_result_table([name_header, *SUMMARY_COLUMNS], formatted_rows, show_header=show_header)
 
 
 def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType | None:
@@ -168,21 +221,7 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
     breakdown = derive_timing_breakdown(totals_ms, frames, total_time_ms=totals_ms.get("total"))
     metadata = timings.get("metadata") if isinstance(timings.get("metadata"), dict) else {}
 
-    table = Table(
-        expand=True,
-        box=None,
-        show_header=True,
-        header_style=STYLE_TABLE_HEADER,
-        row_styles=["", STYLE_MUTED],
-        pad_edge=False,
-        show_edge=False,
-        padding=(0, 2),
-        collapse_padding=False,
-    )
-    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
-    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
-    table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
-    table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
+    rows: list[tuple[Sequence[str | Text], str | None]] = []
 
     for entry in build_timing_display_rows(
         breakdown,
@@ -192,25 +231,29 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
         overall_fps=float(timings.get("fps", 0.0) or 0.0),
     ):
         if entry["kind"] == "group":
-            table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            rows.append(([Text(str(entry["label"]), style=STYLE_ACCENT), "", "", ""], None))
             continue
         if entry["kind"] == "note":
-            table.add_row(Text(str(entry["label"]), style=STYLE_MUTED), "", "", "")
+            rows.append(([Text(str(entry["label"]), style=STYLE_MUTED), "", "", ""], None))
             continue
 
         row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
-        table.add_row(
-            str(entry["label"]),
-            f"{float(entry['total']):.1f}",
-            f"{float(entry['avg']):.2f}",
-            f"{float(entry['fps']):.1f}",
-            style=row_style,
+        rows.append(
+            (
+                [
+                    str(entry["label"]),
+                    f"{float(entry['total']):.1f}",
+                    f"{float(entry['avg']):.2f}",
+                    f"{float(entry['fps']):.1f}",
+                ],
+                row_style,
+            )
         )
 
     meta = Table.grid(expand=True)
     meta.add_column(justify="left")
     meta.add_row(Text.assemble(Text("Frames", style=STYLE_ACCENT), "  ", Text(str(frames), style=STYLE_TEXT)))
-    return Group(meta, table)
+    return Group(meta, _build_result_table(["Stage", "Total (ms)", "Avg (ms)", "FPS"], rows))
 
 
 def build_validation_cli_renderable(

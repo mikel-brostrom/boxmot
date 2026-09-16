@@ -237,7 +237,7 @@ def test_built_in_tracker_yaml_combines_runtime_defaults_and_tuning_metadata():
         "edgetam.min_coverage": 0.9,
         "edgetam.min_fill": 0.05,
         "edgetam.prompt_overlap": 0.1,
-        "edgetam.max_objects": 32,
+        "edgetam.max_objects": 96,
     }
 
 

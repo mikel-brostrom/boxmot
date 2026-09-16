@@ -303,6 +303,41 @@ def test_component_selectors_resolve_the_authored_experiment_and_its_identity(de
     assert resolved == resolve_experiment_config("mot17/ablation-yolox-lmbn.yaml", mode="eval")
     assert resolved["id"] == "mot17-ablation-yolox-lmbn"
     assert resolved["source_path"] == expected
+    assert resolved["segmentor"] is None
+
+
+def test_mot17_edgetam_experiment_resolves_all_three_components() -> None:
+    """Explicit selection retains detection, segmentation, and embedding models."""
+    resolved = resolve_experiment_config("mot17/ablation-yolox-edgetam-lmbn.yaml", mode="materialize")
+
+    assert resolved["id"] == "mot17-ablation-yolox-edgetam-lmbn"
+    assert resolved["detector"]["ref"] == "yolox-x-mot17"
+    assert resolved["detector"]["checkpoint"] == "ablation"
+    assert resolved["segmentor"] == "boxmot/configs/segmentors/edgetam.yaml"
+    assert resolved["reid"]["id"] == "lmbn-n-duke"
+
+
+@pytest.mark.parametrize("segmentor", ("boxmot/configs/segmentors/edgetam.yaml", {"ref": "edgetam.yaml"}))
+def test_component_selectors_require_explicit_selection_for_segmented_experiments(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, segmentor: str | dict[str, str]
+) -> None:
+    """A segmented candidate cannot silently satisfy selectors omitting it."""
+    experiment = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "mot17" / "ablation-yolox-lmbn.yaml")
+    experiment["segmentor"] = segmentor
+    path = tmp_path / "segmented.yaml"
+    path.write_text(yaml.safe_dump(experiment, sort_keys=False), encoding="utf-8")
+    monkeypatch.setattr(experiment_config, "EXPERIMENT_CONFIGS_DIR", tmp_path)
+
+    with pytest.raises(ConfigurationError, match="segmentor require explicit --experiment"):
+        resolve_matching_experiment_path(
+            dataset="mot17",
+            split="ablation",
+            detector="yolox-x-mot17/ablation",
+            reid="lmbn-n-duke",
+            mode="eval",
+        )
+
+    assert resolve_experiment_config(path, mode="eval")["segmentor"] == segmentor
 
 
 def test_bare_detector_selector_lets_the_unique_authored_experiment_choose_its_checkpoint() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from rich.panel import Panel
 
 from boxmot.engine.eval import results as eval_results
 from boxmot.engine.ui.core.ui import capture_renderable
@@ -82,6 +83,39 @@ def test_build_validation_cli_renderable_includes_comparison_and_timing() -> Non
     assert "(+2.00)" in rendered
     assert "Stage" in rendered
     assert "Frames" in rendered
+
+
+@pytest.mark.parametrize("width", (40, 60, 75, 120))
+@pytest.mark.parametrize("compare", (False, True))
+def test_validation_panel_preserves_metrics_and_timing_when_resized(width: int, compare: bool) -> None:
+    """A narrow final panel must retain every digit, including comparison deltas."""
+    metrics = _metrics(HOTA=74.62, MOTA=89.83, IDF1=89.48, AssA=74.27, AssRe=78.46, IDSW=807, IDs=1707)
+    renderable = validation.build_validation_cli_renderable(
+        {"pedestrian": metrics},
+        compare_raw={"pedestrian": _metrics()} if compare else None,
+        compare_label="Δ vs baseline",
+        timings={
+            "frames": 4464,
+            "totals_ms": {"track": 13154867.2, "total": 13154867.2},
+            "avg_ms": {"track": 2946.88, "total": 2946.88},
+            "fps": 0.3,
+        },
+        include_timings=True,
+    )
+
+    rendered = capture_renderable(Panel(renderable, padding=(0, 1)), width=width)
+
+    for metric, value in metrics.items():
+        assert metric in rendered
+        expected = str(value) if metric in {"IDSW", "IDs"} else f"{value:.2f}"
+        assert expected in rendered
+    for expected in ("Total (ms)", "Avg (ms)", "FPS", "13154867.2", "2946.88"):
+        assert expected in rendered
+    assert "…" not in rendered
+    if compare:
+        for delta in ("(+4.62)", "(+9.83)", "(-0.52)", "(-0.73)", "(-6.54)", "(+805)", "(+1697)"):
+            assert delta in rendered
+        assert "Δ vs baseline" in rendered
 
 
 def test_supports_ansi_color_honors_terminal_and_environment() -> None:

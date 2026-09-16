@@ -94,6 +94,13 @@ boxmot materialize --experiment mot17/ablation-yolox-lmbn.yaml
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker boosttrack
 ```
 
+For detections, segmentation, and embeddings together, select
+`mot17/ablation-yolox-edgetam-lmbn.yaml` and materialize with
+`--publish-masks --publish-embeddings`. This experiment uses YOLOX, EdgeTAM, and
+LMBN; see [materializing detection masks](../tasks/masks.md#materialize-detection-masks).
+Experiments with a standalone segmentor require explicit `--experiment`
+selection; direct dataset/detector/ReID selectors select experiments without one.
+
 Other built-in files include `sportsmot/val-yolox-lmbn.yaml`,
 `mmot-obb/test-yolo11l-lmbn.yaml`, and
 `mmot-obb-mini/train-yolo11l-lmbn.yaml`. Each semantic configuration produces

@@ -412,6 +412,10 @@ cu130 = [
     { name = "torch", version = "2.12.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
     { name = "torchvision", version = "0.27.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" } },
 ]
+edgetam-export = [
+    { name = "ai-edge-litert" },
+    { name = "onnx" },
+]
 evolve = [
     { name = "bayesian-optimization" },
     { name = "hyperopt" },

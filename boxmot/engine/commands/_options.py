@@ -105,9 +105,9 @@ def _parse_device(_ctx: click.Context, _param: click.Parameter, value: str | Non
 def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Callable]:
     """Build the ordered runtime decorators used by tracking and replay commands."""
 
-    from boxmot.trackers.common.registry import TRACKER_MAPPING
+    from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 
-    tracker_help = ", ".join(TRACKER_MAPPING)
+    tracker_help = ", ".join(_TRACKER_MANIFEST)
     return {
         "imgsz": click.option(
             "--imgsz",
@@ -179,7 +179,7 @@ def _core_option_decorators(defaults: Any, *, half_help: str) -> dict[str, Calla
         ),
         "tracker": click.option(
             "--tracker",
-            type=click.Choice(tuple(TRACKER_MAPPING)),
+            type=click.Choice(tuple(_TRACKER_MANIFEST)),
             default=defaults.tracker,
             show_default=True,
             help=f"one of: {tracker_help}",
@@ -545,14 +545,15 @@ def edgetam_option(func: Callable) -> Callable:
 
 
 def mask_guidance_weights_option(func: Callable) -> Callable:
-    """Attach the optional EdgeTAM checkpoint shared by track, eval and tune."""
+    """Attach the EdgeTAM checkpoint or TFLite bundle shared by track, eval and tune."""
     return click.option(
         "--mask-guidance-weights",
-        type=click.Path(dir_okay=False, path_type=Path),
+        type=click.Path(path_type=Path),
         default=None,
         help=(
-            "Checkpoint used with --edgetam; selecting weights alone does not enable guidance. "
-            "edgetam.pt downloads into ./models. Python AABB box trackers with IoU only."
+            "Checkpoint or exported TFLite bundle directory used with --edgetam. "
+            "Selecting weights alone does not enable guidance; edgetam.pt downloads into ./models. "
+            "TFLite guidance runs on CPU. Python AABB box trackers with IoU only."
         ),
     )(func)
 
@@ -564,7 +565,7 @@ def mask_guidance_max_objects_option(func: Callable) -> Callable:
         type=click.IntRange(min=1),
         default=None,
         help=(
-            "Override the tracker config's edgetam.max_objects (default 32) when --edgetam is enabled. "
+            "Override the tracker config's edgetam.max_objects (default 96) when --edgetam is enabled. "
             "Maximum identities with temporal mask memory; fixed when tuning."
         ),
     )(func)

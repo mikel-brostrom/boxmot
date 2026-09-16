@@ -60,7 +60,7 @@ def _association_policy(name: str, options: dict[str, Any]) -> dict[str, Any]:
     policy: dict[str, Any] = {
         "candidate_matrix": "one_minus_original_geometric_similarity",
         "similarity_threshold": options.get("iou_threshold", 0.3),
-        "adjustment": "add_fill_to_geometry_and_fused_ranking",
+        "adjustment": "apply_conditioned_cost_delta_to_geometry_and_fused_ranking",
         "appearance_and_motion_terms": "preserved",
     }
     if name == "occluboost":
@@ -82,15 +82,26 @@ def _mask_guidance_identity(
     tracker_spec: TrackerSpec | None = None,
 ) -> dict[str, Any]:
     """Fingerprint the actual model, bounded memory policy, and matching rules."""
+    from boxmot.segmentors.propagation.edgetam import DEFAULT_OBJECT_BATCH_SIZE
+    from boxmot.segmentors.propagation.factory import mask_propagation_device
     from boxmot.segmentors.propagation.model import (
         EDGETAM_REVISION,
         effective_precision,
         postprocessing_metadata,
     )
-    from boxmot.trackers.common.mask_guidance import mask_guidance_config_from_options, validate_mask_guidance_spec
+    from boxmot.segmentors.propagation.weights import is_edgetam_tflite_bundle
+    from boxmot.trackers.common.mask_guidance import (
+        mask_guidance_config_from_options,
+        validate_mask_guidance_spec,
+    )
 
     path = Path(checkpoint).expanduser().resolve()
-    if not path.is_file():
+    bundle = None
+    if is_edgetam_tflite_bundle(path):
+        from boxmot.segmentors.exporters.edgetam.bundle import load_bundle
+
+        bundle = load_bundle(path)
+    if bundle is None and not path.is_file():
         raise FileNotFoundError(f"Mask guidance requires an existing EdgeTAM checkpoint: {path}")
     tracker_spec = tracker_spec or TrackerSpec("bytetrack")
     validate_mask_guidance_spec(tracker_spec)
@@ -98,10 +109,10 @@ def _mask_guidance_identity(
     if max_objects is not None:
         options["edgetam.max_objects"] = max_objects
     config = mask_guidance_config_from_options(path, device, options)
-    device = normalize_device(device)
-    return {
+    device = normalize_device(mask_propagation_device(path, device))
+    identity = {
         "method": f"{tracker_spec.name}-edgetam",
-        "policy_version": 4,
+        "policy_version": 6,
         "resolved_tracker_options": options,
         "reference": {
             "repository": "https://github.com/facebookresearch/EdgeTAM",
@@ -109,8 +120,8 @@ def _mask_guidance_identity(
         },
         "checkpoint_sha256": sha256_artifact(path),
         "device": device,
-        "precision": effective_precision(device),
-        "postprocessing": postprocessing_metadata(device),
+        "precision": bundle.get("precision", "fp32") if bundle is not None else effective_precision(device),
+        "postprocessing": {"fill_hole_area": 0} if bundle is not None else postprocessing_metadata(device),
         "propagation": {
             "input": "incoming_frames",
             "history": {"conditioning": 1, "spatial": 6, "pointers": 15},
@@ -123,10 +134,22 @@ def _mask_guidance_identity(
             "min_mask_coverage": config.min_coverage,
             "min_mask_fill": config.min_fill,
             **_association_policy(tracker_spec.name, options),
-            "isolation_recovery": "both_endpoints_without_admissible_partner",
-            "rasterization": "clipped_floor_ceil",
+            "candidate_policy": "original_cost_at_or_below_gate_and_ambiguous",
+            "isolation_recovery": "disabled",
+            "clear_match_policy": "add_10_to_competing_pairs_per_clear_row_and_column",
+            "rasterization": "truncate_tlwh_clamp_origin_then_clip_bounds",
         },
     }
+    if bundle is not None:
+        identity["runtime"] = "tflite"
+        identity["export"] = {
+            "format": bundle["format"],
+            "version": bundle["version"],
+            "max_objects_per_call": bundle["max_objects"],
+        }
+    else:
+        identity["propagation"]["object_batch_size"] = DEFAULT_OBJECT_BATCH_SIZE
+    return identity
 
 
 def mask_guidance_output_path(

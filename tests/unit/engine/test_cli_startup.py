@@ -69,6 +69,7 @@ _REGISTERED_COMMAND_MODULES = (
     "boxmot.engine.commands.reid.evaluate",
     "boxmot.engine.commands.reid.export",
     "boxmot.engine.commands.reid.train",
+    "boxmot.engine.commands.segmentors.export",
 )
 
 _REID_COMMAND_MODULES = (
@@ -92,6 +93,7 @@ _COMMAND_MODULE_BY_NAME = {
     "eval-reid": "boxmot.engine.commands.reid.evaluate",
     "compare-reid": "boxmot.engine.commands.reid.compare",
     "export": "boxmot.engine.commands.reid.export",
+    "export-edgetam": "boxmot.engine.commands.segmentors.export",
     "build": "boxmot.engine.commands.build",
 }
 
@@ -361,6 +363,7 @@ def test_command_help_resolves_only_selected_adapter(command_name: str, expected
         "eval-reid",
         "compare-reid",
         "export",
+        "export-edgetam",
         "build",
     ),
 )

@@ -105,7 +105,7 @@ def main() -> None:
     parser.add_argument("--split", default="ablation")
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--frames", type=int, default=60)
-    parser.add_argument("--max-objects", type=int, default=32)
+    parser.add_argument("--max-objects", type=int, default=96)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     if args.frames < 1 or args.max_objects < 1:

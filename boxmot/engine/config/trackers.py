@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
-
 
 def edgetam_checkpoint(args: Any) -> str | Path | None:
     """Select temporal guidance weights only when its workflow flag is enabled.
@@ -52,6 +50,8 @@ def resolve_tracker_options(
     validation, even when equal to defaults. Other callers retain full defaults
     for configuration inspection and tuning metadata when requested.
     """
+    from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+
     tracker_name = getattr(args, "tracker", None)
     if tracker_name is not None:
         validate_image_tracker(str(tracker_name))

@@ -233,7 +233,7 @@ def _tune_options(func):
             type=int,
             default=0,
             help=(
-                "max concurrent trials (0 = auto: 1 with mask guidance, otherwise min(4, cpu_count)); "
+                "max concurrent trials (0 = auto: 1 with temporal EdgeTAM, otherwise min(4, cpu_count)); "
                 "controls parallelism and improves Bayesian search effectiveness"
             ),
         ),

@@ -289,28 +289,17 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
 ) -> None:
     import pyarrow.parquet as pq
 
-    streamed: list[tuple[str, tuple[str, ...] | None]] = []
+    mask_columns: list[tuple[str, ...]] = []
     embedding_columns: list[tuple[str, ...]] = []
-    original_iter = CachedVisionDataset._iter_selected_batches
     original_batches = pq.ParquetFile.iter_batches
 
     def recording_batches(self, **kwargs):
         if "values" in self.schema_arrow.names:
             embedding_columns.append(tuple(kwargs["columns"]))
+        elif "data" in self.schema_arrow.names:
+            mask_columns.append(tuple(kwargs["columns"]))
         yield from original_batches(self, **kwargs)
 
-    def recording_iter(self, name, *, sample_ids, expected_schema, columns=None, batch_size=128):
-        streamed.append((name, columns))
-        yield from original_iter(
-            self,
-            name,
-            sample_ids=sample_ids,
-            expected_schema=expected_schema,
-            columns=columns,
-            batch_size=batch_size,
-        )
-
-    monkeypatch.setattr(CachedVisionDataset, "_iter_selected_batches", recording_iter)
     monkeypatch.setattr(pq.ParquetFile, "iter_batches", recording_batches)
 
     dataset = CachedVisionDataset._stream_sequence(
@@ -323,14 +312,14 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
 
     assert len(dataset) == 1
     assert dataset.sample_ids == ("sample-a",)
-    assert streamed == []
+    assert mask_columns == []
     assert embedding_columns == []
 
     sample = next(iter(dataset))
 
-    assert streamed == [
-        (MASKS_ARTIFACT, ("sample_id", "instance_id")),
-        (MASKS_ARTIFACT, None),
+    assert mask_columns == [
+        ("sample_id", "instance_id", "height", "width", "codec"),
+        ("data",),
     ]
     assert embedding_columns == [
         ("sample_id", "instance_id", "encoder_fingerprint", "dim"),
@@ -340,40 +329,15 @@ def test_sequence_stream_defers_optional_payload_reads_until_iteration(
     assert sample.detections.embeddings is not None
 
 
-def test_sequence_stream_key_joins_independently_reordered_payloads(
-    materialized_build,
-    monkeypatch,
-) -> None:
+def test_sequence_stream_key_joins_independently_reordered_payloads(materialized_build) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    for path in (materialized_build["root"] / "embeddings").glob("*.parquet"):
-        table = pq.read_table(path)
-        reordered = table.take(pa.array(list(reversed(range(table.num_rows))), type=pa.int64()))
-        pq.write_table(reordered, path, compression="zstd", row_group_size=1)
-
-    original_iter = CachedVisionDataset._iter_selected_batches
-
-    def reversed_iter(self, name, *, sample_ids, expected_schema, columns=None, batch_size=128):
-        batches = tuple(
-            original_iter(
-                self,
-                name,
-                sample_ids=sample_ids,
-                expected_schema=expected_schema,
-                columns=columns,
-                batch_size=batch_size,
-            )
-        )
-        if not batches:
-            return
-        table = pa.Table.from_batches(batches)
-        if table.num_rows:
-            indices = pa.array(list(reversed(range(table.num_rows))), type=pa.int64())
-            table = table.take(indices)
-        yield from table.to_batches()
-
-    monkeypatch.setattr(CachedVisionDataset, "_iter_selected_batches", reversed_iter)
+    for artifact in ("masks", "embeddings"):
+        for path in (materialized_build["root"] / artifact).glob("*.parquet"):
+            table = pq.read_table(path)
+            reordered = table.take(pa.array(list(reversed(range(table.num_rows))), type=pa.int64()))
+            pq.write_table(reordered, path, compression="zstd", row_group_size=1)
 
     sample = next(
         iter(
