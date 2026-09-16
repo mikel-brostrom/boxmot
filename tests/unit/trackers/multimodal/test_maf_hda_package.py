@@ -50,7 +50,7 @@ def test_maf_hda_rejects_unsupported_geometry_and_backend() -> None:
     """Registry validation rejects unsupported modes before tracking begins."""
     with pytest.raises(ValueError, match="does not support geometry kind 'obb'"):
         create_tracker(TrackerSpec("maf_hda", geometry="obb"))
-    with pytest.raises(ValueError, match="does not support OBB geometry"):
+    with pytest.raises(TypeError, match="is_obb"):
         MafHda(is_obb=True)
     with pytest.raises(ValueError, match="Native backend is unavailable"):
         create_tracker(TrackerSpec("maf_hda", backend="cpp"))

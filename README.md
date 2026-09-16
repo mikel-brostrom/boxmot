@@ -394,8 +394,11 @@ pipeline = TrackingPipeline(detector=detector, reid=reid, tracker=tracker)
 Factories resolve model configs and weights internally. Python editors that
 support literal completions can suggest profiles, supported Ultralytics
 checkpoints, and pretrained ReID checkpoints inside the model string.
-Direct tracker classes such as `BotSort(...)` also provide completion for their
-constructor arguments, including supported shared settings such as `per_class`.
+Each tracker has a typed, immutable algorithm config, such as
+`BotSort(config=BotSortConfig(match_thresh=0.8))`. Import both classes from
+`boxmot`. Direct construction and the factory share the same algorithm defaults.
+Keep component configs (`kalman`, `reid`, `mask_guidance`) and runtime selection
+such as `per_class` on the tracker constructor.
 See the
 [Python API](docs/python/index.md#component-factories) for independent component
 calls, frame construction, and explicit specs.

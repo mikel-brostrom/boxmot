@@ -1,10 +1,11 @@
-"""Public tracker constructor hints match meaningful inherited runtime options."""
+"""Public constructors expose typed algorithm configs and runtime component options."""
 
 from __future__ import annotations
 
 import ast
 import inspect
 import re
+from dataclasses import fields
 from pathlib import Path
 from typing import Any, get_args, get_origin, get_type_hints
 
@@ -14,7 +15,7 @@ from typing_extensions import Unpack, is_typeddict
 import boxmot
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
-from boxmot.trackers.common.config import load_tracker_defaults
+from boxmot.trackers.common.config import get_tracker_config_class, load_tracker_defaults
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 
@@ -62,30 +63,6 @@ def _keyword_parameters(constructor: Any) -> dict[str, inspect.Parameter]:
     }
 
 
-def _inherited_parameters(tracker: type, tracker_name: str) -> dict[str, Any]:
-    """Derive relevant options from runtime ancestors and capability restrictions."""
-    inherited = {}
-    for parent in tracker.__mro__[1:]:
-        constructor = parent.__dict__.get("__init__")
-        if constructor is None or not inspect.isfunction(constructor):
-            continue
-        annotations = get_type_hints(constructor)
-        for name in _keyword_parameters(constructor):
-            inherited.setdefault(name, annotations[name])
-    omitted = set(_keyword_parameters(tracker.__init__))
-    if not tracker.accepts_embeddings:
-        omitted.update(_REID_OPTIONS)
-    if not tracker.supports_obb:
-        omitted.add("is_obb")
-    if not tracker.supports_variable_dt:
-        omitted.update(_TIMING_OPTIONS)
-    if not (tracker.supports_variable_dt or tracker.supports_kalman_noise):
-        omitted.update(_NOISE_OPTIONS)
-    if tracker_name in {"bytetrack", "sfsort"}:
-        omitted.add("det_thresh")
-    return {name: annotation for name, annotation in inherited.items() if name not in omitted}
-
-
 def _documented_arguments(docstring: str) -> list[tuple[str, str]]:
     """Read names and descriptions from one conventional Google Args section."""
     section = re.search(r"(?ms)^Args:\n(.*?)(?=^\S|\Z)", inspect.cleandoc(docstring))
@@ -128,7 +105,11 @@ def test_constructor_kwargs_match_meaningful_inherited_options(tracker_name: str
     assert is_typeddict(options)
     assert not options.__required_keys__, f"{public_name} inherited constructor options must remain optional"
     assert not set(options.__annotations__).intersection(_keyword_parameters(tracker.__init__))
-    assert get_type_hints(options) == _inherited_parameters(tracker, tracker_name)
+    expected = {"class_ids", "class_names", "per_class"}
+    if tracker.supports_obb:
+        expected.update({"is_obb", "mask_guidance", "edgetam"})
+    assert set(get_type_hints(options)) == expected
+    assert not expected.intersection(field.name for field in fields(get_tracker_config_class(tracker_name)))
 
 
 @pytest.mark.parametrize("tracker_name", tuple(_TRACKER_MANIFEST))
@@ -136,7 +117,14 @@ def test_authored_defaults_are_discoverable_in_public_constructor(tracker_name: 
     public_name = _TRACKER_MANIFEST[tracker_name].class_path.rsplit(".", 1)[1]
     constructor = getattr(boxmot, public_name).__init__
     (options,) = get_args(get_type_hints(constructor)["kwargs"])
-    advertised = set(_keyword_parameters(constructor)) | set(get_type_hints(options))
+    config_type = get_tracker_config_class(tracker_name)
+    assert get_type_hints(constructor)["config"] == config_type | None
+    assert inspect.signature(constructor).parameters["config"].default is None
+    advertised = (
+        {field.name for field in fields(config_type)}
+        | set(_keyword_parameters(constructor))
+        | set(get_type_hints(options))
+    )
     missing = {name.split(".", 1)[0] for name in load_tracker_defaults(tracker_name)} - advertised
     assert not missing, f"{public_name} config defaults lack constructor autocomplete: {sorted(missing)}"
 

@@ -15,7 +15,7 @@ from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
 from boxmot.trackers.common import native
-from boxmot.trackers.common.config import load_tracker_defaults, nest_tracker_options
+from boxmot.trackers.common.config import get_tracker_config_class, load_tracker_defaults, nest_tracker_options
 from boxmot.trackers.common.registry import get_tracker_class
 from boxmot.trackers.ocsort.native import NativeOcSortTracker
 from boxmot.trackers.sfsort.native import NativeSFSORTTracker
@@ -26,7 +26,13 @@ def _tracker(name: str, **overrides: Any):
     defaults = nest_tracker_options(load_tracker_defaults(name))
     if "kalman" in defaults:
         defaults["kalman"] = KalmanConfig.from_mapping(defaults["kalman"])
-    return get_tracker_class(name)(**{**defaults, **overrides})
+    defaults.update(overrides)
+    runtime = {
+        key: defaults.pop(key)
+        for key in tuple(defaults)
+        if key in {"kalman", "reid", "edgetam", "mask_guidance", "is_obb", "per_class", "class_ids", "class_names"}
+    }
+    return get_tracker_class(name)(config=get_tracker_config_class(name)(**defaults), **runtime)
 
 
 def _detections(*, is_obb: bool = False, embeddings: bool = False) -> Detections:

@@ -468,7 +468,8 @@ def test_tuner_uses_absolute_ray_paths_after_eval_setup(monkeypatch, tmp_path, v
     )
 
     scale = 2.0 if backend == "python" else 1.0
-    tuner_module.Tuner(args, baseline_config={"kalman.noise.process_position_scale": scale}).fit()
+    with pytest.raises(RuntimeError, match="No successful tuning trials"):
+        tuner_module.Tuner(args, baseline_config={"kalman.noise.process_position_scale": scale}).fit()
 
     assert captured["checkpoint_config"] == {"num_to_keep": 1, "checkpoint_at_end": False}
     expected_scales = {**dict.fromkeys(KALMAN_NOISE_OPTIONS, 1.0), "kalman.noise.process_position_scale": scale}
@@ -670,7 +671,8 @@ def test_tuner_passes_worker_budget_without_driver_state_to_ray(monkeypatch, tmp
         driver_lock=threading.RLock(),
     )
 
-    tuner_module.main(args)
+    with pytest.raises(RuntimeError, match="No successful tuning trials"):
+        tuner_module.main(args)
 
     assert captured["extra"] == "evolve"
     assert captured["driver_lock_in_trainable_args"] is False
@@ -719,6 +721,13 @@ def test_tune_workflow_callback_is_pickle_safe_with_active_workflow() -> None:
 
 def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
     captured = {}
+
+    # This fixture has no saved study; search-profile validation has its own
+    # resume tests. Verify it receives the same resolved path as Ray here.
+    monkeypatch.setattr(
+        tuner_module, "record_search_profile",
+        lambda directory, *_args: captured.setdefault("profile_path", directory),
+    )
 
     def fake_require_extra(extra: str, *, purpose: str) -> None:
         captured["extra"] = extra
@@ -874,9 +883,11 @@ def test_tuner_resume_uses_absolute_ray_restore_path(monkeypatch, tmp_path):
         resume_tune="strongsort_1",
     )
 
-    tuner_module.main(args)
+    with pytest.raises(RuntimeError, match="No successful tuning trials"):
+        tuner_module.main(args)
 
     assert Path(captured["restore_path"]).is_absolute()
+    assert captured["profile_path"] == Path(captured["restore_path"])
     assert Path(captured["restore_path"]) == (tmp_path / "runs" / "ray" / "mot17-mini" / "strongsort_1").resolve()
     assert captured["run_name"] == "strongsort_1"
 
@@ -1032,7 +1043,8 @@ def test_tuner_splits_comma_separated_optimization_metrics(monkeypatch, tmp_path
         verbose=False,
     )
 
-    tuner_module.main(args)
+    with pytest.raises(RuntimeError, match="No successful tuning trials"):
+        tuner_module.main(args)
 
     assert captured["optuna_kwargs"]["metric"] == ["HOTA", "MOTA", "IDF1", "IDSW_rate"]
     assert captured["optuna_kwargs"]["mode"] == ["max", "max", "max", "min"]

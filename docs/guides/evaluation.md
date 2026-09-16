@@ -198,9 +198,39 @@ launch. Each worker reads detections for its assigned sequence and defers keyed
 masks, embeddings, and image decoding until frame iteration, so optional
 payloads are not replicated eagerly across the process pool.
 
-Postprocessing such as interpolation applies to serialized tracker results,
-not to the immutable build. Ground truth remains under the selected dataset
-adapter rather than being embedded into the generic perception dataset.
+For canonical AABB box replay from a materialized build, repeat
+`--postprocessing` to select an ordered pipeline before metrics are computed:
+
+```bash
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --build BUILD_ID \
+  --tracker botsort \
+  --postprocessing gta \
+  --postprocessing gsi
+```
+
+GTA reconnects tracklets using cached detection embeddings. Automatic
+preparation publishes them when GTA is selected, including for motion-only
+trackers; an explicit build must already contain them. Run GTA first so
+it can use the original detection indices. GSI fills short gaps and applies
+Gaussian-process smoothing; GBRC provides interpolation with gradient-boosting
+smoothing and can be selected with `--postprocessing gbrc`. Steps run in their
+command-line order. Synthetic rows retain the class ID and use detection index
+`-1`.
+
+Sequences are processed in parallel using the same `--sequence-workers` cap
+as tracking. The Postprocess stage displays one Rich bar per sequence with its
+current method and phase. Progress counts describe that phase's work; unknown
+totals use an indeterminate bar. Queued, running, completed, and failed
+sequences remain visible in the evaluation panel.
+
+The evaluator saves unprocessed tracker results in `raw/` inside the result
+folder, scores the processed results, and writes `postprocessing.json` with
+step provenance. Previews and saved videos show the online tracker output.
+Postprocessing is unavailable for OBB, mask scoring, saved detections, and
+sensor/3D replay. The materialized build stays immutable, and ground truth
+remains owned by the dataset adapter.
 
 Legacy `.npy`, `.npz`, and text-only perception caches are unsupported. They
 are not read, migrated, or deleted.

@@ -9,37 +9,37 @@ import pytest
 import torch
 
 import boxmot.trackers.occluboost.tracker as occluboost_module
-from boxmot import AbnormalMotionSuppressionConfig, KalmanConfig
+from boxmot import AbnormalMotionSuppressionConfig, KalmanConfig, OccluBoostConfig
 from boxmot.structures import Boxes, Detections, OrientedBoxes
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.occluboost.tracker import OccluBoost
 
 
-def _tracker(
-    *, is_obb: bool, adaptive: bool = False, ams: AbnormalMotionSuppressionConfig | None = None
-) -> OccluBoost:
+def _tracker(*, is_obb: bool, adaptive: bool = False, ams: AbnormalMotionSuppressionConfig | None = None) -> OccluBoost:
     """Use supplied embeddings and allow every relevant association stage."""
     return OccluBoost(
+        config=OccluBoostConfig(
+            use_embeddings=True,
+            use_cmc=False,
+            use_dlo_boost=False,
+            use_duo_boost=False,
+            det_thresh=0.5,
+            obb_det_thresh=0.5,
+            min_hits=1,
+            new_track_thresh=0.5,
+            instant_confirm_thresh=0.5,
+            obb_new_track_thresh=0.5,
+            obb_instant_confirm_thresh=0.5,
+            iou_threshold=0.1,
+            obb_iou_threshold=0.1,
+            second_iou_thresh=0.0,
+            obb_second_iou_thresh=0.0,
+            second_pass_min_hits=0,
+            recovery_iou_thresh=0.0,
+            recovery_appearance_thresh=0.9,
+            use_second_pass=True,
+        ),
         is_obb=is_obb,
-        use_embeddings=True,
-        use_cmc=False,
-        use_dlo_boost=False,
-        use_duo_boost=False,
-        det_thresh=0.5,
-        obb_det_thresh=0.5,
-        min_hits=1,
-        new_track_thresh=0.5,
-        instant_confirm_thresh=0.5,
-        obb_new_track_thresh=0.5,
-        obb_instant_confirm_thresh=0.5,
-        iou_threshold=0.1,
-        obb_iou_threshold=0.1,
-        second_iou_thresh=0.0,
-        obb_second_iou_thresh=0.0,
-        second_pass_min_hits=0,
-        recovery_iou_thresh=0.0,
-        recovery_appearance_thresh=0.9,
-        use_second_pass=True,
         kalman=KalmanConfig(adaptive_kf=adaptive, ams=ams),
     )
 

@@ -132,6 +132,7 @@ def test_public_package_exports_only_contracts_and_factory() -> None:
         "ReIDConfigurableTracker",
         "Tracker",
         "TrackerCapabilities",
+        "TrackerConfig",
         "TrackerFamily",
         "TrackerRequirements",
         "TrackerSpec",
@@ -582,7 +583,7 @@ def test_factory_merges_options_then_applies_canonical_spec_fields(monkeypatch: 
 
     tracker_factory.create_tracker(spec)
 
-    assert captured["match_thresh"] == 0.71
+    assert captured["config"].match_thresh == 0.71
     assert captured["is_obb"] is True
     assert captured["per_class"] is True
     assert captured["class_ids"] == (0, 2)
@@ -664,7 +665,9 @@ def test_embedding_config_names_are_positive_and_legacy_names_are_absent() -> No
         assert "with_reid" not in parameters
         assert "embedding_off" not in parameters
         if tracker_name in configurable:
-            assert "use_embeddings" in parameters
+            from boxmot.trackers.common.config import get_tracker_config_class
+
+            assert "use_embeddings" in inspect.signature(get_tracker_config_class(tracker_name)).parameters
 
     for config_path in TRACKER_CONFIGS_DIR.rglob("*.yaml"):
         config_text = config_path.read_text(encoding="utf-8")

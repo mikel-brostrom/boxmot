@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from boxmot import BotSortConfig, ByteTrackConfig
 from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import PerceptionPipeline, PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
@@ -318,7 +319,9 @@ def test_output_enrichments_are_preserved_without_passing_unused_inputs_to_track
 
     events = []
     frame = _frame("one")
-    tracker = ByteTrack(min_hits=1)
+    tracker = ByteTrack(
+        config=ByteTrackConfig(min_hits=1),
+    )
     pipeline = TrackingPipeline(
         detector=_Detector([_detections(frame)], events),
         segmentor=_Segmentor(events),
@@ -366,7 +369,7 @@ def test_live_reid_mask_requirements_apply_only_when_features_are_missing(
     tracker = (
         create_tracker("botsort", use_cmc=False, reid=selected_reid)
         if use_factory
-        else BotSort(use_cmc=False, reid=selected_reid)
+        else BotSort(config=BotSortConfig(use_cmc=False), reid=selected_reid)
     )
     if reid_source == "spec":
         tracker.configure_reid(ReIDEncoderSpec("onnx", artifact="unused.onnx"))
@@ -393,7 +396,7 @@ def test_prebuilt_encoder_is_reusable_by_pipeline_and_tracker_without_duplicate_
     events = []
     encoder = _Encoder(events)
     frame = _frame("one")
-    tracker = BotSort(reid=encoder, use_cmc=False)
+    tracker = BotSort(config=BotSortConfig(use_cmc=False), reid=encoder)
     pipeline = TrackingPipeline(detector=None, tracker=tracker, reid=encoder)
     result = pipeline.step_detections(frame, _detections(frame))
     assert len(result.tracks) == 1

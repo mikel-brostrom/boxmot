@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from boxmot import ByteTrack, KalmanConfig
+from boxmot import ByteTrack, ByteTrackConfig, KalmanConfig
 from boxmot.engine.service.app import create_app
 from boxmot.engine.service.models import FrameRequest
 from boxmot.structures import Detections, Frame, Tracks
@@ -20,7 +20,7 @@ class _TimedTracker(ByteTrack):
     requirements = TrackerRequirements(frame=True)
 
     def __init__(self, *, variable_dt: bool = False) -> None:
-        super().__init__(asso_func="iou", kalman=KalmanConfig(variable_dt=variable_dt))
+        super().__init__(config=ByteTrackConfig(asso_func="iou"), kalman=KalmanConfig(variable_dt=variable_dt))
         self.intervals: list[float | None] = []
         self.calls: list[tuple[Detections, Frame | None]] = []
 

@@ -1,35 +1,39 @@
 # Tracker configuration assets
 
-Each `<tracker>.yaml` is the single source of truth for that tracker's runtime
-defaults and tuning search space. The filename matches the tracker name used by
-the CLI and registry.
+Each tracker owns a typed algorithm config in `boxmot/trackers/<tracker>/config.py`.
+That class defines its runtime fields, defaults, and validation. The matching
+`<tracker>.yaml` supplies tuning metadata and Kalman/mask-guidance component profiles.
+Its filename matches the name used by the CLI and registry.
 
 ## Schema
 
-Each parameter colocates its scalar runtime `default` with its tuning metadata:
+Algorithm entries contain tuning metadata. Runtime defaults come from the typed config:
 
 ```yaml
 track_thresh:
   type: uniform
-  default: 0.6
   range: [0.4, 0.7]
 
 track_buffer:
   type: qrandint
-  default: 30
   range: [10, 61, 10]
 ```
 
-Normal tracker construction extracts only `default`. The tuning engine reads
+The loader adds canonical defaults to the resolved schema. The tuning engine reads
 `type`, `range`, `options`, `values`, and conditional `activates` metadata from
-the same entries.
+these entries. An empty mapping (`parameter: {}`) marks a fixed parameter.
+Built-in profiles explicitly list every algorithm field, including fixed fields,
+so missing search metadata is visible during review. Keep observation history,
+display-only settings, and input frame dimensions fixed when they do not affect
+association or track lifecycle. Omitted fields in custom profiles still use their
+typed defaults.
+Component entries under `kalman` and `edgetam` retain their profile defaults.
 
 Every registered Python tracker declares the canonical association selector:
 
 ```yaml
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 ```
 
@@ -48,7 +52,7 @@ for the complete formulas and limitations.
 
 `presets/` contains named parameter profiles for a particular dataset, split,
 or published result. Single-profile presets contain scalar runtime values
-that overlay the defaults in `<tracker>.yaml` and load with `--tracker-config`.
+that overlay the resolved algorithm/component defaults and load with `--tracker-config`.
 
 `presets/eagermot-kitti-mots-val.yaml` stores the tuned KITTI MOTS validation
 profiles together under `car` and `pedestrian`. It uses the same class mapping

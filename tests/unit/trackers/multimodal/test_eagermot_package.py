@@ -111,11 +111,11 @@ def test_eagermot_rejects_unsupported_runtime_choices() -> None:
     """Unsupported geometry, native execution, and image metrics fail explicitly."""
     with pytest.raises(ValueError, match="does not support geometry kind 'obb'"):
         create_tracker(TrackerSpec("eagermot", geometry="obb"))
-    with pytest.raises(ValueError, match="does not support OBB geometry"):
+    with pytest.raises(TypeError, match="is_obb"):
         EagerMot(is_obb=True)
     with pytest.raises(ValueError, match="Native backend is unavailable"):
         create_tracker(TrackerSpec("eagermot", backend="cpp"))
-    with pytest.raises(ValueError, match="only asso_func='iou'"):
+    with pytest.raises(ValueError, match="asso_func"):
         create_tracker(TrackerSpec("eagermot", options=(("asso_func", "giou"),)))
 
 

@@ -28,6 +28,7 @@ A hybrid tracker that combines:
 
 from __future__ import annotations
 
+from dataclasses import fields
 from typing import Optional
 
 import numpy as np
@@ -36,6 +37,7 @@ from typing_extensions import Unpack
 
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
+from boxmot.trackers.boosttrack.config import BoostTrackConfig
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.boosttrack.tracker import BoostTrack
 from boxmot.trackers.common.appearance import (
@@ -44,11 +46,12 @@ from boxmot.trackers.common.appearance import (
 )
 from boxmot.trackers.common.association.boost import associate
 from boxmot.trackers.common.association.iou import AssociationFunction
-from boxmot.trackers.common.constructor import OccluBoostOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.xyhr import KalmanFilterXYHR
 from boxmot.trackers.common.tracking.track import TrackState, sync_track_meta
+from boxmot.trackers.occluboost.config import OccluBoostConfig
 
 
 class OccluBoost(BoostTrack):
@@ -60,35 +63,11 @@ class OccluBoost(BoostTrack):
 
     def __init__(
         self,
-        use_embeddings: bool = True,
-        recovery_appearance_thresh: float = 0.99,
-        recovery_iou_thresh: float = 0.1,
-        recovery_max_age: int = 1,
-        feat_alpha: float = 0.95,
-        track_low_thresh: float = 0.1,
-        second_iou_thresh: float = 0.6,
-        second_appearance_thresh: float = 0.5,
-        second_pass_max_age: int = 1,
-        second_pass_min_hits: int = 3,
-        use_second_pass: bool = False,
-        new_track_thresh: float = 0.6,
-        confirm_hits: int = 2,
-        instant_confirm_thresh: float = 0.7,
-        tentative_max_age: int = 1,
-        duplicate_iou_thresh: float = 0.85,
-        lambda_emb_multiplier: float = 1.5,
-        # ---- OBB-specific operating point ----
-        obb_det_thresh: float = 0.2,
-        obb_iou_threshold: float = 0.15,
-        obb_new_track_thresh: float = 0.3,
-        obb_instant_confirm_thresh: float = 0.5,
-        obb_max_age: int = 30,
-        obb_recovery_max_age: int = 15,
-        obb_second_iou_thresh: float = 0.3,
+        config: OccluBoostConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[OccluBoostOptions],
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure recovery, track confirmation, and occlusion-aware motion updates.
 
@@ -96,65 +75,38 @@ class OccluBoost(BoostTrack):
         Abnormal-motion suppression and lambda_emb_multiplier affect AABB tracking.
 
         Args:
-            use_embeddings: Use supplied appearance embeddings, generating missing
-                embeddings from image frames with the configured ReID backend.
-            recovery_appearance_thresh: Minimum cosine similarity for appearance recovery.
-            recovery_iou_thresh: Minimum geometric similarity for appearance recovery.
-            recovery_max_age: Maximum unmatched age after prediction for AABB recovery.
-            feat_alpha: Previous-embedding weight for recovery and second-pass updates;
-                higher values retain more history and adapt more slowly.
-            track_low_thresh: Lower confidence bound for second-pass detections.
-            second_iou_thresh: Minimum geometric similarity for the AABB second pass.
-            second_appearance_thresh: Minimum cosine similarity for second-pass matching
-                when appearance is enabled.
-            second_pass_max_age: Maximum unmatched age for second-pass recovery.
-            second_pass_min_hits: Minimum hit streak of tracks eligible for the second pass.
-            use_second_pass: Enable low-confidence matching to eligible confirmed tracks.
-            new_track_thresh: Minimum detection confidence to create an AABB track.
-            confirm_hits: Consecutive matched updates needed to activate tentative tracks.
-            instant_confirm_thresh: Confidence that immediately activates a new AABB track.
-            tentative_max_age: Maximum unmatched age before a tentative track expires.
-            duplicate_iou_thresh: Geometric similarity above which duplicate tracks
-                are suppressed, retaining the older track.
-            lambda_emb_multiplier: Appearance-weight multiplier in AABB first-pass matching.
-            obb_det_thresh: Detection confidence threshold for OBB first-pass matching.
-            obb_iou_threshold: Minimum geometric similarity for OBB first-pass matching.
-            obb_new_track_thresh: Minimum detection confidence to create an OBB track.
-            obb_instant_confirm_thresh: Confidence that immediately activates a new OBB track.
-            obb_max_age: Maximum unmatched age before an OBB track expires.
-            obb_recovery_max_age: Maximum unmatched age after prediction for OBB recovery.
-            obb_second_iou_thresh: Minimum geometric similarity for the OBB second pass.
+            config: Immutable algorithm settings. None selects OccluBoostConfig defaults.
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults.
             reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
-            kalman: Immutable filter noise, timing, adaptation, and AABB abnormal-motion
-                suppression settings. AMS is bypassed for OBB. None preserves tracker
-                defaults. Per-class noise overrides require ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
-                BoostTrack options additionally configure ``use_cmc``, ``cmc_method``,
-                output size filtering, multi-cue weights, and DLO/DUO confidence boosting.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = OccluBoostConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            config=BoostTrackConfig(**{field.name: getattr(config, field.name) for field in fields(BoostTrackConfig)}),
             kalman=kalman,
-            use_embeddings=use_embeddings,
             reid=reid,
             **kwargs,
         )
-        self.recovery_appearance_thresh = recovery_appearance_thresh
-        self.recovery_iou_thresh = recovery_iou_thresh
-        self.recovery_max_age = recovery_max_age
-        self.feat_alpha = feat_alpha
-        self.track_low_thresh = track_low_thresh
-        self.second_iou_thresh = second_iou_thresh
-        self.second_appearance_thresh = second_appearance_thresh
-        self.second_pass_max_age = second_pass_max_age
-        self.second_pass_min_hits = second_pass_min_hits
-        self.use_second_pass = use_second_pass
+        self.config = config
+        self.recovery_appearance_thresh = config.recovery_appearance_thresh
+        self.recovery_iou_thresh = config.recovery_iou_thresh
+        self.recovery_max_age = config.recovery_max_age
+        self.feat_alpha = config.feat_alpha
+        self.track_low_thresh = config.track_low_thresh
+        self.second_iou_thresh = config.second_iou_thresh
+        self.second_appearance_thresh = config.second_appearance_thresh
+        self.second_pass_max_age = config.second_pass_max_age
+        self.second_pass_min_hits = config.second_pass_min_hits
+        self.use_second_pass = config.use_second_pass
         # ``new_track_thresh`` decouples new-track creation from the matching
         # det_thresh. Detections in [det_thresh, new_track_thresh) help update
         # existing tracks but do not spawn new ones.
-        self.new_track_thresh = max(new_track_thresh, 0.0)
+        self.new_track_thresh = max(config.new_track_thresh, 0.0)
         # ---- BotSort-style track confirmation ----
         # Tracks created from low/medium-confidence detections start tentative
         # and are only emitted (and persisted past ``tentative_max_age`` frames)
@@ -162,24 +114,24 @@ class OccluBoost(BoostTrack):
         # Detections with confidence >= ``instant_confirm_thresh`` skip the
         # tentative state entirely so high-quality first detections still emit
         # immediately (preserves IDF1).
-        self.confirm_hits = max(int(confirm_hits), 1)
-        self.instant_confirm_thresh = instant_confirm_thresh
-        self.tentative_max_age = max(int(tentative_max_age), 0)
+        self.confirm_hits = max(int(config.confirm_hits), 1)
+        self.instant_confirm_thresh = config.instant_confirm_thresh
+        self.tentative_max_age = max(int(config.tentative_max_age), 0)
         # The MOT-tuned AABB defaults are too restrictive for multi-class OBB
         # detections. Keep a separate OBB operating point so AABB behaviour is
         # unchanged while oriented tracks can start and recover reliably.
-        self.obb_det_thresh = max(float(obb_det_thresh), 0.0)
-        self.obb_iou_threshold = float(np.clip(obb_iou_threshold, 0.0, 1.0))
-        self.obb_new_track_thresh = max(float(obb_new_track_thresh), self.obb_det_thresh)
-        self.obb_instant_confirm_thresh = max(float(obb_instant_confirm_thresh), self.obb_new_track_thresh)
-        self.obb_max_age = max(int(obb_max_age), 0)
-        self.obb_recovery_max_age = max(int(obb_recovery_max_age), 0)
-        self.obb_second_iou_thresh = float(np.clip(obb_second_iou_thresh, 0.0, 1.0))
+        self.obb_det_thresh = max(float(config.obb_det_thresh), 0.0)
+        self.obb_iou_threshold = float(np.clip(config.obb_iou_threshold, 0.0, 1.0))
+        self.obb_new_track_thresh = max(float(config.obb_new_track_thresh), self.obb_det_thresh)
+        self.obb_instant_confirm_thresh = max(float(config.obb_instant_confirm_thresh), self.obb_new_track_thresh)
+        self.obb_max_age = max(int(config.obb_max_age), 0)
+        self.obb_recovery_max_age = max(int(config.obb_recovery_max_age), 0)
+        self.obb_second_iou_thresh = float(np.clip(config.obb_second_iou_thresh, 0.0, 1.0))
         # ---- Duplicate-track suppression ----
         # IoU threshold above which two co-existing tracks are considered
         # duplicates; the younger one (lower ``age``) is dropped.
-        self.duplicate_iou_thresh = duplicate_iou_thresh
-        self.lambda_emb_multiplier = float(lambda_emb_multiplier)
+        self.duplicate_iou_thresh = config.duplicate_iou_thresh
+        self.lambda_emb_multiplier = float(config.lambda_emb_multiplier)
 
     def _track_detections(
         self,

@@ -115,6 +115,7 @@ def test_sensor_arguments_are_validated_before_optional_imports(
         ({"evolve_config": {"min_hits": 1}}, "does not support evolve_config"),
         ({"per_class_configs": {1: {"min_hits": 1}}}, "does not support per_class_configs"),
         ({"output_dir": Path("results")}, "does not support output_dir"),
+        ({"progress_callback": lambda _event: None}, "does not support progress_callback"),
         ({"setup": False}, "does not support setup=False"),
         ({"prepare_cache": True}, "does not support prepare_cache"),
     ),

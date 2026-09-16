@@ -1,41 +1,40 @@
 min_conf:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.3]
 
 det_thresh:
   type: uniform
-  default: 0.6  # from the default parameters
   range: [0, 0.6]
 
 max_age:
   type: grid_search
-  default: 30  # from the default parameters
   values: [10, 20, 30, 40, 50, 60]
+
+# Observation/recovery history capacity; runtime expands it to cover max_age.
+max_obs: {}
 
 min_hits:
   type: grid_search
-  default: 3  # from the default parameters
   values: [1, 2, 3, 4, 5]
+
+iou_threshold:
+  type: uniform
+  range: [0.1, 0.7]
 
 delta_t:
   type: grid_search
-  default: 3  # from the default parameters
   values: [1, 2, 3, 4, 5]
 
 asso_func:
   type: choice
-  default: iou  # from the default parameters
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 use_byte:
   type: choice
-  default: false  # from the default parameters
   options: [True, False]
 
 inertia:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.4]
 
 # Timing and reference-prior units stay fixed across all tuning trials.

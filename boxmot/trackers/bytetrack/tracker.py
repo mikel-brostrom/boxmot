@@ -3,11 +3,12 @@
 import numpy as np
 from typing_extensions import Unpack
 
+from boxmot.trackers.bytetrack.config import ByteTrackConfig
 from boxmot.trackers.bytetrack.track import STrack, TrackState
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import BoxTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
@@ -34,55 +35,45 @@ class ByteTrack(BoxTracker):
 
     def __init__(
         self,
-        # ByteTrack-specific parameters
-        min_conf: float = 0.1,
-        track_thresh: float = 0.45,
-        match_thresh: float = 0.8,
-        track_buffer: int = 25,
-        frame_rate: int = 30,
+        config: ByteTrackConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
-        **kwargs: Unpack[BoxTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure ByteTrack's confidence stages and lost-track buffer.
 
         Args:
-            min_conf: Minimum confidence for the low-score association stage.
-            track_thresh: Confidence threshold for the first association pass
-                and for creating new tracks.
-            match_thresh: Maximum score-fused geometric cost for ordinary
-                ByteTrack's first association pass, including when mask
-                guidance is enabled.
-            track_buffer: Lost-track retention in frames at 30 FPS, scaled by
-                ``frame_rate``. This controls tracking expiry.
-            frame_rate: Frame rate used to scale ``track_buffer``.
+            config: Immutable algorithm settings. None selects ByteTrackConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared history/display settings, class metadata and
-                separation, ``asso_func``, ``is_obb``, and optional ``mask_guidance``.
-                Guidance accepts a configuration or a dedicated runtime and
-                requires Python AABB tracking with IoU association. ``max_age`` and
-                ``min_hits`` affect shared history/display rather than the
-                tracker-specific buffer and activation rules.
+                None preserves tracker defaults.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
-        if "det_thresh" in kwargs:
-            raise TypeError(
-                "ByteTrack.__init__() got an unexpected keyword argument 'det_thresh'; use 'track_thresh' instead"
-            )
-        super().__init__(kalman=kalman, **kwargs)
+        config = ByteTrackConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
+        super().__init__(
+            det_thresh=config.track_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
+            kalman=kalman,
+            **kwargs,
+        )
 
         # Track lifecycle parameters
         self.frame_id = 0
-        self.track_buffer = track_buffer
-        self.buffer_size = int(frame_rate / 30.0 * track_buffer)
+        self.track_buffer = config.track_buffer
+        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
         self.max_time_lost = self.buffer_size
 
         # Detection thresholds
-        self.min_conf = min_conf
-        self.track_thresh = track_thresh
-        self.match_thresh = match_thresh
-        self.det_thresh = track_thresh  # Same as track_thresh
+        self.min_conf = config.min_conf
+        self.track_thresh = config.track_thresh
+        self.match_thresh = config.match_thresh
+        self.det_thresh = config.track_thresh  # Same as track_thresh
 
         # Motion model
         self.kalman_filter = (

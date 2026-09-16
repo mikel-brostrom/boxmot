@@ -16,10 +16,11 @@ from boxmot.trackers.common.association.strongsort import (
     min_cost_matching,
 )
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry import xyxy2tlwh
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.strongsort.config import StrongSortConfig
 from boxmot.trackers.strongsort.track import Track
 
 
@@ -87,17 +88,11 @@ class StrongSort(BoxTracker):
 
     def __init__(
         self,
-        min_conf: float = 0.1,
-        max_cos_dist: float = 0.2,
-        max_iou_dist: float = 0.7,
-        n_init: int = 3,
-        nn_budget: int = 100,
-        mc_lambda: float = 0.98,
-        ema_alpha: float = 0.9,
+        config: StrongSortConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure StrongSORT's appearance gallery, confirmation, and matching costs.
 
@@ -107,38 +102,37 @@ class StrongSort(BoxTracker):
         fallback matching uses max_iou_dist.
 
         Args:
-            min_conf: Minimum detection confidence accepted for tracking.
-            max_cos_dist: Maximum cosine distance for appearance-gallery matching.
-            max_iou_dist: Maximum geometry distance for fallback association.
-            n_init: Consecutive hits required to confirm a track.
-            nn_budget: Maximum number of appearance-gallery features stored per track.
-            mc_lambda: Appearance-cost weight in the blend with Mahalanobis distance;
-                the motion-distance weight is one minus this value.
-            ema_alpha: Previous-embedding weight in exponential smoothing; higher values
-                retain more history and adapt more slowly.
-            reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
+            config: Immutable algorithm settings. None selects StrongSortConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
+                None preserves tracker defaults.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = StrongSortConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
             reid=reid,
             **kwargs,
         )
 
-        self.min_conf = min_conf
-        self._max_cos_dist = float(max_cos_dist)
-        self._nn_budget = int(nn_budget) if nn_budget is not None else None
+        self.min_conf = config.min_conf
+        self._max_cos_dist = float(config.max_cos_dist)
+        self._nn_budget = int(config.nn_budget) if config.nn_budget is not None else None
         self.metric = self._new_metric()
-        self.max_iou_dist = max_iou_dist
-        self.n_init = n_init
-        self.mc_lambda = mc_lambda
-        self.ema_alpha = ema_alpha
+        self.max_iou_dist = config.max_iou_dist
+        self.n_init = config.n_init
+        self.mc_lambda = config.mc_lambda
+        self.ema_alpha = config.ema_alpha
         self.tracks: list[Track] = []
         self.active_tracks = self.tracks
         self.cmc = create_cmc("ecc")

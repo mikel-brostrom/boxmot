@@ -10,47 +10,33 @@ from boxmot.utils import logger as LOGGER
 
 
 def linear_interpolation(data: np.ndarray, interval: int) -> np.ndarray:
+    """Fill short gaps within each track/class pair in canonical MOT rows.
+
+    MOT rows contain frame, track ID, x, y, width, height, confidence, class ID,
+    and detection index. Only geometry and confidence are interpolated; new
+    rows retain their class and use detection index ``-1``. A gap is filled
+    when its endpoint-frame difference is strictly smaller than ``interval``.
     """
-    Apply linear interpolation between rows in the tracking results.
-
-    The function assumes the first two columns of `data` represent frame number and object ID.
-    Interpolated rows are added when consecutive rows for the same ID have a gap of more than 1
-    frame but less than the specified interval.
-
-    Parameters:
-        data (np.ndarray): Input tracking results.
-        interval (int): Maximum gap to perform interpolation.
-
-    Returns:
-        np.ndarray: Tracking results with interpolated rows included.
-    """
-    # Sort data by frame and then by ID
-    sorted_data = data[np.lexsort((data[:, 0], data[:, 1]))]
+    if data.size == 0:
+        return data.copy()
+    rows = np.asarray(data, dtype=np.float64)
+    ordered = rows[np.lexsort((rows[:, 0], rows[:, 7], rows[:, 1]))]
     result_rows = []
-    previous_id = None
-    previous_frame = None
-    previous_row = None
-
-    for row in sorted_data:
-        current_frame, current_id = int(row[0]), int(row[1])
-        if (
-            previous_id is not None
-            and current_id == previous_id
-            and previous_frame + 1 < current_frame < previous_frame + interval
-        ):
-            gap = current_frame - previous_frame - 1
-            for i in range(1, gap + 1):
-                # Linear interpolation for each missing frame
-                new_row = previous_row + (row - previous_row) * (
-                    i / (current_frame - previous_frame)
-                )
-                result_rows.append(new_row)
+    previous = None
+    for row in ordered:
+        if previous is not None and np.array_equal(row[[1, 7]], previous[[1, 7]]):
+            gap = int(row[0] - previous[0])
+            if 1 < gap < interval:
+                for offset in range(1, gap):
+                    interpolated = previous.copy()
+                    interpolated[0] = previous[0] + offset
+                    interpolated[2:7] += (row[2:7] - previous[2:7]) * (offset / gap)
+                    interpolated[8] = -1
+                    result_rows.append(interpolated)
         result_rows.append(row)
-        previous_id, previous_frame, previous_row = current_id, current_frame, row
-
-    result_array = np.array(result_rows)
-    # Resort the array
-    return result_array[np.lexsort((result_array[:, 0], result_array[:, 1]))]
+        previous = row
+    result = np.asarray(result_rows)
+    return result[np.lexsort((result[:, 0], result[:, 1]))]
 
 
 def gaussian_smooth(
@@ -58,46 +44,30 @@ def gaussian_smooth(
     tau: float,
     progress_fn: Callable[[int, int], None] | None = None,
 ) -> np.ndarray:
+    """Smooth MOT box coordinates independently for each track/class pair.
+
+    Frame numbers, IDs, confidence, classes, and detection indices are retained
+    exactly. Empty inputs and single-observation trajectories are unchanged.
+    ``progress_fn`` receives the number of completed track/class pairs.
     """
-    Apply Gaussian process smoothing to specified columns in the tracking results.
-
-    For each unique object ID in the data, this function smooths columns 2 through 5 using
-    a Gaussian Process with an RBF kernel. Additional columns (columns 6 and 7) and a constant
-    value (-1) are appended to each row.
-
-    Parameters:
-        data (np.ndarray): Tracking results.
-        tau (float): Smoothing parameter.
-        progress_fn: Called with (current, total) after each track ID is processed.
-
-    Returns:
-        np.ndarray: Tracking results with smoothed columns.
-    """
+    if data.size == 0:
+        return data.copy()
+    rows = np.asarray(data, dtype=np.float64)
+    track_classes = np.unique(rows[:, [1, 7]], axis=0)
     smoothed_output = []
-    unique_ids = np.unique(data[:, 1])
-    total_ids = len(unique_ids)
-    for idx, obj_id in enumerate(unique_ids):
-        tracks = data[data[:, 1] == obj_id]
-        num_tracks = len(tracks)
-        # Determine length scale using logarithmic scaling with clipping
-        length_scale = np.clip(tau * np.log(tau**3 / num_tracks), tau**-1, tau**2)
-        t = tracks[:, 0].reshape(-1, 1)
-        kernel = RBF(length_scale, length_scale_bounds="fixed")
-        gpr = GPR(kernel)
-
-        # Smooth columns 2 to 5 simultaneously (if supported by your version of scikit-learn)
-        smoothed_columns = gpr.fit(t, tracks[:, 2:6]).predict(t)
-
-        # Build new rows with the smoothed data, retaining other columns and appending -1
-        for i in range(len(tracks)):
-            new_row = np.concatenate(
-                ([tracks[i, 0], obj_id], smoothed_columns[i], tracks[i, 6:8], [-1])
-            )
-            smoothed_output.append(new_row)
+    for index, (track_id, class_id) in enumerate(track_classes):
+        tracks = rows[(rows[:, 1] == track_id) & (rows[:, 7] == class_id)].copy()
+        if len(tracks) > 1:
+            length_scale = np.clip(tau * np.log(tau**3 / len(tracks)), tau**-1, tau**2)
+            times = tracks[:, 0].reshape(-1, 1)
+            kernel = RBF(length_scale, length_scale_bounds="fixed")
+            regressor = GPR(kernel)
+            tracks[:, 2:6] = regressor.fit(times, tracks[:, 2:6]).predict(times)
+        smoothed_output.append(tracks)
         if progress_fn is not None:
-            progress_fn(idx + 1, total_ids)
-
-    return np.array(smoothed_output)
+            progress_fn(index + 1, len(track_classes))
+    result = np.concatenate(smoothed_output)
+    return result[np.lexsort((result[:, 0], result[:, 1]))]
 
 
 def process_file(file_path: Path, interval: int, tau: float, progress_queue: Any | None = None) -> None:
@@ -127,12 +97,19 @@ def process_file(file_path: Path, interval: int, tau: float, progress_queue: Any
         interpolated_results = linear_interpolation(tracking_results, interval)
         pq_fn = None
         if progress_queue is not None:
-            n_tracks = len(np.unique(interpolated_results[:, 1]))
+            n_tracks = len(np.unique(interpolated_results[:, [1, 7]], axis=0))
             progress_queue.put((seq_name, 0, n_tracks))
+
             def pq_fn(current: int, total: int) -> None:
                 progress_queue.put((seq_name, current, total))
+
         smoothed_results = gaussian_smooth(interpolated_results, tau, progress_fn=pq_fn)
-        np.savetxt(file_path, smoothed_results, fmt="%d,%d,%d,%d,%d,%d,%.6f,%d,%d")
+        np.savetxt(
+            file_path,
+            smoothed_results,
+            fmt=["%d", "%d", *(["%.17g"] * 5), "%d", "%d"],
+            delimiter=",",
+        )
     else:
         LOGGER.warning(f"No tracking results in {file_path}. Skipping...")
         if progress_queue is not None:

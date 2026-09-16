@@ -14,18 +14,12 @@ from boxmot.trackers.common.native import (
     load_native_tracker_config,
     resolve_association_function,
 )
+from boxmot.trackers.occluboost.config import OccluBoostConfig
 
 
 def _resolve_tracker_config(options: dict[str, Any] | None) -> dict[str, Any]:
-    cfg = load_native_tracker_config("occluboost", options, native_only_keys=("max_obs",))
+    cfg = load_native_tracker_config("occluboost", options)
     resolve_association_function(cfg)
-    cfg.setdefault("use_embeddings", True)
-    cfg.setdefault("use_cmc", True)
-    cfg.setdefault("cmc_method", "sof")
-    cfg.setdefault("max_obs", 50)
-    for option in ("use_cmc", "use_embeddings"):
-        if not isinstance(cfg[option], bool):
-            raise TypeError(f"{option} must be bool.")
     if cfg["use_cmc"] and cfg["cmc_method"] not in {"ecc", "sof"}:
         raise ValueError("Native OccluBoost supports cmc_method 'ecc' or 'sof'; disable CMC with use_cmc=False.")
     return cfg
@@ -46,6 +40,7 @@ class NativeOccluBoostTracker(NativeTrackerAdapter):
         reid: ReIDConfig | AppearanceEncoder | None = None,
     ) -> None:
         cfg = _resolve_tracker_config(options)
+        self.config = OccluBoostConfig.from_mapping({name: cfg[name] for name in OccluBoostConfig.fields()})
         self._init_native_handle(
             library=get_occluboost_library() if library is None else library,
             cfg=cfg,

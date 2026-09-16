@@ -26,4 +26,13 @@ Tracker YAML profiles and Python construction use lowercase option names:
 `eg_weight_high_score`, `eg_weight_low_score`, `tcm_first_step`,
 `tcm_byte_step`, and `tcm_byte_step_weight`. Tuned profiles use these same names.
 
+## Python API
+
+Pass algorithm settings through `HybridSortConfig`, for example
+`HybridSort(config=HybridSortConfig(det_thresh=0.5))`. Direct construction and
+`create_tracker("hybridsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.HybridSortConfig
+
 ::: boxmot.HybridSort

@@ -47,4 +47,13 @@ experimental global-y height cue intended only for scenes where image vertical
 is meaningful. See the [association function guide](../config/trackers.md#association-function)
 for the exact OBB semantics.
 
+## Python API
+
+Pass algorithm settings through `OcSortConfig`, for example
+`OcSort(config=OcSortConfig(det_thresh=0.5))`. Direct construction and
+`create_tracker("ocsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.OcSortConfig
+
 ::: boxmot.OcSort

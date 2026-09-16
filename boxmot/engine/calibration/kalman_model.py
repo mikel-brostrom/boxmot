@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from inspect import Parameter, signature
-from typing import Any
+from typing import Any, get_args, get_type_hints
 
 import numpy as np
 
 from boxmot.structures.kinds import GeometryKind
-from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+from boxmot.trackers.common.config import flatten_tracker_options, get_tracker_config_class, load_tracker_config
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.mask_guidance import (
     MASK_GUIDANCE_OPTIONS,
@@ -34,11 +34,17 @@ def validate_calibration_options(tracker_name: str, options: Mapping[str, Any], 
     tracker_class = get_tracker_class(tracker_name)
     accepted = {
         name
-        for owner in tracker_class.__mro__
-        for name, parameter in signature(owner.__init__).parameters.items()
-        if name != "self" and parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
+        for name, parameter in signature(tracker_class.__init__).parameters.items()
+        if name not in {"self", "config"}
+        and parameter.kind in (Parameter.POSITIONAL_OR_KEYWORD, Parameter.KEYWORD_ONLY)
     }
+    (runtime_options,) = get_args(get_type_hints(tracker_class.__init__)["kwargs"])
+    accepted.update(runtime_options.__optional_keys__)
     flattened = flatten_tracker_options(options)
+    config_type = get_tracker_config_class(tracker_name)
+    algorithm_fields = set(config_type.fields())
+    config_type.from_mapping({key: value for key, value in flattened.items() if key in algorithm_fields})
+    accepted.update(algorithm_fields)
     validate_calibration_profile(flattened, tracker_name=tracker_name, geometry=geometry)
     accepted.update(name for name in flattened if name.startswith("calibration."))
     if "kalman" in accepted:

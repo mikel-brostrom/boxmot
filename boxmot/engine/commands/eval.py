@@ -31,8 +31,9 @@ from boxmot.engine.commands._support import (
     _prepare_replay_build,
     _require_replay_input,
 )
+from boxmot.engine.config.postprocessing import POSTPROCESSING_METHODS, normalize_postprocessing
 from boxmot.engine.config.runtime import BOXMOT_DEFAULTS, get_mode_default, resolve_sequence_workers
-from boxmot.engine.config.trackers import edgetam_checkpoint
+from boxmot.engine.config.trackers import edgetam_checkpoint, validate_image_tracker
 
 _SENSOR_OPTIONS = frozenset(
     {
@@ -295,6 +296,17 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
 @dataset_fps_option
 @eval_masks_option
 @click.option(
+    "--postprocessing",
+    type=click.Choice(POSTPROCESSING_METHODS),
+    multiple=True,
+    default=BOXMOT_DEFAULTS.eval.postprocessing,
+    help=(
+        "Postprocess AABB tracking results before scoring. Repeat in application order; "
+        "GTA must precede GSI/GBRC and requires cached embeddings. "
+        "Uses --sequence-workers with per-sequence progress."
+    ),
+)
+@click.option(
     "--eval-3d",
     is_flag=True,
     default=False,
@@ -380,6 +392,19 @@ def eval(
     """Evaluate a tracker, materializing the selected configuration when needed."""
 
     _require_replay_input(experiment, dataset, "eval")
+    try:
+        kwargs["postprocessing"] = normalize_postprocessing(kwargs.get("postprocessing"))
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
+    if kwargs["postprocessing"] and (eval_masks or kwargs["eval_3d"] or kwargs["eval_ap"]):
+        raise click.UsageError(
+            "--postprocessing supports image AABB evaluation only, without --eval-masks or --eval-3d."
+        )
+    if experiment:
+        try:
+            validate_image_tracker(str(kwargs["tracker"]))
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
     if kwargs["eval_ap"] and not kwargs["eval_3d"]:
         raise click.UsageError("--eval-ap requires --eval-3d.")
     if kwargs["eval_3d"] and eval_masks:
@@ -453,6 +478,7 @@ def eval(
         fps=kwargs.get("fps"),
         tracker_config=kwargs.get("tracker_config"),
         eval_masks=eval_masks,
+        postprocessing=kwargs["postprocessing"],
         allow_noncanonical_build=allow_noncanonical_build,
         runtime_device=edgetam_checkpoint(SimpleNamespace(**kwargs)) is not None,
     )

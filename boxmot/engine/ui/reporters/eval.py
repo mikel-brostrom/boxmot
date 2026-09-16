@@ -91,6 +91,8 @@ class EvalSequenceProgressPresenter:
         callback: WorkflowDetailCallback,
         sequence_totals: Mapping[str, int | None],
         *,
+        label: str = "Tracking",
+        unit: str = "frames",
         clock: Callable[[], float] = time.monotonic,
         refresh_interval_s: float | None = 0.08,
     ) -> None:
@@ -100,12 +102,13 @@ class EvalSequenceProgressPresenter:
             raise ValueError("sequence_totals must not be empty.")
 
         self._callback = callback
+        self._label = label
         self._clock = clock
         self._refresh_interval_s = refresh_interval_s
         self._last_refresh_s: float | None = None
         self._detail_scope: Any | None = None
         self._active = False
-        self._progress = create_task_progress(unit="frames")
+        self._progress = create_task_progress(unit=unit)
         self._states: dict[str, _SequenceProgressState] = {}
         for sequence_id, total in sequence_totals.items():
             sequence_id = self._validate_sequence_id(sequence_id)
@@ -172,7 +175,7 @@ class EvalSequenceProgressPresenter:
         completed = sum(state.status == "completed" for state in self._states.values())
         failed = sum(state.status == "failed" for state in self._states.values())
         total = len(self._states)
-        summary = Text("Tracking: ", style=ui.STYLE_TEXT_STRONG)
+        summary = Text(f"{self._label}: ", style=ui.STYLE_TEXT_STRONG)
         summary.append(f"{completed}/{total} sequences done", style=ui.STYLE_STATUS_DONE)
         if failed:
             summary.append(f" · {failed} failed", style=ui.STYLE_STATUS_FAILED)
@@ -281,6 +284,25 @@ class EvalSequenceProgressPresenter:
         completed = state.completed if resolved_total is None else resolved_total
         self.update(sequence_id, completed, resolved_total, status="completed")
 
+    def _reset_phase(self, sequence_id: str, total: int | None) -> None:
+        """Start a new unit of sequence work after its caller orders the phases."""
+        state = self._states[sequence_id]
+        state.total = self._validate_count(total, name="total", optional=True)
+        state.completed = 0
+        state.detail = None
+        # Rich treats reset(total=None) as "retain the previous total". Phases
+        # with unknown length must instead restore an indeterminate bar.
+        task = next(task for task in self._progress.tasks if task.id == state.task_id)
+        task.total = state.total
+        self._progress.reset(
+            state.task_id,
+            total=state.total,
+            completed=0,
+            start=False,
+            status=state.status,
+            detail=None,
+        )
+
     def fail(self, sequence_id: str, detail: str | BaseException) -> None:
         """Mark a sequence failed without discarding its completed count."""
 
@@ -371,6 +393,13 @@ def _build_eval_workflow_fields(args: argparse.Namespace) -> list[tuple[str, obj
     if tracker_items:
         fields.append(panel_field("Tracker", tracker_items))
 
+    postprocessing = getattr(args, "postprocessing", ())
+    if postprocessing:
+        from boxmot.engine.config.postprocessing import normalize_postprocessing
+
+        methods = normalize_postprocessing(postprocessing)
+        fields.append(panel_field("Postprocessing", [("Methods", " → ".join(method.upper() for method in methods))]))
+
     # ── Detector card ─────────────────────────────────────────────
     # Perception is represented by the immutable build selected below.
 
@@ -420,7 +449,8 @@ class EvalWorkflowReporter(RichWorkflowReporter):
 
     def __init__(self, args: Any) -> None:
         super().__init__(args)
-        self.steps = eval_steps(postprocess=False)
+        self.steps = eval_steps(postprocess=bool(getattr(args, "postprocessing", ())))
+        self.EVALUATE = len(self.steps) - 1
 
     def fields(self) -> list[tuple[str, object]]:
         return _build_eval_workflow_fields(self.args)

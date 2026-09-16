@@ -1,66 +1,56 @@
 det_thresh:
   type: uniform
-  default: 0.5  # from the default parameters
   range: [0.3, 0.6]
 
 max_age:
   type: qrandint
-  default: 30  # from the default parameters
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
+
+# History capacity; runtime expands it beyond the searchable lost-track lifetime.
+max_obs: {}
 
 min_hits:
   type: randint
-  default: 3  # from the default parameters
   range: [1, 6]  # upper bound exclusive
 
 iou_threshold:
   type: uniform
-  default: 0.3  # from the default parameters
   range: [0.1, 0.4]
 
 delta_t:
   type: randint
-  default: 3  # from the default parameters
   range: [1, 6]  # upper bound exclusive
 
 asso_func:
   type: choice
-  default: iou  # from the default parameters
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 inertia:
   type: uniform
-  default: 0.2  # from the default parameters
   range: [0.1, 0.4]
 
 w_association_emb:
   type: uniform
-  default: 0.75  # from the default parameters
   range: [0.5, 0.9]
 
 alpha_fixed_emb:
   type: uniform
-  default: 0.95  # from the default parameters
   range: [0.9, 0.999]
 
 aw_param:
   type: uniform
-  default: 0.5  # from the default parameters
   range: [0.3, 0.7]
 
 use_embeddings:
   type: choice
-  default: true  # from the default parameters
   options: [True, False]
 
 cmc_off:
   type: choice
-  default: false  # from the default parameters
   options: [True, False]
 
 aw_off:
   type: choice
-  default: false  # from the default parameters
   options: [True, False]
 
 # Timing and reference-prior units stay fixed across all tuning trials.

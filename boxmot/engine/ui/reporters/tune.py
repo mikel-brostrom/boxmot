@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Sequence
+from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Sequence
 
 from rich.console import Group, RenderableType
 from rich.table import Table
@@ -9,9 +12,18 @@ from rich.text import Text
 
 import boxmot.engine.ui.core.ui as ui
 from boxmot.engine.eval.results import CORE_SUMMARY_COLUMNS, SUMMARY_COLUMNS
+from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter
 from boxmot.engine.ui.workflow import steps as step_labels
-from boxmot.engine.ui.workflow.reporting import RichWorkflowCallback, RichWorkflowReporter, SilentProgressReporter
+from boxmot.engine.ui.workflow.reporting import (
+    RichWorkflowCallback,
+    RichWorkflowReporter,
+    SilentProgressReporter,
+    WorkflowDetailCallback,
+)
 from boxmot.engine.ui.workflow.task_progress import create_task_progress
+
+if TYPE_CHECKING:
+    from boxmot.engine.eval.replay import ReplayProgressEvent
 
 TUNE_SETUP_STEP = step_labels.SETUP
 TUNE_OPTIMIZE_STEP = step_labels.OPTIMIZE
@@ -64,7 +76,12 @@ def build_tune_artifacts_renderable(saved_artifacts: dict[str, Any]) -> Renderab
 def combine_tune_result_renderables(
     best_renderable: RenderableType,
     artifacts_renderable: RenderableType | None,
+    *,
+    comparison_label: str | None = None,
 ) -> RenderableType:
+    """Combine the best result with its comparison context and saved artifacts."""
+    if comparison_label is not None:
+        best_renderable = Group(Text(comparison_label, style=ui.STYLE_MUTED), best_renderable)
     if artifacts_renderable is None:
         return best_renderable
     return Group(best_renderable, artifacts_renderable)
@@ -147,6 +164,52 @@ class TuneWorkflowCallback(RichWorkflowCallback):
         self.best_score: tuple[float, ...] | None = None
         self.best_summary: dict[str, float] | None = None
         self.last_summary: dict[str, float] | None = None
+        self.sequence_totals: dict[str, int | None] = {}
+        self.sequence_progress_dir: Path | None = None
+        self.sequence_events: dict[str, tuple[ReplayProgressEvent, ...]] = {}
+        self.last_sequence_trial: str | None = None
+        self.last_sequence_failed = False
+
+    def configure_sequence_progress(self, directory: Path, totals: Mapping[str, int | None]) -> None:
+        """Bind this driver's progress channel without retaining Rich state."""
+        self.sequence_progress_dir = Path(directory)
+        self.sequence_totals = dict(totals)
+        self.sequence_events.clear()
+        self.last_sequence_trial = None
+        self.last_sequence_failed = False
+
+    def _read_sequence_progress(self, trial_id: str) -> bool:
+        """Read the latest bounded worker snapshot only when it has changed."""
+        if self.sequence_progress_dir is None:
+            return False
+        from boxmot.engine.tuning.progress import read_trial_sequence_progress
+
+        events = read_trial_sequence_progress(self.sequence_progress_dir, trial_id)
+        if not events or events == self.sequence_events.get(trial_id):
+            return False
+        self.sequence_events[trial_id] = events
+        return True
+
+    def _clear_sequence_progress(self, trial_id: str) -> None:
+        """Remove a finished or retried trial's transport snapshot."""
+        if self.sequence_progress_dir is not None:
+            from boxmot.engine.tuning.progress import clear_trial_sequence_progress
+
+            clear_trial_sequence_progress(self.sequence_progress_dir, trial_id)
+
+    def _retain_sequence_progress(self) -> None:
+        """Retain only running trials and the latest finished trial's rows."""
+        self.sequence_events = {
+            trial_id: events
+            for trial_id, events in self.sequence_events.items()
+            if trial_id in self.active_trials or trial_id == self.last_sequence_trial
+        }
+
+    def on_step_end(self, iteration: int, trials: list, **info: Any) -> None:
+        """Refresh frames while Ray is waiting for complete trial metrics."""
+        changed = [self._read_sequence_progress(trial_id) for trial_id in self.active_trials]
+        if any(changed):
+            self._set_progress()
 
     def _trial_id(self, trial: Any) -> str:
         return str(getattr(trial, "trial_id", getattr(trial, "trial_name", trial)))
@@ -168,7 +231,10 @@ class TuneWorkflowCallback(RichWorkflowCallback):
 
     def _set_progress(self) -> None:
         """Keep completed-trial metrics visible between callback events."""
-        self.set_workflow_detail_renderable(
+        workflow = type(self)._workflow
+        if workflow is None:
+            return
+        parts: list[RenderableType] = [
             format_tune_progress(
                 self.completed,
                 self.total,
@@ -179,17 +245,52 @@ class TuneWorkflowCallback(RichWorkflowCallback):
                 failed=self.failed,
                 active_trials=len(self.active_trials),
             )
-        )
+        ]
+        shown = sorted(self.active_trials, key=self.trial_indices.__getitem__)
+        if not shown and self.last_sequence_trial is not None:
+            shown = [self.last_sequence_trial]
+        for trial_id in shown:
+            events = self.sequence_events.get(trial_id, ())
+            totals = dict(self.sequence_totals)
+            for event in events:
+                totals.setdefault(event.sequence_id, event.total)
+            if not totals:
+                continue
+            presenter = EvalSequenceProgressPresenter(
+                WorkflowDetailCallback(workflow, TUNE_OPTIMIZE_STEP, render=False), totals
+            )
+            for event in events:
+                # Sequence names and frame counts are enough during replay;
+                # retain diagnostic details only for failed sequences.
+                presenter(replace(event, detail=event.detail if event.status == "failed" else None))
+            if trial_id == self.last_sequence_trial and self.last_sequence_failed:
+                terminal = {event.sequence_id for event in events if event.status in {"completed", "failed"}}
+                for sequence_id in totals.keys() - terminal:
+                    presenter.fail(sequence_id, "trial failed")
+            parts.extend(
+                (Text(f"Trial {self.trial_indices[trial_id]}/{self.total}", style=ui.STYLE_TITLE), presenter.renderable)
+            )
+        self.set_workflow_detail_renderable(Group(*parts))
 
     def on_trial_start(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
         trial_id = self._trial_id(trial)
         self._trial_index(trial)
         self.active_trials.add(trial_id)
+        self._clear_sequence_progress(trial_id)
+        self.sequence_events.pop(trial_id, None)
+        self.last_sequence_trial = None
+        self.last_sequence_failed = False
+        self._retain_sequence_progress()
         self._set_progress()
 
     def on_trial_complete(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
         trial_id = self._trial_id(trial)
+        self._read_sequence_progress(trial_id)
+        self._clear_sequence_progress(trial_id)
+        self.last_sequence_trial = trial_id
+        self.last_sequence_failed = False
         self.active_trials.discard(trial_id)
+        self._retain_sequence_progress()
         self.completed += 1
         result = getattr(trial, "last_result", {}) or {}
         duration = result.get("time_total_s")
@@ -207,7 +308,18 @@ class TuneWorkflowCallback(RichWorkflowCallback):
 
     def on_trial_error(self, iteration: int, trials: list, trial: Any, **info: Any) -> None:
         trial_id = self._trial_id(trial)
+        self._read_sequence_progress(trial_id)
+        self._clear_sequence_progress(trial_id)
+        self.last_sequence_trial = trial_id
+        self.last_sequence_failed = True
+        events = self.sequence_events.get(trial_id, ())
+        self.sequence_events[trial_id] = tuple(
+            replace(event, status="failed", detail=event.detail or "trial failed")
+            if event.status in {"queued", "running"} else event
+            for event in events
+        )
         self.active_trials.discard(trial_id)
+        self._retain_sequence_progress()
         self.completed += 1
         self.failed += 1
         self._set_progress()

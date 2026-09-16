@@ -7,6 +7,7 @@ from typing_extensions import Unpack
 
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
+from boxmot.trackers.boosttrack.config import BoostTrackConfig
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker
 from boxmot.trackers.common.appearance import (
     confidence_aware_alpha,
@@ -22,7 +23,7 @@ from boxmot.trackers.common.association.boost import (
 )
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
@@ -47,57 +48,33 @@ class BoostTrack(BoxTracker):
 
     def __init__(
         self,
-        # BoostTrack-specific parameters
-        use_cmc: bool = True,
-        min_box_area: int = 10,
-        aspect_ratio_thresh: float = 1.6,
-        cmc_method: str = "ecc",
-        lambda_iou: float = 0.5,
-        lambda_mhd: float = 0.25,
-        lambda_shape: float = 0.25,
-        use_dlo_boost: bool = True,
-        use_duo_boost: bool = True,
-        dlo_boost_coef: float = 0.65,
-        s_sim_corr: bool = False,
-        use_rich_s: bool = False,
-        use_sb: bool = False,
-        use_vt: bool = False,
-        use_embeddings: bool = False,
+        config: BoostTrackConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure confidence boosting, association, and optional appearance features.
 
         Args:
-            use_cmc: Enable camera-motion compensation; requires image frames.
-            min_box_area: Minimum area of emitted track boxes in pixels squared.
-            aspect_ratio_thresh: Maximum aspect ratio of emitted track boxes.
-            cmc_method: Camera-motion compensation method used when CMC is enabled.
-            lambda_iou: Weight of geometric similarity in association.
-            lambda_mhd: Weight of Mahalanobis similarity in association.
-            lambda_shape: Weight of shape similarity in association.
-            use_dlo_boost: Boost confidence of detections similar to existing tracks.
-            use_duo_boost: Boost confidence of detections far from existing tracks.
-            dlo_boost_coef: Similarity multiplier for basic DLO boosting, used when
-                soft boosting and varying thresholds are both disabled.
-            s_sim_corr: Use the corrected AABB shape-similarity formula.
-            use_rich_s: Combine Mahalanobis, shape, and soft IoU similarities for DLO.
-            use_sb: Blend detection confidence with DLO similarity for soft boosting.
-            use_vt: Use track-age-dependent similarity thresholds for DLO boosting.
-            use_embeddings: Use supplied appearance embeddings, generating missing
-                embeddings from image frames with the configured ReID backend.
-            reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
+            config: Immutable algorithm settings. None selects BoostTrackConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
+                None preserves tracker defaults.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = BoostTrackConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
             reid=reid,
             **kwargs,
@@ -108,30 +85,26 @@ class BoostTrack(BoxTracker):
         self.trackers: List[KalmanBoxTracker] = []
 
         # Parameters for BoostTrack (these can be tuned as needed)
-        if not isinstance(use_cmc, bool):
-            raise TypeError("use_cmc must be bool.")
-        self.use_cmc = use_cmc  # use camera motion compensation
-        self.min_box_area = min_box_area  # minimum box area for detections
-        self.aspect_ratio_thresh = aspect_ratio_thresh  # aspect ratio threshold for detections
-        self.cmc_method = cmc_method
+        self.use_cmc = config.use_cmc  # use camera motion compensation
+        self.min_box_area = config.min_box_area  # minimum box area for detections
+        self.aspect_ratio_thresh = config.aspect_ratio_thresh  # aspect ratio threshold for detections
+        self.cmc_method = config.cmc_method
 
-        self.lambda_iou = lambda_iou
-        self.lambda_mhd = lambda_mhd
-        self.lambda_shape = lambda_shape
-        self.use_dlo_boost = use_dlo_boost
-        self.use_duo_boost = use_duo_boost
-        self.dlo_boost_coef = dlo_boost_coef
-        self.s_sim_corr = s_sim_corr
+        self.lambda_iou = config.lambda_iou
+        self.lambda_mhd = config.lambda_mhd
+        self.lambda_shape = config.lambda_shape
+        self.use_dlo_boost = config.use_dlo_boost
+        self.use_duo_boost = config.use_duo_boost
+        self.dlo_boost_coef = config.dlo_boost_coef
+        self.s_sim_corr = config.s_sim_corr
 
-        self.use_rich_s = use_rich_s
-        self.use_sb = use_sb
-        self.use_vt = use_vt
+        self.use_rich_s = config.use_rich_s
+        self.use_sb = config.use_sb
+        self.use_vt = config.use_vt
 
-        if not isinstance(use_embeddings, bool):
-            raise TypeError("use_embeddings must be bool.")
-        self.use_embeddings = use_embeddings
+        self.use_embeddings = config.use_embeddings
 
-        self.cmc = create_cmc(cmc_method, enabled=self.use_cmc)
+        self.cmc = create_cmc(config.cmc_method, enabled=self.use_cmc)
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False
@@ -365,6 +338,7 @@ class BoostTrack(BoxTracker):
         return detections
 
     def dlo_confidence_boost(self, detections: np.ndarray) -> np.ndarray:
+        """Boost AABB confidence while keeping scores in the public [0, 1] range."""
         if len(detections) == 0:
             return detections
 
@@ -386,7 +360,7 @@ class BoostTrack(BoxTracker):
 
         if not self.use_sb and not self.use_vt:
             max_s = S.max(1)
-            detections[:, 4] = np.maximum(detections[:, 4], max_s * self.dlo_boost_coef)
+            detections[:, 4] = np.clip(np.maximum(detections[:, 4], max_s * self.dlo_boost_coef), 0.0, 1.0)
             return detections
 
         if self.use_sb:
@@ -439,9 +413,10 @@ class BoostTrack(BoxTracker):
         conf_idx = self.detection_layout.conf_idx
         max_similarity = similarity.max(axis=1)
         if not self.use_sb and not self.use_vt:
-            boosted[:, conf_idx] = np.maximum(
-                boosted[:, conf_idx],
-                max_similarity * self.dlo_boost_coef,
+            boosted[:, conf_idx] = np.clip(
+                np.maximum(boosted[:, conf_idx], max_similarity * self.dlo_boost_coef),
+                0.0,
+                1.0,
             )
             return boosted
 

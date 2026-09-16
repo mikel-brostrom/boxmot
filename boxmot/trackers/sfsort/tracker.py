@@ -14,7 +14,7 @@ from typing_extensions import Unpack
 from boxmot.trackers.common.association.iou import AssociationFunction
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import BoxTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.geometry.obb import (
     align_obb_measurement,
     normalize_angle,
@@ -26,6 +26,7 @@ from boxmot.trackers.common.tracking.track import (
 from boxmot.trackers.common.tracking.track import (
     sync_track_meta,
 )
+from boxmot.trackers.sfsort.config import SFSORTConfig
 
 
 class TrackState:
@@ -139,101 +140,62 @@ class SFSORT(BoxTracker):
 
     def __init__(
         self,
-        high_th: float | None = 0.6,
-        match_th_first: float | None = 0.67,
-        new_track_th: float | None = 0.7,
-        low_th: float | None = 0.1,
-        match_th_second: float | None = 0.3,
-        dynamic_tuning: bool = False,
-        cth: float | None = 0.5,
-        high_th_m: float | None = 0.0,
-        new_track_th_m: float | None = 0.0,
-        match_th_first_m: float | None = 0.0,
-        obb_theta_damping: float = 0.8,
-        marginal_timeout: int | None = 0,
-        central_timeout: int | None = 0,
-        frame_width: int | None = None,
-        frame_height: int | None = None,
-        horizontal_margin: int | None = None,
-        vertical_margin: int | None = None,
+        config: SFSORTConfig | None = None,
         **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure confidence stages, density adjustments, and image regions.
 
         Args:
-            high_th: Confidence threshold for first-pass detections.
-            match_th_first: Maximum geometric cost for the first association
-                pass; smaller values require closer matches.
-            new_track_th: Minimum confidence for creating a new track.
-            low_th: Minimum confidence for second-pass detections.
-            match_th_second: Maximum geometric cost for the second association
-                pass.
-            dynamic_tuning: Adjust thresholds using the current detection count.
-            cth: Confidence cutoff for detections counted by dynamic tuning.
-            high_th_m: Scale for decreasing ``high_th`` during dynamic tuning.
-            new_track_th_m: Scale for increasing ``new_track_th`` during dynamic
-                tuning.
-            match_th_first_m: Scale for decreasing ``match_th_first`` during
-                dynamic tuning.
-            obb_theta_damping: Previous angular-update weight in OBB smoothing;
-                larger values reduce the influence of the latest angle change.
-            marginal_timeout: Frames to retain tracks lost near an image edge.
-            central_timeout: Frames to retain tracks lost inside the central
-                region.
-            frame_width: Optional width in pixels; configure together with
-                ``frame_height``, or supply frame dimensions during updates.
-            frame_height: Optional height in pixels, paired with ``frame_width``.
-            horizontal_margin: Left and right margin size in pixels.
-            vertical_margin: Top and bottom margin size in pixels.
-            **kwargs: Shared history/display settings, ``per_class``,
-                ``class_ids``, ``class_names``, ``asso_func``, and ``is_obb``.
-                Detection and association thresholds come from this constructor's
-                explicit settings; the regional timeouts control tracking expiry.
+            config: Immutable algorithm settings. None selects SFSORTConfig defaults.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
-        if "kalman" in kwargs:
-            raise TypeError("SFSORT does not accept kalman settings.")
-        if "det_thresh" in kwargs:
-            raise TypeError("SFSORT.__init__() got an unexpected keyword argument 'det_thresh'; use 'high_th' instead")
-        det_thresh = 0.6 if high_th is None else float(high_th)
-        super().__init__(det_thresh=det_thresh, **kwargs)
+        config = SFSORTConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
+        det_thresh = float(config.high_th)
+        super().__init__(
+            det_thresh=det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
+            **kwargs,
+        )
 
-        self.high_th = self._resolve_or_default(high_th, 0.6, 0.0, 1.0)
-        self.match_th_first = self._resolve_or_default(match_th_first, 0.67, 0.0, 0.67)
-        self.new_track_th = self._resolve_or_default(new_track_th, 0.7, self.high_th, 1.0)
-        self.low_th = self._resolve_or_default(low_th, 0.1, 0.0, self.high_th)
-        self.match_th_second = self._resolve_or_default(match_th_second, 0.3, 0.0, 1.0)
+        self.high_th = self.clamp(float(config.high_th), 0.0, 1.0)
+        self.match_th_first = self.clamp(float(config.match_th_first), 0.0, 0.67)
+        self.new_track_th = self.clamp(float(config.new_track_th), self.high_th, 1.0)
+        self.low_th = self.clamp(float(config.low_th), 0.0, self.high_th)
+        self.match_th_second = self.clamp(float(config.match_th_second), 0.0, 1.0)
 
-        self.dynamic_tuning = bool(dynamic_tuning)
-        self.cth = self._resolve_or_default(cth, 0.5, self.low_th, 1.0)
+        self.dynamic_tuning = bool(config.dynamic_tuning)
+        self.cth = self.clamp(float(config.cth), self.low_th, 1.0)
         if self.dynamic_tuning:
-            self.high_th_m = self._resolve_or_default(high_th_m, 0.0, 0.02, 0.1)
-            self.new_track_th_m = self._resolve_or_default(new_track_th_m, 0.0, 0.02, 0.08)
-            self.match_th_first_m = self._resolve_or_default(match_th_first_m, 0.0, 0.02, 0.08)
+            self.high_th_m = self.clamp(float(config.high_th_m), 0.02, 0.1)
+            self.new_track_th_m = self.clamp(float(config.new_track_th_m), 0.02, 0.08)
+            self.match_th_first_m = self.clamp(float(config.match_th_first_m), 0.02, 0.08)
         else:
-            self.high_th_m = 0.0 if high_th_m is None else float(high_th_m)
-            self.new_track_th_m = 0.0 if new_track_th_m is None else float(new_track_th_m)
-            self.match_th_first_m = 0.0 if match_th_first_m is None else float(match_th_first_m)
-        self.obb_theta_damping = self._resolve_or_default(obb_theta_damping, 0.8, 0.0, 1.0)
+            self.high_th_m = float(config.high_th_m)
+            self.new_track_th_m = float(config.new_track_th_m)
+            self.match_th_first_m = float(config.match_th_first_m)
+        self.obb_theta_damping = self.clamp(float(config.obb_theta_damping), 0.0, 1.0)
 
-        self.marginal_timeout = int(self._resolve_or_default(marginal_timeout, 0, 0, 500))
-        self.central_timeout = int(self._resolve_or_default(central_timeout, 0, 0, 1000))
+        self.marginal_timeout = int(self.clamp(float(config.marginal_timeout), 0, 500))
+        self.central_timeout = int(self.clamp(float(config.central_timeout), 0, 1000))
 
-        if (frame_width is None) != (frame_height is None):
-            raise ValueError("frame_width and frame_height must be configured together.")
-        for name, value in (("frame_width", frame_width), ("frame_height", frame_height)):
-            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
-                raise ValueError(f"{name} must be a positive integer when configured.")
-        self.frame_width = frame_width
-        self.frame_height = frame_height
-        self.horizontal_margin = horizontal_margin
-        self.vertical_margin = vertical_margin
+        self.frame_width = config.frame_width
+        self.frame_height = config.frame_height
+        self.horizontal_margin = config.horizontal_margin
+        self.vertical_margin = config.vertical_margin
 
         self.l_margin = 0.0
         self.r_margin = 0.0
         self.t_margin = 0.0
         self.b_margin = 0.0
         self._margins_ready = False
-        self._maybe_set_margins(frame_width, frame_height)
+        self._maybe_set_margins(config.frame_width, config.frame_height)
         # Region metadata and centroid association use dimensions; optional
         # temporal guidance also needs the source-image pixels.
         self._requires_frame = self._mask_guidance is not None or not self._margins_ready
@@ -464,11 +426,6 @@ class SFSORT(BoxTracker):
     @staticmethod
     def clamp(value: float, min_value: float, max_value: float) -> float:
         return max(min_value, min(value, max_value))
-
-    @staticmethod
-    def _resolve_or_default(value: float | None, default: float, min_value: float, max_value: float) -> float:
-        resolved = default if value is None else value
-        return SFSORT.clamp(resolved, min_value, max_value)
 
     @staticmethod
     def _obb_center_penalty(active_boxes: np.ndarray, boxes: np.ndarray) -> np.ndarray:

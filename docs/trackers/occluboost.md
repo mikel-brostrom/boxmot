@@ -151,4 +151,13 @@ Use a calibrated tracker configuration to load fitted covariance scales under
 Calibrated scales stay fixed by default; `--tune-kf` selects individual scales
 for refinement.
 
+## Python API
+
+Pass algorithm settings through `OccluBoostConfig`, for example
+`OccluBoost(config=OccluBoostConfig(det_thresh=0.5))`. Direct construction and
+`create_tracker("occluboost")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.OccluBoostConfig
+
 ::: boxmot.OccluBoost

@@ -339,7 +339,15 @@ storage, preparation, and cleanup details.
 
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
-start or fail.
+start or fail. Each running image-tracker trial also lists its sequences with
+frame counts, progress bars, and pending, running, done, or failed status.
+Sequence progress resets for each trial, including when Ray reuses a worker.
+
+An evaluation exception marks that trial as failed, retains its traceback in
+the Ray trial directory, and lets the remaining trials continue. Failed trials
+are excluded from best-result selection and are not retried automatically.
+A completed evaluation with no predicted tracks remains a valid zero-score
+result; it is distinct from a tracker or input-loading error.
 
 Use a native tracker with `--tracker-backend cpp` when that geometry and feature
 combination is supported. Unsupported masks, per-class mode, or geometry are
@@ -377,6 +385,10 @@ Combining `--calibrate-kf` with `--resume-tune` is rejected
 because a fresh calibration would change the existing search.
 Resuming retains the original search space; start a new run to use updated
 search definitions, including a different selection of KF search dimensions.
+Image tuning records the effective schema and fixed values in
+`search-space.json`. Resume requires a matching profile; runs created before
+this metadata was recorded need a new search. A running process keeps the
+search space it started with.
 
 `eval --calibrate-kf` instead calibrates and evaluates the tracker once. See
 [Kalman calibration](eval.md#kalman-calibration) for the estimator, supported

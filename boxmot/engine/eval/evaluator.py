@@ -26,8 +26,13 @@ from boxmot.datasets.inputs import resolve_dataset_inputs
 from boxmot.detectors.config import resolve_detector_spec
 from boxmot.engine.config.datasets import validate_mots_evaluation_inputs
 from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.config.postprocessing import normalize_postprocessing
 from boxmot.engine.config.runtime import resolve_sequence_workers
-from boxmot.engine.config.trackers import edgetam_checkpoint, resolve_tracker_options, validate_image_tracker
+from boxmot.engine.config.trackers import (
+    edgetam_checkpoint,
+    resolve_tracker_options,
+    validate_image_tracker,
+)
 from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
@@ -56,6 +61,7 @@ from boxmot.trackers import TrackerSpec
 from boxmot.utils import logger as LOGGER
 
 if TYPE_CHECKING:
+    from boxmot.engine.eval.replay import ReplayProgressCallback, ReplayProgressEvent
     from boxmot.engine.eval.session import ReplaySession
 
 
@@ -234,6 +240,13 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
     build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
     manifest = DatasetManifest.load(build_path)
+    postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
+
+        validate_postprocessing_inputs(
+            postprocessing, geometry=str(dataset["box_type"]), eval_masks=eval_masks, manifest=manifest
+        )
     recorded_fps = manifest.metadata.get("fps")
     requested_fps = getattr(args, "fps", None)
     if requested_fps is not None and requested_fps != recorded_fps:
@@ -443,7 +456,9 @@ def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | N
 
         checkpoint = args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
         base = mask_guidance_output_path(
-            base, checkpoint=checkpoint, device=str(getattr(args, "device", "cpu")),
+            base,
+            checkpoint=checkpoint,
+            device=str(getattr(args, "device", "cpu")),
             tracker_spec=_tracker_spec(args, overrides),
         )
     if overrides:
@@ -520,6 +535,7 @@ def _run_sensor_evaluation(
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
     replay_session: ReplaySession | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
 ) -> ValidationResult | None:
     """Validate saved sensor selections before importing their replay runtime."""
     from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
@@ -530,6 +546,8 @@ def _run_sensor_evaluation(
     path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
     if path is None:
         return None
+    if getattr(args, "postprocessing", None):
+        raise ValueError("--postprocessing requires an AABB perception build; saved sensor evaluation is unsupported.")
     eval_3d = bool(getattr(args, "eval_3d", False))
     eval_ap = bool(getattr(args, "eval_ap", False))
     if eval_3d and getattr(args, "eval_masks", False):
@@ -549,6 +567,7 @@ def _run_sensor_evaluation(
         "per_class_configs": per_class_configs,
         "output_dir": output_dir,
         "replay_session": replay_session,
+        "progress_callback": progress_callback,
     }.items():
         if value is not None:
             raise ValueError(
@@ -663,8 +682,9 @@ def run_eval(
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
     replay_session: ReplaySession | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
 ) -> ValidationResult:
-    """Evaluate cached inputs, optionally with temporal mask guidance during replay."""
+    """Evaluate cached inputs, optionally forwarding replay progress without a UI."""
 
     sensor_result = _run_sensor_evaluation(
         args,
@@ -677,6 +697,7 @@ def run_eval(
         per_class_configs=per_class_configs,
         output_dir=output_dir,
         replay_session=replay_session,
+        progress_callback=progress_callback,
     )
     if sensor_result is not None:
         return sensor_result
@@ -690,6 +711,16 @@ def run_eval(
         eval_setup(args, pipeline=pipeline)
     else:
         _ensure_setup(args)
+    postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
+
+        validate_postprocessing_inputs(
+            postprocessing,
+            geometry=args.geometry,
+            eval_masks=bool(getattr(args, "eval_masks", False)),
+            manifest=DatasetManifest.load(args.build_path),
+        )
     if pipeline is not None:
         _refresh_eval_pipeline_intro(getattr(pipeline, "workflow", None), args)
         pipeline.advance("Replaying materialized detections through the tracker…")
@@ -723,8 +754,21 @@ def run_eval(
             replay_callbacks["cache_inputs"] = True
         if bool(getattr(args, "eval_masks", False)):
             replay_callbacks["output_format"] = "mots"
+        progress_callbacks = []
+        if progress_callback is not None:
+            progress_callbacks.append(progress_callback)
         if presenter is not None:
-            replay_callbacks["progress_callback"] = contexts.enter_context(presenter)
+            progress_callbacks.append(contexts.enter_context(presenter))
+        if len(progress_callbacks) == 1:
+            replay_callbacks["progress_callback"] = progress_callbacks[0]
+        elif progress_callbacks:
+
+            def publish_progress(event: ReplayProgressEvent) -> None:
+                """Deliver each replay event to both the caller and the workflow."""
+                for callback in progress_callbacks:
+                    callback(event)
+
+            replay_callbacks["progress_callback"] = publish_progress
         if bool(getattr(args, "show", False)) or bool(getattr(args, "save", False)):
             from boxmot.engine.eval.visualization import ReplayVisualization
 
@@ -747,6 +791,10 @@ def run_eval(
             workers=getattr(args, "sequence_workers", None),
             **replay_callbacks,
         )
+    if (replay.output_dir / "postprocessing.json").is_file():
+        from boxmot.engine.eval.postprocessing import discard_previous_postprocessing
+
+        discard_previous_postprocessing(replay.output_dir)
     if mask_guidance_weights is not None:
         from boxmot.engine.eval.provenance import write_mask_guidance_provenance
 
@@ -762,6 +810,30 @@ def run_eval(
     if presenter is not None:
         pipeline.store_step_info(presenter.renderable, step=EvalWorkflowReporter.TRACK)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    postprocess_ms = 0.0
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import postprocess_replay
+        from boxmot.engine.ui.reporters.postprocessing import EvalPostprocessingProgressPresenter
+
+        if pipeline is not None:
+            pipeline.advance("Applying " + " → ".join(step.upper() for step in postprocessing) + "…")
+        postprocessing_presenter = None
+        if pipeline is not None and show_progress is not False and replay.sequence_files:
+            postprocessing_presenter = EvalPostprocessingProgressPresenter(
+                pipeline.callback(), tuple(path.stem for path in replay.sequence_files)
+            )
+        with postprocessing_presenter if postprocessing_presenter is not None else nullcontext():
+            try:
+                postprocess_ms = postprocess_replay(
+                    replay,
+                    postprocessing,
+                    split=args.split,
+                    workers=getattr(args, "sequence_workers", None),
+                    progress_callback=postprocessing_presenter,
+                )
+            finally:
+                if postprocessing_presenter is not None:
+                    pipeline.store_step_info(postprocessing_presenter.renderable)
     if pipeline is not None:
         pipeline.advance("Computing evaluation metrics…")
     args.exp_dir = replay.output_dir
@@ -777,6 +849,14 @@ def run_eval(
         },
         "fps": (1000.0 * replay.frames / elapsed_ms) if elapsed_ms else 0.0,
     }
+    if postprocessing:
+        total_ms = elapsed_ms + postprocess_ms
+        timings["totals_ms"].update(postprocess=postprocess_ms, total=total_ms)
+        timings["avg_ms"].update(
+            postprocess=postprocess_ms / replay.frames if replay.frames else 0.0,
+            total=total_ms / replay.frames if replay.frames else 0.0,
+        )
+        timings["fps"] = 1000.0 * replay.frames / total_ms if total_ms else 0.0
     return ValidationResult(
         benchmark=str(args.experiment_id or args.dataset_id),
         raw=raw,

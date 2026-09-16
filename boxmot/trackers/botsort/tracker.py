@@ -9,12 +9,13 @@ from typing_extensions import Unpack
 
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
+from boxmot.trackers.botsort.config import BotSortConfig
 from boxmot.trackers.botsort.track import STrack, TrackState
 from boxmot.trackers.common.appearance import resolve_batch_embeddings
 from boxmot.trackers.common.association import AssociationStage, run_association_stage
 from boxmot.trackers.common.association.matching import embedding_distance, fuse_score
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
@@ -39,27 +40,11 @@ class BotSort(BoxTracker):
 
     def __init__(
         self,
-        # BotSort-specific parameters
-        track_high_thresh: float = 0.5,
-        track_low_thresh: float = 0.1,
-        new_track_thresh: float = 0.6,
-        track_buffer: int = 30,
-        match_thresh: float = 0.8,
-        proximity_thresh: float = 0.5,
-        appearance_thresh: float = 0.25,
-        use_cmc: bool = True,
-        cmc_method: str = "ecc",
-        frame_rate: int = 30,
-        fuse_first_associate: bool = False,
-        use_embeddings: bool = True,
-        second_match_thresh: float = 0.5,
-        unconfirmed_match_thresh: float = 0.7,
-        unconfirmed_emb_scale: float = 2.0,
-        removed_stracks_buffer: int = 100,
+        config: BotSortConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure confidence stages, lost-track retention, and appearance matching.
 
@@ -67,62 +52,49 @@ class BotSort(BoxTracker):
         retention uses track_buffer scaled by frame_rate.
 
         Args:
-            track_high_thresh: Detection confidence threshold for first-pass matching.
-            track_low_thresh: Lower confidence bound for second-pass candidates.
-            new_track_thresh: Minimum confidence required to initialize a new track.
-            track_buffer: Lost-track lifetime in frames at 30 FPS, scaled by frame_rate.
-            match_thresh: Maximum assignment cost for first-pass matching.
-            proximity_thresh: Maximum geometry distance that permits appearance matching.
-            appearance_thresh: Maximum embedding distance accepted for appearance matching.
-            use_cmc: Enable camera-motion compensation; requires image frames.
-            cmc_method: Camera-motion compensation method used when CMC is enabled.
-            frame_rate: Frame rate used to scale track_buffer relative to 30 FPS.
-            fuse_first_associate: Fuse detection confidence into the first-pass geometry cost.
-            use_embeddings: Use supplied appearance embeddings, generating missing
-                embeddings from image frames with the configured ReID backend.
-            second_match_thresh: Maximum assignment cost for low-confidence detections.
-            unconfirmed_match_thresh: Maximum assignment cost for tentative tracks.
-            unconfirmed_emb_scale: Divisor applied to tentative-track embedding distances.
-            removed_stracks_buffer: Maximum number of removed tracks retained in history.
-            reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
+            config: Immutable algorithm settings. None selects BotSortConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
+                None preserves tracker defaults.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = BotSortConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
             reid=reid,
             **kwargs,
         )
 
         self.lost_stracks = []  # type: list[STrack]
-        self.removed_stracks = deque(maxlen=removed_stracks_buffer)  # type: deque[STrack]
-        self.track_high_thresh = track_high_thresh
-        self.track_low_thresh = track_low_thresh
-        self.new_track_thresh = new_track_thresh
-        self.match_thresh = match_thresh
+        self.removed_stracks = deque(maxlen=config.removed_stracks_buffer)  # type: deque[STrack]
+        self.track_high_thresh = config.track_high_thresh
+        self.track_low_thresh = config.track_low_thresh
+        self.new_track_thresh = config.new_track_thresh
+        self.match_thresh = config.match_thresh
 
-        self.buffer_size = int(frame_rate / 30.0 * track_buffer)
+        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
         self.max_time_lost = self.buffer_size
         self.kalman_filter = KalmanFilterXYWH(ndim=5 if self.is_obb else 4, noise_config=self.kalman_noise_config)
 
-        self.proximity_thresh = proximity_thresh
-        self.appearance_thresh = appearance_thresh
-        self.second_match_thresh = second_match_thresh
-        self.unconfirmed_match_thresh = unconfirmed_match_thresh
-        self.unconfirmed_emb_scale = unconfirmed_emb_scale
-        if not isinstance(use_embeddings, bool):
-            raise TypeError("use_embeddings must be bool.")
-        self.use_embeddings = use_embeddings
+        self.proximity_thresh = config.proximity_thresh
+        self.appearance_thresh = config.appearance_thresh
+        self.second_match_thresh = config.second_match_thresh
+        self.unconfirmed_match_thresh = config.unconfirmed_match_thresh
+        self.unconfirmed_emb_scale = config.unconfirmed_emb_scale
+        self.use_embeddings = config.use_embeddings
 
-        if not isinstance(use_cmc, bool):
-            raise TypeError("use_cmc must be bool.")
-        self.cmc = create_cmc(cmc_method, enabled=use_cmc)
-        self.fuse_first_associate = fuse_first_associate
+        self.cmc = create_cmc(config.cmc_method, enabled=config.use_cmc)
+        self.fuse_first_associate = config.fuse_first_associate
         self._requires_frame = self._requires_frame or self.cmc is not None
         if self.cmc is not None:
             self._requires_frame_dimensions_only = False

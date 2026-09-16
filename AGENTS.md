@@ -272,7 +272,13 @@ Sometimes the provided environment is missing GPUs, large datasets, or external 
     generated lazily from the manifest and exposed only from `boxmot`.
 
 3) Add default configuration
-  - Create `boxmot/configs/trackers/<name>.yaml` with default parameters and tuning ranges.
+  - Create `boxmot/trackers/<name>/config.py` with a frozen `<TrackerClass>Config`
+    that owns algorithm fields, runtime defaults, and validation. Register its
+    `config_class_path` in the tracker manifest and expose it lazily from `boxmot`.
+  - Accept the matching config through `config=`; keep component settings and
+    geometry/class selection separate. Constructors and factories share these defaults.
+  - Create `boxmot/configs/trackers/<name>.yaml` with tuning ranges and component
+    profiles. Do not duplicate algorithm defaults there; put tuned overrides in presets.
 
 4) Update docs
   - Add a tracker doc page in `docs/trackers/<name>.md`.

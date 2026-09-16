@@ -7,7 +7,7 @@ import pytest
 import torch
 from scipy.spatial.transform import Rotation
 
-from boxmot import EagerMot
+from boxmot import EagerMot, EagerMotConfig
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D
 from boxmot.trackers.eagermot.association import greedy_association, similarity_3d
 from boxmot.trackers.eagermot.geometry import (
@@ -164,7 +164,9 @@ def test_projection_handles_camera_extrinsics_in_the_combined_matrix() -> None:
 
 def test_camera_accepted_float32_yaw_poses_work_through_tracker_updates() -> None:
     """Canonical pose precision must not trigger a stricter check inside tracking."""
-    tracker = EagerMot(distance_threshold=0.01)
+    tracker = EagerMot(
+        config=EagerMotConfig(distance_threshold=0.01),
+    )
     projection = torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32)
     world_box = np.array([[2.0, 1.0, 20.0, 0.1, 4.0, 2.0, 2.0]])
     for frame, angle in enumerate((0.23, 0.47)):
@@ -205,7 +207,9 @@ def test_camera_accepted_float32_yaw_poses_work_through_tracker_updates() -> Non
 
 def test_full_camera_pose_preserves_identity_and_yaw_through_3d_dropout() -> None:
     """Both output and second-stage projection must undo the original pose yaw."""
-    tracker = EagerMot(distance_threshold=0.01)
+    tracker = EagerMot(
+        config=EagerMotConfig(distance_threshold=0.01),
+    )
     projection = torch.tensor([[100, 0, 100, 0], [0, 100, 50, 0], [0, 0, 1, 0]], dtype=torch.float32)
     world_box = np.array([[2.0, 1.0, 20.0, 0.1, 4.0, 2.0, 2.0]])
     for frame, angles in enumerate(((0.17, 0.23, -0.11), (-0.13, 0.47, 0.09), (0.1, 0.32, 0.07))):

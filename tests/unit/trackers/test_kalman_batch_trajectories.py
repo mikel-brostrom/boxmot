@@ -116,6 +116,7 @@ def test_batch_tracker_trajectory_matches_scalar(name, is_obb, timed, monkeypatc
     actual, expected = [TRACKER_FACTORIES[name](**options) for _ in range(2)]
     # Camera estimation and embedding inference are outside this comparison.
     for tracker in (actual, expected):
+        assert tracker.variable_dt is timed
         monkeypatch.setattr(tracker, "apply_cmc", lambda *args, **kwargs: None)
     timestamp = 0.0
     for frame_index, rows in enumerate(_trajectory(is_obb)):

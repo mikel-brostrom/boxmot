@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from boxmot.structures import GeometryKind
-from boxmot.trackers.common.config import get_tracker_config_path
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
 
@@ -123,6 +122,9 @@ class TrackerDefinition:
 
     @property
     def config_path(self) -> Path:
+        """Resolve config locations only when requested, keeping metadata imports light."""
+        from boxmot.trackers.common.config import get_tracker_config_path
+
         return get_tracker_config_path(self.config_name or self.name)
 
 

@@ -25,11 +25,12 @@ from boxmot.trackers.common.association.hybrid import (
     confidence_difference,
 )
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
+from boxmot.trackers.hybridsort.config import HybridSortConfig
 from boxmot.trackers.hybridsort.track import KalmanBoxTracker
 from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
 
@@ -50,36 +51,11 @@ class HybridSort(BoxTracker):
 
     def __init__(
         self,
-        # ReID & CMC
-        cmc_method: str | None = "ecc",
-        use_embeddings: bool = True,
-        # Hybrid-SORT specific
-        low_thresh: float = 0.1,
-        delta_t: int = 3,
-        inertia: float = 0.05,
-        use_byte: bool = True,
-        # KF / ReID
-        longterm_bank_length: int = 30,
-        alpha: float = 0.9,
-        adapfs: bool = False,
-        track_thresh: float = 0.5,
-        # Embedding-guided association
-        eg_weight_high_score: float = 4.6,
-        eg_weight_low_score: float = 1.3,
-        # Two-step toggles / thresholds
-        tcm_first_step: bool = True,
-        tcm_byte_step: bool = True,
-        tcm_byte_step_weight: float = 1.0,
-        # Long-term reid
-        with_longterm_reid: bool = True,
-        longterm_reid_weight: float = 0.0,
-        with_longterm_reid_correction: bool = True,
-        longterm_reid_correction_thresh: float = 0.4,
-        longterm_reid_correction_thresh_low: float = 0.4,
+        config: HybridSortConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure HybridSORT association, confidence prediction, and appearance memory.
 
@@ -88,73 +64,54 @@ class HybridSort(BoxTracker):
         long-term-bank stages.
 
         Args:
-            cmc_method: Camera-motion compensation method; None disables CMC.
-            use_embeddings: Use supplied appearance embeddings, generating missing
-                embeddings from image frames with the configured ReID backend.
-            low_thresh: Lower detection confidence bound for second-pass matching.
-            delta_t: Observation lookback in frames for estimating motion direction.
-            inertia: Weight of observed velocity direction in AABB matching.
-            use_byte: Enable a second association pass for low-confidence detections.
-            longterm_bank_length: Number of appearance features retained per AABB track.
-            alpha: Previous-embedding weight in feature smoothing; higher values
-                retain more history. Adaptive smoothing also incorporates confidence.
-            adapfs: Enable confidence-adaptive feature smoothing for AABB tracks.
-            track_thresh: Clamp separating high and low AABB confidence predictions;
-                does not select input detections.
-            eg_weight_high_score: Appearance-distance weight for high-confidence matches.
-            eg_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
-            tcm_first_step: Enable the first AABB association pass with motion-direction cues.
-            tcm_byte_step: Add a confidence-difference penalty to low-score AABB matching.
-            tcm_byte_step_weight: Weight of that low-score confidence-difference penalty.
-            with_longterm_reid: Include the AABB long-term appearance bank during matching.
-            longterm_reid_weight: Contribution of long-term appearance distance in AABB matching.
-            with_longterm_reid_correction: Reject AABB matches using appearance-distance gates.
-            longterm_reid_correction_thresh: Appearance-distance gate for high-score matches;
-                in OBB mode, good appearance may rescue a poor geometry match.
-            longterm_reid_correction_thresh_low: Appearance-distance gate for low-score
-                AABB matches when correction is enabled.
-            reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
+            config: Immutable algorithm settings. None selects HybridSortConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
+                None preserves tracker defaults.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = HybridSortConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
             reid=reid,
             **kwargs,
         )
 
         # store core knobs
-        self.low_thresh = float(low_thresh)
-        self.delta_t = int(delta_t)
-        self.inertia = float(inertia)
-        self.use_byte = bool(use_byte)
+        self.low_thresh = float(config.low_thresh)
+        self.delta_t = int(config.delta_t)
+        self.inertia = float(config.inertia)
+        self.use_byte = bool(config.use_byte)
 
-        self.longterm_bank_length = int(longterm_bank_length)
-        self.alpha = float(alpha)
-        self.adapfs = bool(adapfs)
-        self.track_thresh = float(track_thresh)
+        self.longterm_bank_length = int(config.longterm_bank_length)
+        self.alpha = float(config.alpha)
+        self.adapfs = bool(config.adapfs)
+        self.track_thresh = float(config.track_thresh)
 
-        self.eg_weight_high_score = float(eg_weight_high_score)
-        self.eg_weight_low_score = float(eg_weight_low_score)
-        self.tcm_first_step = bool(tcm_first_step)
-        self.tcm_byte_step = bool(tcm_byte_step)
-        self.tcm_byte_step_weight = float(tcm_byte_step_weight)
-        self.with_longterm_reid = bool(with_longterm_reid)
-        self.longterm_reid_weight = float(longterm_reid_weight)
-        self.with_longterm_reid_correction = bool(with_longterm_reid_correction)
-        self.longterm_reid_correction_thresh = float(longterm_reid_correction_thresh)
-        self.longterm_reid_correction_thresh_low = float(longterm_reid_correction_thresh_low)
-        if not isinstance(use_embeddings, bool):
-            raise TypeError("use_embeddings must be bool.")
-        self.use_embeddings = use_embeddings
+        self.eg_weight_high_score = float(config.eg_weight_high_score)
+        self.eg_weight_low_score = float(config.eg_weight_low_score)
+        self.tcm_first_step = bool(config.tcm_first_step)
+        self.tcm_byte_step = bool(config.tcm_byte_step)
+        self.tcm_byte_step_weight = float(config.tcm_byte_step_weight)
+        self.with_longterm_reid = bool(config.with_longterm_reid)
+        self.longterm_reid_weight = float(config.longterm_reid_weight)
+        self.with_longterm_reid_correction = bool(config.with_longterm_reid_correction)
+        self.longterm_reid_correction_thresh = float(config.longterm_reid_correction_thresh)
+        self.longterm_reid_correction_thresh_low = float(config.longterm_reid_correction_thresh_low)
+        self.use_embeddings = config.use_embeddings
 
         # ECC CMC (BotSort-style)
-        self.cmc = create_cmc(cmc_method)
+        self.cmc = create_cmc(config.cmc_method)
 
         # container
         self.active_tracks: List[KalmanBoxTracker] = []

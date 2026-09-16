@@ -22,4 +22,13 @@ Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
 `AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
 
+## Python API
+
+Pass algorithm settings through `StrongSortConfig`, for example
+`StrongSort(config=StrongSortConfig(min_conf=0.6))`. Direct construction and
+`create_tracker("strongsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.StrongSortConfig
+
 ::: boxmot.StrongSort

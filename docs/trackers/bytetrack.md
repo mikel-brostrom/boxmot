@@ -344,4 +344,13 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --track
 boxmot track --tracker bytetrack --tracker-backend cpp --source 0
 ```
 
+## Python API
+
+Pass algorithm settings through `ByteTrackConfig`, for example
+`ByteTrack(config=ByteTrackConfig(track_thresh=0.6))`. Direct construction and
+`create_tracker("bytetrack")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.ByteTrackConfig
+
 ::: boxmot.ByteTrack

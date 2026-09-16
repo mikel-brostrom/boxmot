@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import EagerMot, KalmanConfig
+from boxmot import EagerMot, EagerMotConfig, KalmanConfig
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch
 from boxmot.trackers.common.motion.kalman_filters.noise import KalmanNoiseConfig
 from boxmot.trackers.eagermot.geometry import project_box3d, transform_boxes3d
@@ -156,8 +156,8 @@ def test_tracker_batch_motion_preserves_associations_lifecycle_and_masks(
     angular: bool, world: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Compare complete multi-object runs with the previous scalar KF execution."""
-    batched = EagerMot(kalman=KalmanConfig(is_angular=angular), max_age=4, per_class=True)
-    scalar = EagerMot(kalman=KalmanConfig(is_angular=angular), max_age=4, per_class=True)
+    batched = EagerMot(config=EagerMotConfig(max_age=4), kalman=KalmanConfig(is_angular=angular), per_class=True)
+    scalar = EagerMot(config=EagerMotConfig(max_age=4), kalman=KalmanConfig(is_angular=angular), per_class=True)
 
     def scalar_predict(filters: list[Kalman3D]) -> np.ndarray:
         return np.asarray([model.predict() for model in filters], dtype=float).reshape(-1, 7)

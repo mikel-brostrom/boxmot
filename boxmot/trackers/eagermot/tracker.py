@@ -25,7 +25,7 @@ from boxmot.structures import (
     Tracks3D,
 )
 from boxmot.trackers.common.base import BaseTracker
-from boxmot.trackers.common.constructor import TrackerMetadataOptions
+from boxmot.trackers.common.constructor import TrackerMetadataOptions, validate_runtime_options
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.common.tracking.per_class import ClassTrackState
@@ -33,6 +33,7 @@ from boxmot.trackers.eagermot.association import (
     greedy_association,
     similarity_3d,
 )
+from boxmot.trackers.eagermot.config import EagerMotConfig
 from boxmot.trackers.eagermot.geometry import iou2d_matrix, project_box3d, transform_boxes3d
 from boxmot.trackers.eagermot.motion import Kalman3D
 
@@ -102,18 +103,7 @@ class EagerMot(BaseTracker):
 
     def __init__(
         self,
-        det_thresh: float = 0.0,
-        det_thresh_3d: float = 0.0,
-        max_age: int = 3,
-        min_hits: int = 1,
-        max_age_2d: int = 3,
-        fusion_iou_threshold: float = 0.01,
-        iou_threshold: float = 0.3,
-        first_matching_method: str = "dist_2d_full",
-        distance_threshold: float = 3.5,
-        iou_3d_threshold: float = 0.01,
-        per_class: bool = False,
-        asso_func: str = "iou",
+        config: EagerMotConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         **kwargs: Unpack[TrackerMetadataOptions],
@@ -126,64 +116,30 @@ class EagerMot(BaseTracker):
         one frame per update, independent of capture timestamps and ego poses.
 
         Args:
-            det_thresh: Minimum confidence for 2D image detections.
-            det_thresh_3d: Minimum confidence for 3D detections.
-            max_age: Consecutive updates without either sensor modality at which
-                a track expires.
-            min_hits: Observations needed for confirmation after initial warmup.
-            max_age_2d: Missing-image age at which track confidence starts decaying.
-            fusion_iou_threshold: Minimum image IoU for fusing projected 3D boxes
-                with 2D detections of the same class.
-            iou_threshold: Minimum image IoU for second-stage recovery; 1 disables
-                that stage.
-            first_matching_method: 3D association using ``dist_2d``,
-                ``dist_2d_dims``, ``dist_2d_full``, or ``iou_3d``. The full
-                distance includes center, dimension, and yaw disagreement.
-            distance_threshold: Positive maximum distance for distance-based
-                first-stage matching.
-            iou_3d_threshold: Minimum volumetric IoU when using ``iou_3d`` matching.
-            per_class: Maintain separate class state collections. Association
-                always matches only detections and tracks of the same class.
-            asso_func: Image association geometry; must be ``iou``.
-            kalman: Immutable 3D covariance and optional object yaw-velocity settings.
-                None preserves source priors. Prediction uses fixed frame steps.
-            **kwargs: ``max_obs`` for observation history, and ``class_ids`` and
-                ``class_names`` for detector class metadata.
+            config: Immutable algorithm settings. None selects EagerMotConfig defaults.
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults.
+            **kwargs: Runtime ``per_class``, ``class_ids``, and ``class_names`` settings.
         """
-        for name, value in (
-            ("det_thresh", det_thresh),
-            ("det_thresh_3d", det_thresh_3d),
-            ("fusion_iou_threshold", fusion_iou_threshold),
-            ("iou_threshold", iou_threshold),
-            ("iou_3d_threshold", iou_3d_threshold),
-        ):
-            if isinstance(value, bool) or not np.isfinite(value) or not 0.0 <= value <= 1.0:
-                raise ValueError(f"{name} must be finite and within [0, 1].")
-        for name, value in (("max_age", max_age), ("min_hits", min_hits), ("max_age_2d", max_age_2d)):
-            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                raise ValueError(f"{name} must be an integer >= 1.")
-        if isinstance(distance_threshold, bool) or not np.isfinite(distance_threshold) or distance_threshold <= 0:
-            raise ValueError("distance_threshold must be finite and positive.")
-        if first_matching_method not in {"dist_2d", "dist_2d_dims", "dist_2d_full", "iou_3d"}:
-            raise ValueError("first_matching_method must be 'dist_2d', 'dist_2d_dims', 'dist_2d_full', or 'iou_3d'.")
-        if asso_func != "iou":
-            raise ValueError("EagerMot supports only asso_func='iou' for sensor fusion and image association.")
+        config = EagerMotConfig.resolve(config)
+        validate_runtime_options(kwargs, box=False)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
-            det_thresh=det_thresh,
-            max_age=max_age,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
-            asso_func=asso_func,
             **kwargs,
         )
-        self.det_thresh_3d = det_thresh_3d
-        self.max_age_2d = max_age_2d
-        self.fusion_iou_threshold = fusion_iou_threshold
-        self.first_matching_method = first_matching_method
-        self.distance_threshold = distance_threshold
-        self.iou_3d_threshold = iou_3d_threshold
+        self.det_thresh_3d = config.det_thresh_3d
+        self.max_age_2d = config.max_age_2d
+        self.fusion_iou_threshold = config.fusion_iou_threshold
+        self.first_matching_method = config.first_matching_method
+        self.distance_threshold = config.distance_threshold
+        self.iou_3d_threshold = config.iou_3d_threshold
         self._tracks: list[_Track] = []
         self._uses_world_frame: bool | None = None
 

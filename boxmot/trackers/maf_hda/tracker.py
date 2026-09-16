@@ -15,7 +15,7 @@ from typing_extensions import Unpack
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common.association.matching import linear_assignment
 from boxmot.trackers.common.base import BaseTracker
-from boxmot.trackers.common.constructor import AssociationTrackerOptions
+from boxmot.trackers.common.constructor import TrackerMetadataOptions, validate_runtime_options
 from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily
 from boxmot.trackers.maf_hda.appearance import MaskedKCF
 from boxmot.trackers.maf_hda.association import (
@@ -26,6 +26,7 @@ from boxmot.trackers.maf_hda.association import (
     mask_merge_groups,
     predict_covariance,
 )
+from boxmot.trackers.maf_hda.config import MafHdaConfig
 
 
 @dataclass
@@ -87,93 +88,36 @@ class MafHda(BaseTracker):
 
     def __init__(
         self,
-        det_thresh: float = 0.7,
-        max_age: int = 30,
-        min_hits: int = 1,
-        iou_threshold: float = 0.1,
-        per_class: bool = False,
-        velocity_alpha: float = 0.4,
-        merge_iou_thresh: float = 0.4,
-        appearance_lower: float = 0.1,
-        appearance_upper: float = 0.7,
-        appearance_gate: bool = True,
-        s2ta_mode: str = "maf",
-        t2ta_mode: str = "maf",
-        template_size: int = 96,
-        **kwargs: Unpack[AssociationTrackerOptions],
+        config: MafHdaConfig | None = None,
+        **kwargs: Unpack[TrackerMetadataOptions],
     ) -> None:
         """Configure mask association, KCF appearance, and tracklet recovery.
 
         Args:
-            det_thresh: Minimum detection confidence.
-            max_age: Maximum frame gap for reconnecting a lost tracklet.
-            min_hits: Observations required for confirmation; only current-frame
-                observations are emitted.
-            iou_threshold: Lower geometry-affinity bound for appearance gating
-                and fusion.
-            per_class: Process each detector class in its own track collection.
-            velocity_alpha: Previous-velocity weight in the motion update.
-            merge_iou_thresh: Mask IoU threshold for merging duplicate instances.
-            appearance_lower: Minimum KCF affinity for track-to-track recovery.
-            appearance_upper: Strong KCF affinity allowing overlap-based recovery.
-            appearance_gate: Gate KCF evaluation by geometry affinity.
-            s2ta_mode: Segment-to-track affinity: ``motion``, ``appearance``, or
-                ``maf``. Appearance modes require image pixels.
-            t2ta_mode: Track-to-track affinity, using the same modes as
-                ``s2ta_mode``.
-            template_size: Maximum spatial dimension of the KCF feature template.
-            **kwargs: ``max_obs`` for observation history, ``class_ids`` and
-                ``class_names`` for detector metadata, and ``asso_func`` for
-                AABB geometry affinity. Instance masks remain required in every
-                association mode.
+            config: Immutable algorithm settings. None selects MafHdaConfig defaults.
+            **kwargs: Runtime ``per_class``, ``class_ids``, and ``class_names`` settings.
         """
-        if "kalman" in kwargs:
-            raise TypeError("MafHda does not accept kalman settings.")
-        for name, value in (
-            ("det_thresh", det_thresh),
-            ("iou_threshold", iou_threshold),
-            ("velocity_alpha", velocity_alpha),
-            ("merge_iou_thresh", merge_iou_thresh),
-            ("appearance_lower", appearance_lower),
-            ("appearance_upper", appearance_upper),
-        ):
-            if not np.isfinite(value) or not 0.0 <= value <= 1.0:
-                raise ValueError(f"{name} must be finite and within [0, 1].")
-        if merge_iou_thresh == 0.0:
-            raise ValueError("merge_iou_thresh must be greater than zero.")
-        if appearance_lower > appearance_upper:
-            raise ValueError("appearance_lower must not exceed appearance_upper.")
-        for name, value, minimum in (
-            ("max_age", max_age, 1),
-            ("min_hits", min_hits, 1),
-            ("template_size", template_size, 16),
-        ):
-            if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
-                raise ValueError(f"{name} must be an integer >= {minimum}.")
-        if template_size > 512:
-            raise ValueError("template_size must not exceed 512 pixels.")
-        if not isinstance(appearance_gate, bool):
-            raise TypeError("appearance_gate must be bool.")
-        for name, mode in (("s2ta_mode", s2ta_mode), ("t2ta_mode", t2ta_mode)):
-            if mode not in {"motion", "appearance", "maf"}:
-                raise ValueError(f"{name} must be 'motion', 'appearance', or 'maf'.")
-        self._requires_frame = s2ta_mode != "motion" or t2ta_mode != "motion"
+        config = MafHdaConfig.resolve(config)
+        validate_runtime_options(kwargs, box=False)
+        self.config = config
+        self._requires_frame = config.s2ta_mode != "motion" or config.t2ta_mode != "motion"
         super().__init__(
-            det_thresh=det_thresh,
-            max_age=max_age,
-            min_hits=min_hits,
-            iou_threshold=iou_threshold,
-            per_class=per_class,
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             **kwargs,
         )
-        self.velocity_alpha = velocity_alpha
-        self.merge_iou_thresh = merge_iou_thresh
-        self.appearance_lower = appearance_lower
-        self.appearance_upper = appearance_upper
-        self.appearance_gate = appearance_gate
-        self.s2ta_mode = s2ta_mode
-        self.t2ta_mode = t2ta_mode
-        self.template_size = template_size
+        self.velocity_alpha = config.velocity_alpha
+        self.merge_iou_thresh = config.merge_iou_thresh
+        self.appearance_lower = config.appearance_lower
+        self.appearance_upper = config.appearance_upper
+        self.appearance_gate = config.appearance_gate
+        self.s2ta_mode = config.s2ta_mode
+        self.t2ta_mode = config.t2ta_mode
+        self.template_size = config.template_size
         self._tracks: list[_Track] = []
 
     def reset(self) -> None:

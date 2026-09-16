@@ -168,6 +168,7 @@ def _prepare_replay_build(
     fps: float | None,
     tracker_config: str | Path | None = None,
     eval_masks: bool = False,
+    postprocessing: tuple[str, ...] = (),
     allow_noncanonical_build: bool = False,
     runtime_device: bool = False,
 ) -> tuple[str | None, str | None, str | Path]:
@@ -242,8 +243,17 @@ def _prepare_replay_build(
         ):
             raise click.UsageError("--eval-masks requires a KITTI-MOTS dataset.")
 
+    if postprocessing:
+        try:
+            resolved = resolve_experiment_config(str(experiment), split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        if resolved["dataset"]["box_type"] != "aabb":
+            raise click.UsageError("--postprocessing requires an image AABB dataset.")
+
     capabilities = get_tracker_definition(tracker).capabilities
-    publish_embeddings = capabilities.requires_embeddings
+    # Materialization resolves whether embeddings come from the detector or ReID.
+    publish_embeddings = capabilities.requires_embeddings or "gta" in postprocessing
     if capabilities.accepts_embeddings and not publish_embeddings:
         from boxmot.trackers.common.config import load_tracker_config
 

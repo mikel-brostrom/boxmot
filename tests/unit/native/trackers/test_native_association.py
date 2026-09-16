@@ -105,6 +105,7 @@ def test_centroid_requirement_is_frozen_and_routes_canonical_frame(tracker_cls, 
     detections = detections_from_rows(np.array([[10, 10, 20, 20, 0.95, 0]], dtype=np.float32))
     frame = frame_from_bgr(np.zeros((80, 100, 3), dtype=np.uint8))
 
+    assert tracker.config.asso_func == "centroid"
     assert tracker.requirements.frame is True
     with pytest.raises(ValueError, match="requires a frame"):
         tracker.update(detections)
@@ -123,13 +124,13 @@ def test_centroid_requirement_is_frozen_and_routes_canonical_frame(tracker_cls, 
 
 @pytest.mark.parametrize("resolver", RESOLVERS)
 def test_native_trackers_reject_unknown_association_function(resolver: Callable):
-    with pytest.raises(ValueError, match="Unknown association function"):
+    with pytest.raises(ValueError, match="asso_func"):
         resolver({"asso_func": "made-up"})
 
 
 @pytest.mark.parametrize("resolver", RESOLVERS)
 def test_native_trackers_reject_noncanonical_association_casing(resolver: Callable):
-    with pytest.raises(ValueError, match="canonical lowercase identifier"):
+    with pytest.raises(ValueError, match="asso_func"):
         resolver({"asso_func": "IoU"})
 
 

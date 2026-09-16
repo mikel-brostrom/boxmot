@@ -1,47 +1,51 @@
 min_conf:
   type: uniform
-  default: 0.6  # from the default parameters
   range: [0.2, 0.8]
+
+# StrongSORT filters with min_conf; the inherited threshold is unused.
+det_thresh: {}
+
+# Confirmation uses n_init; min_hits only filters shared display output.
+min_hits: {}
+
+# Observation history is for display, not matching or gallery retention.
+max_obs: {}
+
+# Fallback association uses max_iou_dist, not the inherited IoU threshold.
+iou_threshold: {}
 
 ema_alpha:
   type: uniform
-  default: 0.9  # from the default parameters
   range: [0.7, 0.95]
 
 max_cos_dist:
   type: uniform
-  default: 0.4  # from the default parameters
   range: [0.1, 0.4]
 
 max_iou_dist:
   type: uniform
-  default: 0.7  # from the default parameters
   range: [0.5, 0.95]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 max_age:
   type: randint
-  default: 30  # from the default parameters
   range: [10, 151]  # upper bound exclusive
 
 n_init:
   type: randint
-  default: 3  # from the default parameters
   range: [1, 4]  # upper bound exclusive
 
 mc_lambda:
   type: uniform
-  default: 0.98  # from the default parameters
   range: [0.90, 0.999]
 
 nn_budget:
   type: choice
-  default: 100  # from the default parameters
-  options: [100]
+  # Bound the per-track appearance gallery while varying its memory horizon.
+  options: [25, 50, 100, 200]
 
 # Timing and reference-prior units stay fixed across all tuning trials.
 

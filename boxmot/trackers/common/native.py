@@ -13,7 +13,11 @@ from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.appearance.live import _REID_OPTION_UNSET, LiveReIDMixin
-from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_defaults
+from boxmot.trackers.common.config import (
+    flatten_tracker_options,
+    get_tracker_config_class,
+    load_tracker_defaults,
+)
 from boxmot.trackers.common.geometry.obb import align_obb_measurement
 from boxmot.trackers.common.input import (
     frame_image_size,
@@ -81,7 +85,7 @@ def load_native_tracker_config(
     *,
     native_only_keys: Iterable[str] = (),
 ) -> dict[str, Any]:
-    """Load defaults and reject options unsupported by one native backend."""
+    """Resolve typed algorithm defaults and reject unsupported native options."""
 
     resolved = {
         key: value for key, value in load_tracker_defaults(tracker_name).items() if key not in MASK_GUIDANCE_OPTIONS
@@ -103,6 +107,9 @@ def load_native_tracker_config(
             unexpected = next(key for key in options if key in unexpected_keys)
             raise TypeError(f"Native tracker '{tracker_name}' got an unexpected option {unexpected!r}.")
         resolved.update(options)
+    config_type = get_tracker_config_class(tracker_name)
+    algorithm = config_type.from_mapping({name: resolved[name] for name in config_type.fields() if name in resolved})
+    resolved.update(algorithm.to_dict())
     kalman = normalize_kalman_config(resolved, tracker_name=tracker_name, backend="cpp")
     resolved = {key: value for key, value in resolved.items() if not key.startswith("kalman.")}
     if kalman.ams is not None:

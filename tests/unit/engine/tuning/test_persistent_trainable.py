@@ -64,11 +64,8 @@ def test_objective_discards_session_on_failed_trial(monkeypatch, error) -> None:
     monkeypatch.setattr(tuner, "run_eval", evaluate)
     monkeypatch.setattr(tuner, "aggregate_results", dict)
     objective = tuner.TrackerObjective(SimpleNamespace(sequence_workers=1))
-    if error is KeyboardInterrupt:
-        with pytest.raises(KeyboardInterrupt):
-            objective({})
-    else:
-        assert objective({})["HOTA"] == 0.0
+    with pytest.raises(error, match="evaluation failed"):
+        objective({})
     assert sessions[0]._closed
     assert objective({})["HOTA"] == 50.0
     assert sessions[0] is not sessions[1]

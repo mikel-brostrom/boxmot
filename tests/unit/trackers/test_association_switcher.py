@@ -5,6 +5,19 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import (
+    BoostTrackConfig,
+    BotSortConfig,
+    ByteTrackConfig,
+    DeepOcSortConfig,
+    HybridSortConfig,
+    KalmanConfig,
+    MafHdaConfig,
+    OccluBoostConfig,
+    OcSortConfig,
+    SFSORTConfig,
+    StrongSortConfig,
+)
 from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch
 from boxmot.trackers.boosttrack.tracker import BoostTrack
 from boxmot.trackers.botsort.tracker import BotSort
@@ -23,108 +36,115 @@ from boxmot.trackers.strongsort.tracker import StrongSort
 TrackerFactory = Callable[..., BaseTracker]
 
 
-def _bytetrack(**kwargs) -> ByteTrack:
+def _bytetrack(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> ByteTrack:
     return ByteTrack(
-        min_hits=1,
-        min_conf=0.05,
-        track_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=ByteTrackConfig(min_hits=1, min_conf=0.05, track_thresh=0.2, iou_threshold=0.1, **kwargs),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _botsort(**kwargs) -> BotSort:
+def _botsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> BotSort:
     return BotSort(
-        use_embeddings=False,
-        use_cmc=False,
-        min_hits=1,
-        track_high_thresh=0.2,
-        track_low_thresh=0.05,
-        new_track_thresh=0.2,
-        match_thresh=0.9,
-        fuse_first_associate=False,
-        **kwargs,
+        config=BotSortConfig(
+            use_embeddings=False,
+            use_cmc=False,
+            min_hits=1,
+            track_high_thresh=0.2,
+            track_low_thresh=0.05,
+            new_track_thresh=0.2,
+            match_thresh=0.9,
+            fuse_first_associate=False,
+            **kwargs,
+        ),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _ocsort(**kwargs) -> OcSort:
+def _ocsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> OcSort:
     return OcSort(
-        min_hits=1,
-        min_conf=0.05,
-        det_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=OcSortConfig(min_hits=1, min_conf=0.05, det_thresh=0.2, iou_threshold=0.1, **kwargs),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _deepocsort(**kwargs) -> DeepOcSort:
+def _deepocsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> DeepOcSort:
     return DeepOcSort(
-        use_embeddings=False,
-        cmc_off=True,
-        min_hits=1,
-        det_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=DeepOcSortConfig(
+            use_embeddings=False, cmc_off=True, min_hits=1, det_thresh=0.2, iou_threshold=0.1, **kwargs
+        ),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _hybridsort(**kwargs) -> HybridSort:
+def _hybridsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> HybridSort:
     return HybridSort(
-        use_embeddings=False,
-        cmc_method=None,
-        min_hits=1,
-        det_thresh=0.2,
-        track_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=HybridSortConfig(
+            use_embeddings=False,
+            cmc_method=None,
+            min_hits=1,
+            det_thresh=0.2,
+            track_thresh=0.2,
+            iou_threshold=0.1,
+            **kwargs,
+        ),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _boosttrack(**kwargs) -> BoostTrack:
+def _boosttrack(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> BoostTrack:
     return BoostTrack(
-        use_embeddings=False,
-        use_cmc=False,
-        use_dlo_boost=False,
-        use_duo_boost=False,
-        min_hits=1,
-        det_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=BoostTrackConfig(
+            use_embeddings=False,
+            use_cmc=False,
+            use_dlo_boost=False,
+            use_duo_boost=False,
+            min_hits=1,
+            det_thresh=0.2,
+            iou_threshold=0.1,
+            **kwargs,
+        ),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _occluboost(**kwargs) -> OccluBoost:
+def _occluboost(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> OccluBoost:
     return OccluBoost(
-        use_embeddings=False,
-        use_cmc=False,
-        use_dlo_boost=False,
-        use_duo_boost=False,
-        min_hits=1,
-        det_thresh=0.2,
-        new_track_thresh=0.2,
-        instant_confirm_thresh=0.2,
-        iou_threshold=0.1,
-        **kwargs,
+        config=OccluBoostConfig(
+            use_embeddings=False,
+            use_cmc=False,
+            use_dlo_boost=False,
+            use_duo_boost=False,
+            min_hits=1,
+            det_thresh=0.2,
+            new_track_thresh=0.2,
+            instant_confirm_thresh=0.2,
+            iou_threshold=0.1,
+            **kwargs,
+        ),
+        is_obb=is_obb,
+        kalman=kalman,
     )
 
 
-def _sfsort(**kwargs) -> SFSORT:
+def _sfsort(*, is_obb: bool = False, **kwargs) -> SFSORT:
     return SFSORT(
-        high_th=0.2,
-        low_th=0.05,
-        new_track_th=0.2,
-        match_th_first=0.67,
-        min_hits=1,
-        **kwargs,
+        config=SFSORTConfig(high_th=0.2, low_th=0.05, new_track_th=0.2, match_th_first=0.67, min_hits=1, **kwargs),
+        is_obb=is_obb,
     )
 
 
-def _strongsort(**kwargs) -> StrongSort:
-    return StrongSort(min_hits=1, **kwargs)
+def _strongsort(*, is_obb: bool = False, kalman: KalmanConfig | None = None, **kwargs) -> StrongSort:
+    return StrongSort(config=StrongSortConfig(min_hits=1, **kwargs), is_obb=is_obb, kalman=kalman)
 
 
 def _maf_hda(**kwargs) -> MafHda:
-    return MafHda(min_hits=1, **kwargs)
+    return MafHda(config=MafHdaConfig(min_hits=1, **kwargs))
 
 
 TRACKER_FACTORIES: dict[str, TrackerFactory] = {
@@ -236,7 +256,9 @@ def test_image_trackers_use_selected_geometry_in_core_matching(name: str) -> Non
 
 
 def test_association_distance_uses_selected_similarity_for_arrays_and_objects() -> None:
-    tracker = ByteTrack(asso_func="giou")
+    tracker = ByteTrack(
+        config=ByteTrackConfig(asso_func="giou"),
+    )
     boxes_a = np.array([[0, 0, 10, 10]], dtype=np.float32)
     boxes_b = np.array([[2, 2, 12, 12], [20, 20, 30, 30]], dtype=np.float32)
     expected = 1.0 - AssociationFunction.giou_batch(boxes_a, boxes_b)
@@ -253,9 +275,7 @@ def test_association_distance_uses_selected_similarity_for_arrays_and_objects() 
 
 def test_botsort_preserves_geometric_distance_before_reid_fusion() -> None:
     tracker = BotSort(
-        use_embeddings=False,
-        use_cmc=False,
-        asso_func="diou",
+        config=BotSortConfig(use_embeddings=False, use_cmc=False, asso_func="diou", fuse_first_associate=False),
     )
     tracks = [_box(np.array([0, 0, 10, 10], dtype=np.float32))]
     detections = [_box(np.array([2, 2, 12, 12], dtype=np.float32), conf=0.9)]
@@ -265,7 +285,9 @@ def test_botsort_preserves_geometric_distance_before_reid_fusion() -> None:
 
 
 def test_strongsort_fallback_uses_selected_geometry_and_keeps_stale_gate() -> None:
-    tracker = StrongSort(asso_func="hmiou")
+    tracker = StrongSort(
+        config=StrongSortConfig(asso_func="hmiou"),
+    )
     tracks = [
         _box(np.array([0, 0, 10, 10], dtype=np.float32), time_since_update=1),
         _box(np.array([1, 1, 11, 11], dtype=np.float32), time_since_update=2),

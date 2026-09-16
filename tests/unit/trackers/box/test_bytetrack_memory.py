@@ -8,6 +8,7 @@ import weakref
 import numpy as np
 import pytest
 
+from boxmot import ByteTrackConfig
 from boxmot.trackers.bytetrack.track import STrack, TrackState
 from boxmot.trackers.bytetrack.tracker import ByteTrack
 
@@ -20,9 +21,13 @@ def _detections() -> np.ndarray:
 @pytest.mark.parametrize("display_frames", [0, 10])
 def test_retired_tracks_are_collectible_during_long_identity_churn(display_frames: int) -> None:
     """Old trajectories must die while outputs match the original archive behavior."""
-    tracker = ByteTrack(track_buffer=2)
+    tracker = ByteTrack(
+        config=ByteTrackConfig(track_buffer=2),
+    )
     tracker.removed_display_frames = display_frames
-    reference = ByteTrack(track_buffer=2)
+    reference = ByteTrack(
+        config=ByteTrackConfig(track_buffer=2),
+    )
     reference.removed_display_frames = display_frames
     archive: dict[int, STrack] = {}
     observed: dict[int, weakref.ReferenceType[STrack]] = {}
@@ -59,7 +64,9 @@ def test_retired_tracks_are_collectible_during_long_identity_churn(display_frame
 
 def test_removal_preserves_delayed_association_and_display_lifetime() -> None:
     """A just-expired lost candidate can still recover on the next frame."""
-    tracker = ByteTrack(track_buffer=2)
+    tracker = ByteTrack(
+        config=ByteTrackConfig(track_buffer=2),
+    )
     detections = _detections()
     empty = np.empty((0, 6), dtype=np.float32)
     identity = int(tracker.update(detections)[0, 4])
@@ -76,7 +83,9 @@ def test_removal_preserves_delayed_association_and_display_lifetime() -> None:
     replacement = tracker.update(detections)
     assert int(replacement[0, 4]) != identity
 
-    display_tracker = ByteTrack(track_buffer=2)
+    display_tracker = ByteTrack(
+        config=ByteTrackConfig(track_buffer=2),
+    )
     display_tracker.update(detections)
     for _ in range(3):
         display_tracker.update(empty)

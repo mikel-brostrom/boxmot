@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import torch
 
+from boxmot import OccluBoostConfig
 from boxmot.structures import Boxes, Detections, OrientedBoxes
 from boxmot.trackers.occluboost.tracker import OccluBoost
 
@@ -13,14 +14,16 @@ from boxmot.trackers.occluboost.tracker import OccluBoost
 def test_expired_track_gets_a_new_identity_despite_identical_appearance(is_obb: bool) -> None:
     """An object returning after expiration cannot recover the removed identity."""
     tracker = OccluBoost(
+        config=OccluBoostConfig(
+            use_embeddings=True,
+            use_cmc=False,
+            use_dlo_boost=False,
+            use_duo_boost=False,
+            min_hits=1,
+            max_age=2,
+            obb_max_age=2,
+        ),
         is_obb=is_obb,
-        use_embeddings=True,
-        use_cmc=False,
-        use_dlo_boost=False,
-        use_duo_boost=False,
-        min_hits=1,
-        max_age=2,
-        obb_max_age=2,
     )
     geometry_type = OrientedBoxes if is_obb else Boxes
     geometry = torch.tensor([[30, 40, 20, 40, 0.2]] if is_obb else [[20, 20, 40, 60]], dtype=torch.float32)

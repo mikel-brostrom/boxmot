@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import ByteTrackConfig, SFSORTConfig
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerSpec, create_tracker
 from boxmot.trackers.boosttrack.track import KalmanBoxTracker as BoostTrackBoxTrack
@@ -18,6 +19,7 @@ from boxmot.trackers.bytetrack.track import BaseTrack as ByteTrackBaseTrack
 from boxmot.trackers.bytetrack.track import STrack as ByteTrackTrack
 from boxmot.trackers.bytetrack.track import TrackState as ByteTrackState
 from boxmot.trackers.bytetrack.tracker import ByteTrack
+from boxmot.trackers.common.config import get_tracker_config_class
 from boxmot.trackers.common.detections import _DetectionBatch
 from boxmot.trackers.common.detections.layout import AABB_DETECTIONS, OBB_DETECTIONS
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS, get_tracker_class
@@ -71,9 +73,7 @@ def _detections(
         class_ids=torch.from_numpy(np.ascontiguousarray(values[:, box_columns + 1], dtype=np.int64)),
         sample_id=sample_id,
         embeddings=(
-            None
-            if embeddings is None
-            else torch.from_numpy(np.ascontiguousarray(embeddings, dtype=np.float32))
+            None if embeddings is None else torch.from_numpy(np.ascontiguousarray(embeddings, dtype=np.float32))
         ),
     )
 
@@ -125,7 +125,7 @@ def test_python_kernel_adapter_preserves_large_int64_class_ids(per_class: bool) 
         class_ids=class_ids,
         sample_id="large-classes",
     )
-    tracker = ByteTrack(min_hits=1, per_class=per_class)
+    tracker = ByteTrack(config=ByteTrackConfig(min_hits=1), per_class=per_class)
 
     tracks = tracker.update(detections)
 
@@ -153,8 +153,8 @@ def test_tracker_constructors_reject_unknown_keywords(tracker_name: str) -> None
 def test_tracker_constructors_reject_noncanonical_association_casing(tracker_name: str) -> None:
     tracker_class = get_tracker_class(tracker_name)
 
-    with pytest.raises(ValueError, match="canonical lowercase identifier"):
-        tracker_class(asso_func="IoU")
+    with pytest.raises(ValueError, match="asso_func"):
+        tracker_class(config=get_tracker_config_class(tracker_name)(asso_func="IoU"))
 
 
 @pytest.mark.parametrize(
@@ -162,7 +162,7 @@ def test_tracker_constructors_reject_noncanonical_association_casing(tracker_nam
     ((ByteTrack, "track_thresh"), (SFSORT, "high_th")),
 )
 def test_tracker_specific_thresholds_reject_base_alias(factory, canonical_parameter: str) -> None:
-    with pytest.raises(TypeError, match=rf"unexpected keyword argument 'det_thresh'.*{canonical_parameter}"):
+    with pytest.raises(TypeError, match="unexpected keyword argument 'det_thresh'"):
         factory(det_thresh=0.5)
 
 
@@ -172,9 +172,7 @@ def test_all_box_trackers_return_canonical_geometry_and_serializers(
     tracker_name: str,
     geometry: str,
 ) -> None:
-    tracker = create_tracker(
-        TrackerSpec(tracker_name, geometry=geometry, options=(("min_hits", 1),))
-    )
+    tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=(("min_hits", 1),)))
     rows = _obb_dets() if geometry == "obb" else _aabb_dets()
 
     output = _run_until_output(tracker, rows)
@@ -201,9 +199,7 @@ def test_empty_batches_preserve_tracker_geometry(tracker_name: str, geometry: st
 
 @pytest.mark.parametrize("tracker_name", BOX_TRACKER_NAMES)
 def test_reset_clears_tracks_and_restarts_instance_local_ids(tracker_name: str) -> None:
-    tracker = create_tracker(
-        TrackerSpec(tracker_name, options=(("min_hits", 1),))
-    )
+    tracker = create_tracker(TrackerSpec(tracker_name, options=(("min_hits", 1),)))
     first = _run_until_output(tracker, _aabb_dets()[:1])
     tracker.reset()
     second = _run_until_output(tracker, _aabb_dets()[:1])
@@ -213,9 +209,7 @@ def test_reset_clears_tracks_and_restarts_instance_local_ids(tracker_name: str) 
 
 
 def test_per_class_obb_preserves_frame_global_detection_indices() -> None:
-    tracker = create_tracker(
-        TrackerSpec("bytetrack", geometry="obb", per_class=True, options=(("min_hits", 1),))
-    )
+    tracker = create_tracker(TrackerSpec("bytetrack", geometry="obb", per_class=True, options=(("min_hits", 1),)))
 
     output = _run_until_output(tracker, _obb_dets())
 
@@ -373,14 +367,16 @@ def test_kalman_track_models_share_sort_base() -> None:
 )
 def test_sfsort_lost_region_remains_track_metadata(box: np.ndarray, expected_region: str) -> None:
     tracker = SFSORT(
-        high_th=0.5,
-        low_th=0.1,
-        new_track_th=0.5,
-        match_th_first=0.5,
-        central_timeout=10,
-        marginal_timeout=10,
-        horizontal_margin=20,
-        vertical_margin=20,
+        config=SFSORTConfig(
+            high_th=0.5,
+            low_th=0.1,
+            new_track_th=0.5,
+            match_th_first=0.5,
+            central_timeout=10,
+            marginal_timeout=10,
+            horizontal_margin=20,
+            vertical_margin=20,
+        ),
     )
 
     _update(tracker, box)

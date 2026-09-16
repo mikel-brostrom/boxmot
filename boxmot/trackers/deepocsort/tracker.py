@@ -19,11 +19,12 @@ from boxmot.trackers.common.association import (
 )
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.cmc.registry import create_cmc
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
+from boxmot.trackers.deepocsort.config import DeepOcSortConfig
 from boxmot.trackers.deepocsort.track import DeepOBBKalmanBoxTracker, KalmanBoxTracker
 
 
@@ -41,60 +42,46 @@ class DeepOcSort(BoxTracker):
 
     def __init__(
         self,
-        # DeepOcSort-specific parameters
-        delta_t: int = 3,
-        inertia: float = 0.2,
-        w_association_emb: float = 0.5,
-        alpha_fixed_emb: float = 0.95,
-        aw_param: float = 0.5,
-        use_embeddings: bool = True,
-        cmc_off: bool = False,
-        aw_off: bool = False,
+        config: DeepOcSortConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
         reid: ReIDConfig | AppearanceEncoder | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure motion-direction matching and adaptive appearance weighting.
 
         Args:
-            delta_t: Observation lookback in frames for estimating motion direction.
-            inertia: Weight of the observed velocity-direction term in matching.
-            w_association_emb: Base weight of appearance similarity during matching.
-            alpha_fixed_emb: Previous-embedding weight for fully confident detections.
-                Lower-confidence updates retain more of the previous embedding.
-            aw_param: Similarity-ratio cutoff for reducing ambiguous appearance weights.
-            use_embeddings: Use supplied appearance embeddings, generating missing
-                embeddings from image frames with the configured ReID backend.
-            cmc_off: Disable sparse-optical-flow camera-motion compensation.
-            aw_off: Disable adaptive weighting of appearance similarity.
-            reid: Immutable encoder configuration or a canonical appearance encoder.
-                Missing embeddings are generated lazily; supplied embeddings and
-                empty batches skip inference. None selects the default configuration.
+            config: Immutable algorithm settings. None selects DeepOcSortConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: Shared detection, lifecycle, class metadata and separation,
-                ``asso_func``, and ``is_obb`` settings.
+                None preserves tracker defaults.
+            reid: Immutable encoder configuration or a canonical appearance encoder.
+                Missing embeddings are generated lazily; None selects the default encoder.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
+        config = DeepOcSortConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
         super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
             kalman=kalman,
             reid=reid,
             **kwargs,
         )
 
-        self.delta_t = delta_t
-        self.inertia = inertia
-        self.w_association_emb = w_association_emb
-        self.alpha_fixed_emb = alpha_fixed_emb
-        self.aw_param = aw_param
-        if not isinstance(use_embeddings, bool):
-            raise TypeError("use_embeddings must be bool.")
-        self.use_embeddings = use_embeddings
-        if not isinstance(cmc_off, bool):
-            raise TypeError("cmc_off must be bool.")
-        self.cmc_off = cmc_off
-        self.aw_off = aw_off
+        self.delta_t = config.delta_t
+        self.inertia = config.inertia
+        self.w_association_emb = config.w_association_emb
+        self.alpha_fixed_emb = config.alpha_fixed_emb
+        self.aw_param = config.aw_param
+        self.use_embeddings = config.use_embeddings
+        self.cmc_off = config.cmc_off
+        self.aw_off = config.aw_off
         # "similarity transforms using feature point extraction, optical flow, and RANSAC"
         self.cmc = create_cmc("sof", enabled=not self.cmc_off)
         self._requires_frame = self._requires_frame or self.cmc is not None

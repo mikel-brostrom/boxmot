@@ -12,6 +12,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from boxmot.configs import CONFIG_ROOT
+from boxmot.engine.config.postprocessing import normalize_postprocessing
 from boxmot.trackers.common.specs import parse_tracker_spec
 
 RUNTIME_MODES = frozenset({"track", "materialize", "eval", "tune", "research"})
@@ -37,6 +38,8 @@ def _merged_mode_defaults(mode: str) -> dict[str, Any]:
 
 
 def _resolve_default_value(key: str, value: Any) -> Any:
+    if key == "postprocessing":
+        return normalize_postprocessing(value)
     if key == "sequence_workers" and str(value).lower() == "auto":
         return max(1, (os.cpu_count() or 1) - 2)
 
@@ -91,6 +94,8 @@ def build_mode_namespace(
 
     values = get_mode_defaults(normalized_mode)
     values.update(dict(payload))
+    if normalized_mode == "eval":
+        values["postprocessing"] = normalize_postprocessing(values.get("postprocessing"))
 
     if normalized_mode == "materialize" and values.get("time_variant"):
         allowed_keys = frozenset({"dataset", "split", "sequence", "build", "build_root", "data_root", "name", "seed"})
@@ -267,6 +272,7 @@ class EvalModeDefaults(RuntimeModeDefaults):
     source: str | None
     benchmark: str
     split: str
+    postprocessing: tuple[str, ...]
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any]) -> "EvalModeDefaults":
@@ -280,6 +286,7 @@ class EvalModeDefaults(RuntimeModeDefaults):
             source=None if source is None else str(source),
             benchmark=str(values.get("benchmark", "")),
             split=str(values.get("split", "")),
+            postprocessing=normalize_postprocessing(values.get("postprocessing")),
         )
 
 

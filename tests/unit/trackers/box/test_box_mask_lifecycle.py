@@ -14,6 +14,7 @@ from boxmot.trackers.boosttrack.tracker import BoostTrack
 from boxmot.trackers.botsort.tracker import BotSort
 from boxmot.trackers.bytetrack.tracker import ByteTrack
 from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.config import get_tracker_config_class
 from boxmot.trackers.deepocsort.tracker import DeepOcSort
 from boxmot.trackers.hybridsort.tracker import HybridSort
 from boxmot.trackers.occluboost.tracker import OccluBoost
@@ -79,7 +80,7 @@ class _Propagator:
 
 
 def _tracker(name: str, *, guidance: MaskGuidance | None = None, min_hits: int = 3, max_age: int = 3) -> BoxTracker:
-    options = {"min_hits": min_hits, "max_age": max_age, "mask_guidance": guidance, "asso_func": "iou"}
+    options = {"min_hits": min_hits, "max_age": max_age, "asso_func": "iou"}
     if name in {"boosttrack", "occluboost", "botsort"}:
         options.update(use_embeddings=False, use_cmc=False)
     if name in {"botsort", "bytetrack"}:
@@ -92,7 +93,7 @@ def _tracker(name: str, *, guidance: MaskGuidance | None = None, min_hits: int =
         options["n_init"] = min_hits
     if name == "sfsort":
         options.update(frame_width=128, frame_height=96, central_timeout=max_age, marginal_timeout=max_age)
-    return TRACKERS[name](**options)
+    return TRACKERS[name](config=get_tracker_config_class(name)(**options), mask_guidance=guidance)
 
 
 def _guided(name: str, **options) -> tuple[BoxTracker, _Propagator]:

@@ -497,4 +497,13 @@ package; the original checkout and dataset SDKs are not runtime dependencies.
 The integration has not reproduced the upstream KITTI or nuScenes benchmark
 results.
 
+## Python API
+
+Pass algorithm settings through `EagerMotConfig`, for example
+`EagerMot(config=EagerMotConfig(distance_threshold=3.5))`. Direct construction and
+`create_tracker("eagermot")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.EagerMotConfig
+
 ::: boxmot.EagerMot

@@ -17,6 +17,7 @@ import warnings
 from copy import deepcopy
 from difflib import get_close_matches
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -60,7 +61,9 @@ from boxmot.engine.tuning.postprocessing import (
     score_summary,
 )
 from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
+from boxmot.engine.tuning.search_profile import record_search_profile
 from boxmot.engine.tuning.search_space import (
+    condition_tracker_schema,
     default_tune_config,
     expand_yaml_groups,
     flatten_yaml_config,
@@ -265,6 +268,7 @@ class Tuner:
         pipeline = TuneWorkflowReporter(args, maximize=maximize, minimize=minimize).pipeline(auto_start=False)
         tune_callback = TuneWorkflowCallback(total=int(args.n_trials), maximize=maximize, minimize=minimize)
         set_tune_progress_workflow(pipeline.workflow)
+        sequence_progress_directory = None
 
         try:
             with pipeline:
@@ -283,6 +287,13 @@ class Tuner:
 
                 tune_dir = self._resolve_tune_dir()
                 self._prepare_evaluation_mode(tune_dir)
+                tune_dir.mkdir(parents=True, exist_ok=True)
+                sequence_progress_directory = TemporaryDirectory(prefix=".sequence-progress-", dir=tune_dir)
+                args._tune_sequence_progress_dir = sequence_progress_directory.name
+                tune_callback.configure_sequence_progress(
+                    Path(sequence_progress_directory.name),
+                    getattr(args, "sequence_frame_counts", None) or getattr(args, "seq_info", {}) or {},
+                )
                 tune_name = tune_dir.name
                 resume_tune = getattr(args, "resume_tune", None) or None
 
@@ -319,6 +330,9 @@ class Tuner:
                 )
                 runtime_config = prepare_mask_guidance_tuning(args, runtime_config, overrides=baseline_overlay)
                 yaml_cfg = condition_mask_guidance_schema(yaml_cfg, args, runtime_config)
+                yaml_cfg = condition_tracker_schema(
+                    yaml_cfg, runtime_config, geometry=getattr(args, "geometry", "aabb") or "aabb"
+                )
                 record_mask_guidance_tuning(tune_dir, args, runtime_config, yaml_cfg)
                 self._yaml_cfg = yaml_cfg
                 self._runtime_config = runtime_config
@@ -332,6 +346,7 @@ class Tuner:
                 if "kalman.variable_dt" in runtime_config:
                     args.variable_dt = runtime_config["kalman.variable_dt"]
                     fixed_options["kalman.variable_dt"] = args.variable_dt
+                record_search_profile(tune_dir, args, yaml_cfg, fixed_options)
                 baseline = default_tune_config(yaml_cfg, defaults=runtime_config) or None
 
                 self._configure_warning_filters()
@@ -385,7 +400,18 @@ class Tuner:
                 )
 
                 # Execute
-                result_grid, interrupted = self._execute_tuner(tuner)
+                try:
+                    result_grid, interrupted = self._execute_tuner(tuner)
+                except Exception:
+                    # Keep completed trials when possible, but a failed search
+                    # must still leave the workflow failed and the CLI nonzero.
+                    try:
+                        self._post_process(
+                            tuner.get_results(), tune_dir, yaml_cfg, maximize, minimize, base_config=runtime_config
+                        )
+                    except Exception as exc:
+                        LOGGER.warning(f"Failed to save partial tuning results: {type(exc).__name__}: {exc}")
+                    raise
 
                 # Post-process
                 saved_artifacts = self._post_process(
@@ -403,6 +429,8 @@ class Tuner:
                 return result_grid, tune_dir, maximize, minimize
         finally:
             set_tune_progress_workflow(None)
+            if sequence_progress_directory is not None:
+                sequence_progress_directory.cleanup()
 
     def _prepare_evaluation_mode(self, tune_dir: Path) -> None:
         """Keep KITTI box and segmentation scores separate across tuning resumes."""
@@ -548,7 +576,9 @@ class Tuner:
             run_config_kwargs["verbose"] = 0
         if "progress_reporter" in sig.parameters:
             run_config_kwargs["progress_reporter"] = TuneSilentReporter()
-        run_config_kwargs["failure_config"] = FailureConfig(max_failures=3)
+        # A failed full-sequence evaluation is not a metric observation. Move
+        # on to the next trial without repeating deterministic invalid inputs.
+        run_config_kwargs["failure_config"] = FailureConfig(max_failures=0, fail_fast=False)
         # One step completes the entire evaluation. Ray defaults class actors
         # to checkpointing at completion, but trackers have no incremental
         # trial state to restore; interrupted evaluations restart from frame 0.
@@ -611,14 +641,6 @@ class Tuner:
                     result_grid = tuner.get_results()
             except Exception:
                 pass
-        except Exception as exc:
-            LOGGER.warning(f"tuner.fit() failed: {type(exc).__name__}: {exc}")
-            try:
-                if hasattr(tuner, "get_results"):
-                    result_grid = tuner.get_results()
-            except Exception:
-                pass
-
         if result_grid is None and hasattr(tuner, "get_results"):
             try:
                 result_grid = tuner.get_results()
@@ -650,9 +672,11 @@ class Tuner:
             )
         except Exception as exc:
             LOGGER.warning(f"Failed to save tune results: {type(exc).__name__}: {exc}")
-            return None
+            raise
 
     def _finalize_ui(self, pipeline, saved_artifacts, baseline, maximize, minimize, tune_dir, interrupted):
+        if not interrupted and not (saved_artifacts and saved_artifacts.get("trial_data")):
+            raise RuntimeError("No successful tuning trials were produced.")
         args = self.args
         final_renderable = None
         try:
@@ -670,7 +694,11 @@ class Tuner:
                         compare_raw=baseline_raw,
                         compare_args=args if baseline_raw else None,
                     )
-                    final_renderable = combine_tune_result_renderables(best_renderable, artifacts_renderable)
+                    final_renderable = combine_tune_result_renderables(
+                        best_renderable,
+                        artifacts_renderable,
+                        comparison_label="Deltas vs first trial" if baseline_raw else None,
+                    )
                 else:
                     final_renderable = artifacts_renderable
             elif artifacts_renderable is not None:
@@ -698,7 +726,7 @@ class Tuner:
             pipeline.finish(final_renderable, title="Results")
         else:
             pipeline.complete_step()
-            pipeline.update("No successful trials were produced.")
+            pipeline.update(f"Tuning completed. Results: {tune_dir}")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -796,8 +824,48 @@ class TrackerObjective:
         if session is not None:
             session.close()
 
-    def __call__(self, config: dict) -> dict:
+    def __call__(self, config: dict, *, progress_callback: Any | None = None) -> dict:
+        """Evaluate one configuration and relay observational sequence progress."""
+        from dataclasses import replace
+
+        from boxmot.engine.eval.replay import ReplayProgressEvent
         from boxmot.engine.eval.session import ReplaySession
+
+        latest: dict[int, ReplayProgressEvent] = {}
+
+        def report(event: ReplayProgressEvent) -> None:
+            latest[event.ordinal] = event
+            if progress_callback is not None:
+                try:
+                    progress_callback(event)
+                except Exception:
+                    # UI failures cannot change tuning scores or worker cleanup.
+                    pass
+
+        def fail_progress(detail: str) -> None:
+            if progress_callback is None:
+                return
+            for event in tuple(latest.values()):
+                if event.status in {"queued", "running"}:
+                    report(replace(event, status="failed", detail=detail))
+            totals = getattr(self.opt, "sequence_frame_counts", None) or getattr(self.opt, "seq_info", {}) or {}
+            reported = {event.sequence_id for event in latest.values()}
+            ordinal = max(latest, default=-1) + 1
+            for sequence_id, total in totals.items():
+                if str(sequence_id) in reported:
+                    continue
+                report(
+                    ReplayProgressEvent(
+                        sequence_id=str(sequence_id),
+                        status="failed",
+                        completed=0,
+                        total=int(total or 0),
+                        track_rows=0,
+                        detail=detail,
+                        ordinal=ordinal,
+                    )
+                )
+                ordinal += 1
 
         if self._session is None:
             self._session = ReplaySession(
@@ -805,6 +873,7 @@ class TrackerObjective:
             )
         try:
             with suppress_boxmot_logs(enabled=not bool(getattr(self.opt, "verbose", False)), level="ERROR"):
+                callbacks = {} if progress_callback is None else {"progress_callback": report}
                 result = run_eval(
                     deepcopy(self.opt),
                     evolve_config=config,
@@ -813,28 +882,30 @@ class TrackerObjective:
                     verbose=False,
                     show_progress=False,
                     replay_session=self._session,
+                    **callbacks,
                 )
+            if not result.raw:
+                raise RuntimeError("Tracker evaluation returned no validation metrics.")
+            payload = aggregate_results(result.raw)
+            payload["_validation"] = {
+                "benchmark": result.benchmark,
+                "raw": result.raw,
+                "summary_label": result.summary_label,
+                "summary": result.summary,
+                "timings": result.timings,
+                "exp_dir": None if result.exp_dir is None else str(result.exp_dir),
+            }
+            return payload
         except KeyboardInterrupt:
+            fail_progress("Trial interrupted")
             self.close()
             raise
         except Exception as exc:
+            fail_progress(f"{type(exc).__name__}: {exc}")
             self.close()
-            LOGGER.debug(f"Trial failed with {type(exc).__name__}: {exc}")
-            return {k: 0.0 for k in ALL_TUNE_METRICS}
-
-        if not result.raw:
-            return {k: 0.0 for k in ALL_TUNE_METRICS}
-
-        payload = aggregate_results(result.raw)
-        payload["_validation"] = {
-            "benchmark": result.benchmark,
-            "raw": result.raw,
-            "summary_label": result.summary_label,
-            "summary": result.summary,
-            "timings": result.timings,
-            "exp_dir": None if result.exp_dir is None else str(result.exp_dir),
-        }
-        return payload
+            # Let Ray mark the trial ERROR and Optuna mark it FAIL. A zero
+            # score would hide the failure and could win a minimized metric.
+            raise
 
 
 # ---------------------------------------------------------------------------

@@ -1,81 +1,77 @@
+# Shared history/display controls; regional timeouts own track lifetime.
+max_age: {}
+max_obs: {}
+min_hits: {}
+
+# Matching uses match_th_first and match_th_second instead.
+iou_threshold: {}
+
+# Input dimensions are inferred from frames, not optimized against ground truth.
+frame_width: {}
+frame_height: {}
+
 high_th:
   type: uniform
-  default: 0.6
   range: [0.4, 0.9]
 
 match_th_first:
   type: uniform
-  default: 0.67
   range: [0.4, 0.67]
 
 new_track_th:
   type: uniform
-  default: 0.7
   range: [0.6, 0.95]
 
 low_th:
   type: uniform
-  default: 0.1
   range: [0.05, 0.4]
 
 match_th_second:
   type: uniform
-  default: 0.3
   range: [0.1, 0.6]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 dynamic_tuning:
   type: choice
-  default: false
   options: [true, false]
 
 cth:
   type: uniform
-  default: 0.5
   range: [0.2, 0.8]
 
 high_th_m:
   type: uniform
-  default: 0.0
   range: [0.02, 0.1]
 
 new_track_th_m:
   type: uniform
-  default: 0.0
   range: [0.02, 0.08]
 
 match_th_first_m:
   type: uniform
-  default: 0.0
   range: [0.02, 0.08]
 
 obb_theta_damping:
   type: uniform
-  default: 0.8
   range: [0.0, 0.95]
 
 marginal_timeout:
   type: qrandint
-  default: 0
   range: [0, 501, 50]
 
 central_timeout:
   type: qrandint
-  default: 0
   range: [0, 1001, 100]
 
 horizontal_margin:
   type: qrandint
-  default: 0
   range: [0, 641, 50]
 
 vertical_margin:
   type: qrandint
-  default: 0
   range: [0, 641, 50]
 
 # Optional EdgeTAM guidance; searched only with --edgetam.

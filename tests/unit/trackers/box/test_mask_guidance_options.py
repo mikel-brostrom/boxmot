@@ -72,13 +72,18 @@ def test_partial_authored_edgetam_yaml_overlays_only_selected_leaves(tmp_path) -
 
 @pytest.mark.parametrize("tracker_name", TRACKERS)
 def test_public_constructor_accepts_nested_edgetam_parameters(tracker_name: str) -> None:
+    from boxmot.trackers.common.config import get_tracker_config_class
     from boxmot.trackers.common.registry import _load_tracker_class, get_tracker_definition
 
     tracker_class = _load_tracker_class(get_tracker_definition(tracker_name))
     config = MaskGuidanceConfig("model.pt", "cpu")
     parameters = {field: OPTIONS[key] for key, field in MASK_GUIDANCE_OPTIONS.items()}
 
-    tracker = tracker_class(mask_guidance=config, edgetam=parameters, asso_func="iou")
+    tracker = tracker_class(
+        config=get_tracker_config_class(tracker_name)(asso_func="iou"),
+        mask_guidance=config,
+        edgetam=parameters,
+    )
 
     assert tracker._mask_guidance.config == mask_guidance_config_from_options("model.pt", "cpu", OPTIONS)
     assert config.max_objects == 96
@@ -210,7 +215,8 @@ def test_native_config_strips_inherited_guidance_defaults(monkeypatch) -> None:
     monkeypatch.setattr(native, "load_tracker_defaults", lambda _: {"track_thresh": 0.5, **OPTIONS})
     resolved = native.load_native_tracker_config("bytetrack", None)
 
-    assert resolved == {"track_thresh": 0.5}
+    assert resolved["track_thresh"] == 0.5
+    assert not any(key.startswith("edgetam") for key in resolved)
 
 
 @pytest.mark.parametrize("key", OPTIONS)

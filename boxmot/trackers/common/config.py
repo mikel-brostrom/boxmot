@@ -1,7 +1,7 @@
 """Tracker configuration loading.
 
-Built-in tracker YAMLs colocate runtime defaults and tuning metadata. This
-module resolves scalar runtime values;
+Typed algorithm configurations own runtime defaults. Built-in tracker YAMLs
+define tuning metadata and component profiles. This module resolves scalar runtime values;
 interpretation of search metadata remains owned by :mod:`boxmot.engine.tuning`.
 Reusable presets and custom runtime configs group Kalman settings under
 ``kalman`` and mask-guidance settings under ``edgetam``. Engine/search code
@@ -11,13 +11,18 @@ addresses those leaves using dotted paths.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
 from boxmot.configs import CONFIG_ROOT
+from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
+
+if TYPE_CHECKING:
+    from boxmot.trackers.common.algorithm_config import TrackerConfig
 
 TRACKER_CONFIGS_DIR = CONFIG_ROOT / "trackers"
 TRACKER_PRESETS_DIR = TRACKER_CONFIGS_DIR / "presets"
@@ -162,9 +167,19 @@ def nest_tracker_options(config: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def get_tracker_config_path(tracker_name: str) -> Path:
-    """Return the built-in combined config path for ``tracker_name``."""
+    """Return the built-in tuning and component profile for ``tracker_name``."""
 
     return TRACKER_CONFIGS_DIR / f"{tracker_name}.yaml"
+
+
+def get_tracker_config_class(tracker_name: str) -> type[TrackerConfig]:
+    """Load the registered algorithm schema without importing its tracker."""
+    try:
+        entry = _TRACKER_MANIFEST[tracker_name]
+    except KeyError as exc:
+        raise ValueError(f"Unknown tracker type: {tracker_name!r}.") from exc
+    module_name, class_name = entry.config_class_path.rsplit(".", 1)
+    return getattr(import_module(module_name), class_name)
 
 
 def get_tracker_preset_path(preset_name: str) -> Path:
@@ -257,7 +272,7 @@ def _strip_tracker_metadata(
 
 
 def load_tracker_schema(tracker_name: str) -> dict[str, Any]:
-    """Load one built-in combined runtime/tuning tracker schema."""
+    """Combine authored tuning metadata with canonical algorithm defaults."""
 
     path = get_tracker_config_path(tracker_name)
     if not path.is_file():
@@ -265,11 +280,27 @@ def load_tracker_schema(tracker_name: str) -> dict[str, Any]:
         raise FileNotFoundError(
             f"Tracker config not found: {path}\nAvailable trackers: {', '.join(available) or '(none)'}"
         )
-    return _load_mapping(path, label="tracker")
+    schema = _load_mapping(path, label="tracker")
+    defaults = get_tracker_config_class(tracker_name)().to_dict()
+    entries = _flatten_tracker_entries(schema, path=path)
+    for parameter, details in entries.items():
+        if parameter in defaults:
+            if "default" in details:
+                raise ValueError(
+                    f"Tracker config {path} duplicates the typed default for {parameter!r}; "
+                    "put runtime overrides in a preset."
+                )
+            details["default"] = defaults[parameter]
+        elif not parameter.startswith(("kalman.", "edgetam.")):
+            raise ValueError(f"Unknown {tracker_name} algorithm parameter {parameter!r} in {path}.")
+    for parameter, value in defaults.items():
+        if parameter not in entries:
+            schema[parameter] = {"default": value}
+    return schema
 
 
 def load_tracker_defaults(tracker_name: str) -> dict[str, Any]:
-    """Extract runtime defaults from the tracker schema."""
+    """Resolve typed algorithm defaults and authored component profiles."""
 
     path = get_tracker_config_path(tracker_name)
     entries = _flatten_tracker_entries(load_tracker_schema(tracker_name), path=path)
@@ -352,6 +383,7 @@ __all__ = (
     "TRACKER_METADATA_KEY",
     "TRACKER_PRESETS_DIR",
     "get_tracker_config_path",
+    "get_tracker_config_class",
     "get_tracker_preset_path",
     "flatten_tracker_options",
     "load_tracker_config",

@@ -53,6 +53,8 @@ def _tracking_inputs(dataset: DatasetInputs) -> DatasetInputs:
 
 def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> ValidationResult:
     """Replay native 2D predictions, enrich their appearance, and score KITTI tracks."""
+    if getattr(args, "postprocessing", None):
+        raise ValueError("--postprocessing requires an AABB perception build; saved 2D evaluation is unsupported.")
     if pipeline is not None:
         pipeline.update("Loading saved 2D predictions and KITTI ground truth…")
     dataset = load_saved_2d_evaluation_inputs(

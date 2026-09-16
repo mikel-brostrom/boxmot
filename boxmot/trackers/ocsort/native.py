@@ -12,17 +12,12 @@ from boxmot.trackers.common.native import (
     load_native_tracker_config,
     resolve_association_function,
 )
+from boxmot.trackers.ocsort.config import OcSortConfig
 
 
 def _resolve_tracker_config(options: dict[str, Any] | None) -> dict[str, Any]:
-    cfg = load_native_tracker_config(
-        "ocsort",
-        options,
-        native_only_keys=("iou_threshold", "max_obs"),
-    )
+    cfg = load_native_tracker_config("ocsort", options)
     resolve_association_function(cfg)
-    cfg.setdefault("iou_threshold", 0.3)
-    cfg.setdefault("max_obs", int(cfg["max_age"]) + 5)
     return cfg
 
 
@@ -39,6 +34,7 @@ class NativeOcSortTracker(NativeTrackerAdapter):
         library: NativeTrackerLibrary | None = None,
     ) -> None:
         cfg = _resolve_tracker_config(options)
+        self.config = OcSortConfig.from_mapping({name: cfg[name] for name in OcSortConfig.fields()})
         self._init_native_handle(
             library=get_ocsort_library() if library is None else library,
             cfg=cfg,

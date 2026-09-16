@@ -7,6 +7,7 @@ import pytest
 import torch
 
 import boxmot.components.timing as component_timing
+from boxmot import BotSortConfig
 from boxmot.components.timing import timed_component_phase
 from boxmot.detectors import DetectorCapabilities
 from boxmot.engine.tracking.profiling import RUNTIME_STAGE_KEYS, ProfiledTracker, RuntimeProfiler
@@ -334,10 +335,8 @@ def test_live_encoder_inference_is_attributed_once_to_reid(instrumented: bool, m
             elapsed[0] += 0.025
             return np.ones((len(boxes), 4), dtype=np.float32)
 
-    encoder = (
-        RuntimeAppearanceEncoder(ReIDEncoderSpec("pytorch"), Runtime()) if instrumented else OpaqueEncoder()
-    )
-    tracker = BotSort(reid=encoder, use_cmc=False)
+    encoder = RuntimeAppearanceEncoder(ReIDEncoderSpec("pytorch"), Runtime()) if instrumented else OpaqueEncoder()
+    tracker = BotSort(config=BotSortConfig(use_cmc=False), reid=encoder)
     monkeypatch.setattr(component_timing, "synchronize_torch_device", lambda _: None)
     monkeypatch.setattr(component_timing.time, "perf_counter", lambda: elapsed[0])
     profiler = RuntimeProfiler(clock=lambda: elapsed[0])

@@ -6,6 +6,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 from typing import Any
 
+from boxmot.engine.tuning.progress import TrialSequenceProgressWriter
 from boxmot.engine.tuning.search_space import normalize_trial_config
 
 
@@ -31,11 +32,22 @@ def build_tracker_trainable(tune: Any, options: SimpleNamespace) -> type:
         def step(self) -> dict[str, Any]:
             if self._finished:
                 raise RuntimeError("Tracker trial already completed; reset its configuration before reuse.")
+            progress_dir = getattr(self.workflow_options, "_tune_sequence_progress_dir", None)
+            trial_id = getattr(self, "trial_id", None)
+            progress = (
+                TrialSequenceProgressWriter(progress_dir, str(trial_id))
+                if progress_dir is not None and trial_id is not None
+                else None
+            )
             try:
-                result = self._objective(normalize_trial_config(self.config))
+                callbacks = {} if progress is None else {"progress_callback": progress}
+                result = self._objective(normalize_trial_config(self.config), **callbacks)
             except BaseException:
                 self.cleanup()
                 raise
+            finally:
+                if progress is not None:
+                    progress.flush()
             self._finished = True
             return {**result, "done": True}
 

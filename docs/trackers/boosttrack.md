@@ -64,4 +64,13 @@ Use a calibrated tracker configuration to load covariance scales fitted against
 representative ground truth. Those scales live under `kalman.noise`; adaptation
 and timing remain separate settings within the same `kalman` group.
 
+## Python API
+
+Pass algorithm settings through `BoostTrackConfig`, for example
+`BoostTrack(config=BoostTrackConfig(det_thresh=0.5))`. Direct construction and
+`create_tracker("boosttrack")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.BoostTrackConfig
+
 ::: boxmot.BoostTrack

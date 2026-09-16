@@ -40,21 +40,23 @@ def _association_policy(name: str, options: dict[str, Any]) -> dict[str, Any]:
             "motion_gate": "original_mahalanobis_gate_preserved",
         }
     if name == "sfsort":
+        from boxmot.trackers.sfsort.config import SFSORTConfig
         from boxmot.trackers.sfsort.tracker import SFSORT
 
-        resolve = SFSORT._resolve_or_default
-        high_confidence = resolve(options["high_th"], 0.6, 0.0, 1.0)
-        low_confidence = resolve(options["low_th"], 0.1, 0.0, high_confidence)
-        dynamic = bool(options["dynamic_tuning"])
+        config = SFSORTConfig.from_mapping({key: options[key] for key in SFSORTConfig.fields() if key in options})
+        clamp = SFSORT.clamp
+        high_confidence = clamp(float(config.high_th), 0.0, 1.0)
+        low_confidence = clamp(float(config.low_th), 0.0, high_confidence)
+        dynamic = config.dynamic_tuning
         return {
             "candidate_matrix": "stage_cost",
-            "high_threshold": resolve(options["match_th_first"], 0.67, 0.0, 0.67),
-            "low_threshold": resolve(options["match_th_second"], 0.3, 0.0, 1.0),
+            "high_threshold": clamp(float(config.match_th_first), 0.0, 0.67),
+            "low_threshold": clamp(float(config.match_th_second), 0.0, 1.0),
             "dynamic_threshold": {
                 "enabled": dynamic,
                 "rule": "clamp(high_threshold - multiplier * log10(max(count_above_cutoff, 1)), 0, 0.67)",
-                "multiplier": resolve(options["match_th_first_m"], 0.0, 0.02, 0.08) if dynamic else 0.0,
-                "confidence_cutoff": resolve(options["cth"], 0.5, low_confidence, 1.0),
+                "multiplier": clamp(float(config.match_th_first_m), 0.02, 0.08) if dynamic else 0.0,
+                "confidence_cutoff": clamp(float(config.cth), low_confidence, 1.0),
             },
         }
     policy: dict[str, Any] = {

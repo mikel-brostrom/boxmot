@@ -7,7 +7,7 @@ from dataclasses import replace
 import pytest
 import torch
 
-from boxmot import EagerMot, KalmanConfig, MafHda
+from boxmot import EagerMot, EagerMotConfig, KalmanConfig, MafHda, MafHdaConfig
 from boxmot.trackers.maf_hda import tracker as maf_hda
 from tests.unit.trackers.multimodal.test_eagermot_package import _observations as _sensor_observations
 from tests.unit.trackers.multimodal.test_maf_hda_package import _observations as _mask_observations
@@ -21,7 +21,7 @@ def test_maf_motion_stages_track_masks_through_empty_frames_without_pixels(
         pytest.fail("Motion association must not construct appearance features.")
 
     monkeypatch.setattr(maf_hda, "MaskedKCF", forbid_appearance)
-    tracker = MafHda(s2ta_mode="motion", t2ta_mode="motion", per_class=per_class)
+    tracker = MafHda(config=MafHdaConfig(s2ta_mode="motion", t2ta_mode="motion"), per_class=per_class)
     assert tracker.requirements.frame is False
     assert tracker.requirements.masks is True
     assert tracker.capabilities.requires_frame is False
@@ -42,7 +42,9 @@ def test_maf_motion_stages_track_masks_through_empty_frames_without_pixels(
 
 @pytest.mark.parametrize("s2ta,t2ta", [("maf", "maf"), ("motion", "appearance"), ("appearance", "motion")])
 def test_maf_enabled_appearance_requires_pixels_before_updating_state(s2ta: str, t2ta: str) -> None:
-    tracker = MafHda(s2ta_mode=s2ta, t2ta_mode=t2ta)
+    tracker = MafHda(
+        config=MafHdaConfig(s2ta_mode=s2ta, t2ta_mode=t2ta),
+    )
     detections, _frame = _mask_observations(0)
     assert tracker.requirements.frame is True
     with pytest.raises(ValueError, match="requires a frame"):
@@ -51,7 +53,9 @@ def test_maf_enabled_appearance_requires_pixels_before_updating_state(s2ta: str,
 
 
 def test_maf_motion_centroid_uses_frame_dimensions_without_decoding_pixels(monkeypatch: pytest.MonkeyPatch) -> None:
-    tracker = MafHda(s2ta_mode="motion", t2ta_mode="motion", asso_func="centroid")
+    tracker = MafHda(
+        config=MafHdaConfig(s2ta_mode="motion", t2ta_mode="motion", asso_func="centroid"),
+    )
     assert tracker.requirements.frame is True
     assert tracker.requirements.frame_dimensions_only is True
 
@@ -68,7 +72,9 @@ def test_eager_ego_poses_are_optional_but_consumed_when_declared() -> None:
     detections, spatial, camera = _sensor_observations()
     empty_image = replace(detections.select(torch.empty(0, dtype=torch.int64)), masks=None)
     spatial = spatial.select(torch.tensor([1]))
-    plain = EagerMot(distance_threshold=1.0)
+    plain = EagerMot(
+        config=EagerMotConfig(distance_threshold=1.0),
+    )
     assert plain.requirements.camera is True
     assert plain.requirements.ego_motion is False
     assert plain.capabilities.accepts_ego_motion is True
@@ -76,7 +82,9 @@ def test_eager_ego_poses_are_optional_but_consumed_when_declared() -> None:
     assert len(no_pose.image_tracks) == 0 and len(no_pose.spatial_tracks) == 1
     torch.testing.assert_close(no_pose.spatial_tracks.geometry.values, spatial.geometry.values)
 
-    tracker = EagerMot(distance_threshold=1.0)
+    tracker = EagerMot(
+        config=EagerMotConfig(distance_threshold=1.0),
+    )
     posed_camera = replace(camera, camera_to_world=torch.eye(4))
     first = tracker.update(empty_image, detections_3d=spatial, camera=posed_camera)
     moving_pose = torch.eye(4)

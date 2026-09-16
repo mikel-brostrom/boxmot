@@ -6,9 +6,9 @@ BoxMOT v24 separates values, components, composition, and orchestration:
 structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 ```
 
-The package root exports `__version__`, `create_tracker`, and the lazily loaded
-tracker algorithm classes. Import every other public contract from its domain
-package.
+The package root exports `__version__`, `create_tracker`, tracker classes,
+and their algorithm and shared Kalman/ReID configs. These exports load lazily.
+Import other public contracts from their domain package.
 
 ## Canonical values
 
@@ -85,33 +85,61 @@ factories separately.
 
 ### Tracker classes and autocomplete
 
-Import a tracker class directly when you want its constructor arguments in your
-editor's completion menu:
+Each tracker has an immutable, validated algorithm configuration. Import its
+config class for editor completion of thresholds, track lifetime, association,
+and algorithm switches:
 
 ```python
-from boxmot import BotSort
+from boxmot import BotSort, BotSortConfig, KalmanConfig, KalmanNoiseConfig, ReIDConfig
 
 tracker = BotSort(
-    track_high_thresh=0.5,
+    config=BotSortConfig(
+        match_thresh=0.8,
+        track_buffer=40,
+    ),
+    kalman=KalmanConfig(
+        noise=KalmanNoiseConfig(measurement_noise_scale=1.5),
+    ),
+    reid=ReIDConfig(device="cpu"),
     per_class=True,
-    max_age=45,
     class_ids=(0,),
     class_names={0: "person"},
-    use_embeddings=False,
-    use_cmc=False,
 )
 ```
 
-Invoke completion inside `BotSort(...)` to see argument names and types.
-All public tracker classes expose their own arguments and supported shared
-settings, including class metadata. `OccluBoost(...)` also suggests its inherited
-BoostTrack options, such as `use_cmc`, `cmc_method`, and `lambda_iou`.
-Editors that support typed keyword arguments can flag misspelled names and
-incorrect value types before you run the code.
+Invoke completion inside `BotSortConfig(...)` for algorithm settings and inside
+`BotSort(...)` for supported components and runtime selection. Pass algorithm
+settings through `config=` when constructing a tracker class directly.
+`tracker.config` exposes the resolved immutable configuration. Use
+`dataclasses.replace(config, match_thresh=0.7)` to derive a modified copy.
 
-Suggestions follow each tracker's supported controls. For example, `ByteTrack`
-uses `track_thresh` and `SFSORT` uses `high_th` for detection thresholds; ReID
-options appear on trackers that accept embeddings.
+Every tracker has a matching public config: `BotSortConfig`, `ByteTrackConfig`,
+`BoostTrackConfig`, `DeepOcSortConfig`, `HybridSortConfig`, `OcSortConfig`,
+`OccluBoostConfig`, `SFSORTConfig`, `StrongSortConfig`, `MafHdaConfig`, and
+`EagerMotConfig`. Each config validates field types and values at construction.
+`ByteTrackConfig` uses `track_thresh` and `SFSORTConfig` uses `high_th` for
+detection thresholds. ReID components remain available only on trackers that
+accept embeddings.
+
+Direct construction and `create_tracker()` share the config class defaults.
+The factory accepts either a matching `config=` object or dynamic algorithm
+keywords, which are useful when selecting trackers by name:
+
+```python
+from boxmot import BotSortConfig, create_tracker
+from boxmot.trackers import TrackerSpec
+
+config = BotSortConfig(match_thresh=0.8)
+tracker = create_tracker("botsort", config=config, match_thresh=0.7)
+spec = TrackerSpec("botsort", options=tuple(sorted(config.to_dict().items())))
+tracker_from_spec = create_tracker(spec)
+restored = BotSortConfig.from_mapping(config.to_dict())
+```
+
+Factory precedence is config defaults, the supplied config, spec options,
+`options=`, then explicit keywords. Configs and specs are left unchanged.
+YAML presets override individual fields; tracker YAML files provide tuning
+metadata while the typed configs define algorithm defaults.
 
 ### Update inputs and outputs
 
@@ -227,7 +255,7 @@ spatial_tracker = EagerMot(kalman=KalmanConfig(is_angular=True))
 `adaptive_kf` is available in BoostTrack and OccluBoost. `is_angular` is specific
 to EagerMOT. AMS is specific to OccluBoost's AABB updates; its OBB path bypasses
 that policy. Per-class noise settings vary covariance only. Association weights,
-CMC, and track lifetime remain tracker arguments.
+CMC, and track lifetime belong to the tracker's algorithm config.
 
 ### Elapsed time
 
@@ -327,7 +355,7 @@ BotSort and OccluBoost adapters expose the same live fallback. Pass an immutable
 `ReIDConfig` to configure lazy model construction:
 
 ```python
-from boxmot import OccluBoost, ReIDConfig, create_tracker
+from boxmot import OccluBoost, OccluBoostConfig, ReIDConfig, create_tracker
 
 reid = ReIDConfig(
     model="osnet-x0-25-msmt17",
@@ -335,7 +363,7 @@ reid = ReIDConfig(
     precision="fp32",
     batch_size=32,
 )
-tracker = OccluBoost(reid=reid, use_embeddings=True)
+tracker = OccluBoost(config=OccluBoostConfig(use_embeddings=True), reid=reid)
 tracker_from_factory = create_tracker("occluboost", reid=reid, use_embeddings=True)
 ```
 
@@ -344,7 +372,7 @@ path. Optional `device`, `precision`, `preprocessing`, `batch_size`,
 `image_size`, and `embedding_dim` override the selected profile; unset fields
 retain its settings. Set `allow_download=False` to require local weights.
 Omitting `reid` selects the default configuration. Keep `use_embeddings`,
-association thresholds, feature smoothing, and gallery limits on the tracker.
+association thresholds, feature smoothing, and gallery limits in the algorithm config.
 
 To reuse an encoder that has already been constructed, pass that
 `AppearanceEncoder` directly:
@@ -353,7 +381,7 @@ To reuse an encoder that has already been constructed, pass that
 from boxmot.reid import create_reid_encoder
 
 encoder = create_reid_encoder(reid)
-tracker = OccluBoost(reid=encoder, use_embeddings=True)
+tracker = OccluBoost(config=OccluBoostConfig(use_embeddings=True), reid=encoder)
 ```
 
 When embeddings are already attached, the tracker uses them without invoking

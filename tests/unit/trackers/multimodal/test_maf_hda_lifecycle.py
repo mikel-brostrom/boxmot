@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import MafHda
+from boxmot import MafHda, MafHdaConfig
 from boxmot.structures import Boxes, Detections, MaskBatch
 from boxmot.trackers.maf_hda.association import (
     INITIAL_COVARIANCE,
@@ -50,7 +50,7 @@ def _sample(
 @pytest.mark.parametrize("missing_frames", (1, 2, 3))
 def test_recovery_preserves_ids_only_within_max_age(per_class: bool, missing_frames: int) -> None:
     """T2TA uses trajectory motion across a gap without emitting stale masks."""
-    tracker = MafHda(max_age=3, per_class=per_class)
+    tracker = MafHda(config=MafHdaConfig(max_age=3), per_class=per_class)
     first = tracker.update(*_sample(0, [[10, 20, 30, 48]]))
     second = tracker.update(*_sample(1, [[12, 20, 32, 48]]))
     assert second.track_ids.tolist() == first.track_ids.tolist()
@@ -69,7 +69,9 @@ def test_recovery_preserves_ids_only_within_max_age(per_class: bool, missing_fra
 
 def test_tracklet_stage_recovers_a_match_rejected_by_segment_stage() -> None:
     """The second stage permits smaller overlap than the first motion gate."""
-    tracker = MafHda(s2ta_mode="motion", t2ta_mode="motion")
+    tracker = MafHda(
+        config=MafHdaConfig(s2ta_mode="motion", t2ta_mode="motion"),
+    )
     first = tracker.update(*_sample(0, [[10, 20, 30, 40]]))
     # Nine overlapping columns are below S2TA's half-area requirement.
     recovered = tracker.update(*_sample(1, [[21, 20, 41, 40]]))
@@ -110,7 +112,9 @@ def test_masks_and_ids_do_not_merge_across_classes(per_class: bool) -> None:
 
 def test_min_hits_requires_observations_including_at_sequence_start() -> None:
     """A single detection cannot become confirmed by simply waiting."""
-    tracker = MafHda(min_hits=3)
+    tracker = MafHda(
+        config=MafHdaConfig(min_hits=3),
+    )
     assert len(tracker.update(*_sample(0, [[10, 20, 30, 48]]))) == 0
     assert len(tracker.update(*_sample(1, []))) == 0
     assert len(tracker.update(*_sample(2, []))) == 0
@@ -152,7 +156,9 @@ def test_appearance_rescue_preserves_uncertainty_when_motion_gate_rejects() -> N
 
 def test_reappearing_track_can_finish_confirmation_after_recovery_deadline() -> None:
     """max_age measures the gap to reappearance, excluding confirmation latency."""
-    tracker = MafHda(min_hits=3, max_age=3, s2ta_mode="motion", t2ta_mode="motion")
+    tracker = MafHda(
+        config=MafHdaConfig(min_hits=3, max_age=3, s2ta_mode="motion", t2ta_mode="motion"),
+    )
     for frame in range(3):
         initial = tracker.update(*_sample(frame, [[10, 20, 30, 48]]))
     tracker.update(*_sample(3, []))
@@ -163,7 +169,9 @@ def test_reappearing_track_can_finish_confirmation_after_recovery_deadline() -> 
 
 def test_recovery_geometry_uses_birth_frame_while_candidate_keeps_moving() -> None:
     """Confirmation must not compare an old prediction with a later observation."""
-    tracker = MafHda(min_hits=4, max_age=30)
+    tracker = MafHda(
+        config=MafHdaConfig(min_hits=4, max_age=30),
+    )
     for frame in range(9):
         boxes = [] if frame == 4 else [[10 + 9 * frame, 20, 30 + 9 * frame, 48]]
         result = tracker.update(*_sample(frame, boxes))
@@ -208,4 +216,6 @@ def test_fusion_uses_source_minmax_product_and_overlap_substitution() -> None:
 def test_invalid_tracker_parameters_fail_before_tracking(option: str, value: object) -> None:
     """Reject configurations that cannot define a meaningful tracker state."""
     with pytest.raises(ValueError, match=option):
-        MafHda(**{option: value})
+        MafHda(
+            config=MafHdaConfig(**{option: value}),
+        )

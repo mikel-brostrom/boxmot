@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -102,7 +103,7 @@ def test_class_metadata_can_be_cleared_explicitly() -> None:
 def test_name_and_spec_native_dispatch_use_equal_immutable_options(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """No native library is needed to verify backend selection and option merging."""
     captured = []
-    sentinel = object()
+    sentinel = SimpleNamespace()
 
     def construct(spec, definition, geometry, *, reid):
         captured.append((spec, definition, geometry, reid))
@@ -116,23 +117,15 @@ def test_name_and_spec_native_dispatch_use_equal_immutable_options(name: str, mo
     assert captured[0] == captured[1]
 
 
-def test_collection_options_are_frozen_before_factory_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Convenient option mappings cannot leak mutable caller containers into specs."""
-    captured = []
+def test_collection_options_are_frozen_and_unknown_algorithm_fields_are_rejected() -> None:
+    """Specs freeze authored containers; construction validates the algorithm schema."""
     nested = {"schedule": [1, 2, {"enabled": True}]}
-    sentinel = object()
-
-    def construct(spec, definition, geometry, *, reid):
-        captured.append(spec)
-        return sentinel
-
-    monkeypatch.setattr(factory, "_create_native_tracker", construct)
-    monkeypatch.setattr(factory, "_bind_and_validate_capabilities", lambda value, _: value)
-    create_tracker("bytetrack", backend="cpp", options={"fixture": nested})
+    spec = factory._resolve_spec("bytetrack", {"backend": "cpp", "options": {"fixture": nested}})
     nested["schedule"].append(3)
-
-    assert captured[0].option_dict["fixture"] == (("schedule", (1, 2, (("enabled", True),))),)
-    assert hash(captured[0])
+    assert spec.option_dict["fixture"] == (("schedule", (1, 2, (("enabled", True),))),)
+    assert hash(spec)
+    with pytest.raises(TypeError, match="fixture"):
+        create_tracker(spec)
 
 
 @pytest.mark.parametrize("name", ("bytetrack", "occluboost"))

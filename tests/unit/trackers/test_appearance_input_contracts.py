@@ -13,7 +13,7 @@ from boxmot import KalmanConfig
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, CameraModel, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers.botsort.native import NativeBotSortTracker
-from boxmot.trackers.common.config import load_tracker_defaults, nest_tracker_options
+from boxmot.trackers.common.config import get_tracker_config_class, load_tracker_defaults, nest_tracker_options
 from boxmot.trackers.common.registry import get_tracker_class
 from boxmot.trackers.occluboost.native import NativeOccluBoostTracker
 from tests.unit.native.trackers._helpers import empty_native_batch
@@ -81,7 +81,12 @@ def _python_tracker(name: str, **options: Any) -> Any:
     defaults = nest_tracker_options(load_tracker_defaults(name))
     defaults["kalman"] = KalmanConfig.from_mapping(defaults["kalman"])
     defaults.update(options)
-    return get_tracker_class(name)(**defaults)
+    runtime = {
+        key: defaults.pop(key)
+        for key in tuple(defaults)
+        if key in {"kalman", "reid", "edgetam", "mask_guidance", "is_obb", "per_class", "class_ids", "class_names"}
+    }
+    return get_tracker_class(name)(config=get_tracker_config_class(name)(**defaults), **runtime)
 
 
 @pytest.mark.parametrize("name", _PYTHON_TRACKERS)
@@ -172,7 +177,7 @@ def test_python_variable_timing_requires_and_consumes_capture_timestamps(name: s
 @pytest.mark.parametrize("invalid", (None, "false", 0, 1))
 def test_python_camera_motion_toggles_require_booleans(name: str, invalid: Any) -> None:
     option = "cmc_off" if name == "deepocsort" else "use_cmc"
-    with pytest.raises(TypeError, match=f"{option} must be bool"):
+    with pytest.raises(TypeError, match=option):
         _python_tracker(name, **{option: invalid})
 
 
@@ -234,14 +239,14 @@ def test_native_does_not_silently_drop_disabled_or_unsupported_inputs(name: str,
 @pytest.mark.parametrize("option", ("use_cmc", "use_embeddings"))
 @pytest.mark.parametrize("invalid", (None, "false", 0, 1))
 def test_native_input_toggles_require_booleans(name: str, option: str, invalid: Any) -> None:
-    with pytest.raises(TypeError, match=f"{option} must be bool"):
+    with pytest.raises(TypeError, match=option):
         _NATIVE_TRACKERS[name]({option: invalid}, library=_Library())
 
 
 @pytest.mark.parametrize("name", _NATIVE_TRACKERS)
 @pytest.mark.parametrize("method", (None, "none", "orb", "sift"))
 def test_native_enabled_cmc_rejects_unavailable_estimators(name: str, method: str | None) -> None:
-    with pytest.raises(ValueError, match="cmc_method"):
+    with pytest.raises((TypeError, ValueError), match="cmc_method"):
         _NATIVE_TRACKERS[name]({"cmc_method": method}, library=_Library())
 
 

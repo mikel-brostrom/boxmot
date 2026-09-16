@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import BoostTrackConfig, HybridSortConfig, OccluBoostConfig
 from boxmot.structures import Boxes, Detections
 from boxmot.trackers.boosttrack.tracker import BoostTrack
 from boxmot.trackers.common.association.boost import associate as associate_boost
@@ -135,11 +136,21 @@ def _tracker(kind: str, **kwargs: object) -> BoostTrack | OccluBoost | HybridSor
     common.update(kwargs)
     if kind == "hybrid":
         common.setdefault("tcm_byte_step", False)
-        return HybridSort(cmc_method=None, **common)
+        common.setdefault("use_byte", True)
+        common.setdefault("asso_func", "iou")
+        # Keep low-score predictions separated from the 0.3-confidence observations.
+        common.setdefault("track_thresh", 0.5)
+        return HybridSort(
+            config=HybridSortConfig(cmc_method=None, **common),
+        )
     common.update(use_cmc=False, use_dlo_boost=False, use_duo_boost=False)
     if kind == "occluboost":
-        return OccluBoost(use_second_pass=True, second_pass_min_hits=0, second_iou_thresh=0.55, **common)
-    return BoostTrack(**common)
+        return OccluBoost(
+            config=OccluBoostConfig(use_second_pass=True, second_pass_min_hits=0, second_iou_thresh=0.55, **common),
+        )
+    return BoostTrack(
+        config=BoostTrackConfig(**common),
+    )
 
 
 @pytest.mark.parametrize("kind", ["boost", "occluboost", "hybrid"])

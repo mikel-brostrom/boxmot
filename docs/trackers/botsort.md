@@ -57,4 +57,13 @@ those rows through the same live typed API used by track mode; there is no
 positional replay executable. See
 [Native C++ Integration](../native/index.md#capabilities-and-requirements).
 
+## Python API
+
+Pass algorithm settings through `BotSortConfig`, for example
+`BotSort(config=BotSortConfig(match_thresh=0.8))`. Direct construction and
+`create_tracker("botsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.BotSortConfig
+
 ::: boxmot.BotSort

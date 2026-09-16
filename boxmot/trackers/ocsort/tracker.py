@@ -15,10 +15,11 @@ from boxmot.trackers.common.association import (
 )
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.common.box.base import BoxTracker
-from boxmot.trackers.common.constructor import CommonTrackerOptions
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
 from boxmot.trackers.common.motion.batching import predict_tracks, update_tracks
 from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
 from boxmot.trackers.common.tracking.observations import k_previous_obs
+from boxmot.trackers.ocsort.config import OcSortConfig
 from boxmot.trackers.ocsort.track import KalmanBoxTracker
 
 
@@ -39,39 +40,39 @@ class OcSort(BoxTracker):
 
     def __init__(
         self,
-        # OcSort-specific parameters
-        min_conf: float = 0.1,
-        delta_t: int = 3,
-        inertia: float = 0.2,
-        use_byte: bool = False,
+        config: OcSortConfig | None = None,
         *,
         kalman: KalmanConfig | None = None,
-        **kwargs: Unpack[CommonTrackerOptions],  # BaseTracker parameters
+        **kwargs: Unpack[BoxTrackerOptions],
     ) -> None:
         """Configure observation history and optional low-confidence recovery.
 
         Args:
-            min_conf: Minimum confidence for the low-score association pass
-                when ``use_byte`` is enabled.
-            delta_t: Observation lookback in frames for estimating motion
-                direction.
-            inertia: Weight of the observed velocity-direction term in matching.
-            use_byte: Enable a second association pass for detections between
-                ``min_conf`` and the shared detection threshold.
+            config: Immutable algorithm settings. None selects OcSortConfig defaults.
             kalman: Immutable filter noise, timing, and supported behavior settings.
-                None preserves tracker defaults. Per-class noise overrides require
-                ``per_class=True``.
-            **kwargs: ``det_thresh``, ``max_age``, ``max_obs``, ``min_hits``,
-                ``iou_threshold``, class metadata and separation, ``asso_func``,
-                and ``is_obb``.
+                None preserves tracker defaults.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
         """
-        super().__init__(kalman=kalman, **kwargs)
+        config = OcSortConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
+        super().__init__(
+            det_thresh=config.det_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
+            kalman=kalman,
+            **kwargs,
+        )
 
         # Store OcSort-specific parameters
-        self.min_conf: float = min_conf
-        self.delta_t: int = delta_t
-        self.inertia: float = inertia
-        self.use_byte: bool = use_byte
+        self.min_conf: float = config.min_conf
+        self.delta_t: int = config.delta_t
+        self.inertia: float = config.inertia
+        self.use_byte: bool = config.use_byte
         self.frame_count: int = 0
 
         # Initialize tracker collections

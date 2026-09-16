@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from boxmot import HybridSortConfig
 from boxmot.engine.tuning.search_space import load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
@@ -56,14 +57,13 @@ def _tracker(*, use_embeddings: bool = False, **kwargs) -> HybridSort:
     options = {
         "cmc_method": None,
         "use_embeddings": use_embeddings,
-        "is_obb": True,
         "min_hits": 1,
         "det_thresh": 0.5,
         "iou_threshold": 0.2,
         "asso_func": "iou",
     }
     options.update(kwargs)
-    return HybridSort(**options)
+    return HybridSort(config=HybridSortConfig(**options), is_obb=True)
 
 
 def test_hybridsort_obb_crossed_orientations_keep_geometry_ids() -> None:

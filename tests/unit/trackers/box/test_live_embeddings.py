@@ -15,6 +15,7 @@ from boxmot.reid.adapters import RuntimeAppearanceEncoder
 from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
+from boxmot.trackers.common.config import get_tracker_config_class
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS, get_tracker_class
 from tests.unit.trackers._reid import INVALID_ENCODER_OUTPUTS, OutputEncoder, RecordingEncoder, invalid_output_encoder
 
@@ -83,7 +84,7 @@ def _tracker_options(tracker_name: str) -> dict[str, object]:
 def _tracker(tracker_name: str, *, reid: ReIDConfig | AppearanceEncoder | None, **kwargs: object):
     tracker_class = get_tracker_class(tracker_name)
     return tracker_class(
-        **_tracker_options(tracker_name),
+        config=get_tracker_config_class(tracker_name)(**_tracker_options(tracker_name)),
         reid=reid,
         **kwargs,
     )
@@ -447,7 +448,7 @@ def test_optional_reid_trackers_do_not_run_model_when_embeddings_are_disabled(tr
     options = _tracker_options(tracker_name)
     options["use_embeddings"] = False
     tracker_class = get_tracker_class(tracker_name)
-    tracker = tracker_class(**options, reid=model)
+    tracker = tracker_class(config=get_tracker_config_class(tracker_name)(**options), reid=model)
 
     tracker.update(_detections(), _frame())
 

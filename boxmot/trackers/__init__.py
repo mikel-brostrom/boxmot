@@ -6,6 +6,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from boxmot.trackers.common.algorithm_config import TrackerConfig as TrackerConfig
     from boxmot.trackers.common.factory import create_tracker as create_tracker
     from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfig
     from boxmot.trackers.common.protocols import ReIDConfigurableTracker, Tracker, TrackerRequirements
@@ -18,6 +19,7 @@ __all__ = (
     "ReIDConfigurableTracker",
     "Tracker",
     "TrackerCapabilities",
+    "TrackerConfig",
     "TrackerFamily",
     "TrackerRequirements",
     "TrackerSpec",
@@ -25,6 +27,7 @@ __all__ = (
 )
 
 _EXPORTS = {
+    "TrackerConfig": ("boxmot.trackers.common.algorithm_config", "TrackerConfig"),
     "GeometryKind": ("boxmot.trackers.common.specs", "GeometryKind"),
     "MaskGuidance": ("boxmot.trackers.common.mask_guidance", "MaskGuidance"),
     "MaskGuidanceConfig": ("boxmot.trackers.common.mask_guidance", "MaskGuidanceConfig"),

@@ -44,6 +44,7 @@ materialize:
   seed: 0
 eval:
   cache_inputs: false
+  postprocessing: []
   experiment: null
   dataset: null
   source: null

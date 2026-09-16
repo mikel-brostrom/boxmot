@@ -69,6 +69,47 @@ def flatten_yaml_config(yaml_cfg: dict) -> dict:
     return flat
 
 
+def condition_tracker_schema(
+    schema: dict, defaults: Mapping[str, Any], *, geometry: str
+) -> dict:
+    """Exclude inactive geometry and fixed conditional branches from search.
+
+    Keep inactive values as constants so trial records and saved profiles
+    retain the selected runtime configuration. Only fixed parent values are
+    resolved here; a searchable toggle's default does not disable its branch.
+    """
+    if geometry not in {"aabb", "obb"}:
+        raise ValueError("Tracker search geometry must be 'aabb' or 'obb'.")
+
+    def constant(name: str, entry: dict) -> dict:
+        return {"default": defaults[name] if name in defaults else entry["default"]}
+
+    def visit(entries: dict, *, inactive: bool = False) -> dict:
+        conditioned: dict = {}
+        for name, entry in entries.items():
+            if not isinstance(entry, dict):
+                conditioned[name] = entry
+                continue
+            selected = entry.get("geometry")
+            excluded = inactive or (selected is not None and selected != geometry)
+            children = entry.get("activates")
+            details = {key: value for key, value in entry.items() if key not in {"geometry", "activates"}}
+            fixed = excluded or set(details) == {"default"}
+            if fixed:
+                conditioned[name] = constant(name, entry)
+                if isinstance(children, dict):
+                    conditioned.update(
+                        visit(children, inactive=excluded or not bool(conditioned[name]["default"]))
+                    )
+            else:
+                if isinstance(children, dict):
+                    details["activates"] = visit(children)
+                conditioned[name] = details
+        return conditioned
+
+    return visit(expand_yaml_groups(schema))
+
+
 def conditional_yaml_tree(config: dict) -> tuple[dict[str, dict], set[str], dict[str, str]]:
     """Return conditional parent/child metadata from ``activates`` blocks."""
     parents_with_children: dict[str, dict] = {}
@@ -154,8 +195,12 @@ def validate_tuning_config(tracker_name: str, config: dict) -> None:
             f"{', '.join(unknown)}"
         )
 
-    allowed_fields = {"type", "default", "range", "options", "values", "activates"}
+    allowed_fields = {"type", "default", "range", "options", "values", "activates", "geometry"}
     for param, details in flat.items():
+        if isinstance(details, dict) and "geometry" in details:
+            if not isinstance(details["geometry"], str) or details["geometry"] not in {"aabb", "obb"}:
+                raise ValueError(f"Tuning config for {tracker_name} has invalid geometry for {param!r}.")
+            details = {key: value for key, value in details.items() if key != "geometry"}
         if isinstance(details, dict) and set(details) == {"default"}:
             continue
         if param in {"kalman.variable_dt", *KALMAN_TIMING_OPTIONS}:

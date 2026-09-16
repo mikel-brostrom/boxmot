@@ -12,14 +12,15 @@ from boxmot.reid.protocols import AppearanceEncoder
 from boxmot.reid.specs import ReIDConfig
 from boxmot.structures import GeometryKind
 from boxmot.trackers.common._model_names import TrackerName
-from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_config
+from boxmot.trackers.common.algorithm_config import TrackerConfig
+from boxmot.trackers.common.config import flatten_tracker_options, get_tracker_config_class, load_tracker_config
 from boxmot.trackers.common.mask_guidance import (
     MASK_GUIDANCE_OPTIONS,
     MaskGuidance,
     MaskGuidanceConfig,
     validate_mask_guidance_spec,
 )
-from boxmot.trackers.common.motion.kalman_filters.config import normalize_kalman_config
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig, normalize_kalman_config
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_TRACKER_NAMES
 from boxmot.trackers.common.motion.kalman_filters.profile import validate_calibration_profile
 from boxmot.trackers.common.protocols import Tracker, TrackerRequirements
@@ -29,7 +30,7 @@ from boxmot.trackers.common.registry import (
     get_tracker_definition,
     supported_native_trackers,
 )
-from boxmot.trackers.common.specs import TrackerCapabilities, TrackerSpec
+from boxmot.trackers.common.specs import TrackerCapabilities, TrackerFamily, TrackerSpec
 
 _REID_MODEL_OPTIONS = frozenset(
     {
@@ -209,6 +210,8 @@ def _validate_model_options(name: str, options: Mapping[str, Any]) -> None:
 def create_tracker(
     spec: TrackerName,
     *,
+    config: TrackerConfig | None = None,
+    kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
     **overrides: Any,
@@ -219,6 +222,8 @@ def create_tracker(
 def create_tracker(
     spec: TrackerSpec | str,
     *,
+    config: TrackerConfig | None = None,
+    kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
     **overrides: Any,
@@ -228,12 +233,17 @@ def create_tracker(
 def create_tracker(
     spec: TrackerSpec | str,
     *,
+    config: TrackerConfig | None = None,
+    kalman: KalmanConfig | None = None,
     reid: ReIDConfig | AppearanceEncoder | None = None,
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None = None,
     **overrides: Any,
 ) -> Tracker:
     """Create a tracker from its registered name or an immutable specification.
 
+    ``config`` supplies the selected tracker's typed algorithm settings.
+    Specification options override that configuration; an ``options`` mapping
+    and then direct keyword arguments take precedence over specification options.
     Keyword arguments override specification fields or tracker-algorithm options.
     An optional ``options`` mapping overlays spec options; direct keywords win.
     Omitted values retain the spec selection and the tracker's configured defaults.
@@ -249,6 +259,19 @@ def create_tracker(
     backend lazily when called without precomputed embeddings.
     """
 
+    spec = _resolve_spec(spec, {})
+    config_type = get_tracker_config_class(spec.name)
+    if config is not None:
+        config = config_type.resolve(config)
+        config_options = config.to_dict()
+        if overrides.get("backend", spec.backend) == "cpp":
+            defaults = config_type().to_dict()
+            for name in _UNSUPPORTED_NATIVE_OPTIONS.get(spec.name, ()):
+                if name in config_options and config_options[name] == defaults.get(name):
+                    config_options.pop(name)
+        spec = replace(spec, options=component_options({**config_options, **spec.option_dict}))
+    if kalman is not None:
+        overrides = {**overrides, "kalman": kalman}
     spec = _resolve_spec(spec, overrides)
     if mask_guidance is not None:
         if not isinstance(mask_guidance, (MaskGuidanceConfig, MaskGuidance)):
@@ -258,6 +281,8 @@ def create_tracker(
     if reid is not None and not definition.capabilities.accepts_embeddings:
         raise ValueError(f"Tracker {spec.name!r} does not accept ReID configuration.")
     tracker_args = load_tracker_config(definition.config_name or definition.name, None, spec.option_dict)
+    algorithm_options = {key: tracker_args[key] for key in config_type.fields() if key in tracker_args}
+    algorithm_config = config_type.from_mapping(algorithm_options)
     validate_calibration_profile(tracker_args, tracker_name=spec.name, geometry=spec.geometry, backend=spec.backend)
     calibrated_class = tracker_args.get("calibration.class_id")
     if calibrated_class is not None:
@@ -298,7 +323,8 @@ def create_tracker(
     if edgetam:
         tracker_args["edgetam"] = edgetam
 
-    tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
+    if definition.capabilities.family is TrackerFamily.BOX:
+        tracker_args["is_obb"] = geometry_kind is GeometryKind.OBB
     if definition.accepts_per_class:
         tracker_args["per_class"] = spec.per_class
     if spec.class_ids is not None:
@@ -306,6 +332,9 @@ def create_tracker(
     if spec.class_names:
         tracker_args["class_names"] = dict(spec.class_names)
 
+    for key in algorithm_options:
+        tracker_args.pop(key)
+    tracker_args["config"] = algorithm_config
     tracker_class = _load_tracker_class(definition)
     tracker = tracker_class(**tracker_args)
     return _bind_and_validate_capabilities(tracker, definition.capabilities)

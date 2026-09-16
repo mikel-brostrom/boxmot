@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import BotSortConfig
 from boxmot.native.trackers import botsort as native_binding
 from boxmot.structures import Boxes, Detections, Tracks
 from boxmot.trackers.botsort import native as native_module
@@ -132,7 +133,7 @@ def test_native_botsort_obb_motion_matches_python_without_internal_reid():
         "unconfirmed_match_thresh": 0.95,
         "unconfirmed_emb_scale": 2.0,
     }
-    python_tracker = BotSort(**options, is_obb=True)
+    python_tracker = BotSort(config=BotSortConfig(**options), is_obb=True)
     native_library = native_binding.BotSortLibrary(native_binding.ensure_botsort_cpp_library())
     native_tracker = native_module.NativeBotSortTracker(
         options,

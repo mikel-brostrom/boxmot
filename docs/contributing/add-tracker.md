@@ -21,10 +21,10 @@ To integrate a new tracker cleanly:
    continue to implement only their private NumPy kernel. A ReID-enabled
    high-level tracker adapter must expose and forward
    `reid: ReIDConfig | AppearanceEncoder | None`. Keep `use_embeddings` and
-   appearance association parameters on the tracker. The shared tracker-domain
+   appearance association parameters in the algorithm config. The shared tracker-domain
    appearance helper owns lazy extraction for missing embeddings, the
    precomputed bypass, and empty-batch behavior for Python and native adapters.
-3. Add the tracker key and canonical implementation path to `_TRACKER_MANIFEST`
+3. Add the tracker key, canonical implementation path, and `config_class_path` to `_TRACKER_MANIFEST`
    in `boxmot/trackers/common/manifest.py`, then add its static capability declaration
    to `boxmot/trackers/common/registry.py`. Public exports and exact class
    identities derive from the manifest; tests require registry and
@@ -34,7 +34,11 @@ To integrate a new tracker cleanly:
 4. Import the class in application examples with
    `from boxmot import <TrackerClass>`; implementation packages do not provide
    parallel class aliases.
-5. Add `boxmot/configs/trackers/<name>.yaml` with each parameter's runtime default and tuning metadata.
+5. Add a frozen `<TrackerClass>Config` in `boxmot/trackers/<name>/config.py` for
+   algorithm fields, defaults, and validation. Accept it through `config=` and
+   export it lazily from `boxmot`. Add `boxmot/configs/trackers/<name>.yaml` for
+   tuning metadata and component profiles; the loader supplies algorithm defaults
+   from the config class. Keep model components and geometry/class selection separate.
 6. Add a tracker doc page and wire it into `mkdocs.yml`.
 7. Extend registry/package tests under `tests/unit/trackers/`, add focused
    algorithm tests under `tests/unit/trackers/<family>/` when useful, and update

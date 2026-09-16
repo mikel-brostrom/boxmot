@@ -12,7 +12,8 @@ during that preparation step, never during replay. Automatic preparation
 publishes image references, embeddings when the resolved tracker configuration
 uses appearance, and masks when the selected tracker or scoring requires them.
 Setting `use_embeddings: false` in `--tracker-config` skips the embedding stage,
-as do motion-only trackers such as SFSORT. Appearance-enabled replay requires
+as do motion-only trackers such as SFSORT, unless GTA postprocessing requires
+cached embeddings. Appearance-enabled replay requires
 cached embeddings; the live API's image-to-ReID fallback does not run during replay.
 
 The nine Python box trackers can additionally run EdgeTAM mask propagation
@@ -708,11 +709,46 @@ detected. This metadata cache is separate from the content-addressed detector
 output cache; materialization still establishes the source and model content
 digests before selecting either a complete build or reusable detections.
 
+## Postprocessing
+
+Repeat `--postprocessing` to apply ordered steps after replay and before metrics:
+
+```bash
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --build BUILD_ID \
+  --tracker botsort \
+  --postprocessing gta \
+  --postprocessing gsi
+```
+
+Supported methods are `gta` (tracklet association), `gsi` (Gaussian-smoothed
+interpolation), and `gbrc` (gradient-boosting smoothing and interpolation).
+The example associates fragmented tracklets first, then fills and smooths their
+trajectories. GTA requires cached detection embeddings and must run before
+GSI or GBRC. Automatic preparation publishes embeddings when GTA is selected,
+including for motion-only trackers; an explicit build must already contain
+them. Interpolated rows preserve the track's class and carry detection index
+`-1`.
+
+Postprocessing uses the same `--sequence-workers` limit as tracking. Each
+worker applies the selected methods in order to one sequence. The Postprocess
+stage shows a Rich progress row for every sequence, including the current
+method, phase, and completed work. Counts restart for each phase; phases with
+unknown totals show an indeterminate bar until their work is complete.
+
+Postprocessing supports canonical AABB box replay from a materialized build.
+It is unavailable for OBB output, mask scoring, saved-detection replay, and
+sensor/3D replay. Original tracker results are retained under the result
+folder's `raw/` directory. Metrics use the processed results, and
+`postprocessing.json` records the applied steps and provenance. `--show`
+previews and `--save` videos depict the online tracks produced during replay.
+
 ## Output
 
-Tracker output is serialized to MOT text only at the evaluation boundary.
-Reusable postprocessors can consume those files separately and never rewrite
-the immutable perception build. `--compare-trackeval` is available for
+Tracker output is serialized to MOT text at the evaluation boundary. Selected
+postprocessing steps run before scoring and retain the raw result files. The
+perception build remains immutable. `--compare-trackeval` is available for
 supported AABB MOTChallenge datasets.
 
 Guided box trackers report box tracking metrics. Their output directory includes a

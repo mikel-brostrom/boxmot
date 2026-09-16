@@ -32,6 +32,7 @@ EXPECTED_PUBLIC_API = (
     "AbnormalMotionSuppressionConfig",
     "KalmanNoiseConfig",
     "ReIDConfig",
+    *(f"{public_name}Config" for _, public_name in EXPECTED_TRACKERS),
     *(public_name for _, public_name in EXPECTED_TRACKERS),
 )
 EXPECTED_CLI_COMMANDS = (
@@ -68,10 +69,7 @@ def check_typing_metadata() -> None:
     constructor = importlib.import_module("boxmot.trackers.common.constructor")
     for name, representative in (
         ("TrackerMetadataOptions", "class_ids"),
-        ("AssociationTrackerOptions", "asso_func"),
         ("BoxTrackerOptions", "is_obb"),
-        ("CommonTrackerOptions", "det_thresh"),
-        ("OccluBoostOptions", "use_cmc"),
     ):
         options = getattr(constructor, name)
         assert is_typeddict(options), f"Packaged {name} must be a TypedDict"
@@ -79,6 +77,13 @@ def check_typing_metadata() -> None:
         assert not options.__required_keys__, f"Packaged {name} constructor keywords must remain optional"
     check_tracker_constructor_docs()
     from dataclasses import is_dataclass
+
+    for _, public_name in EXPECTED_TRACKERS:
+        config_name = f"{public_name}Config"
+        config_type = getattr(boxmot, config_name)
+        assert is_dataclass(config_type), f"{config_name} must be publicly available"
+        assert config_type.__dataclass_params__.frozen, f"{config_name} must remain immutable"
+        assert get_type_hints(config_type)["min_hits"] is int
 
     assert is_dataclass(boxmot.KalmanConfig)
     assert boxmot.KalmanConfig.__dataclass_params__.frozen

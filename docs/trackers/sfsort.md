@@ -38,4 +38,13 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --track
 boxmot track --tracker sfsort --tracker-backend cpp --source 0
 ```
 
+## Python API
+
+Pass algorithm settings through `SFSORTConfig`, for example
+`SFSORT(config=SFSORTConfig(high_th=0.6))`. Direct construction and
+`create_tracker("sfsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.SFSORTConfig
+
 ::: boxmot.SFSORT

@@ -132,4 +132,13 @@ appearance code's third-party notices. It runs through BoxMOT's online update
 interface and does not require the original Windows project or an installed
 `MAF_HDA` package.
 
+## Python API
+
+Pass algorithm settings through `MafHdaConfig`, for example
+`MafHda(config=MafHdaConfig(min_hits=1))`. Direct construction and
+`create_tracker("maf_hda")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.MafHdaConfig
+
 ::: boxmot.MafHda

@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import BotSortConfig, SFSORTConfig, StrongSortConfig
 from boxmot.structures import Boxes, Detections, Tracks
 from boxmot.trackers import MaskGuidance, MaskGuidanceConfig
 from boxmot.trackers.botsort.tracker import BotSort
@@ -42,12 +43,20 @@ def _tracker(name: str, *, guided: bool = False, **kwargs):
     guidance = MaskGuidance(MaskGuidanceConfig("edgetam.pt", device="cpu"), propagator=propagator) if guided else None
     if name == "botsort":
         tracker = BotSort(
-            use_cmc=False, use_embeddings=kwargs.pop("use_embeddings", False), mask_guidance=guidance, **kwargs
+            config=BotSortConfig(
+                use_cmc=False,
+                track_low_thresh=0.1,
+                track_high_thresh=0.5,
+                second_match_thresh=kwargs.pop("second_match_thresh", 0.5),
+                use_embeddings=kwargs.pop("use_embeddings", False),
+                **kwargs,
+            ),
+            mask_guidance=guidance,
         )
     elif name == "sfsort":
-        tracker = SFSORT(match_th_second=0.5, mask_guidance=guidance, **kwargs)
+        tracker = SFSORT(config=SFSORTConfig(match_th_second=0.5, **kwargs), mask_guidance=guidance)
     else:
-        tracker = StrongSort(n_init=1, mask_guidance=guidance, **kwargs)
+        tracker = StrongSort(config=StrongSortConfig(n_init=1, **kwargs), mask_guidance=guidance)
         tracker.cmc = None
     return tracker, propagator
 

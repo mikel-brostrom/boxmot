@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from boxmot import SFSORTConfig
 from boxmot.native.trackers import sfsort as native_binding
 from boxmot.structures import Tracks
 from boxmot.trackers.common.protocols import TrackerRequirements
@@ -96,6 +97,10 @@ def test_native_sfsort_accepts_numpy_aabb6_when_frame_requirement_is_met() -> No
     ("options", "requirements"),
     [
         (None, TrackerRequirements(frame=True, frame_dimensions_only=True)),
+        (
+            {"frame_width": None, "frame_height": None, "horizontal_margin": None, "vertical_margin": None},
+            TrackerRequirements(frame=True, frame_dimensions_only=True),
+        ),
         ({"central_timeout": 5, "marginal_timeout": 1}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
         ({"asso_func": "centroid"}, TrackerRequirements(frame=True, frame_dimensions_only=True)),
         ({"frame_width": 640, "frame_height": 480}, TrackerRequirements()),
@@ -115,6 +120,9 @@ def test_native_sfsort_requirements_are_frozen_from_configuration(
         assert tracker.requirements == requirements
         assert tracker.supports_masks is False
         assert tracker.use_embeddings is False
+        assert tracker.config == SFSORTConfig.from_mapping(options or {})
+        for name in ("frame_width", "frame_height", "horizontal_margin", "vertical_margin"):
+            assert tracker.cfg[name] == (getattr(tracker.config, name) or 0)
     finally:
         tracker.close()
 
@@ -130,7 +138,7 @@ def test_native_sfsort_requirements_are_frozen_from_configuration(
     ),
 )
 def test_native_sfsort_rejects_partial_or_negative_frame_dimensions(options: dict[str, Any]) -> None:
-    with pytest.raises(ValueError, match="frame_width and frame_height"):
+    with pytest.raises(ValueError, match="frame_width|frame_height"):
         native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
 
 
@@ -142,7 +150,7 @@ def test_native_sfsort_rejects_partial_or_negative_frame_dimensions(options: dic
     ),
 )
 def test_native_sfsort_rejects_noninteger_frame_dimensions(options: dict[str, Any]) -> None:
-    with pytest.raises(TypeError, match="must be an integer"):
+    with pytest.raises(TypeError, match=r"frame_(width|height) must have type"):
         native_module.NativeSFSORTTracker(options, library=_FakeLibrary())
 
 
@@ -234,7 +242,7 @@ def test_native_sfsort_obb_directional_center_penalty_matches_python(common_rota
     first_detection = np.array([[*center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
     moved_detection = np.array([[*moved_center, 100.0, 10.0, angle, 0.999, 0]], dtype=np.float32)
 
-    python_tracker = SFSORT(is_obb=True, **cfg)
+    python_tracker = SFSORT(config=SFSORTConfig(**cfg), is_obb=True)
     library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
     native_tracker = native_module.NativeSFSORTTracker(cfg, geometry="obb", library=library)
     image = np.zeros((240, 320, 3), dtype=np.uint8)
@@ -266,7 +274,7 @@ def test_native_sfsort_tiny_obb_shape_cost_matches_python() -> None:
     candidate_detection = np.array([[0, 0, 3e-9, 1.5e-9, -0.2, 0.999, 0]], dtype=np.float32)
     image = np.zeros((240, 320, 3), dtype=np.uint8)
 
-    python_tracker = SFSORT(is_obb=True, **cfg)
+    python_tracker = SFSORT(config=SFSORTConfig(**cfg), is_obb=True)
     library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
     native_tracker = native_module.NativeSFSORTTracker(cfg, geometry="obb", library=library)
     try:
@@ -349,7 +357,7 @@ def test_native_sfsort_threshold_aware_assignment_matches_python(
     }
     is_obb = len(initial_detections[0]) == 7
     geometry = "obb" if is_obb else "aabb"
-    python_tracker = SFSORT(is_obb=is_obb, **cfg)
+    python_tracker = SFSORT(config=SFSORTConfig(**cfg), is_obb=is_obb)
     library = native_binding.SFSORTLibrary(native_binding.ensure_sfsort_cpp_library())
     native_tracker = native_module.NativeSFSORTTracker(cfg, geometry=geometry, library=library)
     image = np.zeros((100, 100, 3), dtype=np.uint8)

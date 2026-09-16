@@ -171,6 +171,8 @@ def test_calibration_rejects_wrong_time_basis_and_trackers_without_a_kalman_filt
         ("deepocsort", "Q_s_scaling"),
         ("ocsort", "Q_a_scaling"),
         ("deepocsort", "unknown_tracker_parameter"),
+        ("bytetrack", "det_thresh"),
+        ("ocsort", "config"),
     ],
 )
 def test_calibration_model_rejects_options_runtime_cannot_consume(tracker_name: str, parameter: str) -> None:

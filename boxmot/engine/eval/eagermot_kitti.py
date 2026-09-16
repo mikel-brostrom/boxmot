@@ -97,10 +97,11 @@ def _create_kitti_tracker(profile: dict[str, Any], *, class_id: int | None = Non
         ):
             raise ValueError(f"Calibrated EagerMOT profile does not match class {KITTI_CLASSES[class_id]!r}.")
     kalman = normalize_kalman_config(options, tracker_name="eagermot")
-    arguments = {
-        name: value for name, value in options.items() if not name.startswith(("kalman.", "calibration."))
-    }
-    return EagerMot(**arguments, kalman=kalman)
+    arguments = {name: value for name, value in options.items() if not name.startswith(("kalman.", "calibration."))}
+    from boxmot.trackers.eagermot.config import EagerMotConfig
+
+    runtime = {name: arguments.pop(name) for name in ("per_class", "class_ids", "class_names") if name in arguments}
+    return EagerMot(config=EagerMotConfig.from_mapping(arguments), **runtime, kalman=kalman)
 
 
 def load_kitti_profiles(path: Path | None = None) -> dict[int, dict[str, Any]]:

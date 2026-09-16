@@ -8,6 +8,7 @@ import pytest
 from rich.panel import Panel
 
 from boxmot.engine.eval import results as eval_results
+from boxmot.engine.tracking.timing import derive_timing_breakdown
 from boxmot.engine.ui.core.ui import capture_renderable
 from boxmot.engine.ui.reporters import validation
 
@@ -83,6 +84,54 @@ def test_build_validation_cli_renderable_includes_comparison_and_timing() -> Non
     assert "(+2.00)" in rendered
     assert "Stage" in rendered
     assert "Frames" in rendered
+
+
+@pytest.mark.parametrize("rich", (False, True))
+@pytest.mark.parametrize("postprocess_ms", (None, 0.0, 50.0))
+def test_validation_timing_reports_optional_offline_postprocessing(rich: bool, postprocess_ms: float | None) -> None:
+    """Smoothing/linking costs stay separate from tracking and incidental overhead."""
+    totals = {"track": 100.0, "total": 100.0 + (postprocess_ms or 0.0)}
+    if postprocess_ms is not None:
+        totals["postprocess"] = postprocess_ms
+    timings = {
+        "frames": 10,
+        "totals_ms": totals,
+        "avg_ms": {key: value / 10 for key, value in totals.items()},
+        "fps": 10000 / totals["total"],
+        "metadata": {"detector_from_cache": True, "reid_from_cache": True},
+    }
+    options = {"timings": timings, "include_timings": True, "include_sequences": False}
+    if rich:
+        report = capture_renderable(validation.build_validation_cli_renderable(_metrics(), **options), width=160)
+    else:
+        report = validation.render_validation_cli_report(_metrics(), colorize=False, **options)
+
+    assert ("Offline postprocess" in report) is (postprocess_ms is not None)
+    assert "Other (I/O, etc)" not in report
+    if postprocess_ms is not None:
+        row = next(line for line in report.splitlines() if "Offline postprocess" in line)
+        assert f"{postprocess_ms:.1f}" in row
+        assert f"{postprocess_ms / 10:.2f}" in row
+        assert report.index("Tracker total") < report.index("Offline postprocess") < report.index("Overall total")
+    if postprocess_ms:
+        overall = next(line for line in report.splitlines() if "Overall total" in line)
+        assert "150.0" in overall
+        assert "15.00" in overall
+
+
+def test_validation_timing_snapshot_retains_offline_cost_and_derives_missing_total() -> None:
+    snapshot = {"frames": 10, "totals_ms": {"track": 100.0, "postprocess": 50.0}}
+    stats = validation.timing_stats_from_snapshot(snapshot)
+    assert stats is not None
+    restored = stats.to_summary_dict()
+    assert restored["totals_ms"]["postprocess"] == 50.0
+    assert restored["avg_ms"]["postprocess"] == 5.0
+    assert restored["totals_ms"]["total"] == 150.0
+    breakdown = derive_timing_breakdown(stats.totals, stats.frames)
+    assert breakdown["tracker_total"] == 100.0
+    assert breakdown["postprocess_total"] == 50.0
+    assert breakdown["total_total"] == 150.0
+    assert breakdown["overhead_total"] == 0.0
 
 
 @pytest.mark.parametrize("width", (40, 60, 75, 120))

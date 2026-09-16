@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import ByteTrackConfig
 from boxmot.structures import Boxes, Detections, Frame, Tracks
 from boxmot.trackers import MaskGuidance, MaskGuidanceConfig, TrackerSpec, create_tracker
 from boxmot.trackers.bytetrack.tracker import ByteTrack
@@ -67,7 +68,7 @@ def _config() -> MaskGuidanceConfig:
 
 
 def _guided_tracker(**kwargs: object) -> tuple[ByteTrack, _Propagator]:
-    tracker = ByteTrack(mask_guidance=_config(), **kwargs)
+    tracker = ByteTrack(config=ByteTrackConfig(**kwargs), mask_guidance=_config())
     propagator = _Propagator()
     tracker._mask_guidance._propagator = propagator
     return tracker, propagator
@@ -238,7 +239,9 @@ def test_factory_exposes_frame_requirement_only_when_guidance_is_enabled() -> No
 @pytest.mark.parametrize("match_thresh", [0.1, 0.8])
 def test_guidance_preserves_configured_high_stage_threshold_without_masks(match_thresh: float) -> None:
     guided, _ = _guided_tracker(match_thresh=match_thresh)
-    baseline = ByteTrack(match_thresh=match_thresh)
+    baseline = ByteTrack(
+        config=ByteTrackConfig(match_thresh=match_thresh),
+    )
     initial = _rows()[:1]
     _update(guided, initial, 0, canonical=False)
     _update(baseline, initial, 0, canonical=False)
@@ -332,7 +335,12 @@ def test_guidance_releases_previous_mask_views_before_propagation(monkeypatch: p
 @pytest.mark.parametrize("options", [{"is_obb": True}, {"per_class": True}, {"asso_func": "giou"}])
 def test_guidance_rejects_unvalidated_tracker_modes(options: dict[str, object]) -> None:
     with pytest.raises(ValueError, match="requires AABB"):
-        ByteTrack(mask_guidance=_config(), **options)
+        ByteTrack(
+            config=ByteTrackConfig(asso_func=options.get("asso_func", "iou")),
+            mask_guidance=_config(),
+            is_obb=options.get("is_obb", False),
+            per_class=options.get("per_class", False),
+        )
 
 
 @pytest.mark.parametrize(

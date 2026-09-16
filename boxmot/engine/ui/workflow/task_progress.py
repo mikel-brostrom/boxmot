@@ -3,9 +3,26 @@
 from __future__ import annotations
 
 from rich.progress import BarColumn, Progress, ProgressColumn, Task, TextColumn
+from rich.progress_bar import ProgressBar
 from rich.text import Text
 
 import boxmot.engine.ui.core.ui as ui
+
+
+class _TaskBarColumn(BarColumn):
+    """Animate unknown work only while a sequence is actually running."""
+
+    def render(self, task: Task) -> ProgressBar:
+        """Keep pending and terminal rows static without inventing work counts."""
+        bar = super().render(task)
+        status = task.fields["status"]
+        if status == "completed":
+            bar.total, bar.completed, bar.pulse = 1, 1, False
+        elif status in {"queued", "failed"}:
+            bar.pulse = False
+            if task.total is None:
+                bar.total, bar.completed = 1, 0
+        return bar
 
 
 class _TaskCountColumn(ProgressColumn):
@@ -55,7 +72,7 @@ def create_task_progress(*, unit: str) -> Progress:
     """
     return Progress(
         TextColumn("{task.description}", style=ui.STYLE_TEXT_STRONG, markup=False),
-        BarColumn(),
+        _TaskBarColumn(),
         _TaskCountColumn(unit),
         _TaskStatusColumn(),
         expand=True,

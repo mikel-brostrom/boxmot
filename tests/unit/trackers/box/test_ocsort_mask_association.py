@@ -7,6 +7,7 @@ from collections.abc import Callable
 import numpy as np
 import pytest
 
+from boxmot import DeepOcSortConfig, OcSortConfig
 from boxmot.trackers.common.association.masks import apply_mask_guidance
 from boxmot.trackers.common.association.velocity import associate
 from boxmot.trackers.deepocsort.tracker import DeepOcSort
@@ -18,8 +19,12 @@ Tracker = OcSort | DeepOcSort
 
 def _tracker(kind: str, **kwargs: object) -> Tracker:
     if kind == "deepocsort":
-        return DeepOcSort(use_embeddings=False, cmc_off=True, min_hits=1, **kwargs)
-    return OcSort(min_hits=1, **kwargs)
+        return DeepOcSort(
+            config=DeepOcSortConfig(use_embeddings=False, cmc_off=True, min_hits=1, **kwargs),
+        )
+    return OcSort(
+        config=OcSortConfig(min_hits=1, **kwargs),
+    )
 
 
 def _mask(box: np.ndarray) -> np.ndarray:

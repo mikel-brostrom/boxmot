@@ -272,7 +272,7 @@ def test_cached_workflows_expose_build_requirements_and_component_selectors() ->
             assert "--reid" not in help_result.output
         assert "--imgsz" not in help_result.output
         assert "--conf" not in help_result.output
-        assert "--postprocessing" not in help_result.output
+        assert ("--postprocessing" in help_result.output) is (command == "eval")
         assert "--tracking-backend" not in help_result.output
         assert "--n-threads" not in help_result.output
         if command in {"eval", "tune"}:

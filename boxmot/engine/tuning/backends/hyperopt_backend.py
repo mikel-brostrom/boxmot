@@ -59,27 +59,28 @@ def _hyperopt_conditional_param(hp, param: str, details: dict, parents_with_chil
     if t not in ("choice", "grid_search") or not opts:
         raise ValueError(
             f"HyperOpt conditional parent '{param}' must be a choice/grid_search "
-            "parameter with boolean-like options."
+            "parameter; truthy choices activate its children."
         )
+
+    # Reuse child distributions when several choices enable the same branch.
+    # Distinct nodes with the same label make HyperOpt reject numeric parents.
+    children = {}
+    if any(bool(value) for value in opts):
+        for child_name, child_details in parents_with_children.get(param, {}).items():
+            if not isinstance(child_details, dict):
+                continue
+            if child_name in parents_with_children:
+                child_value = _hyperopt_conditional_param(hp, child_name, child_details, parents_with_children)
+            else:
+                child_value = _hyperopt_param(hp, child_name, child_details)
+            if child_value is not None:
+                children[child_name] = child_value
 
     branches = []
     for parent_value in list(opts):
         branch = {param: parent_value}
         if bool(parent_value):
-            for child_name, child_details in parents_with_children.get(param, {}).items():
-                if not isinstance(child_details, dict):
-                    continue
-                if child_name in parents_with_children:
-                    child_value = _hyperopt_conditional_param(
-                        hp,
-                        child_name,
-                        child_details,
-                        parents_with_children,
-                    )
-                else:
-                    child_value = _hyperopt_param(hp, child_name, child_details)
-                if child_value is not None:
-                    branch[child_name] = child_value
+            branch.update(children)
         branches.append(branch)
 
     if not branches:

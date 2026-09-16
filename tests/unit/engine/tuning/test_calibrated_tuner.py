@@ -126,9 +126,10 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
 
     monkeypatch.setattr(kalman_module, "calibrate_kalman", calibrate)
 
-    def save_results(*args: object, base_config: dict, **kwargs: object) -> None:
-        del args, kwargs
+    def save_results(*args: object, base_config: dict, **kwargs: object) -> dict:
+        del kwargs
         captured["postprocess_base"] = dict(base_config)
+        return {"trial_data": tuner_module.collect_trial_data(args[1])}
 
     monkeypatch.setattr(tuner_module, "save_all_results", save_results)
 
@@ -196,8 +197,14 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
                     assert actor.step()["done"] is True
             finally:
                 actor.cleanup()
-            captured["saved_results"] = [SimpleNamespace(config=config) for config in configs]
-            return []
+            captured["saved_results"] = [
+                SimpleNamespace(
+                    config=config, error=None, metrics={"HOTA": 50.0, "trial_id": str(index)},
+                    path=str(captured["tune_dir"] / f"trial_{index}"),
+                )
+                for index, config in enumerate(configs)
+            ]
+            return captured["saved_results"]
 
         def get_results(self) -> list:
             return captured["saved_results"]
@@ -270,7 +277,7 @@ def fake_tuning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamesp
             }
         )
 
-    return SimpleNamespace(captured=captured, args=args)
+    return SimpleNamespace(captured=captured, args=args, ray_tuner=RayTuner, pipeline=pipeline)
 
 
 @pytest.mark.parametrize("search_alg", ["optuna", "random"])

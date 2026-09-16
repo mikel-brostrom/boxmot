@@ -1,31 +1,33 @@
+# Shared history/display controls; track_buffer owns lost-track lifetime.
+max_age: {}
+max_obs: {}
+min_hits: {}
+
+# Association uses match_thresh and the tracker's second-pass cost thresholds.
+iou_threshold: {}
+
 min_conf:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.3]
 
 track_thresh:
   type: uniform
-  default: 0.6  # from the default parameters
   range: [0.4, 0.7]
 
 track_buffer:
   type: qrandint
-  default: 30  # from the default parameters
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
 
 match_thresh:
   type: uniform
-  default: 0.9  # from the default parameters
   range: [0.7, 0.9]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 frame_rate:
   type: choice
-  default: 30  # from the default parameters
   options: [25, 30]  # static choice for Ray Search
 
 # Timing and reference-prior units stay fixed across all tuning trials.

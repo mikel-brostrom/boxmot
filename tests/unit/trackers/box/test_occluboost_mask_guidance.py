@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import torch
 
+from boxmot import OccluBoostConfig
 from boxmot.structures import Boxes, Detections, Frame
 from boxmot.trackers import MaskGuidance, MaskGuidanceConfig
 from boxmot.trackers.occluboost.tracker import OccluBoost
@@ -70,7 +71,7 @@ def _tracker(*, guided: bool = True, **kwargs: object) -> tuple[OccluBoost, _Pro
         second_iou_thresh=0.55,
     )
     options.update(kwargs)
-    return OccluBoost(mask_guidance=guidance, **options), propagator
+    return OccluBoost(config=OccluBoostConfig(**options), mask_guidance=guidance), propagator
 
 
 def _rows(score: float = 0.95) -> np.ndarray:

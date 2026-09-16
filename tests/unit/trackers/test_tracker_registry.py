@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 from types import SimpleNamespace
 
 import pytest
@@ -11,8 +10,12 @@ import yaml
 import boxmot.trackers.common.factory as tracker_factory
 import boxmot.trackers.common.registry as tracker_registry
 from boxmot.structures import GeometryKind
-from boxmot.trackers.common.base import BaseTracker
-from boxmot.trackers.common.config import TRACKER_CONFIGS_DIR, load_tracker_config, load_tracker_schema
+from boxmot.trackers.common.config import (
+    TRACKER_CONFIGS_DIR,
+    get_tracker_config_class,
+    load_tracker_config,
+    load_tracker_schema,
+)
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 from boxmot.trackers.common.protocols import TrackerRequirements
@@ -99,7 +102,7 @@ def test_registered_capabilities_describe_every_tracker_family_and_input() -> No
 
 def test_configurable_maf_frames_and_optional_ego_poses_match_static_requirements() -> None:
     maf_class = tracker_registry.get_tracker_class("maf_hda")
-    maf = maf_class(s2ta_mode="motion", t2ta_mode="motion")
+    maf = maf_class(config=get_tracker_config_class("maf_hda")(s2ta_mode="motion", t2ta_mode="motion"))
     assert maf.capabilities.accepts_frame
     assert not maf.capabilities.requires_frame
     assert not maf.requirements.frame
@@ -246,9 +249,9 @@ def test_create_tracker_merges_spec_options_then_applies_fixed_spec_fields(monke
         )
     )
 
-    assert captured["asso_func"] == "giou"
-    assert captured["match_thresh"] == 0.75
-    assert captured["track_buffer"] == 45
+    assert captured["config"].asso_func == "giou"
+    assert captured["config"].match_thresh == 0.75
+    assert captured["config"].track_buffer == 45
     assert captured["is_obb"] is True
     assert captured["per_class"] is True
     assert captured["class_ids"] == (0, 3)
@@ -261,12 +264,14 @@ def test_create_tracker_rejects_non_name_non_spec_input() -> None:
 
 
 def test_create_tracker_rejects_unknown_algorithm_options() -> None:
-    with pytest.raises(TypeError, match="unexpected keyword argument 'legacy_option'"):
+    with pytest.raises(TypeError, match="legacy_option"):
         tracker_factory.create_tracker(TrackerSpec("bytetrack", options=(("legacy_option", True),)))
 
 
 def test_create_tracker_dispatches_native_spec_without_model_options(monkeypatch) -> None:
-    expected = object()
+    from types import SimpleNamespace
+
+    expected = SimpleNamespace()
     monkeypatch.setattr(tracker_factory, "_create_native_tracker", lambda _spec, _definition, _kind, *, reid: expected)
 
     monkeypatch.setattr(tracker_factory, "_bind_and_validate_capabilities", lambda tracker, _capabilities: tracker)
@@ -292,12 +297,7 @@ def test_builtin_preset_rejects_wrong_tracker_identity() -> None:
 
 @pytest.mark.parametrize("tracker_name", tuple(tracker_registry.TRACKER_DEFINITIONS))
 def test_tracker_defaults_are_scalar_constructor_parameters(tracker_name: str) -> None:
-    tracker_class = tracker_registry.get_tracker_class(tracker_name)
-    accepted = set(inspect.signature(BaseTracker.__init__).parameters)
-    for owner in tracker_class.mro():
-        if "__init__" in owner.__dict__:
-            accepted.update(inspect.signature(owner.__init__).parameters)
-    accepted -= {"self", "args", "kwargs", "per_class", "class_ids", "class_names", "is_obb"}
+    accepted = {*get_tracker_config_class(tracker_name).fields(), "kalman", "edgetam"}
 
     defaults = load_tracker_config(tracker_name)
 

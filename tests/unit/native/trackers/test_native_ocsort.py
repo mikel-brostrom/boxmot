@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanConfig
+from boxmot import KalmanConfig, OcSortConfig
 from boxmot.native.trackers import ocsort as native_binding
 from boxmot.structures import Boxes, Detections, OrientedBoxes, Tracks
 from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
@@ -167,7 +167,12 @@ def test_native_ocsort_fixed_process_noise_preserves_python_parity_through_misse
     options = {"min_hits": 1, "det_thresh": 0.1, "iou_threshold": 0.1}
     python_config = nest_tracker_options(load_tracker_config("ocsort", None, options))
     kalman = KalmanConfig.from_mapping(python_config.pop("kalman"))
-    python_tracker = OcSort(**python_config, kalman=kalman, is_obb=geometry == "obb")
+    python_tracker = OcSort(
+        config=OcSortConfig(**{key: value for key, value in python_config.items() if key != "edgetam"}),
+        edgetam=python_config.get("edgetam"),
+        kalman=kalman,
+        is_obb=geometry == "obb",
+    )
     library = native_binding.OcSortLibrary(native_binding.ensure_ocsort_cpp_library())
     tracker = native_module.NativeOcSortTracker(options, geometry=geometry, library=library)
     geometry_columns = 5 if geometry == "obb" else 4

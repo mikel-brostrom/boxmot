@@ -45,9 +45,9 @@ def test_release_rejects_untyped_factory_names(
 
 def test_release_rejects_missing_constructor_keyword_types(monkeypatch: pytest.MonkeyPatch) -> None:
     constructor = importlib.import_module("boxmot.trackers.common.constructor")
-    monkeypatch.setattr(constructor, "CommonTrackerOptions", str)
+    monkeypatch.setattr(constructor, "BoxTrackerOptions", str)
 
-    with pytest.raises(AssertionError, match="CommonTrackerOptions must be a TypedDict"):
+    with pytest.raises(AssertionError, match="BoxTrackerOptions must be a TypedDict"):
         check_typing_metadata()
 
 
@@ -56,20 +56,20 @@ def test_release_rejects_incomplete_constructor_keyword_types(monkeypatch: pytes
         max_obs: int
 
     constructor = importlib.import_module("boxmot.trackers.common.constructor")
-    monkeypatch.setattr(constructor, "CommonTrackerOptions", IncompleteOptions)
+    monkeypatch.setattr(constructor, "BoxTrackerOptions", IncompleteOptions)
 
-    with pytest.raises(AssertionError, match="CommonTrackerOptions must include 'det_thresh'"):
+    with pytest.raises(AssertionError, match="BoxTrackerOptions must include 'is_obb'"):
         check_typing_metadata()
 
 
 def test_release_rejects_required_inherited_constructor_options(monkeypatch: pytest.MonkeyPatch) -> None:
     class RequiredOptions(TypedDict):
-        det_thresh: float
+        is_obb: bool
 
     constructor = importlib.import_module("boxmot.trackers.common.constructor")
-    monkeypatch.setattr(constructor, "CommonTrackerOptions", RequiredOptions)
+    monkeypatch.setattr(constructor, "BoxTrackerOptions", RequiredOptions)
 
-    with pytest.raises(AssertionError, match="CommonTrackerOptions constructor keywords must remain optional"):
+    with pytest.raises(AssertionError, match="BoxTrackerOptions constructor keywords must remain optional"):
         check_typing_metadata()
 
 

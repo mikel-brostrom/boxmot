@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from boxmot import OccluBoostConfig
 from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.manifest import _TRACKER_MANIFEST
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
@@ -150,7 +151,9 @@ def test_legacy_branded_tracker_aliases_are_not_public() -> None:
 def test_occluboost_reports_its_canonical_class_name() -> None:
     from boxmot import OccluBoost
 
-    tracker = OccluBoost(use_embeddings=False, use_cmc=False)
+    tracker = OccluBoost(
+        config=OccluBoostConfig(use_embeddings=False, use_cmc=False),
+    )
 
     assert tracker.name == "OccluBoost"
 

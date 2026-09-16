@@ -32,6 +32,13 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
             "boxmot/trackers/common/appearance/live.py",
             "boxmot.reid.specs",
         ),
+        # Optional tracker-owned mask guidance selects its propagation backend
+        # lazily through the segmentor factory; backend implementations stay
+        # inside the segmentors domain.
+        (
+            "boxmot/trackers/common/mask_guidance.py",
+            "boxmot.segmentors.propagation.factory",
+        ),
         # The optional tracker-owned ReID protocol names the immutable encoder
         # specification accepted by its public configuration boundary.
         (
@@ -291,6 +298,8 @@ ENGINE_COMMAND_LAYOUT = (
     "engine/commands/reid/privileged_cache.py",
     "engine/commands/reid/teacher_extract.py",
     "engine/commands/reid/train.py",
+    "engine/commands/segmentors/__init__.py",
+    "engine/commands/segmentors/export.py",
 )
 
 ENGINE_OWNERSHIP_LAYOUT = (
@@ -366,7 +375,7 @@ TRACKER_OWNERSHIP_LAYOUT = (
     "trackers/common/motion/kalman_filters/base.py",
     "trackers/common/motion/kalman_filters/noise.py",
     "trackers/common/motion/kalman_filters/profile.py",
-        "trackers/common/motion/kalman_filters/config.py",
+    "trackers/common/motion/kalman_filters/config.py",
     "trackers/common/motion/kalman_filters/fitting.py",
     "trackers/boosttrack/__init__.py",
     "trackers/boosttrack/tracker.py",
@@ -712,6 +721,7 @@ def test_new_engine_namespaces_have_no_eager_child_imports(relative: str, packag
     [
         ("engine/commands/__init__.py", "boxmot.engine.commands"),
         ("engine/commands/reid/__init__.py", "boxmot.engine.commands.reid"),
+        ("engine/commands/segmentors/__init__.py", "boxmot.engine.commands.segmentors"),
     ],
 )
 def test_engine_command_namespaces_have_no_eager_child_imports(relative: str, package: str) -> None:

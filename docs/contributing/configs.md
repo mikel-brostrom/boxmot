@@ -6,7 +6,8 @@ Config additions should follow the existing split:
 - `boxmot/configs/experiments/` for dataset + detector + ReID composition
 - `boxmot/configs/detectors/` for detector profiles
 - `boxmot/configs/reid/` for runtime ReID profiles
-- `boxmot/configs/trackers/<tracker>.yaml` for tracker defaults and tuning metadata
+- `boxmot/trackers/<tracker>/config.py` for typed algorithm defaults and validation
+- `boxmot/configs/trackers/<tracker>.yaml` for tuning metadata and component profiles
 - `boxmot/configs/trackers/presets/` for tuned overrides
 
 ## Common change sets
@@ -25,15 +26,18 @@ Adding a tuned tracker usually means:
 2. validate `track`, `eval`, and `tune`
 3. document any new behavior or defaults
 
-Tracker YAML files use the combined runtime/search schema. Each parameter entry
-declares a scalar `default` plus tuning metadata such as `type`, `range`,
-`options`, or conditional `activates`. Presets under `presets/` are runtime
-overlays and should identify their target tracker.
+Tracker YAML algorithm entries declare tuning metadata such as `type`, `range`,
+`options`, or conditional `activates`. The loader supplies each algorithm field's
+`default` from its config class. List every algorithm field in built-in profiles:
+give effective algorithm parameters valid search ranges, and mark fixed settings
+with an empty mapping and a short explanation. Custom profiles may omit fields
+to keep their typed defaults. Component groups retain profile defaults. Presets under
+`presets/` are runtime overlays and should identify their target tracker.
 
 Validate catalog and tracker-config changes with:
 
 ```bash
-uv run --no-sync pytest tests/unit/configs tests/unit/trackers/test_tracker_registry.py tests/test_config.py
+uv run --no-sync pytest tests/unit/configs tests/unit/trackers/test_tracker_registry.py tests/unit/engine/tuning/test_tracker_search_configs.py
 ```
 
 ## Python model-name autocomplete
@@ -60,11 +64,12 @@ static literal types; imports do not read YAML or load models. The component
 tests check freshness in CI, and `boxmot/py.typed` makes the annotations
 available to editors using an installed package.
 
-Tracker class constructors annotate forwarded keyword arguments with the typed
-option groups in `boxmot/trackers/common/constructor.py`. Update those groups when
-shared constructor options change, keeping tracker-specific restrictions intact.
-The constructor typing tests check their names and types against the actual
-parent constructors and ensure packaged defaults remain discoverable.
+Tracker constructors expose their matching typed algorithm config through
+`config=`. Keep field types, defaults, validation, and algorithm documentation in
+that config class. The groups in `boxmot/trackers/common/constructor.py` describe
+only runtime geometry/class selection and mask guidance. Update those groups when
+runtime options change, keeping tracker-specific restrictions intact. Constructor
+tests check the config and runtime contracts, public exports, and field discovery.
 
 Kalman trackers expose `kalman: KalmanConfig | None` directly.
 Keep timing and filter policies under `kalman`, covariance under `kalman.noise`,

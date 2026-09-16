@@ -1,7 +1,7 @@
-"""Shared keyword contracts for concrete tracker constructors.
+"""Runtime keyword contracts shared by concrete tracker constructors.
 
-Keep algorithm-specific parameters on their constructors. These optional
-keyword groups describe only settings forwarded to the shared tracker bases.
+Algorithm settings belong in the tracker's immutable config. These optional
+keywords describe input selection, class metadata, and guidance components.
 """
 
 from __future__ import annotations
@@ -14,60 +14,35 @@ from boxmot.trackers.common.mask_guidance import MaskGuidance, MaskGuidanceConfi
 
 
 class TrackerMetadataOptions(TypedDict, total=False):
-    """Observation history and detector class metadata."""
+    """Detector class metadata and class-separated execution."""
 
-    max_obs: int
     class_ids: Iterable[int] | None
     class_names: Mapping[int, str] | None
-
-
-class AssociationTrackerOptions(TrackerMetadataOptions, total=False):
-    """Metadata plus configurable geometric association."""
-
-    asso_func: str
-
-
-class BoxTrackerOptions(AssociationTrackerOptions, total=False):
-    """Shared box geometry, lifecycle, and display settings."""
-
-    max_age: int
-    min_hits: int
-    iou_threshold: float
     per_class: bool
+
+
+class BoxTrackerOptions(TrackerMetadataOptions, total=False):
+    """Box geometry selection and optional temporal mask guidance."""
+
     is_obb: bool
     mask_guidance: MaskGuidanceConfig | MaskGuidance | None
     edgetam: Mapping[str, object] | None
 
 
-class CommonTrackerOptions(BoxTrackerOptions, total=False):
-    """Shared settings for trackers accepting the base detection threshold."""
-
-    det_thresh: float
-
-
-class OccluBoostOptions(CommonTrackerOptions, total=False):
-    """Additional BoostTrack parameters forwarded by OccluBoost."""
-
-    use_cmc: bool
-    min_box_area: int
-    aspect_ratio_thresh: float
-    cmc_method: str
-    lambda_iou: float
-    lambda_mhd: float
-    lambda_shape: float
-    use_dlo_boost: bool
-    use_duo_boost: bool
-    dlo_boost_coef: float
-    s_sim_corr: bool
-    use_rich_s: bool
-    use_sb: bool
-    use_vt: bool
+def validate_runtime_options(options: Mapping[str, object], *, box: bool = True) -> None:
+    """Reject algorithm keywords before they can reach a shared tracker base."""
+    contract = BoxTrackerOptions if box else TrackerMetadataOptions
+    unexpected = options.keys() - contract.__optional_keys__
+    if unexpected:
+        name = sorted(unexpected)[0]
+        if name in {"kalman", "reid"}:
+            component = "ReID" if name == "reid" else name
+            raise TypeError(f"This tracker does not accept {component} configuration.")
+        raise TypeError(f"unexpected keyword argument {name!r}; pass algorithm settings in the tracker config.")
 
 
 __all__ = (
-    "AssociationTrackerOptions",
     "BoxTrackerOptions",
-    "CommonTrackerOptions",
-    "OccluBoostOptions",
     "TrackerMetadataOptions",
+    "validate_runtime_options",
 )

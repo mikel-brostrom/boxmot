@@ -24,15 +24,14 @@ point, model construction, or positional-cache reader.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
-import torch
 from scipy.spatial.distance import cdist
-from tqdm.auto import tqdm
 
-from boxmot.utils import logger as LOGGER
+_ProgressCallback = Callable[[str, int, int | None], None]
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -51,6 +50,9 @@ class Tracklet:
         bboxes: Bounding boxes per frame, each [x, y, w, h].
         classes: Class IDs per frame.
         features: L2-normalised ReID embedding vectors per frame.
+        observation_indices: Optional source-row references aligned to observations.
+        unmatched_times: Occupied frames without an appearance observation,
+            used to prevent overlapping output identities during merging.
 
     Invariant: len(times) == len(scores) == len(bboxes) == len(classes) == len(features).
     """
@@ -62,6 +64,8 @@ class Tracklet:
     bboxes: list[list[float]] = field(default_factory=list)
     classes: list[int] = field(default_factory=list)
     features: list[np.ndarray] = field(default_factory=list)
+    observation_indices: list[int] = field(default_factory=list)
+    unmatched_times: set[int] = field(default_factory=set)
 
     def __init__(
         self,
@@ -71,23 +75,14 @@ class Tracklet:
         bboxes=None,
         feats=None,
         classes=None,
-    ):
+        *,
+        observation_indices: list[int] | None = None,
+        unmatched_times: set[int] | None = None,
+    ) -> None:
         self.track_id = track_id
         self.parent_id = track_id
-        self.scores = (
-            scores
-            if isinstance(scores, list)
-            else [scores]
-            if scores is not None
-            else []
-        )
-        self.times = (
-            frames
-            if isinstance(frames, list)
-            else [frames]
-            if frames is not None
-            else []
-        )
+        self.scores = scores if isinstance(scores, list) else [scores] if scores is not None else []
+        self.times = frames if isinstance(frames, list) else [frames] if frames is not None else []
         self.bboxes = (
             bboxes
             if isinstance(bboxes, list) and bboxes and isinstance(bboxes[0], list)
@@ -95,22 +90,40 @@ class Tracklet:
             if bboxes is not None
             else []
         )
-        self.classes = (
-            classes
-            if isinstance(classes, list)
-            else [classes]
-            if classes is not None
-            else []
-        )
+        self.classes = classes if isinstance(classes, list) else [classes] if classes is not None else []
         self.features = feats if feats is not None else []
+        self.observation_indices = [] if observation_indices is None else list(observation_indices)
+        self.unmatched_times = set() if unmatched_times is None else set(unmatched_times)
+        if self.observation_indices and len(self.observation_indices) != len(self.times):
+            raise ValueError("Observation indices must align with tracklet observations.")
 
-    def append(self, frame: int, score: float, bbox: list[float], cls: int, feat: np.ndarray) -> None:
+    def append(
+        self,
+        frame: int,
+        score: float,
+        bbox: list[float],
+        cls: int,
+        feat: np.ndarray,
+        *,
+        observation_index: int | None = None,
+    ) -> None:
         """Appends a detection with its embedding (keeps all lists in sync)."""
+        if (self.observation_indices and observation_index is None) or (
+            observation_index is not None and len(self.observation_indices) != len(self.times)
+        ):
+            raise ValueError("Observation indices must be supplied consistently for a tracklet.")
         self.times.append(frame)
         self.scores.append(score)
         self.bboxes.append(bbox)
         self.classes.append(cls)
         self.features.append(feat)
+        if observation_index is not None:
+            self.observation_indices.append(observation_index)
+
+    @property
+    def occupied_times(self) -> set[int]:
+        """Return observed and unmatched frames that cannot share one identity."""
+        return set(self.times) | self.unmatched_times
 
     def append_det(self, frame: int, score: float, bbox: list[float]) -> None:
         """Appends a detection to the tracklet (legacy, no feature sync)."""
@@ -128,13 +141,16 @@ class Tracklet:
         Returns:
             A new Tracklet that is a subset of the original.
         """
+        times = self.times[start : end + 1]
         subtrack = Tracklet(
             self.track_id,
-            self.times[start : end + 1],
+            times,
             self.scores[start : end + 1],
             self.bboxes[start : end + 1],
             self.features[start : end + 1] if self.features else None,
             self.classes[start : end + 1] if self.classes else None,
+            observation_indices=self.observation_indices[start : end + 1] if self.observation_indices else None,
+            unmatched_times={time for time in self.unmatched_times if times and times[0] <= time <= times[-1]},
         )
         subtrack.parent_id = self.track_id
         return subtrack
@@ -151,14 +167,20 @@ class Tracklet:
             self.classes = [self.classes[k] for k in sort_idx]
         if self.features:
             self.features = [self.features[k] for k in sort_idx]
+        if self.observation_indices:
+            self.observation_indices = [self.observation_indices[k] for k in sort_idx]
 
     def merge_from(self, other: "Tracklet") -> None:
         """Merge another tracklet into this one, maintaining time order."""
+        if bool(self.observation_indices) != bool(other.observation_indices):
+            raise ValueError("Merged tracklets must both carry observation indices or both omit them.")
         self.features += other.features
         self.times += other.times
         self.bboxes += other.bboxes
         self.scores += other.scores
         self.classes += other.classes
+        self.observation_indices += other.observation_indices
+        self.unmatched_times.update(other.unmatched_times)
         self.sort_by_time()
 
 
@@ -250,42 +272,34 @@ def query_subtracks(
 # ---------------------------------------------------------------------------
 
 
+def _mean_normalized_feature(features: list[np.ndarray]) -> np.ndarray:
+    """Reduce observation features on CPU without allocating pairwise distances."""
+    values = np.asarray(np.stack(features), dtype=np.float32)
+    norms = np.maximum(np.linalg.norm(values, axis=1, keepdims=True), 1e-8)
+    return np.mean(values / norms, axis=0, dtype=np.float64)
+
+
 def get_distance(track1: Tracklet, track2: Tracklet) -> float:
     """Computes average pairwise cosine distance between two tracklets (Eq. 1).
 
-    If the tracks have temporal overlap, returns 1.0 (maximum distance).
-    Features are assumed to be L2-normalised.
+    Returns 0.0 for the same track ID and 1.0 for temporal overlap. Otherwise,
+    defensively normalizes each feature and computes the dot product of the
+    mean features on CPU. By linearity this equals the mean of all pairwise
+    cosine distances, without allocating an observation-pair distance matrix.
 
     Returns:
-        float: Average cosine distance in [0, 1].
+        float: Average cosine distance, or the same-ID/overlap shortcut value.
     """
     if track1.track_id == track2.track_id:
         return 0.0
 
     # Temporal overlap check
-    if set(track1.times) & set(track2.times):
+    if track1.occupied_times & track2.occupied_times:
         return 1.0
 
-    # Features should already be L2-normalised from generation step.
-    # Compute cosine distance directly: 1 - (a . b) for unit vectors.
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    feats_a = torch.tensor(
-        np.stack(track1.features), dtype=torch.float32, device=device
-    )
-    feats_b = torch.tensor(
-        np.stack(track2.features), dtype=torch.float32, device=device
-    )
-
-    # Normalise (defensive, in case features aren't perfectly unit-norm)
-    feats_a = feats_a / feats_a.norm(dim=1, keepdim=True).clamp(min=1e-8)
-    feats_b = feats_b / feats_b.norm(dim=1, keepdim=True).clamp(min=1e-8)
-
-    cos_sim = feats_a @ feats_b.T  # (N_a, N_b)
-    cos_dist = 1.0 - cos_sim
-
-    n_a, n_b = cos_dist.shape
-    avg_dist = cos_dist.sum().item() / (n_a * n_b)
-    return avg_dist
+    mean_a = _mean_normalized_feature(track1.features)
+    mean_b = _mean_normalized_feature(track2.features)
+    return float(1.0 - np.dot(mean_a, mean_b))
 
 
 def get_distance_matrix(tid2track: dict[int, Tracklet]) -> np.ndarray:
@@ -315,9 +329,7 @@ def get_distance_matrix(tid2track: dict[int, Tracklet]) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def get_spatial_constraints(
-    tid2track: dict[int, Tracklet], factor: float
-) -> tuple[float, float]:
+def get_spatial_constraints(tid2track: dict[int, Tracklet], factor: float) -> tuple[float, float]:
     """Calculates spatial constraint gates from bounding box extents.
 
     Args:
@@ -418,25 +430,25 @@ def detect_id_switch(
     from sklearn.cluster import DBSCAN
     from sklearn.preprocessing import StandardScaler
 
-    if len(embs) > 15000:
-        embs = embs[::2]
-
     embs = np.asarray(embs)
+    sampled_indices = np.arange(0, len(embs), 2 if len(embs) > 15000 else 1)
 
     scaler = StandardScaler()
-    embs_scaled = scaler.fit_transform(embs)
+    scaler.fit(embs[sampled_indices])
+    embs_scaled = scaler.transform(embs)
 
-    db = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine").fit(embs_scaled)
-    labels = db.labels_.copy()
+    db = DBSCAN(eps=eps, min_samples=min_samples, metric="cosine").fit(embs_scaled[sampled_indices])
+    # Keep the bounded clustering input while assigning labels to every source
+    # observation, including omitted samples and DBSCAN noise points.
+    labels = np.full(len(embs), -1, dtype=np.int64)
+    labels[sampled_indices] = db.labels_
 
     unique_labels = np.unique(labels)
     unique_labels = unique_labels[unique_labels != -1]
 
     # Reassign noise points to nearest cluster
     if -1 in labels and len(unique_labels) > 0:
-        cluster_centers = np.array(
-            [embs_scaled[labels == lbl].mean(axis=0) for lbl in unique_labels]
-        )
+        cluster_centers = np.array([embs_scaled[labels == lbl].mean(axis=0) for lbl in unique_labels])
         noise_indices = np.where(labels == -1)[0]
         for idx in noise_indices:
             distances = cdist([embs_scaled[idx]], cluster_centers, metric="cosine")
@@ -451,17 +463,11 @@ def detect_id_switch(
     # Merge excess clusters
     if max_clusters and n_clusters > max_clusters:
         while n_clusters > max_clusters:
-            cluster_centers = np.array(
-                [embs_scaled[labels == lbl].mean(axis=0) for lbl in unique_labels]
-            )
-            distance_matrix = cdist(
-                cluster_centers, cluster_centers, metric="cosine"
-            )
+            cluster_centers = np.array([embs_scaled[labels == lbl].mean(axis=0) for lbl in unique_labels])
+            distance_matrix = cdist(cluster_centers, cluster_centers, metric="cosine")
             np.fill_diagonal(distance_matrix, np.inf)
 
-            min_dist_idx = np.unravel_index(
-                np.argmin(distance_matrix), distance_matrix.shape
-            )
+            min_dist_idx = np.unravel_index(np.argmin(distance_matrix), distance_matrix.shape)
             merge_from = unique_labels[min_dist_idx[1]]
             merge_to = unique_labels[min_dist_idx[0]]
             labels[labels == merge_from] = merge_to
@@ -479,6 +485,8 @@ def split_tracklets(
     max_k: int = 3,
     min_samples: int = 10,
     len_thres: int = 100,
+    *,
+    progress_fn: _ProgressCallback | None = None,
 ) -> dict[int, Tracklet]:
     """Splits tracklets that contain multiple identities.
 
@@ -491,18 +499,19 @@ def split_tracklets(
         max_k: Maximum number of output clusters per tracklet.
         min_samples: DBSCAN min_samples parameter.
         len_thres: Minimum tracklet length to consider for splitting.
+        progress_fn: Optional callback receiving phase, completed work, and total.
 
     Returns:
         New dict of tracklets after splitting.
     """
+    if progress_fn is not None:
+        progress_fn("Split tracklets", 0, len(tmp_trklets))
+    if not tmp_trklets:
+        return {}
     new_id = max(tmp_trklets.keys()) + 1
     tracklets: dict[int, Tracklet] = {}
 
-    for tid in tqdm(
-        sorted(tmp_trklets.keys()),
-        total=len(tmp_trklets),
-        desc="Splitting tracklets",
-    ):
+    for index, tid in enumerate(sorted(tmp_trklets)):
         trklet = tmp_trklets[tid]
         if len(trklet.times) < len_thres:
             tracklets[tid] = trklet
@@ -513,14 +522,13 @@ def split_tracklets(
             scores = np.array(trklet.scores)
             classes = np.array(trklet.classes)
 
-            id_switch_detected, clusters = detect_id_switch(
-                embs, eps=eps, min_samples=min_samples, max_clusters=max_k
-            )
+            id_switch_detected, clusters = detect_id_switch(embs, eps=eps, min_samples=min_samples, max_clusters=max_k)
 
             if not id_switch_detected:
                 tracklets[tid] = trklet
             else:
-                unique_labels = set(clusters)
+                unique_labels = sorted(set(clusters))
+                label_tracks: dict[int, Tracklet] = {}
                 for label in unique_labels:
                     if label == -1:
                         continue
@@ -538,8 +546,19 @@ def split_tracklets(
                         tmp_bboxes.tolist(),
                         feats=[e for e in tmp_embs],
                         classes=tmp_classes.tolist(),
+                        observation_indices=(
+                            np.asarray(trklet.observation_indices)[mask].tolist()
+                            if trklet.observation_indices
+                            else None
+                        ),
                     )
+                    label_tracks[label] = tracklets[new_id]
                     new_id += 1
+                for time in trklet.unmatched_times:
+                    nearest = min(range(len(frames)), key=lambda index: (abs(int(frames[index]) - time), frames[index]))
+                    label_tracks[clusters[nearest]].unmatched_times.add(time)
+        if progress_fn is not None:
+            progress_fn("Split tracklets", index + 1, len(tmp_trklets))
 
     return tracklets
 
@@ -554,6 +573,8 @@ def merge_tracklets(
     merge_dist_thres: float,
     max_x_range: float,
     max_y_range: float,
+    *,
+    progress_fn: _ProgressCallback | None = None,
 ) -> dict[int, Tracklet]:
     """Hierarchical agglomerative merging of tracklets.
 
@@ -566,11 +587,16 @@ def merge_tracklets(
         merge_dist_thres: Maximum cosine distance for merging.
         max_x_range: Spatial gate in x.
         max_y_range: Spatial gate in y.
+        progress_fn: Optional callback receiving phase, completed work, and total.
+            Distance totals count pairs. The number of agglomerative candidate
+            checks is unknown in advance, so that phase reports total ``None``.
 
     Returns:
         Merged tracklets dict.
     """
     if len(tracklets) <= 1:
+        if progress_fn is not None:
+            progress_fn("Compute distances", 0, 0)
         return tracklets
 
     # Build initial distance matrix
@@ -578,17 +604,28 @@ def merge_tracklets(
     n = len(tid_list)
     dist = np.ones((n, n), dtype=np.float64)
     np.fill_diagonal(dist, np.inf)
+    total_pairs = n * (n - 1) // 2
+    completed_pairs = 0
+    if progress_fn is not None:
+        progress_fn("Compute distances", 0, total_pairs)
 
     for i in range(n):
         for j in range(i + 1, n):
             d = get_distance(tracklets[tid_list[i]], tracklets[tid_list[j]])
             dist[i, j] = d
             dist[j, i] = d
+        completed_pairs += n - i - 1
+        if progress_fn is not None and i < n - 1:
+            progress_fn("Compute distances", completed_pairs, total_pairs)
 
+    candidate_checks = 0
+    if progress_fn is not None:
+        progress_fn("Merge candidates", candidate_checks, None)
     while True:
         min_val = dist.min()
         if min_val >= merge_dist_thres:
             break
+        candidate_checks += 1
 
         # Find minimum distance pair
         min_idx = np.unravel_index(np.argmin(dist), dist.shape)
@@ -598,17 +635,19 @@ def merge_tracklets(
         track_b = tracklets[tid_list[idx_b]]
 
         # Temporal overlap check (defensive - should already be dist=1)
-        if set(track_a.times) & set(track_b.times):
+        if track_a.occupied_times & track_b.occupied_times:
             dist[idx_a, idx_b] = merge_dist_thres
             dist[idx_b, idx_a] = merge_dist_thres
+            if progress_fn is not None:
+                progress_fn("Merge candidates", candidate_checks, None)
             continue
 
         # Spatial constraint check
-        if not check_spatial_constraints(
-            track_a, track_b, max_x_range, max_y_range
-        ):
+        if not check_spatial_constraints(track_a, track_b, max_x_range, max_y_range):
             dist[idx_a, idx_b] = merge_dist_thres
             dist[idx_b, idx_a] = merge_dist_thres
+            if progress_fn is not None:
+                progress_fn("Merge candidates", candidate_checks, None)
             continue
 
         # Merge track_b into track_a (includes scores + sorts by time)
@@ -633,12 +672,14 @@ def merge_tracklets(
             if k == idx_a:
                 dist[k, k] = np.inf
             else:
-                d = get_distance(
-                    tracklets[tid_list[idx_a]], tracklets[tid_list[k]]
-                )
+                d = get_distance(tracklets[tid_list[idx_a]], tracklets[tid_list[k]])
                 dist[idx_a, k] = d
                 dist[k, idx_a] = d
+        if progress_fn is not None:
+            progress_fn("Merge candidates", candidate_checks, None)
 
+    if progress_fn is not None:
+        progress_fn("Merge candidates", candidate_checks, candidate_checks)
     return tracklets
 
 
@@ -648,6 +689,8 @@ def merge_tracklets_batched(
     max_x_range: float = 0.0,
     max_y_range: float = 0.0,
     merge_dist_thres: float = 0.4,
+    *,
+    progress_fn: _ProgressCallback | None = None,
 ) -> dict[int, Tracklet]:
     """Batched hierarchical merging for large tracklet sets.
 
@@ -660,6 +703,8 @@ def merge_tracklets_batched(
         max_x_range: Spatial gate in x.
         max_y_range: Spatial gate in y.
         merge_dist_thres: Cosine distance threshold for merging.
+        progress_fn: Optional phase progress callback. Phases identify the batch
+            or global pass; candidate-check totals are unknown (``None``).
 
     Returns:
         Merged tracklets dict.
@@ -667,26 +712,36 @@ def merge_tracklets_batched(
     tracklet_items = list(tracklets.items())
     temp_tracklets: dict[int, Tracklet] = {}
 
-    LOGGER.info(
-        f"Batched merge: {len(tracklet_items)} tracklets, "
-        f"batch_size={batch_size}"
-    )
+    batch_count = (len(tracklet_items) + batch_size - 1) // batch_size
 
     for i in range(0, len(tracklet_items), batch_size):
         batch = dict(tracklet_items[i : i + batch_size])
+        prefix = f"Batch {i // batch_size + 1}/{batch_count}"
+
+        def batch_progress(phase: str, completed: int, total: int | None, *, batch_prefix: str = prefix) -> None:
+            if progress_fn is not None:
+                progress_fn(f"{batch_prefix}: {phase}", completed, total)
+
         merged_batch = merge_tracklets(
-            batch, merge_dist_thres, max_x_range, max_y_range
-        )
-        LOGGER.debug(
-            f"Batch [{i}:{i + len(batch)}]: "
-            f"{len(batch)} -> {len(merged_batch)} tracklets"
+            batch,
+            merge_dist_thres,
+            max_x_range,
+            max_y_range,
+            progress_fn=batch_progress if progress_fn is not None else None,
         )
         temp_tracklets.update(merged_batch)
 
     # Global merge pass across all batches
-    LOGGER.info(f"Global merge pass: {len(temp_tracklets)} tracklets")
+    def global_progress(phase: str, completed: int, total: int | None) -> None:
+        if progress_fn is not None:
+            progress_fn(f"Global: {phase}", completed, total)
+
     merged = merge_tracklets(
-        temp_tracklets, merge_dist_thres, max_x_range, max_y_range
+        temp_tracklets,
+        merge_dist_thres,
+        max_x_range,
+        max_y_range,
+        progress_fn=global_progress if progress_fn is not None else None,
     )
     return merged
 

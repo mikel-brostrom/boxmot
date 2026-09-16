@@ -2,20 +2,19 @@
 
 from __future__ import annotations
 
-import inspect
+from dataclasses import fields
 
 import numpy as np
 import pytest
 import torch
 
-from boxmot import KalmanConfig
+from boxmot import HybridSortConfig, OcSortConfig, SFSORTConfig
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.common.config import load_tracker_config, load_tracker_defaults, nest_tracker_options
+from boxmot.trackers.common.config import get_tracker_config_class, load_tracker_config, load_tracker_defaults
 from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
 from boxmot.trackers.deepocsort.tracker import DeepOcSort
-from boxmot.trackers.hybridsort.tracker import HybridSort
 from boxmot.trackers.ocsort.tracker import OcSort
 from boxmot.trackers.sfsort.tracker import SFSORT
 
@@ -168,7 +167,9 @@ def test_track_ids_remain_stable_across_matching_frames(tracker_name: str) -> No
 
 
 def test_dynamic_max_obs_is_large_enough_for_track_lifetime() -> None:
-    tracker = OcSort(max_age=400)
+    tracker = OcSort(
+        config=OcSortConfig(max_age=400),
+    )
 
     assert tracker.max_obs == 405
 
@@ -177,12 +178,7 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     runtime_config = load_tracker_defaults("hybridsort")
     tuning_config = load_yaml_config("hybridsort")
     flat_tuning_config = flatten_yaml_config(tuning_config)
-    constructor_params = set(inspect.signature(HybridSort.__init__).parameters)
-    expected = constructor_params - {
-        "self",
-        "kwargs",
-        "reid",
-    }
+    expected = {field.name for field in fields(HybridSortConfig)}
     expected.update({"det_thresh", "max_age", "max_obs", "min_hits", "iou_threshold", "asso_func"})
 
     assert expected <= {name.split(".", 1)[0] for name in runtime_config}
@@ -248,15 +244,15 @@ def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
 @pytest.mark.parametrize("parameter", ["Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"])
 @pytest.mark.parametrize("source", ["constructor", "config"])
 def test_removed_sort_noise_parameters_are_rejected(tmp_path, tracker_name, tracker_type, parameter, source) -> None:
-    with pytest.raises(TypeError, match=f"unexpected keyword argument '{parameter}'"):
+    with pytest.raises(TypeError, match=parameter):
         if source == "constructor":
             tracker_type(**{parameter: 0.2})
         else:
             config = tmp_path / "tracker.yaml"
             config.write_text(f"{parameter}: 0.2\n")
-            options = nest_tracker_options(load_tracker_config(tracker_name, config))
-            options["kalman"] = KalmanConfig.from_mapping(options["kalman"])
-            tracker_type(**options)
+            options = load_tracker_config(tracker_name, config)
+            algorithm_options = {key: value for key, value in options.items() if "." not in key}
+            get_tracker_config_class(tracker_name).from_mapping(algorithm_options)
 
 
 def test_per_class_tracking_accepts_sparse_detector_class_ids() -> None:
@@ -304,11 +300,7 @@ def test_mask_tracker_rejects_detection_masks_without_foreground() -> None:
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
 def test_sfsort_low_score_second_pass_keeps_identity(geometry: str) -> None:
     tracker = SFSORT(
-        high_th=0.6,
-        low_th=0.1,
-        new_track_th=0.5,
-        match_th_second=0.3,
-        dynamic_tuning=False,
+        config=SFSORTConfig(high_th=0.6, low_th=0.1, new_track_th=0.5, match_th_second=0.3, dynamic_tuning=False),
         is_obb=geometry == "obb",
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
@@ -341,7 +333,9 @@ def test_sfsort_requires_only_frame_dimensions_unless_they_are_configured(
     options: dict[str, object],
     requirements: TrackerRequirements,
 ) -> None:
-    tracker = SFSORT(**options)
+    tracker = SFSORT(
+        config=SFSORTConfig(**options),
+    )
 
     assert tracker.requirements == requirements
 
@@ -357,11 +351,13 @@ def test_sfsort_requires_only_frame_dimensions_unless_they_are_configured(
 )
 def test_sfsort_rejects_partial_or_nonpositive_frame_dimensions(options: dict[str, object]) -> None:
     with pytest.raises(ValueError, match="frame_width|frame_height"):
-        SFSORT(**options)
+        SFSORT(
+            config=SFSORTConfig(**options),
+        )
 
 
 def test_sfsort_obb_angle_motion_is_damped() -> None:
-    tracker = SFSORT(obb_theta_damping=0.8, is_obb=True)
+    tracker = SFSORT(config=SFSORTConfig(obb_theta_damping=0.8), is_obb=True)
     first_row = np.array([[64, 48, 40, 20, 0.0, 0.95, 0]], dtype=np.float32)
     rotated = first_row.copy()
     rotated[:, 4] = 0.4

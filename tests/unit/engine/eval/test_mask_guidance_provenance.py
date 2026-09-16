@@ -302,6 +302,8 @@ def test_each_tracker_records_its_policy_and_fingerprints_its_options(
 def test_sfsort_provenance_reports_normalized_gates(
     tmp_path: Path, high: float | None, low: float | None, expected: tuple[float, float]
 ) -> None:
+    from boxmot import SFSORT, SFSORTConfig
+
     weights = tmp_path / "model.pt"
     weights.write_bytes(b"checkpoint")
     spec = TrackerSpec(
@@ -322,3 +324,8 @@ def test_sfsort_provenance_reports_normalized_gates(
     assert policy["dynamic_threshold"]["enabled"]
     assert policy["dynamic_threshold"]["multiplier"] == 0.02
     assert saved["resolved_tracker_options"]["match_th_first"] == high
+    tracker = SFSORT(config=SFSORTConfig.from_mapping(spec.option_dict))
+    assert policy["high_threshold"] == tracker.match_th_first
+    assert policy["low_threshold"] == tracker.match_th_second
+    assert policy["dynamic_threshold"]["multiplier"] == tracker.match_th_first_m
+    assert policy["dynamic_threshold"]["confidence_cutoff"] == tracker.cth

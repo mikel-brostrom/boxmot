@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot import EagerMot
+from boxmot import EagerMot, EagerMotConfig
 from boxmot.structures import Boxes, Boxes3D, CameraModel, Detections, Detections3D, MaskBatch, MultimodalTracks
 
 
@@ -67,7 +67,7 @@ def _spatial(
 
 @pytest.mark.parametrize("per_class", (False, True))
 def test_fused_tracks_preserve_masks_and_independent_sensor_indices(per_class: bool) -> None:
-    tracker = EagerMot(det_thresh=0.5, det_thresh_3d=0.5, per_class=per_class)
+    tracker = EagerMot(config=EagerMotConfig(det_thresh=0.5, det_thresh_3d=0.5), per_class=per_class)
     image = _detections(0, [[0, 0, 10, 10], [53, 43, 75, 53]], scores=[0.1, 0.8], masks=True)
     spatial = _spatial(0, [50, 0], scores=[0.1, 0.95])
     original_geometry, original_masks = spatial.geometry.values.clone(), image.masks.values.clone()
@@ -106,7 +106,9 @@ def test_3d_only_tracks_do_not_require_a_visible_image_box(depth: float) -> None
 
 @pytest.mark.parametrize("first_matching_method", ("dist_2d", "dist_2d_dims", "dist_2d_full", "iou_3d"))
 def test_2d_recovery_retains_identity_and_predicts_through_depth_dropout(first_matching_method: str) -> None:
-    tracker = EagerMot(first_matching_method=first_matching_method)
+    tracker = EagerMot(
+        config=EagerMotConfig(first_matching_method=first_matching_method),
+    )
     first = tracker.update(
         _detections(0, [[53, 43, 75, 53]], masks=True), detections_3d=_spatial(0, [0]), camera=_camera()
     )
@@ -125,7 +127,9 @@ def test_2d_recovery_retains_identity_and_predicts_through_depth_dropout(first_m
 
 
 def test_motion_advances_on_completely_empty_frames_without_emitting_predictions() -> None:
-    tracker = EagerMot(max_age=4)
+    tracker = EagerMot(
+        config=EagerMotConfig(max_age=4),
+    )
     tracker.update(_detections(0, []), detections_3d=_spatial(0, [0]), camera=_camera())
     tracker.update(_detections(1, []), detections_3d=_spatial(1, [1]), camera=_camera())
     before = tracker._tracks[0].motion.box[0]
@@ -139,7 +143,9 @@ def test_motion_advances_on_completely_empty_frames_without_emitting_predictions
 
 @pytest.mark.parametrize("missing_frames", (1, 2, 3))
 def test_expiry_occurs_only_after_max_age_frames_without_either_sensor(missing_frames: int) -> None:
-    tracker = EagerMot(max_age=3)
+    tracker = EagerMot(
+        config=EagerMotConfig(max_age=3),
+    )
     tracker.update(_detections(0, []), detections_3d=_spatial(0, [0]), camera=_camera())
     for frame in range(1, missing_frames + 1):
         tracker.update(_detections(frame, []), detections_3d=_spatial(frame, []), camera=_camera())
@@ -202,14 +208,18 @@ def test_per_class_queries_preserve_canonical_ids_and_follow_lifecycle_and_reset
 
 
 def test_second_stage_can_be_disabled_using_the_source_threshold_setting() -> None:
-    tracker = EagerMot(iou_threshold=1.0)
+    tracker = EagerMot(
+        config=EagerMotConfig(iou_threshold=1.0),
+    )
     tracker.update(_detections(0, [[53, 43, 75, 53]]), detections_3d=_spatial(0, [0]), camera=_camera())
     result = tracker.update(_detections(1, [[53, 43, 75, 53]]), detections_3d=_spatial(1, []), camera=_camera())
     assert len(result.image_tracks) == len(result.spatial_tracks) == 0
 
 
 def test_unmatched_fused_3d_observation_cannot_bypass_the_3d_gate() -> None:
-    tracker = EagerMot(distance_threshold=0.1)
+    tracker = EagerMot(
+        config=EagerMotConfig(distance_threshold=0.1),
+    )
     tracker.update(_detections(0, [[53, 43, 75, 53]]), detections_3d=_spatial(0, [0]), camera=_camera())
     result = tracker.update(_detections(1, [[56, 43, 78, 53]]), detections_3d=_spatial(1, [0.5]), camera=_camera())
     assert result.spatial_tracks.track_ids.tolist() == [1]
@@ -218,7 +228,9 @@ def test_unmatched_fused_3d_observation_cannot_bypass_the_3d_gate() -> None:
 
 
 def test_image_support_restores_confidence_after_3d_only_updates() -> None:
-    tracker = EagerMot(max_age_2d=2)
+    tracker = EagerMot(
+        config=EagerMotConfig(max_age_2d=2),
+    )
     tracker.update(_detections(0, [[53, 43, 75, 53]]), detections_3d=_spatial(0, [0]), camera=_camera())
     for frame, expected in ((1, 0.95), (2, 0.95 / 2), (3, 0.95 / 4)):
         result = tracker.update(_detections(frame, []), detections_3d=_spatial(frame, [0]), camera=_camera())
@@ -228,7 +240,9 @@ def test_image_support_restores_confidence_after_3d_only_updates() -> None:
 
 
 def test_confirmation_counts_observations_after_initial_warmup() -> None:
-    tracker = EagerMot(min_hits=3)
+    tracker = EagerMot(
+        config=EagerMotConfig(min_hits=3),
+    )
     for frame in range(3):
         tracker.update(_detections(frame, []), detections_3d=_spatial(frame, []), camera=_camera())
     for frame in (3, 4, 5):
@@ -237,7 +251,9 @@ def test_confirmation_counts_observations_after_initial_warmup() -> None:
 
 
 def test_initial_warmup_matches_released_source_confirmation() -> None:
-    tracker = EagerMot(min_hits=3)
+    tracker = EagerMot(
+        config=EagerMotConfig(min_hits=3),
+    )
     result = tracker.update(_detections(0, []), detections_3d=_spatial(0, [0]), camera=_camera())
     assert result.spatial_tracks.track_ids.tolist() == [0]
     tracker.update(_detections(1, []), detections_3d=_spatial(1, []), camera=_camera())
@@ -246,7 +262,9 @@ def test_initial_warmup_matches_released_source_confirmation() -> None:
 
 
 def test_world_motion_compensates_ego_translation_and_returns_camera_coordinates() -> None:
-    tracker = EagerMot(distance_threshold=0.1)
+    tracker = EagerMot(
+        config=EagerMotConfig(distance_threshold=0.1),
+    )
     for frame, translation in enumerate((0.0, 3.0, 6.0)):
         spatial = _spatial(frame, [5 - translation])
         original = spatial.geometry.values.clone()
@@ -298,4 +316,6 @@ def test_reset_and_multiple_instances_have_independent_ids() -> None:
 )
 def test_unsupported_or_invalid_configuration_is_rejected(options: dict) -> None:
     with pytest.raises((TypeError, ValueError)):
-        EagerMot(**options)
+        EagerMot(
+            config=EagerMotConfig(**options),
+        )

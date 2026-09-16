@@ -478,6 +478,8 @@ def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | 
     timing_stats = TimingStats()
     for key in timing_stats.totals:
         timing_stats.totals[key] = float(totals_ms.get(key, 0.0) or 0.0)
+    if "postprocess" in totals_ms:
+        timing_stats.totals["postprocess"] = float(totals_ms["postprocess"] or 0.0)
     if isinstance(timings.get("metadata"), dict):
         timing_stats.metadata = dict(timings["metadata"])
     timing_stats.frames = int(timings.get("frames", 0) or 0)
