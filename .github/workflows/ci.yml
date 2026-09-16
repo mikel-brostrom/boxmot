@@ -708,6 +708,8 @@ jobs:
       OMP_NUM_THREADS: "1"
       MKL_NUM_THREADS: "1"
       OPENBLAS_NUM_THREADS: "1"
+      # Python 3.12 line coverage can use the lower-overhead monitoring core.
+      COVERAGE_CORE: sysmon
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -717,7 +719,9 @@ jobs:
       - run: |
           # The dedicated export job installs and smoke-tests export runtimes.
           # The unit suite only needs the runtime/test stacks it imports directly.
-          uv sync --locked --no-default-groups --extra cpu \
+          # Other required jobs validate freshness with --locked. Use the lock
+          # directly here to avoid resolving unused Git dependency groups again.
+          uv sync --frozen --no-default-groups --extra cpu \
             --extra yolo \
             --extra evolve \
             --extra service \

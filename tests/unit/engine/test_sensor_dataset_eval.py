@@ -95,10 +95,12 @@ def test_sensor_eval_resolves_worker_count_for_all_selected_sequences(
 
 
 @pytest.mark.parametrize("use_folder", (False, True))
+@pytest.mark.parametrize("terminal_width", (80, 120))
 def test_sensor_eval_uses_shared_dispatch_and_portable_dataset_defaults(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_folder: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, use_folder: bool, terminal_width: int
 ) -> None:
     """Both dataset spellings resolve through evaluator.main from any working directory."""
+    monkeypatch.setenv("COLUMNS", str(terminal_width))
     dataset = sensor_dataset_fixture(tmp_path / "bundle").dataset
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -141,7 +143,9 @@ def test_sensor_eval_uses_shared_dispatch_and_portable_dataset_defaults(
     assert args.eval_masks is True
     assert args.project == Path("runs/eagermot")
     assert "Results:" in result.output
-    assert "evaluation" in result.output
+    # Ignore display whitespace when Rich folds a long destination across lines.
+    panel_text = "".join(result.output.replace("│", "").split())
+    assert "".join(str(tmp_path / "evaluation").split()) in panel_text
 
 
 @pytest.mark.parametrize(
