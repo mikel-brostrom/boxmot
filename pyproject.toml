@@ -196,7 +196,7 @@ boxmot-service = "boxmot.engine.service.__main__:main"
 
 [dependency-groups]
 dev  = ["ipykernel>=6.29.5,<7.0.0", "pre-commit>=4.0.1"]
-test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0"]
+test = ["pytest>=8.0.2,<10.0.0", "pytest-cov>=6.0.0,<7.0.0", "pytest-xdist>=3.8.0,<4.0.0"]
 # The official backend is distributed through Git rather than a package index.
 # A source-checkout group keeps direct URLs out of published wheel metadata.
 mask-guidance = [

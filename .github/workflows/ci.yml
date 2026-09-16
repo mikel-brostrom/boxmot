@@ -703,6 +703,11 @@ jobs:
     outputs:
       status: ${{ job.status }}
     timeout-minutes: 30
+    env:
+      # Bound numerical threads in pytest workers and their spawned children.
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -718,7 +723,7 @@ jobs:
             --extra service \
             --extra mots \
             --group test
-      - name: Pytest tests  # after tracking options as this does not download models
+      - name: Pytest tests
         env:
           # directory of PyPi package to be tested
           PACKAGE_DIR: boxmot
@@ -731,7 +736,9 @@ jobs:
           .venv/bin/python -m pytest \
             --cov="$PACKAGE_DIR" \
             --cov-report=html \
-            -v -s \
+            -n 2 --dist worksteal \
+            -q -ra --durations=30 \
+            --junitxml=test-results.xml \
             --ignore=tests/ci \
             --ignore=tests/unit/native \
             --ignore=tests/unit/tools \
@@ -743,6 +750,13 @@ jobs:
         with:
           name: coverage-report
           path: htmlcov/
+          retention-days: 14
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
           retention-days: 14
   # test-gpu:
   #   runs-on: gpu-latest

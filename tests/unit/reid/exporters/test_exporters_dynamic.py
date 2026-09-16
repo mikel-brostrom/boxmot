@@ -16,11 +16,9 @@ from boxmot.reid.core.artifacts import (
     file_sha256,
     write_artifact_metadata,
 )
-from boxmot.reid.core.runtime import ReID
 from boxmot.reid.exporters.backends.onnx import ONNXExporter, ensure_onnx_export
 from boxmot.reid.exporters.backends.openvino import OpenVINOExporter
 from boxmot.reid.exporters.backends.tensorrt import EngineExporter
-from boxmot.utils import ROOT, WEIGHTS
 from tests.performance.reid.benchmark_inference import (
     ModelSpec,
 )
@@ -32,19 +30,10 @@ from tests.performance.reid.benchmark_inference import (
 )
 
 
-def _load_existing_osnet_model_and_input(batch_size=2):
-    candidates = [
-        ROOT / "osnet_x0_25_msmt17.pt",
-        WEIGHTS / "osnet_x0_25_msmt17.pt",
-    ]
-    weights = next((p for p in candidates if p.exists()), None)
-    if weights is None:
-        pytest.skip("Missing osnet_x0_25_msmt17.pt in repository root or engine/weights.")
-
-    backend = ReID(weights=weights, device="cpu", half=False)
-    model = backend.model.model.eval()
-    im = torch.randn(batch_size, 3, 256, 128)
-    return model, im
+def _build_export_model_and_input(batch_size: int = 2) -> tuple[torch.nn.Module, torch.Tensor]:
+    """Exercise exporter batch contracts without external model checkpoints."""
+    model = torch.nn.Sequential(torch.nn.AdaptiveAvgPool2d(1), torch.nn.Flatten(1)).eval()
+    return model, torch.ones(batch_size, 3, 8, 4)
 
 
 def _install_fake_onnx(monkeypatch):
@@ -104,7 +93,7 @@ def test_onnx_export_dynamic_uses_dynamic_shapes(monkeypatch, tmp_path, batch_si
 
     monkeypatch.setattr(torch.onnx, "export", fake_export)
 
-    model, im = _load_existing_osnet_model_and_input(batch_size=batch_size)
+    model, im = _build_export_model_and_input(batch_size=batch_size)
     out_file = tmp_path / "osnet_x0_25_msmt17.pt"
 
     exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=True, half=False, simplify=False)
@@ -133,7 +122,7 @@ def test_onnx_export_dynamic_fallback_uses_dynamic_axes(monkeypatch, tmp_path, b
 
     monkeypatch.setattr(torch.onnx, "export", fake_export)
 
-    model, im = _load_existing_osnet_model_and_input(batch_size=batch_size)
+    model, im = _build_export_model_and_input(batch_size=batch_size)
     out_file = tmp_path / "osnet_x0_25_msmt17.pt"
 
     exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=True, half=False, simplify=False)
@@ -162,7 +151,7 @@ def test_onnx_export_static_has_no_dynamic_shapes(monkeypatch, tmp_path, batch_s
 
     monkeypatch.setattr(torch.onnx, "export", fake_export)
 
-    model, im = _load_existing_osnet_model_and_input(batch_size=batch_size)
+    model, im = _build_export_model_and_input(batch_size=batch_size)
     out_file = tmp_path / "osnet_x0_25_msmt17.pt"
 
     exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=False, half=False, simplify=False)
@@ -188,7 +177,7 @@ def test_onnx_export_quiet_mode_uses_legacy_when_dynamo_unavailable(monkeypatch,
 
     monkeypatch.setattr(torch.onnx, "export", fake_export)
 
-    model, im = _load_existing_osnet_model_and_input(batch_size=2)
+    model, im = _build_export_model_and_input(batch_size=2)
     out_file = tmp_path / "osnet_x0_25_msmt17.pt"
 
     exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=True, half=False, simplify=False, verbose=False)
@@ -338,7 +327,7 @@ def test_onnx_export_static_fallback_uses_legacy_exporter(monkeypatch, tmp_path)
 
     monkeypatch.setattr(torch.onnx, "export", fake_export)
 
-    model, im = _load_existing_osnet_model_and_input(batch_size=2)
+    model, im = _build_export_model_and_input(batch_size=2)
     out_file = tmp_path / "osnet_x0_25_msmt17.pt"
 
     exporter = ONNXExporter(model, im, out_file, opset=17, dynamic=False, half=False, simplify=False)
