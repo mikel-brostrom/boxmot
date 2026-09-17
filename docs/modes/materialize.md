@@ -171,7 +171,13 @@ encoder remain normal derived stages and can reuse it.
 Use `--plan executor.yaml` for local executor settings and repeat
 `--set stage.field=value` for typed YAML overrides. Unknown fields fail. Resume
 is enabled by default; use `--no-resume` to refuse stale or interrupted staging
-state.
+state. Completed inference batches are written as Parquet shards with checkpoint
+hashes. Finalization sorts and validates a separate `.publishing` candidate under
+the staging directory, preserving those checkpoints until publication succeeds.
+If finalization is interrupted, rerunning the same command reuses intact inference
+shards and restarts finalization. Masks and embeddings are compacted in bounded
+payload batches. The candidate temporarily requires disk space for the compacted
+artifacts in addition to the inference checkpoints.
 
 The first catalog pass hashes each source file and stores its dimensions and
 digest in the platform cache. Later invocations reuse that metadata only when

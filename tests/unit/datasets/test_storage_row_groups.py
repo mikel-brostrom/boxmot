@@ -141,7 +141,7 @@ def test_compaction_has_deterministic_bounded_prunable_row_groups(tmp_path) -> N
     assert [path.name for path in first_paths] == ["part-00000.parquet", "part-00001.parquet"]
     assert [_row_group_sizes(path) for path in first_paths] == [
         [PARQUET_ROW_GROUP_ROWS, 17],
-        [PARQUET_ROW_GROUP_ROWS - 10],
+        [PARQUET_ROW_GROUP_ROWS - 17, 7],
     ]
     assert [sha256_file(path) for path in first_paths] == [sha256_file(path) for path in second_paths]
     for path in first_paths:
@@ -199,14 +199,14 @@ def test_compaction_merges_disjoint_sorted_runs_without_loading_the_full_artifac
         target_rows=13,
     )
 
-    assert {item.resolve() for item in reads} == {item.resolve() for item in source.glob("*.parquet")}
+    assert reads == []  # Wide payloads are decoded through bounded record batches.
     rows = real_read(destination, artifact_name=EMBEDDINGS_ARTIFACT).to_pylist()
     assert [(row["sample_id"], row["instance_id"]) for row in rows] == sorted(
         (row["sample_id"], row["instance_id"]) for row in rows
     )
 
 
-def test_compaction_falls_back_for_overlapping_shard_key_ranges(tmp_path, monkeypatch) -> None:
+def test_compaction_streams_overlapping_embedding_shard_key_ranges(tmp_path, monkeypatch) -> None:
     fingerprint = "d" * 64
     source = tmp_path / "source"
     source.mkdir()
@@ -244,7 +244,7 @@ def test_compaction_falls_back_for_overlapping_shard_key_ranges(tmp_path, monkey
         target_rows=3,
     )
 
-    assert reads == [source]
+    assert reads == []  # Overlapping keys must not trigger a full payload read.
     for path in destination.glob("*.parquet"):
         _assert_embedding_encodings(path)
     rows = real_read(destination, artifact_name=EMBEDDINGS_ARTIFACT).to_pylist()

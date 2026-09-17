@@ -41,7 +41,7 @@ ENCODER_FINGERPRINT_METADATA_KEY = b"boxmot.encoder_fingerprint"
 # This is a physical storage policy and therefore deliberately does not
 # participate in dataset or stage fingerprints.
 PARQUET_ROW_GROUP_ROWS = 128
-_MASK_COMPACTION_BATCH_BYTES = 64 * 1024 * 1024
+_PAYLOAD_COMPACTION_BATCH_BYTES = 64 * 1024 * 1024
 
 _ARTIFACT_SORT_KEYS = {
     "samples": ("split", "sequence_id", "frame_index", "sample_id"),
@@ -301,40 +301,48 @@ def read_parquet_artifact(
     return table
 
 
-def _iter_sorted_mask_tables(source_files: tuple[Path, ...]) -> Iterator["pa.Table"]:
-    """Sort mask keys globally while decoding only bounded payload batches.
+def _iter_sorted_payload_tables(
+    source_files: tuple[Path, ...], *, artifact_name: str,
+) -> Iterator["pa.Table"]:
+    """Sort wide artifact keys globally while decoding bounded payload batches.
 
     Frame-number strings can interleave shard key ranges. Sorting the complete
-    binary payload would concatenate those chunks and overflow Arrow's 32-bit
+    payload can exhaust memory; binary masks can also overflow Arrow's 32-bit
     offsets. Keep only keys and source locations in the global sort instead.
     """
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    schema = masks_schema()
-    sort_keys = _ARTIFACT_SORT_KEYS[MASKS_ARTIFACT]
+    physical_schema = pq.read_schema(source_files[0])
+    is_mask = artifact_name == MASKS_ARTIFACT
+    schema = masks_schema() if is_mask else embeddings_schema(physical_schema.field("values").type.list_size)
+    schema = schema.with_metadata(physical_schema.metadata)
+    sort_keys = _ARTIFACT_SORT_KEYS[artifact_name]
     locations: list[tuple[Path, int, int, int]] = []
     key_tables = []
-    maximum_mask_bytes = 1
+    maximum_payload_bytes = 1
     for source_file in source_files:
         with pq.ParquetFile(source_file, pre_buffer=False) as parquet:
             if not parquet.schema_arrow.equals(schema, check_metadata=False):
                 raise ValueError(
-                    f"Parquet schema mismatch for 'masks': expected {schema}, got {parquet.schema_arrow}."
+                    f"Parquet schema mismatch for {artifact_name!r}: expected {schema}, got {parquet.schema_arrow}."
                 )
             for row_group in range(parquet.num_row_groups):
                 keys = parquet.read_row_group(
-                    row_group, columns=[*sort_keys, "height", "width"], use_threads=False,
+                    row_group, columns=[*sort_keys, "height", "width"] if is_mask else list(sort_keys), use_threads=False,
                 )
-                largest_payload = max(
-                    ((height * width + 7) // 8 for height, width in zip(
-                        keys.column("height").to_pylist(), keys.column("width").to_pylist(), strict=True,
-                    )),
-                    default=1,
-                )
-                maximum_mask_bytes = max(maximum_mask_bytes, largest_payload)
+                if is_mask:
+                    largest_payload = max(
+                        ((height * width + 7) // 8 for height, width in zip(
+                            keys.column("height").to_pylist(), keys.column("width").to_pylist(), strict=True,
+                        )),
+                        default=1,
+                    )
+                else:
+                    largest_payload = schema.field("values").type.list_size * 4
+                maximum_payload_bytes = max(maximum_payload_bytes, largest_payload)
                 batch_rows = min(
-                    PARQUET_ROW_GROUP_ROWS, max(1, _MASK_COMPACTION_BATCH_BYTES // max(1, largest_payload)),
+                    PARQUET_ROW_GROUP_ROWS, max(1, _PAYLOAD_COMPACTION_BATCH_BYTES // max(1, largest_payload)),
                 )
                 keys = keys.select(sort_keys)
                 for batch_index, offset in enumerate(range(0, keys.num_rows, batch_rows)):
@@ -366,9 +374,9 @@ def _iter_sorted_mask_tables(source_files: tuple[Path, ...]) -> Iterator["pa.Tab
             )):
                 if index == batch_index:
                     return pa.Table.from_batches([batch], schema=schema)
-        raise ValueError(f"Mask source changed during compaction: {source_file}")
+        raise ValueError(f"Artifact source changed during compaction: {source_file}")
 
-    output_rows = min(PARQUET_ROW_GROUP_ROWS, max(1, _MASK_COMPACTION_BATCH_BYTES // maximum_mask_bytes))
+    output_rows = min(PARQUET_ROW_GROUP_ROWS, max(1, _PAYLOAD_COMPACTION_BATCH_BYTES // maximum_payload_bytes))
     for offset in range(0, order.num_rows, output_rows):
         selected = order.slice(offset, output_rows)
         groups: dict[int, list[tuple[int, int]]] = {}
@@ -446,10 +454,10 @@ def write_compacted_parquet_artifact(
     """Write globally sorted, bounded canonical shards to a new directory.
 
     The caller owns durability and directory publication. This helper owns only
-    the schema-specific ordering and Parquet representation. Disjoint input
-    key ranges are sorted and merged one source shard at a time so wide
-    embedding artifacts do not require a whole-table sorted copy in memory.
-    Masks always use bounded payload batches, including overlapping key ranges.
+    the schema-specific ordering and Parquet representation. Masks and
+    embeddings sort keys globally and gather bounded payload batches, including
+    overlapping key ranges. Narrow artifacts merge disjoint source runs and
+    fall back to a whole-table sort when their key ranges overlap.
     """
 
     if target_rows <= 0:
@@ -464,9 +472,10 @@ def write_compacted_parquet_artifact(
     import pyarrow.parquet as pq
 
     source_files = artifact_files(source)
-    if artifact_name == MASKS_ARTIFACT:
+    if artifact_name in {MASKS_ARTIFACT, EMBEDDINGS_ARTIFACT}:
         return _write_compacted_tables(
-            _iter_sorted_mask_tables(source_files), destination, artifact_name=artifact_name, target_rows=target_rows,
+            _iter_sorted_payload_tables(source_files, artifact_name=artifact_name),
+            destination, artifact_name=artifact_name, target_rows=target_rows,
         )
     runs = []
     for source_file in source_files:
@@ -501,7 +510,7 @@ def write_compacted_parquet_artifact(
         )
 
     # Arbitrary callers may provide shards whose key ranges overlap. Retain
-    # the general full-table fallback for non-mask inputs. Mask payloads use
+    # the general full-table fallback for narrow inputs. Wide payloads use
     # bounded gathering above even when frame-number strings interleave shards.
     table = read_parquet_artifact(source, artifact_name=artifact_name, box_type=box_type)
     table = table.sort_by([(key, "ascending") for key in sort_keys])

@@ -187,7 +187,7 @@ def test_mask_compaction_bounds_variable_size_payloads_by_bytes(
         real_write_table(writer, table, *args, **kwargs)
 
     with monkeypatch.context() as patch:
-        patch.setattr(storage_module, "_MASK_COMPACTION_BATCH_BYTES", byte_budget)
+        patch.setattr(storage_module, "_PAYLOAD_COMPACTION_BATCH_BYTES", byte_budget)
         patch.setattr(pq.ParquetFile, "iter_batches", bounded_iter_batches)
         patch.setattr(pq.ParquetWriter, "write_table", bounded_write_table)
         paths = write_compacted_parquet_artifact(
