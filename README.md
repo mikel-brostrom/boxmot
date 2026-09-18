@@ -271,7 +271,38 @@ Both experiments reference the same `kitti-mots.yaml` inventory. The first
 selects 2D boxes; the second adds masks, 3D boxes,
 calibration, and camera poses. See [KITTI experiments](docs/config/experiments.md#saved-multimodal-kitti-inputs).
 
-Use NumPy detections and BGR images directly:
+Compose a detector, ReID encoder, and tracker in Python:
+
+```python
+import cv2
+
+from boxmot import create_tracker
+from boxmot.detectors import create_detector
+from boxmot.pipelines import TrackingPipeline
+from boxmot.reid import create_reid_encoder
+
+pipeline = TrackingPipeline(
+    detector=create_detector("yolox-x-mot17/ablation", device="cpu"),
+    reid=create_reid_encoder("lmbn-n-duke", device="cpu"),
+    tracker=create_tracker("botsort"),
+)
+
+image = cv2.imread("frame.jpg")  # Replace with an existing image path.
+if image is None:
+    raise FileNotFoundError("frame.jpg")
+result = pipeline.step(image)
+tracks = result.tracks
+detections = result.detections
+```
+
+Pass NumPy `uint8` BGR images shaped `[H, W, 3]` or Torch `uint8` RGB tensors
+shaped `[3, H, W]` directly; the pipeline assigns frame metadata automatically.
+Call `pipeline.reset()` before starting a new video. See the
+[complete Python example](docs/python/index.md#detector-reid-and-tracker)
+for model downloads and explicit frame metadata.
+`TrackingPipeline` replaces the `BoxMOT(...)` class removed in v24.
+
+To use existing NumPy detections and BGR images directly:
 
 ```python
 import numpy as np

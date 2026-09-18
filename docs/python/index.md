@@ -1,6 +1,6 @@
 # Python API
 
-BoxMOT v24 separates values, components, composition, and orchestration:
+BoxMOT separates values, components, composition, and orchestration:
 
 ```text
 structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
@@ -9,6 +9,56 @@ structures -> detector / segmentor / ReID / tracker -> pipelines -> engine
 The package root exports `__version__`, `create_tracker`, tracker classes,
 and their algorithm and shared Kalman/ReID configs. These exports load lazily.
 Import other public contracts from their domain package.
+
+## Detector, ReID, and tracker
+
+Pass a detector, ReID encoder, and tracker to `TrackingPipeline` to run them
+together. This replaces the `BoxMOT(...)` workflow class removed in v24.
+
+The following example uses the YOLOX MOT17 ablation checkpoint, LMBN ReID, and
+BoT-SORT. Factories download missing model weights when a download source is
+configured. Replace `frame.jpg` with an image from your sequence:
+
+```python
+import cv2
+
+from boxmot import create_tracker
+from boxmot.detectors import create_detector
+from boxmot.pipelines import TrackingPipeline
+from boxmot.reid import create_reid_encoder
+
+image = cv2.imread("frame.jpg")
+if image is None:
+    raise FileNotFoundError("Replace frame.jpg with an existing image path.")
+
+pipeline = TrackingPipeline(
+    detector=create_detector("yolox-x-mot17/ablation", device="cpu"),
+    reid=create_reid_encoder("lmbn-n-duke", device="cpu"),
+    tracker=create_tracker("botsort"),
+)
+
+result = pipeline.step(image)
+tracks = result.tracks
+detections = result.detections
+```
+
+Pass a NumPy `uint8` image shaped `[H, W, 3]` in BGR order, as returned by
+OpenCV, or a Torch `uint8` tensor shaped `[3, H, W]` in RGB order. The pipeline
+handles conversion to a CPU-contiguous RGB tensor and assigns sample IDs,
+sequence IDs, and increasing frame indices automatically. Keep the same
+pipeline for subsequent frames and call `pipeline.reset()` before starting a
+new video. Pass an explicit `Frame` when you need your own identifiers or
+capture timestamps; see [Canonical values](#canonical-values).
+
+Your application owns video reading, display, and saving; use
+[`boxmot track`](../modes/track.md) for those workflows from the CLI.
+
+BoT-SORT uses appearance embeddings by default, so the pipeline runs the
+supplied encoder and attaches its embeddings to `result.detections` before
+tracking. Custom detector and encoder objects can also be supplied if they
+implement the corresponding component protocols. An optional `segmentor`
+provides masks when required. See [Pipelines](#pipelines) for output requests
+and tracker-owned ReID extraction.
 
 ## Canonical values
 
@@ -581,6 +631,11 @@ can declare `EncoderRequirements(masks=True)` instead.
 `PerceptionPipeline` batches detection and enrichment. `TrackingPipeline` owns
 one tracker state and exactly one sequence at a time.
 
+`TrackingPipeline.step()` and `step_detections()` accept NumPy BGR HWC images,
+Torch RGB CHW tensors, or explicit `Frame` values. Raw images must use `uint8`;
+the pipeline converts them to canonical frames and supplies sequence metadata
+automatically. Explicit `Frame` values retain their metadata and validation.
+
 ```python
 from boxmot.pipelines import PipelineOutputs, TrackingPipeline
 
@@ -606,13 +661,16 @@ the same for Python implementations and ReID-enabled native adapters.
 
 For service or cached inputs, construct a pipeline with `detector=None` and call
 `step_detections(frame, detections)`. Both entry points use the same enrichment
-and runtime-validation path. A `PipelineResult` has exactly two fields:
-`detections` and `tracks`.
+and runtime-validation path. When `frame` is a raw image, its generated frame
+uses `detections.sample_id` so the supplied detections remain aligned. A
+`PipelineResult` has exactly two fields: `detections` and `tracks`.
 
 ### Capture timestamps
 
 Enable `KalmanConfig(variable_dt=True)` on the tracker and pass timestamp-bearing frames to the
 pipeline normally. The tracker derives prediction intervals internally.
+Use explicit `Frame` values for this mode: raw NumPy and Torch images do not
+carry capture timestamps, and the pipeline does not infer them.
 Here, `samples` contains consecutive `(Frame, Detections)` pairs with capture
 timestamps:
 

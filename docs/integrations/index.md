@@ -12,34 +12,32 @@ rows. Convert external results to canonical structures when composing a
 pipeline or attaching masks, embeddings, and explicit sample metadata:
 
 ```python
-import torch
-
 from boxmot import create_tracker
 from boxmot.pipelines import TrackingPipeline
-from boxmot.structures import Boxes, Detections, Frame
+from boxmot.structures import Boxes, Detections
 from boxmot.trackers import TrackerSpec
 
-frame = Frame(
-    image=rgb_chw_uint8_cpu.contiguous(),
-    sample_id="stream-a:15",
-    sequence_id="stream-a",
-    frame_index=15,
-)
 detections = Detections(
     geometry=Boxes(xyxy_float32_cpu.contiguous()),
     scores=scores_float32_cpu.contiguous(),
     class_ids=class_ids_int64_cpu.contiguous(),
-    sample_id=frame.sample_id,
+    sample_id="stream-a:15",
 )
 
 tracker = create_tracker(TrackerSpec(name="bytetrack", geometry="aabb"))
 pipeline = TrackingPipeline(detector=None, tracker=tracker)
-result = pipeline.step_detections(frame, detections)
+result = pipeline.step_detections(bgr_hwc_uint8, detections)
 ```
 
-The example variables deliberately mark the boundary conversion: `Frame`
-requires RGB `uint8[3,H,W]`; geometry and scores require `float32`; class IDs
-require `int64`; all tensors must be CPU-contiguous.
+The image can be a NumPy `uint8[H,W,3]` BGR array or a Torch `uint8[3,H,W]`
+RGB tensor. The pipeline converts it internally, adopts `detections.sample_id`,
+and supplies sequence metadata automatically. Keep one pipeline per sequence
+and call `pipeline.reset()` before a new video. An explicit `Frame` remains
+available for custom identifiers and capture timestamps.
+
+The detection variables deliberately mark the boundary conversion: geometry
+and scores require `float32`; class IDs require `int64`; those tensors must be
+CPU-contiguous.
 
 ## Add perception components
 

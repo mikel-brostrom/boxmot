@@ -28,7 +28,8 @@ resolution belongs to each corresponding domain package.
 ## Live detection path
 
 ```text
-Frame
+NumPy BGR HWC / Torch RGB CHW / Frame
+  -> canonical Frame (automatic metadata for raw images)
   -> Detector.predict([frame])
   -> Detections
   -> optional Segmentor.segment(...)
@@ -48,10 +49,15 @@ requesting embeddings still requires upstream enrichment. A native adapter
 computes the same fallback before passing a typed embedding buffer to its
 model-free C++ tracker library.
 
+Raw images must use `uint8`. The pipeline converts NumPy BGR HWC images and
+Torch RGB CHW tensors to CPU-contiguous RGB tensors internally. Explicit
+`Frame` values retain their supplied metadata and validation.
+
 ## Supplied-detection path
 
 ```text
-Frame + Detections
+NumPy image / Torch tensor / Frame + Detections
+  -> canonical Frame (using detections.sample_id for raw images)
   -> same enrichment and validation
   -> Tracker.update(detections, frame?)
   -> PipelineResult(detections, tracks)
@@ -62,9 +68,15 @@ cached replay. It does not bypass validation or invoke a detector.
 
 ## State
 
-A pipeline instance tracks exactly one sequence. If frame indices are supplied,
-they must increase. Interleaving another sequence is rejected until `reset()`;
-reset also clears tracker state.
+A pipeline instance tracks exactly one sequence. Raw images receive automatic
+sample IDs, sequence IDs, and increasing frame indices. Explicit frame indices
+must increase. Interleaving another explicit sequence is rejected until
+`reset()`; reset also clears tracker state. Call `reset()` before passing images
+from a new video.
+
+Raw images do not supply capture timestamps. For variable elapsed-time
+prediction, pass explicit `Frame` values with `timestamp_s`; see
+[capture timestamps](../python/index.md#capture-timestamps).
 
 Timing, progress, retries, error handling, cleanup, persistence, and display
 are engine metadata and never fields of `PipelineResult`.

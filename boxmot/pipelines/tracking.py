@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from uuid import uuid4
+
+import numpy as np
+import torch
 
 from boxmot.detectors.protocols import Detector
 from boxmot.pipelines.perception import (
@@ -45,7 +49,13 @@ def _validated_requirements(tracker: Tracker) -> TrackerRequirements:
 
 @dataclass(slots=True)
 class TrackingPipeline:
-    """Run perception and tracking for one caller-owned frame at a time."""
+    """Run perception and tracking on images or explicit ``Frame`` values.
+
+    NumPy images use uint8 HWC BGR layout; Torch images use uint8 CHW RGB
+    layout. Image inputs are normalized to CPU-contiguous canonical frames
+    with automatically generated identifiers and increasing frame indices.
+    Call ``reset()`` before processing another sequence.
+    """
 
     detector: Detector | None
     tracker: Tracker
@@ -59,6 +69,8 @@ class TrackingPipeline:
     _sequence_id: str | None = field(init=False, default=None, repr=False)
     _sequence_is_set: bool = field(init=False, default=False, repr=False)
     _last_frame_index: int | None = field(init=False, default=None, repr=False)
+    _next_frame_index: int = field(init=False, default=0, repr=False)
+    _automatic_sequence_id: str = field(init=False, default_factory=lambda: uuid4().hex, repr=False)
 
     def __post_init__(self) -> None:
         requirements = _validated_requirements(self.tracker)
@@ -102,6 +114,34 @@ class TrackingPipeline:
             outputs=effective,
         )
 
+    def _prepare_frame(self, frame: Frame | np.ndarray | torch.Tensor, *, sample_id: str | None = None) -> Frame:
+        """Normalize an image and assign metadata without advancing sequence state."""
+        if isinstance(frame, Frame):
+            return frame
+        if isinstance(frame, np.ndarray):
+            if frame.dtype != np.uint8:
+                raise TypeError(f"NumPy frame must have dtype uint8, got {frame.dtype}.")
+            if frame.ndim != 3 or frame.shape[2] != 3:
+                raise ValueError(f"NumPy frame must have shape [H, W, 3] in BGR order, got {frame.shape}.")
+            # One copy changes color/layout and handles strided or read-only arrays.
+            image = torch.from_numpy(frame[..., ::-1].transpose(2, 0, 1).copy())
+        elif isinstance(frame, torch.Tensor):
+            if frame.dtype != torch.uint8:
+                raise TypeError(f"Torch frame must have dtype torch.uint8, got {frame.dtype}.")
+            if frame.ndim != 3 or frame.shape[0] != 3:
+                raise ValueError(f"Torch frame must have shape [3, H, W] in RGB order, got {tuple(frame.shape)}.")
+            if frame.layout != torch.strided:
+                raise ValueError(f"Torch frame must use strided tensor layout, got {frame.layout}.")
+            image = frame.detach().cpu().contiguous()
+        else:
+            raise TypeError(f"frame must be a Frame, NumPy array, or Torch tensor, not {type(frame).__name__}.")
+        return Frame(
+            image=image,
+            sample_id=sample_id if sample_id is not None else f"{self._automatic_sequence_id}:{self._next_frame_index}",
+            sequence_id=self._sequence_id if self._sequence_is_set else self._automatic_sequence_id,
+            frame_index=self._next_frame_index,
+        )
+
     def _validate_frame_order(self, frame: Frame) -> None:
         if self._sequence_is_set and frame.sequence_id != self._sequence_id:
             raise ValueError(
@@ -140,9 +180,10 @@ class TrackingPipeline:
         )
         # Perception enrichments requested for output/scoring stay in the result;
         # the tracker receives only channels its configured algorithm consumes.
-        tracker_masks = getattr(
-            getattr(self.tracker, "capabilities", None), "accepts_masks", self._requirements.masks
-        ) or live_encoder_masks
+        tracker_masks = (
+            getattr(getattr(self.tracker, "capabilities", None), "accepts_masks", self._requirements.masks)
+            or live_encoder_masks
+        )
         tracker_detections = detections
         if (detections.masks is not None and not tracker_masks) or (
             detections.embeddings is not None and not self._requirements.embeddings
@@ -168,24 +209,34 @@ class TrackingPipeline:
         self._sequence_is_set = True
         if frame.frame_index is not None:
             self._last_frame_index = frame.frame_index
+        self._next_frame_index = max(self._next_frame_index, frame.frame_index or 0) + 1
         return PipelineResult(detections=detections, tracks=tracks)
 
-    def step_detections(self, frame: Frame, detections: Detections) -> PipelineResult:
-        """Advance tracking from caller-supplied detections after required enrichment."""
-        if not isinstance(frame, Frame):
-            raise TypeError(f"frame must be a Frame, not {type(frame).__name__}.")
+    def step_detections(self, frame: Frame | np.ndarray | torch.Tensor, detections: Detections) -> PipelineResult:
+        """Track supplied detections with a ``Frame``, NumPy BGR image, or Torch RGB image.
+
+        Raw images follow the same uint8 layout conventions as ``step()`` and
+        inherit ``detections.sample_id``. Explicit ``Frame`` metadata is
+        preserved and must match the detections.
+        """
         if not isinstance(detections, Detections):
             raise TypeError(f"detections must be a Detections object, not {type(detections).__name__}.")
+        frame = self._prepare_frame(frame, sample_id=detections.sample_id)
         self._validate_frame_order(frame)
         if getattr(self.tracker, "variable_dt", False):
             self.tracker.validate_timing(frame)
         enriched = self._perception.enrich((frame,), (detections,), self._perception_requirements)[0]
         return self._track(frame, enriched)
 
-    def step(self, frame: Frame) -> PipelineResult:
-        """Detect objects and advance the pipeline by one frame."""
-        if not isinstance(frame, Frame):
-            raise TypeError(f"frame must be a Frame, not {type(frame).__name__}.")
+    def step(self, frame: Frame | np.ndarray | torch.Tensor) -> PipelineResult:
+        """Detect and track one image, generating metadata for raw inputs.
+
+        NumPy inputs must be uint8 BGR ``[H, W, 3]``; Torch inputs must be
+        uint8 RGB ``[3, H, W]`` and are moved to CPU and made contiguous.
+        Supply a ``Frame`` to retain explicit identifiers or capture timestamps.
+        Trackers with variable timing require a timestamp-bearing ``Frame``.
+        """
+        frame = self._prepare_frame(frame)
         if self.detector is None:
             raise RuntimeError(
                 "TrackingPipeline.step() requires a detector; use step_detections() for caller-supplied detections."
@@ -202,6 +253,8 @@ class TrackingPipeline:
         self._sequence_id = None
         self._sequence_is_set = False
         self._last_frame_index = None
+        self._next_frame_index = 0
+        self._automatic_sequence_id = uuid4().hex
 
 
 __all__ = ("PipelineResult", "TrackingPipeline")

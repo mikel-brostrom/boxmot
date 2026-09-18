@@ -4,6 +4,7 @@ import ast
 import dataclasses
 from pathlib import Path
 
+import numpy as np
 import pytest
 import torch
 
@@ -71,6 +72,22 @@ class _Detector:
     def predict(self, frames):
         self.events.append(("detect", tuple(frame.sample_id for frame in frames)))
         return self.results
+
+
+class _FrameDetector(_Detector):
+    """Capture normalized frames and return detections with matching sample IDs."""
+
+    def __init__(self, events: list) -> None:
+        super().__init__([], events)
+        self.frames: list[Frame] = []
+        self.fail = False
+
+    def predict(self, frames: tuple[Frame, ...]) -> list[Detections]:
+        self.events.append(("detect", tuple(frame.sample_id for frame in frames)))
+        self.frames.extend(frames)
+        if self.fail:
+            raise RuntimeError("detector failed")
+        return [_detections(frame) for frame in frames]
 
 
 class _Segmentor:
@@ -552,6 +569,213 @@ def test_tracking_enforces_one_increasing_sequence_until_reset() -> None:
     pipeline.step_detections(other, _detections(other))
     assert tracker.reset_calls == 1
     assert events == [("track", "a-2"), ("track", "b-3")]
+
+
+@pytest.mark.parametrize("detect", (False, True))
+@pytest.mark.parametrize("kind", ("numpy", "numpy-negative-strides", "torch", "torch-noncontiguous"))
+def test_tracking_normalizes_raw_images_without_mutating_them(kind: str, detect: bool) -> None:
+    """OpenCV BGR arrays and RGB tensors reach components as canonical Frames."""
+    expected = torch.arange(3 * 8 * 12, dtype=torch.int64).to(torch.uint8).reshape(3, 8, 12)
+    if kind.startswith("numpy"):
+        image = expected.permute(1, 2, 0).numpy()[..., ::-1].copy()
+        if kind == "numpy-negative-strides":
+            image = image[::-1, ::-1]
+            expected = expected.flip((1, 2))
+            assert not image.flags.c_contiguous
+        original = image.copy()
+    else:
+        image = expected.clone()
+        if kind == "torch-noncontiguous":
+            image = image.transpose(1, 2).contiguous().transpose(1, 2)
+            assert not image.is_contiguous()
+        original = image.clone()
+    events = []
+    detector = _FrameDetector(events)
+    tracker = _Tracker(events, frame=True)
+    pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+    supplied = _detections(_frame("caller-sample"))
+
+    result = pipeline.step(image) if detect else pipeline.step_detections(image, supplied)
+
+    canonical = tracker.received[1]
+    assert isinstance(canonical, Frame)
+    assert canonical.image.device.type == "cpu"
+    assert canonical.image.dtype == torch.uint8
+    assert canonical.image.is_contiguous()
+    assert torch.equal(canonical.image, expected)
+    assert canonical.frame_index == 0
+    assert canonical.timestamp_s is None
+    assert result.detections.sample_id == result.tracks.sample_id == canonical.sample_id
+    if detect:
+        assert detector.frames == [canonical]
+    else:
+        assert detector.frames == []
+        assert canonical.sample_id == supplied.sample_id
+    if isinstance(image, np.ndarray):
+        np.testing.assert_array_equal(image, original)
+    else:
+        assert torch.equal(image, original)
+
+
+def test_tracking_raw_images_share_sequence_order_across_entrypoints_and_reset() -> None:
+    """Raw inputs need no metadata and share one successful-frame counter."""
+    events = []
+    detector = _FrameDetector(events)
+    tracker = _Tracker(events, frame=True)
+    pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+    image = np.zeros((8, 12, 3), dtype=np.uint8)
+
+    first_result = pipeline.step(image)
+    first = tracker.received[1]
+    supplied = _detections(_frame("cached"))
+    cached_result = pipeline.step_detections(torch.zeros((3, 8, 12), dtype=torch.uint8), supplied)
+    second = tracker.received[1]
+    third_result = pipeline.step(image)
+    third = tracker.received[1]
+
+    assert [frame.frame_index for frame in (first, second, third)] == [0, 1, 2]
+    assert first.sequence_id == second.sequence_id == third.sequence_id
+    assert first.sample_id != third.sample_id
+    for frame, result in zip((first, second, third), (first_result, cached_result, third_result)):
+        assert result.detections.sample_id == result.tracks.sample_id == frame.sample_id
+        assert frame.timestamp_s is None
+    assert second.sample_id == supplied.sample_id
+
+    pipeline.reset()
+    pipeline.step(image)
+
+    assert tracker.reset_calls == 1
+    assert tracker.received[1].frame_index == 0
+
+
+@pytest.mark.parametrize("detect", (False, True))
+def test_tracking_raw_images_continue_explicit_sequence_and_preserve_frame_context(detect: bool) -> None:
+    """Advanced callers can interleave explicit metadata with raw images."""
+    events = []
+    detector = _FrameDetector(events)
+    tracker = _Tracker(events, frame=True)
+    pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+    explicit = _frame("video-7", sequence_id="video", frame_index=7)
+    pipeline.step(explicit)
+    assert tracker.received[1] is explicit
+    assert detector.frames == [explicit]
+    image = np.zeros((8, 12, 3), dtype=np.uint8)
+
+    if detect:
+        pipeline.step(image)
+    else:
+        pipeline.step_detections(image, _detections(_frame("cached-8")))
+
+    canonical = tracker.received[1]
+    assert canonical.sequence_id == explicit.sequence_id
+    assert canonical.frame_index == 8
+    previous_events = events.copy()
+    for invalid, message in (
+        (_frame("repeated", sequence_id="video", frame_index=8), "must increase"),
+        (_frame("other-9", sequence_id="other", frame_index=9), "reset it"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            pipeline.step(invalid)
+    assert events == previous_events
+
+    next_frame = _frame("video-9", sequence_id="video", frame_index=9)
+    pipeline.step(next_frame)
+    assert tracker.received[1] is next_frame
+
+
+@pytest.mark.parametrize("detect", (False, True))
+@pytest.mark.parametrize(
+    "invalid",
+    (
+        pytest.param(np.zeros((8, 12, 3), dtype=np.float32), id="numpy-float"),
+        pytest.param(torch.zeros((3, 8, 12), dtype=torch.float32), id="torch-float"),
+        pytest.param(np.zeros((8, 12), dtype=np.uint8), id="numpy-grayscale"),
+        pytest.param(torch.zeros((1, 3, 8, 12), dtype=torch.uint8), id="torch-batch"),
+        pytest.param(np.zeros((8, 12, 4), dtype=np.uint8), id="numpy-rgba"),
+        pytest.param(torch.zeros((4, 8, 12), dtype=torch.uint8), id="torch-rgba"),
+        pytest.param(np.zeros((0, 12, 3), dtype=np.uint8), id="numpy-empty-height"),
+        pytest.param(np.zeros((8, 0, 3), dtype=np.uint8), id="numpy-empty-width"),
+        pytest.param(torch.zeros((3, 0, 12), dtype=torch.uint8), id="torch-empty-height"),
+        pytest.param(torch.zeros((3, 8, 0), dtype=torch.uint8), id="torch-empty-width"),
+        pytest.param([[1, 2, 3]], id="list"),
+        pytest.param(None, id="none"),
+    ),
+)
+def test_tracking_rejects_invalid_raw_images_before_components_or_sequence_updates(
+    invalid: object, detect: bool
+) -> None:
+    events = []
+    detector = _FrameDetector(events)
+    tracker = _Tracker(events, frame=True)
+    pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+    supplied = _detections(_frame("cached"))
+
+    with pytest.raises((TypeError, ValueError)):
+        if detect:
+            pipeline.step(invalid)
+        else:
+            pipeline.step_detections(invalid, supplied)
+
+    assert events == []
+    assert tracker.received is None
+    pipeline.step(np.zeros((8, 12, 3), dtype=np.uint8))
+    assert tracker.received[1].frame_index == 0
+
+
+def test_tracking_detector_failure_does_not_consume_raw_frame_index_or_advance_tracker() -> None:
+    events = []
+    detector = _FrameDetector(events)
+    tracker = _Tracker(events, frame=True)
+    pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+    image = np.zeros((8, 12, 3), dtype=np.uint8)
+    pipeline.step(image)
+    previous = tracker.received
+    detector.fail = True
+
+    with pytest.raises(RuntimeError, match="detector failed"):
+        pipeline.step(image)
+
+    assert tracker.received is previous
+    assert [event[0] for event in events] == ["detect", "track", "detect"]
+    rejected = detector.frames[-1]
+    detector.fail = False
+    result = pipeline.step(image)
+    retried = detector.frames[-1]
+
+    assert rejected.frame_index == retried.frame_index == 1
+    assert retried.sequence_id == previous[1].sequence_id
+    assert result.tracks.sample_id == result.detections.sample_id == retried.sample_id
+
+
+@pytest.mark.parametrize("detect", (False, True))
+def test_tracking_raw_images_require_explicit_frame_timestamps_in_variable_dt_mode(detect: bool) -> None:
+    from boxmot import KalmanConfig
+    from boxmot.trackers.bytetrack.tracker import ByteTrack
+
+    events = []
+    detector = _FrameDetector(events)
+    tracker = ByteTrack(config=ByteTrackConfig(min_hits=1), kalman=KalmanConfig(variable_dt=True))
+    pipeline = TrackingPipeline(
+        detector=detector,
+        tracker=tracker,
+        reid=_Encoder(events),
+        outputs=PipelineOutputs(embeddings=True),
+    )
+    image = np.zeros((8, 12, 3), dtype=np.uint8)
+
+    with pytest.raises(ValueError, match="timestamp"):
+        if detect:
+            pipeline.step(image)
+        else:
+            pipeline.step_detections(image, _detections(_frame("cached")))
+
+    assert events == []
+    assert tracker.frame_count == 0
+    timestamped = dataclasses.replace(_frame("video-0", sequence_id="video", frame_index=0), timestamp_s=1.0)
+    result = pipeline.step(timestamped)
+    assert len(result.tracks) == 1
+    assert tracker.frame_count == 1
+    assert detector.frames == [timestamped]
 
 
 def test_tracking_fails_fast_when_tracker_requirements_cannot_be_met() -> None:

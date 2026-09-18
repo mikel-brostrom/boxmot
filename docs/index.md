@@ -62,11 +62,12 @@ boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID
 | Track live or finite media | [Track](modes/track.md) |
 | Build reusable keyed perception data | [Materialize](modes/materialize.md) |
 | Evaluate, tune, or research against a fixed build | [Modes](modes/index.md) |
-| Compose Torch-native components in Python | [Python API](python/index.md) |
+| Combine a detector, ReID encoder, and tracker in Python | [Python quickstart](python/index.md#detector-reid-and-tracker) |
 | Select an association algorithm | [Trackers](trackers/index.md) |
 | Embed a service or native tracker | [Integrations](integrations/index.md) |
 
 Canonical structures are CPU-contiguous and validated without implicit
 conversion. Standalone box-only tracker calls may use exact NumPy AABB6 or OBB7
-rows and receive packed NumPy AABB8 or OBB9 rows; pipelines and enriched
-detections use canonical structures.
+rows and receive packed NumPy AABB8 or OBB9 rows. `TrackingPipeline` accepts
+NumPy BGR images or Torch RGB tensors directly and assigns frame metadata;
+pipeline detections and tracks use canonical structures.

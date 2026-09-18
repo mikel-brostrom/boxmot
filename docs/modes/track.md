@@ -167,9 +167,10 @@ the returned `Detections`.
 ## Sequence state
 
 A `TrackingPipeline` processes exactly one sequence. When frame indices are
-present, they must increase. Reset the pipeline before starting another
-sequence. The runner handles this for engine-owned sources; embedded Python
-callers invoke `pipeline.reset()` themselves.
+present, they must increase. NumPy and Torch inputs receive sequence metadata
+and increasing frame indices automatically. Reset the pipeline before starting
+another sequence. The runner handles this for engine-owned sources; embedded
+Python callers invoke `pipeline.reset()` themselves.
 
 ## Reuse tracker settings
 
@@ -258,28 +259,49 @@ settings consistent between calibration, evaluation, and deployment.
 
 ## Python
 
-Use factories and structures when composing a pipeline:
+Compose a detector, ReID encoder, and tracker with `TrackingPipeline`:
 
 ```python
+import cv2
+
 from boxmot import create_tracker
+from boxmot.detectors import create_detector
 from boxmot.pipelines import TrackingPipeline
-from boxmot.trackers import TrackerSpec
+from boxmot.reid import create_reid_encoder
 
-tracker = create_tracker(TrackerSpec(name="bytetrack", geometry="aabb"))
-pipeline = TrackingPipeline(detector=detector, tracker=tracker)
+pipeline = TrackingPipeline(
+    detector=create_detector("yolox-x-mot17/ablation", device="cpu"),
+    reid=create_reid_encoder("lmbn-n-duke", device="cpu"),
+    tracker=create_tracker("botsort"),
+)
 
-for frame in frames:  # Sequence[boxmot.structures.Frame]
-    result = pipeline.step(frame)
-    consume(frame, result.tracks)
+image = cv2.imread("frame.jpg")  # Replace with an existing image path.
+if image is None:
+    raise FileNotFoundError("frame.jpg")
+result = pipeline.step(image)
+tracks = result.tracks
+detections = result.detections
 ```
 
-For externally supplied detections, construct the pipeline with
-`detector=None` and call `step_detections(frame, detections)`.
+Pass NumPy `uint8` BGR images shaped `[H, W, 3]` or Torch `uint8` RGB tensors
+shaped `[3, H, W]`. The pipeline handles image conversion and frame metadata.
+Explicit `boxmot.structures.Frame` inputs are also supported when you need
+custom identifiers or capture timestamps. See the
+[detector, ReID, and tracker quickstart](../python/index.md#detector-reid-and-tracker)
+for the full input conventions and sequence handling.
 
-For an appearance-enabled tracker adapter, `TrackingPipeline` may omit `reid`;
-the tracker then extracts missing embeddings from each live frame. Pass a
-shared encoder as `reid` when the detections returned in `PipelineResult` must
-include embeddings or when several consumers reuse the same encoder.
+For externally supplied detections, construct the pipeline with
+`detector=None` and call `step_detections(image, detections)`. Raw images inherit
+the supplied `Detections.sample_id`.
+
+The external encoder supplies the embeddings used by BoT-SORT and included in
+`result.detections`; attached embeddings bypass tracker-owned ReID inference.
+You can instead omit the pipeline's `reid` and configure an appearance-enabled
+tracker through `create_tracker(..., reid=...)`. The tracker then extracts
+missing embeddings privately from each live frame, without adding them to
+`result.detections`. See
+[tracker-owned ReID](../python/index.md#live-embeddings-in-reid-enabled-trackers)
+for configuration.
 
 A standalone box-only tracker may instead receive an exact NumPy AABB6 or OBB7
 matrix directly and returns packed `float64` AABB8 or OBB9 rows. Use

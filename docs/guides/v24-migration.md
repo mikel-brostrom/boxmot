@@ -7,7 +7,7 @@ provide compatibility wrappers for the old Python, CLI, or cache interfaces.
 
 | Before v24 | v24 replacement |
 | --- | --- |
-| `BoxMOT(...)` workflow facade | Explicit component factories plus `PerceptionPipeline` or `TrackingPipeline`; use the engine CLI for source-to-sink workflows |
+| `BoxMOT(...)` workflow facade | Explicit component factories plus `PerceptionPipeline` or `TrackingPipeline`; see the [detector, ReID, and tracker quickstart](../python/index.md#detector-reid-and-tracker). Use the engine CLI for source-to-sink workflows |
 | Root `Detector` | `boxmot.detectors.create_detector("yolo26n", device="cpu")`; explicit `DetectorSpec` is also supported |
 | Root `ReIDModel` | `boxmot.reid.create_reid_encoder("osnet-x0-25-msmt17", device="cpu")`; explicit `ReIDEncoderSpec` is also supported |
 | Separate tracker model/weight/device arguments | Group inference settings in `ReIDConfig` and pass `reid=config` to the tracker class or `create_tracker`. Pass a prebuilt `AppearanceEncoder` through the same argument to reuse it. `TrackerSpec` retains algorithm settings only |
@@ -33,8 +33,7 @@ their named subpackages.
 
 Canonical tensors are CPU-contiguous. Constructors validate without silently
 converting, moving, clipping, or filtering. Convert external framework values
-once before construction when sample identity, frames, masks, or embeddings are
-part of the call:
+once before constructing canonical values:
 
 ```python
 import torch
@@ -52,8 +51,12 @@ tracks = tracker.update(detections)
 
 Standalone box-only trackers also accept exact NumPy AABB6 or OBB7 matrices.
 They return packed `float64` AABB8 or OBB9 matrices. This convenience does not
-restore the removed `img`, `embs`, or `masks` arguments; use canonical
-structures for those inputs, `Tracks` output, and pipelines.
+restore the removed `img`, `embs`, or `masks` arguments; attach masks and
+embeddings to `Detections` for structured tracker and pipeline calls.
+
+`TrackingPipeline` accepts NumPy `uint8` BGR HWC images and Torch `uint8` RGB CHW
+tensors directly, converts the image, and assigns frame metadata automatically.
+Use an explicit `Frame` when supplying your own identifiers or capture timestamps.
 
 ## Cache cutover
 
