@@ -31,17 +31,20 @@ tracking boundary unless a configured appearance encoder consumes them.
 Ground truth used for scoring or calibration is separate from these tracking
 inputs.
 
+Rows are ordered from fewest to most supported input categories, counting
+each non-`Unused` column once, including optional and configurable inputs.
+
 | Tracker | 2D geometry | ReID embeddings | Instance masks | Image input | 3D boxes | Calibration | Ego poses |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [ByteTrack](bytetrack.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
+| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
+| [SFSORT](sfsort.md) | AABB, OBB | Unused | Unused | Dimensions or configured size | Unused | Unused | Unused |
 | [BotSort](botsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [StrongSort](strongsort.md) | AABB, OBB | Required | Unused | Required: ECC pixels | Unused | Unused | Unused |
-| [OcSort](ocsort.md) | AABB, OBB | Unused | Unused | Centroid dimensions | Unused | Unused | Unused |
 | [DeepOcSort](deepocsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [HybridSort](hybridsort.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [BoostTrack](boosttrack.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
 | [OccluBoost](occluboost.md) | AABB, OBB | Configurable | Unused | CMC / live ReID / centroid | Unused | Unused | Unused |
-| [SFSORT](sfsort.md) | AABB, OBB | Unused | Unused | Dimensions or configured size | Unused | Unused | Unused |
 | [MafHda](maf_hda.md) | AABB | Unused | Required | Configurable: appearance / centroid | Unused | Unused | Unused |
 | [EagerMot](eagermot.md) | AABB | Unused | Optional | Optional metadata; pixels unused | Required | Required | Optional |
 
