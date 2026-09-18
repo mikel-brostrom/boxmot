@@ -69,10 +69,10 @@ DEPENDENCY_DIRECTION_EXCEPTIONS = frozenset(
 )
 
 REMOVED_V24_MODULES = (
-    "datasets/kitti_fusion_config.py",
-    "datasets/kitti_fusion.py",
-    "datasets/kitti_mots.py",
-    "datasets/trackrcnn.py",
+    "boxmot.datasets.kitti_fusion_config",
+    "boxmot.datasets.kitti_fusion",
+    "boxmot.datasets.kitti_mots",
+    "boxmot.datasets.trackrcnn",
     "boxmot.api",
     "boxmot.motion",
     "boxmot.core.box_schema",

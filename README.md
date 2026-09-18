@@ -39,9 +39,9 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
-  `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
-  workflows.
+- One interface for `track`, `materialize`, `materialize --time-variant`, `eval`,
+  `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, `export`,
+  `export-edgetam`, `install`, and native `build` workflows.
 - Swappable components with explicit capabilities and requirements.
 - Immutable, keyed Parquet builds with reusable detections, masks, and
   embeddings.

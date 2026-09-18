@@ -329,7 +329,9 @@ def _iter_sorted_payload_tables(
                 )
             for row_group in range(parquet.num_row_groups):
                 keys = parquet.read_row_group(
-                    row_group, columns=[*sort_keys, "height", "width"] if is_mask else list(sort_keys), use_threads=False,
+                    row_group,
+                    columns=[*sort_keys, "height", "width"] if is_mask else list(sort_keys),
+                    use_threads=False,
                 )
                 if is_mask:
                     largest_payload = max(
