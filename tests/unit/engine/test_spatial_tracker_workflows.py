@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,18 +24,32 @@ from boxmot.trackers import TrackerSpec
     "arguments",
     (
         ["track", "--source", "missing-video.mp4", "--tracker", "eagermot"],
-        ["eval", "--experiment", "missing-experiment.yaml", "--tracker", "eagermot"],
-        ["tune", "--experiment", "missing-experiment.yaml", "--tracker", "eagermot"],
+        ["eval", "--experiment", "mot17/ablation-yolox-lmbn", "--tracker", "eagermot"],
+        ["tune", "--experiment", "mot17/ablation-yolox-lmbn", "--tracker", "eagermot"],
         ["research", "--experiment", "missing-experiment.yaml", "--build", "missing-build", "--tracker", "eagermot"],
     ),
 )
 def test_image_cli_rejects_spatial_tracker_before_loading_assets(arguments: list[str]) -> None:
-    """Sensor requirements are reported even when source assets are unavailable."""
+    """Read experiment declarations, then reject image-only inputs before preparing assets."""
     result = CliRunner().invoke(boxmot, arguments)
 
     assert result.exit_code == 2, result.output
     assert "requires 3D detections and a CameraModel" in result.output
     assert "Python update() API" in result.output
+
+
+@pytest.mark.parametrize("mode", ("eval", "tune"))
+def test_spatial_cli_reports_missing_experiment_before_workflow_dispatch(
+    mode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An experiment must resolve before deciding whether its inputs are spatial."""
+    command = importlib.import_module(f"boxmot.engine.commands.{mode}")
+    monkeypatch.setattr(
+        command, "_dispatch_cli_workflow", lambda *args, **kwargs: pytest.fail("Missing experiment dispatched")
+    )
+    result = CliRunner().invoke(boxmot, [mode, "--experiment", "missing-experiment.yaml", "--tracker", "eagermot"])
+    assert result.exit_code == 2, result.output
+    assert 'Experiment config not found for filename "missing-experiment.yaml"' in result.output
 
 
 def test_direct_image_workflow_rejects_spatial_tracker_before_loading_detector() -> None:

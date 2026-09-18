@@ -166,10 +166,20 @@ def test_sensor_cli_honors_configured_worker_cap_and_explicit_override(
 
 
 @pytest.mark.parametrize("entrypoint", (tuner.main, tuner.run_tune))
+@pytest.mark.parametrize("with_experiment", (False, True))
 def test_shared_entrypoints_route_sensor_datasets_without_ray(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: Any
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    entrypoint: Any,
+    with_experiment: bool,
 ) -> None:
     args = _arguments(tmp_path, seed=None)
+    if with_experiment:
+        experiment = args.dataset.parent / "sensor-experiment.yaml"
+        experiment.write_text("dataset:\n  ref: dataset.yaml\n")
+        args.experiment = experiment
+    original = vars(args).copy()
     monkeypatch.chdir(tmp_path)
     captured: dict[str, Any] = {}
 
@@ -198,7 +208,10 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
     assert normalized.split == "val"
     assert normalized.per_class is True
     assert normalized.eval_masks is True
-    assert vars(args) == {"dataset": args.dataset, "tracker": "eagermot", "seed": None}
+    assert vars(args) == original
+    if with_experiment:
+        assert normalized.experiment == str(experiment.resolve())
+        assert normalized.experiment_id == "sensor-experiment"
     captured_output = capsys.readouterr()
     output = captured_output.out + captured_output.err
     if entrypoint is tuner.main:
@@ -218,7 +231,6 @@ def test_shared_entrypoints_route_sensor_datasets_without_ray(
         ({"tracker": "bytetrack"}, "does not use inputs required"),
         ({"tracker_backend": "cpp"}, "has no C\\+\\+ backend"),
         ({"build": "build"}, "does not support build"),
-        ({"experiment": "experiment.yaml"}, "does not support experiment"),
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),
         ({"calibrate_kf": True}, "--calibrate-kf requires 3D ground truth with track IDs"),
@@ -247,6 +259,17 @@ def test_python_sensor_controls_are_validated_before_optional_imports(
     _forbid_sensor_tuning(monkeypatch)
 
     with pytest.raises(ValueError, match=message):
+        tuner.run_tune(args)
+
+
+def test_python_sensor_tuning_reports_missing_experiment_before_optional_imports(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Experiments are supported, but missing declarations must never start tuning."""
+    args = _arguments(tmp_path, experiment="missing-experiment.yaml")
+    _forbid_sensor_tuning(monkeypatch)
+    monkeypatch.setitem(sys.modules, "ray", None)
+    with pytest.raises(FileNotFoundError, match='Experiment config not found for filename "missing-experiment.yaml"'):
         tuner.run_tune(args)
 
 

@@ -351,12 +351,12 @@ def test_perception_experiments_cannot_discard_declared_saved_tracking_inputs(
 
     with pytest.raises(ValueError) as raised:
         resolve_experiment_config(experiment, mode=mode)
-    reason, action = _concise_error(str(raised.value))
     if spatial:
-        assert "Perception experiments cannot consume" in reason
-        assert "detections_3d" in reason
-        assert "--dataset" in action
+        (reason,) = _concise_error(str(raised.value))
+        assert "uses saved sensor inputs and must omit detector" in reason
+        assert "predictions and class IDs come from the dataset" in reason
     else:
+        reason, action = _concise_error(str(raised.value))
         assert "saved TrackR-CNN inputs" in reason
         assert "boxmot track --detections" in action
 
