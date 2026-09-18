@@ -4,6 +4,12 @@
 
 Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearance in a more adaptive way than earlier ReID heuristics. The paper argues that appearance should not dominate all the time, but should be integrated when it is actually helpful, especially under long occlusions and dense interactions. This makes it a stronger tracker than pure OC-SORT when motion cues alone are not enough to keep identities stable.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker deepocsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What BoxMOT Needs For DeepOcSort
 
 - A detector plus appearance embeddings when `use_embeddings=True`. The Python
@@ -12,8 +18,17 @@ Deep OC-SORT starts from OC-SORT's motion-centric association and adds appearanc
 - Supports both AABB and OBB detections in BoxMOT.
 - Useful when OC-SORT is close but still loses IDs in crowded scenes where appearance recovery matters.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+## Python API
+
+Pass algorithm settings through `DeepOcSortConfig`, for example
+`DeepOcSort(config=DeepOcSortConfig(det_thresh=0.5))`. Direct construction and
+`create_tracker("deepocsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.DeepOcSortConfig
 
 ::: boxmot.DeepOcSort

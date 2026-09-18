@@ -1,0 +1,432 @@
+"""Supervised calibration, saved configuration reuse, and single evaluation wiring."""
+
+import json
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+import yaml
+
+from boxmot.engine.calibration import kalman_data
+from boxmot.engine.calibration.kalman import calibrate_kalman, validate_kf_calibration
+from boxmot.engine.calibration.kalman_data import CalibrationData, CalibrationTrack
+from boxmot.engine.eval import evaluator
+from boxmot.engine.eval.results import ValidationResult
+from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
+from boxmot.trackers.common.mask_guidance import MASK_GUIDANCE_OPTIONS
+from boxmot.trackers.common.motion.kalman_filters.config import (
+    AbnormalMotionSuppressionConfig,
+    KalmanConfig,
+    normalize_kalman_config,
+)
+from boxmot.trackers.common.motion.kalman_filters.fitting import MIN_COVARIANCE_SCALE
+from boxmot.trackers.common.motion.kalman_filters.noise import (
+    KALMAN_NOISE_OPTIONS,
+    KALMAN_TRACKER_NAMES,
+)
+
+
+def _args(tmp_path, **overrides):
+    return SimpleNamespace(
+        **{
+            "tracker": "bytetrack",
+            "tracker_backend": "python",
+            "geometry": "aabb",
+            "dataset_id": "fixture",
+            "split": "ablation",
+            "build_path": tmp_path / "build",
+            "sequence_names": ("seq1",),
+            "variable_dt": False,
+            "_build_validated": True,
+            **overrides,
+        }
+    )
+
+
+def _data(*, geometry="aabb", count=6, tracks=2, offset=2.0):
+    times = np.array([0.0, 0.1, 0.4, 0.45, 0.7, 1.1])[:count]
+    trajectories = []
+    for track_id in range(tracks):
+        boxes = np.tile([10.0, 20.0 + track_id * 200, 30.0, 120.0 + track_id * 200], (count, 1))
+        boxes[:, [0, 2]] += 10 * times[:, None]
+        if geometry == "obb":
+            boxes = np.column_stack(((boxes[:, :2] + boxes[:, 2:]) / 2, boxes[:, 2:] - boxes[:, :2], np.zeros(count)))
+        detections = boxes.copy()
+        detections[:, [0] if geometry == "obb" else [0, 2]] += offset
+        trajectories.append(
+            CalibrationTrack("seq1", track_id, 0, np.arange(count), times, boxes, detections, np.full(count, 0.8))
+        )
+    return CalibrationData(tuple(trajectories), {"matched": tracks * count, "trajectories": tracks}, ())
+
+
+def _load_fixture(monkeypatch, data):
+    calls = []
+
+    def load(args, **kwargs):
+        calls.append(args)
+        return data
+
+    monkeypatch.setattr(kalman_data, "load_calibration_data", load)
+    return calls
+
+
+def _fake_replay(monkeypatch, score=64.0):
+    calls = []
+
+    def replay(args, **kwargs):
+        config = dict(evaluator._tracker_options(args, kwargs.get("evolve_config")))
+        calls.append((args, config, kwargs))
+        return ValidationResult("fixture", {"HOTA": score}, "single_class", {"HOTA": score}, kwargs["output_dir"], args)
+
+    monkeypatch.setattr(evaluator, "run_eval", replay)
+    return calls
+
+
+@pytest.mark.parametrize("variable_dt", [False, True])
+def test_calibration_fits_errors_without_replay_and_holds_other_settings(monkeypatch, tmp_path, variable_dt):
+    args = _args(tmp_path, variable_dt=variable_dt, asso_func="giou", per_class=True, tracker_class_ids=(0,))
+    inputs = _load_fixture(monkeypatch, _data())
+    replays = _fake_replay(monkeypatch)
+    progress = []
+    result = calibrate_kalman(args, output_dir=tmp_path, progress=progress.append)
+    saved = load_tracker_config("bytetrack", result.config_path)
+    assert replays == []
+    assert inputs[0] is not args
+    assert inputs[0].variable_dt is variable_dt
+    assert result.matched_detections == 12
+    assert result.gt_transitions == 8
+    assert set(KALMAN_NOISE_OPTIONS) <= set(result.fitted_parameters)
+    assert result.parameter_count == 10
+    assert len(result.fitted_parameters) == 10
+    assert saved["kalman.variable_dt"] is variable_dt
+    assert saved["kalman.noise.time_unit"] == ("seconds" if variable_dt else "frames")
+    assert saved["asso_func"] == "giou"
+    assert saved["kalman.noise.measurement_noise_scale"] == pytest.approx(0.04)
+    assert saved["kalman.noise.initial_position_scale"] == pytest.approx(0.01)
+    report = json.loads(result.report_path.read_text())
+    for key, value in report["baseline_config"].items():
+        if key not in KALMAN_NOISE_OPTIONS:
+            assert saved[key] == value
+    assert report["method"] == "supervised_covariance_moments"
+    assert report["score_scope"] == "calibrated_on_selected_split"
+    assert report["sequences"] == ["seq1"]
+    assert report["per_class"] is True
+    assert report["class_ids"] == [0]
+    assert report["parameter_scope"] == "pooled_classes"
+    assert report["classes"]["0"]["filter"] == "xyah"
+    assert report["classes"]["0"]["statistics"]["matched"] == 12
+    raw_config = yaml.safe_load(result.config_path.read_text())
+    assert not any(name.startswith("kalman.noise.") for name in raw_config)
+    assert raw_config["kalman"]["noise"]["by_class"]["0"]["measurement_noise_scale"] == pytest.approx(0.04)
+    assert "final_summary" not in report
+    assert "trials" not in report
+    assert result.config_path.name == "calibrated.yaml"
+    assert result.report_path.name == "calibration.json"
+    assert "12 matched detections" in result.description
+    assert progress[0].startswith("KF calibration:")
+    assert not hasattr(args, "exp_dir")
+
+
+def test_irregular_intervals_preserve_constant_velocity_process_residuals(monkeypatch, tmp_path):
+    _load_fixture(monkeypatch, _data())
+    results = []
+    for variable_dt in (False, True):
+        result = calibrate_kalman(_args(tmp_path, variable_dt=variable_dt), output_dir=tmp_path / str(variable_dt))
+        results.append(load_tracker_config("bytetrack", result.config_path))
+    assert results[1]["kalman.noise.process_position_scale"] == MIN_COVARIANCE_SCALE
+    assert results[1]["kalman.noise.process_velocity_scale"] == MIN_COVARIANCE_SCALE
+    assert results[0]["kalman.noise.process_velocity_scale"] > MIN_COVARIANCE_SCALE
+    assert results[0]["kalman.noise.measurement_noise_scale"] == results[1]["kalman.noise.measurement_noise_scale"]
+
+
+def test_per_class_calibration_saves_distinct_priors_and_global_fallback(monkeypatch, tmp_path):
+    tracks = (
+        *_data(offset=1.0).tracks,
+        *(replace(track, class_id=1) for track in _data(offset=3.0).tracks),
+        replace(_data(count=1, tracks=1, offset=2.0).tracks[0], class_id=2),
+    )
+    _load_fixture(monkeypatch, CalibrationData(tracks, {"matched": 25, "trajectories": 5}, ()))
+    args = _args(
+        tmp_path, per_class=True, tracker_class_ids=(0, 1, 2, 3), tracker_class_names=((0, "car"), (1, "person"))
+    )
+    result = calibrate_kalman(args, output_dir=tmp_path)
+    saved = load_tracker_config("bytetrack", result.config_path)
+    noise = normalize_kalman_config(saved, tracker_name="bytetrack").noise
+    assert saved["per_class"] is True
+    assert noise.for_class(1).measurement_noise_scale == pytest.approx(9 * noise.for_class(0).measurement_noise_scale)
+    assert noise.for_class(2).measurement_noise_scale == noise.measurement_noise_scale
+    assert noise.for_class(3).measurement_noise_scale == noise.measurement_noise_scale
+    assert noise.for_class(99).measurement_noise_scale == noise.measurement_noise_scale
+    assert result.parameter_count == 25
+    report = json.loads(result.report_path.read_text())
+    assert report["classes"]["0"]["class_name"] == "car"
+    for class_id in (2, 3):
+        parameters = report["classes"][str(class_id)]["parameters"]
+        assert all(estimate["status"] == "global_fallback" for estimate in parameters.values())
+        assert all(
+            estimate["source"] == "pooled_classes" and estimate["global_events"] >= 2
+            for estimate in parameters.values()
+        )
+    assert report["classes"]["3"]["statistics"]["matched"] == 0
+    assert report["classes"]["1"]["timing"] == report["timing"]
+
+
+def test_larger_detector_errors_increase_r_and_initial_position_but_not_q(monkeypatch, tmp_path):
+    configurations = []
+    for offset in (1.0, 3.0):
+        _load_fixture(monkeypatch, _data(offset=offset))
+        result = calibrate_kalman(_args(tmp_path), output_dir=tmp_path / str(offset))
+        configurations.append(load_tracker_config("bytetrack", result.config_path))
+    small, large = configurations
+    for key in ("kalman.noise.measurement_noise_scale", "kalman.noise.initial_position_scale"):
+        assert large[key] == pytest.approx(9 * small[key])
+    for key in (
+        "kalman.noise.process_position_scale",
+        "kalman.noise.process_velocity_scale",
+        "kalman.noise.initial_velocity_scale",
+    ):
+        assert large[key] == small[key]
+
+
+def test_calibration_preserves_grouped_filter_policies(monkeypatch, tmp_path):
+    _load_fixture(monkeypatch, _data(offset=3.0))
+    configured = KalmanConfig(
+        adaptive_kf=True,
+        ams=AbnormalMotionSuppressionConfig(enabled=False, alpha0=0.2, buffer_size=12),
+    )
+    result = calibrate_kalman(
+        _args(tmp_path, tracker="occluboost"), output_dir=tmp_path, tracker_options={"kalman": configured}
+    )
+    saved = load_tracker_config("occluboost", result.config_path)
+    restored = normalize_kalman_config(saved, tracker_name="occluboost")
+    assert restored.adaptive_kf is True
+    assert restored.ams == configured.ams
+    assert restored.noise.measurement_noise_scale != configured.noise.measurement_noise_scale
+    authored = yaml.safe_load(result.config_path.read_text())
+    assert authored["kalman"]["adaptive_kf"] is True
+    assert authored["kalman"]["ams"]["enabled"] is False
+    assert authored["kalman"]["ams"]["buffer_size"] == 12
+    assert not {"adaptive_kf", "variable_dt", "ams_enabled", "kalman_noise"}.intersection(authored)
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_calibration_preserves_custom_guidance_without_changing_fitted_noise(monkeypatch, tmp_path, grouped):
+    """Guidance settings survive export without participating in the KF fit."""
+    _load_fixture(monkeypatch, _data())
+    baseline = calibrate_kalman(_args(tmp_path, tracker="occluboost"), output_dir=tmp_path / "baseline")
+    guidance = {
+        "edgetam.min_coverage": 0.72,
+        "edgetam.min_fill": 0.12,
+        "edgetam.prompt_overlap": 0.24,
+        "edgetam.max_objects": 96,
+    }
+    options = nest_tracker_options(guidance) if grouped else guidance.copy()
+    result = calibrate_kalman(
+        _args(tmp_path, tracker="occluboost"), output_dir=tmp_path / "custom", tracker_options=options
+    )
+    saved = load_tracker_config("occluboost", result.config_path)
+    baseline_config = load_tracker_config("occluboost", baseline.config_path)
+
+    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == guidance
+    assert {key: saved[key] for key in KALMAN_NOISE_OPTIONS} == {
+        key: baseline_config[key] for key in KALMAN_NOISE_OPTIONS
+    }
+    assert options == (nest_tracker_options(guidance) if grouped else guidance)
+    authored = yaml.safe_load(result.config_path.read_text())
+    assert authored["edgetam"] == nest_tracker_options(guidance)["edgetam"]
+
+
+@pytest.mark.parametrize("tracker", sorted(KALMAN_TRACKER_NAMES))
+def test_first_detection_after_obb_angle_wrap_has_no_artificial_birth_error(monkeypatch, tmp_path, tracker):
+    scales = []
+    for crosses_wrap in (False, True):
+        data = _data(geometry="obb")
+        trajectories = []
+        for track in data.tracks:
+            truth, detections = track.gt_boxes.copy(), track.detection_boxes.copy()
+            angles = np.linspace(-0.1, 0.15, len(truth)) + (np.pi if crosses_wrap else 0.0)
+            truth[:, 4] = detections[:, 4] = (angles + np.pi) % (2 * np.pi) - np.pi
+            detections[:3] = np.nan
+            trajectories.append(replace(track, gt_boxes=truth, detection_boxes=detections))
+        _load_fixture(monkeypatch, replace(data, tracks=tuple(trajectories), statistics={"matched": 6}))
+        result = calibrate_kalman(
+            _args(tmp_path, tracker=tracker, geometry="obb"), output_dir=tmp_path / str(crosses_wrap)
+        )
+        scales.append(load_tracker_config(tracker, result.config_path)["kalman.noise.initial_position_scale"])
+    assert scales[0] == pytest.approx(scales[1])
+
+
+@pytest.mark.parametrize("tracker", sorted(KALMAN_TRACKER_NAMES))
+@pytest.mark.parametrize("geometry", ["aabb", "obb"])
+def test_all_filter_families_produce_reusable_calibration(monkeypatch, tmp_path, tracker, geometry):
+    _load_fixture(monkeypatch, _data(geometry=geometry))
+    result = calibrate_kalman(
+        _args(tmp_path, tracker=tracker, geometry=geometry, variable_dt=True), output_dir=tmp_path
+    )
+    saved = load_tracker_config(tracker, result.config_path)
+    assert set(result.fitted_parameters) == set(KALMAN_NOISE_OPTIONS)
+    assert all(np.isfinite(saved[key]) and saved[key] > 0 for key in KALMAN_NOISE_OPTIONS)
+    defaults = load_tracker_config(tracker)
+    assert {key: saved[key] for key in MASK_GUIDANCE_OPTIONS} == {
+        key: defaults[key] for key in MASK_GUIDANCE_OPTIONS
+    }
+
+
+def test_sparse_evidence_retains_custom_baselines_and_resolves_implicit_timing(monkeypatch, tmp_path):
+    config_path = tmp_path / "custom.yaml"
+    scales = dict(zip(KALMAN_NOISE_OPTIONS, [0.0001, 3.0, 2.0, 4.0, 900.0], strict=True))
+    config_path.write_text(
+        yaml.safe_dump(nest_tracker_options({"tracker": "bytetrack", "kalman.variable_dt": True, **scales}))
+    )
+    calls = _load_fixture(monkeypatch, _data(count=1, tracks=1))
+    result = calibrate_kalman(_args(tmp_path, variable_dt=None, tracker_config=config_path), output_dir=tmp_path)
+    saved = load_tracker_config("bytetrack", result.config_path)
+    assert {key: saved[key] for key in KALMAN_NOISE_OPTIONS} == scales
+    assert calls[0].variable_dt is True
+    assert saved["kalman.noise.time_unit"] == "seconds"
+    assert result.fitted_parameters == ()
+    report = json.loads(result.report_path.read_text())
+    assert all(entry["status"] == "retained" and entry["reason"] for entry in report["parameters"].values())
+
+
+def test_sparse_class_and_pool_preserve_authored_class_priors(monkeypatch, tmp_path):
+    config_path = tmp_path / "custom.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "per_class": True,
+                "kalman": {
+                    "noise": {
+                        "measurement_noise_scale": 4.0,
+                        "by_class": {"2": {"measurement_noise_scale": 7.0}},
+                    },
+                },
+            }
+        )
+    )
+    _load_fixture(monkeypatch, _data(count=1, tracks=1))
+    result = calibrate_kalman(
+        _args(tmp_path, tracker_config=config_path, tracker_class_ids=(0, 2)), output_dir=tmp_path
+    )
+    saved = load_tracker_config("bytetrack", result.config_path)
+    assert saved["per_class"] is True
+    assert saved["kalman.noise.measurement_noise_scale"] == 4.0
+    assert saved["kalman.noise.by_class.2.measurement_noise_scale"] == 7.0
+    assert result.fitted_parameters == ()
+    report = json.loads(result.report_path.read_text())
+    assert report["per_class"] is True
+    assert report["classes"]["2"]["parameters"]["kalman.noise.measurement_noise_scale"]["source"] == "configured"
+
+
+def test_detection_misses_contribute_process_evidence_but_annotation_gaps_do_not(monkeypatch, tmp_path):
+    data = _data(tracks=1)
+    track = data.tracks[0]
+    detections = track.detection_boxes.copy()
+    detections[1:3] = np.nan
+    _load_fixture(
+        monkeypatch, replace(data, tracks=(replace(track, detection_boxes=detections),), statistics={"matched": 4})
+    )
+    result = calibrate_kalman(_args(tmp_path), output_dir=tmp_path / "misses")
+    assert result.gt_transitions == 4
+    frames = np.array([0, 1, 2, 4, 5, 6])
+    _load_fixture(monkeypatch, replace(data, tracks=(replace(track, frame_indices=frames),)))
+    result = calibrate_kalman(_args(tmp_path), output_dir=tmp_path / "annotation-gap")
+    assert result.gt_transitions == 2
+
+
+@pytest.mark.parametrize("mode,override", [("seconds", False), ("frames", True)])
+def test_calibrated_units_cannot_be_overridden(monkeypatch, tmp_path, mode, override):
+    path = tmp_path / "calibrated.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {"kalman": {"variable_dt": mode == "seconds", "noise": {"time_unit": mode, "reference_dt_s": 0.04}}}
+        )
+    )
+    calls = _load_fixture(monkeypatch, _data())
+    with pytest.raises(ValueError, match="conflicts with variable_dt"):
+        calibrate_kalman(_args(tmp_path, tracker_config=path, variable_dt=override), output_dir=tmp_path)
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    "tracker, parameter",
+    [
+        ("ocsort", "Q_xy_scaling"),
+        ("deepocsort", "Q_s_scaling"),
+        ("ocsort", "Q_a_scaling"),
+        ("deepocsort", "unknown_tracker_parameter"),
+    ],
+)
+@pytest.mark.parametrize("source", ["config", "programmatic"])
+def test_unsupported_tracker_options_fail_before_calibration_reads_data_or_writes_output(
+    monkeypatch, tmp_path, tracker, parameter, source
+):
+    calls = _load_fixture(monkeypatch, _data())
+    args = _args(tmp_path, tracker=tracker)
+    options = {parameter: 0.2}
+    if source == "config":
+        args.tracker_config = tmp_path / "tracker.yaml"
+        args.tracker_config.write_text(yaml.safe_dump(options))
+        options = None
+
+    with pytest.raises(ValueError, match=parameter):
+        calibrate_kalman(args, output_dir=tmp_path, tracker_options=options)
+
+    assert calls == []
+    assert not (tmp_path / "kf-tuning").exists()
+
+
+def test_no_ground_truth_matches_fails_before_writing_output(monkeypatch, tmp_path):
+    _load_fixture(monkeypatch, replace(_data(), statistics={"matched": 0}))
+    with pytest.raises(ValueError, match="no valid matches"):
+        calibrate_kalman(_args(tmp_path), output_dir=tmp_path)
+    assert not (tmp_path / "kf-tuning").exists()
+
+
+def test_unfiltered_calibration_records_all_resolved_sequences(monkeypatch, tmp_path):
+    _load_fixture(monkeypatch, _data())
+    result = calibrate_kalman(
+        _args(tmp_path, sequence_names=None, seq_info={"seq1": 50, "seq2": 100}), output_dir=tmp_path
+    )
+    assert json.loads(result.report_path.read_text())["sequences"] == ["seq1", "seq2"]
+
+
+@pytest.mark.parametrize("tracker,backend", [("maf_hda", "python"), ("botsort", "cpp")])
+def test_unsupported_calibration_rejected(tracker, backend):
+    with pytest.raises(ValueError, match="Python tracker with a Kalman filter"):
+        validate_kf_calibration(tracker, backend)
+
+
+def test_eval_main_calibrates_then_evaluates_once_with_display(monkeypatch, tmp_path):
+    _load_fixture(monkeypatch, _data())
+    calls = _fake_replay(monkeypatch)
+    monkeypatch.setattr(evaluator, "eval_setup", lambda *args, **kwargs: None)
+    args = _args(
+        tmp_path, calibrate_kf=True, project=tmp_path, name="eval", experiment_id="fixture", show=True, save=True
+    )
+    result = evaluator.main(args)
+    assert len(calls) == 1
+    assert "evolve_config" not in calls[0][2]
+    assert calls[0][2]["setup"] is False
+    assert calls[0][0].show is True and calls[0][0].save is True
+    assert result.exp_dir == tmp_path / "fixture" / "eval"
+    saved = load_tracker_config("bytetrack", Path(args.tracker_config))
+    assert calls[0][1] == saved
+    report = json.loads((result.exp_dir / "kf-tuning" / "calibration.json").read_text())
+    assert report["final_summary"] == {"HOTA": 64.0}
+    assert Path(report["final_output_dir"]) == result.exp_dir
+
+
+def test_eval_without_calibration_runs_once(monkeypatch, tmp_path):
+    calls = []
+
+    def replay(args, **kwargs):
+        calls.append(kwargs)
+        return ValidationResult("fixture", {}, "", {}, exp_dir=tmp_path, args=args)
+
+    monkeypatch.setattr(evaluator, "run_eval", replay)
+    evaluator.main(_args(tmp_path))
+    assert len(calls) == 1
+    assert not (tmp_path / "kf-tuning").exists()

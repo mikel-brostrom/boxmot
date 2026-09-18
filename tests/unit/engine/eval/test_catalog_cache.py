@@ -222,7 +222,7 @@ def test_default_eval_catalog_cache_uses_platform_cache(tmp_path, monkeypatch) -
         data_root=data_root,
     )
 
-    dataset_root = catalog_module.resolve_dataset_root(config, data_root)
+    dataset_root = catalog_module.resolve_dataset_storage_root(config, data_root)
     assert path == metadata_cache_module.default_source_metadata_cache_path(dataset_root)
     assert path.parent == platform_cache / "materialization" / "source-metadata"
     assert path.suffix == ".json"

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any, Sequence
 
-from rich.console import Group, RenderableType
+from rich.cells import cell_len
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
@@ -38,6 +40,51 @@ DEFAULT_VALIDATION_REPORT_TITLE = "VAL RESULTS"
 DEFAULT_TUNE_BEST_REPORT_TITLE = "TUNE BEST RESULTS"
 CLI_RESULTS_SUMMARY_TITLE = "📊 RESULTS SUMMARY"
 CLI_TUNE_BEST_SUMMARY_TITLE = "📊 BEST TRIAL SUMMARY"
+KITTI_AP_TITLE = "Official KITTI object detection — AP40 (%)"
+KITTI_TRACKING_TITLE = "2D tracking — TrackEval KITTI"
+SPATIAL_TRACKING_TITLE = "3D tracking — volumetric IoU"
+
+
+def _detection_rows(metrics: dict[str, Any]) -> list[tuple[str, ...]]:
+    """Order object AP independently of tracking metrics and class averages."""
+    return [
+        (
+            geometry.upper(),
+            class_name,
+            *("N/A" if values.get(level) is None else f"{values[level]:.2f}" for level in ("easy", "moderate", "hard")),
+        )
+        for geometry in ("2d", "3d")
+        for class_name, values in metrics.get(geometry, {}).items()
+    ]
+
+
+def _build_detection_table(metrics: dict[str, Any]) -> Table:
+    """Show official object detection difficulty tiers in the terminal."""
+    table = Table(
+        title=KITTI_AP_TITLE,
+        title_justify="left",
+        expand=True,
+        box=None,
+        header_style=STYLE_TABLE_HEADER,
+        pad_edge=False,
+    )
+    for name in ("Geometry", "Class", "Easy", "Moderate", "Hard"):
+        table.add_column(name, justify="right" if name in ("Easy", "Moderate", "Hard") else "left")
+    for row in _detection_rows(metrics):
+        table.add_row(*row)
+    return table
+
+
+def _format_detection_report(metrics: dict[str, Any]) -> str:
+    """Render a stable AP table for plain text and saved reports."""
+    rows = [("Geometry", "Class", "Easy", "Moderate", "Hard"), *_detection_rows(metrics)]
+    widths = [max(len(row[index]) for row in rows) for index in range(5)]
+    return "\n".join(
+        [
+            KITTI_AP_TITLE,
+            *("  ".join(value.ljust(width) for value, width in zip(row, widths)).rstrip() for row in rows),
+        ]
+    )
 
 
 def core_summary_metrics(summary: dict[str, Any]) -> dict[str, float]:
@@ -71,14 +118,29 @@ def _format_metric_delta(metric: str, value: Any, baseline_value: Any | None) ->
     return Text(f"({delta:+.2f})", style=_metric_delta_style(metric, delta))
 
 
-def _build_sequence_table(
-    rows: Sequence[tuple[str, dict[str, Any]]],
+@dataclass
+class _ResponsiveResultTable:
+    """Switch to labelled values when a terminal cannot fit the numeric columns."""
+
+    table: Table
+    narrow: Group
+    minimum_width: int
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        yield self.table if options.max_width >= self.minimum_width else self.narrow
+
+
+def _build_result_table(
+    headers: Sequence[str],
+    rows: Sequence[tuple[Sequence[str | Text], str | None]],
     *,
     show_header: bool = True,
-    name_header: str = "Sequence",
-    compare_rows: Sequence[dict[str, Any] | None] | None = None,
-    compare_label: str | None = None,
-) -> Table:
+) -> RenderableType:
+    """Reserve full numeric widths and fold labels or stack values as needed."""
+    widths = [
+        max([cell_len(header), *(cell_len(str(values[index])) for values, _ in rows)])
+        for index, header in enumerate(headers)
+    ]
     table = Table(
         expand=True,
         box=None,
@@ -87,28 +149,64 @@ def _build_sequence_table(
         row_styles=["", STYLE_MUTED],
         pad_edge=False,
         show_edge=False,
-        padding=(0, 2),
+        padding=(0, 1),
         collapse_padding=False,
     )
-    table.add_column(name_header, style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
-    for column in SUMMARY_COLUMNS:
-        table.add_column(column, justify="right", no_wrap=True, ratio=1)
+    table.add_column(headers[0], style=STYLE_TEXT_STRONG, ratio=1, overflow="fold")
+    for header, width in zip(headers[1:], widths[1:]):
+        table.add_column(header, justify="right", no_wrap=True, width=width)
 
+    narrow_rows: list[RenderableType] = []
+    for values, style in rows:
+        table.add_row(*values, style=style)
+        label = values[0].copy() if isinstance(values[0], Text) else Text(values[0], style=STYLE_TEXT_STRONG)
+        if style:
+            label.stylize(style)
+        narrow_rows.append(label)
+        if any(str(value) for value in values[1:]):
+            metrics = Table.grid(expand=True, padding=(0, 1))
+            metrics.add_column(style=STYLE_TABLE_HEADER, ratio=1, overflow="fold")
+            metrics.add_column(justify="right", no_wrap=True, width=max(widths[1:]))
+            for header, value in zip(headers[1:], values[1:]):
+                metrics.add_row(header, value, style=style)
+            narrow_rows.append(metrics)
+
+    # Keep at least one whole label word beside the fixed-width numeric cells.
+    label_width = max(
+        [
+            cell_len(headers[0]),
+            *(cell_len(word) for values, _ in rows for word in str(values[0]).split()),
+        ]
+    )
+    minimum_width = label_width + sum(widths[1:]) + 2 * (len(headers) - 1)
+    return _ResponsiveResultTable(table, Group(*narrow_rows), minimum_width)
+
+
+def _build_sequence_table(
+    rows: Sequence[tuple[str, dict[str, Any]]],
+    *,
+    show_header: bool = True,
+    name_header: str = "Sequence",
+    compare_rows: Sequence[dict[str, Any] | None] | None = None,
+    compare_label: str | None = None,
+) -> RenderableType:
+    """Format combined or per-sequence metrics without clipping numeric values."""
+    formatted_rows: list[tuple[Sequence[str | Text], str | None]] = []
     compare_values = list(compare_rows) if compare_rows is not None else []
 
     for index, (row_name, metrics) in enumerate(rows):
         compare_metrics = compare_values[index] if index < len(compare_values) else None
         style = STYLE_COMBINED_ROW if row_name.startswith("COMBINED") else None
         values = [_format_metric_value(column, metrics.get(column, 0)) for column in SUMMARY_COLUMNS]
-        table.add_row(row_name, *values, style=style)
+        formatted_rows.append(([row_name, *values], style))
         if compare_metrics is not None:
             delta_values = [
                 _format_metric_delta(column, metrics.get(column, 0), compare_metrics.get(column))
                 for column in SUMMARY_COLUMNS
             ]
-            table.add_row(Text(compare_label or "", style=STYLE_MUTED), *delta_values)
+            formatted_rows.append(([Text(compare_label or "", style=STYLE_MUTED), *delta_values], None))
 
-    return table
+    return _build_result_table([name_header, *SUMMARY_COLUMNS], formatted_rows, show_header=show_header)
 
 
 def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType | None:
@@ -123,21 +221,7 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
     breakdown = derive_timing_breakdown(totals_ms, frames, total_time_ms=totals_ms.get("total"))
     metadata = timings.get("metadata") if isinstance(timings.get("metadata"), dict) else {}
 
-    table = Table(
-        expand=True,
-        box=None,
-        show_header=True,
-        header_style=STYLE_TABLE_HEADER,
-        row_styles=["", STYLE_MUTED],
-        pad_edge=False,
-        show_edge=False,
-        padding=(0, 2),
-        collapse_padding=False,
-    )
-    table.add_column("Stage", style=STYLE_TEXT_STRONG, no_wrap=True, ratio=3)
-    table.add_column("Total (ms)", justify="right", no_wrap=True, ratio=1)
-    table.add_column("Avg (ms)", justify="right", no_wrap=True, ratio=1)
-    table.add_column("FPS", justify="right", no_wrap=True, ratio=1)
+    rows: list[tuple[Sequence[str | Text], str | None]] = []
 
     for entry in build_timing_display_rows(
         breakdown,
@@ -147,31 +231,37 @@ def _build_timing_renderable(timings: dict[str, Any] | None) -> RenderableType |
         overall_fps=float(timings.get("fps", 0.0) or 0.0),
     ):
         if entry["kind"] == "group":
-            table.add_row(Text(str(entry["label"]), style=STYLE_ACCENT), "", "", "")
+            rows.append(([Text(str(entry["label"]), style=STYLE_ACCENT), "", "", ""], None))
             continue
         if entry["kind"] == "note":
-            table.add_row(Text(str(entry["label"]), style=STYLE_MUTED), "", "", "")
+            rows.append(([Text(str(entry["label"]), style=STYLE_MUTED), "", "", ""], None))
             continue
 
         row_style = STYLE_TEXT_STRONG if bool(entry["strong"]) else None
-        table.add_row(
-            str(entry["label"]),
-            f"{float(entry['total']):.1f}",
-            f"{float(entry['avg']):.2f}",
-            f"{float(entry['fps']):.1f}",
-            style=row_style,
+        rows.append(
+            (
+                [
+                    str(entry["label"]),
+                    f"{float(entry['total']):.1f}",
+                    f"{float(entry['avg']):.2f}",
+                    f"{float(entry['fps']):.1f}",
+                ],
+                row_style,
+            )
         )
 
     meta = Table.grid(expand=True)
     meta.add_column(justify="left")
     meta.add_row(Text.assemble(Text("Frames", style=STYLE_ACCENT), "  ", Text(str(frames), style=STYLE_TEXT)))
-    return Group(meta, table)
+    return Group(meta, _build_result_table(["Stage", "Total (ms)", "Avg (ms)", "FPS"], rows))
 
 
 def build_validation_cli_renderable(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
@@ -196,6 +286,17 @@ def build_validation_cli_renderable(
     sections: list[RenderableType] = []
     if title:
         sections.append(Text(title, style=STYLE_ACCENT))
+    if detection_metrics is not None:
+        sections.extend(
+            (
+                _build_detection_table(detection_metrics),
+                Rule(style=STYLE_RULE),
+            )
+        )
+    if getattr(args, "eval_3d", False):
+        sections.append(Text(SPATIAL_TRACKING_TITLE, style=STYLE_TEXT_STRONG))
+    elif detection_metrics is not None:
+        sections.append(Text(KITTI_TRACKING_TITLE, style=STYLE_TEXT_STRONG))
 
     if len(primary_keys) > 1:
         sections.append(
@@ -283,6 +384,16 @@ def build_validation_cli_renderable(
             )
         sections.append(Group(*block))
 
+    if tracking_2d_metrics is not None:
+        sections.extend(
+            (
+                Rule(style=STYLE_RULE),
+                build_validation_cli_renderable(
+                    tracking_2d_metrics, title=KITTI_TRACKING_TITLE, include_sequences=include_sequences
+                ),
+            )
+        )
+
     if include_timings:
         timing_renderable = _build_timing_renderable(timings)
         if timing_renderable is not None:
@@ -318,6 +429,8 @@ def format_validation_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     title: str | None = None,
     include_sequences: bool = True,
 ) -> str:
@@ -328,7 +441,7 @@ def format_validation_report(
         fallback_title = title or "Results"
         return f"{fallback_title}\n{format_core_summary(raw if isinstance(raw, dict) else {})}"
 
-    return render_mot_report(
+    tracking_report = render_mot_report(
         parsed_results,
         args,
         cfg,
@@ -337,6 +450,20 @@ def format_validation_report(
         always_include_combined=True,
         colorize=False,
     )
+    blocks = [tracking_report]
+    if getattr(args, "eval_3d", False):
+        blocks.insert(0, SPATIAL_TRACKING_TITLE)
+    elif detection_metrics is not None:
+        blocks.insert(0, KITTI_TRACKING_TITLE)
+    if detection_metrics is not None:
+        blocks.insert(0, _format_detection_report(detection_metrics))
+    if tracking_2d_metrics is not None:
+        blocks.append(
+            format_validation_report(
+                tracking_2d_metrics, title=KITTI_TRACKING_TITLE, include_sequences=include_sequences
+            )
+        )
+    return "\n\n".join(blocks)
 
 
 def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | None:
@@ -351,6 +478,8 @@ def timing_stats_from_snapshot(timings: dict[str, Any] | None) -> TimingStats | 
     timing_stats = TimingStats()
     for key in timing_stats.totals:
         timing_stats.totals[key] = float(totals_ms.get(key, 0.0) or 0.0)
+    if "postprocess" in totals_ms:
+        timing_stats.totals["postprocess"] = float(totals_ms["postprocess"] or 0.0)
     if isinstance(timings.get("metadata"), dict):
         timing_stats.metadata = dict(timings["metadata"])
     timing_stats.frames = int(timings.get("frames", 0) or 0)
@@ -361,6 +490,8 @@ def render_validation_cli_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -396,6 +527,21 @@ def render_validation_cli_report(
             colorize=bool(colorize),
         )
     ]
+    if getattr(args, "eval_3d", False):
+        blocks.insert(0, SPATIAL_TRACKING_TITLE)
+    elif detection_metrics is not None:
+        blocks.insert(0, KITTI_TRACKING_TITLE)
+    if detection_metrics is not None:
+        blocks[:0] = [_format_detection_report(detection_metrics), ""]
+    if tracking_2d_metrics is not None:
+        blocks.append(
+            render_validation_cli_report(
+                tracking_2d_metrics,
+                title=KITTI_TRACKING_TITLE,
+                include_sequences=include_sequences,
+                colorize=colorize,
+            )
+        )
 
     if include_timings:
         timing_stats = timing_stats_from_snapshot(timings)
@@ -411,6 +557,8 @@ def print_validation_cli_report(
     raw: dict[str, Any],
     *,
     args: Any = None,
+    detection_metrics: dict[str, Any] | None = None,
+    tracking_2d_metrics: dict[str, Any] | None = None,
     timings: dict[str, Any] | None = None,
     title: str = CLI_RESULTS_SUMMARY_TITLE,
     include_sequences: bool = True,
@@ -426,6 +574,8 @@ def print_validation_cli_report(
     report = render_validation_cli_report(
         raw,
         args=args,
+        detection_metrics=detection_metrics,
+        tracking_2d_metrics=tracking_2d_metrics,
         timings=timings,
         title=title,
         include_sequences=include_sequences,

@@ -8,6 +8,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Iterable, Iterator, Mapping
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,9 +21,11 @@ from .schema import (
     ARTIFACT_SCHEMAS,
     EMBEDDINGS_ARTIFACT,
     INSTANCES_ARTIFACT,
+    MASKS_ARTIFACT,
     BoxType,
     embeddings_schema,
     instances_schema,
+    masks_schema,
     require_pyarrow,
 )
 
@@ -38,6 +41,7 @@ ENCODER_FINGERPRINT_METADATA_KEY = b"boxmot.encoder_fingerprint"
 # This is a physical storage policy and therefore deliberately does not
 # participate in dataset or stage fingerprints.
 PARQUET_ROW_GROUP_ROWS = 128
+_PAYLOAD_COMPACTION_BATCH_BYTES = 64 * 1024 * 1024
 
 _ARTIFACT_SORT_KEYS = {
     "samples": ("split", "sequence_id", "frame_index", "sample_id"),
@@ -297,6 +301,150 @@ def read_parquet_artifact(
     return table
 
 
+def _iter_sorted_payload_tables(
+    source_files: tuple[Path, ...], *, artifact_name: str,
+) -> Iterator["pa.Table"]:
+    """Sort wide artifact keys globally while decoding bounded payload batches.
+
+    Frame-number strings can interleave shard key ranges. Sorting the complete
+    payload can exhaust memory; binary masks can also overflow Arrow's 32-bit
+    offsets. Keep only keys and source locations in the global sort instead.
+    """
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    physical_schema = pq.read_schema(source_files[0])
+    is_mask = artifact_name == MASKS_ARTIFACT
+    schema = masks_schema() if is_mask else embeddings_schema(physical_schema.field("values").type.list_size)
+    schema = schema.with_metadata(physical_schema.metadata)
+    sort_keys = _ARTIFACT_SORT_KEYS[artifact_name]
+    locations: list[tuple[Path, int, int, int]] = []
+    key_tables = []
+    maximum_payload_bytes = 1
+    for source_file in source_files:
+        with pq.ParquetFile(source_file, pre_buffer=False) as parquet:
+            if not parquet.schema_arrow.equals(schema, check_metadata=False):
+                raise ValueError(
+                    f"Parquet schema mismatch for {artifact_name!r}: expected {schema}, got {parquet.schema_arrow}."
+                )
+            for row_group in range(parquet.num_row_groups):
+                keys = parquet.read_row_group(
+                    row_group,
+                    columns=[*sort_keys, "height", "width"] if is_mask else list(sort_keys),
+                    use_threads=False,
+                )
+                if is_mask:
+                    largest_payload = max(
+                        ((height * width + 7) // 8 for height, width in zip(
+                            keys.column("height").to_pylist(), keys.column("width").to_pylist(), strict=True,
+                        )),
+                        default=1,
+                    )
+                else:
+                    largest_payload = schema.field("values").type.list_size * 4
+                maximum_payload_bytes = max(maximum_payload_bytes, largest_payload)
+                batch_rows = min(
+                    PARQUET_ROW_GROUP_ROWS, max(1, _PAYLOAD_COMPACTION_BATCH_BYTES // max(1, largest_payload)),
+                )
+                keys = keys.select(sort_keys)
+                for batch_index, offset in enumerate(range(0, keys.num_rows, batch_rows)):
+                    batch_keys = keys.slice(offset, batch_rows)
+                    location = len(locations)
+                    locations.append((source_file, row_group, batch_index, batch_rows))
+                    batch_keys = batch_keys.append_column(
+                        "_location", pa.repeat(pa.scalar(location, type=pa.int64()), batch_keys.num_rows),
+                    ).append_column("_row", pa.array(range(batch_keys.num_rows), type=pa.int64()))
+                    key_tables.append(batch_keys)
+
+    if not key_tables:
+        yield pa.Table.from_batches([], schema=schema)
+        return
+
+    keys = pa.concat_tables(key_tables)
+    del key_tables
+    order = keys.sort_by([(key, "ascending") for key in (*sort_keys, "_location", "_row")])
+    order = order.select(("_location", "_row"))
+    del keys
+
+    @lru_cache(maxsize=4)
+    def read_batch(location: int) -> "pa.Table":
+        """Borrow a small decoded batch, keeping file handles scoped to reads."""
+        source_file, row_group, batch_index, batch_rows = locations[location]
+        with pq.ParquetFile(source_file, pre_buffer=False) as parquet:
+            for index, batch in enumerate(parquet.iter_batches(
+                batch_size=batch_rows, row_groups=[row_group], use_threads=False,
+            )):
+                if index == batch_index:
+                    return pa.Table.from_batches([batch], schema=schema)
+        raise ValueError(f"Artifact source changed during compaction: {source_file}")
+
+    output_rows = min(PARQUET_ROW_GROUP_ROWS, max(1, _PAYLOAD_COMPACTION_BATCH_BYTES // maximum_payload_bytes))
+    for offset in range(0, order.num_rows, output_rows):
+        selected = order.slice(offset, output_rows)
+        groups: dict[int, list[tuple[int, int]]] = {}
+        for position, (location, row) in enumerate(zip(
+            selected.column("_location").to_pylist(), selected.column("_row").to_pylist(), strict=True,
+        )):
+            groups.setdefault(location, []).append((position, row))
+        parts = []
+        positions = []
+        for location, rows in groups.items():
+            parts.append(read_batch(location).take(pa.array([row for _, row in rows], type=pa.int64())))
+            positions.extend(position for position, _ in rows)
+        restore_order = sorted(range(len(positions)), key=positions.__getitem__)
+        yield pa.concat_tables(parts).take(pa.array(restore_order, type=pa.int64()))
+
+
+def _write_compacted_tables(
+    tables: Iterable["pa.Table"], destination: str | Path, *, artifact_name: str, target_rows: int,
+) -> tuple[Path, ...]:
+    """Write a sorted table stream to deterministic shards and small row groups."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    output = Path(destination)
+    output.mkdir(parents=True)
+    paths: list[Path] = []
+    writer = None
+    rows_in_shard = 0
+    schema = None
+    try:
+        for table in tables:
+            schema = table.schema if schema is None else schema
+            offset = 0
+            while offset < table.num_rows:
+                if writer is None:
+                    path = output / f"part-{len(paths):05d}.parquet"
+                    writer = pq.ParquetWriter(
+                        path, schema, compression="zstd", **_parquet_encoding_options(artifact_name),
+                    )
+                    paths.append(path)
+                count = min(table.num_rows - offset, target_rows - rows_in_shard)
+                writer.write_table(table.slice(offset, count), row_group_size=PARQUET_ROW_GROUP_ROWS)
+                offset += count
+                rows_in_shard += count
+                if rows_in_shard == target_rows:
+                    writer.close()
+                    writer = None
+                    rows_in_shard = 0
+        if writer is not None:
+            writer.close()
+            writer = None
+        if not paths:
+            if schema is None:
+                raise FileNotFoundError(f"Parquet artifact has no input tables: {destination}")
+            path = output / "part-00000.parquet"
+            pq.write_table(
+                pa.Table.from_batches([], schema=schema), path, compression="zstd",
+                row_group_size=PARQUET_ROW_GROUP_ROWS, **_parquet_encoding_options(artifact_name),
+            )
+            paths.append(path)
+        return tuple(paths)
+    finally:
+        if writer is not None:
+            writer.close()
+
+
 def write_compacted_parquet_artifact(
     source: str | Path,
     destination: str | Path,
@@ -308,9 +456,10 @@ def write_compacted_parquet_artifact(
     """Write globally sorted, bounded canonical shards to a new directory.
 
     The caller owns durability and directory publication. This helper owns only
-    the schema-specific ordering and Parquet representation. Disjoint input
-    key ranges are sorted and merged one source shard at a time so wide
-    embedding artifacts do not require a whole-table sorted copy in memory.
+    the schema-specific ordering and Parquet representation. Masks and
+    embeddings sort keys globally and gather bounded payload batches, including
+    overlapping key ranges. Narrow artifacts merge disjoint source runs and
+    fall back to a whole-table sort when their key ranges overlap.
     """
 
     if target_rows <= 0:
@@ -325,6 +474,11 @@ def write_compacted_parquet_artifact(
     import pyarrow.parquet as pq
 
     source_files = artifact_files(source)
+    if artifact_name in {MASKS_ARTIFACT, EMBEDDINGS_ARTIFACT}:
+        return _write_compacted_tables(
+            _iter_sorted_payload_tables(source_files, artifact_name=artifact_name),
+            destination, artifact_name=artifact_name, target_rows=target_rows,
+        )
     runs = []
     for source_file in source_files:
         keys = pq.read_table(source_file, columns=list(sort_keys))
@@ -353,80 +507,18 @@ def write_compacted_parquet_artifact(
                 )
                 yield table if identity else table.take(indices)
 
-        output = Path(destination)
-        output.mkdir(parents=True)
-        paths: list[Path] = []
-        writer = None
-        rows_in_shard = 0
-        schema = None
-        try:
-            for table in sorted_tables():
-                schema = table.schema if schema is None else schema
-                offset = 0
-                while offset < table.num_rows:
-                    if writer is None:
-                        path = output / f"part-{len(paths):05d}.parquet"
-                        writer = pq.ParquetWriter(
-                            path,
-                            schema,
-                            compression="zstd",
-                            **_parquet_encoding_options(artifact_name),
-                        )
-                        paths.append(path)
-                    count = min(table.num_rows - offset, target_rows - rows_in_shard)
-                    writer.write_table(
-                        table.slice(offset, count),
-                        row_group_size=PARQUET_ROW_GROUP_ROWS,
-                    )
-                    offset += count
-                    rows_in_shard += count
-                    if rows_in_shard == target_rows:
-                        writer.close()
-                        writer = None
-                        rows_in_shard = 0
-            if writer is not None:
-                writer.close()
-                writer = None
-            if not paths:
-                # Empty artifacts still have one physical shard. Reading the
-                # first empty run above supplies the canonical physical schema.
-                if schema is None:  # pragma: no cover - artifact_files forbids this
-                    raise FileNotFoundError(f"Parquet artifact has no shards: {source}")
-                path = output / "part-00000.parquet"
-                pq.write_table(
-                    pa.Table.from_batches([], schema=schema),
-                    path,
-                    compression="zstd",
-                    row_group_size=PARQUET_ROW_GROUP_ROWS,
-                    **_parquet_encoding_options(artifact_name),
-                )
-                paths.append(path)
-            return tuple(paths)
-        finally:
-            if writer is not None:
-                writer.close()
+        return _write_compacted_tables(
+            sorted_tables(), destination, artifact_name=artifact_name, target_rows=target_rows,
+        )
 
     # Arbitrary callers may provide shards whose key ranges overlap. Retain
-    # the general full-table fallback for those inputs; materialization stage
-    # shards partition samples and therefore use the bounded run path above.
+    # the general full-table fallback for narrow inputs. Wide payloads use
+    # bounded gathering above even when frame-number strings interleave shards.
     table = read_parquet_artifact(source, artifact_name=artifact_name, box_type=box_type)
     table = table.sort_by([(key, "ascending") for key in sort_keys])
-    output = Path(destination)
-    output.mkdir(parents=True)
-    shard_count = max(1, (table.num_rows + target_rows - 1) // target_rows)
-    paths = []
-    for shard_index in range(shard_count):
-        shard = table.slice(shard_index * target_rows, target_rows)
-        path = output / f"part-{shard_index:05d}.parquet"
-        pq.write_table(
-            shard,
-            path,
-            compression="zstd",
-            row_group_size=PARQUET_ROW_GROUP_ROWS,
-            **_parquet_encoding_options(artifact_name),
-        )
-        paths.append(path)
-    return tuple(paths)
+    return _write_compacted_tables(
+        (table,), destination, artifact_name=artifact_name, target_rows=target_rows,
+    )
 
 
 def _iter_rekeyed_instance_tables(

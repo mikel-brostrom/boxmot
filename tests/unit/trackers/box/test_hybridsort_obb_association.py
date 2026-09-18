@@ -5,12 +5,13 @@ from __future__ import annotations
 import numpy as np
 import torch
 
+from boxmot import HybridSortConfig
 from boxmot.engine.tuning.search_space import load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, OrientedBoxes, Tracks
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
-from boxmot.trackers.box.sfsort.tracker import SFSORT
 from boxmot.trackers.common.tracking.track import TrackIdAllocator
+from boxmot.trackers.hybridsort.tracker import HybridSort
+from boxmot.trackers.ocsort.track import KalmanBoxTracker as OBBKalmanBoxTracker
+from boxmot.trackers.sfsort.tracker import SFSORT
 
 
 def _frame(sample_id: str, frame_index: int) -> Frame:
@@ -56,14 +57,13 @@ def _tracker(*, use_embeddings: bool = False, **kwargs) -> HybridSort:
     options = {
         "cmc_method": None,
         "use_embeddings": use_embeddings,
-        "is_obb": True,
         "min_hits": 1,
         "det_thresh": 0.5,
         "iou_threshold": 0.2,
         "asso_func": "iou",
     }
     options.update(kwargs)
-    return HybridSort(**options)
+    return HybridSort(config=HybridSortConfig(**options), is_obb=True)
 
 
 def test_hybridsort_obb_crossed_orientations_keep_geometry_ids() -> None:
@@ -102,7 +102,7 @@ def test_hybridsort_obb_equivalent_rectangle_forms_keep_ids() -> None:
 def test_hybridsort_obb_consumes_precomputed_embeddings_for_ambiguous_geometry() -> None:
     tracker = _tracker(
         use_embeddings=True,
-        EG_weight_high_score=4.0,
+        eg_weight_high_score=4.0,
         with_longterm_reid_correction=False,
     )
     rows = np.array(
@@ -150,7 +150,7 @@ def test_hybridsort_obb_discards_tracks_with_invalid_predictions() -> None:
     row = np.array([[64, 64, 40, 12, 0.2, 0.95, 0]], dtype=np.float32)
     first = _update(tracker, row, frame_index=0)
     first_id = first.track_ids.item()
-    tracker.active_tracks[0].predict = lambda *, dt=None: np.full((1, 6), np.nan, dtype=float)
+    tracker.active_tracks[0]._finish_prediction = lambda: np.full((1, 6), np.nan, dtype=float)
 
     second = _update(tracker, row, frame_index=1)
 

@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 import torch
 
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import load_dataset_config, resolve_dataset_storage_root
 from boxmot.datasets.manifest import sha256_file
 from boxmot.engine.materialization import BoundedFrameDecoder, SourceSample, decode_source_sample
 from boxmot.engine.materialization.catalog import (
@@ -17,7 +17,6 @@ from boxmot.engine.materialization.catalog import (
     default_data_root,
     inspect_catalog_file,
     resolve_dataset_annotation_root,
-    resolve_dataset_root,
     resolve_dataset_split_root,
 )
 
@@ -38,7 +37,7 @@ def test_explicit_data_root_overrides_repository_default(monkeypatch, tmp_path) 
 
     assert default_data_root(explicit) == explicit.resolve()
     assert default_data_root() == (tmp_path / "datasets" / "mot").resolve()
-    assert resolve_dataset_root({"root": "MOT17"}, explicit) == explicit.resolve() / "MOT17"
+    assert resolve_dataset_storage_root({"root": "MOT17"}, explicit) == explicit.resolve() / "MOT17"
 
 
 def test_default_data_root_is_outside_the_python_package(monkeypatch, tmp_path) -> None:
@@ -62,7 +61,7 @@ def test_built_in_tracking_datasets_share_repository_mot_root(
     config = load_dataset_config(dataset_id)
     expected_base = (tmp_path / "datasets" / "mot").resolve()
 
-    resolved = resolve_dataset_root(config)
+    resolved = resolve_dataset_storage_root(config)
 
     assert resolved == (expected_base / config["root"]).resolve()
     assert resolved.is_relative_to(expected_base)
@@ -411,7 +410,7 @@ def test_dataset_root_rejects_escape(tmp_path) -> None:
         r"nested\outside",
     ):
         try:
-            resolve_dataset_root({"root": value}, tmp_path)
+            resolve_dataset_storage_root({"root": value}, tmp_path)
         except ValueError:
             pass
         else:
@@ -426,7 +425,7 @@ def test_dataset_root_rejects_symlink_escape(tmp_path) -> None:
     (data_root / "linked").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError, match="must remain beneath"):
-        resolve_dataset_root({"root": "linked"}, data_root)
+        resolve_dataset_storage_root({"root": "linked"}, data_root)
 
 
 def test_decoder_rejects_source_changed_after_cataloging(tmp_path) -> None:

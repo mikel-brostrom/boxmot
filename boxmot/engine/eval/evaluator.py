@@ -1,8 +1,9 @@
-"""Build-backed tracking evaluation.
+"""Tracking evaluation from perception builds or saved sensor datasets.
 
-Evaluation is intentionally a consumer of an explicit immutable dataset build.
-It never creates detections, masks, or embeddings and never selects a "latest"
-cache. Ground truth follows the dataset adapter's frame selection.
+Evaluation consumes explicit immutable builds or declared saved sensor inputs.
+Optional EdgeTAM guidance generates temporal masks during tracker replay.
+Perception artifacts remain immutable; ground truth follows the dataset
+adapter's frame selection.
 """
 
 from __future__ import annotations
@@ -11,15 +12,27 @@ import argparse
 import json
 import time
 from collections.abc import Mapping
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
+
+import click
 
 from boxmot.components.resolution import ArtifactResolver, freeze_json
 from boxmot.datasets import DatasetManifest
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import dataset_modalities, load_dataset_config
+from boxmot.datasets.inputs import resolve_dataset_inputs
 from boxmot.detectors.config import resolve_detector_spec
-from boxmot.engine.dataset_resources import ensure_dataset_split_available
+from boxmot.engine.config.datasets import validate_mots_evaluation_inputs
+from boxmot.engine.config.experiments import resolve_experiment_config
+from boxmot.engine.config.postprocessing import normalize_postprocessing
+from boxmot.engine.config.runtime import resolve_sequence_workers
+from boxmot.engine.config.trackers import (
+    edgetam_checkpoint,
+    resolve_tracker_options,
+    validate_image_tracker,
+)
 from boxmot.engine.dataset_variants.fps import materialize_fps_ground_truth
 from boxmot.engine.eval.catalog_cache import (
     EvaluationArtifactResolver,
@@ -29,15 +42,14 @@ from boxmot.engine.eval.motmetrics import run_motmetrics as _run_motmetrics
 from boxmot.engine.eval.output import increment_path
 from boxmot.engine.eval.replay import replay_build
 from boxmot.engine.eval.results import SUMMARY_COLUMNS, ValidationResult
-from boxmot.engine.experiment_config import resolve_experiment_config
-from boxmot.engine.logging import suppress_boxmot_logs
 from boxmot.engine.materialization import fingerprint
 from boxmot.engine.materialization.builds import resolve_build_path, validate_build_compatibility
 from boxmot.engine.materialization.catalog import (
     resolve_dataset_annotation_root,
     resolve_dataset_split_root,
 )
-from boxmot.engine.tracker_config import resolve_tracker_options
+from boxmot.engine.materialization.resources import ensure_dataset_split_available
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 from boxmot.engine.ui.reporters.eval import (
     EvalSequenceProgressPresenter,
     EvalWorkflowReporter,
@@ -47,6 +59,10 @@ from boxmot.reid.config import resolve_reid_spec
 from boxmot.segmentors.config import resolve_segmentor_spec
 from boxmot.trackers import TrackerSpec
 from boxmot.utils import logger as LOGGER
+
+if TYPE_CHECKING:
+    from boxmot.engine.eval.replay import ReplayProgressCallback, ReplayProgressEvent
+    from boxmot.engine.eval.session import ReplaySession
 
 
 def _detector_reference(resolved: Mapping[str, Any]) -> str:
@@ -199,11 +215,38 @@ def _split_root(dataset: Mapping[str, Any], data_root: str | Path | None) -> Pat
 def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     """Resolve and validate raw ground truth plus one explicit immutable build."""
 
+    if getattr(args, "tracker", None) is not None:
+        validate_image_tracker(str(args.tracker))
     dataset, experiment = _resolve_selection(args)
+    annotation_format = dataset_modalities(dataset, str(dataset["split"])).get("ground_truth", {}).get("format")
+    is_mots = annotation_format == "instance-png"
+    is_kitti_tracking = annotation_format == "kitti-tracking-labels"
+    if is_kitti_tracking:
+        targets = {name: value["id"] for name, value in dataset["classes"].items() if value["evaluation"] == "target"}
+        if targets != {"car": 1, "pedestrian": 2}:
+            raise ValueError("KITTI 2D tracking evaluation requires classes.target car: 1 and pedestrian: 2.")
+    if is_mots:
+        validate_mots_evaluation_inputs(
+            dataset["classes"], dataset_modalities(dataset, str(dataset["split"]))["ground_truth"]["options"]
+        )
+    eval_masks = bool(getattr(args, "eval_masks", False))
+    if eval_masks and not is_mots:
+        raise ValueError("--eval-masks requires a KITTI MOTS dataset with instance PNG ground truth.")
+    if is_mots and getattr(args, "calibrate_kf", False):
+        raise ValueError(
+            "Kalman calibration does not support KITTI MOTS mask ground truth. Run evaluation without --calibrate-kf."
+        )
     split = str(dataset["split"])
     status_callback = pipeline.update if pipeline is not None and callable(getattr(pipeline, "update", None)) else None
     build_path = resolve_build_path(args.build, build_root=getattr(args, "build_root", None))
     manifest = DatasetManifest.load(build_path)
+    postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
+
+        validate_postprocessing_inputs(
+            postprocessing, geometry=str(dataset["box_type"]), eval_masks=eval_masks, manifest=manifest
+        )
     recorded_fps = manifest.metadata.get("fps")
     requested_fps = getattr(args, "fps", None)
     if requested_fps is not None and requested_fps != recorded_fps:
@@ -245,6 +288,7 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         source_catalog_digest=catalog.fingerprint,
         class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
         component_fingerprints=component_fingerprints,
+        require_masks=eval_masks,
     )
     if experiment is not None and manifest.metadata.get("experiment_id") != experiment["id"]:
         raise ValueError(
@@ -254,8 +298,10 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
 
     class_ids, class_names = _target_classes(dataset, experiment)
     sequence_lengths: dict[str, int] = {}
+    sequence_frame_counts: dict[str, int] = {}
     for sample in catalog.samples:
         sequence = sample.sequence_id
+        sequence_frame_counts[sequence] = sequence_frame_counts.get(sequence, 0) + 1
         sequence_lengths[sequence] = max(
             sequence_lengths.get(sequence, 0),
             sample.frame_index + 1,
@@ -267,12 +313,13 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
         if missing:
             raise ValueError(f"Unknown evaluation sequence(s): {', '.join(missing)}")
         sequence_lengths = {name: sequence_lengths[name] for name in requested}
+        sequence_frame_counts = {name: sequence_frame_counts[name] for name in requested}
         args.sequence_names = requested
     else:
         args.sequence_names = None
     split_root = _split_root(dataset, getattr(args, "data_root", None))
     gt_folder = resolve_dataset_annotation_root(dataset, split, getattr(args, "data_root", None))
-    if args.fps is not None:
+    if args.fps is not None and not (is_mots or is_kitti_tracking):
         if status_callback is not None:
             status_callback(f"Aligning ground truth to {args.fps:g} FPS…")
         variant_key = fingerprint({"catalog": catalog.fingerprint, "root": catalog.source_root.as_uri()})
@@ -282,9 +329,19 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
             Path(getattr(args, "project", None) or "runs") / ".fps-ground-truth" / variant_key,
             data_root=getattr(args, "data_root", None),
         )
+    sequence_inputs = (
+        {
+            item.sequence_id: item
+            for item in resolve_dataset_inputs(
+                dataset, split=split, data_root=getattr(args, "data_root", None), roles=("images", "ground_truth")
+            ).sequences
+        }
+        if dataset["layout"] == "sequence"
+        else {}
+    )
     sequence_paths = []
     for name in sorted(sequence_lengths):
-        path = split_root / name
+        path = sequence_inputs[name].modalities["images"].paths[0] if sequence_inputs else split_root / name
         sequence_paths.append(path / "img1" if (path / "img1").is_dir() else path)
 
     args.build_path = build_path
@@ -298,15 +355,63 @@ def eval_setup(args: argparse.Namespace, pipeline: Any | None = None) -> None:
     args.gt_folder = gt_folder
     args.seq_paths = tuple(sequence_paths)
     args.seq_info = sequence_lengths
+    args.sequence_frame_counts = sequence_frame_counts
+    workers = getattr(args, "sequence_workers", None)
+    if workers is None and edgetam_checkpoint(args) is not None:
+        workers = 1
+    args.sequence_workers = resolve_sequence_workers(len(sequence_lengths), workers)
+    if getattr(args, "show", False) or getattr(args, "save", False):
+        args.sequence_workers = 1
     args.evaluation_config = {
         "id": dataset["id"],
         "layout": dataset["layout"],
         "box_type": dataset["box_type"],
         "classes": dataset["classes"],
         "annotation_layout": (
-            "flat" if split_config.get("annotations") is not None or dataset["layout"] == "visdrone" else "sequence"
+            "mots_png"
+            if is_mots
+            else "kitti_tracking"
+            if is_kitti_tracking
+            else "flat"
+            if split_config.get("annotations") is not None or dataset["layout"] == "visdrone"
+            else "sequence"
         ),
     }
+    if is_mots:
+        # Use the catalog's exact image references: FPS selection renumbers
+        # evaluation frames while original PNG filenames remain unchanged.
+        gt_frames: dict[str, list[tuple[int, str, int, int]]] = {name: [] for name in sequence_lengths}
+        for sample in catalog.samples:
+            if sample.sequence_id in gt_frames:
+                if sample.image_ref is None:
+                    raise ValueError("KITTI MOTS catalog samples require an image reference.")
+                annotation = (
+                    sequence_inputs[sample.sequence_id].modalities["ground_truth"].paths[0]
+                    / Path(sample.image_ref).with_suffix(".png").name
+                )
+                gt_frames[sample.sequence_id].append((sample.frame_index, str(annotation), *sample.image_size))
+        args.evaluation_config["mots_gt_frames"] = gt_frames
+    if is_kitti_tracking:
+        from boxmot.datasets.readers.boxes2d import read_kitti_tracking_labels_2d
+        from boxmot.datasets.readers.frames import numeric_frame_paths
+
+        gt_sequences = {}
+        for name in sequence_lengths:
+            source = sequence_inputs[name]
+            frame_count = int(numeric_frame_paths(source.modalities["images"].paths[0])[-1].stem) + 1
+            path = source.modalities["ground_truth"].paths[0]
+            read_kitti_tracking_labels_2d(
+                path, frame_count=frame_count, cache_inputs=bool(getattr(args, "cache_inputs", False))
+            )
+            gt_sequences[name] = {"path": str(path), "frame_count": frame_count, "frames": []}
+        for sample in catalog.samples:
+            if sample.sequence_id in gt_sequences:
+                if sample.image_ref is None:
+                    raise ValueError("KITTI 2D catalogs require image references to align tracking annotations.")
+                gt_sequences[sample.sequence_id]["frames"].append(
+                    (sample.frame_index, int(Path(sample.image_ref).stem))
+                )
+        args.evaluation_config["kitti_gt_sequences"] = gt_sequences
     args.remapped_class_ids = list(class_ids)
     args.remapped_class_names = [name.lower() for _, name in class_names]
     args.tracker_class_ids = class_ids
@@ -330,19 +435,32 @@ def _tracker_options(
 
 
 def _tracker_spec(args: argparse.Namespace, overrides: Mapping[str, Any] | None = None) -> TrackerSpec:
+    options = _tracker_options(args, overrides)
     return TrackerSpec(
         name=str(args.tracker),
         backend=str(getattr(args, "tracker_backend", "python")),
         geometry=str(args.geometry),
-        per_class=bool(getattr(args, "per_class", False)),
+        per_class=bool(getattr(args, "per_class", False) or dict(options).get("per_class", False)),
         class_ids=tuple(args.tracker_class_ids),
         class_names=tuple(args.tracker_class_names),
-        options=_tracker_options(args, overrides),
+        options=options,
     )
 
 
 def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | None) -> Path:
     base = Path(getattr(args, "project", "runs")) / str(args.dataset_id) / str(getattr(args, "name", "exp"))
+    checkpoint = edgetam_checkpoint(args)
+    if checkpoint is not None:
+        from boxmot.engine.eval.provenance import mask_guidance_output_path
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
+
+        checkpoint = args.mask_guidance_weights = resolve_edgetam_artifact(checkpoint)
+        base = mask_guidance_output_path(
+            base,
+            checkpoint=checkpoint,
+            device=str(getattr(args, "device", "cpu")),
+            tracker_spec=_tracker_spec(args, overrides),
+        )
     if overrides:
         base = base / "trials" / fingerprint(dict(_tracker_options(args, overrides)))[:16]
         base.mkdir(parents=True, exist_ok=True)
@@ -351,10 +469,24 @@ def _output_directory(args: argparse.Namespace, overrides: Mapping[str, Any] | N
 
 
 def run_motmetrics(args: argparse.Namespace, verbose: bool = True) -> dict[str, Any]:
-    """Evaluate already-replayed MOT files against adapter-owned ground truth."""
+    """Evaluate replayed MOT or MOTS files against adapter-owned ground truth."""
 
     _ensure_setup(args)
-    results = _run_motmetrics(
+    evaluate = _run_motmetrics
+    if getattr(args, "evaluation_config", {}).get("annotation_layout") == "kitti_tracking":
+        from boxmot.engine.eval.kitti_tracking import run_kitti_tracking_metrics
+
+        evaluate = run_kitti_tracking_metrics
+    if getattr(args, "evaluation_config", {}).get("annotation_layout") == "mots_png":
+        if bool(getattr(args, "eval_masks", False)):
+            from boxmot.engine.eval.mots import run_mots_metrics
+
+            evaluate = run_mots_metrics
+        else:
+            from boxmot.engine.eval.kitti_boxes import run_kitti_box_metrics
+
+            evaluate = run_kitti_box_metrics
+    results = evaluate(
         args,
         tuple(Path(value) for value in args.seq_paths),
         Path(args.exp_dir),
@@ -383,6 +515,176 @@ def _summary(results: Mapping[str, Any]) -> tuple[str, dict[str, Any]]:
     }
 
 
+def _validate_image_evaluation_options(args: Any) -> None:
+    """Keep sensor-only profile and 3D visualization controls out of image replay."""
+    for name in ("class_config", "show_3d", "eval_3d", "eval_ap"):
+        if getattr(args, name, None):
+            option = "--" + name.replace("_", "-")
+            raise ValueError(f"{option} requires an EagerMOT sensor dataset.")
+
+
+def _run_sensor_evaluation(
+    args: Any,
+    *,
+    evolve_config: Mapping[str, Any] | None = None,
+    setup: bool = True,
+    prepare_cache: bool = False,
+    verbose: bool | None = None,
+    show_progress: bool | None = None,
+    pipeline: Any | None = None,
+    per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
+    output_dir: Path | None = None,
+    replay_session: ReplaySession | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
+) -> ValidationResult | None:
+    """Validate saved sensor selections before importing their replay runtime."""
+    from boxmot.engine.config.datasets import (
+        load_sensor_evaluation_inputs,
+        resolve_sensor_workflow_config_path,
+        validate_sensor_workflow_inputs,
+    )
+    from boxmot.trackers.common.specs import parse_tracker_spec
+
+    if getattr(args, "dataset", None) and getattr(args, "experiment", None):
+        from boxmot.engine.config.experiments import resolve_sensor_experiment
+
+        args = SimpleNamespace(**resolve_sensor_experiment(vars(args), mode="eval"))
+
+    reference = getattr(args, "dataset", None)
+    path = (
+        resolve_sensor_workflow_config_path(
+            reference, experiment=getattr(args, "experiment", None), split=getattr(args, "split", None), mode="eval"
+        )
+        if reference
+        else None
+    )
+    if path is None:
+        return None
+    if getattr(args, "postprocessing", None):
+        raise ValueError("--postprocessing requires an AABB perception build; saved sensor evaluation is unsupported.")
+    eval_3d = bool(getattr(args, "eval_3d", False))
+    eval_ap = bool(getattr(args, "eval_ap", False))
+    if eval_3d and getattr(args, "eval_masks", False):
+        raise ValueError("Choose either --eval-3d or --eval-masks.")
+    spec = parse_tracker_spec(getattr(args, "tracker", ""), default_backend=getattr(args, "tracker_backend", "python"))
+    validate_sensor_workflow_inputs(
+        path,
+        spec,
+        mode="eval",
+        split=getattr(args, "split", None),
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        eval_3d=eval_3d,
+        eval_ap=eval_ap,
+        experiment=getattr(args, "experiment", None),
+    )
+    for name, value in {
+        "evolve_config": evolve_config,
+        "per_class_configs": per_class_configs,
+        "output_dir": output_dir,
+        "replay_session": replay_session,
+        "progress_callback": progress_callback,
+    }.items():
+        if value is not None:
+            raise ValueError(
+                f"Sensor dataset evaluation does not support {name}; use class_config and project on the namespace."
+            )
+    if not setup:
+        raise ValueError(
+            "Sensor dataset evaluation does not support setup=False; each run validates its sensor inputs."
+        )
+    if prepare_cache:
+        raise ValueError("Sensor dataset evaluation does not support prepare_cache; predictions come from the dataset.")
+    for name in (
+        "build",
+        "build_ref",
+        "build_root",
+        "detector",
+        "reid",
+        "tracker_config",
+        "fps",
+        "variable_dt",
+        "allow_noncanonical_build",
+        "compare_trackeval",
+    ):
+        value = getattr(args, name, None)
+        if value is not None and value is not False and value != "":
+            raise ValueError(
+                f"Sensor dataset evaluation does not support {name}; inputs come from the dataset manifest."
+            )
+    if getattr(args, "device", "cpu") != "cpu":
+        raise ValueError("Sensor dataset evaluation runs on CPU; device must be cpu.")
+    if getattr(args, "show_3d", False) and not (getattr(args, "show", False) or getattr(args, "save", False)):
+        raise ValueError("--show-3d requires --show or --save.")
+    class_config = getattr(args, "class_config", None)
+    if class_config is not None and not Path(class_config).expanduser().is_file():
+        raise ValueError(f"class_config requires an existing file: {class_config}")
+    dataset = load_sensor_evaluation_inputs(
+        path,
+        split=getattr(args, "split", None) or None,
+        sequence_names=getattr(args, "sequence_names", ()),
+        data_root=getattr(args, "data_root", None),
+        eval_3d=eval_3d,
+        eval_ap=eval_ap,
+        calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        experiment=getattr(args, "experiment", None),
+    )
+    workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
+    normalized = SimpleNamespace(
+        **{
+            **vars(args),
+            "dataset": dataset.config_path,
+            "tracker": spec.name,
+            "tracker_backend": spec.backend,
+            "split": dataset.split,
+            "sequence_names": dataset.sequence_names,
+            "project": Path(getattr(args, "project", None) or "runs/eagermot"),
+            "class_config": None if class_config is None else Path(class_config).expanduser().resolve(),
+            "device": "cpu",
+            "sequence_workers": 1 if getattr(args, "show", False) else workers,
+            "per_class": True,
+            "eval_masks": not eval_3d,
+            "eval_3d": eval_3d,
+            "eval_ap": eval_ap,
+        }
+    )
+
+    def replay(sensor_pipeline: Any | None = None) -> ValidationResult:
+        """Load the sensor runtime inside the active workflow and logging scope."""
+        try:
+            from boxmot.engine.eval.eagermot_kitti import run_eagermot_kitti
+        except ImportError as exc:
+            # Include installation guidance in the workflow's own error panel.
+            raise ImportError(
+                f"Sensor dataset evaluation requires the mots extra: {exc}\n"
+                "Install with: uv sync --extra cpu --extra mots"
+            ) from exc
+
+        with suppress_boxmot_logs(enabled=verbose is False, level="WARNING"):
+            if sensor_pipeline is None:
+                return run_eagermot_kitti(normalized)
+            return run_eagermot_kitti(normalized, pipeline=sensor_pipeline, show_progress=show_progress)
+
+    if pipeline is not None:
+        return replay(pipeline)
+    if not show_progress:
+        return replay()
+
+    from rich.console import Group
+    from rich.text import Text
+
+    with EvalWorkflowReporter(normalized).pipeline() as sensor_pipeline:
+        result = replay(sensor_pipeline)
+        details = [
+            result.renderable(include_sequences=False, include_timings=bool(getattr(normalized, "show_timing", False))),
+            Text(f"Results: {result.exp_dir}"),
+        ]
+        if getattr(normalized, "video_paths", ()):
+            details.append(Text("Saved tracking videos:\n" + "\n".join(map(str, normalized.video_paths))))
+        sensor_pipeline.finish(Group(*details), exp_dir=result.exp_dir)
+        result.workflow_rendered = True
+        return result
+
+
 def run_eval(
     args: argparse.Namespace,
     *,
@@ -394,8 +696,27 @@ def run_eval(
     pipeline: Any | None = None,
     per_class_configs: Mapping[int, Mapping[str, Any]] | None = None,
     output_dir: Path | None = None,
+    replay_session: ReplaySession | None = None,
+    progress_callback: ReplayProgressCallback | None = None,
 ) -> ValidationResult:
-    """Replay one explicit build and evaluate it; perception is never run here."""
+    """Evaluate cached inputs, optionally forwarding replay progress without a UI."""
+
+    sensor_result = _run_sensor_evaluation(
+        args,
+        evolve_config=evolve_config,
+        setup=setup,
+        prepare_cache=prepare_cache,
+        verbose=verbose,
+        show_progress=show_progress,
+        pipeline=pipeline,
+        per_class_configs=per_class_configs,
+        output_dir=output_dir,
+        replay_session=replay_session,
+        progress_callback=progress_callback,
+    )
+    if sensor_result is not None:
+        return sensor_result
+    _validate_image_evaluation_options(args)
 
     if prepare_cache:
         raise ValueError("Evaluation never materializes implicitly. Run `boxmot materialize ...` and pass --build.")
@@ -405,24 +726,64 @@ def run_eval(
         eval_setup(args, pipeline=pipeline)
     else:
         _ensure_setup(args)
+    postprocessing = normalize_postprocessing(getattr(args, "postprocessing", None))
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import validate_postprocessing_inputs
+
+        validate_postprocessing_inputs(
+            postprocessing,
+            geometry=args.geometry,
+            eval_masks=bool(getattr(args, "eval_masks", False)),
+            manifest=DatasetManifest.load(args.build_path),
+        )
     if pipeline is not None:
         _refresh_eval_pipeline_intro(getattr(pipeline, "workflow", None), args)
         pipeline.advance("Replaying materialized detections through the tracker…")
     spec = _tracker_spec(args, evolve_config)
+
+    mask_guidance_weights = edgetam_checkpoint(args)
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.mask_guidance import validate_mask_guidance_tracker
+        from boxmot.segmentors.propagation.weights import resolve_edgetam_artifact
+
+        validate_mask_guidance_tracker(spec, output_format="mots" if getattr(args, "eval_masks", False) else "mot")
+        mask_guidance_weights = args.mask_guidance_weights = resolve_edgetam_artifact(mask_guidance_weights)
 
     output_dir = _output_directory(args, evolve_config) if output_dir is None else Path(output_dir)
     presenter = None
     if pipeline is not None and show_progress is not False and getattr(args, "seq_info", None):
         presenter = EvalSequenceProgressPresenter(
             pipeline.callback(),
-            args.seq_info,
+            getattr(args, "sequence_frame_counts", args.seq_info),
         )
     started = time.perf_counter()
     visualization = None
     with ExitStack() as contexts:
         replay_callbacks = {}
+        if mask_guidance_weights is not None:
+            replay_callbacks["mask_guidance_weights"] = mask_guidance_weights
+            replay_callbacks["mask_guidance_device"] = str(getattr(args, "device", "cpu"))
+        if replay_session is not None:
+            replay_callbacks["session"] = replay_session
+        if bool(getattr(args, "cache_inputs", False)):
+            replay_callbacks["cache_inputs"] = True
+        if bool(getattr(args, "eval_masks", False)):
+            replay_callbacks["output_format"] = "mots"
+        progress_callbacks = []
+        if progress_callback is not None:
+            progress_callbacks.append(progress_callback)
         if presenter is not None:
-            replay_callbacks["progress_callback"] = contexts.enter_context(presenter)
+            progress_callbacks.append(contexts.enter_context(presenter))
+        if len(progress_callbacks) == 1:
+            replay_callbacks["progress_callback"] = progress_callbacks[0]
+        elif progress_callbacks:
+
+            def publish_progress(event: ReplayProgressEvent) -> None:
+                """Deliver each replay event to both the caller and the workflow."""
+                for callback in progress_callbacks:
+                    callback(event)
+
+            replay_callbacks["progress_callback"] = publish_progress
         if bool(getattr(args, "show", False)) or bool(getattr(args, "save", False)):
             from boxmot.engine.eval.visualization import ReplayVisualization
 
@@ -441,18 +802,58 @@ def run_eval(
             split=args.split,
             output_dir=output_dir,
             sequence_ids=args.sequence_names,
-            sequence_frame_counts=args.seq_info,
-            workers=int(getattr(args, "sequence_workers", 1)),
+            sequence_frame_counts=getattr(args, "sequence_frame_counts", args.seq_info),
+            workers=getattr(args, "sequence_workers", None),
             **replay_callbacks,
+        )
+    if (replay.output_dir / "postprocessing.json").is_file():
+        from boxmot.engine.eval.postprocessing import discard_previous_postprocessing
+
+        discard_previous_postprocessing(replay.output_dir)
+    if mask_guidance_weights is not None:
+        from boxmot.engine.eval.provenance import write_mask_guidance_provenance
+
+        write_mask_guidance_provenance(
+            replay.output_dir,
+            checkpoint=mask_guidance_weights,
+            device=str(getattr(args, "device", "cpu")),
+            build=args.build_path,
+            tracker_spec=spec,
+            sequence_names=args.sequence_names,
         )
     args.video_paths = () if visualization is None else tuple(visualization.video_paths)
     if presenter is not None:
         pipeline.store_step_info(presenter.renderable, step=EvalWorkflowReporter.TRACK)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
+    postprocess_ms = 0.0
+    if postprocessing:
+        from boxmot.engine.eval.postprocessing import postprocess_replay
+        from boxmot.engine.ui.reporters.postprocessing import EvalPostprocessingProgressPresenter
+
+        if pipeline is not None:
+            pipeline.advance("Applying " + " → ".join(step.upper() for step in postprocessing) + "…")
+        postprocessing_presenter = None
+        if pipeline is not None and show_progress is not False and replay.sequence_files:
+            postprocessing_presenter = EvalPostprocessingProgressPresenter(
+                pipeline.callback(), tuple(path.stem for path in replay.sequence_files)
+            )
+        with postprocessing_presenter if postprocessing_presenter is not None else nullcontext():
+            try:
+                postprocess_ms = postprocess_replay(
+                    replay,
+                    postprocessing,
+                    split=args.split,
+                    workers=getattr(args, "sequence_workers", None),
+                    progress_callback=postprocessing_presenter,
+                )
+            finally:
+                if postprocessing_presenter is not None:
+                    pipeline.store_step_info(postprocessing_presenter.renderable)
     if pipeline is not None:
         pipeline.advance("Computing evaluation metrics…")
     args.exp_dir = replay.output_dir
-    raw = run_motmetrics(args, verbose=bool(verbose))
+    with replay_session.metric_execution() if replay_session is not None else nullcontext():
+        raw = run_motmetrics(args, verbose=bool(verbose))
     summary_label, summary = _summary(raw)
     timings = {
         "frames": replay.frames,
@@ -463,6 +864,14 @@ def run_eval(
         },
         "fps": (1000.0 * replay.frames / elapsed_ms) if elapsed_ms else 0.0,
     }
+    if postprocessing:
+        total_ms = elapsed_ms + postprocess_ms
+        timings["totals_ms"].update(postprocess=postprocess_ms, total=total_ms)
+        timings["avg_ms"].update(
+            postprocess=postprocess_ms / replay.frames if replay.frames else 0.0,
+            total=total_ms / replay.frames if replay.frames else 0.0,
+        )
+        timings["fps"] = 1000.0 * replay.frames / total_ms if total_ms else 0.0
     return ValidationResult(
         benchmark=str(args.experiment_id or args.dataset_id),
         raw=raw,
@@ -476,14 +885,30 @@ def run_eval(
 
 
 def main(args: argparse.Namespace) -> ValidationResult:
-    """CLI entry point for explicit-build evaluation."""
+    """Evaluate perception builds or saved sensor inputs through one entry point."""
+
+    try:
+        sensor_result = _run_sensor_evaluation(args, verbose=bool(getattr(args, "verbose", False)), show_progress=True)
+    except ImportError as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(
+            f"Sensor dataset evaluation requires the mots extra: {exc}\nInstall with: uv sync --extra cpu --extra mots"
+        ) from exc
+    except (ValueError, OSError) as exc:
+        if getattr(exc, "_workflow_rendered_error", False):
+            raise
+        raise click.ClickException(str(exc)) from exc
+    if sensor_result is not None:
+        return sensor_result
+    _validate_image_evaluation_options(args)
 
     pipeline = EvalWorkflowReporter(args).pipeline()
     with pipeline:
         calibration = None
         with suppress_boxmot_logs(True, level="WARNING"):
             if getattr(args, "calibrate_kf", False):
-                from boxmot.engine.tuning.kalman import calibrate_kalman
+                from boxmot.engine.calibration.kalman import calibrate_kalman
 
                 eval_setup(args, pipeline=pipeline)
                 output_dir = _output_directory(args, None)

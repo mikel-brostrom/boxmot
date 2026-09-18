@@ -1,0 +1,293 @@
+# Mikel Broström 🔥 BoxMOT 🧾 AGPL-3.0 license
+
+import numpy as np
+from typing_extensions import Unpack
+
+from boxmot.trackers.bytetrack.config import ByteTrackConfig
+from boxmot.trackers.bytetrack.track import STrack, TrackState
+from boxmot.trackers.common.association import AssociationStage, run_association_stage
+from boxmot.trackers.common.association.matching import fuse_score
+from boxmot.trackers.common.box.base import BoxTracker
+from boxmot.trackers.common.constructor import BoxTrackerOptions, validate_runtime_options
+from boxmot.trackers.common.motion.kalman_filters.config import KalmanConfig
+from boxmot.trackers.common.motion.kalman_filters.xyah import KalmanFilterXYAH
+from boxmot.trackers.common.motion.kalman_filters.xywh import KalmanFilterXYWH
+from boxmot.trackers.common.tracking.lifecycle import joint_stracks, remove_duplicate_stracks, sub_stracks
+
+
+class ByteTrack(BoxTracker):
+    """Associate high- and low-confidence boxes using Kalman motion estimates.
+
+    Supports AABB and OBB detections. Frame dimensions are needed when using
+    centroid association; matching otherwise uses detection geometry alone.
+
+    Attributes:
+        frame_count (int): Number of processed frames.
+        active_tracks (list[STrack]): Currently active tracks.
+        lost_stracks (list[STrack]): Tracks kept in the lost state.
+        removed_stracks (list[STrack]): Recently removed tracks retained for display and lifecycle cleanup.
+        buffer_size (int): Track buffer size after frame-rate scaling.
+        max_time_lost (int): Maximum number of frames a track may stay lost.
+        kalman_filter: XYAH motion model for AABB, or XYWH with angle for OBB.
+    """
+
+    supports_variable_dt = True
+
+    def __init__(
+        self,
+        config: ByteTrackConfig | None = None,
+        *,
+        kalman: KalmanConfig | None = None,
+        **kwargs: Unpack[BoxTrackerOptions],
+    ) -> None:
+        """Configure ByteTrack's confidence stages and lost-track buffer.
+
+        Args:
+            config: Immutable algorithm settings. None selects ByteTrackConfig defaults.
+            kalman: Immutable filter noise, timing, and supported behavior settings.
+                None preserves tracker defaults.
+            **kwargs: Runtime ``per_class``, ``is_obb``, ``class_ids``, ``class_names``,
+                ``mask_guidance``, and ``edgetam`` settings.
+        """
+        config = ByteTrackConfig.resolve(config)
+        validate_runtime_options(kwargs)
+        self.config = config
+        super().__init__(
+            det_thresh=config.track_thresh,
+            max_age=config.max_age,
+            max_obs=config.max_obs,
+            min_hits=config.min_hits,
+            iou_threshold=config.iou_threshold,
+            asso_func=config.asso_func,
+            kalman=kalman,
+            **kwargs,
+        )
+
+        # Track lifecycle parameters
+        self.frame_id = 0
+        self.track_buffer = config.track_buffer
+        self.buffer_size = int(config.frame_rate / 30.0 * config.track_buffer)
+        self.max_time_lost = self.buffer_size
+
+        # Detection thresholds
+        self.min_conf = config.min_conf
+        self.track_thresh = config.track_thresh
+        self.match_thresh = config.match_thresh
+        self.det_thresh = config.track_thresh  # Same as track_thresh
+
+        # Motion model
+        self.kalman_filter = (
+            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
+            if self.is_obb
+            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        )
+
+        self.active_tracks = []  # type: list[STrack]
+        self.lost_stracks = []  # type: list[STrack]
+        self.removed_stracks = []  # type: list[STrack]
+
+    def _track_detections(
+        self,
+        dets: np.ndarray,
+        img: np.ndarray = None,
+        embs: np.ndarray = None,
+        masks: np.ndarray = None,
+    ) -> np.ndarray:
+        batch = self._make_detection_batch(dets, embs=embs, masks=masks)
+        self.frame_count += 1
+        activated_starcks = []
+        refind_stracks = []
+        lost_stracks = []
+        removed_stracks = []
+        high_batch, second_batch = batch.split_by_confidence(
+            high_thresh=self.track_thresh,
+            low_thresh=self.min_conf,
+        )
+        dets_second = second_batch.as_indexed_detections(dtype=dets.dtype)
+        dets = high_batch.as_indexed_detections(dtype=dets.dtype)
+
+        if len(dets) > 0:
+            """Detections"""
+            detections = [
+                STrack(
+                    det,
+                    max_obs=self.max_obs,
+                    id_allocator=self.id_allocator,
+                    is_obb=self.is_obb,
+                )
+                for det in dets
+            ]
+        else:
+            detections = []
+
+        """ Add newly detected tracklets to tracked_stracks"""
+        unconfirmed = []
+        tracked_stracks = []  # type: list[STrack]
+        for track in self.active_tracks:
+            if not track.is_activated:
+                unconfirmed.append(track)
+            else:
+                tracked_stracks.append(track)
+
+        """ Step 2: First association, with high conf detection boxes"""
+        strack_pool = joint_stracks(tracked_stracks, self.lost_stracks)
+        # Predict the current location with KF
+        STrack.multi_predict(strack_pool, dt=self._prediction_dt)
+        first_stage = AssociationStage(
+            name="bytetrack_high",
+            cost=self._fused_association_cost,
+            threshold=self.match_thresh,
+        )
+        first_result = run_association_stage(first_stage, strack_pool, detections)
+        matches = first_result.matches
+        u_track = first_result.unmatched_tracks
+        u_detection = first_result.unmatched_dets
+
+        tracked_pairs = []
+        lost_pairs = []
+        for itracked, idet in matches:
+            track = strack_pool[itracked]
+            pair = (track, detections[idet])
+            if track.state == TrackState.Tracked:
+                tracked_pairs.append(pair)
+                activated_starcks.append(track)
+            else:
+                lost_pairs.append(pair)
+                refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
+
+        """ Step 3: Second association, with low conf detection boxes"""
+        # association the untrack to the low conf detections
+        if len(dets_second) > 0:
+            """Detections"""
+            detections_second = [
+                STrack(
+                    det_second,
+                    max_obs=self.max_obs,
+                    id_allocator=self.id_allocator,
+                    is_obb=self.is_obb,
+                )
+                for det_second in dets_second
+            ]
+        else:
+            detections_second = []
+        r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
+        second_stage = AssociationStage(
+            name="bytetrack_low",
+            cost=self._low_association_cost,
+            threshold=0.5,
+        )
+        second_result = run_association_stage(
+            second_stage,
+            r_tracked_stracks,
+            detections_second,
+        )
+        matches = second_result.matches
+        u_track = second_result.unmatched_tracks
+        tracked_pairs = []
+        lost_pairs = []
+        for itracked, idet in matches:
+            track = r_tracked_stracks[itracked]
+            pair = (track, detections_second[idet])
+            if track.state == TrackState.Tracked:
+                tracked_pairs.append(pair)
+                activated_starcks.append(track)
+            else:
+                lost_pairs.append(pair)
+                refind_stracks.append(track)
+        STrack.multi_update(tracked_pairs, self.frame_count)
+        STrack.multi_update(lost_pairs, self.frame_count, reactivate=True)
+
+        for it in u_track:
+            track = r_tracked_stracks[it]
+            if not track.state == TrackState.Lost:
+                track.mark_lost()
+                lost_stracks.append(track)
+
+        """Deal with unconfirmed tracks, usually tracks with only one beginning frame"""
+        detections = [detections[i] for i in u_detection]
+        unconfirmed_stage = AssociationStage(
+            name="bytetrack_unconfirmed",
+            cost=self._unconfirmed_association_cost,
+            threshold=0.7,
+        )
+        unconfirmed_result = run_association_stage(
+            unconfirmed_stage,
+            unconfirmed,
+            detections,
+        )
+        matches = unconfirmed_result.matches
+        u_unconfirmed = unconfirmed_result.unmatched_tracks
+        u_detection = unconfirmed_result.unmatched_dets
+        pairs = [(unconfirmed[itracked], detections[idet]) for itracked, idet in matches]
+        STrack.multi_update(pairs, self.frame_count)
+        activated_starcks.extend(track for track, _ in pairs)
+        for it in u_unconfirmed:
+            track = unconfirmed[it]
+            track.mark_removed()
+            removed_stracks.append(track)
+
+        """ Step 4: Init new stracks"""
+        for inew in u_detection:
+            track = detections[inew]
+            if track.conf < self.det_thresh:
+                continue
+            track.activate(self.kalman_filter, self.frame_count)
+            activated_starcks.append(track)
+        """ Step 5: Update state"""
+        for track in self.lost_stracks:
+            if self.frame_count - track.end_frame > self.max_time_lost:
+                track.mark_removed()
+                removed_stracks.append(track)
+
+        self.active_tracks = [t for t in self.active_tracks if t.state == TrackState.Tracked]
+        self.active_tracks = joint_stracks(self.active_tracks, activated_starcks)
+        self.active_tracks = joint_stracks(self.active_tracks, refind_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.active_tracks)
+        self.lost_stracks.extend(lost_stracks)
+        self.lost_stracks = sub_stracks(self.lost_stracks, self.removed_stracks)
+        self.removed_stracks.extend(removed_stracks)
+        # Removal is applied to the lost pool on the following frame. Keep
+        # that lifecycle behavior and the removed-track display window, but
+        # release older identities instead of archiving every track forever.
+        removed_cutoff = self.frame_count - self.max_time_lost - max(1, int(self.removed_display_frames))
+        recent_removals = []
+        for track in self.removed_stracks:
+            if track.end_frame >= removed_cutoff:
+                recent_removals.append(track)
+            else:
+                display_key = self._removed_track_display_key(track)
+                self._removed_first_seen.pop(display_key, None)
+                self._removed_expired.discard(display_key)
+        self.removed_stracks = recent_removals
+        self.active_tracks, self.lost_stracks = remove_duplicate_stracks(self.active_tracks, self.lost_stracks)
+        # get confs of lost tracks
+        output_stracks = [track for track in self.active_tracks if track.is_activated]
+        return self.format_outputs(output_stracks, dtype=np.float32)
+
+    def _fused_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Build the ByteTrack score-fused geometric distance matrix."""
+        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        return self._condition_association(costs, tracks, detections, threshold=self.match_thresh)
+
+    def _low_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Condition the low-confidence association pass at its own threshold."""
+        return self._condition_association(
+            self.association_distance(tracks, detections), tracks, detections, threshold=0.5
+        )
+
+    def _unconfirmed_association_cost(self, tracks: list[STrack], detections: list[STrack]) -> np.ndarray:
+        """Condition confirmation using the reference's 0.7 cost threshold."""
+        costs = fuse_score(self.association_distance(tracks, detections), detections)
+        return self._condition_association(costs, tracks, detections, threshold=0.7)
+
+    def reset(self) -> None:
+        """Reset tracks and temporal mask memory for a new pass over the source."""
+        self._reset_common_state()
+        self.frame_id = 0
+        self.kalman_filter = (
+            KalmanFilterXYWH(ndim=5, noise_config=self.kalman_noise_config)
+            if self.is_obb
+            else KalmanFilterXYAH(noise_config=self.kalman_noise_config)
+        )

@@ -10,9 +10,9 @@ import pytest
 from click.testing import CliRunner
 from rich.console import Console
 
-from boxmot.engine import experiment_config
 from boxmot.engine.cli import boxmot
 from boxmot.engine.commands import _support
+from boxmot.engine.config import experiments as experiment_config
 from boxmot.engine.ui.core import ui
 from boxmot.utils.config import ConfigurationError
 

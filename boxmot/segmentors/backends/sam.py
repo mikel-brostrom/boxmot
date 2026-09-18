@@ -15,7 +15,7 @@ from boxmot.segmentors.backends._common import (
 )
 from boxmot.segmentors.specs import SegmentorSpec
 from boxmot.structures import Detections, Frame, MaskBatch
-from boxmot.utils.torch_utils import canonical_torch_device
+from boxmot.utils.devices import resolve_device
 
 
 class SamSegmentor:
@@ -37,6 +37,7 @@ class SamSegmentor:
             raise ValueError("The built-in SAM adapter does not currently support bf16 inference.")
 
         self.spec = spec
+        self.device = resolve_device(spec.device)
         if model is None:
             sam_class = getattr(import_module("ultralytics"), "SAM")
             model = sam_class(spec.artifact)
@@ -61,7 +62,7 @@ class SamSegmentor:
             results = self._model.predict(
                 source=frame_to_bgr(frame),
                 bboxes=enclosing_boxes(frame_detections).numpy(),
-                device=canonical_torch_device(self.spec.device),
+                device=self.device,
                 half=self.spec.precision == "fp16",
                 retina_masks=True,
                 verbose=False,

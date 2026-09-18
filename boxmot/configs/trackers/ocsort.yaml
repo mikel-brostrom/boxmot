@@ -1,59 +1,83 @@
 min_conf:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.3]
 
 det_thresh:
   type: uniform
-  default: 0.6  # from the default parameters
   range: [0, 0.6]
 
 max_age:
   type: grid_search
-  default: 30  # from the default parameters
   values: [10, 20, 30, 40, 50, 60]
+
+# Observation/recovery history capacity; runtime expands it to cover max_age.
+max_obs: {}
 
 min_hits:
   type: grid_search
-  default: 3  # from the default parameters
   values: [1, 2, 3, 4, 5]
+
+iou_threshold:
+  type: uniform
+  range: [0.1, 0.7]
 
 delta_t:
   type: grid_search
-  default: 3  # from the default parameters
   values: [1, 2, 3, 4, 5]
 
 asso_func:
   type: choice
-  default: iou  # from the default parameters
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 use_byte:
   type: choice
-  default: false  # from the default parameters
   options: [True, False]
 
 inertia:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.4]
 
 # Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
-kf_time_unit:
-  default: null
-kf_reference_dt_s:
-  default: 0.03333333333333333
 
-# Fixed runtime covariance defaults; --calibrate-kf supplies fitted values.
-kf_process_position_scale:
-  default: 1.0
-kf_process_velocity_scale:
-  default: 1.0
-kf_measurement_noise_scale:
-  default: 1.0
-kf_initial_position_scale:
-  default: 1.0
-kf_initial_velocity_scale:
-  default: 1.0
+kalman:
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 96
+    options: [8, 16, 24, 32, 64, 96]

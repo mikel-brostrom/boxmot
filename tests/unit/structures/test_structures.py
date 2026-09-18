@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from typing import get_args
 
 import pytest
 import torch
 
-from boxmot.structures import Boxes, Detections, Frame, GeometryKind, MaskBatch, OrientedBoxes, Tracks
+from boxmot.structures import Boxes, Detections, Frame, Geometry, GeometryKind, MaskBatch, OrientedBoxes, Tracks
 
 
 def _aabb_detections(*, masks: MaskBatch | None = None, embeddings: torch.Tensor | None = None) -> Detections:
@@ -86,6 +87,12 @@ def test_geometry_validates_shapes_values_and_unwrapped_obb_angles() -> None:
         OrientedBoxes(torch.tensor([[1.0, 2.0, 3.0, 4.0, float("nan")]], dtype=torch.float32))
     with pytest.raises(TypeError, match="dtype"):
         Boxes(torch.tensor([[0, 1, 2, 3]], dtype=torch.int64))
+
+
+def test_image_geometry_alias_remains_limited_to_aabb_and_obb() -> None:
+    """Adding camera-space boxes must not expand existing image contracts."""
+
+    assert get_args(Geometry) == (Boxes, OrientedBoxes)
 
 
 def test_mask_batch_is_full_frame_bool_and_selects_rows() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,7 +19,7 @@ from boxmot.components.resolution import (
 from boxmot.configs import CONFIG_ROOT
 from boxmot.reid.core.catalog import TRAINED_URLS
 from boxmot.reid.core.formats import resolve_reid_format
-from boxmot.reid.specs import ReIDEncoderSpec
+from boxmot.reid.specs import ReIDConfig, ReIDEncoderSpec
 from boxmot.utils.config import ConfigurationError, load_yaml_mapping, resolve_config_path, validate_config_id
 
 REID_CONFIGS_DIR = CONFIG_ROOT / "reid"
@@ -184,16 +184,93 @@ def _direct_reid_payload(artifact_path: Path) -> tuple[dict[str, Any], Path | No
     )
 
 
-def resolve_reid_spec(
-    reference: str | Path | Mapping[str, Any],
+def _is_friendly_reid_config(values: Mapping[str, Any]) -> bool:
+    """Distinguish model-selection settings from resolved component payloads."""
+    return "model" in values or set(values).issubset(ReIDConfig.__dataclass_fields__)
+
+
+def _resolve_reid_config(
+    config: ReIDConfig,
     *,
-    allow_download: bool = True,
+    allow_download: bool | None,
+    artifact_resolver: ArtifactResolver,
+    config_paths: frozenset[Path],
+    config_path: Path | None = None,
+) -> tuple[ReIDEncoderSpec, dict[str, Any]]:
+    """Resolve the selected reference once, then apply typed inference overrides."""
+    model = config.model
+    if config_path is not None:
+        path = Path(model).expanduser()
+        if not path.is_absolute() and (path.suffix or len(path.parts) > 1):
+            model = config_path.parent / path
+    spec, provenance = _resolve_reid_spec(
+        model,
+        allow_download=config.allow_download if allow_download is None else allow_download,
+        artifact_resolver=artifact_resolver,
+        config_paths=config_paths,
+    )
+    overrides = {
+        name: getattr(config, name)
+        for name in ("device", "precision", "preprocessing")
+        if getattr(config, name) is not None
+    }
+    options = {
+        name: getattr(config, name)
+        for name in ("batch_size", "image_size", "embedding_dim")
+        if getattr(config, name) is not None
+    }
+    if options:
+        overrides["options"] = component_options({**spec.option_values(), **options})
+    if overrides:
+        spec = replace(spec, **overrides)
+    return spec, {**provenance, "spec": asdict(spec)}
+
+
+def resolve_reid_spec(
+    reference: ReIDConfig | str | Path | Mapping[str, Any],
+    *,
+    allow_download: bool | None = None,
     artifact_resolver: ArtifactResolver = resolve_artifact,
 ) -> tuple[ReIDEncoderSpec, dict[str, Any]]:
-    """Resolve a ReID ID, YAML mapping, or artifact into a hashed spec."""
+    """Resolve a model config, ID, YAML mapping, or artifact into a hashed spec.
 
+    An omitted download override inherits ``ReIDConfig.allow_download`` and
+    otherwise allows downloads. Config creation itself performs no resolution.
+    """
+    if allow_download is not None and not isinstance(allow_download, bool):
+        raise TypeError("allow_download must be a boolean or None.")
+    return _resolve_reid_spec(
+        reference,
+        allow_download=allow_download,
+        artifact_resolver=artifact_resolver,
+        config_paths=frozenset(),
+    )
+
+
+def _resolve_reid_spec(
+    reference: ReIDConfig | str | Path | Mapping[str, Any],
+    *,
+    allow_download: bool | None,
+    artifact_resolver: ArtifactResolver,
+    config_paths: frozenset[Path],
+) -> tuple[ReIDEncoderSpec, dict[str, Any]]:
+    """Share reference resolution while detecting cycles in friendly YAML files."""
+    if isinstance(reference, ReIDConfig):
+        return _resolve_reid_config(
+            reference,
+            allow_download=allow_download,
+            artifact_resolver=artifact_resolver,
+            config_paths=config_paths,
+        )
     config_path: Path | None = None
     if isinstance(reference, Mapping):
+        if _is_friendly_reid_config(reference):
+            return _resolve_reid_config(
+                ReIDConfig.from_mapping(reference),
+                allow_download=allow_download,
+                artifact_resolver=artifact_resolver,
+                config_paths=config_paths,
+            )
         payload = dict(reference)
     else:
         artifact_path = explicit_artifact_path(reference)
@@ -201,6 +278,17 @@ def resolve_reid_spec(
             payload, config_path = _direct_reid_payload(artifact_path)
         else:
             authored = load_component_mapping(reference)
+            if authored is not None and _is_friendly_reid_config(authored[0]):
+                values, config_path = authored
+                if config_path in config_paths:
+                    raise ConfigurationError(f'ReID configuration cycle detected at "{config_path}".')
+                return _resolve_reid_config(
+                    ReIDConfig.from_mapping(values),
+                    allow_download=allow_download,
+                    artifact_resolver=artifact_resolver,
+                    config_paths=config_paths | {config_path},
+                    config_path=config_path,
+                )
             if authored is not None and "backend" in authored[0]:
                 payload, config_path = authored
             else:
@@ -224,7 +312,7 @@ def resolve_reid_spec(
         uri=uri,
         expected_sha256=expected_hash,
         config_path=config_path,
-        allow_download=allow_download,
+        allow_download=True if allow_download is None else allow_download,
         artifact_resolver=artifact_resolver,
     )
     spec = ReIDEncoderSpec(

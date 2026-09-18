@@ -7,7 +7,7 @@ import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +20,7 @@ from boxmot.datasets.schema import EMBEDDINGS_ARTIFACT, MANIFEST_FILENAME, MASKS
 from boxmot.datasets.storage import resolve_artifact_path
 from boxmot.datasets.validation import validate_published_build
 
+from .ids import component_content, fingerprint, stage_content
 from .plan import BuildPlan, default_build_root
 
 if TYPE_CHECKING:
@@ -43,7 +44,27 @@ def _uses_repository_default(plan: BuildPlan) -> bool:
 
 
 def _manifest_matches_plan(manifest: DatasetManifest, plan: BuildPlan) -> bool:
-    expected_stages = tuple(
+    return manifest.build_id == plan.build_id and _manifest_matches_content(manifest, plan)
+
+
+def _component_content_fingerprints(metadata: Mapping[str, Any]) -> dict[str, Any]:
+    """Compare component settings without erasing inconsistent recorded hashes."""
+
+    fingerprints = metadata.get("component_fingerprints") or {}
+    components = metadata.get("components") or {}
+    if not isinstance(fingerprints, Mapping) or not isinstance(components, Mapping):
+        raise ValueError("Build component provenance must contain mappings.")
+    recorded = dict(fingerprints)
+    for name, provenance in components.items():
+        if isinstance(provenance, Mapping) and recorded.get(name) == fingerprint(provenance):
+            recorded[name] = fingerprint(component_content(provenance))
+    return recorded
+
+
+def _plan_stages(plan: BuildPlan) -> tuple[StageProvenance, ...]:
+    """Describe the planned stages in their canonical execution order."""
+
+    return tuple(
         StageProvenance(
             name=stage.name,
             fingerprint=stage.fingerprint,
@@ -54,20 +75,87 @@ def _manifest_matches_plan(manifest: DatasetManifest, plan: BuildPlan) -> bool:
         )
         for stage in plan.ordered_stages()
     )
+
+
+def _manifest_matches_content(manifest: DatasetManifest, plan: BuildPlan) -> bool:
+    """Match perception semantics independently of the producing release and device."""
+
     return (
-        manifest.build_id == plan.build_id
-        and manifest.box_type == plan.box_type
+        manifest.box_type == plan.box_type
         and manifest.publish
         == PublishedContent(
             image_references=plan.publish.image_references,
             masks=plan.publish.masks,
             embeddings=plan.publish.embeddings,
         )
-        and manifest.stages == expected_stages
+        and stage_content(manifest.stages) == stage_content(_plan_stages(plan))
+        and _component_content_fingerprints(manifest.metadata) == _component_content_fingerprints(plan.metadata)
         and manifest.metadata.get("dataset_name") == plan.dataset_name
         and manifest.metadata.get("source_fingerprint") == plan.source_fingerprint
         and manifest.metadata.get("experiment_id") == plan.metadata.get("experiment_id")
+        and all(
+            manifest.metadata.get(key) == plan.metadata.get(key)
+            for key in (
+                "dataset_id",
+                "split",
+                "source_catalog_digest",
+                "source_count",
+                "class_taxonomy_digest",
+                "class_bridge",
+                "fps",
+            )
+        )
     )
+
+
+def _published_build_candidates(plan: BuildPlan) -> Iterator[Path]:
+    """Visit immutable build directories in deterministic order within configured roots."""
+
+    roots = [plan.build_root]
+    if _uses_repository_default(plan):
+        roots.append(former_default_build_root())
+    for root in roots:
+        if root.is_symlink() or not root.is_dir():
+            continue
+        try:
+            candidates = sorted(root.iterdir())
+        except OSError:
+            if root == plan.build_root:
+                raise
+            continue
+        for path in candidates:
+            if _BUILD_ID.fullmatch(path.name) and not path.is_symlink() and path.is_dir():
+                if (path / SUCCESS_FILENAME).is_file():
+                    yield path
+
+
+def find_matching_build(
+    plan: BuildPlan,
+    *,
+    status_callback: Callable[[str], None] | None = None,
+) -> Path | None:
+    """Reuse a fully validated build with identical source and perception semantics.
+
+    The creation release and device remain part of a build's immutable identity
+    and provenance, but do not invalidate otherwise identical perception outputs.
+    The exact requested output, when present, remains authoritative and is
+    validated by the materializer rather than replaced by another candidate.
+    """
+
+    if plan.output_root.exists():
+        return None
+    for path in _published_build_candidates(plan):
+        try:
+            manifest = DatasetManifest.load(path)
+            if manifest.build_id != path.name or not _manifest_matches_content(manifest, plan):
+                continue
+            if status_callback is not None:
+                status_callback(f"Validating matching perception build {path.name[:12]}…")
+            validate_published_build(path, manifest=manifest)
+        except (OSError, ValueError):
+            continue
+        return path
+    return None
 
 
 def _remove_import_path(path: Path) -> None:
@@ -83,29 +171,23 @@ def _matches_fps_parent(manifest: DatasetManifest, plan: BuildPlan) -> bool:
     metadata = manifest.metadata
     if metadata.get("fps") is not None or manifest.box_type != plan.box_type:
         return False
-    for key in ("dataset_id", "split", "class_taxonomy_digest", "class_bridge", "boxmot_version"):
+    for key in ("dataset_id", "split", "class_taxonomy_digest", "class_bridge"):
         if metadata.get(key) != plan.metadata.get(key):
             return False
     if plan.publish.embeddings and not manifest.publish.embeddings:
         return False
     if plan.publish.masks and not manifest.publish.masks:
         return False
-    actual_components = metadata.get("component_fingerprints") or {}
-    expected_components = plan.metadata.get("component_fingerprints") or {}
+    actual_components = _component_content_fingerprints(metadata)
+    expected_components = _component_content_fingerprints(plan.metadata)
     if any(actual_components.get(name) != value for name, value in expected_components.items() if value is not None):
         return False
-    stages = {stage.name: stage for stage in manifest.stages}
-    for expected in plan.stages:
+    stages = {stage.name: stage for stage in stage_content(manifest.stages)}
+    for expected in stage_content(_plan_stages(plan)):
         if expected.name == "finalize":
             continue
         actual = stages.get(expected.name)
-        if actual is None or (
-            actual.fingerprint != expected.fingerprint
-            or actual.batch_size != expected.batch_size
-            or actual.config != expected.config
-            or actual.component != expected.component
-            or actual.inputs != expected.depends_on
-        ):
+        if actual != expected:
             return False
     return True
 
@@ -125,41 +207,31 @@ def find_fps_parent_build(
 
     if plan.metadata.get("fps") is None or plan.output_root.exists():
         return None
-    roots = [plan.build_root]
-    if _uses_repository_default(plan):
-        roots.append(former_default_build_root())
     catalog = None
-    for root in roots:
-        if not root.is_dir():
+    for path in _published_build_candidates(plan):
+        try:
+            manifest = DatasetManifest.load(path)
+            if manifest.build_id != path.name or not _matches_fps_parent(manifest, plan):
+                continue
+        except (OSError, ValueError):
             continue
-        for path in sorted(root.iterdir()):
-            if not _BUILD_ID.fullmatch(path.name) or path.is_symlink() or not path.is_dir():
-                continue
-            if not (path / SUCCESS_FILENAME).is_file():
-                continue
-            try:
-                manifest = DatasetManifest.load(path)
-            except (OSError, ValueError):
-                continue
-            if not _matches_fps_parent(manifest, plan):
-                continue
-            if catalog is None:
-                if status_callback is not None:
-                    status_callback("Validating full-rate source data for cached frame reuse…")
-                catalog = load_catalog()
-            try:
-                validate_build_compatibility(
-                    manifest,
-                    dataset_id=plan.dataset_name,
-                    split=str(plan.metadata["split"]),
-                    geometry=plan.box_type,
-                    source_catalog_digest=catalog.fingerprint,
-                    class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
-                )
-                validate_published_build(path, manifest=manifest)
-            except (OSError, ValueError):
-                continue
-            return path, catalog
+        if catalog is None:
+            if status_callback is not None:
+                status_callback("Validating full-rate source data for cached frame reuse…")
+            catalog = load_catalog()
+        try:
+            validate_build_compatibility(
+                manifest,
+                dataset_id=plan.dataset_name,
+                split=str(plan.metadata["split"]),
+                geometry=plan.box_type,
+                source_catalog_digest=catalog.fingerprint,
+                class_taxonomy_digest=str(catalog.metadata["class_taxonomy_digest"]),
+            )
+            validate_published_build(path, manifest=manifest)
+        except (OSError, ValueError):
+            continue
+        return path, catalog
     return None
 
 
@@ -346,6 +418,7 @@ __all__ = (
     "BuildCompatibilityError",
     "default_build_root",
     "find_fps_parent_build",
+    "find_matching_build",
     "former_default_build_root",
     "import_former_default_build",
     "load_cached_build",

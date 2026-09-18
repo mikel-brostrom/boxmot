@@ -75,12 +75,14 @@ def test_readme_minimal_usage_accepts_numpy_rows() -> None:
 
 
 def test_materialize_guide_documents_build_workflow() -> None:
-    content = MATERIALIZE_DOC.read_text(encoding="utf-8")
+    content = " ".join(MATERIALIZE_DOC.read_text(encoding="utf-8").split())
 
     assert "boxmot materialize" in content
     assert "--build BUILD_ID" in content
-    assert "Neither command selects a “latest” build." in content
-    assert "prepare or reuse a canonical build automatically" in " ".join(content.split())
+    assert "prepare or reuse a canonical build automatically" in content
+    assert "Multiple matching builds are considered in deterministic path order." in content
+    assert "`research` requires an explicit build ID or path." in content
+    assert "Research does not materialize implicitly." in content
     assert ":command: materialize" in content
 
 

@@ -12,7 +12,7 @@ from boxmot.engine.commands import _support
 def test_eval_dispatch_preserves_display_flags(monkeypatch, flags, calibration) -> None:
     captured = {}
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.update(args=args))
-    argv = ["eval", "--dataset", "fixture", "--build", "fixture-build", *flags]
+    argv = ["eval", "--dataset", "mot17", "--build", "fixture-build", *flags]
     if calibration:
         argv.append("--calibrate-kf")
 

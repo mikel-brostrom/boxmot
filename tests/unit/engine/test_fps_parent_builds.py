@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -11,11 +12,14 @@ import cv2
 import numpy as np
 import pytest
 
-from boxmot.datasets import DatasetManifest
+from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.datasets.schema import MANIFEST_FILENAME, SUCCESS_FILENAME
-from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan
+from boxmot.detectors import DetectorSpec
+from boxmot.engine.materialization import BuildPlan, PublishOptions, StagePlan, workflow
+from boxmot.engine.materialization import plan as plan_module
 from boxmot.engine.materialization.builds import find_fps_parent_build
 from boxmot.engine.materialization.catalog import catalog_mot_dataset
+from boxmot.reid import ReIDEncoderSpec
 from tests.unit.engine.test_dataset_fps_workflow import _materialize
 from tests.unit.engine.test_dataset_fps_workflow import fps_case as fps_case
 
@@ -97,6 +101,33 @@ def test_existing_sampled_build_bypasses_native_catalog_discovery(parent_case: S
     assert find_fps_parent_build(parent_case.plan, load_catalog=load_catalog) is None
 
     load_catalog.assert_not_called()
+
+
+@pytest.mark.parametrize("device", ["cpu", "cuda:0"])
+def test_fps_reuses_other_release_and_device_without_inference(
+    fps_case: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, device: str
+) -> None:
+    """Device changes preserve the original embeddings when sampling cached frames."""
+
+    fps_case.detector_provenance["spec"] = asdict(DetectorSpec("fixture", geometry_mode="aabb"))
+    fps_case.encoder_provenance["spec"] = asdict(ReIDEncoderSpec("fixture", options=(("embedding_dim", 2),)))
+    with monkeypatch.context() as patch:
+        patch.setattr(plan_module, "__version__", "24.0.0")
+        patch.setattr(workflow, "__version__", "24.0.0")
+        parent = _materialize(fps_case, None, device="mps", materialize_explicit_keys=("device",))
+    parent_manifest = DatasetManifest.load(parent)
+    fps_case.detector.seen.clear()
+    fps_case.encoder.seen.clear()
+
+    output = _materialize(fps_case, 5.0, device=device, materialize_explicit_keys=("device",))
+
+    assert not fps_case.detector.seen
+    assert not fps_case.encoder.seen
+    manifest = DatasetManifest.load(output)
+    assert manifest.artifact("embeddings").metadata == parent_manifest.artifact("embeddings").metadata
+    dataset = CachedVisionDataset(output, load_embeddings=True)
+    assert len(dataset) == 4
+    assert [sample.detections.embeddings[:, 0].tolist() for sample in dataset] == [[1.0], [], [13.0], [19.0]]
 
 
 def test_fps_parent_selection_uses_path_order_independent_of_mtime(parent_case: SimpleNamespace) -> None:

@@ -10,7 +10,7 @@ import torch
 from boxmot.reid.backbones import get_backbone_spec
 from boxmot.reid.core.registry import ReIDModelRegistry
 from boxmot.reid.core.runtime import ReID
-from boxmot.utils.torch_utils import select_device
+from boxmot.utils.devices import resolve_device
 
 
 def default_export_img_size(weights: Path, model_name: str) -> tuple[int, int]:
@@ -29,7 +29,7 @@ def default_export_img_size(weights: Path, model_name: str) -> tuple[int, int]:
 
 def prepare_export_model(args: Any) -> tuple[torch.nn.Module, torch.Tensor]:
     """Load and warm a ReID model for an explicitly requested export."""
-    args.device = select_device(args.device)
+    args.device = resolve_device(args.device)
     include = tuple(str(fmt).lower() for fmt in (getattr(args, "include", ()) or ()))
     cpu_fp16_graph_export = bool(args.half and args.device.type == "cpu" and "engine" not in include)
     if args.half and args.device.type == "cpu" and not cpu_fp16_graph_export:

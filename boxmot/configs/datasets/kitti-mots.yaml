@@ -1,0 +1,83 @@
+# Saved KITTI sensor inputs; pass --data-root ./kitti-mots.
+id: kitti-mots
+
+format:
+  layout: sequence
+  box_type: aabb
+
+storage:
+  root: .
+
+default_split: val
+fps: 10
+
+modalities:
+  images:
+    format: image-directory
+    path: sequences/{partition}/{sequence}/images
+  detections_2d:
+    format: trackrcnn
+    path: predictions/trackrcnn/{partition}/{sequence}.txt
+    options:
+      load_masks: true
+  detections_3d:
+    format: kitti-detections
+    paths:
+      - predictions/pointgnn-car-t3/{partition}/{sequence}
+      - predictions/pointgnn-pedestrian/{partition}/{sequence}
+    options:
+      score_transform: odds
+      ignore_classes: [Cyclist]
+  calibration:
+    format: kitti-p2
+    path: sequences/{partition}/{sequence}/calibration.txt
+  poses:
+    format: camera-to-world-npy
+    path: sequences/{partition}/{sequence}/poses.npy
+  ground_truth:
+    format: instance-png
+    path: sequences/{partition}/{sequence}/ground_truth
+    options:
+      class_divisor: 1000
+      background_id: 0
+      ignore_ids: [10000]
+  ground_truth_3d:
+    format: kitti-tracking-labels
+    path: "{partition}/label_02/{sequence}.txt"
+    options:
+      ignore_classes: [DontCare, Van, Truck, Cyclist, Person, Person_sitting, Tram, Misc]
+
+classes:
+  target:
+    car: 1
+    pedestrian: 2
+  ignore:
+    ignore: 10
+
+splits:
+  train:
+    partition: training
+    has_ground_truth: true
+    sequences: ["0000", "0001", "0003", "0004", "0005", "0009", "0011", "0012", "0015", "0017", "0019", "0020"]
+  val:
+    partition: training
+    has_ground_truth: true
+    sequences: ["0002", "0006", "0007", "0008", "0010", "0013", "0014", "0016", "0018"]
+    modalities:
+      detections_3d:
+        format: kitti-detections
+        paths:
+          - predictions/pointgnn-car-t2/{partition}/{sequence}
+          - predictions/pointgnn-pedestrian/{partition}/{sequence}
+        options:
+          score_transform: odds
+          ignore_classes: [Cyclist]
+  fulltrain:
+    partition: training
+    has_ground_truth: true
+  test:
+    partition: testing
+    has_ground_truth: false
+    modalities:
+      ground_truth: null
+      ground_truth_3d: null

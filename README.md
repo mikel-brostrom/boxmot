@@ -39,9 +39,9 @@ tuning, research, and ReID workflows.
 
 ## Why BoxMOT
 
-- One interface for `track`, `materialize`, `time-variant`, `eval`, `tune`, `research`,
-  `train-reid`, `eval-reid`, `compare-reid`, `export`, and native `build`
-  workflows.
+- One interface for `track`, `materialize`, `materialize --time-variant`, `eval`,
+  `tune`, `research`, `train-reid`, `eval-reid`, `compare-reid`, `export`,
+  `export-edgetam`, `install`, and native `build` workflows.
 - Swappable components with explicit capabilities and requirements.
 - Immutable, keyed Parquet builds with reusable detections, masks, and
   embeddings.
@@ -257,6 +257,19 @@ boxmot eval \
 
 See the [evaluation guide](docs/guides/evaluation.md) for `--fps` and
 `--calibrate-kf` usage.
+
+For saved KITTI predictions, choose the inputs your tracker needs:
+
+```bash
+boxmot eval --experiment kitti-mots/2d \
+  --data-root ./kitti-mots --tracker ocsort --cache-inputs
+boxmot eval --experiment kitti-mots/full \
+  --data-root ./kitti-mots --tracker eagermot --cache-inputs
+```
+
+Both experiments reference the same `kitti-mots.yaml` inventory. The first
+selects 2D boxes; the second adds masks, 3D boxes,
+calibration, and camera poses. See [KITTI experiments](docs/config/experiments.md#saved-multimodal-kitti-inputs).
 
 Use NumPy detections and BGR images directly:
 

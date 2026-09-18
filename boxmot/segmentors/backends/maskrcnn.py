@@ -14,6 +14,7 @@ from boxmot.segmentors.backends._common import empty_masks, enclosing_boxes, nor
 from boxmot.segmentors.specs import SegmentorSpec
 from boxmot.structures import Detections, Frame, MaskBatch
 from boxmot.utils import logger as LOGGER
+from boxmot.utils.devices import resolve_device
 
 
 def _pairwise_iou(left: torch.Tensor, right: torch.Tensor) -> torch.Tensor:
@@ -88,7 +89,7 @@ class MaskRCNNSegmentor:
             raise ValueError(f"Unsupported 'maskrcnn' segmentor options: {names}.")
 
         self.spec = spec
-        self._device = torch.device(spec.device)
+        self._device = resolve_device(spec.device)
         self._dtype = {
             "fp16": torch.float16,
             "fp32": torch.float32,

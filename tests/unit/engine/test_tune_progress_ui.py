@@ -13,6 +13,8 @@ import pytest
 from rich.console import Group
 from rich.progress import BarColumn, Progress
 
+from boxmot.engine.eval.replay import ReplayProgressEvent
+from boxmot.engine.tuning.progress import TrialSequenceProgressWriter, read_trial_sequence_progress
 from boxmot.engine.tuning.tuner import Tuner
 from boxmot.engine.ui.core.ui import capture_renderable
 from boxmot.engine.ui.reporters.eval import EvalSequenceProgressPresenter
@@ -240,6 +242,113 @@ def test_best_summary_uses_the_configured_objective_including_identity_switch_ra
     assert callback.best_summary["HOTA"] == 60.0
     assert callback.last_summary["HOTA"] == 80.0
     assert callback.best_score == (-0.2,)
+
+
+@pytest.fixture
+def sequence_progress(tmp_path: Path):
+    """Connect actual worker snapshots to a driver-local Rich workflow."""
+    publications = []
+    workflow = SimpleNamespace(
+        _lock=threading.RLock(),
+        set_detail_renderable=lambda title, renderable: publications.append(renderable),
+    )
+    callback = TuneWorkflowCallback(total=2, maximize=["HOTA"], minimize=[])
+    callback.configure_sequence_progress(tmp_path, {"MOT17-02-FRCNN": 100, "MOT17-04-FRCNN": 50})
+    set_tune_progress_workflow(workflow)
+    try:
+        yield callback, publications, tmp_path
+    finally:
+        set_tune_progress_workflow(None)
+
+
+@pytest.mark.parametrize("width", [80, 160])
+def test_sequence_progress_updates_before_trial_results_and_resets_for_next_trial(sequence_progress, width):
+    callback, publications, directory = sequence_progress
+    first = SimpleNamespace(trial_id="first", last_result={"HOTA": 60.0})
+    callback.on_trial_start(0, [], first)
+    queued = capture_renderable(publications[-1], width=width)
+    assert "Trial 1/2" in queued
+    assert "MOT17-02-FRCNN" in queued
+    assert "MOT17-04-FRCNN" in queued
+    assert "0/100 frames" in queued
+    assert "0/50 frames" in queued
+
+    writer = TrialSequenceProgressWriter(directory, "first")
+    writer(ReplayProgressEvent("MOT17-02-FRCNN", "running", 12, 100, 4, "long sample id", 0))
+    callback.on_step_end(0, [first])
+    running = capture_renderable(publications[-1], width=width)
+    assert "12/100 frames" in running
+    assert "0/50 frames" in running
+    assert "long sample id" not in running
+    assert callback.completed == 0
+    assert callback.last_summary is None
+    assert max(map(len, running.splitlines())) <= width
+    restored = pickle.loads(pickle.dumps(callback))
+    assert restored.sequence_events == callback.sequence_events
+
+    writer(ReplayProgressEvent("MOT17-02-FRCNN", "completed", 100, 100, 40, None, 0))
+    writer(ReplayProgressEvent("MOT17-04-FRCNN", "completed", 50, 50, 20, None, 1))
+    callback.on_trial_complete(0, [], first)
+    finished = capture_renderable(publications[-1], width=width)
+    assert "2/2 sequences done" in finished
+    assert "100/100 frames" in finished
+    assert "50/50 frames" in finished
+    assert read_trial_sequence_progress(directory, "first") == ()
+
+    second = SimpleNamespace(trial_id="second", last_result={})
+    callback.on_trial_start(0, [], second)
+    restarted = capture_renderable(publications[-1], width=width)
+    assert "Trial 2/2" in restarted
+    assert "0/100 frames" in restarted
+    assert "0/50 frames" in restarted
+    assert "Best trial: HOTA=60.000" in restarted
+    assert "Trial 1/2" not in restarted
+    assert "first" not in callback.sequence_events
+
+
+def test_concurrent_trials_keep_separate_sequences_and_prune_completed_snapshots(sequence_progress):
+    callback, publications, directory = sequence_progress
+    trials = [SimpleNamespace(trial_id=name, last_result={}) for name in ("first", "second")]
+    for index, trial in enumerate(trials):
+        callback.on_trial_start(0, trials, trial)
+        writer = TrialSequenceProgressWriter(directory, trial.trial_id)
+        writer(ReplayProgressEvent("MOT17-02-FRCNN", "running", 12 + index, 100, 0, None, 0))
+    callback.on_step_end(0, trials)
+    rendered = capture_renderable(publications[-1], width=160)
+    first_rows, second_rows = rendered.split("Trial 2/2")
+    assert "12/100 frames" in first_rows
+    assert "13/100 frames" not in first_rows
+    assert "13/100 frames" in second_rows
+    assert "12/100 frames" not in second_rows
+
+    for trial in trials:
+        callback.on_trial_complete(0, trials, trial)
+    assert set(callback.sequence_events) == {"second"}
+
+
+@pytest.mark.parametrize("started", [False, True])
+def test_failed_and_retried_trials_do_not_leave_stale_sequence_progress(sequence_progress, started):
+    callback, publications, directory = sequence_progress
+    trial = SimpleNamespace(trial_id="retry", last_result={})
+    callback.on_trial_start(0, [], trial)
+    if started:
+        writer = TrialSequenceProgressWriter(directory, "retry")
+        writer(ReplayProgressEvent("MOT17-02-FRCNN", "running", 12, 100, 0, None, 0))
+    callback.on_trial_error(0, [], trial)
+    failed = capture_renderable(publications[-1], width=160)
+    assert "0/2 sequences done · 2 failed" in failed
+    assert "pending" not in failed.split("Trial 1/2")[1]
+
+    # A retry clears a stale file even if a previous worker left it behind.
+    writer = TrialSequenceProgressWriter(directory, "retry")
+    writer(ReplayProgressEvent("MOT17-02-FRCNN", "completed", 100, 100, 0, None, 0))
+    callback.on_trial_start(0, [], trial)
+    callback.on_step_end(0, [trial])
+    restarted = capture_renderable(publications[-1], width=160)
+    assert "0/100 frames" in restarted
+    assert "0/50 frames" in restarted
+    assert "100/100 frames" not in restarted
+    assert read_trial_sequence_progress(directory, "retry") == ()
 
 
 def test_restored_tuner_publishes_saved_trial_count_before_any_new_trial_starts(

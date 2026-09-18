@@ -38,7 +38,7 @@ def resolve_model_path(
 
     for candidate in candidates:
         parent = candidate.parent
-        if not parent.exists():
+        if not parent.is_dir():
             continue
         lowered_name = candidate.name.lower()
         for sibling in parent.iterdir():

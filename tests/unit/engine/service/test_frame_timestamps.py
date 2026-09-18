@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from boxmot import ByteTrack
+from boxmot import ByteTrack, ByteTrackConfig, KalmanConfig
 from boxmot.engine.service.app import create_app
 from boxmot.engine.service.models import FrameRequest
 from boxmot.structures import Detections, Frame, Tracks
@@ -20,7 +20,7 @@ class _TimedTracker(ByteTrack):
     requirements = TrackerRequirements(frame=True)
 
     def __init__(self, *, variable_dt: bool = False) -> None:
-        super().__init__(asso_func="iou", variable_dt=variable_dt)
+        super().__init__(config=ByteTrackConfig(asso_func="iou"), kalman=KalmanConfig(variable_dt=variable_dt))
         self.intervals: list[float | None] = []
         self.calls: list[tuple[Detections, Frame | None]] = []
 
@@ -35,7 +35,7 @@ def test_capture_timestamps_drive_intervals_and_retries_do_not_advance_time() ->
     tracker = _TimedTracker(variable_dt=True)
 
     def factory(spec: TrackerSpec) -> _TimedTracker:
-        assert spec.option_dict["variable_dt"] is True
+        assert spec.option_dict["kalman.variable_dt"] is True
         return tracker
 
     path = "/v1/streams/camera/sessions/timed/frames"
@@ -89,7 +89,7 @@ def test_default_motion_is_unchanged_by_optional_timestamp_metadata() -> None:
     instances = iter((tracker, baseline))
 
     def factory(spec: TrackerSpec) -> _TimedTracker:
-        assert spec.option_dict["variable_dt"] is False
+        assert spec.option_dict["kalman.variable_dt"] is False
         return next(instances)
 
     timestamps = [None, 10.0, 5.0, None, 4.0]

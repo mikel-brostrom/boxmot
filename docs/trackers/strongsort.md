@@ -4,6 +4,12 @@
 
 StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The paper improves the detector and appearance encoder, adds better motion handling and camera compensation, and then layers on lightweight postprocessing ideas to recover missed links and detections. The core message is that a carefully engineered DeepSORT-style tracker can remain competitive without changing the online MOT formulation.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker strongsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What BoxMOT Needs For StrongSort
 
 - A detector plus appearance embeddings. Appearance cues are central to this
@@ -12,8 +18,17 @@ StrongSORT revisits DeepSORT and shows that a stronger baseline matters. The pap
 - Supports both AABB and OBB detections in BoxMOT.
 - Good when appearance matching matters more than raw speed, especially for pedestrian-style MOT benchmarks.
 
-Direct construction accepts the shared `reid_model`, `reid_weights`, `device`,
-`half`, and `reid_preprocess` options described in the
+Direct construction accepts `reid=ReIDConfig(...)` or a prebuilt
+`AppearanceEncoder`, as described in the
 [Python API](../python/index.md#live-embeddings-in-reid-enabled-trackers).
+
+## Python API
+
+Pass algorithm settings through `StrongSortConfig`, for example
+`StrongSort(config=StrongSortConfig(min_conf=0.6))`. Direct construction and
+`create_tracker("strongsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.StrongSortConfig
 
 ::: boxmot.StrongSort

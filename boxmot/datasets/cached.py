@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import json
-from bisect import bisect_left
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -14,8 +14,11 @@ import torch
 
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes
 
+from ._embedding_reader import IndexedEmbeddingReader
+from ._mask_reader import IndexedMaskReader
+from ._parquet import iter_selected_batches, row_group_may_contain_key, source_snapshot
 from .manifest import DatasetManifest, ManifestError
-from .masks import MASK_CODEC, unpack_mask_batch
+from .masks import unpack_mask_batch
 from .readers import read_rgb_chw_uint8
 from .schema import (
     EMBEDDINGS_ARTIFACT,
@@ -34,37 +37,6 @@ from .validation import DatasetValidationError, validate_dataset
 
 _SELECTED_ARTIFACT_BATCH_ROWS = 128
 _SELECTED_KEY_BATCH_ROWS = 65_536
-
-
-def _row_group_may_contain_key(
-    parquet: Any,
-    row_group: int,
-    *,
-    column_name: str,
-    keys: tuple[str, ...],
-) -> bool:
-    """Conservatively test a row group's string-key statistics.
-
-    Missing or undecodable statistics retain the row group. Canonical finalized
-    artifacts are globally sorted, so useful min/max statistics let workers
-    skip unrelated sequence ranges without making correctness depend on them.
-    """
-
-    try:
-        column_index = parquet.schema.names.index(column_name)
-        statistics = parquet.metadata.row_group(row_group).column(column_index).statistics
-        minimum = statistics.min
-        maximum = statistics.max
-        if isinstance(minimum, bytes):
-            minimum = minimum.decode("utf-8")
-        if isinstance(maximum, bytes):
-            maximum = maximum.decode("utf-8")
-        if not isinstance(minimum, str) or not isinstance(maximum, str):
-            return True
-    except (AttributeError, UnicodeDecodeError, ValueError):
-        return True
-    candidate = bisect_left(keys, minimum)
-    return candidate < len(keys) and keys[candidate] <= maximum
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +200,7 @@ class CachedVisionDataset(Sequence[DatasetSample]):
         self.load_images = load_images
         self.load_masks = load_masks
         self.load_embeddings = load_embeddings
+
         self._image_root: str | Path = self.manifest.metadata.get("source_root_uri", self.build)
 
         sample_filters: list[tuple[str, str, Any]] = []
@@ -323,9 +296,7 @@ class CachedVisionDataset(Sequence[DatasetSample]):
 
     def _validate_selected_keys(self, values: dict[tuple[str, str], Any], *, artifact: str) -> None:
         expected = {
-            (sample_id, row["instance_id"])
-            for sample_id, rows in self._instances_by_sample.items()
-            for row in rows
+            (sample_id, row["instance_id"]) for sample_id, rows in self._instances_by_sample.items() for row in rows
         }
         if set(values) != expected:
             raise DatasetValidationError(f"{artifact} keys must match selected instance keys exactly once.")
@@ -374,7 +345,7 @@ class CachedVisionDataset(Sequence[DatasetSample]):
                 row_groups = [
                     index
                     for index in range(parquet.num_row_groups)
-                    if _row_group_may_contain_key(
+                    if row_group_may_contain_key(
                         parquet,
                         index,
                         column_name=column_name,
@@ -406,44 +377,15 @@ class CachedVisionDataset(Sequence[DatasetSample]):
     ) -> Iterator[Any]:
         """Yield only selected rows while keeping large Parquet values batch-bounded."""
 
-        import pyarrow as pa
-        import pyarrow.compute as pc
-        import pyarrow.parquet as pq
-
-        artifact = self.manifest.artifact(name)
-        path = resolve_artifact_path(self.build, artifact.path)
-        sorted_sample_ids = tuple(sorted(sample_ids))
-        selected_ids = pa.array(sorted_sample_ids, type=pa.string())
-        for shard in artifact_files(path):
-            parquet = pq.ParquetFile(shard, pre_buffer=False)
-            actual_schema = parquet.schema_arrow
-            if not actual_schema.equals(expected_schema, check_metadata=False):
-                raise ValueError(
-                    f"Parquet schema mismatch for {name!r}: expected {expected_schema}, got {actual_schema}. "
-                    "Legacy or positional caches are not supported."
-                )
-            row_groups = [
-                index
-                for index in range(parquet.num_row_groups)
-                if _row_group_may_contain_key(
-                    parquet,
-                    index,
-                    column_name="sample_id",
-                    keys=sorted_sample_ids,
-                )
-            ]
-            if not row_groups:
-                continue
-            for batch in parquet.iter_batches(
-                batch_size=batch_size,
-                columns=columns,
-                row_groups=row_groups,
-                use_threads=False,
-            ):
-                sample_id_index = batch.schema.get_field_index("sample_id")
-                selected = pc.is_in(batch.column(sample_id_index), value_set=selected_ids)
-                if pc.any(selected).as_py():
-                    yield batch.filter(selected)
+        yield from iter_selected_batches(
+            self.build,
+            self.manifest,
+            name,
+            sample_ids=sample_ids,
+            expected_schema=expected_schema,
+            columns=columns,
+            batch_size=batch_size,
+        )
 
     def _load_embedding_table(self, embedding_table: Any, metadata: dict[str, Any]) -> None:
         """Load an eagerly read embedding table for the public all-build loader."""
@@ -508,9 +450,7 @@ class CachedVisionDataset(Sequence[DatasetSample]):
         ):
             sample_keys = batch.column("sample_id").to_pylist()
             instance_keys = batch.column("instance_id").to_pylist()
-            available_encoders.update(
-                str(value) for value in batch.column("encoder_fingerprint").unique().to_pylist()
-            )
+            available_encoders.update(str(value) for value in batch.column("encoder_fingerprint").unique().to_pylist())
             dimensions.update(int(value) for value in batch.column("dim").unique().to_pylist())
             keys = list(zip(sample_keys, instance_keys, strict=True))
             target_indices: list[int] = []
@@ -642,204 +582,6 @@ class CachedVisionDataset(Sequence[DatasetSample]):
             yield self[index]
 
 
-class _SelectedPayloadStream:
-    """Incrementally key-join one selected Parquet artifact.
-
-    Physical row order is deliberately irrelevant. Payloads for later samples
-    remain buffered until requested, while payloads already consumed can be
-    released. A full consumer reaches :meth:`finish`, which also detects
-    duplicate or unexpected rows occurring after the final expected payload.
-    """
-
-    def __init__(
-        self,
-        dataset: CachedVisionDataset,
-        *,
-        name: str,
-        sample_ids: set[str],
-        expected_keys: frozenset[tuple[str, str]],
-        expected_schema: Any,
-        artifact_label: str,
-    ) -> None:
-        self._batches = iter(
-            dataset._iter_selected_batches(
-                name,
-                sample_ids=sample_ids,
-                expected_schema=expected_schema,
-            )
-        )
-        self._expected_keys = expected_keys
-        self._artifact_label = artifact_label
-        self._seen: set[tuple[str, str]] = set()
-        self._buffer: dict[tuple[str, str], Any] = {}
-        self._exhausted = False
-        self._validate_key_index(
-            dataset,
-            name=name,
-            sample_ids=sample_ids,
-            expected_schema=expected_schema,
-        )
-
-    def _validate_key_index(
-        self,
-        dataset: CachedVisionDataset,
-        *,
-        name: str,
-        sample_ids: set[str],
-        expected_schema: Any,
-    ) -> None:
-        """Validate selected keys without decoding large payload columns."""
-
-        seen: set[tuple[str, str]] = set()
-        for batch in dataset._iter_selected_batches(
-            name,
-            sample_ids=sample_ids,
-            expected_schema=expected_schema,
-            columns=("sample_id", "instance_id"),
-            batch_size=_SELECTED_KEY_BATCH_ROWS,
-        ):
-            keys = zip(
-                batch.column("sample_id").to_pylist(),
-                batch.column("instance_id").to_pylist(),
-                strict=True,
-            )
-            for key in keys:
-                if key not in self._expected_keys:
-                    raise DatasetValidationError(
-                        f"{self._artifact_label} artifacts contain a foreign sample/instance key."
-                    )
-                if key in seen:
-                    raise DatasetValidationError(
-                        f"{self._artifact_label} artifacts contain duplicate sample/instance keys."
-                    )
-                seen.add(key)
-        if seen != self._expected_keys:
-            raise DatasetValidationError(
-                f"{self._artifact_label} keys must match selected instance keys exactly once."
-            )
-
-    def _decode_batch(self, batch: Any) -> Iterator[tuple[tuple[str, str], Any]]:
-        raise NotImplementedError
-
-    def _advance(self) -> bool:
-        if self._exhausted:
-            return False
-        try:
-            batch = next(self._batches)
-        except StopIteration:
-            self._exhausted = True
-            self._validate_complete()
-            return False
-
-        for key, payload in self._decode_batch(batch):
-            if key not in self._expected_keys:
-                raise DatasetValidationError(
-                    f"{self._artifact_label} artifacts contain a foreign sample/instance key."
-                )
-            if key in self._seen:
-                raise DatasetValidationError(
-                    f"{self._artifact_label} artifacts contain duplicate sample/instance keys."
-                )
-            self._seen.add(key)
-            self._buffer[key] = payload
-        return True
-
-    def take(self, keys: tuple[tuple[str, str], ...]) -> tuple[Any, ...]:
-        """Return payloads in detection order, advancing only as far as needed."""
-
-        missing = tuple(key for key in keys if key not in self._buffer)
-        while missing:
-            if not self._advance():
-                break
-            missing = tuple(key for key in missing if key not in self._buffer)
-        if missing:
-            raise DatasetValidationError(
-                f"{self._artifact_label} keys must match selected instance keys exactly once."
-            )
-        return tuple(self._buffer.pop(key) for key in keys)
-
-    def finish(self) -> None:
-        """Drain remaining rows and prove exact selected-key coverage."""
-
-        # The cheap key-only pass proved there are no later selected rows once
-        # every expected payload has been consumed. Avoid decoding the unused
-        # tail of a large values row group merely to observe StopIteration.
-        if self._seen == self._expected_keys:
-            self._exhausted = True
-            self._validate_complete()
-            return
-        while self._advance():
-            pass
-
-    def _validate_complete(self) -> None:
-        if self._seen != self._expected_keys:
-            raise DatasetValidationError(
-                f"{self._artifact_label} keys must match selected instance keys exactly once."
-            )
-
-
-class _MaskPayloadStream(_SelectedPayloadStream):
-    """Lazy selected-mask reader retaining row metadata for validation."""
-
-    def _decode_batch(self, batch: Any) -> Iterator[tuple[tuple[str, str], dict[str, Any]]]:
-        for row in batch.to_pylist():
-            yield (row["sample_id"], row["instance_id"]), row
-
-
-class _EmbeddingPayloadStream(_SelectedPayloadStream):
-    """Lazy selected-embedding reader using bounded dense batch tensors."""
-
-    def __init__(self, dataset: CachedVisionDataset, *, expected_keys: frozenset[tuple[str, str]]) -> None:
-        import pyarrow.parquet as pq
-
-        artifact = dataset.manifest.artifact(EMBEDDINGS_ARTIFACT)
-        path = resolve_artifact_path(dataset.build, artifact.path)
-        shards = artifact_files(path)
-        try:
-            storage_dim = int(
-                pq.ParquetFile(shards[0], pre_buffer=False).schema_arrow.field("values").type.list_size
-            )
-        except (KeyError, AttributeError, TypeError, ValueError) as exc:
-            raise ValueError("Embedding values must use a fixed-size float32 list type.") from exc
-
-        declared_dim = artifact.metadata.get("dim")
-        self.dimension = storage_dim if declared_dim is None else int(declared_dim)
-        if self.dimension != storage_dim:
-            raise DatasetValidationError("Embedding row dimensions differ from manifest metadata.")
-        declared_encoder = artifact.metadata.get("encoder_fingerprint")
-        self._encoders = set() if declared_encoder is None else {str(declared_encoder)}
-        self._dimensions: set[int] = set()
-        super().__init__(
-            dataset,
-            name=EMBEDDINGS_ARTIFACT,
-            sample_ids={row["sample_id"] for row in dataset._samples},
-            expected_keys=expected_keys,
-            expected_schema=embeddings_schema(storage_dim),
-            artifact_label="Embedding",
-        )
-
-    def _decode_batch(self, batch: Any) -> Iterator[tuple[tuple[str, str], torch.Tensor]]:
-        sample_ids = batch.column("sample_id").to_pylist()
-        instance_ids = batch.column("instance_id").to_pylist()
-        self._encoders.update(str(value) for value in batch.column("encoder_fingerprint").unique().to_pylist())
-        self._dimensions.update(int(value) for value in batch.column("dim").unique().to_pylist())
-        values = batch.column("values")
-        flat = values.values.slice(
-            values.offset * self.dimension,
-            len(values) * self.dimension,
-        ).to_numpy(zero_copy_only=False)
-        batch_values = torch.from_numpy(flat.copy()).reshape(len(sample_ids), self.dimension)
-        for index, (sample_id, instance_id) in enumerate(zip(sample_ids, instance_ids, strict=True)):
-            yield (sample_id, instance_id), batch_values[index]
-
-    def _validate_complete(self) -> None:
-        super()._validate_complete()
-        if len(self._encoders) != 1:
-            raise DatasetValidationError("The embedding artifact must identify exactly one encoder.")
-        if self._dimensions and self._dimensions != {self.dimension}:
-            raise DatasetValidationError("Embedding row dimensions differ from manifest metadata.")
-
-
 class _SequenceDatasetStream:
     """Replay-only iterable that lazily joins optional sequence payloads."""
 
@@ -855,6 +597,7 @@ class _SequenceDatasetStream:
         self.load_images = dataset.load_images
         self.load_masks = load_masks
         self.load_embeddings = load_embeddings
+        self._source_snapshot = source_snapshot(dataset.build, dataset.manifest)
 
     def __len__(self) -> int:
         return len(self._dataset)
@@ -863,56 +606,35 @@ class _SequenceDatasetStream:
     def sample_ids(self) -> tuple[str, ...]:
         return self._dataset.sample_ids
 
+    def source_is_current(self) -> bool:
+        """Whether retained sequence metadata still describes its immutable source."""
+
+        try:
+            return source_snapshot(self._dataset.build, self.manifest) == self._source_snapshot
+        except (OSError, ValueError):
+            return False
+
     def __iter__(self) -> Iterator[DatasetSample]:
-        expected_keys = frozenset(
-            (sample_id, row["instance_id"])
-            for sample_id, rows in self._dataset._instances_by_sample.items()
-            for row in rows
-        )
-        selected_sample_ids = set(self._dataset.sample_ids)
-        masks = None
-        if self.load_masks:
-            masks = _MaskPayloadStream(
-                self._dataset,
-                name=MASKS_ARTIFACT,
-                sample_ids=selected_sample_ids,
-                expected_keys=expected_keys,
-                expected_schema=masks_schema(),
-                artifact_label="Mask",
-            )
+        with ExitStack() as resources:
+            yield from self._iter_samples(resources)
+
+    def _iter_samples(self, resources: ExitStack) -> Iterator[DatasetSample]:
+        """Join payloads while registering cleanup before the first frame is read."""
+
+        masks = resources.enter_context(IndexedMaskReader(self._dataset)) if self.load_masks else None
         embeddings = None
         if self.load_embeddings:
-            embeddings = _EmbeddingPayloadStream(self._dataset, expected_keys=expected_keys)
+            embeddings = resources.enter_context(IndexedEmbeddingReader(self._dataset))
 
         for sample in self._dataset:
             detections = sample.detections
             instance_ids = detections.instance_ids or ()
             keys = tuple((sample.sample_id, instance_id) for instance_id in instance_ids)
             if masks is not None:
-                rows = masks.take(keys)
-                for row in rows:
-                    if (
-                        row["height"] != sample.image_size[0]
-                        or row["width"] != sample.image_size[1]
-                        or row["codec"] != MASK_CODEC
-                    ):
-                        raise DatasetValidationError(
-                            "Mask rows must use the selected sample dimensions and canonical codec."
-                        )
-                mask_values = unpack_mask_batch(
-                    (row["data"] for row in rows),
-                    sample.image_size[0],
-                    sample.image_size[1],
-                )
+                mask_values = masks.take(keys, height=sample.image_size[0], width=sample.image_size[1])
                 detections = detections.with_masks(MaskBatch(mask_values))
             if embeddings is not None:
-                rows = embeddings.take(keys)
-                embedding_values = (
-                    torch.stack(rows).contiguous()
-                    if rows
-                    else torch.empty((0, embeddings.dimension), dtype=torch.float32)
-                )
-                detections = detections.with_embeddings(embedding_values)
+                detections = detections.with_embeddings(embeddings.take(keys))
             yield replace(sample, detections=detections)
 
         if masks is not None:

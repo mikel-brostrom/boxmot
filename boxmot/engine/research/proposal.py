@@ -31,9 +31,7 @@ def _import_installed_gepa() -> Any:
         gepa_dist = distribution("gepa")
     except PackageNotFoundError as exc:
         raise RuntimeError(
-            "`gepa` is not installed. Install the BoxMOT research extra with "
-            "`uv sync --extra cpu --extra research` (or use `cu130` instead of "
-            "`cpu`) or `uv pip install '.[research]'`."
+            "`gepa` is not installed. Run `boxmot install --extra research` before retrying."
         ) from exc
 
     dist_root = Path(gepa_dist.locate_file("")).resolve()

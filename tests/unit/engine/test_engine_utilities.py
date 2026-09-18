@@ -2,8 +2,8 @@ import logging
 from pathlib import Path
 
 from boxmot.engine.eval.output import increment_path
-from boxmot.engine.logging import suppress_boxmot_logs
 from boxmot.engine.tracking.timing import normalize_setup_timings_ms
+from boxmot.engine.ui.logging import suppress_boxmot_logs
 
 
 def test_increment_path_allocates_numbered_evaluation_directory(tmp_path: Path) -> None:

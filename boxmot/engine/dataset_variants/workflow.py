@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from boxmot.datasets import DatasetManifest
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import load_dataset_config, resolve_dataset_storage_root
 from boxmot.datasets.validation import validate_published_build
 from boxmot.engine.dataset_variants.cache import derive_cached_build
 from boxmot.engine.dataset_variants.sampling import PROFILE, select_bursty_frames, timing_statistics
@@ -26,7 +26,6 @@ from boxmot.engine.materialization.catalog import (
     catalog_mot_dataset,
     default_data_root,
     resolve_dataset_annotation_root,
-    resolve_dataset_root,
     resolve_dataset_split_root,
 )
 from boxmot.engine.materialization.plan import default_build_root
@@ -95,7 +94,7 @@ def create_raw_variant(
     image/annotation writes out of the final dataset location.
     """
     if dataset["layout"] != "mot" or dataset["box_type"] != "aabb":
-        raise ValueError("time-variant currently requires a MOT-layout AABB dataset.")
+        raise ValueError("materialize --time-variant currently requires a MOT-layout AABB dataset.")
     originals = tuple(sample for sample in parent_catalog.samples if sample.sequence_id == sequence)
     if not originals:
         available = ", ".join(sorted({sample.sequence_id for sample in parent_catalog.samples}))
@@ -105,13 +104,13 @@ def create_raw_variant(
         raise ValueError("Source sequence frame indices must be contiguous and start at zero.")
     split = str(parent_catalog.metadata["split"])
     if not dataset["splits"][split]["has_ground_truth"]:
-        raise ValueError("time-variant requires a source split with ground truth.")
+        raise ValueError("materialize --time-variant requires a source split with ground truth.")
     selection = select_bursty_frames([sample.timestamp_s for sample in originals], seed=seed)
     timestamps = [float(sample.timestamp_s) for sample in originals]
     statistics = timing_statistics(timestamps, selection)
     dataset_name = validate_config_id(name or f"{sequence.lower()}-variable-time", path="--name", label="dataset")
     relative_root = f"variants/{dataset_name}"
-    output_root = resolve_dataset_root({"root": relative_root}, data_root)
+    output_root = resolve_dataset_storage_root({"root": relative_root}, data_root)
     if output_root.exists():
         raise FileExistsError(f"Variant already exists: {output_root}. Choose a different --name.")
     source_sequence = resolve_dataset_split_root(dataset, split, data_root) / sequence
@@ -129,7 +128,7 @@ def create_raw_variant(
         raise ValueError("A MOT sequence must have constant image dimensions.")
     suffixes = {_local_path(sample.source_uri).suffix.lower() for sample in selected}
     if len(suffixes) != 1 or any(sample.source_frame_index is not None for sample in selected):
-        raise ValueError("time-variant requires still source images with a common extension.")
+        raise ValueError("materialize --time-variant requires still source images with a common extension.")
     extension = next(iter(suffixes))
     sample_map = {f"variable:{sequence}:{index}": sample.sample_id for index, sample in enumerate(selected)}
     classes = {

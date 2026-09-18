@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from boxmot.trackers.common.geometry.obb import xywha_to_xyxy
-from boxmot.trackers.common.motion import cmc as cmc_utils
+from boxmot.trackers.common.motion.cmc import integration as cmc_utils
 
 
 class TrackerMotionMixin:

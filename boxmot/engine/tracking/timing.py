@@ -327,6 +327,7 @@ def derive_timing_breakdown(
             "reid",
             "track",
             "plot",
+            "postprocess",
             "total",
             "detector_preprocess",
             "detector_process",
@@ -361,16 +362,17 @@ def derive_timing_breakdown(
     reid_total = reid_preprocess_total + reid_process_total + reid_postprocess_total
     track_total = normalized["track"]
     plot_total = normalized["plot"]
+    postprocess_total = normalized["postprocess"]
 
     total_total = float(total_time_ms if total_time_ms not in {None, 0.0} else normalized["total"])
     if total_total == 0.0:
-        total_total = det_total + reid_total + track_total + plot_total
+        total_total = det_total + reid_total + track_total + plot_total + postprocess_total
 
     is_batch_mode = int(frames or 0) == 0 or (reid_total > 0.0 and det_total > 0.0)
     tracker_rest_total = track_total if is_batch_mode else max(0.0, track_total - reid_total)
     tracker_total = (reid_total + track_total) if is_batch_mode else track_total
 
-    accounted_total = det_total + reid_total + track_total + plot_total
+    accounted_total = det_total + reid_total + track_total + plot_total + postprocess_total
     overhead_total = max(0.0, total_total - accounted_total)
 
     return {
@@ -387,6 +389,8 @@ def derive_timing_breakdown(
         "tracker_rest_total": tracker_rest_total,
         "tracker_total": tracker_total,
         "plot_total": plot_total,
+        "postprocess_total": postprocess_total,
+        "has_postprocessing": "postprocess" in totals,
         "total_total": total_total,
         "overhead_total": overhead_total,
     }
@@ -400,7 +404,7 @@ def build_timing_display_rows(
     overall_avg_ms: float | None = None,
     overall_fps: float | None = None,
 ) -> list[dict[str, object]]:
-    """Build grouped detector/tracker timing rows for UI summaries."""
+    """Build detector/tracker rows and optional offline postprocessing timings."""
     frame_count = int(frames or 0)
     metadata = metadata or {}
 
@@ -465,9 +469,16 @@ def build_timing_display_rows(
         ]
     )
 
+    postprocessing_rows = (
+        [_row("Offline postprocess", float(breakdown["postprocess_total"]))]
+        if breakdown.get("has_postprocessing")
+        else []
+    )
+
     return [
         *detector_rows,
         *tracker_rows,
+        *postprocessing_rows,
         _row(
             "Overall total",
             float(breakdown["total_total"]),

@@ -1,102 +1,119 @@
+# Shared history/display controls; track_buffer owns lost-track lifetime.
+max_age: {}
+max_obs: {}
+min_hits: {}
+
+# Confidence stages and match thresholds below own filtering and association.
+det_thresh: {}
+iou_threshold: {}
+
 track_high_thresh:
   type: uniform
-  default: 0.6296854875023994
   range: [0.3, 0.7]
 
 track_low_thresh:
   type: uniform
-  default: 0.1014392537025336
   range: [0.1, 0.3]
 
 new_track_thresh:
   type: uniform
-  default: 0.6246494191492591
   range: [0.1, 0.8]
 
 track_buffer:
   type: randint
-  default: 40
   range: [20, 81]
 
 match_thresh:
   type: uniform
-  default: 0.7722224024589055
   range: [0.1, 0.9]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 use_cmc:
   type: choice
-  default: True
   options: [False, True]
   activates:
     cmc_method:
       type: choice
-      default: sof
       options: [sof, ecc]
 
 frame_rate:
   type: choice
-  default: 30
   options: [25, 30]
 
 fuse_first_associate:
   type: choice
-  default: True
   options: [False, True]
 
 use_embeddings:
   type: choice
-  default: True
   options: [False, True]
   activates:
     proximity_thresh:
       type: uniform
-      default: 0.6084297894561342
       range: [0.25, 0.75]
     appearance_thresh:
       type: uniform
-      default: 0.6188818853936099
       range: [0.1, 0.8]
     unconfirmed_emb_scale:
       type: uniform
-      default: 2.5445206391993294
       range: [1.0, 4.0]
 
 second_match_thresh:
   type: uniform
-  default: 0.28795081514328974
   range: [0.1, 0.9]
 
 unconfirmed_match_thresh:
   type: uniform
-  default: 0.41148010638233784
   range: [0.1, 0.9]
 
 removed_stracks_buffer:
   type: randint
-  default: 329
   range: [50, 501]
 
 # Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
-kf_time_unit:
-  default: null
-kf_reference_dt_s:
-  default: 0.03333333333333333
 
-# Fixed runtime covariance defaults; --calibrate-kf supplies fitted values.
-kf_process_position_scale:
-  default: 1.0
-kf_process_velocity_scale:
-  default: 1.0
-kf_measurement_noise_scale:
-  default: 1.0
-kf_initial_position_scale:
-  default: 1.0
-kf_initial_velocity_scale:
-  default: 1.0
+kalman:
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 96
+    options: [8, 16, 24, 32, 64, 96]

@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 import torch
 
+from boxmot import BotSortConfig, ByteTrackConfig
 from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import PerceptionPipeline, PipelineOutputs, PipelineResult, TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 
 def _frame(
@@ -303,10 +304,109 @@ def test_tracking_unions_requirements_with_outputs_and_returns_exact_result() ->
         ("embed", ("one",), (True,)),
         ("track", "one"),
     ]
-    assert tracker.received == (result.detections, frame)
+    tracker_detections, tracker_frame = tracker.received
+    assert tracker_frame is frame
+    assert tracker_detections.masks is None
+    assert tracker_detections.embeddings is result.detections.embeddings
     assert result.detections.masks is not None
     assert result.detections.embeddings is not None
     assert result.tracks.sample_id == frame.sample_id
+
+
+def test_output_enrichments_are_preserved_without_passing_unused_inputs_to_tracker() -> None:
+    """A box tracker can score masks while retaining separately requested features."""
+    from boxmot.trackers.bytetrack.tracker import ByteTrack
+
+    events = []
+    frame = _frame("one")
+    tracker = ByteTrack(
+        config=ByteTrackConfig(min_hits=1),
+    )
+    pipeline = TrackingPipeline(
+        detector=_Detector([_detections(frame)], events),
+        segmentor=_Segmentor(events),
+        reid=_Encoder(events),
+        tracker=tracker,
+        outputs=PipelineOutputs(masks=True, embeddings=True),
+    )
+
+    result = pipeline.step(frame)
+
+    assert len(result.tracks) == 1
+    assert result.detections.masks is not None
+    assert result.detections.embeddings is not None
+    assert result.tracks.masks is None
+    with pytest.raises(ValueError, match="does not use detection embeddings"):
+        tracker.update(result.detections)
+
+
+@pytest.mark.parametrize("cached_embeddings", (False, True))
+@pytest.mark.parametrize("detect", (False, True))
+@pytest.mark.parametrize("reid_source", ("spec", "config", "encoder"))
+@pytest.mark.parametrize("use_factory", (False, True))
+def test_live_reid_mask_requirements_apply_only_when_features_are_missing(
+    monkeypatch: pytest.MonkeyPatch, cached_embeddings: bool, detect: bool, reid_source: str, use_factory: bool
+) -> None:
+    """Mask-aware live ReID gets segmentation without requiring it for cached features."""
+    from boxmot import ReIDConfig, create_tracker
+    from boxmot.reid import factory as reid_factory
+    from boxmot.reid.specs import ReIDEncoderSpec
+    from boxmot.trackers.botsort.tracker import BotSort
+
+    events = []
+    frame = _frame("one")
+    detections = _detections(frame, embeddings=cached_embeddings)
+    encoder = _Encoder(events, requires_masks=True)
+    constructed = []
+
+    def create_encoder(spec: ReIDConfig | ReIDEncoderSpec) -> _Encoder:
+        constructed.append(spec)
+        return encoder
+
+    monkeypatch.setattr(reid_factory, "create_reid_encoder", create_encoder)
+    config = ReIDConfig(model="unused.onnx", allow_download=False)
+    selected_reid = {"spec": None, "config": config, "encoder": encoder}[reid_source]
+    tracker = (
+        create_tracker("botsort", use_cmc=False, reid=selected_reid)
+        if use_factory
+        else BotSort(config=BotSortConfig(use_cmc=False), reid=selected_reid)
+    )
+    if reid_source == "spec":
+        tracker.configure_reid(ReIDEncoderSpec("onnx", artifact="unused.onnx"))
+    pipeline = TrackingPipeline(
+        detector=_Detector([detections], events, provides_embeddings=cached_embeddings) if detect else None,
+        tracker=tracker,
+        segmentor=_Segmentor(events),
+    )
+    assert not constructed
+    result = pipeline.step(frame) if detect else pipeline.step_detections(frame, detections)
+
+    assert len(result.tracks) == 1
+    assert bool(constructed) is (not cached_embeddings and reid_source != "encoder")
+    if constructed and reid_source == "config":
+        assert constructed == [config]
+    assert (result.detections.masks is not None) is (not cached_embeddings)
+    assert any(event[0] == "embed" and event[2] == (True,) for event in events) is (not cached_embeddings)
+
+
+def test_prebuilt_encoder_is_reusable_by_pipeline_and_tracker_without_duplicate_inference() -> None:
+    """The same canonical component may own inference in either composition."""
+    from boxmot import BotSort
+
+    events = []
+    encoder = _Encoder(events)
+    frame = _frame("one")
+    tracker = BotSort(config=BotSortConfig(use_cmc=False), reid=encoder)
+    pipeline = TrackingPipeline(detector=None, tracker=tracker, reid=encoder)
+    result = pipeline.step_detections(frame, _detections(frame))
+    assert len(result.tracks) == 1
+    assert [event[0] for event in events] == ["embed"]
+    assert result.detections.embeddings is not None
+
+    # Reset changes sequence state, not ownership of the supplied encoder.
+    pipeline.reset()
+    tracker.update(_detections(frame), frame)
+    assert [event[0] for event in events] == ["embed", "embed"]
 
 
 def test_tracking_passes_no_frame_when_tracker_does_not_require_it() -> None:

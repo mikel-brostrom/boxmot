@@ -20,6 +20,7 @@ shared:
 runtime:
   tracker: bytetrack
   tracker_backend: python
+  sequence_workers: auto
   save: false
 
 research:
@@ -33,3 +34,10 @@ The engine CLI resolves tracking defaults through this file. Reusable Python
 components instead receive explicit immutable specs. ReID training defaults remain in
 `boxmot/reid/training/configs/defaults.yaml`, while export defaults remain in
 `boxmot/reid/exporters/defaults.yaml`.
+
+`sequence_workers: auto` selects automatic replay parallelism for evaluation
+and tuning: `min(selected_sequences, max(1, logical_cpus - 2))` workers.
+A positive integer supplies an explicit cap, bounded by the selected sequence
+count. In tuning, this count applies separately to each trial. See
+[sequence parallelism](../modes/eval.md#sequence-parallelism) for visualization
+constraints.

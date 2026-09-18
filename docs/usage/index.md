@@ -1,9 +1,9 @@
 # CLI
 
-BoxMOT exposes exactly these commands:
+The main workflow and environment commands are:
 
 ```text
-track, materialize, eval, tune, research,
+install, track, materialize, eval, tune, research,
 train-reid, eval-reid, compare-reid, export, build
 ```
 
@@ -12,6 +12,9 @@ Run `boxmot COMMAND --help` for the authoritative option set.
 ## Common workflows
 
 ```bash
+# Prepare optional workflow dependencies
+boxmot install --extra yolo --extra evolve
+
 # Track a finite video or live source
 boxmot track --source video.mp4 --detector yolov8n --tracker bytetrack --save
 
@@ -68,6 +71,7 @@ to use another location. Materialized-dataset roots resolve independently from
 
 ## Command references
 
+- [Install dependencies](../modes/install.md)
 - [Track](../modes/track.md)
 - [Materialize](../modes/materialize.md)
 - [Eval](../modes/eval.md)

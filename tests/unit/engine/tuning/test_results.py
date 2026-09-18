@@ -1,10 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+from rich.console import Console
 
 from boxmot.engine.eval.results import ValidationResult
 from boxmot.engine.tuning.results import TuneResult, TuneTrialResult
+from boxmot.engine.ui.core.ui import BOXMOT_THEME
 
 
 def _validation_result(value: float, *, exp_dir: str) -> ValidationResult:
@@ -111,3 +117,47 @@ def test_tune_result_delegates_rendering_lazily(monkeypatch):
 
     result.workflow_rendered = True
     assert str(result) == ""
+
+
+@pytest.mark.parametrize(
+    ("baseline", "compare_first", "baseline_raw", "expect_label"),
+    [
+        ({"threshold": 0.5}, False, {"HOTA": 70.0}, True),
+        (None, True, {"HOTA": 70.0}, True),
+        (None, False, {"HOTA": 70.0}, False),
+        ({"threshold": 0.5}, False, None, False),
+    ],
+)
+def test_final_tuning_summary_labels_first_trial_comparison(
+    monkeypatch, tmp_path, baseline, compare_first, baseline_raw, expect_label
+) -> None:
+    """Explain displayed deltas without inventing a comparison when none exists."""
+    from boxmot.engine.tuning.tuner import Tuner
+
+    calls = {}
+
+    def render_report(raw, **kwargs):
+        calls["render"] = (raw, kwargs)
+        return "Best result"
+
+    monkeypatch.setattr("boxmot.engine.ui.reporters.validation.build_validation_cli_renderable", render_report)
+    output = StringIO()
+    console = Console(file=output, width=120, color_system=None, theme=BOXMOT_THEME)
+    pipeline = SimpleNamespace(finish=lambda renderable, **kwargs: console.print(renderable))
+    saved_artifacts = {
+        "best_trial_id": "best",
+        "best_yaml_path": tmp_path / "best.yaml",
+        "trial_data": [
+            {"trial_id": "first", "metrics": {"HOTA": 70.0}, "validation": {"raw": baseline_raw}},
+            {"trial_id": "best", "metrics": {"HOTA": 72.0}, "validation": {"raw": {"HOTA": 72.0}}},
+        ],
+    }
+    tuner = Tuner(SimpleNamespace(compare_to_first_trial=compare_first))
+
+    tuner._finalize_ui(pipeline, saved_artifacts, baseline, ["HOTA"], [], tmp_path, False)
+
+    assert ("Deltas vs first trial" in output.getvalue()) is expect_label
+    assert calls["render"][0] == {"HOTA": 72.0}
+    assert calls["render"][1]["compare_raw"] == (baseline_raw if baseline is not None or compare_first else None)
+    assert "Best result" in output.getvalue()
+    assert "Saved Artifacts" in output.getvalue()

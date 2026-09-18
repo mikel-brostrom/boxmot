@@ -151,12 +151,19 @@ def _derived_plan(
     detector: str = "detector-a",
     class_id_map: dict[str, int] | None = None,
     image_references: bool = True,
+    boxmot_version: str = __version__,
+    device: str | None = None,
+    precision: str = "fp32",
+    preprocessing: str = "default",
 ) -> tuple[BuildPlan, str]:
     mapping = {"2": 0} if class_id_map is None else class_id_map
+    component = {"backend": "fake", "model": detector}
+    if device is not None:
+        component["spec"] = {"device": device, "precision": precision, "preprocessing": preprocessing}
     detect = StagePlan.create(
         "detect",
         config={"geometry": box_type, "class_id_map": mapping},
-        component={"backend": "fake", "model": detector},
+        component=component,
         batch_size=2,
     )
     encoder_fingerprint = fingerprint({"encoder": reid})
@@ -181,7 +188,7 @@ def _derived_plan(
         stages=(detect, embed, finalize),
         metadata={
             "experiment_id": experiment_id,
-            "boxmot_version": __version__,
+            "boxmot_version": boxmot_version,
             "source_count": 2,
         },
     )
@@ -317,6 +324,51 @@ def test_detection_cache_identity_covers_detector_input_contract() -> None:
     assert all(cache_id != make_detection_cache_id(plan, plan.stage_by_name["detect"]) for plan in variants)
 
 
+def test_detection_cache_identity_survives_package_version_bump(monkeypatch: pytest.MonkeyPatch) -> None:
+    root = Path("runs/materializations")
+    monkeypatch.setattr(detection_cache_module, "__version__", "24.0.0")
+    original, _ = _derived_plan(root, boxmot_version="24.0.0")
+    cache_id = make_detection_cache_id(original, original.stage_by_name["detect"])
+
+    monkeypatch.setattr(detection_cache_module, "__version__", "25.0.0")
+    upgraded, _ = _derived_plan(root, boxmot_version="25.0.0")
+
+    assert cache_id == make_detection_cache_id(upgraded, upgraded.stage_by_name["detect"])
+
+
+def test_detection_cache_reuses_older_version_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    samples = _samples(tmp_path)
+    build_root = tmp_path / "runs" / "materializations"
+    first_plan = _detect_only_plan(build_root, "cache-experiment-a")
+    first_detector = CountingDetector()
+    monkeypatch.setattr(detection_cache_module, "__version__", "24.0.0")
+    first_cache = DetectionCache.from_plan(first_plan, samples)
+    DatasetMaterializer(
+        first_plan,
+        [DetectStage(first_detector, samples, class_id_map={2: 0}, cache=first_cache)],
+    ).run()
+    original_manifest = DatasetManifest.load(first_cache.root)
+    assert original_manifest.metadata["boxmot_version"] == "24.0.0"
+
+    monkeypatch.setattr(detection_cache_module, "__version__", "25.0.0")
+    second_plan = _detect_only_plan(build_root, "cache-experiment-b")
+    second_detector = CountingDetector()
+    second_cache = DetectionCache.from_plan(second_plan, samples)
+    DatasetMaterializer(
+        second_plan,
+        [DetectStage(second_detector, samples, class_id_map={2: 0}, cache=second_cache)],
+    ).run()
+
+    assert first_detector.calls == 1
+    assert second_detector.calls == 0
+    assert first_cache.root == second_cache.root
+    assert DatasetManifest.load(second_cache.root) == original_manifest
+    validate_published_build(second_cache.root, manifest=original_manifest)
+
+
 def test_second_reid_build_reuses_detections_and_rekeys_instances(tmp_path: Path) -> None:
     samples = _samples(tmp_path)
     build_root = tmp_path / "runs" / "materializations"
@@ -356,10 +408,87 @@ def test_second_reid_build_reuses_detections_and_rekeys_instances(tmp_path: Path
     }
 
 
-def test_detection_cache_bootstraps_from_compatible_published_build(tmp_path: Path) -> None:
+@pytest.mark.parametrize("device", ("cpu", "mps", "cuda:0"))
+@pytest.mark.parametrize("use_cache", (False, True))
+def test_detection_cache_reuses_outputs_across_devices(tmp_path: Path, device: str, use_cache: bool) -> None:
     samples = _samples(tmp_path)
     build_root = tmp_path / "runs" / "materializations"
-    first_plan, first_encoder_fingerprint = _derived_plan(build_root)
+    first_plan, first_encoder_fingerprint = _derived_plan(build_root, device="cuda:0")
+    first_detector = CountingDetector()
+    first_output = _run_derived_build(
+        first_plan,
+        samples,
+        first_detector,
+        CountingEncoder(1.0),
+        first_encoder_fingerprint,
+        use_cache=use_cache,
+    )
+    original_manifest = DatasetManifest.load(first_output)
+    first_cache = DetectionCache.from_plan(first_plan, samples)
+    original_cache_manifest = DatasetManifest.load(first_cache.root) if use_cache else None
+
+    second_plan, second_encoder_fingerprint = _derived_plan(build_root, device=device, reid="reid-b")
+    second_detector = CountingDetector()
+    second_encoder = CountingEncoder(2.0)
+    second_output = _run_derived_build(
+        second_plan,
+        samples,
+        second_detector,
+        second_encoder,
+        second_encoder_fingerprint,
+    )
+
+    assert first_detector.calls == 1
+    assert second_detector.calls == 0
+    assert second_encoder.calls == 1
+    assert first_cache.cache_id == DetectionCache.from_plan(second_plan, samples).cache_id
+    assert DatasetManifest.load(first_output) == original_manifest
+    assert original_manifest.stages[0].component["spec"]["device"] == "cuda:0"
+    if original_cache_manifest is not None:
+        assert DatasetManifest.load(first_cache.root) == original_cache_manifest
+    validate_published_build(second_output)
+
+
+@pytest.mark.parametrize("changed_spec", ({"precision": "fp16"}, {"preprocessing": "alternate"}))
+@pytest.mark.parametrize("use_cache", (False, True))
+def test_detection_cache_rejects_changed_inference_contract(
+    tmp_path: Path,
+    changed_spec: dict[str, str],
+    use_cache: bool,
+) -> None:
+    samples = _samples(tmp_path)
+    build_root = tmp_path / "runs" / "materializations"
+    first_plan, first_encoder_fingerprint = _derived_plan(build_root, device="cuda:0")
+    _run_derived_build(
+        first_plan,
+        samples,
+        CountingDetector(),
+        CountingEncoder(1.0),
+        first_encoder_fingerprint,
+        use_cache=use_cache,
+    )
+    second_plan, second_encoder_fingerprint = _derived_plan(build_root, device="cpu", **changed_spec)
+    second_detector = CountingDetector()
+    _run_derived_build(
+        second_plan,
+        samples,
+        second_detector,
+        CountingEncoder(1.0),
+        second_encoder_fingerprint,
+    )
+
+    assert second_detector.calls == 1
+    assert (
+        DetectionCache.from_plan(first_plan, samples).cache_id
+        != DetectionCache.from_plan(second_plan, samples).cache_id
+    )
+
+
+@pytest.mark.parametrize("boxmot_version", (__version__, "24.0.0"))
+def test_detection_cache_bootstraps_from_compatible_published_build(tmp_path: Path, boxmot_version: str) -> None:
+    samples = _samples(tmp_path)
+    build_root = tmp_path / "runs" / "materializations"
+    first_plan, first_encoder_fingerprint = _derived_plan(build_root, boxmot_version=boxmot_version)
     second_plan, second_encoder_fingerprint = _derived_plan(
         build_root,
         experiment_id="cache-experiment-b",
@@ -390,7 +519,9 @@ def test_detection_cache_bootstraps_from_compatible_published_build(tmp_path: Pa
     assert first_detector.calls == 1
     assert second_detector.calls == 0
     assert cache.root.is_dir()
-    validate_published_build(cache.root, manifest=DatasetManifest.load(cache.root))
+    cache_manifest = DatasetManifest.load(cache.root)
+    assert cache_manifest.metadata["boxmot_version"] == __version__
+    validate_published_build(cache.root, manifest=cache_manifest)
 
 
 def test_detection_cache_bootstraps_from_former_default_root(

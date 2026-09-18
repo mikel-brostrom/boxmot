@@ -109,10 +109,31 @@ in the `release-source` bundle artifact without pushing the branch or a tag.
 
 Every release gate restores that exact candidate. The reusable wheel workflow
 runs the full tests, strict documentation build, native checks, and clean-wheel
-imports on Python 3.10 through 3.13. Docker validates `cli-cpu`, `cli-gpu`, and
-`service-cpu` by default, without pushing them. Package checks compare the
+imports on Python 3.10 through 3.13. Docker validates `cli-cpu` and
+`service-cpu`, without pushing them. Package checks compare the
 requested release version with the candidate and installed artifacts; they do
 not pin a particular version.
+
+The installed-wheel smoke resolves every public tracker class and creates each
+tracker through `create_tracker(TrackerSpec(...))` using its packaged defaults.
+It runs a short CPU sequence in each supported AABB and OBB mode, including an
+initial empty batch, and checks output layouts, detection associations, class
+IDs, and stable track IDs. EagerMOT uses synthetic 2D/3D detections and camera
+calibration to check sensor fusion. Synthetic embeddings and masks satisfy
+tracker requirements without model downloads. A direct ByteTrack call also
+checks the packed NumPy API.
+Every public CLI command runs through the installed `boxmot <command> --help`
+entrypoint. These checks run outside the source checkout with isolated Python
+imports, and also run in the full CLI Docker images. Service images retain
+their HTTP request checks with the smaller service dependency set.
+
+Docker builds cache system packages and native compilation independently of
+project metadata. Dependency stages use temporary copies of the canonical
+project and lock files with only BoxMOT's own version normalized, so a
+version-only bump does not reinstall third-party packages. CLI images copy
+the dependency environment before installing the separately built BoxMOT wheel;
+the wheel always retains the actual release version. See the repository's
+`docker/README.md` for the cache layout and invalidation rules.
 
 After these gates pass, the workflow publishes the checksummed wheel and source
 distribution. Successful **PyPI** publication is followed by an atomic push of
@@ -130,13 +151,8 @@ recover the tested candidate from the bundle artifact instead of rebuilding or
 force-pushing another commit. PyPI publication requires `RELEASE_PAT` with
 permission to push the version commit and tag and create the release.
 
-The `service-gpu` target is disabled by default so releases can run without a
-GPU runner. To enable its build, smoke test, and image publication, set the
-repository Actions variable `BOXMOT_GPU_SERVICE_CI` to `true` after registering
-a `gpu-latest` Linux NVIDIA runner with Docker and the NVIDIA Container Toolkit.
-This setting applies to release gates, published releases, and manual Docker runs.
-The enabled smoke exposes the GPU to the container, performs CUDA-backed ReID
-enrichment through the HTTP service, and verifies that the service owns an
-active CUDA context. The CPU
-service smoke uses the CPU-only Torch image and exercises the same `/v1`
-request boundary without CUDA.
+CI builds, validates, and publishes only CPU images. GPU images are built by
+end users with the `cli-gpu` or `service-gpu` Dockerfile target; release gates,
+published releases, and manual workflow runs never schedule GPU image builds.
+The CPU service smoke uses CPU-only Torch and exercises the `/v1` request
+boundary without CUDA.

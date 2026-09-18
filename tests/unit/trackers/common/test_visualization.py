@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from boxmot.trackers.base import BaseTracker
+from boxmot.trackers.common.base import BaseTracker
 from boxmot.trackers.common.tracking.track import TrackMeta, TrackState
 
 
@@ -44,7 +44,7 @@ class ByteTrackStyleTrack(MockTrack):
     pass
 
 
-ByteTrackStyleTrack.__module__ = "boxmot.trackers.box.bytetrack.tracker"
+ByteTrackStyleTrack.__module__ = "boxmot.trackers.bytetrack.tracker"
 
 
 class TestVisualization(unittest.TestCase):

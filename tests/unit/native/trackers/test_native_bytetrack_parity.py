@@ -3,9 +3,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from boxmot import ByteTrackConfig
 from boxmot.native.trackers import bytetrack as native_binding
-from boxmot.trackers.box.bytetrack import native as native_module
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
+from boxmot.trackers.bytetrack import native as native_module
+from boxmot.trackers.bytetrack.tracker import ByteTrack
 
 from ._helpers import update_rows
 
@@ -20,7 +21,7 @@ def test_native_bytetrack_kalman_prediction_matches_python(is_obb):
         "track_buffer": 30,
         "frame_rate": 30,
     }
-    python_tracker = ByteTrack(**cfg, is_obb=is_obb)
+    python_tracker = ByteTrack(config=ByteTrackConfig(**cfg), is_obb=is_obb)
     library = native_binding.ByteTrackLibrary(native_binding.ensure_bytetrack_cpp_library())
     native_tracker = native_module.NativeByteTrackTracker(
         cfg,

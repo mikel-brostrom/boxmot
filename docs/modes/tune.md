@@ -1,8 +1,13 @@
 # Tune
 
-`tune` prepares or reuses a canonical perception build once, optionally
-calibrates the Kalman filter, and optimizes tracker parameters by replaying
-that same immutable build in every trial:
+`tune` optimizes tracker parameters on a selected dataset. For image trackers,
+it prepares or reuses a canonical perception build once, optionally calibrates
+the Kalman filter, and replays that same immutable build in every trial.
+Prepare Ray tuning dependencies with `boxmot install --extra evolve`; see
+[Install dependencies](install.md).
+Ray workers use the local installation and dataset/model paths. Running with
+`uv run --no-sync` keeps the existing environment without uploading the project
+directory to Ray.
 
 ```bash
 boxmot tune \
@@ -27,18 +32,221 @@ in place of `--dataset`, `--detector`, and `--reid`. Missing or ambiguous
 catalog matches produce an error; use `--experiment` to select the intended
 configuration. See [experiment workflows](../guides/experiments.md).
 
+## Tune mask guidance
+
+The nine Python box trackers can search EdgeTAM guidance settings together with
+their ordinary tracker parameters when `--edgetam` is enabled. Guidance is off
+by default. Install the optional package and tuning dependencies from a source
+checkout:
+
+```bash
+uv sync --extra cpu --extra yolo --extra evolve --group mask-guidance
+```
+
+Use `--extra cu130` instead of `--extra cpu` on CUDA. The CPU PyTorch profile
+also supports MPS on macOS. Enable guidance when starting the search:
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker occluboost --tracker-backend python --asso-func iou \
+  --edgetam --mask-guidance-weights models/edgetam.pt --device mps \
+  --n-trials 20 --max-concurrent-trials 1 --sequence-workers 1
+```
+
+The example selects an existing checkpoint at `models/edgetam.pt`. With just
+`--edgetam`, the default `edgetam.pt` resolver downloads or reuses the official
+checkpoint in `./models`. Weights alone do not enable guidance;
+`--no-edgetam` disables it even with `--mask-guidance-weights`. To reuse a
+specific cached build, add `--build BUILD_ID` and select the experiment that
+created it. An existing `mot17/ablation-yolox-edgetam-lmbn.yaml` build can supply
+its detections and embeddings; new builds for guided tuning do not need a
+standalone segmentor or published masks. Source image pixels must remain
+available: each trial propagates masks while replaying cached detections.
+`--device` selects the propagation device even when `--build` is supplied.
+
+The built-in tracker YAMLs group defaults and search metadata under `edgetam`,
+with resolved option paths
+`edgetam.min_coverage` (`0.90`, uniform `[0.50, 1.0]`),
+`edgetam.min_fill` (`0.05`, uniform `[0.01, 0.25]`),
+`edgetam.prompt_overlap` (`0.10`, uniform `[0.01, 0.50]`), and
+`edgetam.max_objects` (`96`, choices `[8, 16, 24, 32, 64, 96]`). See
+[guidance settings](../tasks/masks.md#tracker-yaml-and-tuning) for their meanings
+and a scalar runtime profile. `--tracker-config` overrides the starting values;
+searchable parameters can still change in later trials. An explicit
+`--mask-guidance-max-objects N` instead holds the cap fixed for every trial.
+
+OccluBoost uses a wider `min_fill` search range of `[0.01, 0.30]` and
+`max_objects` choices of `[32, 64, 96, 128]`, with the same runtime defaults.
+
+Guidance requires AABB, IoU, and `per_class: false`; guided tuning fixes
+`asso_func` to `iou` instead of searching other association functions. Without
+`--edgetam`, all four mask parameters are excluded from search.
+Use `--max-concurrent-trials 1 --sequence-workers 1` to limit model and temporal
+state duplication on an edge device. Each concurrent trial or sequence worker
+owns its own model and propagation state.
+
+Published detection masks do not replace temporal EdgeTAM inference. Each
+guided trial recomputes masks from its own track history. With `--edgetam`,
+box trackers skip published masks when loading replay inputs; `--cache-inputs`
+reuses images, detections, and embeddings but does not cache temporal masks.
+Start with one sequence worker on MPS: additional workers share the same GPU and duplicate
+model state, so more workers do not guarantee higher throughput.
+
+For CUDA tuning, Ray assigns a GPU to each trial. Select `--device cuda` or
+`--device cuda:0`, the trial's logical GPU; use `CUDA_VISIBLE_DEVICES` to select
+physical GPUs. Nonzero CUDA device indices are rejected for guided tuning.
+
+The resulting `best.yaml` saves the chosen mask settings under `edgetam` with
+the other tracker parameters. Enable guidance again when evaluating that
+profile, using the same checkpoint:
+
+```bash
+boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID \
+  --tracker occluboost --tracker-backend python --asso-func iou \
+  --tracker-config path/to/best.yaml \
+  --edgetam --mask-guidance-weights models/edgetam.pt --device mps --sequence-workers 1
+```
+
+Use the actual build and profile paths reported by tuning. The saved `edgetam`
+group has no `enabled` field: enablement, checkpoint, and device are workflow
+inputs, separate from the saved algorithm parameters. This command replays the
+fitting split for inspection; evaluate the profile on
+separate held-out sequences before claiming a tracking improvement. Keep the
+same guidance checkpoint when comparing settings.
+
+Each guided trial reruns EdgeTAM image encoding and temporal propagation from
+the source frames. Propagated guidance masks are not currently materialized or
+reused between trials; standalone detection-aligned masks remain a separate
+materialization output.
+
+On MPS, temporal guidance automatically loads FP16 weights, uses FP16 autocast,
+and stores mask-memory features in FP16. CPU uses FP32; CUDA uses BF16 autocast
+on supported devices and FP32 otherwise. Propagation batches up to four objects
+with compatible histories per inference call; this is separate from the
+default 96-identity capacity and does not add a tuning parameter. Initial
+prompts remain individual. Each sequence worker owns its model and temporal
+state, so additional workers increase memory use. Masks stay on the inference
+device for propagation and reseeding; matching transfers only small integer
+overlap counts to the CPU. Full CPU masks are created lazily for rendering,
+so tuning without rendering avoids those transfers.
+
+## KITTI with image trackers
+
+The `kitti-mots/2d` and `kitti-mots/2d-lmbn-n-duke` presets support saved-box
+`eval` only. For image-tracker tuning, author a detector-based experiment that
+selects images and box annotations, defines a detector and class mapping, and
+optionally selects ReID. See [experiment configuration](../config/experiments.md).
+
+## EagerMOT with saved sensor inputs
+
+Pass a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets) to
+`--dataset` with `--tracker eagermot`:
+
+```bash
+boxmot tune \
+  --dataset ./kitti-mots \
+  --tracker eagermot \
+  --n-trials 50 \
+  --seed 0
+```
+
+The folder's `dataset.yaml` defines classes, splits, and `modalities` with
+encodings and paths for images, ground truth, calibration, ego poses, and
+saved 2D/3D detections. Split overrides can select different prediction sets.
+You can also pass `dataset.yaml` itself; an absolute
+`--dataset` path works from any working directory. Keep the `./` prefix when
+selecting the local folder by name; bare `kitti-mots` selects the built-in
+image dataset profile.
+
+For your own synchronized camera and 3D observations, start from the
+[sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset).
+It supports custom split, partition, and sequence names with the documented
+calibration, pose, image, and prediction formats. Supply car/pedestrian
+ground-truth masks and image prediction masks for the tuning objective:
+
+```bash
+boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
+  --split train --n-trials 50 --seed 0
+boxmot eval --dataset ./my-sensor-dataset --tracker eagermot \
+  --split val --class-config runs/eagermot-tune/train/best.yaml
+```
+
+Use the actual `best.yaml` path printed by tuning. The template keeps fitting
+and validation sequences separate; record each detector's model, checkpoint,
+and training data in your dataset README or YAML comments.
+
+With the `mots` and `evolve` extras installed, this runs serial Optuna trials
+on CPU, replaying independent sequences in parallel within each trial, and
+maximizes class-average mask HOTA across car and pedestrian profiles.
+The [automatic worker count](eval.md#sequence-parallelism) uses the selected
+sequences and logical CPU count; `--sequence-workers 4` caps it at four workers
+per trial. The first trial uses the starting class profiles, including any
+loaded or calibrated settings. Add
+`--sequence 0002` to select one validation sequence, repeat `--sequence` for
+several, or use `--split train` or `--split fulltrain` to select another
+dataset split. `--project` defaults to `runs/eagermot-tune`; each run saves
+`best.yaml` for `boxmot eval --tracker eagermot --class-config`.
+
+The shared Rich tuning panel shows trial and sequence progress, the best HOTA,
+and the saved profile paths. Add `--verbose` to display tracker and Optuna logs.
+
+This sensor workflow reads the dataset and selected predictions directly.
+It supports `--search-alg optuna`; an explicit device must be `cpu`.
+`--max-concurrent-trials` accepts `0` (default) or `1`, keeping trials serial.
+Objective selectors must use `HOTA`. Perception and build options and
+`--resume-tune` are unavailable for fusion datasets.
+
+Supply [3D annotations](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+and add `--calibrate-kf` to fit the 3D Kalman noise once before Optuna starts:
+
+```bash
+boxmot tune --dataset ./my-sensor-dataset --tracker eagermot \
+  --split train --calibrate-kf --n-trials 50 --seed 0
+```
+
+The five covariance scales and `kalman.is_angular` stay fixed for each class by
+default. Add `--tune-kf` to refine selected scales around each class's fitted
+values. Reuse calibration without fitting again with
+`--class-config path/to/kf-tuning/calibrated.yaml`. Both that starting profile
+and the final `best.yaml` contain separate `car` and `pedestrian` settings.
+`--class-config` also holds the loaded `kalman.is_angular` choices fixed; tuning
+without either flag can search those choices.
+Ego poses remain fixed; EagerMOT advances one frame per image. See
+[3D Kalman calibration](../trackers/eagermot.md#calibrate-3d-kalman-noise).
+
+An incompatible selection reports a short reason and next step. The check uses
+the selected split and registered [tracker inputs](../trackers/index.md#input-support):
+declared tracking inputs marked `Unused` cause rejection. Ground truth is used
+separately for the tuning objective.
+
+Direct saved-sensor tuning currently requires
+`--tracker eagermot --tracker-backend python`. To intentionally tune an image-only
+experiment, select only `images` and `ground_truth` in a separate dataset config
+or explicit split override, plus a perception build or detector. Split modality
+overrides set to `null` remove those inputs from the experiment.
+
+See the [EagerMOT tuning example](../trackers/eagermot.md#tune-separate-class-profiles)
+for inputs and outputs.
+
+Python callers use `boxmot.engine.tuning.tuner.run_tune(args)` for both image
+builds and sensor datasets. It returns a `TuneResult` with the completed trials,
+best metrics, and `best_yaml` path. For EagerMOT, `best_config` contains separate
+`car` and `pedestrian` profiles. Runtime dictionaries use dotted noise keys;
+the exported YAML nests them under `kalman.noise`.
+
 ## Build preparation and reuse
 
-When `--build` is omitted, tuning resolves the canonical build from the
-selected experiment, source data, perception settings, and requested frame
-rate. A matching complete build is validated and reused; otherwise,
-materialization runs once before calibration and Ray start. Reuse requires
+For image trackers, when `--build` is omitted, tuning resolves the canonical
+build from the selected experiment, source data, perception settings, and
+requested frame rate. A matching complete build is validated and reused;
+otherwise, materialization runs once before calibration and Ray start. Reuse requires
 matching source and semantic component fingerprints, geometry, class taxonomy,
 and the payloads needed by the tracker. It never selects a latest build.
 
 `--device` controls perception during automatic preparation, for example
-`mps`, `cuda:0`, or `cpu`. With an explicit `--build`, no perception models run
-and `--device` is rejected. Use either an experiment or a dataset to replay a
+`mps`, `cuda:0`, or `cpu`. With an explicit `--build`, `--device` is accepted
+when temporal EdgeTAM guidance needs it for propagation; otherwise it is rejected because
+no perception models run. Use either an experiment or a dataset to replay a
 specific build:
 
 ```bash
@@ -65,21 +273,80 @@ numbers, while capture timestamps retain their original elapsed time. See
 
 Tuning validates the build and the tracker's requirements before optimization.
 Trials run no detector, segmentor, or encoder and cannot select or create
-another build. Worker count and retry policy are execution settings, not
-semantic fingerprints.
+another build. Optional temporal mask guidance runs during replay using source
+images and the selected checkpoint. Worker count and retry policy are execution
+settings, not semantic fingerprints.
 
-`--sequence-workers 4` allows up to four sequence worker processes per trial.
-Use `--max-concurrent-trials` to limit how many trials run at once.
+Automatic preparation caches embeddings when the baseline uses them or the
+search can enable `use_embeddings`. A runtime `--tracker-config` sets the
+baseline; searchable parameters can still change in trials. To omit embeddings
+throughout tuning, both the baseline and search must keep appearance disabled.
+Appearance-enabled trials require cached embeddings rather than live ReID inference.
+
+Each trial uses the [automatic sequence worker count](eval.md#sequence-parallelism)
+unless temporal EdgeTAM guidance selects one worker by default or `--sequence-workers`
+supplies a positive integer cap. For example,
+`--sequence-workers 4` allows up to four sequence worker processes per trial,
+bounded by the number of selected sequences. Use `--max-concurrent-trials` to
+limit how many image-tracker trials run at once; sequence workers are allocated
+separately to each trial.
+
+Each reusable image tuning actor and each sensor study keeps its sequence-worker
+pool across trials. Every trial still creates fresh
+trackers, pipelines, frame cursors, and output files. Worker pools are closed
+when tuning ends; failed worker operations discard the pool before reuse.
+This applies to image search backends and the sensor Optuna workflow without an
+additional flag.
+
+Add `--cache-inputs` to also reuse mapped inputs on disk across tuning sessions
+and evaluation commands:
+
+```bash
+boxmot tune \
+  --dataset mot17 \
+  --split ablation \
+  --build BUILD_ID \
+  --tracker botsort \
+  --n-trials 200 \
+  --cache-inputs
+```
+
+The same flag works with multimodal datasets and per-class KF calibration:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot \
+  --split train --calibrate-kf --cache-inputs --n-trials 50
+```
+
+This requires the [3D ground-truth declaration](../config/datasets.md#3d-ground-truth-for-kalman-calibration)
+used by calibration. Omit `--calibrate-kf` when tuning without 3D annotations.
+Sensor caches reuse parsed 2D/3D detections, packed masks, calibration, ego poses,
+and ground truth. Image builds cache requested detections, embeddings, masks,
+and image pixels. Filtering remains inside each trial, so differing detection
+thresholds and association settings reuse the same unfiltered input cache.
+See [replay input caching](eval.md#cache-replay-inputs-for-repeated-runs) for
+storage, preparation, and cleanup details.
 
 The progress panel keeps HOTA, MOTA, and IDF1 visible for the best trial under
 the configured objective and the latest completed trial, even as other trials
-start or fail.
+start or fail. Each running image-tracker trial also lists its sequences with
+frame counts, progress bars, and pending, running, done, or failed status.
+Sequence progress resets for each trial, including when Ray reuses a worker.
+
+An evaluation exception marks that trial as failed, retains its traceback in
+the Ray trial directory, and lets the remaining trials continue. Failed trials
+are excluded from best-result selection and are not retried automatically.
+A completed evaluation with no predicted tracks remains a valid zero-score
+result; it is distinct from a tracker or input-loading error.
 
 Use a native tracker with `--tracker-backend cpp` when that geometry and feature
 combination is supported. Unsupported masks, per-class mode, or geometry are
 rejected before a native trial starts.
 
 ## Calibrate the KF before tracker tuning
+
+For saved sensor datasets, use the [EagerMOT workflow above](#eagermot-with-saved-sensor-inputs).
+The build preparation and resume behavior below apply to image trackers.
 
 Add `--calibrate-kf`, as in the first example, to estimate Kalman noise once
 from the prepared build's cached detections and ground truth, then tune the
@@ -89,7 +356,7 @@ an explicitly selected build.
 Calibration runs after build validation and before Ray and the search start.
 The five calibrated covariance scales, their timing settings, and the filter's
 reference process-noise priors stay fixed throughout all 200 tracker trials.
-`adaptive_kf` also stays fixed for trackers that support it. No search-schema
+`kalman.adaptive_kf` also stays fixed for trackers that support it. No search-schema
 edits are needed.
 
 Add `--variable-dt` to calibrate and predict using capture timestamps in
@@ -107,7 +374,11 @@ dataset selection and build. The saved calibration is restored automatically.
 Combining `--calibrate-kf` with `--resume-tune` is rejected
 because a fresh calibration would change the existing search.
 Resuming retains the original search space; start a new run to use updated
-search definitions, including the removal of KF search dimensions.
+search definitions, including a different selection of KF search dimensions.
+Image tuning records the effective schema and fixed values in
+`search-space.json`. Resume requires a matching profile; runs created before
+this metadata was recorded need a new search. A running process keeps the
+search space it started with.
 
 `eval --calibrate-kf` instead calibrates and evaluates the tracker once. See
 [Kalman calibration](eval.md#kalman-calibration) for the estimator, supported
@@ -115,22 +386,28 @@ trackers, and limitations.
 
 ## Kalman noise and timing
 
-New tracker tuning runs hold Kalman settings fixed. The five covariance
+Tracker tuning holds covariance scales fixed unless you select them with `--tune-kf`. The five covariance
 multipliers retain their runtime defaults of `1.0` in the tracker YAML;
-`adaptive_kf` and timing settings also retain their YAML runtime defaults where
+`kalman.adaptive_kf` and timing settings also retain their YAML runtime defaults where
 supported. OC-SORT's base process-noise priors are fixed inside the filter.
-These settings have no search ranges.
+These covariance and timing settings have no default search ranges.
+OccluBoost's `kalman.ams` settings retain their conditional search ranges.
+EagerMOT's `kalman.is_angular` remains searchable when no calibration or class
+profile fixes its state model.
 Use [Kalman calibration](eval.md#kalman-calibration) to estimate covariance
 scales from detections and ground truth.
 
-To reuse an existing calibration without fitting again, start a new tuning
-run with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
+For image trackers, reuse an existing calibration by starting a new tuning run
+with `--tracker-config path/to/kf-tuning/calibrated.yaml` and omit
 `--calibrate-kf`. The loaded KF values stay fixed while the other tracker
 parameters are optimized. Without a profile, the built-in KF defaults stay
-fixed. The selector also accepts partial scalar runtime YAMLs and built-in
+fixed. The selector also accepts partial runtime YAMLs and built-in
 presets.
 
-`variable_dt`, `kf_time_unit`, and `kf_reference_dt_s` are fixed runtime
+EagerMOT uses `--class-config` for its separate car and pedestrian profiles.
+Its 3D filter supports covariance calibration in fixed-step mode only.
+
+`kalman.variable_dt`, `kalman.noise.time_unit`, and `kalman.noise.reference_dt_s` are fixed runtime
 settings. They are not tuning parameters, and elapsed `dt` is never sampled.
 Use `--variable-dt` to select elapsed-seconds prediction explicitly, or keep
 the default fixed-step mode. The reference interval defaults to `1/30` second
@@ -142,6 +419,58 @@ interval. Reuse them with `--tracker-config` in `track`, `eval`, or another
 measure the fitting split; evaluate on separate held-out sequences before
 judging whether the selected settings improve deployment accuracy.
 
+### Refine selected calibrated scales
+
+Repeat `--tune-kf` to select `process_position_scale`, `process_velocity_scale`,
+`measurement_noise_scale`, `initial_position_scale`, or `initial_velocity_scale`.
+Each selected multiplier is searched on a logarithmic scale from **0.25× to 4×**
+its starting value. Unselected scales, timing units, and the reference interval
+stay fixed. Without `--calibrate-kf`, the starting values come from
+`--tracker-config` or the tracker defaults.
+
+```bash
+boxmot tune --experiment mot17/ablation-yolox-lmbn.yaml --build <build> \
+  --tracker botsort --calibrate-kf --per-class \
+  --tune-kf process_velocity_scale --tune-kf measurement_noise_scale
+```
+
+When calibration or a saved profile supplies `kalman.noise.by_class`, tuning
+refines each class's selected scales around its own prior. It searches the
+global prior only when it can be used as a fallback for the selected classes.
+Saved YAML groups filter settings under `kalman`, with covariance settings
+under `noise` and OccluBoost's smoothing controls under `ams`. For example:
+
+```yaml
+per_class: true
+kalman:
+  variable_dt: false
+  adaptive_kf: false
+  noise:
+    process_velocity_scale: 2.0
+    by_class:
+      "1":
+        process_velocity_scale: 3.0
+  ams:
+    enabled: true
+    alpha0: 0.75
+```
+
+This partial OccluBoost configuration inherits unspecified tracker defaults.
+Other trackers expose only the Kalman controls they support.
+
+For EagerMOT, the same flags refine each car/pedestrian 3D filter independently:
+
+```bash
+boxmot tune --dataset ./kitti-mots --tracker eagermot --split train \
+  --calibrate-kf --tune-kf process_velocity_scale --tune-kf measurement_noise_scale
+```
+
+The first trial evaluates the starting profiles. Image tuning records its
+selection and baseline priors in `kf-refinement.json`. When using
+`--resume-tune`, repeat the same `--tune-kf` fields and retain the same baseline
+configuration; omit `--calibrate-kf` because the saved calibration is restored.
+Changing a scale's starting value, a class prior, or timing requires a new run.
+
 ### OC-SORT base process noise
 
 OC-SORT and DeepOCSORT use fixed reference process covariances of `0.01` for
@@ -150,15 +479,15 @@ velocity also uses `0.0001`. Python Kalman calibration scales these priors
 with the shared velocity multiplier:
 
 ```text
-centre-velocity noise = 0.01   × kf_process_velocity_scale
-area-velocity noise   = 0.0001 × kf_process_velocity_scale
-angular-velocity noise = 0.0001 × kf_process_velocity_scale  (OBB)
+centre-velocity noise = 0.01   × kalman.noise.process_velocity_scale
+area-velocity noise   = 0.0001 × kalman.noise.process_velocity_scale
+angular-velocity noise = 0.0001 × kalman.noise.process_velocity_scale  (OBB)
 ```
 
 These products describe reference noise before time-unit conversion and
 integration into `Q(dt)`. The relative balance between centre, area, and
 angular velocity noise is fixed by the filter; calibration scales them
-together. The five shared `kf_*_scale` settings are the noise-calibration
+together. The five shared `kalman.noise.*_scale` settings are the noise-calibration
 interface.
 
 ## Arguments

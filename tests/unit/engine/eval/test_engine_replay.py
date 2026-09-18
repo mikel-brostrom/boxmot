@@ -129,9 +129,7 @@ def test_mot_serialization_preserves_large_ids_and_python_float_subtraction() ->
         sample_id="a",
     )
     x1, y1, x2, y2 = map(float, values[0])
-    assert tracks_to_mot_rows(tracks, 4) == [
-        (5, 2**60 + 7, x1, y1, x2 - x1, y2 - y1, 0.75, 2**60 + 1, -1)
-    ]
+    assert tracks_to_mot_rows(tracks, 4) == [(5, 2**60 + 7, x1, y1, x2 - x1, y2 - y1, 0.75, 2**60 + 1, -1)]
 
 
 def test_sequence_replay_task_constructs_isolated_tracker_per_sequence(tmp_path, monkeypatch) -> None:
@@ -431,13 +429,17 @@ def test_spawned_sequence_failure_is_attributed_after_pool_completion(monkeypatc
     assert "broken sequence" in (progress[-1].detail or "")
 
 
-def test_replay_build_schedules_sorted_sequence_tasks_with_only_specs_crossing_workers(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(("workers", "cpu_count", "expected"), [(8, 2, 2), (None, 3, 1), (None, 4, 2)])
+def test_replay_build_schedules_sorted_sequence_tasks_with_only_specs_crossing_workers(
+    monkeypatch, tmp_path, workers, cpu_count, expected
+) -> None:
     build = tmp_path / "build"
     build.mkdir()
     destination = tmp_path / "tracks"
     manifest = SimpleNamespace()
     callback = lambda _event: None
     observed: dict[str, object] = {}
+    monkeypatch.setattr("boxmot.engine.config.runtime.os.cpu_count", lambda: cpu_count)
 
     monkeypatch.setattr(replay_module, "resolve_build_path", lambda *_args, **_kwargs: build)
     monkeypatch.setattr(replay_module.DatasetManifest, "load", lambda _path: manifest)
@@ -480,7 +482,7 @@ def test_replay_build_schedules_sorted_sequence_tasks_with_only_specs_crossing_w
         split="validation",
         output_dir=destination,
         sequence_ids=("z", "a"),
-        workers=8,
+        workers=workers,
         progress_callback=callback,
     )
 
@@ -489,7 +491,7 @@ def test_replay_build_schedules_sorted_sequence_tasks_with_only_specs_crossing_w
     assert [task.frame_total for task in tasks] == [1, 3]
     assert all(task.tracker_spec == TrackerSpec(name="bytetrack") for task in tasks)
     assert len(probe_trackers) == 1
-    assert observed["workers"] == 2
+    assert observed["workers"] == expected
     assert observed["progress_callback"] is callback
     assert result.sequence_files == (destination / "a.txt", destination / "z.txt")
     assert [path.read_text(encoding="utf-8") for path in result.sequence_files] == ["a", "z"]

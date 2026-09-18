@@ -7,7 +7,8 @@ from typing import Any
 
 import numpy as np
 
-from boxmot.trackers.config import load_tracker_defaults, load_tracker_schema
+from boxmot.trackers.common.config import flatten_tracker_options, load_tracker_defaults, load_tracker_schema
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_TIMING_OPTIONS
 from boxmot.utils import logger as LOGGER
 
 # ---------------------------------------------------------------------------
@@ -28,6 +29,24 @@ def load_yaml_config(tracker_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def expand_yaml_groups(yaml_cfg: dict, *, prefix: str = "") -> dict:
+    """Expand authored option groups to dotted keys, preserving conditionals."""
+    expanded = {}
+    for name, details in yaml_cfg.items():
+        key = f"{prefix}{name}"
+        if (
+            (key in {"kalman", "edgetam"} or key.startswith(("kalman.", "edgetam.")))
+            and isinstance(details, dict)
+            and not {"default", "type"}.intersection(details)
+        ):
+            expanded.update(expand_yaml_groups(details, prefix=f"{key}."))
+            continue
+        if isinstance(details, dict) and isinstance(details.get("activates"), dict):
+            details = {**details, "activates": expand_yaml_groups(details["activates"], prefix=prefix)}
+        expanded[key] = details
+    return expanded
+
+
 def flatten_yaml_config(yaml_cfg: dict) -> dict:
     """Flatten a nested YAML config into a single-level dict.
 
@@ -46,8 +65,49 @@ def flatten_yaml_config(yaml_cfg: dict) -> dict:
             if isinstance(children, dict):
                 _visit(children)
 
-    _visit(yaml_cfg)
+    _visit(expand_yaml_groups(yaml_cfg))
     return flat
+
+
+def condition_tracker_schema(
+    schema: dict, defaults: Mapping[str, Any], *, geometry: str
+) -> dict:
+    """Exclude inactive geometry and fixed conditional branches from search.
+
+    Keep inactive values as constants so trial records and saved profiles
+    retain the selected runtime configuration. Only fixed parent values are
+    resolved here; a searchable toggle's default does not disable its branch.
+    """
+    if geometry not in {"aabb", "obb"}:
+        raise ValueError("Tracker search geometry must be 'aabb' or 'obb'.")
+
+    def constant(name: str, entry: dict) -> dict:
+        return {"default": defaults[name] if name in defaults else entry["default"]}
+
+    def visit(entries: dict, *, inactive: bool = False) -> dict:
+        conditioned: dict = {}
+        for name, entry in entries.items():
+            if not isinstance(entry, dict):
+                conditioned[name] = entry
+                continue
+            selected = entry.get("geometry")
+            excluded = inactive or (selected is not None and selected != geometry)
+            children = entry.get("activates")
+            details = {key: value for key, value in entry.items() if key not in {"geometry", "activates"}}
+            fixed = excluded or set(details) == {"default"}
+            if fixed:
+                conditioned[name] = constant(name, entry)
+                if isinstance(children, dict):
+                    conditioned.update(
+                        visit(children, inactive=excluded or not bool(conditioned[name]["default"]))
+                    )
+            else:
+                if isinstance(children, dict):
+                    details["activates"] = visit(children)
+                conditioned[name] = details
+        return conditioned
+
+    return visit(expand_yaml_groups(schema))
 
 
 def conditional_yaml_tree(config: dict) -> tuple[dict[str, dict], set[str], dict[str, str]]:
@@ -75,7 +135,7 @@ def conditional_yaml_tree(config: dict) -> tuple[dict[str, dict], set[str], dict
                 child_to_parent[child_name] = param
             _visit(children)
 
-    _visit(config)
+    _visit(expand_yaml_groups(config))
 
     return parents_with_children, child_params, child_to_parent
 
@@ -135,11 +195,15 @@ def validate_tuning_config(tracker_name: str, config: dict) -> None:
             f"{', '.join(unknown)}"
         )
 
-    allowed_fields = {"type", "default", "range", "options", "values", "activates"}
+    allowed_fields = {"type", "default", "range", "options", "values", "activates", "geometry"}
     for param, details in flat.items():
+        if isinstance(details, dict) and "geometry" in details:
+            if not isinstance(details["geometry"], str) or details["geometry"] not in {"aabb", "obb"}:
+                raise ValueError(f"Tuning config for {tracker_name} has invalid geometry for {param!r}.")
+            details = {key: value for key, value in details.items() if key != "geometry"}
         if isinstance(details, dict) and set(details) == {"default"}:
             continue
-        if param in {"variable_dt", "kf_time_unit", "kf_reference_dt_s"}:
+        if param in {"kalman.variable_dt", *KALMAN_TIMING_OPTIONS}:
             raise ValueError(f"{param} is a fixed runtime setting and cannot have tuning metadata.")
         if not is_valid_search_param(param, details, warn=False):
             raise ValueError(f"Tuning config for {tracker_name} has invalid search metadata for {param!r}.")
@@ -291,7 +355,9 @@ def unpack_nested_dict(dct: dict[str, Any]) -> dict[str, Any]:
     """Recursively flatten nested dicts produced by conditional HyperOpt branches."""
     out: dict[str, Any] = {}
     for key, value in dct.items():
-        if isinstance(value, dict):
+        if key in {"kalman", "calibration", "edgetam"} and isinstance(value, dict):
+            out.update(flatten_tracker_options({key: value}))
+        elif isinstance(value, dict):
             out.update(unpack_nested_dict(value))
         else:
             out[key] = to_builtin_value(value)

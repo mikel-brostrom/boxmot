@@ -7,10 +7,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from boxmot.motion.kalman_filters.base import BaseKalmanFilter
 from boxmot.structures import Tracks
 from boxmot.trackers import Tracker, TrackerSpec, create_tracker
-from boxmot.trackers.box.bytetrack.native import NativeByteTrackTracker
+from boxmot.trackers.bytetrack.native import NativeByteTrackTracker
+from boxmot.trackers.common.motion.kalman_filters.base import BaseKalmanFilter
 from tests.unit.native.trackers.test_native_bytetrack import _FakeLibrary
 from tests.unit.trackers.test_trackers import _aabb_rows, _detections, _empty_rows, _frame, _obb_rows
 
@@ -58,7 +58,16 @@ def _initialized_tracker(
     name: str, geometry: str, *, packed: bool = False, timing: str = "frame", timed: bool = True
 ) -> Tracker:
     """Confirm one track before inspecting a missing-frame prediction."""
-    tracker = create_tracker(TrackerSpec(name, geometry=geometry, options=(("min_hits", 1), ("variable_dt", timed))))
+    tracker = create_tracker(
+        TrackerSpec(
+            name,
+            geometry=geometry,
+            options=(
+                ("kalman.variable_dt", timed),
+                ("min_hits", 1),
+            ),
+        )
+    )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     for index in range(4):
         output = _update(
@@ -195,7 +204,7 @@ def test_invalid_timestamp_rejects_update_before_mutating_live_tracks(name: str,
 
 def test_class_separated_tracks_share_one_elapsed_interval() -> None:
     tracker = create_tracker(
-        TrackerSpec("bytetrack", per_class=True, class_ids=(0, 65), options=(("variable_dt", True),))
+        TrackerSpec("bytetrack", per_class=True, class_ids=(0, 65), options=(("kalman.variable_dt", True),))
     )
     _update(tracker, _aabb_rows(), index=0, timestamp_s=10.0)
     tracks = tracker.active_tracks.copy()
@@ -212,10 +221,10 @@ def test_class_separated_tracks_share_one_elapsed_interval() -> None:
     assert tracker.frame_count == 2
 
 
-@pytest.mark.parametrize("name", ["sfsort", "sam2mot"])
+@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
 def test_trackers_without_timed_motion_reject_enabling_variable_dt(name: str) -> None:
-    with pytest.raises(ValueError, match="variable_dt"):
-        create_tracker(TrackerSpec(name, options=(("variable_dt", True),)))
+    with pytest.raises(ValueError, match="kalman"):
+        create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
 
 
 def test_native_tracker_ignores_frame_and_explicit_timestamp_metadata() -> None:
@@ -236,7 +245,7 @@ def test_native_tracker_ignores_frame_and_explicit_timestamp_metadata() -> None:
 @pytest.mark.parametrize("name", ["bytetrack", "ocsort"])
 @pytest.mark.parametrize("timing", ["frame", "explicit"])
 def test_first_timestamp_anchors_clock_and_reset_starts_a_new_sequence(name: str, timing: str) -> None:
-    tracker = create_tracker(TrackerSpec(name, options=(("variable_dt", True),)))
+    tracker = create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
     empty = _empty_rows(is_obb=False)
 
     _update(tracker, empty, index=0, timestamp_s=0.0, timing=timing)
@@ -258,7 +267,7 @@ def test_variable_dt_requires_timestamp_on_every_frame(name: str, initialized: b
     tracker = (
         _initialized_tracker(name, "aabb")
         if initialized
-        else create_tracker(TrackerSpec(name, options=(("variable_dt", True),)))
+        else create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
     )
     frame_count = tracker.frame_count
 
@@ -291,7 +300,7 @@ def test_untimed_sequence_retains_one_step_prediction(name: str, packed: bool) -
 
 @pytest.mark.parametrize("name", ["bytetrack", "ocsort"])
 def test_frame_and_explicit_timestamps_cannot_both_supply_time(name: str) -> None:
-    tracker = create_tracker(TrackerSpec(name, options=(("variable_dt", True),)))
+    tracker = create_tracker(TrackerSpec(name, options=(("kalman.variable_dt", True),)))
     frame = replace(_frame("one", 0), timestamp_s=10.0)
 
     with pytest.raises(ValueError, match="timestamp"):
@@ -330,8 +339,8 @@ def test_failed_tracking_kernel_does_not_consume_capture_timestamp(monkeypatch: 
     assert tracker._prediction_dt == pytest.approx(0.25)
 
 
-@pytest.mark.parametrize("name", ["sfsort", "sam2mot"])
-def test_trackers_without_kalman_motion_ignore_frame_timestamps(name: str) -> None:
+@pytest.mark.parametrize("name", ["sfsort", "maf_hda"])
+def test_trackers_without_timed_motion_ignore_frame_timestamps(name: str) -> None:
     tracker = create_tracker(TrackerSpec(name))
 
     _update(tracker, _aabb_rows()[:1], index=0, timestamp_s=10.0)
@@ -343,7 +352,7 @@ def test_trackers_without_kalman_motion_ignore_frame_timestamps(name: str) -> No
 
 @pytest.mark.parametrize("timestamp", [np.nan, np.inf, True, "10.0"])
 def test_first_timestamp_must_be_finite_real_value(timestamp: object) -> None:
-    tracker = create_tracker(TrackerSpec("bytetrack", options=(("variable_dt", True),)))
+    tracker = create_tracker(TrackerSpec("bytetrack", options=(("kalman.variable_dt", True),)))
 
     with pytest.raises(ValueError, match="timestamp"):
         tracker.update(_aabb_rows(), timestamp_s=timestamp)
@@ -354,7 +363,7 @@ def test_first_timestamp_must_be_finite_real_value(timestamp: object) -> None:
 
 
 def test_frame_timestamps_do_not_require_pixel_conversion_for_iou_tracking(monkeypatch: pytest.MonkeyPatch) -> None:
-    tracker = create_tracker(TrackerSpec("bytetrack", options=(("asso_func", "iou"), ("variable_dt", True))))
+    tracker = create_tracker(TrackerSpec("bytetrack", options=(("asso_func", "iou"), ("kalman.variable_dt", True))))
     assert tracker.requirements.frame is False
 
     def reject_pixel_conversion(*args: object, **kwargs: object) -> None:
@@ -416,14 +425,14 @@ def test_fixed_mode_ignores_explicit_timestamp_metadata(timestamp: object) -> No
 
 @pytest.mark.parametrize("value", [None, 0, 1, "true"])
 def test_variable_dt_configuration_requires_boolean(value: object) -> None:
-    with pytest.raises(TypeError, match="variable_dt"):
-        create_tracker(TrackerSpec("bytetrack", options=(("variable_dt", value),)))
+    with pytest.raises(TypeError, match="kalman.variable_dt"):
+        create_tracker(TrackerSpec("bytetrack", options=(("kalman.variable_dt", value),)))
 
 
 def test_native_variable_dt_rejected_before_allocating_handle() -> None:
     library = _FakeLibrary()
 
-    with pytest.raises(ValueError, match="variable_dt"):
-        NativeByteTrackTracker({"variable_dt": True}, library=library)
+    with pytest.raises(ValueError, match="kalman.variable_dt"):
+        NativeByteTrackTracker({"kalman.variable_dt": True}, library=library)
 
     assert library.calls == []

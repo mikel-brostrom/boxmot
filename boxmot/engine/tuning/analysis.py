@@ -21,9 +21,7 @@ BOOL_PARAMS = [
     "use_vt",
     "use_embeddings",
     "use_second_pass",
-    "ams_enabled",
-    "gta_enabled",
-    "gta_interpolate",
+    "kalman.ams.enabled",
 ]
 KEY_CONTINUOUS = [
     "det_thresh",
@@ -93,10 +91,10 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
         if c not in METRIC_COLS + ["trial_id", "IDs", "IDSW_rate", "cmc_method"]
         and df[c].dtype in [np.float64, np.int64, float, int]
     ]
-    # Convert booleans stored as True/False strings
+    # Normalize CSV booleans explicitly, retaining missing conditional values.
     bool_cols_present = [bp for bp in BOOL_PARAMS if bp in df.columns]
     for col in bool_cols_present:
-        df[col] = df[col].map({True: 1, False: 0, "True": 1, "False": 0}).fillna(df[col])
+        df[col] = df[col].map({True: 1.0, False: 0.0, "True": 1.0, "False": 0.0})
         if col not in numeric_params:
             numeric_params.append(col)
 
@@ -157,11 +155,12 @@ def generate_tune_analysis(tune_dir: Path, tracker_name: str = "", n_trials: int
     ax3.set_title("Metric Correlation (Top-100)")
 
     # Panel 4: Boolean feature impact box plots
-    if bool_cols_present:
+    plotted_bool_cols = [bp for bp in bool_cols_present if df[bp].notna().any()]
+    if plotted_bool_cols:
         ax4 = fig.add_subplot(gs[1, :])
         bool_data = []
-        for bp in bool_cols_present:
-            for _, row in df[[bp, "HOTA"]].iterrows():
+        for bp in plotted_bool_cols:
+            for _, row in df[[bp, "HOTA"]].dropna().iterrows():
                 bool_data.append({"param": bp, "value": str(bool(row[bp])), "HOTA": row["HOTA"]})
         bool_df = pd.DataFrame(bool_data)
         sns.boxplot(

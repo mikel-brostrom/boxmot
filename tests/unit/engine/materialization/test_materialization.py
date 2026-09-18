@@ -866,28 +866,56 @@ def test_embed_stage_bounds_model_rows_and_resume_preserves_keyed_output(tmp_pat
         )
 
 
-def test_materializer_persists_failure_for_resume(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("error", "expected_error", "expected_attempts"),
+    [
+        (RuntimeError("boom"), "boom", 2),
+        (RuntimeError(), "RuntimeError", 2),
+        (KeyboardInterrupt(), "KeyboardInterrupt", 1),
+        (SystemExit(), "SystemExit", 1),
+    ],
+)
+def test_materializer_persists_failure_for_resume(tmp_path, error, expected_error, expected_attempts) -> None:
     plan = BuildPlan.create(
         build_root=tmp_path,
         dataset_name="failure",
         box_type="aabb",
         source_fingerprint=fingerprint("source"),
         publish=PublishOptions(),
-        stages=(StagePlan.create("explode"),),
+        stages=(StagePlan.create("explode", max_attempts=2),),
     )
 
     class Explode:
         name = "explode"
 
-        def run(self, context):
-            del context
-            raise RuntimeError("boom")
+        def __init__(self) -> None:
+            self.released = False
 
-    materializer = DatasetMaterializer(plan, [Explode()])
-    with pytest.raises(RuntimeError, match="boom"):
+        def run(self, context: MaterializationContext) -> StageOutcome:
+            context.state.record_shard(self.name, "00000")
+            raise error
+
+        def release(self) -> None:
+            self.released = True
+
+    stage = Explode()
+    materializer = DatasetMaterializer(plan, [stage])
+    with pytest.raises(type(error)) as raised:
         materializer.run()
-    assert materializer.state.state.by_name["explode"].status == "failed"
-    assert materializer.state.state.by_name["explode"].error == "boom"
+    assert raised.value is error
+    assert stage.released
+
+    store = MaterializationStateStore(plan.state_path)
+    state = store.initialize(plan).by_name["explode"]
+    assert state.status == "failed"
+    assert state.error == expected_error
+    assert state.attempts == expected_attempts
+    assert state.completed_shards == ("00000",)
+
+    resumed = store.begin("explode")
+    assert resumed.status == "running"
+    assert resumed.error is None
+    assert resumed.completed_shards == ("00000",)
 
 
 def test_source_mutation_after_plan_creation_prevents_publication(tmp_path) -> None:
@@ -1555,7 +1583,7 @@ def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkey
     real_replace = finalize_module.os.replace
 
     def fail_publication(source, destination):
-        if Path(source) == plan.staging_root and Path(destination) == plan.output_root:
+        if Path(destination) == plan.output_root:
             raise OSError("injected directory rename failure")
         return real_replace(source, destination)
 
@@ -1565,15 +1593,18 @@ def test_failed_publication_removes_success_marker_from_staging(tmp_path, monkey
         finalize_build(plan)
 
     assert not (plan.staging_root / "_SUCCESS").exists()
-    with pytest.raises(ValueError, match="staging directories"):
-        validate_dataset(plan.staging_root)
+    assert not (plan.staging_root / ".publishing" / "_SUCCESS").exists()
+    with pytest.raises(ValueError, match="not published"):
+        validate_dataset(plan.staging_root / ".publishing")
 
     (plan.staging_root / "_SUCCESS").write_text(
         json.dumps({"schema": "boxmot.dataset/v1", "build_id": plan.build_id}),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="staging directories"):
-        CachedVisionDataset(plan.staging_root)
+        validate_dataset(
+            plan.staging_root, manifest=DatasetManifest.load(plan.staging_root / ".publishing"),
+        )
 
 
 def test_relative_build_root_materializes_successfully(tmp_path, monkeypatch) -> None:
@@ -1832,3 +1863,61 @@ def test_resume_repairs_corrupt_detector_native_intermediate_mask(tmp_path) -> N
     ).run()
 
     assert validate_dataset(output).embeddings == 2
+
+
+@pytest.mark.parametrize("boundary", ["samples", "embeddings", "publish"])
+def test_interrupted_finalization_preserves_inference_checkpoints(tmp_path, monkeypatch, boundary) -> None:
+    """An interruption after compaction must never invalidate inference hashes."""
+    import boxmot.engine.materialization.finalize as finalize_module
+
+    plan = _make_plan(tmp_path)
+    samples = _source_samples(tmp_path)
+    detector = FakeDetector()
+
+    class CountingEncoder(FakeEncoder):
+        calls = 0
+
+        def encode(self, frames, detections):
+            self.calls += 1
+            return super().encode(frames, detections)
+
+    encoder = CountingEncoder()
+
+    def materializer():
+        return DatasetMaterializer(plan, [
+            DetectStage(detector, samples),
+            SegmentStage(FakeSegmentor(), samples),
+            EmbedStage(encoder, samples, encoder_fingerprint=fingerprint("encoder")),
+            FinalizeStage(),
+        ])
+
+    real_compact = finalize_module.compact_artifact
+    real_success = finalize_module._write_success
+
+    def interrupted_compact(*args, **kwargs):
+        real_compact(*args, **kwargs)
+        if kwargs["artifact_name"] == boundary:
+            raise KeyboardInterrupt("interrupted finalization")
+
+    def interrupted_success(*args, **kwargs):
+        if boundary == "publish":
+            raise KeyboardInterrupt("interrupted finalization")
+        real_success(*args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(finalize_module, "compact_artifact", interrupted_compact)
+        patch.setattr(finalize_module, "_write_success", interrupted_success)
+        interrupted = materializer()
+        with pytest.raises(KeyboardInterrupt, match="interrupted finalization"):
+            interrupted.run()
+
+    assert not plan.output_root.exists()
+    for stage in interrupted.state.state.stages:
+        for shard_id, artifact, digest in stage.shard_hashes:
+            assert sha256_file(plan.staging_root / artifact / f"part-{shard_id}.parquet") == digest
+    calls = detector.calls, encoder.calls
+    output = materializer().run()
+    assert (detector.calls, encoder.calls) == calls
+    assert validate_dataset(output).embeddings == 2
+    assert not plan.staging_root.exists()
+    assert not (output / ".publishing").exists()

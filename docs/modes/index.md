@@ -6,11 +6,11 @@ logic.
 
 | Mode | Purpose | Required input |
 | --- | --- | --- |
-| `track` | Run a detector and stateful tracker on a source | `--source` plus component selectors |
-| `materialize` | Publish keyed detections and optional masks/embeddings | experiment |
-| `time-variant` | Derive a timestamped frame-loss dataset using cached perception | dataset, sequence, and `--build` |
-| `eval` | Materialize/replay a build and calculate MOT metrics | experiment (filename or component shorthand), or dataset plus `--build` |
-| `tune` | Prepare/replay a build and optimize tracker parameters | experiment (filename or component shorthand), or dataset plus `--build` |
+| [`install`](install.md) | Install missing optional dependencies into the current Python environment | `--extra` or `--requirement` |
+| `track` | Track a source or replay saved TrackR-CNN predictions | `--source` plus component selectors, or `--detections`, `--images`, and `--instances` |
+| `materialize` | Publish keyed perception or derive a timestamped frame-loss dataset | experiment, or `--time-variant` with dataset, sequence, and `--build` |
+| `eval` | Evaluate a perception build or saved sensor inputs | experiment, dataset plus `--build`, or sensor dataset plus `--tracker eagermot` |
+| `tune` | Optimize tracker parameters from a build or saved sensor inputs | experiment, dataset plus `--build`, or sensor dataset plus `--tracker eagermot` |
 | `research` | Score proposed tracker changes against a build | experiment plus `--build` |
 | `train-reid` | Train a reusable appearance backbone | ReID dataset/config |
 | `eval-reid` | Evaluate query/gallery retrieval | checkpoint and ReID dataset |
@@ -49,7 +49,7 @@ taxonomy, geometry, and component fingerprints before replay.
 See [Materialize](materialize.md), [Evaluate](eval.md), [Tune](tune.md), and
 [Research](research.md).
 
-Use [Time-variant dataset](time-variant.md) to compare timing modes under
+Use [`materialize --time-variant`](time-variant.md) to compare timing modes under
 reproducible frame loss without rerunning perception.
 
 ## Python composition

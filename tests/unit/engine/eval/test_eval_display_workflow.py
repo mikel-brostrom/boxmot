@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from boxmot.engine.eval import evaluator
-from boxmot.engine.eval.replay import ReplayResult
+from boxmot.engine.eval.replay import ReplayProgressEvent, ReplayResult
 
 
 def _args(tmp_path, **overrides):
@@ -112,3 +112,77 @@ def test_evaluator_closes_visualization_when_replay_fails(monkeypatch, tmp_path)
         evaluator.run_eval(_args(tmp_path, save=True), setup=False, output_dir=tmp_path / "output")
     assert len(closed) == 1
     assert isinstance(closed[0], ValueError)
+
+
+@pytest.mark.parametrize("with_pipeline,show_progress", [(False, False), (True, False), (True, True)])
+def test_evaluator_forwards_sequence_events_independently_of_display(
+    monkeypatch, tmp_path, with_pipeline: bool, show_progress: bool
+) -> None:
+    """Tuning receives replay events while ordinary evaluation keeps its own rows."""
+    received = []
+    displayed = []
+    presenter_lifetime = []
+    stored = []
+    events = [
+        ReplayProgressEvent("sequence", "queued", 0, 2, 0, None, 0),
+        ReplayProgressEvent("sequence", "running", 1, 2, 1, None, 0),
+        ReplayProgressEvent("sequence", "completed", 2, 2, 2, None, 0),
+    ]
+    renderable = object()
+    workflow_callback = object()
+
+    class Presenter:
+        def __init__(self, callback, sequence_totals):
+            assert callback is workflow_callback
+            assert sequence_totals == {"sequence": 2}
+            self.renderable = renderable
+
+        def __enter__(self):
+            presenter_lifetime.append("enter")
+            return self
+
+        def __call__(self, event):
+            displayed.append(event)
+
+        def __exit__(self, *exc):
+            presenter_lifetime.append("exit")
+
+    def replay(build, spec, **kwargs):
+        for event in events:
+            kwargs["progress_callback"](event)
+            assert received[-1] is event
+            if with_pipeline and show_progress:
+                assert displayed[-1] is event
+        return ReplayResult(build, kwargs["output_dir"], (), 2, 2)
+
+    pipeline = (
+        SimpleNamespace(
+            callback=lambda: workflow_callback,
+            advance=lambda *_args: None,
+            store_step_info=lambda value, **_kwargs: stored.append(value),
+        )
+        if with_pipeline
+        else None
+    )
+    monkeypatch.setattr(evaluator, "EvalSequenceProgressPresenter", Presenter)
+    monkeypatch.setattr(evaluator, "_refresh_eval_pipeline_intro", lambda *_args: None)
+    monkeypatch.setattr(evaluator, "replay_build", replay)
+    monkeypatch.setattr(evaluator, "run_motmetrics", lambda *_args, **_kwargs: {"HOTA": 60.0})
+
+    result = evaluator.run_eval(
+        _args(tmp_path),
+        setup=False,
+        output_dir=tmp_path / "output",
+        show_progress=show_progress,
+        pipeline=pipeline,
+        progress_callback=received.append,
+    )
+
+    assert received == events
+    assert result.summary == {"HOTA": 60.0}
+    if with_pipeline and show_progress:
+        assert displayed == events
+        assert presenter_lifetime == ["enter", "exit"]
+        assert stored == [renderable]
+    else:
+        assert displayed == presenter_lifetime == stored == []

@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import inspect
+from dataclasses import replace
 
 import numpy as np
 import pytest
 import torch
 
+from boxmot import KalmanConfig
 from boxmot.detectors.protocols import DetectorCapabilities
 from boxmot.pipelines import TrackingPipeline
 from boxmot.reid.protocols import EncoderRequirements
 from boxmot.structures import Boxes, Detections, Frame, Tracks
-from boxmot.trackers.box.bytetrack.tracker import ByteTrack
-from boxmot.trackers.protocols import TrackerRequirements
+from boxmot.trackers.bytetrack.tracker import ByteTrack
+from boxmot.trackers.common.protocols import TrackerRequirements
 
 
 def _frame(index: int, timestamp: float | None) -> Frame:
@@ -72,13 +74,15 @@ class _Tracker:
         self.requirements = TrackerRequirements(embeddings=True)
         self.received: list[tuple[float | None, Frame | None]] = []
         self.variable_dt = variable_dt
-        self.tracker = ByteTrack(variable_dt=variable_dt)
+        self.tracker = ByteTrack(kalman=KalmanConfig(variable_dt=variable_dt))
 
     def validate_timing(self, frame: Frame | None, *, timestamp_s: float | None = None) -> float | None:
         return self.tracker.validate_timing(frame, timestamp_s=timestamp_s)
 
     def update(self, detections: Detections, frame: Frame | None = None, *, timestamp_s: float | None = None) -> Tracks:
-        tracks = self.tracker.update(detections, frame, timestamp_s=timestamp_s)
+        # This spy consumes appearance to check ordering; ByteTrack consumes boxes.
+        assert detections.embeddings is not None
+        tracks = self.tracker.update(replace(detections, embeddings=None), frame, timestamp_s=timestamp_s)
         self.events.append("track")
         self.received.append((self.tracker._prediction_dt, frame))
         return tracks

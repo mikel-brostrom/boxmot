@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import weakref
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
@@ -15,7 +17,40 @@ def _replay(index, timestamp, sequence="seq"):
     return SimpleNamespace(
         sample=SimpleNamespace(sequence_id=sequence, frame_index=index, timestamp_s=timestamp, frame=object()),
         result=index + 1,
+        guidance_masks=None,
     )
+
+
+def capture_rendered_images(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    """Keep actual renderers while replacing only OpenCV output devices."""
+    writers = []
+    shown = []
+
+    class Writer:
+        def __init__(self, path, codec, fps, dimensions):
+            self.path = path
+            self.images = []
+            self.closed = False
+            writers.append(self)
+
+        def isOpened(self):
+            return True
+
+        def write(self, image):
+            self.images.append(image.copy())
+
+        def release(self):
+            self.closed = True
+
+    monkeypatch.setattr(visualization.cv2, "VideoWriter", Writer)
+    monkeypatch.setattr(visualization.cv2, "namedWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "resizeWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "imshow", lambda name, image: shown.append(image.copy()))
+    monkeypatch.setattr(visualization.cv2, "destroyWindow", lambda *args: None)
+    monkeypatch.setattr(visualization.cv2, "waitKey", lambda *args: -1)
+    # Text is irrelevant to mask pixels and would cover most of the tiny replay fixture.
+    monkeypatch.setattr(visualization.cv2, "putText", lambda *args: None)
+    return SimpleNamespace(writers=writers, shown=shown)
 
 
 @pytest.fixture
@@ -30,6 +65,7 @@ def rendering(monkeypatch):
         def __init__(self, path, codec, fps, dimensions):
             self.path, self.fps, self.dimensions = path, fps, dimensions
             self.frames = []
+            self.images = []
             self.released = False
             writers.append(self)
 
@@ -37,7 +73,9 @@ def rendering(monkeypatch):
             return True
 
         def write(self, image):
+            assert image.shape[:2] == self.dimensions[::-1]
             self.frames.append(int(image[0, 0, 0]))
+            self.images.append(image.copy())
 
         def release(self):
             self.released = True
@@ -80,6 +118,74 @@ def test_missing_times_use_one_output_frame_per_observation(tmp_path, rendering)
         for index in range(4):
             consumer(_replay(index, None))
     assert rendering.writers[0].frames == [1, 2, 3, 4]
+
+
+def test_saved_video_accepts_authored_dataset_sequence_names(tmp_path: Path, rendering: SimpleNamespace) -> None:
+    """Embedded dots are valid dataset names and must survive the output boundary."""
+    with ReplayVisualization(tmp_path, show=False, save=True) as consumer:
+        consumer(_replay(0, 0.0, sequence="drive..001"))
+
+    assert consumer.video_paths == (tmp_path / "videos" / "drive..001.mp4",)
+    assert rendering.writers[0].frames == [1]
+
+
+@pytest.mark.parametrize("sequence", ["../drive", "drive/name", ".", "..", "drive:name"])
+def test_video_sequence_names_follow_dataset_path_rules(
+    tmp_path: Path, rendering: SimpleNamespace, sequence: str
+) -> None:
+    """Only a directory-name component may become a video filename."""
+    with ReplayVisualization(tmp_path, show=False, save=True) as consumer:
+        with pytest.raises(ValueError, match="canonical directory names"):
+            consumer(_replay(0, 0.0, sequence=sequence))
+
+    assert rendering.writers == []
+
+
+def test_ten_fps_grid_writes_each_kitti_observation_once(tmp_path: Path, rendering: SimpleNamespace) -> None:
+    """A matching output rate preserves one video frame per 10 Hz image."""
+    with ReplayVisualization(tmp_path, show=False, save=True, video_fps=10.0) as consumer:
+        for index in range(6):
+            consumer(_replay(index, 10.0 + index / 10.0))
+    writer = rendering.writers[0]
+    assert writer.fps == 10.0
+    assert writer.frames == [1, 2, 3, 4, 5, 6]
+    assert writer.released
+
+
+@pytest.mark.parametrize("shape", ((9, 11), (8, 11), (9, 10)))
+def test_odd_video_dimensions_pad_edges_without_changing_render_or_preview(
+    tmp_path: Path, rendering: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, shape: tuple[int, int]
+) -> None:
+    """Encoding retains every source pixel and pads only the bottom/right edges."""
+    height, width = shape
+    originals = [np.arange(height * width * 3, dtype=np.uint8).reshape(height, width, 3) + index for index in range(2)]
+    original_pixels = [image.copy() for image in originals]
+    previews = []
+    monkeypatch.setattr(visualization, "render_result", lambda frame, result, **kwargs: originals[result - 1])
+    monkeypatch.setattr(visualization.cv2, "imshow", lambda name, image: previews.append(image.copy()))
+    with ReplayVisualization(tmp_path, show=True, save=True, video_fps=10.0) as consumer:
+        consumer(_replay(0, 0.0))
+        consumer(_replay(1, 0.1))
+
+    writer = rendering.writers[0]
+    assert writer.dimensions == (width + width % 2, height + height % 2)
+    assert len(writer.images) == len(previews) == 2
+    for original, expected, preview, encoded in zip(originals, original_pixels, previews, writer.images, strict=True):
+        np.testing.assert_array_equal(original, expected)
+        np.testing.assert_array_equal(preview, expected)
+        np.testing.assert_array_equal(encoded[:height, :width], expected)
+        np.testing.assert_array_equal(encoded[-1, :width], expected[-1])
+        np.testing.assert_array_equal(encoded[:height, -1], expected[:, -1])
+        np.testing.assert_array_equal(encoded[-1, -1], expected[-1, -1])
+
+
+@pytest.mark.parametrize("rate", (0, -10, float("nan"), float("inf"), float("-inf"), True, False, "10", None))
+def test_invalid_video_rates_fail_before_opening_outputs(
+    tmp_path: Path, rendering: SimpleNamespace, rate: object
+) -> None:
+    with pytest.raises(ValueError, match="video_fps.*finite positive"):
+        ReplayVisualization(tmp_path, show=False, save=True, video_fps=rate)
+    assert not rendering.writers
 
 
 def test_video_and_preview_restart_the_clock_at_sequence_boundary(tmp_path, rendering):
@@ -145,3 +251,24 @@ def test_rendering_failure_releases_video_and_window(tmp_path, rendering, monkey
         consumer(_replay(1, 0.1))
     assert rendering.writers[0].released
     assert rendering.destroyed == ["BoxMOT evaluation"]
+
+
+def test_visualization_borrows_current_masks_only_during_render(tmp_path, rendering, monkeypatch) -> None:
+    """Keeping the rendered frame for video timing must not retain temporal arrays."""
+    mask = np.ones((8, 10), dtype=bool)
+    reference = weakref.ref(mask)
+    replayed = _replay(0, None)
+    replayed.guidance_masks = {41: mask}
+
+    def render(frame, result, *, guidance_masks, **kwargs):
+        assert guidance_masks is replayed.guidance_masks
+        assert guidance_masks[41] is reference()
+        return np.full((8, 10, 3), 1, np.uint8)
+
+    monkeypatch.setattr(visualization, "render_result", render)
+    with ReplayVisualization(tmp_path, show=True, save=True) as consumer:
+        consumer(replayed)
+        del mask
+        replayed.guidance_masks = None
+        assert reference() is None
+    assert rendering.writers[0].frames == [1]

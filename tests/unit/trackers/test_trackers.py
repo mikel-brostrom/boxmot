@@ -2,24 +2,31 @@
 
 from __future__ import annotations
 
-import inspect
+from dataclasses import fields
 
 import numpy as np
 import pytest
 import torch
 
+from boxmot import HybridSortConfig, OcSortConfig, SFSORTConfig
 from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch, OrientedBoxes, Tracks
 from boxmot.trackers import Tracker, TrackerRequirements, TrackerSpec, create_tracker
-from boxmot.trackers.box.deepocsort.tracker import DeepOcSort
-from boxmot.trackers.box.hybridsort.tracker import HybridSort
-from boxmot.trackers.box.ocsort.tracker import OcSort
-from boxmot.trackers.box.sfsort.tracker import SFSORT
-from boxmot.trackers.common.geometry.obb import normalize_angle
-from boxmot.trackers.config import load_tracker_config, load_tracker_defaults
-from boxmot.trackers.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.common.config import get_tracker_config_class, load_tracker_config, load_tracker_defaults
+from boxmot.trackers.common.registry import TRACKER_DEFINITIONS
+from boxmot.trackers.deepocsort.tracker import DeepOcSort
+from boxmot.trackers.ocsort.tracker import OcSort
+from boxmot.trackers.sfsort.tracker import SFSORT
 
-TRACKER_NAMES = tuple(TRACKER_DEFINITIONS)
+TRACKER_NAMES = tuple(
+    name for name, definition in TRACKER_DEFINITIONS.items() if not definition.capabilities.requires_detections_3d
+)
+TRACKER_GEOMETRIES = tuple(
+    (name, kind.value)
+    for name, definition in TRACKER_DEFINITIONS.items()
+    if not definition.capabilities.requires_detections_3d
+    for kind in sorted(definition.capabilities.geometry_kinds, key=lambda kind: kind.value)
+)
 
 
 def _frame(sample_id: str, frame_index: int, *, height: int = 96, width: int = 128) -> Frame:
@@ -117,9 +124,8 @@ def _output_after_hits(tracker: Tracker, rows: np.ndarray, *, attempts: int = 6)
     return result
 
 
-@pytest.mark.parametrize("tracker_name", TRACKER_NAMES)
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
-def test_trackers_emit_structured_rows_for_both_geometry_modes(tracker_name: str, geometry: str) -> None:
+@pytest.mark.parametrize(("tracker_name", "geometry"), TRACKER_GEOMETRIES)
+def test_trackers_emit_structured_rows_for_supported_geometry_modes(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry, options=(("min_hits", 1),)))
     rows = _obb_rows() if geometry == "obb" else _aabb_rows()
 
@@ -135,8 +141,7 @@ def test_trackers_emit_structured_rows_for_both_geometry_modes(tracker_name: str
         assert output.masks.values.shape == (len(output), 96, 128)
 
 
-@pytest.mark.parametrize("tracker_name", TRACKER_NAMES)
-@pytest.mark.parametrize("geometry", ("aabb", "obb"))
+@pytest.mark.parametrize(("tracker_name", "geometry"), TRACKER_GEOMETRIES)
 def test_trackers_accept_completed_empty_structured_batches(tracker_name: str, geometry: str) -> None:
     tracker = create_tracker(TrackerSpec(tracker_name, geometry=geometry))
 
@@ -162,7 +167,9 @@ def test_track_ids_remain_stable_across_matching_frames(tracker_name: str) -> No
 
 
 def test_dynamic_max_obs_is_large_enough_for_track_lifetime() -> None:
-    tracker = OcSort(max_age=400)
+    tracker = OcSort(
+        config=OcSortConfig(max_age=400),
+    )
 
     assert tracker.max_obs == 405
 
@@ -171,22 +178,41 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     runtime_config = load_tracker_defaults("hybridsort")
     tuning_config = load_yaml_config("hybridsort")
     flat_tuning_config = flatten_yaml_config(tuning_config)
-    constructor_params = set(inspect.signature(HybridSort.__init__).parameters)
-    expected = constructor_params - {
-        "self",
-        "kwargs",
-        "reid_model",
-        "reid_weights",
-        "device",
-        "half",
-        "reid_preprocess",
-    }
+    expected = {field.name for field in fields(HybridSortConfig)}
     expected.update({"det_thresh", "max_age", "max_obs", "min_hits", "iou_threshold", "asso_func"})
 
-    assert expected <= set(runtime_config)
+    assert expected <= {name.split(".", 1)[0] for name in runtime_config}
     assert set(flat_tuning_config) <= set(runtime_config)
-    assert set(tuning_config["use_byte"]["activates"]) == {"low_thresh", "TCM_byte_step"}
+    assert set(tuning_config["use_byte"]["activates"]) == {"low_thresh", "tcm_byte_step"}
     assert "longterm_bank_length" in tuning_config["use_embeddings"]["activates"]
+
+
+@pytest.mark.parametrize("custom_profile", [False, True])
+def test_hybridsort_resolved_config_roundtrips_through_spec_and_factory(tmp_path, custom_profile: bool) -> None:
+    config_path = None
+    if custom_profile:
+        config_path = tmp_path / "hybridsort.yaml"
+        config_path.write_text(
+            "eg_weight_high_score: 3.5\n"
+            "eg_weight_low_score: 1.1\n"
+            "tcm_first_step: false\n"
+            "tcm_byte_step: false\n"
+            "tcm_byte_step_weight: 0.7\n"
+        )
+    resolved = load_tracker_config("hybridsort", config_path)
+    spec = TrackerSpec("hybridsort", options=tuple(sorted(resolved.items())))
+
+    tracker = create_tracker(spec)
+
+    assert spec.option_dict == resolved
+    for key in (
+        "eg_weight_high_score",
+        "eg_weight_low_score",
+        "tcm_first_step",
+        "tcm_byte_step",
+        "tcm_byte_step_weight",
+    ):
+        assert getattr(tracker, key) == resolved[key]
 
 
 @pytest.mark.parametrize("tracker_name", ["ocsort", "deepocsort"])
@@ -196,7 +222,7 @@ def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
     tracker_name: str, geometry: str, velocity_scale: float
 ) -> None:
     tracker = create_tracker(
-        TrackerSpec(tracker_name, geometry=geometry, options=(("kf_process_velocity_scale", velocity_scale),))
+        TrackerSpec(tracker_name, geometry=geometry, options=(("kalman.noise.process_velocity_scale", velocity_scale),))
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
     _update(tracker, rows, frame_index=0)
@@ -218,14 +244,15 @@ def test_ocsort_process_priors_preserve_default_geometry_and_shared_calibration(
 @pytest.mark.parametrize("parameter", ["Q_xy_scaling", "Q_s_scaling", "Q_a_scaling"])
 @pytest.mark.parametrize("source", ["constructor", "config"])
 def test_removed_sort_noise_parameters_are_rejected(tmp_path, tracker_name, tracker_type, parameter, source) -> None:
-    with pytest.raises(TypeError, match=f"unexpected keyword argument '{parameter}'"):
+    with pytest.raises(TypeError, match=parameter):
         if source == "constructor":
             tracker_type(**{parameter: 0.2})
         else:
             config = tmp_path / "tracker.yaml"
             config.write_text(f"{parameter}: 0.2\n")
             options = load_tracker_config(tracker_name, config)
-            tracker_type(**options)
+            algorithm_options = {key: value for key, value in options.items() if "." not in key}
+            get_tracker_config_class(tracker_name).from_mapping(algorithm_options)
 
 
 def test_per_class_tracking_accepts_sparse_detector_class_ids() -> None:
@@ -254,26 +281,8 @@ def test_configured_class_catalog_rejects_unknown_detector_class() -> None:
         tracker.update(detections)
 
 
-def test_sam2mot_preserves_obb_masks_and_detection_alignment() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(("det_thresh", 0.1), ("min_hits", 1), ("new_track_thresh", 0.1)),
-        )
-    )
-
-    output = _update(tracker, _obb_rows(), frame_index=0)
-
-    assert output.to_obb_rows().shape == (2, 9)
-    assert output.masks is not None
-    assert output.masks.values.dtype is torch.bool
-    assert sorted(output.detection_indices.tolist()) == [0, 1]
-    assert output.masks.values.flatten(1).any(dim=1).all()
-
-
-def test_sam2mot_rejects_detection_masks_without_foreground() -> None:
-    tracker = create_tracker(TrackerSpec("sam2mot"))
+def test_mask_tracker_rejects_detection_masks_without_foreground() -> None:
+    tracker = create_tracker(TrackerSpec("maf_hda"))
     sample_id = "sequence/000000"
     rows = _aabb_rows()[:1]
     detections = Detections(
@@ -288,57 +297,10 @@ def test_sam2mot_rejects_detection_masks_without_foreground() -> None:
         tracker.update(detections, _frame(sample_id, 0))
 
 
-def test_sam2mot_aligns_equivalent_obb_forms_without_an_angle_jump() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(("det_thresh", 0.1), ("min_hits", 1), ("new_track_thresh", 0.1)),
-        )
-    )
-    first_row = np.array([[32, 32, 20, 10, 0.15, 0.95, 0]], dtype=np.float32)
-    equivalent = np.array([[32, 32, 10, 20, 0.15 + np.pi / 2, 0.95, 0]], dtype=np.float32)
-
-    first = _update(tracker, first_row, frame_index=0)
-    second = _update(tracker, equivalent, frame_index=1)
-
-    assert first.track_ids.item() == second.track_ids.item()
-    torch.testing.assert_close(second.geometry.values[:, 2:4], first.geometry.values[:, 2:4])
-    assert abs(float(second.geometry.values[0, 4] - first.geometry.values[0, 4])) < 1e-5
-
-
-def test_sam2mot_obb_angle_update_is_damped() -> None:
-    tracker = create_tracker(
-        TrackerSpec(
-            "sam2mot",
-            geometry="obb",
-            options=(
-                ("det_thresh", 0.1),
-                ("min_hits", 1),
-                ("new_track_thresh", 0.1),
-                ("obb_theta_damping", 0.75),
-            ),
-        )
-    )
-    first_row = np.array([[48, 48, 30, 18, 0.0, 0.95, 0]], dtype=np.float32)
-    rotated = np.array([[48, 48, 30, 18, 0.4, 0.95, 0]], dtype=np.float32)
-
-    first = _update(tracker, first_row, frame_index=0)
-    second = _update(tracker, rotated, frame_index=1)
-
-    tracked_delta = float(normalize_angle(second.geometry.values[0, 4] - first.geometry.values[0, 4]))
-    measured_delta = float(normalize_angle(rotated[0, 4] - first_row[0, 4]))
-    assert tracked_delta == pytest.approx(0.25 * measured_delta, abs=1e-5)
-
-
 @pytest.mark.parametrize("geometry", ("aabb", "obb"))
 def test_sfsort_low_score_second_pass_keeps_identity(geometry: str) -> None:
     tracker = SFSORT(
-        high_th=0.6,
-        low_th=0.1,
-        new_track_th=0.5,
-        match_th_second=0.3,
-        dynamic_tuning=False,
+        config=SFSORTConfig(high_th=0.6, low_th=0.1, new_track_th=0.5, match_th_second=0.3, dynamic_tuning=False),
         is_obb=geometry == "obb",
     )
     rows = (_obb_rows() if geometry == "obb" else _aabb_rows())[:1]
@@ -371,7 +333,9 @@ def test_sfsort_requires_only_frame_dimensions_unless_they_are_configured(
     options: dict[str, object],
     requirements: TrackerRequirements,
 ) -> None:
-    tracker = SFSORT(**options)
+    tracker = SFSORT(
+        config=SFSORTConfig(**options),
+    )
 
     assert tracker.requirements == requirements
 
@@ -387,11 +351,13 @@ def test_sfsort_requires_only_frame_dimensions_unless_they_are_configured(
 )
 def test_sfsort_rejects_partial_or_nonpositive_frame_dimensions(options: dict[str, object]) -> None:
     with pytest.raises(ValueError, match="frame_width|frame_height"):
-        SFSORT(**options)
+        SFSORT(
+            config=SFSORTConfig(**options),
+        )
 
 
 def test_sfsort_obb_angle_motion_is_damped() -> None:
-    tracker = SFSORT(obb_theta_damping=0.8, is_obb=True)
+    tracker = SFSORT(config=SFSORTConfig(obb_theta_damping=0.8), is_obb=True)
     first_row = np.array([[64, 48, 40, 20, 0.0, 0.95, 0]], dtype=np.float32)
     rotated = first_row.copy()
     rotated[:, 4] = 0.4

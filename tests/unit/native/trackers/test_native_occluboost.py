@@ -3,9 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from boxmot import KalmanConfig, OccluBoostConfig
 from boxmot.native.trackers import occluboost as native_binding
-from boxmot.trackers.box.occluboost import native as native_module
-from boxmot.trackers.box.occluboost.tracker import OccluBoost
+from boxmot.trackers.common.config import load_tracker_config, nest_tracker_options
+from boxmot.trackers.occluboost import native as native_module
+from boxmot.trackers.occluboost.tracker import OccluBoost
 
 from ._helpers import detections_from_rows, empty_native_batch, update_rows
 
@@ -163,19 +165,24 @@ def test_native_occluboost_obb_applies_geometry_filter(detection):
 
 
 def test_native_occluboost_obb_matches_python_lifecycle_with_external_embeddings():
-    cfg = native_module._resolve_tracker_config(
-        {
-            "use_cmc": False,
-            "use_embeddings": True,
-            "min_box_area": 1,
-            "aspect_ratio_thresh": 20.0,
-            "second_pass_min_hits": 1,
-        }
+    options = {
+        "use_cmc": False,
+        "use_embeddings": True,
+        "min_box_area": 1,
+        "aspect_ratio_thresh": 20.0,
+        "second_pass_min_hits": 1,
+    }
+    python_config = nest_tracker_options(load_tracker_config("occluboost", None, options))
+    kalman = KalmanConfig.from_mapping(python_config.pop("kalman"))
+    python_tracker = OccluBoost(
+        config=OccluBoostConfig(**{key: value for key, value in python_config.items() if key != "edgetam"}),
+        edgetam=python_config.get("edgetam"),
+        kalman=kalman,
+        is_obb=True,
     )
-    python_tracker = OccluBoost(**cfg, is_obb=True)
     library = native_binding.OccluBoostLibrary(native_binding.ensure_occluboost_cpp_library())
     native_tracker = native_module.NativeOccluBoostTracker(
-        cfg,
+        options,
         geometry="obb",
         library=library,
     )
@@ -185,9 +192,7 @@ def test_native_occluboost_obb_matches_python_lifecycle_with_external_embeddings
         rows = []
         embeddings = []
         if frame_id != 5:
-            rows.append(
-                [45 + 8 * frame_id, 70 + 2 * frame_id, 42, 16, 0.15 + 0.05 * frame_id, 0.92, 0]
-            )
+            rows.append([45 + 8 * frame_id, 70 + 2 * frame_id, 42, 16, 0.15 + 0.05 * frame_id, 0.92, 0])
             embeddings.append([1.0, 0.0, 0.0])
         if frame_id >= 2 and frame_id != 7:
             rows.append([190 - 7 * frame_id, 110 - frame_id, 28, 12, -1.45 + 0.04 * frame_id, 0.88, 1])

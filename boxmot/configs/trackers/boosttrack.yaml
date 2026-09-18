@@ -1,123 +1,131 @@
 max_age:
   type: randint
-  default: 60
   range: [15, 90]
+
+# Display history capacity; runtime expands it beyond max_age when needed.
+max_obs: {}
 
 min_hits:
   type: randint
-  default: 3
   range: [1, 5]
 
 det_thresh:
   type: uniform
-  default: 0.6
   range: [0.1, 0.9]
 
 iou_threshold:
   type: uniform
-  default: 0.3
   range: [0.1, 0.9]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 use_cmc:
   type: choice
-  default: True
   options: [False, True]
   activates:
     cmc_method:
       type: choice
-      default: ecc
       options: [sof, ecc]
 
 min_box_area:
   type: randint
-  default: 10
   range: [5, 100]
 
 aspect_ratio_thresh:
   type: uniform
-  default: 1.6
   range: [0.1, 2.0]
 
 lambda_iou:
   type: uniform
-  default: 0.5
   range: [0.3, 2.0]
 
 lambda_mhd:
   type: uniform
-  default: 0.25
   range: [0.5, 2.0]
 
 lambda_shape:
   type: uniform
-  default: 0.25
   range: [0.5, 2.0]
 
 use_dlo_boost:
   type: choice
-  default: True
   options: [False, True]
 
 use_duo_boost:
   type: choice
-  default: True
   options: [False, True]
 
 dlo_boost_coef:
   type: uniform
-  default: 0.65
   range: [0.3, 2.0]
 
 s_sim_corr:
   type: choice
-  default: False
   options: [False, True]
 
 use_rich_s:
   type: choice
-  default: True # True for BoostTrack++
   options: [False, True]
 
 use_sb:
   type: choice
-  default: True # True for BoostTrack++
   options: [False, True]
 
 use_vt:
   type: choice
-  default: True # True for BoostTrack++
   options: [False, True]
 
 use_embeddings:
   type: choice
-  default: True # True for BoostTrack+ and BoostTrack++
   options: [False, True]
 
 # Fixed KF mode; select it before calibration.
-adaptive_kf:
-  default: False
 
-# Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
-kf_time_unit:
-  default: null
-kf_reference_dt_s:
-  default: 0.03333333333333333
+kalman:
+  adaptive_kf:
+    default: False
 
-# Fixed runtime covariance defaults; --calibrate-kf supplies fitted values.
-kf_process_position_scale:
-  default: 1.0
-kf_process_velocity_scale:
-  default: 1.0
-kf_measurement_noise_scale:
-  default: 1.0
-kf_initial_position_scale:
-  default: 1.0
-kf_initial_velocity_scale:
-  default: 1.0
+  # Timing and reference-prior units stay fixed across all tuning trials.
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 96
+    options: [8, 16, 24, 32, 64, 96]

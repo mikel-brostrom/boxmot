@@ -4,6 +4,12 @@
 
 SFSORT is designed around speed. The paper removes the Kalman filter entirely, introduces a bounding-box similarity cost, and uses scene-derived cues to keep association strong while minimizing compute. The goal is not to be the most elaborate tracker, but to keep the tracker extremely lightweight and real-time while still remaining competitive on standard MOT benchmarks.
 
+Python AABB mode also supports optional [EdgeTAM mask guidance](../tasks/masks.md#use-temporal-masks-in-association)
+with `--tracker sfsort --tracker-backend python --asso-func iou --edgetam --mask-guidance-weights edgetam.pt`.
+It requires IoU association and `per_class=False`, retains this tracker's
+existing association rules, and adds temporal model inference. Accuracy
+gains have not been established for this extension.
+
 ## What BoxMOT Needs For SFSORT
 
 - Detector only. ReID is not required.
@@ -31,5 +37,14 @@ Example:
 boxmot eval --experiment mot17/ablation-yolox-lmbn.yaml --build BUILD_ID --tracker sfsort --tracker-backend cpp
 boxmot track --tracker sfsort --tracker-backend cpp --source 0
 ```
+
+## Python API
+
+Pass algorithm settings through `SFSORTConfig`, for example
+`SFSORT(config=SFSORTConfig(high_th=0.6))`. Direct construction and
+`create_tracker("sfsort")` use the same algorithm defaults. See the
+[tracker configuration guide](../config/trackers.md) for presets and component settings.
+
+::: boxmot.SFSORTConfig
 
 ::: boxmot.SFSORT

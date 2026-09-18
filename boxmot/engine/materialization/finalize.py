@@ -101,7 +101,7 @@ def compact_artifact(
         raise
 
 
-def compact_build(plan: BuildPlan, *, target_rows: int = 50_000) -> None:
+def compact_build(plan: BuildPlan, *, target_rows: int = 50_000, root: Path | None = None) -> None:
     """Compact every selected artifact before checksums and publication."""
 
     selected = [SAMPLES_ARTIFACT, INSTANCES_ARTIFACT]
@@ -111,19 +111,19 @@ def compact_build(plan: BuildPlan, *, target_rows: int = 50_000) -> None:
         selected.append(EMBEDDINGS_ARTIFACT)
     for artifact_name in selected:
         compact_artifact(
-            plan.staging_root,
+            plan.staging_root if root is None else root,
             artifact_name=artifact_name,
             box_type=plan.box_type,
             target_rows=target_rows,
         )
 
 
-def _remove_unpublished_artifacts(plan: BuildPlan) -> None:
+def _remove_unpublished_artifacts(plan: BuildPlan, *, root: Path) -> None:
     for artifact_name, published in (
         (MASKS_ARTIFACT, plan.publish.masks),
         (EMBEDDINGS_ARTIFACT, plan.publish.embeddings),
     ):
-        path = plan.staging_root / ARTIFACT_PATHS[artifact_name]
+        path = root / ARTIFACT_PATHS[artifact_name]
         if not published and path.exists():
             if not path.is_dir():
                 raise FinalizeError(f"Unpublished artifact path is not a directory: {path}")
@@ -143,14 +143,17 @@ def build_manifest(
     plan: BuildPlan,
     *,
     embedding_metadata: Mapping[str, Any] | None = None,
+    root: Path | None = None,
 ) -> DatasetManifest:
-    """Describe all selected stage artifacts under the plan's staging root."""
+    """Describe selected artifacts in staging or a publication candidate."""
+
+    root = plan.staging_root if root is None else root
 
     selected = [SAMPLES_ARTIFACT, INSTANCES_ARTIFACT]
     if plan.publish.masks:
         selected.append(MASKS_ARTIFACT)
     if plan.publish.embeddings:
-        embedding_path = plan.staging_root / ARTIFACT_PATHS[EMBEDDINGS_ARTIFACT]
+        embedding_path = root / ARTIFACT_PATHS[EMBEDDINGS_ARTIFACT]
         try:
             embedding_metadata = read_embedding_metadata(embedding_path, declared=embedding_metadata)
         except ValueError as exc:
@@ -162,7 +165,7 @@ def build_manifest(
         metadata = embedding_metadata if name == EMBEDDINGS_ARTIFACT else None
         artifacts.append(
             describe_parquet_artifact(
-                plan.staging_root,
+                root,
                 name=name,
                 relative_path=name,
                 metadata=metadata,
@@ -246,29 +249,48 @@ def finalize_build(
         raise FinalizeError(f"Staging directory does not exist: {plan.staging_root}")
     (plan.staging_root / SUCCESS_FILENAME).unlink(missing_ok=True)
     _remove_stale_atomic_temps(plan.staging_root)
-    compact_build(plan, target_rows=target_shard_rows)
-    manifest = build_manifest(plan, embedding_metadata=embedding_metadata)
-    manifest.write(plan.staging_root / MANIFEST_FILENAME)
+    # Compaction changes filenames and hashes. Keep inference checkpoints intact
+    # until a fully validated candidate has been atomically published.
+    candidate = plan.staging_root / ".publishing"
+    if candidate.exists():
+        shutil.rmtree(candidate)
+
+    def ignore_checkpoint_metadata(directory: str, _names: list[str]) -> set[str]:
+        """Exclude publication scratch and metadata owned by this finalization."""
+        if Path(directory) == plan.staging_root:
+            return {candidate.name, MANIFEST_FILENAME, SUCCESS_FILENAME, plan.state_path.name}
+        return set()
+
+    shutil.copytree(
+        plan.staging_root, candidate, copy_function=os.link, symlinks=True,
+        ignore=ignore_checkpoint_metadata,
+    )
+    compact_build(plan, target_rows=target_shard_rows, root=candidate)
+    manifest = build_manifest(plan, embedding_metadata=embedding_metadata, root=candidate)
+    manifest.write(candidate / MANIFEST_FILENAME)
     validate_dataset(
-        plan.staging_root,
+        candidate,
         manifest=manifest,
         verify_hashes=verify_hashes,
         require_success=False,
     )
-    _remove_unpublished_artifacts(plan)
+    _remove_unpublished_artifacts(plan, root=candidate)
     if before_publish is not None:
         before_publish()
-    _write_success(plan.staging_root, plan.build_id)
-    _fsync_directory(plan.staging_root)
+    if plan.state_path.is_file():
+        os.link(plan.state_path, candidate / plan.state_path.name)
+    _write_success(candidate, plan.build_id)
+    _fsync_directory(candidate)
 
     plan.output_root.parent.mkdir(parents=True, exist_ok=True)
     try:
-        os.replace(plan.staging_root, plan.output_root)
+        os.replace(candidate, plan.output_root)
     except OSError as exc:
-        (plan.staging_root / SUCCESS_FILENAME).unlink(missing_ok=True)
-        _fsync_directory(plan.staging_root)
+        (candidate / SUCCESS_FILENAME).unlink(missing_ok=True)
+        _fsync_directory(candidate)
         raise FinalizeError(f"Unable to atomically publish dataset build to {plan.output_root}") from exc
     _fsync_directory(plan.output_root.parent)
+    shutil.rmtree(plan.staging_root)
     return plan.output_root
 
 

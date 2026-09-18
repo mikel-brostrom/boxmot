@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from numbers import Integral
 from pathlib import Path
 from typing import IO, Callable, Protocol, runtime_checkable
 
@@ -13,7 +14,7 @@ from typing_extensions import Self
 
 from boxmot.engine.tracking.profiling import timed_runtime_stage
 from boxmot.pipelines import PipelineResult
-from boxmot.structures import Boxes, Frame, OrientedBoxes
+from boxmot.structures import Boxes, CameraModel, Frame, OrientedBoxes, Tracks3D
 
 
 class _StopTrackingRequested(Exception):
@@ -237,16 +238,45 @@ def render_result(
     *,
     class_names: Mapping[int, str] | None = None,
     line_width: int = 2,
+    spatial_tracks: Tracks3D | None = None,
+    camera: CameraModel | None = None,
+    guidance_masks: Mapping[int, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Render canonical tracks while exposing engine-owned render timing."""
+    """Render tracks and optional propagated masks using the same identity colors.
+
+    When supplied, ``guidance_masks`` is the authoritative mask layer, including
+    identities currently lost from box outputs. An empty mapping suppresses
+    standalone segmentation masks while temporal guidance has none to show.
+    """
+
+    if (spatial_tracks is None) != (camera is None):
+        raise ValueError("Rendering 3D tracks requires both spatial_tracks and camera.")
+    if spatial_tracks is not None:
+        if spatial_tracks.sample_id != frame.sample_id or result.tracks.sample_id != frame.sample_id:
+            raise ValueError("Rendered image and spatial tracks must belong to the current frame.")
+        if camera.image_size != frame.image_size:
+            raise ValueError("3D visualization camera dimensions must match the image.")
 
     with timed_runtime_stage("rendering"):
-        return _render_result(
+        image = _render_result(
             frame,
             result,
             class_names=class_names,
             line_width=line_width,
+            guidance_masks=guidance_masks,
         )
+        if spatial_tracks is not None:
+            from boxmot.engine.tracking.spatial_visualization import draw_spatial_tracks
+
+            image = draw_spatial_tracks(
+                image,
+                spatial_tracks,
+                camera,
+                class_names=class_names,
+                image_track_ids=frozenset(result.tracks.track_ids.tolist()),
+                line_width=line_width,
+            )
+        return image
 
 
 def _render_result(
@@ -255,27 +285,44 @@ def _render_result(
     *,
     class_names: Mapping[int, str] | None = None,
     line_width: int = 2,
+    guidance_masks: Mapping[int, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Render canonical tracks into a new OpenCV BGR frame."""
 
-    image = _frame_bgr(frame).copy()
+    image = _frame_bgr(frame)
     tracks = result.tracks
-    masks = tracks.masks
-    if masks is None and result.detections.masks is not None and len(tracks):
-        det_indices = tracks.detection_indices.numpy()
-        valid = (det_indices >= 0) & (det_indices < len(result.detections))
-        aligned = np.zeros((len(tracks), image.shape[0], image.shape[1]), dtype=bool)
-        aligned[valid] = result.detections.masks.values.numpy()[det_indices[valid]]
-        mask_values = aligned
+    mask_layers: Iterable[tuple[int, np.ndarray]]
+    if guidance_masks is not None:
+        if not isinstance(guidance_masks, Mapping):
+            raise TypeError("guidance_masks must map track IDs to boolean mask arrays.")
+        for track_id, mask in guidance_masks.items():
+            if isinstance(track_id, bool) or not isinstance(track_id, Integral) or track_id < 0:
+                raise ValueError("Guidance mask IDs must be non-negative integers.")
+            if not isinstance(mask, np.ndarray) or mask.dtype != np.bool_:
+                raise TypeError("Guidance masks must be boolean NumPy arrays.")
+            if mask.ndim != 2 or mask.shape != image.shape[:2]:
+                raise ValueError("Guidance masks must be two-dimensional and match the frame dimensions.")
+        # Stable layering is independent of mapping insertion or current box order.
+        mask_layers = sorted(guidance_masks.items())
+    elif tracks.masks is not None:
+        mask_layers = zip(tracks.track_ids.tolist(), tracks.masks.values.numpy())
+    elif result.detections.masks is not None:
+        detection_masks = result.detections.masks.values.numpy()
+        mask_layers = (
+            (track_id, detection_masks[index])
+            for track_id, index in zip(tracks.track_ids.tolist(), tracks.detection_indices.tolist())
+            if 0 <= index < len(result.detections)
+        )
     else:
-        mask_values = None if masks is None else masks.values.numpy()
+        mask_layers = ()
 
-    if mask_values is not None:
-        overlay = image.copy()
-        for index, mask in enumerate(mask_values):
-            color = _track_color(int(tracks.track_ids[index]))
-            overlay[mask] = color
-        image = cv2.addWeighted(overlay, 0.35, image, 0.65, 0)
+    overlay = None
+    for track_id, mask in mask_layers:
+        if overlay is None:
+            overlay = image.copy()
+        overlay[mask] = _track_color(int(track_id))
+    if overlay is not None:
+        cv2.addWeighted(overlay, 0.35, image, 0.65, 0, dst=image)
 
     if isinstance(tracks.geometry, Boxes):
         for index, box in enumerate(tracks.geometry.values.numpy()):
@@ -376,12 +423,16 @@ class SharedRenderingSink(_BaseSink):
         *,
         class_names: Mapping[int, str] | None = None,
         line_width: int = 2,
+        guidance_mask_provider: Callable[[], Mapping[int, np.ndarray]] | None = None,
     ) -> None:
         self.sinks = tuple(sinks)
         if not self.sinks:
             raise ValueError("SharedRenderingSink requires at least one sink")
+        if guidance_mask_provider is not None and not callable(guidance_mask_provider):
+            raise TypeError("guidance_mask_provider must be callable.")
         self.class_names = class_names
         self.line_width = int(line_width)
+        self.guidance_mask_provider = guidance_mask_provider
 
     def write(self, frame: Frame, result: PipelineResult) -> None:
         rendered = render_result(
@@ -389,6 +440,7 @@ class SharedRenderingSink(_BaseSink):
             result,
             class_names=self.class_names,
             line_width=self.line_width,
+            guidance_masks=None if self.guidance_mask_provider is None else self.guidance_mask_provider(),
         )
         for sink in self.sinks:
             sink.write_rendered(frame, result, rendered)

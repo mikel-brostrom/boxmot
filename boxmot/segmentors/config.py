@@ -36,7 +36,7 @@ def resolve_segmentor_spec(
         authored = load_component_mapping(reference)
         if authored is None:
             raise FileNotFoundError(
-                f"Segmentor {reference!r} is not a YAML config; SAM requires an explicit checkpoint config."
+                f"Segmentor {reference!r} is not a YAML config; segmentors require an explicit checkpoint config."
             )
         payload, config_path = authored
     configured_geometry = str(payload.get("geometry_mode") or geometry)
@@ -54,10 +54,10 @@ def resolve_segmentor_spec(
         artifact_resolver=artifact_resolver,
     )
     backend = str(payload.get("backend") or "")
-    if backend in {"sam", "maskrcnn"} and not artifact.path.is_file():
+    if backend in {"sam", "maskrcnn", "edgetam"} and not artifact.path.is_file():
         raise ConfigurationError(f"Segmentor backend {backend!r} requires a checkpoint file artifact.")
     normalized_options = dict(payload.get("options") or {})
-    normalized_options.setdefault("mask_threshold", 0.5)
+    normalized_options.setdefault("mask_threshold", 0.0 if backend == "edgetam" else 0.5)
     if backend == "maskrcnn":
         normalized_options.setdefault("class_mapping", ())
         normalized_options.setdefault("match_iou", 0.5)

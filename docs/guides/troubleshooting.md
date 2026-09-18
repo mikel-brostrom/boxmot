@@ -9,16 +9,20 @@ Common problems and their resolutions when working with BoxMOT.
 The core `pip install boxmot` is enough for the Python API but not for many CLI workflows. Install the extra that matches the mode you want to use:
 
 ```bash
-pip install "boxmot[yolo]"        # track / materialize with YOLO backends
-pip install "boxmot[evolve]"      # tune
-pip install "boxmot[research]"    # research
-pip install "boxmot[onnx]"        # export --include onnx
-pip install "boxmot[coreml]"      # native Core ML MLProgram export/inference
-pip install "boxmot[openvino]"    # export --include openvino
-pip install "boxmot[tflite]"      # export --include tflite and LiteRT inference
+boxmot install --extra yolo                   # track / materialize with YOLO backends
+boxmot install --extra evolve                 # tune with Ray
+boxmot install --extra research               # research
+boxmot install --extra onnx                   # export --include onnx
+boxmot install --extra coreml                 # native Core ML MLProgram export/inference
+boxmot install --extra onnx --extra openvino  # export --include openvino
+boxmot install --extra tflite                 # export --include tflite and LiteRT inference
 ```
 
-See [Installation](../getting-started/installation.md#mode-specific-extras) for the full table.
+Dependency checks report missing packages without installing them. If your
+application uses a specific Python environment, run
+`python -m boxmot.engine.cli install --extra NAME` with that interpreter.
+See [Installation](../getting-started/installation.md#mode-specific-extras)
+for the full table.
 
 ### ONNX does not run on MPS
 
@@ -69,9 +73,40 @@ python -c "import onnxruntime as ort; print(ort.get_available_providers())"
 `CUDAExecutionProvider` must appear in the second output. An explicit CUDA
 request fails during initialization when that provider is unavailable.
 
-### TensorRT auto-install succeeds but import still fails
+### CUDA device index is unavailable
 
-The TensorRT ReID backend and `export --include engine` try to install `nvidia-tensorrt` on first use, including NVIDIA's Python package index. If `import tensorrt` still fails afterward, check that your Python, CUDA, NVIDIA driver, and TensorRT wheel versions are compatible for the machine.
+Device indices follow PyTorch's process-visible GPU order. If you expose only
+GPU 2 before starting BoxMOT, select it as `cuda:0` inside the process:
+
+```bash
+CUDA_VISIBLE_DEVICES=2 boxmot track --source video.mp4 --device cuda:0
+```
+
+In that process, `cuda:2` is out of range because only one GPU is visible.
+BoxMOT does not change `CUDA_VISIBLE_DEVICES` during device selection. See
+[Device selection](../modes/track.md#device-selection) for accepted selectors.
+
+### TensorRT ReID rejects CPU
+
+TensorRT ReID inference requires a CUDA device. Set `--device cuda:0` in the
+CLI or `device="cuda:0"` on the ReID specification, adjusting the logical index
+for the GPU you want to use. An explicit CPU selection raises an error.
+
+### TensorRT is installed but import still fails
+
+Install TensorRT explicitly in the application environment:
+
+```bash
+python -m boxmot.engine.cli install \
+  --requirement 'nvidia-tensorrt' \
+  --extra-index-url https://pypi.ngc.nvidia.com
+```
+
+If `import tensorrt` still fails, check that Python, CUDA, the NVIDIA driver,
+and the installed TensorRT wheel are compatible. An installed package's
+metadata can satisfy a dependency check while its native runtime cannot load.
+For export, also install the ONNX extra as shown in
+[TensorRT setup](../modes/install.md#tensorrt).
 
 ## OBB tracking
 

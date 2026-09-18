@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 import click
 
-from boxmot.engine.commands._options import _click_imgsz_default, _parse_imgsz, _parse_int_tuple
+from boxmot.engine.commands._options import _click_imgsz_default, _parse_device, _parse_imgsz, _parse_int_tuple
 from boxmot.engine.commands._support import _run_engine_workflow
 from boxmot.reid.exporters.config import build_export_namespace, load_export_defaults
 
@@ -63,7 +63,8 @@ def export_options(func: Callable) -> Callable:
         click.option(
             "--device",
             default=EXPORT_DEFAULTS.device,
-            help="CUDA device (e.g., '0', '0,1,2,3', or 'cpu')",
+            callback=_parse_device,
+            help="One device: cpu, mps, cuda:N, or N (e.g. 0). GPU lists are not supported.",
         ),
         click.option(
             "--optimize",

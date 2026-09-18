@@ -230,10 +230,13 @@ def load_detector_profile(reference: str | Path) -> dict[str, Any]:
 
 
 def _detector_backend(identifier: str, artifact: str) -> str:
+    """Distinguish Ultralytics checkpoints from Hugging Face RT-DETR snapshots."""
     normalized = f"{identifier} {Path(artifact).name}".lower()
     if "yolox" in normalized:
         return "yolox"
     if "rtdetr" in normalized or "rt-detr" in normalized:
+        if Path(artifact).suffix.lower() == ".pt" and "rtdetr_v2_" not in normalized:
+            return "ultralytics"
         return "rtdetr"
     return "ultralytics"
 
@@ -331,11 +334,14 @@ def _rtdetr_snapshot_artifact(reference: str | Path) -> tuple[Path, str] | None:
 def resolve_detector_spec(
     reference: str | Path | Mapping[str, Any],
     *,
-    geometry: str,
+    geometry: str | None = None,
     allow_download: bool = True,
     artifact_resolver: ArtifactResolver = resolve_artifact,
 ) -> tuple[DetectorSpec, dict[str, Any]]:
-    """Resolve a detector ID, YAML mapping, or artifact into a hashed spec."""
+    """Resolve a detector reference, retaining authored geometry unless constrained."""
+
+    if geometry is not None and geometry not in ("auto", "aabb", "obb"):
+        raise ConfigurationError("Detector geometry must be one of: auto, aabb, obb.")
 
     config_path: Path | None = None
     if isinstance(reference, Mapping):
@@ -345,7 +351,7 @@ def resolve_detector_spec(
         if artifact_path is not None:
             payload, config_path = _direct_detector_payload(
                 artifact_path,
-                geometry=geometry,
+                geometry=geometry or "auto",
             )
         else:
             authored = load_component_mapping(reference)
@@ -369,17 +375,20 @@ def resolve_detector_spec(
                         artifact_path, artifact_uri = rtdetr_snapshot
                     payload, config_path = _direct_detector_payload(
                         artifact_path,
-                        geometry=geometry,
+                        geometry=geometry or "auto",
                         artifact_uri=artifact_uri,
                     )
                 else:
                     config_path = Path(profile["config_path"])
                     payload = _detector_profile_payload(profile)
-    configured_geometry = str(payload.get("geometry_mode") or geometry)
-    if configured_geometry not in {"auto", geometry}:
+    configured_geometry = str(payload.get("geometry_mode") or "auto")
+    if configured_geometry not in {"auto", "aabb", "obb"}:
+        raise ConfigurationError("Detector geometry_mode must be one of: auto, aabb, obb.")
+    if geometry not in (None, "auto") and configured_geometry not in {"auto", geometry}:
         raise ConfigurationError(
             f"Detector geometry_mode {configured_geometry!r} does not match requested build geometry {geometry!r}."
         )
+    resolved_geometry = configured_geometry if geometry in (None, "auto") else geometry
     backend = str(payload.get("backend") or "")
     path, uri, expected_hash = required_artifact_values(payload, component="Detector")
     artifact = resolve_component_artifact(
@@ -402,7 +411,7 @@ def resolve_detector_spec(
         precision=str(payload.get("precision") or "fp32"),
         options=component_options(payload.get("options")),
         preprocessing=str(payload.get("preprocessing") or "default"),
-        geometry_mode=geometry,
+        geometry_mode=resolved_geometry,
     )
     return spec, {"spec": asdict(spec), "artifact": artifact_provenance(artifact)}
 

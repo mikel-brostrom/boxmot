@@ -1,4 +1,4 @@
-"""Validate and restore the fixed KF calibration of a resumed tuning run."""
+"""Record and restore calibrated KF priors held fixed during parameter search."""
 
 from __future__ import annotations
 
@@ -10,16 +10,18 @@ from typing import Any
 
 import yaml
 
-from boxmot.engine.tracker_config import resolve_tracker_options
-from boxmot.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
+from boxmot.engine.config.trackers import resolve_tracker_options
+from boxmot.engine.tuning.kalman_refinement import is_kalman_option
+from boxmot.trackers.common.config import flatten_tracker_options
+from boxmot.trackers.common.motion.kalman_filters.noise import KALMAN_NOISE_OPTIONS, KALMAN_TIMING_OPTIONS
 
 CALIBRATED_KF_OPTIONS = (
     *KALMAN_NOISE_OPTIONS,
     *KALMAN_TIMING_OPTIONS,
-    "variable_dt",
-    "adaptive_kf",
+    "kalman.variable_dt",
+    "kalman.adaptive_kf",
 )
-_REQUIRED_OPTIONS = (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS, "variable_dt")
+_REQUIRED_OPTIONS = (*KALMAN_NOISE_OPTIONS, *KALMAN_TIMING_OPTIONS, "kalman.variable_dt")
 
 
 def _metadata_selection(value: Any, *, key: str) -> tuple:
@@ -65,6 +67,15 @@ def _validate_metadata(args: Any, report: Mapping[str, Any]) -> None:
             raise ValueError(f"Saved tuning calibration {name} differs from this run; start a new tuning run.")
 
 
+def record_tuning_calibration(report_path: Path, fixed_options: Mapping[str, Any]) -> None:
+    """Record calibrated settings that search must preserve when tuning resumes."""
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    report["tuning"] = {"fixed_options": dict(fixed_options)}
+    temporary = report_path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(report, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+    temporary.replace(report_path)
+
+
 def load_tuning_calibration(
     args: Any,
     tune_dir: Path,
@@ -104,6 +115,8 @@ def load_tuning_calibration(
         saved_yaml = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise ValueError(f"Saved tuning calibration profile is malformed: {config_path}") from exc
+    if isinstance(saved_yaml, Mapping):
+        saved_yaml = flatten_tracker_options(saved_yaml)
     if not isinstance(saved_yaml, Mapping) or any(name not in saved_yaml for name in _REQUIRED_OPTIONS):
         raise ValueError(
             "Saved tuning calibration profile is incomplete; all KF scales and timing settings are required."
@@ -112,7 +125,7 @@ def load_tuning_calibration(
     saved_args.tracker_config = config_path
     saved_args.variable_dt = None
     saved_config = resolve_tracker_options(saved_args, include_defaults=True, stamp_timing=True)
-    expected_keys = {name for name in CALIBRATED_KF_OPTIONS if name in saved_config}
+    expected_keys = {name for name in saved_config if name in CALIBRATED_KF_OPTIONS or is_kalman_option(name)}
     if set(fixed) != expected_keys or any(name not in saved_yaml for name in expected_keys):
         raise ValueError(
             "Saved tuning calibration fixed_options must contain every applicable KF prior and timing setting."
@@ -136,4 +149,4 @@ def load_tuning_calibration(
     return config, fixed
 
 
-__all__ = ("CALIBRATED_KF_OPTIONS", "load_tuning_calibration")
+__all__ = ("CALIBRATED_KF_OPTIONS", "load_tuning_calibration", "record_tuning_calibration")

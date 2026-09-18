@@ -36,7 +36,7 @@ from numpy.typing import NDArray
 
 from boxmot.structures import Boxes, Detections, Frame, MaskBatch
 from boxmot.trackers import TrackerSpec, create_tracker
-from boxmot.trackers.registry import TRACKER_MAPPING, supported_native_trackers
+from boxmot.trackers.common.registry import TRACKER_MAPPING, supported_native_trackers
 from boxmot.utils import logger as LOGGER
 
 FloatArray = NDArray[np.float32]

@@ -17,12 +17,12 @@ from typing import Any
 from platformdirs import user_cache_path
 
 from boxmot.components.artifacts import ResolvedArtifact, resolve_artifact
+from boxmot.datasets.config import resolve_dataset_storage_root
 from boxmot.datasets.manifest import canonical_json_bytes
 from boxmot.engine.materialization.catalog import (
     SourceCatalog,
     catalog_mot_dataset,
     inspect_catalog_file,
-    resolve_dataset_root,
 )
 from boxmot.engine.materialization.metadata_cache import (
     FileMetadataCache,
@@ -121,7 +121,7 @@ def default_evaluation_catalog_cache_path(
 ) -> Path:
     """Return the canonical source-metadata cache shared with materialization."""
 
-    dataset_root = resolve_dataset_root(config, data_root)
+    dataset_root = resolve_dataset_storage_root(config, data_root)
     return default_source_metadata_cache_path(dataset_root)
 
 
@@ -133,7 +133,7 @@ def _legacy_evaluation_catalog_cache_path(
 ) -> Path:
     """Return the pre-shared-cache path for backward-compatible reads."""
 
-    dataset_root = resolve_dataset_root(config, data_root)
+    dataset_root = resolve_dataset_storage_root(config, data_root)
     namespace = {
         "dataset_root": str(dataset_root),
         "dataset_id": str(config.get("id") or ""),

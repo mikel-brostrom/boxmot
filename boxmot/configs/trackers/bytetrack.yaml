@@ -1,49 +1,76 @@
+# Shared history/display controls; track_buffer owns lost-track lifetime.
+max_age: {}
+max_obs: {}
+min_hits: {}
+
+# Association uses match_thresh and the tracker's second-pass cost thresholds.
+iou_threshold: {}
+
 min_conf:
   type: uniform
-  default: 0.1  # from the default parameters
   range: [0.1, 0.3]
 
 track_thresh:
   type: uniform
-  default: 0.6  # from the default parameters
   range: [0.4, 0.7]
 
 track_buffer:
   type: qrandint
-  default: 30  # from the default parameters
   range: [10, 61, 10]  # step size of 10, upper bound exclusive
 
 match_thresh:
   type: uniform
-  default: 0.9  # from the default parameters
   range: [0.7, 0.9]
 
 asso_func:
   type: choice
-  default: iou
   options: [iou, giou, diou, ciou, hmiou, centroid]
 
 frame_rate:
   type: choice
-  default: 30  # from the default parameters
   options: [25, 30]  # static choice for Ray Search
 
 # Timing and reference-prior units stay fixed across all tuning trials.
-variable_dt:
-  default: false
-kf_time_unit:
-  default: null
-kf_reference_dt_s:
-  default: 0.03333333333333333
 
-# Fixed runtime covariance defaults; --calibrate-kf supplies fitted values.
-kf_process_position_scale:
-  default: 1.0
-kf_process_velocity_scale:
-  default: 1.0
-kf_measurement_noise_scale:
-  default: 1.0
-kf_initial_position_scale:
-  default: 1.0
-kf_initial_velocity_scale:
-  default: 1.0
+kalman:
+  variable_dt:
+    default: false
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted values.
+  noise:
+    time_unit:
+      default: null
+    reference_dt_s:
+      default: 0.03333333333333333
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+
+# Optional EdgeTAM guidance; searched only with --edgetam.
+edgetam:
+  min_coverage:
+    type: uniform
+    default: 0.90
+    range: [0.50, 1.0]
+
+  min_fill:
+    type: uniform
+    default: 0.05
+    range: [0.01, 0.25]
+
+  prompt_overlap:
+    type: uniform
+    default: 0.10
+    range: [0.01, 0.50]
+
+  max_objects:
+    type: choice
+    default: 96
+    options: [8, 16, 24, 32, 64, 96]

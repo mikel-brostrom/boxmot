@@ -6,7 +6,7 @@ import torch
 
 from boxmot.native.trackers import bytetrack as native_binding
 from boxmot.structures import Detections, OrientedBoxes, Tracks
-from boxmot.trackers.box.bytetrack import native as native_module
+from boxmot.trackers.bytetrack import native as native_module
 
 from ._helpers import detections_from_rows, empty_native_batch, update_rows, update_tracks
 

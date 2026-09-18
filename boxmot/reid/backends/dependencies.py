@@ -3,7 +3,7 @@ from __future__ import annotations
 import platform
 from typing import Any, Iterable, Sequence
 
-from boxmot.utils.checks import requirement_satisfied
+from boxmot.utils.dependencies import require_packages, requirement_satisfied
 
 ONNX_RUNTIME_VERSION = "==1.24.3"
 ONNX_RUNTIME_MIN_VERSION = ">=1.18.1"
@@ -56,19 +56,22 @@ def reid_backend_install_args(backend: str) -> tuple[str, ...]:
     return REID_BACKEND_INSTALL_ARGS.get(backend.strip().lower(), ())
 
 
-def ensure_reid_backend_requirements(
-    checker: Any,
+def require_reid_backend_requirements(
     backend: str,
     *,
     device: Any | None = None,
     requirements: Iterable[str] | None = None,
     extra_args: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
-    """Install the first acceptable runtime package when no option is present."""
+    """Validate an acceptable runtime and explain how to install missing packages."""
     runtime_requirements = tuple(requirements or reid_backend_requirements(backend, device=device))
     if any(requirement_satisfied(requirement) for requirement in runtime_requirements):
         return runtime_requirements
 
     install_args = tuple(extra_args) if extra_args is not None else reid_backend_install_args(backend)
-    checker.check_packages((runtime_requirements[0],), extra_args=install_args or None)
+    require_packages(
+        (runtime_requirements[0],),
+        purpose=f"{backend} ReID runtime",
+        extra_args=install_args,
+    )
     return runtime_requirements

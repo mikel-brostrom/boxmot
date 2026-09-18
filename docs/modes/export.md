@@ -3,7 +3,10 @@
 Use `export` to convert ReID models to TorchScript, ONNX, OpenVINO, TensorRT,
 native Core ML, or TFLite.
 
-Format-specific Python packages are installed on first use when possible. TensorRT export also attempts to install `nvidia-tensorrt`, but the resulting wheel still needs a compatible CUDA/NVIDIA runtime.
+Install format-specific dependencies explicitly before exporting, for example
+with `boxmot install --extra onnx`. Exporters validate their requirements and
+report missing packages. See [Install dependencies](install.md) for other
+extras and TensorRT setup.
 
 TensorRT and OpenVINO use ONNX as an intermediate. If you request only `engine` or `openvino`, BoxMOT creates or reuses a fresh `.onnx` file next to the source weights before building the requested format.
 
@@ -14,6 +17,10 @@ compiled package resident. Conversion workers have configurable time and RAM
 limits to prevent runaway Apple graph compilation.
 
 ## Examples
+
+`--device` follows the shared [device selection rules](track.md#device-selection).
+Choose a device supported by the requested export format; TensorRT requires
+CUDA, while the Core ML example below performs conversion on CPU.
 
 !!! example
 

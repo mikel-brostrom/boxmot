@@ -1,0 +1,73 @@
+# Search metadata for the upstream KITTI car settings in EagerMotConfig.
+det_thresh:
+  type: uniform
+  range: [0.0, 0.99]
+
+det_thresh_3d:
+  type: uniform
+  # KITTI replay maps the unbounded PointGNN score s to s / (1 + s).
+  range: [0.0, 0.99]
+
+max_age:
+  type: randint
+  range: [1, 11]
+
+# Stored image-box history is only used for display.
+max_obs: {}
+
+min_hits:
+  type: randint
+  range: [1, 5]
+
+max_age_2d:
+  type: randint
+  range: [1, 11]
+
+fusion_iou_threshold:
+  type: uniform
+  range: [0.01, 0.5]
+
+iou_threshold:
+  type: uniform
+  range: [0.01, 0.7]
+
+asso_func:
+  type: choice
+  options: [iou]
+
+first_matching_method:
+  type: choice
+  options: [dist_2d, dist_2d_dims, dist_2d_full, iou_3d]
+
+distance_threshold:
+  type: uniform
+  # Positive distance bound for dist_* methods, in the 3D input's length units.
+  range: [0.1, 8.0]
+
+iou_3d_threshold:
+  type: uniform
+  # Only first_matching_method=iou_3d uses this dimensionless threshold.
+  range: [0.01, 0.5]
+
+kalman:
+  is_angular:
+    type: choice
+    default: false
+    options: [false, true]
+
+  # Fixed covariance defaults; --calibrate-kf supplies fitted 3D values.
+  noise:
+    process_position_scale:
+      default: 1.0
+    process_velocity_scale:
+      default: 1.0
+    measurement_noise_scale:
+      default: 1.0
+    initial_position_scale:
+      default: 1.0
+    initial_velocity_scale:
+      default: 1.0
+    time_unit:
+      default: frames
+    reference_dt_s:
+      default: 0.03333333333333333

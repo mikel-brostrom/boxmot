@@ -125,7 +125,7 @@ jobs:
           source .venv/bin/activate
           boxmot build
           python - <<'PY'
-          from boxmot.trackers.registry import supported_native_trackers
+          from boxmot.trackers.common.registry import supported_native_trackers
           names = supported_native_trackers()
           print("Registered cpp backends:", list(names))
           assert names == ("botsort", "bytetrack", "occluboost", "ocsort", "sfsort")
@@ -290,12 +290,18 @@ jobs:
       - name: Install requirements
         shell: bash  # for Windows compatibility
         run: |
-          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra trackeval --group test
+          uv sync --locked --no-default-groups --extra cpu --extra yolo --extra mots --extra trackeval --group test
 
       - name: Check metric parity with TrackEval
         shell: bash
         run: |
-          .venv/bin/python -m pytest -q -s tests/unit/engine/eval/test_trackeval_parity.py
+          .venv/bin/python -m pytest -q -s \
+            tests/unit/engine/eval/test_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_trackeval_parity.py \
+            tests/unit/engine/eval/test_mots_metrics.py \
+            tests/unit/engine/eval/test_mots_replay.py \
+            tests/unit/engine/eval/test_kitti_boxes_metrics.py \
+            tests/unit/engine/eval/test_kitti_mots.py
 
       - name: Load materialized detections and embeddings
         run: |
@@ -563,9 +569,12 @@ jobs:
       - name: Test tracking with seg models
         env:
           IMG: ./assets/MOT17-mini/train/MOT17-02-FRCNN/img1/000001.jpg
+          TRACKERS: "bytetrack maf_hda"
         run: |
           source .venv/bin/activate
-          boxmot track --tracker bytetrack --detector "$BOXMOT_CI_SEG_DETECTOR" --source $IMG
+          for tracker in $TRACKERS; do
+            boxmot track --tracker "$tracker" --detector "$BOXMOT_CI_SEG_DETECTOR" --source "$IMG"
+          done
   
   export:
     runs-on: ubuntu-latest
@@ -694,6 +703,13 @@ jobs:
     outputs:
       status: ${{ job.status }}
     timeout-minutes: 30
+    env:
+      # Bound numerical threads in pytest workers and their spawned children.
+      OMP_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      # Python 3.12 line coverage can use the lower-overhead monitoring core.
+      COVERAGE_CORE: sysmon
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -703,12 +719,15 @@ jobs:
       - run: |
           # The dedicated export job installs and smoke-tests export runtimes.
           # The unit suite only needs the runtime/test stacks it imports directly.
-          uv sync --locked --no-default-groups --extra cpu \
+          # Other required jobs validate freshness with --locked. Use the lock
+          # directly here to avoid resolving unused Git dependency groups again.
+          uv sync --frozen --no-default-groups --extra cpu \
             --extra yolo \
             --extra evolve \
             --extra service \
+            --extra mots \
             --group test
-      - name: Pytest tests  # after tracking options as this does not download models
+      - name: Pytest tests
         env:
           # directory of PyPi package to be tested
           PACKAGE_DIR: boxmot
@@ -721,7 +740,9 @@ jobs:
           .venv/bin/python -m pytest \
             --cov="$PACKAGE_DIR" \
             --cov-report=html \
-            -v -s \
+            -n 2 --dist worksteal \
+            -q -ra --durations=30 \
+            --junitxml=test-results.xml \
             --ignore=tests/ci \
             --ignore=tests/unit/native \
             --ignore=tests/unit/tools \
@@ -733,6 +754,13 @@ jobs:
         with:
           name: coverage-report
           path: htmlcov/
+          retention-days: 14
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
           retention-days: 14
   # test-gpu:
   #   runs-on: gpu-latest

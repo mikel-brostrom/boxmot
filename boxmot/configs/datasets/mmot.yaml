@@ -19,6 +19,13 @@ splits:
     annotations: test/mot
     has_ground_truth: true
 
+resources:
+  dataset:
+    type: per_split
+    uris:
+      train: hf://Lekim89/mmot/train
+      test: hf://Lekim89/mmot/test
+
 classes:
   target:
     car: 0

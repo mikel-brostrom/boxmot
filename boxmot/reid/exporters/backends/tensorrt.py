@@ -1,4 +1,8 @@
-from boxmot.reid.backends.dependencies import ensure_reid_backend_requirements
+from pathlib import Path
+
+import torch
+
+from boxmot.reid.backends.dependencies import require_reid_backend_requirements
 from boxmot.reid.exporters.backends.base import BaseExporter
 from boxmot.reid.exporters.backends.onnx import ensure_onnx_export
 from boxmot.utils import logger as LOGGER
@@ -30,17 +34,22 @@ class EngineExporter(BaseExporter):
         self.opset = opset
         self.workspace = workspace
 
-    def export(self):
-        assert (
-            self.im.device.type != "cpu"
-        ), "export running on CPU but must be on GPU, i.e. `python export.py --device 0`"
-        ensure_reid_backend_requirements(self.checker, "tensorrt")
+    def export(self) -> Path:
+        """Build an engine on the input's CUDA device and restore the caller's device."""
+        if self.im.device.type != "cuda":
+            raise ValueError("TensorRT export requires a CUDA device; use --device cuda:N.")
+        require_reid_backend_requirements("tensorrt")
+        with torch.cuda.device(self.im.device):
+            return self._export_on_device()
+
+    def _export_on_device(self) -> Path:
+        """Convert the graph while its selected CUDA device is current."""
         try:
             import tensorrt as trt
         except ImportError as exc:
             raise ImportError(
-                "TensorRT auto-install completed, but the 'tensorrt' module still "
-                "could not be imported. Check CUDA, Python, and NVIDIA package compatibility."
+                "TensorRT is installed, but the 'tensorrt' module could not be imported. "
+                "Check CUDA, Python, and NVIDIA package compatibility."
             ) from exc
 
         onnx_file = self.export_onnx()

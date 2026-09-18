@@ -119,8 +119,9 @@ class TrackerManager:
     def _tracker_spec(self, request: FrameRequest) -> TrackerSpec:
         options: dict[str, object] = {
             "asso_func": self.settings.asso_func,
-            "variable_dt": self.settings.variable_dt,
         }
+        if self.settings.tracker_type != "sfsort":
+            options["kalman.variable_dt"] = self.settings.variable_dt
         if self.settings.tracker_type in {"bytetrack", "botsort"}:
             options["frame_rate"] = request.frame_rate
         return TrackerSpec(

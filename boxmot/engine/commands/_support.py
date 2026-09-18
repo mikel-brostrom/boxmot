@@ -14,6 +14,7 @@ from click.core import ParameterSource
 _WORKFLOW_SETUP_TITLES = {
     "boxmot.engine.materialization.workflow": "Dataset Materialization",
     "boxmot.engine.eval.evaluator": "Evaluation",
+    "boxmot.engine.eval.saved_detections": "Evaluation",
 }
 
 
@@ -65,7 +66,7 @@ def _build_cli_namespace(
 ):
     """Build a normalized engine namespace while retaining explicit CLI provenance."""
 
-    from boxmot.engine.config import build_mode_namespace
+    from boxmot.engine.config.runtime import build_mode_namespace
 
     return build_mode_namespace(mode, payload, explicit_keys=_explicit_cli_keys(ctx))
 
@@ -77,6 +78,18 @@ def _run_engine_workflow(module_name: str, args: Any) -> Any:
     rendered an error, it marks the exception so Click can exit cleanly without
     printing a second traceback.
     """
+
+    # Evaluation and tuning resolve image builds and sensor datasets themselves.
+    if (
+        module_name not in {"boxmot.engine.eval.evaluator", "boxmot.engine.tuning.tuner"}
+        and getattr(args, "tracker", None) is not None
+    ):
+        from boxmot.engine.config.trackers import validate_image_tracker
+
+        try:
+            validate_image_tracker(str(args.tracker))
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
 
     with _workflow_setup(_WORKFLOW_SETUP_TITLES.get(module_name), "Preparing workflow…"):
         try:
@@ -153,12 +166,26 @@ def _prepare_replay_build(
     split: str | None,
     tracker: str,
     fps: float | None,
+    tracker_config: str | Path | None = None,
+    eval_masks: bool = False,
+    postprocessing: tuple[str, ...] = (),
     allow_noncanonical_build: bool = False,
+    runtime_device: bool = False,
 ) -> tuple[str | None, str | None, str | Path]:
     """Resolve replay inputs and reuse or create one canonical build before dispatch."""
 
-    from boxmot.engine.experiment_config import ConfigurationError, resolve_matching_experiment_path
-    from boxmot.trackers.registry import get_tracker_definition
+    from boxmot.engine.config.experiments import (
+        ConfigurationError,
+        resolve_experiment_config,
+        resolve_matching_experiment_path,
+    )
+    from boxmot.engine.config.trackers import validate_image_tracker
+    from boxmot.trackers.common.registry import get_tracker_definition
+
+    try:
+        validate_image_tracker(tracker)
+    except ValueError as exc:
+        raise click.UsageError(str(exc)) from exc
 
     components = tuple(name for name, value in (("--detector", detector), ("--reid", reid)) if value)
     if experiment and components:
@@ -175,10 +202,16 @@ def _prepare_replay_build(
             f"{mode} with --dataset requires --detector for automatic materialization, or --build to replay an "
             "existing materialized build."
         )
-    if build_ref is not None and _is_option_explicit(ctx, "device"):
+    if build_ref is not None and _is_option_explicit(ctx, "device") and not runtime_device:
         raise click.UsageError("--device applies only when --build is omitted for automatic materialization.")
     if build_ref is None and allow_noncanonical_build:
         raise click.UsageError("--allow-noncanonical-build requires an explicit --build.")
+
+    if experiment and mode == "tune":
+        try:
+            resolve_experiment_config(experiment, split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
 
     if detector is not None:
         title = "Tuning" if mode == "tune" else "Evaluation"
@@ -190,13 +223,54 @@ def _prepare_replay_build(
                     )
                 )
             except (ConfigurationError, FileNotFoundError) as exc:
-                raise click.UsageError(str(exc)) from exc
+                raise click.UsageError(f"--detector selection: {exc}") from exc
         dataset = None
 
     if build_ref is not None:
         return experiment, dataset, build_ref
 
+    if eval_masks:
+        try:
+            resolved = resolve_experiment_config(str(experiment), split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        from boxmot.datasets.config import dataset_modalities
+
+        selected_dataset = resolved["dataset"]
+        if (
+            dataset_modalities(selected_dataset, selected_dataset["split"]).get("ground_truth", {}).get("format")
+            != "instance-png"
+        ):
+            raise click.UsageError("--eval-masks requires a KITTI-MOTS dataset.")
+
+    if postprocessing:
+        try:
+            resolved = resolve_experiment_config(str(experiment), split=split, mode=mode)
+        except (ConfigurationError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
+        if resolved["dataset"]["box_type"] != "aabb":
+            raise click.UsageError("--postprocessing requires an image AABB dataset.")
+
     capabilities = get_tracker_definition(tracker).capabilities
+    # Materialization resolves whether embeddings come from the detector or ReID.
+    publish_embeddings = capabilities.requires_embeddings or "gta" in postprocessing
+    if capabilities.accepts_embeddings and not publish_embeddings:
+        from boxmot.trackers.common.config import load_tracker_config
+
+        try:
+            options = load_tracker_config(tracker, tracker_config)
+            publish_embeddings = options.get("use_embeddings", False)
+            if not isinstance(publish_embeddings, bool):
+                raise ValueError("use_embeddings must be a bool.")
+            if mode == "tune" and not publish_embeddings:
+                from boxmot.engine.tuning.search_space import flatten_yaml_config, load_yaml_config
+
+                # A scalar profile sets the baseline; searchable settings can
+                # still enable appearance in later trials, using cached features.
+                schema = flatten_yaml_config(load_yaml_config(tracker))
+                publish_embeddings = True in schema.get("use_embeddings", {}).get("options", ())
+        except (TypeError, ValueError, FileNotFoundError) as exc:
+            raise click.UsageError(str(exc)) from exc
     materialize_args = _build_cli_namespace(
         ctx,
         "materialize",
@@ -207,8 +281,8 @@ def _prepare_replay_build(
             "device": device,
             "fps": fps,
             "publish_image_refs": True,
-            "publish_masks": capabilities.requires_masks,
-            "publish_embeddings": capabilities.accepts_embeddings,
+            "publish_masks": capabilities.requires_masks or eval_masks,
+            "publish_embeddings": publish_embeddings,
             "plan_path": None,
             "plan_overrides": (),
             "resume": True,

@@ -63,7 +63,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from boxmot.engine.config import build_mode_namespace
+from boxmot.engine.config.runtime import build_mode_namespace
 from boxmot.engine.eval.evaluator import run_eval
 from boxmot.engine.eval.results import build_mot_feedback
 

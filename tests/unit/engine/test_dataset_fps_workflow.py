@@ -23,6 +23,7 @@ import boxmot.engine.materialization.workflow as workflow
 from boxmot.datasets import CachedVisionDataset, DatasetManifest
 from boxmot.detectors import DetectorCapabilities, DetectorSpec
 from boxmot.engine.cli import boxmot
+from boxmot.engine.config import experiments as experiment_config
 from boxmot.engine.eval.replay import iter_cached_tracks, tracks_to_mot_rows
 from boxmot.engine.materialization.catalog import catalog_mot_dataset
 from boxmot.reid import ReIDEncoderSpec
@@ -154,6 +155,7 @@ def fps_case(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace
     encoder_spec = ReIDEncoderSpec("fixture", device="cpu", options=(("embedding_dim", 2),))
     detector_provenance = {"spec": {"backend": "fixture", "device": "cpu"}}
     encoder_provenance = {"spec": {"backend": "fixture", "device": "cpu"}}
+    monkeypatch.setattr(experiment_config, "resolve_experiment_config", lambda *_args, **_kwargs: experiment)
     for module in (workflow, evaluator):
         monkeypatch.setattr(module, "resolve_experiment_config", lambda *_args, **_kwargs: experiment)
         monkeypatch.setattr(
