@@ -9,6 +9,46 @@ import numpy as np
 from boxmot.trackers.common.geometry.obb import normalize_angle, transform_aabbs, transform_obbs
 
 
+def transform_xysr_kalman_centers(
+    means: np.ndarray,
+    covariances: np.ndarray,
+    transform: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply affine camera motion to XYSR centers and center velocities.
+
+    DeepOcSort estimates area and aspect ratio from detections. Its camera
+    correction rotates the center and velocity, leaving size and size
+    velocity unchanged. The same linear map propagates the full covariance,
+    preserving its cross terms and positive semidefiniteness. Propagating
+    the enclosing AABB's full Jacobian couples area and aspect uncertainty;
+    even small camera rotations can then destabilize the fitted XYSR filter.
+    """
+    original_means = np.asarray(means, dtype=np.float64)
+    if original_means.ndim == 3 and original_means.shape[1:] == (7, 1):
+        states = original_means[..., 0]
+    elif original_means.ndim == 2 and original_means.shape[1] == 7:
+        states = original_means
+    else:
+        raise ValueError(f"Expected XYSR means with shape (N, 7) or (N, 7, 1), got {original_means.shape}")
+    covariance_arr = np.asarray(covariances, dtype=np.float64)
+    if covariance_arr.shape != (len(states), 7, 7):
+        raise ValueError(f"Expected covariance shape {(len(states), 7, 7)}, got {covariance_arr.shape}")
+    matrix = np.asarray(transform, dtype=np.float64)
+    if matrix.shape not in ((2, 3), (3, 3)):
+        raise ValueError(f"Expected a 2x3 or 3x3 affine transform, got {matrix.shape}")
+    if matrix.shape == (3, 3) and not np.array_equal(matrix[2], [0.0, 0.0, 1.0]):
+        raise ValueError("XYSR center correction requires an affine transform")
+
+    transformed = states.copy()
+    linear, translation = matrix[:2, :2], matrix[:2, 2]
+    transformed[:, :2] = states[:, :2] @ linear.T + translation
+    transformed[:, 4:6] = states[:, 4:6] @ linear.T
+    jacobian = np.eye(7, dtype=np.float64)
+    jacobian[:2, :2] = jacobian[4:6, 4:6] = linear
+    transformed_covariances = jacobian @ covariance_arr @ jacobian.T
+    return transformed.reshape(original_means.shape), transformed_covariances
+
+
 def _transform_kalman_states(
     means: np.ndarray,
     covariances: np.ndarray,

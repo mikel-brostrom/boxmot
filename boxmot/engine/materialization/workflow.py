@@ -9,6 +9,8 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, Mapping, TypeVar
 
+import cv2
+
 from boxmot import __version__
 from boxmot.datasets.config import resolve_dataset_storage_root
 from boxmot.detectors import DetectorSpec
@@ -226,6 +228,10 @@ def materialize(
         getattr(args, "plan_path", None),
         tuple(getattr(args, "plan_overrides", ()) or ()),
     )
+    # GUI and headless wheels share the cv2 module. Record the implementation
+    # actually loaded: OpenCV releases can change decoded/resized model inputs
+    # without changing an authored component spec or its checkpoint.
+    image_runtime = {"opencv": cv2.__version__}
 
     progress.setup_status("Resolving detector artifact and fingerprint…")
     detector_spec, detector_provenance = resolve_detector_spec(detector_reference, geometry=geometry)
@@ -300,6 +306,7 @@ def materialize(
         semantic_config={
             "geometry": geometry,
             "class_id_map": {str(key): value for key, value in sorted(class_id_map.items())},
+            "image_runtime": image_runtime,
         },
     )
     stage_plans.append(detect_plan)
@@ -308,7 +315,9 @@ def materialize(
     native_encoder_fingerprint = None
     native_embedding_dim = None
     if publish.embeddings and capabilities.provides_embeddings:
-        native_encoder_fingerprint = fingerprint({"provider": "detector", "detector": detector_provenance})
+        native_encoder_fingerprint = fingerprint(
+            {"provider": "detector", "detector": detector_provenance, "image_runtime": image_runtime}
+        )
         candidate_dimension = detector_spec.option_values().get("embedding_dim")
         if candidate_dimension is not None:
             if isinstance(candidate_dimension, bool) or not isinstance(candidate_dimension, int):
@@ -323,6 +332,7 @@ def materialize(
             component=segmentor_provenance or {},
             upstream=(detect_plan.fingerprint,),
             depends_on=("detect",),
+            semantic_config={"image_runtime": image_runtime},
         )
         stage_plans.append(segment_plan)
         last_dependencies.append("segment")
@@ -331,7 +341,7 @@ def materialize(
     embedding_metadata = None
     encoder_fingerprint: str | None = None
     if encoder_spec is not None:
-        encoder_fingerprint = fingerprint(encoder_provenance)
+        encoder_fingerprint = fingerprint({"component": encoder_provenance, "image_runtime": image_runtime})
         embed_dependencies = ("detect",)
         embed_upstream = tuple(stage.fingerprint for stage in stage_plans if stage.name in set(embed_dependencies))
         embed_plan = _stage_plan(
@@ -340,6 +350,7 @@ def materialize(
             component=encoder_provenance or {},
             upstream=embed_upstream,
             depends_on=embed_dependencies,
+            semantic_config={"image_runtime": image_runtime},
         )
         stage_plans.append(embed_plan)
         last_dependencies.append("embed")
@@ -387,6 +398,7 @@ def materialize(
             **source_metadata,
             "boxmot_version": __version__,
             "geometry": geometry,
+            "image_runtime": image_runtime,
             "components": components,
             "component_fingerprints": {
                 name: None if value is None else fingerprint(value) for name, value in components.items()

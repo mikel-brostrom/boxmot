@@ -522,7 +522,7 @@ def main(args: Any) -> ValidationResult:
         with suppress_boxmot_logs(True, level="WARNING"):
             result = run_saved_detections(args, pipeline=pipeline)
         details = [
-            result.renderable(include_sequences=False, include_timings=bool(getattr(args, "show_timing", False))),
+            result.renderable(include_timings=bool(getattr(args, "show_timing", False))),
             Text(f"Results: {result.exp_dir}"),
         ]
         if getattr(args, "video_paths", ()):

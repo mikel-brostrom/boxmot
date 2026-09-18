@@ -167,7 +167,7 @@ class KalmanBoxTracker(SortBoxTrack):
 
     @classmethod
     def multi_camera_update(cls, tracks, affine: np.ndarray) -> None:
-        """Transform AABB states, observations and recovery histories together."""
+        """Correct affine camera motion without refitting the area/aspect state."""
         if tracks:
             transform_ocsort_tracks(tracks, affine, model=tracks[0].motion_model)
 

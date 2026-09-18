@@ -675,7 +675,7 @@ def _run_sensor_evaluation(
     with EvalWorkflowReporter(normalized).pipeline() as sensor_pipeline:
         result = replay(sensor_pipeline)
         details = [
-            result.renderable(include_sequences=False, include_timings=bool(getattr(normalized, "show_timing", False))),
+            result.renderable(include_timings=bool(getattr(normalized, "show_timing", False))),
             Text(f"Results: {result.exp_dir}"),
         ]
         if getattr(normalized, "video_paths", ()):
@@ -919,7 +919,6 @@ def main(args: argparse.Namespace) -> ValidationResult:
             else:
                 result = run_eval(args, prepare_cache=False, verbose=False, pipeline=pipeline)
         rendered = result.renderable(
-            include_sequences=result.summary_label == "single_class",
             include_timings=bool(getattr(args, "show_timing", False)),
         )
         if calibration is not None or getattr(args, "video_paths", ()):

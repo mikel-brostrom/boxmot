@@ -1,12 +1,16 @@
 """Evaluator owns optional visualization lifetime and leaves metrics replay intact."""
 
 import sys
+from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from boxmot.engine.eval import evaluator
 from boxmot.engine.eval.replay import ReplayProgressEvent, ReplayResult
+from boxmot.engine.eval.results import ValidationResult
+from tests.unit.engine._sensor_dataset_fixture import sensor_dataset_fixture
 
 
 def _args(tmp_path, **overrides):
@@ -27,6 +31,55 @@ def _args(tmp_path, **overrides):
             **overrides,
         }
     )
+
+
+@pytest.mark.parametrize("source", ("build", "saved_detections", "sensor"))
+def test_evaluation_cli_shows_sequences_for_named_class_results(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str
+) -> None:
+    """A class-keyed summary retains each sequence in the final evaluation panel."""
+    args = _args(tmp_path)
+    if source == "sensor":
+        args = SimpleNamespace(dataset=sensor_dataset_fixture(tmp_path / "dataset").dataset, tracker="eagermot")
+    result = ValidationResult(
+        benchmark="fixture",
+        raw={
+            "pedestrian": {
+                "HOTA": 71.1,
+                "per_sequence": {"sequence-a": {"HOTA": 70.0}, "sequence-b": {"HOTA": 72.2}},
+            }
+        },
+        summary_label="pedestrian",
+        summary={"HOTA": 71.1},
+        exp_dir=tmp_path / "output",
+        args=args,
+    )
+
+    def evaluate(*_args: Any, **_kwargs: Any) -> ValidationResult:
+        """Leave rendering real while avoiding tracking and metric computation."""
+        return result
+
+    if source == "saved_detections":
+        from boxmot.engine.eval import saved_detections
+
+        monkeypatch.setattr(saved_detections, "run_saved_detections", evaluate)
+        entrypoint = saved_detections.main
+    else:
+        if source == "sensor":
+            monkeypatch.setitem(
+                sys.modules, "boxmot.engine.eval.eagermot_kitti", SimpleNamespace(run_eagermot_kitti=evaluate)
+            )
+        else:
+            monkeypatch.setattr(evaluator, "run_eval", evaluate)
+        entrypoint = evaluator.main
+
+    assert entrypoint(args) is result
+    captured = capsys.readouterr()
+    output = captured.out + captured.err
+    assert "sequence-a" in output
+    assert "sequence-b" in output
+    assert "COMBINED (pedestrian)" in output
+    assert "71.10" in output
 
 
 @pytest.mark.parametrize("show,save", [(False, False), (True, False), (False, True), (True, True)])

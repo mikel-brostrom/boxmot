@@ -949,6 +949,60 @@ def test_workflow_reuses_prior_release_and_device_without_perception(
     assert manifest.counts["embeddings"] == manifest.counts["instances"] == 18
 
 
+def test_opencv_runtime_change_rebuilds_detection_and_embedding_artifacts(
+    monkeypatch: pytest.MonkeyPatch,
+    fps_case: SimpleNamespace,  # noqa: F811 - imported pytest fixture
+) -> None:
+    """A changed loaded cv2 implementation cannot reuse otherwise identical inputs."""
+
+    monkeypatch.setattr(cv2, "__version__", "4.14.0")
+    previous = materialize_fixture(fps_case, None)
+    previous_manifest = DatasetManifest.load(previous)
+    fps_case.detector.seen.clear()
+    fps_case.encoder.seen.clear()
+
+    monkeypatch.setattr(cv2, "__version__", "4.11.0")
+    current = materialize_fixture(fps_case, None)
+    current_manifest = DatasetManifest.load(current)
+
+    assert current != previous
+    assert fps_case.detector.seen == list(range(1, 20))
+    assert fps_case.encoder.seen == [frame for frame in range(1, 20) if frame != 7]
+    assert previous_manifest.metadata["component_fingerprints"] == current_manifest.metadata["component_fingerprints"]
+    for manifest, version in ((previous_manifest, "4.14.0"), (current_manifest, "4.11.0")):
+        assert manifest.metadata["image_runtime"] == {"opencv": version}
+        for stage in manifest.stages:
+            if stage.name != "finalize":
+                assert stage.config["image_runtime"] == {"opencv": version}
+    assert (
+        previous_manifest.artifact("embeddings").metadata["encoder_fingerprint"]
+        != current_manifest.artifact("embeddings").metadata["encoder_fingerprint"]
+    )
+    caches = [
+        DatasetManifest.load(path.parent)
+        for path in (fps_case.root / "builds" / ".cache" / "detect").glob("*/manifest.json")
+    ]
+    assert {manifest.stages[0].config["image_runtime"]["opencv"] for manifest in caches} == {"4.14.0", "4.11.0"}
+
+    fps_case.detector.seen.clear()
+    fps_case.encoder.seen.clear()
+    reused = materialize_fixture(
+        fps_case,
+        None,
+        plan_overrides=(
+            "decode.workers=2",
+            "detect.batch_size=3",
+            "embed.batch_size=2",
+            "detect.workers=2",
+            "detect.executor=process",
+            "embed.workers=2",
+            "embed.executor=process",
+        ),
+    )
+    assert reused == current
+    assert fps_case.detector.seen == fps_case.encoder.seen == []
+
+
 def test_published_build_reuse_does_not_construct_perception_models(monkeypatch, tmp_path) -> None:
     sample = SourceSample(
         sample_id="default:sequence:0",

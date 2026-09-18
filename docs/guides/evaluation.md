@@ -27,7 +27,8 @@ boxmot eval \
 ```
 
 Supplying `--build` skips automatic preparation and evaluates exactly that
-build.
+build. The final results panel shows per-sequence metrics and a combined row
+for each evaluated class.
 
 Automatic preparation stores detector results independently from ReID output
 under `<selected-build-root>/.cache/detect` (by default,
@@ -35,6 +36,13 @@ under `<selected-build-root>/.cache/detect` (by default,
 dataset, detector, geometry, and class mapping therefore skip repeated detector
 inference and run only their remaining derived stages. Detector-native masks or
 embeddings bypass this geometry-only cache.
+
+Automatic preparation also records the OpenCV preprocessing version in build
+and detector-cache identities. Changing that runtime regenerates perception
+instead of reusing outputs from different resize kernels. `--no-cache-inputs`
+disables the mapped input cache used during tracker replay; it does not
+regenerate perception. An explicit `--build` continues to replay the selected
+artifacts.
 
 Tracker requirements are checked against published artifacts. For example, a
 configuration with `use_embeddings: true` requires embeddings in the build;

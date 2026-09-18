@@ -8,7 +8,11 @@ from collections.abc import Callable, Sequence
 import numpy as np
 
 from boxmot.trackers.common.geometry.obb import transform_aabbs, transform_obbs, transform_points
-from boxmot.trackers.common.motion.cmc.state import transform_aabb_kalman_states, transform_obb_kalman_states
+from boxmot.trackers.common.motion.cmc.state import (
+    transform_aabb_kalman_states,
+    transform_obb_kalman_states,
+    transform_xysr_kalman_centers,
+)
 from boxmot.trackers.common.motion.models import MotionModelAdapter
 
 
@@ -159,17 +163,25 @@ def transform_ocsort_tracks(
     centers = model.to_boxes(means)[:, :2]
     transform_observation_histories(tracks, transform, is_obb=is_obb)
     transform_directions(tracks, centers, transform, step=1e-3 if is_obb else 1.0, zero_input_to_zero=is_obb)
-    state_transform = transform_obb_kalman_states if is_obb else transform_aabb_kalman_states
     box_transform = transform_obbs if is_obb else transform_aabbs
-    transform_filter_histories(
-        [track.kf for track in tracks],
-        lambda means, covariances: state_transform(
+    matrix = np.asarray(transform)
+    projective = matrix.shape == (3, 3) and not np.array_equal(matrix[2], [0.0, 0.0, 1.0])
+
+    def transform_states(means: np.ndarray, covariances: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        if not is_obb and not projective:
+            return transform_xysr_kalman_centers(means, covariances, transform)
+        state_transform = transform_obb_kalman_states if is_obb else transform_aabb_kalman_states
+        return state_transform(
             means,
             covariances,
             transform,
             measurement_to_box=model.to_boxes,
             box_to_measurement=model.to_measurements,
             velocity_measurement_indices=(0, 1, 2, 4) if is_obb else (0, 1, 2),
-        ),
+        )
+
+    transform_filter_histories(
+        [track.kf for track in tracks],
+        transform_states,
         lambda measurements: model.to_measurements(box_transform(model.to_boxes(measurements), transform)),
     )
