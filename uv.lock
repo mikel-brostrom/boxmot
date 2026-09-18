@@ -1321,7 +1321,7 @@ wheels = [
 [[package]]
 name = "edgetam"
 version = "1.0"
-source = { git = "https://github.com/facebookresearch/EdgeTAM.git?rev=7711e012a30a2402c4eaab637bdb00a521302c91#7711e012a30a2402c4eaab637bdb00a521302c91" }
+source = { url = "https://github.com/facebookresearch/EdgeTAM/archive/7711e012a30a2402c4eaab637bdb00a521302c91.tar.gz" }
 dependencies = [
     { name = "hydra-core" },
     { name = "iopath" },
@@ -1336,6 +1336,7 @@ dependencies = [
     { name = "torchvision", version = "0.27.1+cu130", source = { registry = "https://download.pytorch.org/whl/cu130" }, marker = "extra == 'extra-6-boxmot-cu130'" },
     { name = "tqdm" },
 ]
+sdist = { hash = "sha256:9449e738d35a41d978989874532aee0b79d2ba14400d9ca0a8de3abeddc0d22e" }
 
 [[package]]
 name = "exceptiongroup"

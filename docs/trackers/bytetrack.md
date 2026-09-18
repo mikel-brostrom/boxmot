@@ -35,7 +35,8 @@ uv run --no-sync boxmot track --tracker bytetrack --tracker-backend python \
 
 Use `--extra cu130` instead of `--extra cpu` for CUDA. Repeat the selected
 PyTorch extra and mask-guidance group on later syncs. The group pins
-[facebookresearch/EdgeTAM](https://github.com/facebookresearch/EdgeTAM/tree/7711e012a30a2402c4eaab637bdb00a521302c91).
+[facebookresearch/EdgeTAM](https://github.com/facebookresearch/EdgeTAM/tree/7711e012a30a2402c4eaab637bdb00a521302c91)
+and downloads its source archive, avoiding a Git clone and repository history.
 `--edgetam` enables guidance using the default `edgetam.pt` checkpoint. It
 downloads the official full checkpoint into `./models/edgetam.pt`, verifies
 its published SHA-256, and reuses it thereafter. Use
