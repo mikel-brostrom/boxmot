@@ -159,7 +159,8 @@ predictions are excluded by these experiments. The multimodal experiment
 and generated ReID features. Caches include the selected reader options, so
 boxes-only and mask-enabled views remain distinct. If decoded images will not
 fit on disk, evaluation reads the original images. This saved-box workflow
-supports `eval` with one sequence worker. The `full` preset also supports
+supports parallel `eval`, using CPU count minus two workers, capped by the
+selected sequence count and with a minimum of one. The `full` preset also supports
 EagerMOT tuning; saved-box 2D tuning and calibration are not supported.
 
 For another physical layout, copy `kitti-mots.yaml` to your data folder and edit

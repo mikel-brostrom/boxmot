@@ -47,6 +47,7 @@ from boxmot.engine.eval.replay import (
     _publish_progress,
 )
 from boxmot.engine.eval.results import ValidationResult
+from boxmot.engine.eval.workers import shutdown_sequence_pool
 from boxmot.pipelines import PipelineResult
 from boxmot.structures import Boxes, Boxes3D, Frame, MaskBatch, MultimodalTracks, Tracks, Tracks3D
 from boxmot.trackers.common.config import flatten_tracker_options, nest_tracker_options
@@ -555,28 +556,6 @@ def _replay_kitti_sequence_task(payload: bytes) -> _KittiSequenceResult:
             close()
 
 
-def _shutdown_kitti_pool(executor: concurrent.futures.ProcessPoolExecutor, *, interrupted: bool) -> None:
-    """Stop interrupted CPU work before joining the pool and its queue threads."""
-    if interrupted:
-        # Python 3.11 has no public ProcessPoolExecutor.terminate_workers().
-        # Snapshot its child handles before shutdown clears them, and bound
-        # both graceful termination and a final kill of unresponsive children.
-        processes = tuple(executor._processes.values())
-        for process in processes:
-            if process.is_alive():
-                process.terminate()
-        deadline = time.monotonic() + 2.0
-        for process in processes:
-            process.join(timeout=max(0.0, deadline - time.monotonic()))
-        for process in processes:
-            if process.is_alive():
-                process.kill()
-        deadline = time.monotonic() + 2.0
-        for process in processes:
-            process.join(timeout=max(0.0, deadline - time.monotonic()))
-    executor.shutdown(wait=True, cancel_futures=True)
-
-
 def _run_parallel_sequences(
     tasks: tuple[_KittiSequenceTask, ...],
     workers: int,
@@ -672,7 +651,7 @@ def _run_parallel_sequences(
             future.cancel()
         try:
             if executor is not None and _pool is None:
-                _shutdown_kitti_pool(executor, interrupted=interrupted)
+                shutdown_sequence_pool(executor, interrupted=interrupted)
         finally:
             try:
                 # Termination can leave a partial message or a held queue lock.

@@ -88,7 +88,6 @@ def test_saved_dataset_dispatches_without_detector_and_preserves_reid(
         (["--tracker", "bytetrack", "--build", "a-build"], "does not support --build"),
         (["--tracker", "bytetrack", "--eval-3d"], "does not support --eval-3d"),
         (["--tracker", "bytetrack", "--calibrate-kf"], "does not support --calibrate-kf"),
-        (["--tracker", "bytetrack", "--sequence-workers", "2"], "requires --sequence-workers 1"),
     ],
 )
 def test_saved_dataset_rejects_unconsumed_or_missing_inputs(
@@ -228,3 +227,49 @@ def test_saved_experiment_tuning_fails_before_materialization_or_search(
 
     assert result.exit_code == 2, result.output
     assert "supports only eval; tune is not supported" in result.output
+
+
+@pytest.mark.parametrize(
+    "cpus,flags,expected,warning",
+    [
+        (8, [], 6, False),
+        (64, [], 9, False),
+        (2, [], 1, False),
+        (None, [], 1, False),
+        (8, ["--sequence-workers", "2"], 2, False),
+        (8, ["--sequence-workers", "20"], 9, False),
+        (8, ["--sequence", "0002"], 1, False),
+        (8, ["--show"], 1, True),
+        (8, ["--show", "--sequence-workers", "2"], 1, True),
+        (8, ["--show", "--sequence-workers", "1"], 1, False),
+    ],
+)
+def test_saved_dataset_sizes_processes_from_cpus_and_selected_sequences(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cpus: int | None, flags: list[str], expected: int, warning: bool
+) -> None:
+    """The setup panel and replay receive the same bounded worker count."""
+    from boxmot.engine.config import runtime
+
+    dataset = _saved_dataset(tmp_path)
+    config = yaml.safe_load(dataset.read_text())
+    names = [f"{index:04d}" for index in range(9)]
+    config["splits"]["val"]["sequences"] = names
+    for name in names:
+        (tmp_path / f"sequences/training/{name}/images").mkdir(parents=True, exist_ok=True)
+        (tmp_path / f"predictions/trackrcnn/training/{name}.txt").touch()
+        (tmp_path / f"labels/{name}.txt").touch()
+    dataset.write_text(yaml.safe_dump(config))
+    monkeypatch.setattr(runtime.os, "cpu_count", lambda: cpus)
+    command = importlib.import_module("boxmot.engine.commands.eval").eval
+    worker_option = next(option for option in command.params if option.name == "sequence_workers")
+    monkeypatch.setattr(worker_option, "default", 1)
+    captured = {}
+    monkeypatch.setitem(
+        sys.modules,
+        "boxmot.engine.eval.saved_detections",
+        SimpleNamespace(main=lambda args: captured.update(vars(args))),
+    )
+    result = CliRunner().invoke(boxmot, ["eval", "--dataset", str(dataset), "--tracker", "ocsort", *flags])
+    assert result.exit_code == 0, (result.output, result.exception)
+    assert captured["sequence_workers"] == expected
+    assert result.output.count("Warning: --show forces one sequence worker") == int(warning)

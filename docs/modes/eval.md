@@ -229,7 +229,11 @@ and IDF1 with KITTI visibility, distractor, and DontCare preprocessing.
 No TrackEval installation is required.
 
 Use `--sequence` to restrict the split and `--show` or `--save` for visualization.
-No detector or build is required. This workflow uses one sequence worker and
+No detector or build is required. This workflow uses CPU count minus two workers,
+capped by the selected sequence count and with a minimum of one. Set
+`--sequence-workers N` to override the worker count. Each worker owns its tracker
+and optional ReID encoder. Live preview (`--show`) forces one sequence worker
+and warns whenever it reduces the worker count. This workflow
 does not provide materialization, tuning, or KF calibration.
 
 ## Saved TrackR-CNN masks
@@ -663,9 +667,9 @@ the active worker count never exceeds the number of selected sequences.
 Use `--sequence-workers 1` to process sequences one at a time. The Rich panel
 reports frame progress separately for every sequence while those jobs run.
 
-Image-build previews and saved videos use serial replay. EagerMOT sensor
-replay runs serially with `--show`; `--save` alone supports parallel video
-writing.
+Image-build previews and saved videos use serial replay. Saved 2D preview forces
+one sequence worker with a warning when it reduces the count. EagerMOT sensor replay runs serially
+with `--show`. Saved 2D and EagerMOT both support parallel video writing with `--save` alone.
 
 EdgeTAM mask guidance defaults to one sequence worker. An explicit higher
 `--sequence-workers` value loads a separate model and temporal state in each

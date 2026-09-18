@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -92,6 +93,7 @@ def _args(root: Path, dataset: Path, **options) -> SimpleNamespace:
             "sequence_names": (),
             "reid": "fixture-reid",
             "cache_inputs": False,
+            "sequence_workers": 1,
             **options,
         }
     )
@@ -331,3 +333,85 @@ def test_saved_boxes_skip_image_pixels_when_features_are_disabled(
         _args(tmp_path, dataset, reid=None, tracker_config=str(profile), cache_inputs=cache_inputs)
     )
     assert result.raw["car"]["HOTA"] == 100
+
+
+def _initialize_stub_saved_worker(progress_queue, spec, encoder_spec, cache_root) -> None:
+    """Install a deterministic encoder inside a genuinely spawned child."""
+    saved_detections.create_reid_encoder = lambda spec: _Encoder()
+    saved_detections._initialize_saved_worker(progress_queue, spec, encoder_spec, cache_root)
+
+
+def _fail_saved_sequence_task(task):
+    """Exercise exception transport and pool cleanup across a real process boundary."""
+    raise ValueError("invalid sequence payload")
+
+
+@pytest.mark.parametrize("cache_inputs", (False, True))
+@pytest.mark.parametrize("with_reid", (False, True))
+def test_saved_parallel_replay_matches_serial_and_reports_child_progress(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cache_inputs: bool, with_reid: bool
+) -> None:
+    dataset = _dataset(tmp_path, sequences=("0000", "0001"))
+    options = {"cache_inputs": cache_inputs, "save": cache_inputs and not with_reid}
+    if with_reid:
+        _stub_encoder(monkeypatch, _Encoder())
+        monkeypatch.setattr(saved_detections, "_initialize_saved_worker", _initialize_stub_saved_worker)
+    else:
+        options.update(tracker="ocsort", reid=None)
+    serial = saved_detections.run_saved_detections(_args(tmp_path, dataset, **options))
+    events = []
+    run_parallel = saved_detections._run_saved_sequence_tasks
+
+    def record(tasks, **kwargs):
+        kwargs["progress_callback"] = events.append
+        return run_parallel(tasks, **kwargs)
+
+    monkeypatch.setattr(saved_detections, "_run_saved_sequence_tasks", record)
+    parallel = saved_detections.run_saved_detections(_args(tmp_path, dataset, sequence_workers=2, **options))
+    assert parallel.raw == serial.raw
+    assert parallel.timings["frames"] == serial.timings["frames"] == 6
+    assert parallel.args.sequence_workers == 2
+    manifest = json.loads((parallel.exp_dir / "run.json").read_text())
+    assert manifest["sequence_workers"] == 2
+    assert manifest["status"] == "complete"
+    assert set(manifest["sequence_processes"]) == {"0000", "0001"}
+    assert os.getpid() not in manifest["sequence_processes"].values()
+    for name in ("0000", "0001"):
+        assert (parallel.exp_dir / f"{name}.txt").read_bytes() == (serial.exp_dir / f"{name}.txt").read_bytes()
+        assert any(event.sequence_id == name and event.status == "running" for event in events)
+        assert any(event.sequence_id == name and event.status == "completed" for event in events)
+    if options["save"]:
+        assert [path.name for path in parallel.args.video_paths] == ["0000.mp4", "0001.mp4"]
+        assert all(path.is_file() for path in parallel.args.video_paths)
+
+
+def test_saved_worker_failure_marks_run_failed_and_joins_processes(monkeypatch, tmp_path: Path) -> None:
+    from multiprocessing import active_children
+
+    dataset = _dataset(tmp_path, sequences=("0000", "0001"))
+    before = {process.pid for process in active_children()}
+    monkeypatch.setattr(saved_detections, "_replay_saved_sequence_task", _fail_saved_sequence_task)
+    args = _args(tmp_path, dataset, tracker="ocsort", reid=None, sequence_workers=2)
+    with pytest.raises(RuntimeError, match="Saved 2D tracking failed for sequence"):
+        saved_detections.run_saved_detections(args)
+    assert {process.pid for process in active_children()} <= before
+    assert json.loads((args.exp_dir / "run.json").read_text())["status"] == "failed"
+
+
+@pytest.mark.parametrize("workers", (None, 1, 2))
+def test_saved_preview_warns_when_reducing_worker_count(
+    monkeypatch, tmp_path: Path, workers: int | None
+) -> None:
+    from boxmot.engine.config import runtime
+
+    dataset = _dataset(tmp_path, sequences=("0000", "0001"))
+    monkeypatch.setattr(runtime.os, "cpu_count", lambda: 8)
+    warnings = []
+    monkeypatch.setattr(saved_detections.logger, "warning", lambda message, *args: warnings.append(message % args))
+    monkeypatch.setattr(saved_detections.ReplayVisualization, "__call__", lambda *args: None)
+    args = _args(tmp_path, dataset, tracker="ocsort", reid=None, sequence_workers=workers, show=True)
+    result = saved_detections.run_saved_detections(args)
+    assert result.args.sequence_workers == 1
+    assert len(warnings) == (0 if workers == 1 else 1)
+    if warnings:
+        assert "--show forces one sequence worker for live preview (was 2)" in warnings[0]

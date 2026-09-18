@@ -187,8 +187,6 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
                 if isinstance(option, click.Option) and option.name in unsupported
             )
             raise ValueError(f"Saved 2D evaluation does not support {names}; predictions come from the dataset YAML.")
-        if "sequence_workers" in explicit and payload.get("sequence_workers") != 1:
-            raise ValueError("Saved 2D evaluation currently requires --sequence-workers 1.")
         if spec.backend == "cpp" and payload.get("per_class"):
             raise ValueError("Native trackers do not support --per-class.")
         effective_options = load_tracker_config(definition.config_name or spec.name, None, options)
@@ -206,6 +204,12 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
             data_root=payload.get("data_root"),
             experiment=payload.get("experiment"),
         )
+        workers = resolve_sequence_workers(
+            len(dataset.sequence_names), payload.get("sequence_workers") if "sequence_workers" in explicit else None
+        )
+        if payload.get("show") and workers > 1:
+            click.echo(f"Warning: --show forces one sequence worker for live preview (was {workers}).", err=True)
+            workers = 1
     except (TypeError, ValueError, OSError) as exc:
         raise click.UsageError(str(exc)) from exc
     return {
@@ -215,7 +219,7 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
         "sequence_names": dataset.sequence_names,
         "tracker": spec.name,
         "tracker_backend": spec.backend,
-        "sequence_workers": 1,
+        "sequence_workers": workers,
         "saved_detections": True,
     }
 
