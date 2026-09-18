@@ -109,8 +109,8 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2206.14651">botsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>69.68<br>(69.74)</sub></td>
-      <td align="right"><sub>78.23<br>(78.27)</sub></td>
+      <td align="right"><sub>69.70<br>(69.74)</sub></td>
+      <td align="right"><sub>78.20<br>(78.27)</sub></td>
       <td align="right"><sub>82.33<br>(82.55)</sub></td>
       <td align="right"><sub>76.93</sub></td>
       <td align="right"><sub><b>98.11</b></sub></td>
@@ -123,9 +123,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2408.13003">boosttrack</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>69.25<br>(—)</sub></td>
-      <td align="right"><sub>75.91<br>(—)</sub></td>
-      <td align="right"><sub>83.20<br>(—)</sub></td>
+      <td align="right"><sub>68.94<br>(—)</sub></td>
+      <td align="right"><sub>75.86<br>(—)</sub></td>
+      <td align="right"><sub>82.43<br>(—)</sub></td>
       <td align="right"><sub>76.32</sub></td>
       <td align="right"><sub>97.08</sub></td>
       <td align="right"><sub>77.82</sub></td>
@@ -137,9 +137,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2202.13514">strongsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>68.05<br>(—)</sub></td>
-      <td align="right"><sub>76.19<br>(—)</sub></td>
-      <td align="right"><sub>80.76<br>(—)</sub></td>
+      <td align="right"><sub>68.07<br>(—)</sub></td>
+      <td align="right"><sub>76.23<br>(—)</sub></td>
+      <td align="right"><sub>80.80<br>(—)</sub></td>
       <td align="right"><sub>79.80</sub></td>
       <td align="right"><sub>97.31</sub></td>
       <td align="right"><sub>80.27</sub></td>
@@ -151,9 +151,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2302.11813">deepocsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>67.95<br>(—)</sub></td>
-      <td align="right"><sub>75.83<br>(—)</sub></td>
-      <td align="right"><sub>80.54<br>(—)</sub></td>
+      <td align="right"><sub>68.23<br>(—)</sub></td>
+      <td align="right"><sub>75.86<br>(—)</sub></td>
+      <td align="right"><sub>81.07<br>(—)</sub></td>
       <td align="right"><sub>79.51</sub></td>
       <td align="right"><sub>97.94</sub></td>
       <td align="right"><sub>79.59</sub></td>
@@ -165,9 +165,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2110.06864">bytetrack</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>67.68<br>(67.68)</sub></td>
-      <td align="right"><sub>78.04<br>(78.04)</sub></td>
-      <td align="right"><sub>79.16<br>(79.16)</sub></td>
+      <td align="right"><sub>67.69<br>(67.68)</sub></td>
+      <td align="right"><sub>77.93<br>(78.04)</sub></td>
+      <td align="right"><sub>79.15<br>(79.16)</sub></td>
       <td align="right"><sub>67.93</sub></td>
       <td align="right"><sub>97.25</sub></td>
       <td align="right"><sub>76.90</sub></td>
@@ -179,9 +179,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2308.00783">hybridsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>67.31<br>(—)</sub></td>
-      <td align="right"><sub>74.09<br>(—)</sub></td>
-      <td align="right"><sub>78.87<br>(—)</sub></td>
+      <td align="right"><sub>67.09<br>(—)</sub></td>
+      <td align="right"><sub>74.05<br>(—)</sub></td>
+      <td align="right"><sub>78.68<br>(—)</sub></td>
       <td align="right"><sub>81.14</sub></td>
       <td align="right"><sub>98.07</sub></td>
       <td align="right"><sub>81.88</sub></td>
@@ -193,7 +193,7 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/abs/2203.14360">ocsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>66.44<br>(66.44)</sub></td>
+      <td align="right"><sub>66.45<br>(66.44)</sub></td>
       <td align="right"><sub>74.55<br>(74.55)</sub></td>
       <td align="right"><sub>77.90<br>(77.90)</sub></td>
       <td align="right"><sub>76.34</sub></td>
@@ -207,9 +207,9 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
     <tr>
       <td align="left"><sub><a href="https://arxiv.org/pdf/2404.07553">sfsort</a></sub></td>
       <td align="center"><sub>✅</sub></td>
-      <td align="right"><sub>62.65<br>(62.65)</sub></td>
+      <td align="right"><sub>62.66<br>(62.65)</sub></td>
       <td align="right"><sub>76.87<br>(76.87)</sub></td>
-      <td align="right"><sub>69.18<br>(69.18)</sub></td>
+      <td align="right"><sub>69.17<br>(69.18)</sub></td>
       <td align="right"><sub>75.73</sub></td>
       <td align="right"><sub>98.39</sub></td>
       <td align="right"><sub>72.99</sub></td>
@@ -224,6 +224,8 @@ those profiles and mode-specific extras such as `yolo`, `service`, `evolve`,
 
 <p align="center">
   <sub>Scores are Python first and C++ in parentheses.</sub><br>
+  <sub>MOT17 Python results verified on 2026-09-18 with <a href="boxmot/configs/experiments/mot17/ablation-yolox-lmbn.yaml">YOLOX-X + LMBN</a>, MPS perception, and default tracker settings.</sub><br>
+  <sub>HybridSORT's previous SportsMOT tuning is available as <code>--tracker-config hybridsort-sportsmot-val</code>.</sub><br>
   <sub>MMOT reported metrics are 'class average'. See <a href="docs/guides/experiments.md">Experiment Workflows</a> for details.</sub>
 </p>
 
