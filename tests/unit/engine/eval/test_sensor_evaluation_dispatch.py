@@ -81,7 +81,6 @@ def test_shared_entrypoints_preserve_sensor_profiles_and_visualization(
     (
         ({"tracker": "bytetrack"}, "does not use inputs required"),
         ({"tracker_backend": "cpp"}, "has no C\\+\\+ backend"),
-        ({"experiment": "experiment.yaml"}, "does not support experiment"),
         ({"build": "build"}, "does not support build"),
         ({"detector": "yolov8n"}, "does not support detector"),
         ({"tracker_config": "tracker.yaml"}, "does not support tracker_config"),

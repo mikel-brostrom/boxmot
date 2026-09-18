@@ -313,7 +313,15 @@ def test_sequence_workers_reaches_cached_workflow_namespace(monkeypatch, command
 
 @pytest.mark.parametrize("command", ("eval", "tune"))
 @pytest.mark.parametrize("eval_masks", (False, True))
-def test_mask_evaluation_selection_reaches_cached_workflow(monkeypatch, command: str, eval_masks: bool) -> None:
+def test_mask_evaluation_selection_reaches_cached_workflow(
+    monkeypatch, tmp_path: Path, command: str, eval_masks: bool
+) -> None:
+    experiment = tmp_path / "mask-evaluation.yaml"
+    experiment.write_text(
+        "dataset:\n  ref: kitti-mots\n  split: val\n  modalities:\n    images: {}\n    ground_truth: {}\n"
+        "detector:\n  ref: yolo26n\n  checkpoint: default\n"
+        "evaluation:\n  class_map:\n    car: car\n    pedestrian: person\n"
+    )
     captured = {}
     monkeypatch.setitem(
         sys.modules,
@@ -325,8 +333,8 @@ def test_mask_evaluation_selection_reaches_cached_workflow(monkeypatch, command:
         boxmot,
         [
             command,
-            "--dataset",
-            "kitti-mots",
+            "--experiment",
+            str(experiment),
             "--build",
             "fixture-build",
             *(["--eval-masks"] if eval_masks else []),
@@ -665,7 +673,7 @@ def test_automatic_materialization_publishes_tracker_compatible_artifacts(
     build_path = tmp_path / "build"
     experiment_path = tmp_path / "kitti-experiment.yaml"
     experiment_path.write_text(
-        "dataset:\n  ref: kitti-mots\n  split: train\n"
+        "dataset:\n  ref: kitti-mots\n  split: train\n  modalities:\n    images: {}\n    ground_truth: {}\n"
         "detector:\n  ref: yolo26n\n  checkpoint: default\n"
         "evaluation:\n  class_map:\n    car: car\n    pedestrian: person\n"
     )

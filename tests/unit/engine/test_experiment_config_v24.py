@@ -19,7 +19,7 @@ from boxmot.utils.config import load_yaml_mapping
 
 
 def test_every_built_in_experiment_resolves_its_declared_prediction_source() -> None:
-    """Catalog experiments select either saved boxes or detector inference."""
+    """Catalog experiments select saved boxes, sensor inputs, or detector inference."""
     paths = sorted(EXPERIMENT_CONFIGS_DIR.rglob("*.yaml"))
 
     assert paths
@@ -30,7 +30,12 @@ def test_every_built_in_experiment_resolves_its_declared_prediction_source() -> 
         assert resolved["id"] == "-".join(relative.parts), path
         assert "detections" not in resolved, path
         if resolved["detector"] is None:
-            assert resolved["dataset"]["modalities"]["detections_2d"]["options"]["load_masks"] is False, path
+            modalities = resolved["dataset"]["modalities"]
+            if "detections_3d" in modalities:
+                assert {"images", "detections_2d", "calibration", "poses"} <= modalities.keys(), path
+                assert resolved["reid"] is None, path
+            else:
+                assert modalities["detections_2d"]["options"]["load_masks"] is False, path
             assert Path(resolved["dataset"]["config_path"]).is_file(), path
             if resolved["reid"] is not None:
                 assert Path(resolved["reid"]["config_path"]).is_file(), path
@@ -53,10 +58,21 @@ def _write_saved_2d_experiment(
     fields: dict[str, Any] | None = None,
 ) -> Path:
     """Author a local saved-input experiment without creating dataset payloads."""
-    dataset = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-2d-detections.yaml")
+    dataset = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-mots.yaml")
     dataset["storage"]["root"] = "LOCAL-SAVED-KITTI"
+    dataset["classes"].pop("ignore", None)
     (root / "dataset.yaml").write_text(yaml.safe_dump(dataset), encoding="utf-8")
-    authored: dict[str, Any] = {"dataset": {"ref": "dataset.yaml", "split": split}}
+    authored: dict[str, Any] = {
+        "dataset": {
+            "ref": "dataset.yaml",
+            "split": split,
+            "modalities": {
+                "images": {},
+                "detections_2d": {"options": {"load_masks": False}},
+                "ground_truth": {"source": "ground_truth_3d", "options": {}},
+            },
+        }
+    }
     if reid is not None:
         authored["reid"] = {"ref": reid}
     authored.update(fields or {})
@@ -177,7 +193,10 @@ def test_saved_2d_experiment_missing_relative_reid_does_not_fall_back_to_cwd(
 def test_detector_free_experiment_does_not_accept_an_image_only_dataset(tmp_path: Path) -> None:
     """Omitting a detector is valid only when predictions are declared as input."""
     experiment = tmp_path / "missing-predictions.yaml"
-    experiment.write_text("dataset:\n  ref: kitti-2d\n  split: val\n", encoding="utf-8")
+    experiment.write_text(
+        "dataset:\n  ref: kitti-mots\n  split: val\n  modalities:\n    images: {}\n    ground_truth: {}\n",
+        encoding="utf-8",
+    )
 
     with pytest.raises(ConfigurationError, match='must define a "detector" mapping'):
         resolve_experiment_config(experiment, mode="eval")
@@ -185,7 +204,7 @@ def test_detector_free_experiment_does_not_accept_an_image_only_dataset(tmp_path
 
 def _write_kitti_2d_dataset(path: Path, *, root: str) -> None:
     """Write a distinguishable dataset without creating payload images or models."""
-    config = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-2d.yaml")
+    config = load_yaml_mapping(experiment_config.CONFIG_ROOT / "datasets/kitti-mots.yaml")
     config["storage"]["root"] = root
     config["modalities"]["images"]["path"] = "sequences/{partition}/{sequence}/images"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -193,8 +212,8 @@ def _write_kitti_2d_dataset(path: Path, *, root: str) -> None:
 
 
 def _write_kitti_2d_experiment(path: Path, dataset_ref: str) -> None:
-    """Use the authored detector and class bridge with a selected dataset path."""
-    config = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "kitti-2d/val-yolo26n-osnet.yaml")
+    """Use the authored saved-box experiment with a selected dataset path."""
+    config = load_yaml_mapping(EXPERIMENT_CONFIGS_DIR / "kitti-mots/2d-lmbn-n-duke.yaml")
     config["dataset"]["ref"] = dataset_ref
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(config), encoding="utf-8")
@@ -203,13 +222,13 @@ def _write_kitti_2d_experiment(path: Path, dataset_ref: str) -> None:
 @pytest.mark.parametrize(
     ("reference", "location"),
     (
-        ("kitti-2d.yaml", "kitti-2d.yaml"),
-        ("./kitti-2d.yaml", "kitti-2d.yaml"),
-        ("datasets/kitti-2d.yaml", "datasets/kitti-2d.yaml"),
-        ("../datasets/kitti-2d.yaml", "../datasets/kitti-2d.yaml"),
-        ("kitti-2d", "kitti-2d/dataset.yaml"),
+        ("kitti-mots.yaml", "kitti-mots.yaml"),
+        ("./kitti-mots.yaml", "kitti-mots.yaml"),
+        ("datasets/kitti-mots.yaml", "datasets/kitti-mots.yaml"),
+        ("../datasets/kitti-mots.yaml", "../datasets/kitti-mots.yaml"),
+        ("kitti-mots", "kitti-mots/dataset.yaml"),
         (".", "dataset.yaml"),
-        ("absolute", "../datasets/kitti-2d.yaml"),
+        ("absolute", "../datasets/kitti-mots.yaml"),
     ),
 )
 def test_experiment_dataset_paths_resolve_beside_yaml_independently_of_cwd(
@@ -220,7 +239,7 @@ def test_experiment_dataset_paths_resolve_beside_yaml_independently_of_cwd(
     _write_kitti_2d_dataset(dataset, root="LOCAL-KITTI")
     _write_kitti_2d_experiment(experiment, str(dataset) if reference == "absolute" else reference)
     elsewhere = tmp_path / "elsewhere"
-    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
+    _write_kitti_2d_dataset(elsewhere / "kitti-mots.yaml", root="WRONG-CWD")
     monkeypatch.chdir(elsewhere)
 
     resolved = resolve_experiment_config(experiment, mode="eval")
@@ -228,28 +247,28 @@ def test_experiment_dataset_paths_resolve_beside_yaml_independently_of_cwd(
     assert Path(resolved["dataset"]["config_path"]) == dataset
     assert resolved["dataset"]["root"] == "LOCAL-KITTI"
     assert resolved["dataset"]["modalities"]["images"]["paths"] == ["sequences/{partition}/{sequence}/images"]
-    assert resolved["reid"]["id"] == "osnet-x0-25-msmt17"
+    assert resolved["reid"]["id"] == "lmbn-n-duke"
 
 
-@pytest.mark.parametrize("reference", ("kitti-2d", "kitti-2d.yaml"))
+@pytest.mark.parametrize("reference", ("kitti-mots", "kitti-mots.yaml"))
 def test_experiment_dataset_catalog_fallback_ignores_cwd_profiles(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str
 ) -> None:
     experiment = tmp_path / "bundle/local-kitti.yaml"
     _write_kitti_2d_experiment(experiment, reference)
     elsewhere = tmp_path / "elsewhere"
-    _write_kitti_2d_dataset(elsewhere / "kitti-2d.yaml", root="WRONG-CWD")
-    _write_kitti_2d_dataset(elsewhere / "kitti-2d/dataset.yaml", root="WRONG-CWD-FOLDER")
+    _write_kitti_2d_dataset(elsewhere / "kitti-mots.yaml", root="WRONG-CWD")
+    _write_kitti_2d_dataset(elsewhere / "kitti-mots/dataset.yaml", root="WRONG-CWD-FOLDER")
     monkeypatch.chdir(elsewhere)
 
     resolved = resolve_experiment_config(experiment, mode="eval")
 
-    assert resolved["dataset"]["root"] == "KITTI"
-    assert "config_path" not in resolved["dataset"]
+    assert resolved["dataset"]["root"] == "."
+    assert resolved["dataset"]["config_path"] == experiment_config.CONFIG_ROOT / "datasets/kitti-mots.yaml"
 
 
 @pytest.mark.parametrize(
-    "reference", ("./kitti-2d.yaml", "datasets/kitti-2d.yaml", "../data/kitti-2d.yaml", "./kitti-2d")
+    "reference", ("./kitti-mots.yaml", "datasets/kitti-mots.yaml", "../data/kitti-mots.yaml", "./kitti-mots")
 )
 def test_missing_explicit_dataset_paths_do_not_fall_back_to_cwd_or_catalog(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, reference: str

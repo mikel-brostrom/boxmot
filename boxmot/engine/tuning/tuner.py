@@ -1053,7 +1053,12 @@ def _run_eagermot_tuning(args: Any, *, pipeline: Any | None = None) -> TuneResul
             from boxmot.engine.config.datasets import load_sensor_evaluation_inputs
 
             dataset = load_sensor_evaluation_inputs(
-                args.dataset, split=args.split, sequence_names=tuple(args.sequence_names), calibrate_kf=True
+                args.dataset,
+                split=args.split,
+                sequence_names=tuple(args.sequence_names),
+                data_root=getattr(args, "data_root", None),
+                calibrate_kf=True,
+                experiment=getattr(args, "experiment", None),
             )
             calibration = calibrate_sensor_kalman(
                 dataset,
@@ -1272,12 +1277,26 @@ def _run_sensor_tuning(
     args: Any, *, baseline_config: dict | None = None, render_cli: bool = False
 ) -> TuneResult | None:
     """Validate declared sensor inputs before lazily loading their optimizer."""
-    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
+    from boxmot.engine.config.datasets import (
+        load_sensor_evaluation_inputs,
+        resolve_sensor_workflow_config_path,
+        validate_sensor_workflow_inputs,
+    )
     from boxmot.trackers.common.specs import parse_tracker_spec
 
+    if getattr(args, "dataset", None) and getattr(args, "experiment", None):
+        from boxmot.engine.config.experiments import resolve_sensor_experiment
+
+        args = SimpleNamespace(**resolve_sensor_experiment(vars(args), mode="tune"))
+
     reference = getattr(args, "dataset", None)
-    path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
+    path = (
+        resolve_sensor_workflow_config_path(
+            reference, experiment=getattr(args, "experiment", None), split=getattr(args, "split", None), mode="tune"
+        )
+        if reference
+        else None
+    )
     if path is None:
         return None
 
@@ -1292,17 +1311,16 @@ def _run_sensor_tuning(
         mode="tune",
         split=getattr(args, "split", None),
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        experiment=getattr(args, "experiment", None),
     )
     if baseline_config is not None:
         raise ValueError("Sensor dataset tuning uses separate class profiles and does not support baseline_config.")
     unsupported = (
-        "experiment",
         "build",
         "build_ref",
         "build_root",
         "detector",
         "reid",
-        "data_root",
         "tracker_config",
         "resume_tune",
         "time_budget_s",
@@ -1345,7 +1363,9 @@ def _run_sensor_tuning(
         path,
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
+        data_root=getattr(args, "data_root", None),
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        experiment=getattr(args, "experiment", None),
     )
     sequence_workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
     normalized = SimpleNamespace(

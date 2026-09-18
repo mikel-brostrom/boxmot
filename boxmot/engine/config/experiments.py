@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from boxmot.configs import CONFIG_ROOT
-from boxmot.datasets.config import load_dataset_config
+from boxmot.datasets.config import MODALITY_ROLES, dataset_modalities, load_dataset_config, normalize_modalities
 from boxmot.detectors.config import load_detector_config
-from boxmot.engine.config.datasets import is_saved_2d_dataset, validate_perception_dataset_inputs
+from boxmot.engine.config.datasets import is_saved_2d_dataset, is_sensor_dataset, validate_perception_dataset_inputs
 from boxmot.reid.config import load_reid_config
 from boxmot.utils.config import CONFIG_ID_PATTERN, ConfigurationError, iter_config_paths, load_yaml_mapping
 
@@ -304,6 +304,51 @@ def resolve_experiment_config(
     return _resolve_experiment(reference, split=split, mode=mode).config
 
 
+def _select_dataset_modalities(dataset: dict[str, Any], selection: Any) -> dict[str, Any]:
+    """Select existing dataset sources and reader options without redefining paths."""
+    if dataset["layout"] != "sequence":
+        raise ConfigurationError("Experiment dataset.modalities requires a sequence dataset.")
+    if not isinstance(selection, dict) or not selection:
+        raise ConfigurationError("Experiment dataset.modalities must be a non-empty mapping.")
+    unknown = set(selection).difference(MODALITY_ROLES)
+    if unknown:
+        raise ConfigurationError(f"Experiment selects unknown modalities: {', '.join(sorted(map(str, unknown)))}.")
+    available = {split: dataset_modalities(dataset, split) for split in dataset["splits"]}
+    declared = set().union(*(set(modalities) for modalities in available.values()))
+    selectors = {}
+    for role, value in selection.items():
+        if not isinstance(value, dict) or set(value).difference({"source", "options"}):
+            raise ConfigurationError(f"Experiment dataset.modalities.{role} must contain only source and options.")
+        source = value.get("source", role)
+        if not isinstance(source, str) or source not in declared:
+            raise ConfigurationError(f"Experiment modality {role!r} selects undeclared dataset source {source!r}.")
+        selectors[role] = (source, value)
+    selected = deepcopy(dataset)
+    selected["modalities"] = {}
+    for split, modalities in available.items():
+        inputs = {}
+        for role, (source, value) in selectors.items():
+            if source not in modalities:
+                continue
+            inputs[role] = deepcopy(modalities[source])
+            if "options" in value:
+                inputs[role]["options"] = deepcopy(value["options"])
+        normalized = normalize_modalities(inputs, f"Experiment dataset.modalities for split {split!r}")
+        selected["splits"][split]["modalities"] = {
+            **{role: None for role in selection},
+            **normalized,
+        }
+        selected["splits"][split]["has_ground_truth"] = bool(
+            {"ground_truth", "ground_truth_3d", "ground_truth_objects"}.intersection(normalized)
+        )
+    selected["modalities"] = {
+        role: deepcopy(specification)
+        for role, specification in selected["splits"][selected["default_split"]]["modalities"].items()
+        if specification is not None
+    }
+    return selected
+
+
 def _resolve_experiment(
     reference: str | Path,
     *,
@@ -326,8 +371,13 @@ def _resolve_experiment(
     experiment_id = _experiment_identity(source_path)
     experiment["id"] = experiment_id
     dataset_selection = _required_mapping(experiment, "dataset", context)
+    unknown_dataset_keys = set(dataset_selection).difference({"ref", "split", "modalities"})
+    if unknown_dataset_keys:
+        raise ConfigurationError(f"{context} dataset has unknown keys: {', '.join(sorted(unknown_dataset_keys))}.")
     dataset_ref = _required_text(dataset_selection, "ref", context)
     dataset = _resolve_experiment_dataset(dataset_ref, source_path)
+    if "modalities" in dataset_selection:
+        dataset = _select_dataset_modalities(dataset, dataset_selection["modalities"])
     split_name = str(split or dataset_selection.get("split") or dataset["default_split"])
     if split_name not in dataset["splits"]:
         available = ", ".join(sorted(dataset["splits"]))
@@ -336,16 +386,23 @@ def _resolve_experiment(
         )
     effective_mode = mode or experiment.get("mode")
     saved_detections = is_saved_2d_dataset(dataset, split_name)
-    if saved_detections:
-        if effective_mode is not None and str(effective_mode).lower() not in {"eval", "evaluation"}:
+    sensor_inputs = is_sensor_dataset(dataset, split_name)
+    saved_inputs = saved_detections or sensor_inputs
+    if saved_inputs:
+        description = "saved sensor inputs" if sensor_inputs else "saved 2D detections"
+        supported_modes = {"eval", "evaluation", "tune"} if sensor_inputs else {"eval", "evaluation"}
+        if effective_mode is not None and str(effective_mode).lower() not in supported_modes:
+            supported = "eval and tune" if sensor_inputs else "eval"
             raise ConfigurationError(
-                f'Experiment "{experiment_id}" uses saved 2D detections and supports only eval; '
+                f'Experiment "{experiment_id}" uses {description} and supports only {supported}; '
                 f'{effective_mode} is not supported. Use boxmot eval --experiment "{reference}".'
             )
         incompatible = set(experiment).intersection({"detector", "segmentor", "evaluation"})
+        if sensor_inputs and experiment.get("reid") is not None:
+            incompatible.add("reid")
         if incompatible:
             raise ConfigurationError(
-                f'Experiment "{experiment_id}" uses saved 2D detections and must omit '
+                f'Experiment "{experiment_id}" uses {description} and must omit '
                 f"{', '.join(sorted(incompatible))}; predictions and class IDs come from the dataset."
             )
         _validate_evaluation_split(dataset, split_name, effective_mode or "eval")
@@ -372,7 +429,7 @@ def _resolve_experiment(
         if segmentor is not None and not isinstance(segmentor, (str, dict)):
             raise ConfigurationError(f'Experiment "{experiment_id}" segmentor must be a config reference or mapping.')
         bridge, ignore_ids = _resolve_class_bridge(experiment, dataset, detector)
-    reid = _resolve_reid(experiment, source_path=source_path if saved_detections else None)
+    reid = _resolve_reid(experiment, source_path=source_path if saved_inputs else None)
     split_cfg = dataset["splits"][split_name]
 
     config = {
@@ -386,7 +443,7 @@ def _resolve_experiment(
             **({"split_path": split_cfg["path"]} if "path" in split_cfg else {}),
             **(
                 {"config_path": dataset["config_path"]}
-                if saved_detections or not Path(dataset["config_path"]).is_relative_to(CONFIG_ROOT / "datasets")
+                if saved_inputs or not Path(dataset["config_path"]).is_relative_to(CONFIG_ROOT / "datasets")
                 else {}
             ),
             "fps": dataset["fps"],
@@ -415,6 +472,53 @@ def _resolve_experiment(
         detector_path=detector_path,
         reid_path=None if reid is None else Path(reid["config_path"]).resolve(),
     )
+
+
+def resolve_sensor_experiment(payload: Mapping[str, Any], *, mode: str) -> dict[str, Any]:
+    """Select authored sensor inputs while retaining experiment provenance."""
+    values = dict(payload)
+    reference = values.get("experiment")
+    if not reference:
+        return values
+    resolved = resolve_experiment_config(reference, split=values.get("split"), mode=mode)
+    dataset = resolved["dataset"]
+    if not is_sensor_dataset(dataset, dataset["split"]):
+        if values.get("dataset") and is_sensor_dataset(load_dataset_config(values["dataset"]), values.get("split")):
+            raise ConfigurationError("The selected dataset does not match a sensor experiment.")
+        return values
+    for name in ("detector", "reid"):
+        if values.get(name) is not None:
+            raise ConfigurationError(f"--{name} cannot be combined with --experiment; inputs come from its dataset.")
+    if values.get("dataset") is not None:
+        selected = load_dataset_config(values["dataset"])
+        if selected["config_path"] != dataset["config_path"]:
+            raise ConfigurationError("The selected dataset does not match the sensor experiment.")
+    return {
+        **values,
+        "experiment": str(resolved["source_path"]),
+        "experiment_id": resolved["id"],
+        "dataset": dataset["config_path"],
+        "split": dataset["split"],
+    }
+
+
+def load_workflow_dataset(
+    reference: str | Path,
+    *,
+    experiment: str | Path | None = None,
+    split: str | None = None,
+    mode: str = "eval",
+) -> dict[str, Any]:
+    """Load the selected dataset view consistently during validation and replay."""
+    if experiment is None:
+        return load_dataset_config(reference)
+    selected = resolve_experiment_config(experiment, split=split, mode=mode)["dataset"]
+    source = selected.get("config_path")
+    if source is None:
+        source = load_dataset_config(selected["id"])["config_path"]
+    if load_dataset_config(reference)["config_path"] != source:
+        raise ConfigurationError("The selected dataset does not match the experiment.")
+    return {**selected, "config_path": source}
 
 
 def _direct_detector_selection(reference: str | Path) -> tuple[dict[str, Any], str | None]:
@@ -470,10 +574,6 @@ def resolve_matching_experiment_path(
             f'Dataset "{dataset_config["id"]}" has no split "{split_name}". Available splits: {available}.'
         )
     _validate_evaluation_split(dataset_config, split_name, mode)
-    try:
-        validate_perception_dataset_inputs(dataset_config, split_name, mode=mode)
-    except ValueError as error:
-        raise ConfigurationError(str(error)) from error
     detector_config, explicit_checkpoint = _direct_detector_selection(detector)
     reid_config = None if reid is None else load_reid_config(reid)
     reid_id = None if reid_config is None else str(reid_config["id"])
@@ -521,7 +621,9 @@ def resolve_matching_experiment_path(
 __all__ = [
     "ConfigurationError",
     "EXPERIMENT_CONFIGS_DIR",
+    "load_workflow_dataset",
     "resolve_experiment_config",
     "resolve_experiment_path",
     "resolve_matching_experiment_path",
+    "resolve_sensor_experiment",
 ]

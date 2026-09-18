@@ -125,8 +125,8 @@ class CommandFirstGroup(click.Group):
                 "'--dataset mot17 --split ablation' for model-free evaluation."
             )
             formatter.write_text(
-                "       --experiment fixes the dataset, split, geometry, detector, optional segmentor and ReID, "
-                "and class map."
+                "       --experiment selects the dataset, split, input modalities, and optional perception components "
+                "(detector, segmentor, ReID, and class map)."
             )
             formatter.write_text(
                 "          See all options at https://github.com/mikel-brostrom/boxmot or 'boxmot MODE --help'"

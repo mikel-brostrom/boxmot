@@ -128,6 +128,11 @@ def test_gta_materializer_resolves_embedding_availability_without_reid(
     from boxmot.engine.materialization.catalog import SourceCatalog
     from boxmot.engine.materialization.source import SourceSample
 
+    experiment = yaml.safe_load((REPO_ROOT / "boxmot/configs/experiments/mot17/ablation-yolox-lmbn.yaml").read_text())
+    experiment.pop("reid")
+    experiment_path = tmp_path / "no-reid.yaml"
+    experiment_path.write_text(yaml.safe_dump(experiment))
+
     sample = SourceSample(
         sample_id="val:sequence:0",
         split="val",
@@ -172,7 +177,7 @@ def test_gta_materializer_resolves_embedding_availability_without_reid(
         [
             "eval",
             "--experiment",
-            "kitti-2d/val-yolo26n.yaml",
+            str(experiment_path),
             "--build-root",
             str(tmp_path / "builds"),
             "--postprocessing",

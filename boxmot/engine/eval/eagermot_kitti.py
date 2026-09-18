@@ -250,9 +250,11 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
         args.dataset,
         split=args.split,
         sequence_names=tuple(args.sequence_names),
+        data_root=getattr(args, "data_root", None),
         eval_3d=eval_3d,
         eval_ap=eval_ap,
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        experiment=getattr(args, "experiment", None),
     )
     sequences: dict[str, MultimodalSequence | SensorReplaySequence] = {}
     annotations: dict[str, list[GroundTruthEntry]] = {}
@@ -314,6 +316,8 @@ def prepare_eagermot_kitti(args: Any) -> KittiReplayInputs:
 
     manifest = {
         "boxmot_version": __version__,
+        "experiment_id": getattr(args, "experiment_id", None),
+        "experiment_config": getattr(args, "experiment", None),
         "tracker": "eagermot",
         "evaluation": (
             "Volumetric 3D IoU HOTA, CLEAR, and Identity metrics"
@@ -842,9 +846,11 @@ def run_eagermot_kitti(
                 args.dataset,
                 split=args.split,
                 sequence_names=tuple(args.sequence_names),
+                data_root=getattr(args, "data_root", None),
                 eval_3d=bool(getattr(args, "eval_3d", False)),
                 eval_ap=bool(getattr(args, "eval_ap", False)),
                 calibrate_kf=True,
+                experiment=getattr(args, "experiment", None),
             )
             calibration = calibrate_sensor_kalman(
                 dataset,

@@ -412,13 +412,16 @@ def build_selection_options(func: Callable | None = None, *, required: bool = Tr
 
 
 def data_root_option(func: Callable) -> Callable:
-    """Attach the raw-dataset root used to verify build source identity."""
+    """Attach the base folder for declared dataset storage and build identity."""
 
     return click.option(
         "--data-root",
         type=click.Path(path_type=Path),
         default=None,
-        help="Tracking-dataset root; defaults to ./datasets/mot.",
+        help=(
+            "Base folder for dataset storage.root; defaults to ./datasets/mot for built-in datasets "
+            "or the local YAML folder."
+        ),
     )(func)
 
 

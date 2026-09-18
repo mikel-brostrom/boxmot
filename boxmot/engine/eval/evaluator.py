@@ -538,12 +538,26 @@ def _run_sensor_evaluation(
     progress_callback: ReplayProgressCallback | None = None,
 ) -> ValidationResult | None:
     """Validate saved sensor selections before importing their replay runtime."""
-    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
+    from boxmot.engine.config.datasets import (
+        load_sensor_evaluation_inputs,
+        resolve_sensor_workflow_config_path,
+        validate_sensor_workflow_inputs,
+    )
     from boxmot.trackers.common.specs import parse_tracker_spec
 
+    if getattr(args, "dataset", None) and getattr(args, "experiment", None):
+        from boxmot.engine.config.experiments import resolve_sensor_experiment
+
+        args = SimpleNamespace(**resolve_sensor_experiment(vars(args), mode="eval"))
+
     reference = getattr(args, "dataset", None)
-    path = resolve_sensor_dataset_config_path(reference, split=getattr(args, "split", None)) if reference else None
+    path = (
+        resolve_sensor_workflow_config_path(
+            reference, experiment=getattr(args, "experiment", None), split=getattr(args, "split", None), mode="eval"
+        )
+        if reference
+        else None
+    )
     if path is None:
         return None
     if getattr(args, "postprocessing", None):
@@ -561,6 +575,7 @@ def _run_sensor_evaluation(
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
         eval_3d=eval_3d,
         eval_ap=eval_ap,
+        experiment=getattr(args, "experiment", None),
     )
     for name, value in {
         "evolve_config": evolve_config,
@@ -580,13 +595,11 @@ def _run_sensor_evaluation(
     if prepare_cache:
         raise ValueError("Sensor dataset evaluation does not support prepare_cache; predictions come from the dataset.")
     for name in (
-        "experiment",
         "build",
         "build_ref",
         "build_root",
         "detector",
         "reid",
-        "data_root",
         "tracker_config",
         "fps",
         "variable_dt",
@@ -609,9 +622,11 @@ def _run_sensor_evaluation(
         path,
         split=getattr(args, "split", None) or None,
         sequence_names=getattr(args, "sequence_names", ()),
+        data_root=getattr(args, "data_root", None),
         eval_3d=eval_3d,
         eval_ap=eval_ap,
         calibrate_kf=bool(getattr(args, "calibrate_kf", False)),
+        experiment=getattr(args, "experiment", None),
     )
     workers = resolve_sequence_workers(len(dataset.sequence_names), getattr(args, "sequence_workers", None))
     normalized = SimpleNamespace(

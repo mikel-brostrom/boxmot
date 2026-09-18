@@ -286,10 +286,10 @@ def test_experiment_catalog_metadata_is_reused_and_identity_is_canonical(monkeyp
 @pytest.mark.parametrize("mode", ("materialize", "eval", "tune"))
 def test_local_kitti_experiment_materializes_its_own_images_and_annotations(tmp_path: Path, mode: str) -> None:
     """A sibling dataset YAML must retain its local root through source cataloging."""
-    dataset = yaml.safe_load((CONFIG_ROOT / "datasets/kitti-2d.yaml").read_text())
+    dataset = yaml.safe_load((CONFIG_ROOT / "datasets/kitti-mots.yaml").read_text())
     dataset["storage"]["root"] = "."
     dataset["modalities"]["images"]["path"] = "frames/{sequence}"
-    dataset["modalities"]["ground_truth"]["path"] = "annotations/{sequence}.txt"
+    dataset["modalities"]["ground_truth_3d"]["path"] = "annotations/{sequence}.txt"
     dataset["splits"] = {"val": {"partition": "training", "sequences": ["0002"], "has_ground_truth": True}}
     (tmp_path / "kitti-2d.yaml").write_text(yaml.safe_dump(dataset))
     image_path = tmp_path / "frames/0002/000000.png"
@@ -298,8 +298,11 @@ def test_local_kitti_experiment_materializes_its_own_images_and_annotations(tmp_
     annotations = tmp_path / "annotations/0002.txt"
     annotations.parent.mkdir()
     annotations.write_text("0 1 Car 0 0 -10 1 2 10 20 -1 -1 -1 -1000 -1000 -1000 -10\n")
-    experiment = yaml.safe_load((CONFIG_ROOT / "experiments/kitti-2d/val-yolo26n-osnet.yaml").read_text())
+    experiment = yaml.safe_load((CONFIG_ROOT / "experiments/kitti-mots/2d-lmbn-n-duke.yaml").read_text())
     experiment["dataset"]["ref"] = "kitti-2d.yaml"
+    del experiment["dataset"]["modalities"]["detections_2d"]
+    experiment["detector"] = {"ref": "yolo26n", "checkpoint": "default"}
+    experiment["evaluation"] = {"class_map": {"car": "car", "pedestrian": "person"}}
     experiment_path = tmp_path / "local-kitti.yaml"
     experiment_path.write_text(yaml.safe_dump(experiment))
 

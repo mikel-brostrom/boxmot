@@ -173,7 +173,11 @@ def test_kitti_2d_honors_authored_experiment_class_subset(tmp_path: Path, class_
     experiment_path.write_text(
         yaml.safe_dump(
             {
-                "dataset": {"ref": "kitti-2d", "split": "train"},
+                "dataset": {
+                    "ref": "kitti-mots",
+                    "split": "train",
+                    "modalities": {"images": {}, "ground_truth": {"source": "ground_truth_3d", "options": {}}},
+                },
                 "detector": {"ref": "yolo26n", "checkpoint": "default"},
                 "evaluation": {"class_map": class_map},
             }

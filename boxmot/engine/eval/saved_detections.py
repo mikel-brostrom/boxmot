@@ -62,6 +62,7 @@ def run_saved_detections(args: Any, *, pipeline: Any | None = None) -> Validatio
         split=getattr(args, "split", None) or None,
         sequence_names=tuple(getattr(args, "sequence_names", ())),
         data_root=getattr(args, "data_root", None),
+        experiment=getattr(args, "experiment", None),
     )
     options = resolve_tracker_options(args, include_defaults=True, factory_options=True)
     spec = TrackerSpec(

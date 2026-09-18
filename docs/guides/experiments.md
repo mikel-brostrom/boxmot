@@ -16,7 +16,7 @@ semantic identity. Direct component selectors cannot override an authored
 `--experiment`; create another experiment when its configuration should change.
 
 An experiment's `dataset.ref` can name a neighboring dataset YAML, such as
-`kitti-2d.yaml`, or use a relative path such as `../datasets/custom.yaml`.
+`dataset.yaml`, or use a relative path such as `../datasets/custom.yaml`.
 Local references resolve from the experiment's directory. A neighboring file
 takes precedence over a built-in dataset with the same filename. Bare catalog
 IDs and filenames still select built-in datasets when no local config exists.

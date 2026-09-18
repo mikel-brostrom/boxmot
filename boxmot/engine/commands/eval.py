@@ -38,6 +38,8 @@ from boxmot.engine.config.trackers import edgetam_checkpoint, validate_image_tra
 _SENSOR_OPTIONS = frozenset(
     {
         "dataset",
+        "experiment",
+        "data_root",
         "tracker",
         "tracker_backend",
         "split",
@@ -113,8 +115,8 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
     if not reference and not experiment:
         return None
 
-    from boxmot.datasets.config import load_dataset_config
     from boxmot.engine.config.datasets import is_saved_2d_dataset, load_saved_2d_evaluation_inputs
+    from boxmot.engine.config.experiments import load_workflow_dataset
     from boxmot.engine.config.trackers import resolve_tracker_options
     from boxmot.trackers.common.config import load_tracker_config
     from boxmot.trackers.common.registry import get_tracker_definition
@@ -143,7 +145,7 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
                 "split": selected["split"],
                 "reid": None if resolved["reid"] is None else resolved["reid"]["config_path"],
             }
-        config = load_dataset_config(reference)
+        config = load_workflow_dataset(reference, experiment=experiment, split=payload.get("split"))
         if not is_saved_2d_dataset(config, payload.get("split")):
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
@@ -202,6 +204,7 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
             data_root=payload.get("data_root"),
+            experiment=payload.get("experiment"),
         )
     except (TypeError, ValueError, OSError) as exc:
         raise click.UsageError(str(exc)) from exc
@@ -219,17 +222,38 @@ def _prepare_saved_2d_evaluation(ctx: click.Context, payload: Mapping[str, Any])
 
 def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a declared sensor dataset before dispatch through the shared evaluator."""
+    if payload.get("detector") and not payload.get("experiment"):
+        from boxmot.engine.config.trackers import validate_image_tracker
+
+        try:
+            validate_image_tracker(str(payload["tracker"]))
+        except ValueError as exc:
+            raise click.UsageError(f"--detector requires an image tracker: {exc}") from exc
+        return None
+
+    from boxmot.engine.config.experiments import resolve_sensor_experiment
+
+    try:
+        payload = resolve_sensor_experiment(payload, mode="eval")
+    except (ValueError, OSError) as exc:
+        raise click.UsageError(str(exc)) from exc
+
     reference = payload.get("dataset")
     if not reference:
         return None
 
-    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
+    from boxmot.engine.config.datasets import (
+        load_sensor_evaluation_inputs,
+        resolve_sensor_workflow_config_path,
+        validate_sensor_workflow_inputs,
+    )
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     explicit = _explicit_cli_keys(ctx)
     try:
-        path = resolve_sensor_dataset_config_path(reference, split=payload.get("split"))
+        path = resolve_sensor_workflow_config_path(
+            reference, experiment=payload.get("experiment"), split=payload.get("split"), mode="eval"
+        )
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
@@ -241,6 +265,7 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             calibrate_kf=bool(payload.get("calibrate_kf")),
             eval_3d=bool(payload.get("eval_3d")),
             eval_ap=bool(payload.get("eval_ap")),
+            experiment=payload.get("experiment"),
         )
         unsupported = explicit - _SENSOR_OPTIONS
         if unsupported:
@@ -261,6 +286,8 @@ def _prepare_sensor_evaluation(ctx: click.Context, payload: Mapping[str, Any]) -
             eval_3d=bool(payload.get("eval_3d")),
             eval_ap=bool(payload.get("eval_ap")),
             calibrate_kf=bool(payload.get("calibrate_kf")),
+            data_root=payload.get("data_root"),
+            experiment=payload.get("experiment"),
         )
         workers = resolve_sequence_workers(
             len(dataset.sequence_names),
@@ -400,11 +427,6 @@ def eval(
         raise click.UsageError(
             "--postprocessing supports image AABB evaluation only, without --eval-masks or --eval-3d."
         )
-    if experiment:
-        try:
-            validate_image_tracker(str(kwargs["tracker"]))
-        except ValueError as exc:
-            raise click.UsageError(str(exc)) from exc
     if kwargs["eval_ap"] and not kwargs["eval_3d"]:
         raise click.UsageError("--eval-ap requires --eval-3d.")
     if kwargs["eval_3d"] and eval_masks:
@@ -440,6 +462,11 @@ def eval(
     if sensor_payload is not None:
         _dispatch_cli_workflow(ctx, "eval", "boxmot.engine.eval.evaluator", sensor_payload)
         return
+    if experiment:
+        try:
+            validate_image_tracker(str(kwargs["tracker"]))
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
     for name in ("class_config", "show_3d", "eval_ap", "eval_3d"):
         if kwargs[name]:
             option = "--" + name.replace("_", "-")

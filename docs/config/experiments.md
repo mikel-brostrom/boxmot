@@ -38,6 +38,28 @@ canonical rectified OBB transform. Experiments do not select a crop strategy.
 Built-in ReID profiles do not consume detection masks; a custom mask-dependent
 encoder declares that requirement through its encoder contract.
 
+## Dataset input selection
+
+A dataset YAML describes available data: paths, encodings, classes, and splits.
+`dataset.modalities` in an experiment is an allowlist of the inputs for that run.
+Omitted modalities are neither validated on disk nor loaded. An empty mapping
+for a role, such as `images: {}`, uses its dataset declaration unchanged.
+`source` selects another declared dataset modality for that role; `options`
+replaces its reader options. Experiments cannot override paths or formats.
+Split-specific paths are applied before this selection, so KITTI validation
+still uses its T2 predictions. An omitted `dataset.modalities` uses all declared
+inputs, as for datasets that expose only images and annotations.
+
+KITTI has three presets under `experiments/kitti-mots/`, all referencing the
+same `kitti-mots.yaml` dataset:
+
+- `full`: all declared inputs, including masks, 3D boxes, calibration, and poses.
+- `2d`: saved TrackR-CNN boxes, images, and image-box ground truth.
+- `2d-lmbn-n-duke`: the same 2D inputs with LMBN appearance features.
+
+They use the dataset's default validation split. Pass `--split train` to select
+training sequences; separate split-specific experiment files are unnecessary.
+
 ## Detector profiles
 
 The top-level `detector` block selects a reusable detector profile and one of
@@ -63,26 +85,60 @@ detector class map is needed:
 
 ```yaml
 dataset:
-  ref: kitti-mots-2d
-  split: val
+  ref: kitti-mots
+  modalities:
+    images: {}
+    detections_2d:
+      options:
+        load_masks: false
+    ground_truth:
+      source: ground_truth_3d
+      options: {}
 reid:
-  ref: osnet-x0-25-msmt17
+  ref: lmbn-n-duke
 ```
 
 Run the shipped preset against an existing KITTI multimodal folder:
 
 ```bash
-boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
+boxmot eval --experiment kitti-mots/2d-lmbn-n-duke \
   --data-root ./kitti-mots --tracker occluboost --cache-inputs \
   --project runs/kitti-2d
 ```
 
-The `kitti-2d/train-trackrcnn` and `kitti-2d/val-trackrcnn` presets omit ReID;
-their `-osnet` variants generate appearance features from the selected images.
-These experiments run saved-box `eval` directly and do not support
-materialization, tuning, or KF calibration. The `*-yolo26n` presets retain
-the detector-based workflow. See the
-[saved 2D dataset layout](datasets.md#existing-2d-detections) for required files.
+The `kitti-mots/2d` preset omits ReID; `kitti-mots/2d-lmbn-n-duke`
+generates appearance features from the selected images. These experiments run
+saved-box `eval` directly and do not support materialization, tuning, or KF
+calibration. See the [saved 2D dataset layout](datasets.md#existing-2d-detections)
+for required files.
+
+## Saved multimodal KITTI inputs
+
+Choose an experiment according to the inputs your tracker consumes. Both presets
+read the same local KITTI folder and reuse saved predictions:
+
+```bash
+# 2D boxes: OC-SORT, ByteTrack, and other image-box trackers
+boxmot eval --experiment kitti-mots/2d \
+  --data-root ./kitti-mots --tracker ocsort --cache-inputs --project runs/kitti-2d
+
+# Images, masks, 2D/3D boxes, calibration, and camera poses: EagerMOT
+boxmot eval --experiment kitti-mots/full \
+  --data-root ./kitti-mots --tracker eagermot --cache-inputs --project runs/kitti-multimodal
+```
+
+The multimodal experiment selects `kitti-mots`. Its dataset config
+declares Track R-CNN predictions under `predictions/trackrcnn`, PointGNN boxes
+under `predictions/pointgnn-car-t2` (validation), `predictions/pointgnn-car-t3`
+(training), and `predictions/pointgnn-pedestrian`, and images,
+mask ground truth, calibration, and poses under `sequences/{partition}/{sequence}`.
+KITTI tracking labels under `{partition}/label_02` supply 3D ground truth when
+`--eval-3d` or `--calibrate-kf` is selected. Default evaluation scores masks.
+
+Use `--split train` for training sequences. The `full` experiment also supports
+EagerMOT `tune`. It omits detector and ReID components and cannot be materialized.
+Incompatible trackers are rejected before inputs are loaded; select the 2D
+experiment for box trackers, using `2d-lmbn-n-duke` when appearance is needed.
 
 ## Built-in examples
 

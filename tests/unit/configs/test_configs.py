@@ -120,16 +120,16 @@ def test_kitti_mots_dataset_config_uses_native_classes_paths_and_official_splits
     config = load_dataset_config("kitti-mots")
 
     assert config["layout"] == "sequence"
-    assert config["root"] == "KITTI-MOTS"
+    assert config["root"] == "."
     assert config["fps"] == 10.0
     assert config["classes"]["car"] == {"id": 1, "evaluation": "target"}
     assert config["classes"]["pedestrian"] == {"id": 2, "evaluation": "target"}
     for name in ("train", "val", "fulltrain"):
         assert config["splits"][name]["partition"] == "training"
-        assert dataset_modalities(config, name)["images"]["paths"] == [
-            "data_tracking_image_2/{partition}/image_02/{sequence}"
+        assert dataset_modalities(config, name)["images"]["paths"] == ["sequences/{partition}/{sequence}/images"]
+        assert dataset_modalities(config, name)["ground_truth"]["paths"] == [
+            "sequences/{partition}/{sequence}/ground_truth"
         ]
-        assert dataset_modalities(config, name)["ground_truth"]["paths"] == ["instances/{sequence}"]
         assert config["splits"][name]["has_ground_truth"] is True
     assert config["splits"]["test"]["partition"] == "testing"
     assert config["splits"]["test"]["has_ground_truth"] is False

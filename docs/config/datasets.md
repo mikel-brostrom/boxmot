@@ -89,157 +89,88 @@ IoU; OBB ground truth is expected in 13-column corner format on disk.
 
 ## KITTI 2D tracking
 
-The `kitti-2d` config exposes images and native KITTI tracking box annotations
-for image trackers such as ByteTrack and BoT-SORT. Its inputs are:
-
-```text
-datasets/mot/KITTI/
-├── training/
-│   ├── image_02/0000/000000.png, 000001.png, ...
-│   └── label_02/0000.txt, 0001.txt, ...
-└── testing/
-    └── image_02/0000/000000.png, 000001.png, ...
-```
-
-The config defines the same 12 training and nine validation sequences used
-by the fusion preset, plus `fulltrain` and an unannotated `test` split.
-`ground_truth` selects `format: kitti-tracking-labels`: one 17-field text file
-per sequence, retaining identities, image bounds, visibility and DontCare
-regions. Only 2D geometry is evaluated; the unused spatial fields can contain
-KITTI's missing-value placeholders. Target classes are car `1` and pedestrian `2`.
-
-Install the detector dependencies, then run a supplied experiment:
-
-```bash
-boxmot install --extra yolo
-boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
-  --split val --cache-inputs
-```
-
-For BoT-SORT with appearance features, add `--reid osnet-x0-25-msmt17`.
-Supplied YOLO26n experiments cover `train` and `val`, with or without OSNet,
-and explicitly map detector `person` to dataset `pedestrian`. Other perception
-models can be selected through your own experiment YAML. A materialized
-`--build` supplies the same cached detections to evaluation and tuning.
-
-BoxMOT's built-in HOTA, CLEAR, and Identity evaluators score **2D HOTA, MOTA,
-and IDF1**, with KITTI visibility, distractor, and DontCare preprocessing.
-Evaluation and tuning do not require an external TrackEval installation. Results are
-written to `metrics.json/csv`; `evaluation.json` records the protocol and
-selected frame mapping. `--fps`, `--sequence`, `--cache-inputs`, and 2D
-`--calibrate-kf` use that same selected image timeline. Tuning reuses the
-normal image workflow:
-
-```bash
-boxmot install --extra evolve
-boxmot tune --dataset kitti-2d --tracker bytetrack --detector yolo26n \
-  --split train --n-trials 50 --cache-inputs
-```
-
-To reuse an existing multimodal data folder, copy
-`boxmot/configs/datasets/kitti-2d.yaml` beside its current YAML under a different
-filename. Set `storage.root: .` and point its two modalities to the existing
-images and `label_02` files. For the reorganized fusion layout:
-
-```yaml
-storage:
-  root: .
-modalities:
-  images:
-    format: image-directory
-    path: sequences/{partition}/{sequence}/images
-  ground_truth:
-    format: kitti-tracking-labels
-    path: "{partition}/label_02/{sequence}.txt"
-```
-
-Select the local YAML with `--dataset ./kitti-mots/kitti-2d.yaml --build <build>`.
-For automatic materialization, an experiment beside that YAML can reference it:
-
-```yaml
-dataset:
-  ref: kitti-2d.yaml
-  split: val
-detector:
-  ref: yolo26n
-  checkpoint: default
-evaluation:
-  class_map:
-    car: car
-    pedestrian: person
-```
-
-Run `boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n.yaml --tracker bytetrack`.
-Images remain in place; this YAML describes a separate 2D experiment over them.
-
-For OccluBoost's default appearance features, use the experiment with OSNet:
-
-```bash
-boxmot eval --experiment ./kitti-mots/val-kitti-2d-yolo26n-osnet.yaml \
-  --tracker occluboost --cache-inputs --project runs/kitti-2d
-```
-
-Create that experiment by adding `reid: {ref: osnet-x0-25-msmt17}` to the local
-example above. OccluBoost evaluates 2D boxes; omit the sensor-only `--eval-3d` flag.
-
-### Existing 2D detections
-
-The `kitti-mots-2d` dataset preset selects saved TrackR-CNN boxes and images
-from the existing multimodal sequence layout. Set `--data-root` to that folder:
-
-```bash
-boxmot eval --experiment kitti-2d/val-trackrcnn-osnet \
-  --data-root ./kitti-mots --tracker occluboost --cache-inputs \
-  --project runs/kitti-2d
-```
-
-The shipped dataset YAML, `boxmot/configs/datasets/kitti-mots-2d.yaml`, has
-`storage.root: .` and resolves these paths below `--data-root`:
+`kitti-mots.yaml` is the shared inventory for the combined KITTI folder. It owns
+paths, encodings, classes, and splits. Experiments select the modalities they use;
+a tracker input combination does not need another dataset YAML.
 
 ```text
 kitti-mots/
-├── sequences/training/0002/images/000000.png, 000001.png, ...
-├── predictions/trackrcnn/training/0002.txt
+├── sequences/training/0002/
+│   ├── images/000000.png
+│   ├── ground_truth/000000.png
+│   ├── calibration.txt
+│   └── poses.npy
+├── predictions/
+│   ├── trackrcnn/training/0002.txt
+│   ├── pointgnn-car-t2/training/0002/000000.txt
+│   ├── pointgnn-car-t3/training/0002/000000.txt
+│   └── pointgnn-pedestrian/training/0002/000000.txt
 └── training/label_02/0002.txt
 ```
 
-The `train-trackrcnn` and `val-trackrcnn` experiments use the same 12 training
-and nine validation sequences as the fusion profile. Their `-osnet` variants
-generate ReID embeddings from images. For motion-only tracking, select
-`kitti-2d/val-trackrcnn` with `--tracker bytetrack`. These presets reuse saved
-predictions; the existing `*-yolo26n` experiments run detector inference.
+The dataset provides 12 training and nine validation sequences, plus `fulltrain`
+and unannotated `test`. Validation uses T2 car predictions; other splits use T3.
+Only the modalities selected by an experiment must exist on disk.
 
-You can also select the dataset directly with
-`--dataset kitti-mots-2d --data-root ./kitti-mots --split val`, adding
-`--reid osnet-x0-25-msmt17` for appearance-enabled trackers.
-`detections_2d.options.load_masks: false` explicitly selects boxes, scores,
-and classes; prediction masks and stored embeddings are not loaded.
-Calibration, ego poses, and 3D boxes are not declared by this config.
-`--cache-inputs` reuses parsed detections, required image pixels, annotations,
-and generated ReID features across runs; changed inputs or encoder settings
-invalidate the corresponding cache.
+Choose `kitti-mots/full`, `kitti-mots/2d`, or `kitti-mots/2d-lmbn-n-duke`
+according to the tracker inputs. All three reuse saved predictions and default
+to validation; use `--split train` for training sequences.
 
-Decoded RGB caches can be much larger than the image files. Saved-box evaluation
-checks available disk space first and streams source images when they will not
-fit. Annotation and ReID cache writes also tolerate a full disk by using the
-computed values without caching them. Dataset inputs and scoring stay the same.
+Native KITTI tracking labels retain identities, visibility, distractors, and
+DontCare regions. The 2D workflow reports HOTA, MOTA, and IDF1 using image-box IoU;
+it does not need calibration or spatial detections. Results are written to
+`metrics.json/csv`, with the scoring protocol in `evaluation.json`.
 
-Scoring uses the same built-in 2D metrics and KITTI preprocessing as the
-perception-build workflow above. No TrackEval installation is required.
+### Existing 2D detections
 
-For the original KITTI layout, `kitti-2d-detections` instead reads images from
-`{partition}/image_02/{sequence}` under `storage.root: KITTI`. Use
-`--dataset kitti-2d-detections` with a data root containing that `KITTI` folder.
-For another layout, copy either dataset YAML into your data folder, set
-`storage.root: .`, and adjust its modality paths. Ground truth must be native
-KITTI tracking labels aligned to the images. This saved-box workflow supports
-`eval` with one sequence worker; materialization, tuning, and KF calibration
-use the detector-based workflow above.
+Select saved boxes from the same dataset inventory:
+
+```bash
+boxmot eval --experiment kitti-mots/2d \
+  --data-root ./kitti-mots --tracker ocsort --cache-inputs --project runs/kitti-2d
+```
+
+The experiment explicitly selects its inputs:
+
+```yaml
+dataset:
+  ref: kitti-mots
+  modalities:
+    images: {}
+    detections_2d:
+      options:
+        load_masks: false
+    ground_truth:
+      source: ground_truth_3d
+      options: {}
+```
+
+`ground_truth_3d` identifies the dataset's KITTI tracking label files, which
+contain both image boxes and spatial boxes. Selecting them as `ground_truth`
+uses the image-box reader for scoring. `options: {}` replaces the spatial reader
+options. No paths are duplicated in the experiment.
+
+Use `kitti-mots/2d-lmbn-n-duke` for appearance-enabled trackers and
+`--split train` for training sequences. Prediction masks, calibration, poses, and 3D
+predictions are excluded by these experiments. The multimodal experiment
+`kitti-mots/full` selects those additional inputs.
+
+`--cache-inputs` reuses parsed predictions, annotations, required image pixels,
+and generated ReID features. Caches include the selected reader options, so
+boxes-only and mask-enabled views remain distinct. If decoded images will not
+fit on disk, evaluation reads the original images. This saved-box workflow
+supports `eval` with one sequence worker. The `full` preset also supports
+EagerMOT tuning; saved-box 2D tuning and calibration are not supported.
+
+For another physical layout, copy `kitti-mots.yaml` to your data folder and edit
+its paths. For original KITTI tracking downloads, set `images.path` to
+`{partition}/image_02/{sequence}`. Point a local experiment at that YAML and keep
+the same modality selection.
 
 ## KITTI MOTS instance masks
 
-The `kitti-mots` profile reads the original KITTI tracking images and MOTS
-instance PNGs.
+The shared `kitti-mots` inventory includes KITTI images and MOTS instance PNGs.
+An image experiment selects only `images` and `ground_truth` to use these annotations.
 
 ### Download KITTI MOTS data
 
@@ -279,10 +210,14 @@ KITTI-MOTS/
 └── instances/0000/000000.png
 ```
 
-For example, use `--data-root datasets` when the dataset is at
-`datasets/KITTI-MOTS`. If both extracted directories already share a directory such as
-`~/Downloads`, copy the dataset YAML, set `storage.root: .`, and use that
-directory as `--data-root`. No conversion of images or labels is required.
+The built-in config describes the combined sequence layout shown above. To keep
+these original extracted paths, copy `kitti-mots.yaml` to
+`datasets/KITTI-MOTS/dataset.yaml`, keep `storage.root: .`, and change the image
+path to `data_tracking_image_2/{partition}/image_02/{sequence}` and mask path to
+`instances/{sequence}`. Remove unused inventory entries and split overrides if
+their sources are unavailable. In an experiment, reference this local YAML and
+select `modalities: {images: {}, ground_truth: {}}`. No image or label conversion
+is required.
 
 ### Load and evaluate
 
@@ -291,9 +226,8 @@ partitions, `fulltrain` for all 21 annotated sequences, and the unannotated
 `test` partition. The sequence selections follow the reference
 [train](https://github.com/VisualComputingInstitute/mots_tools/blob/master/mots_eval/train.seqmap)
 and [validation](https://github.com/VisualComputingInstitute/mots_tools/blob/master/mots_eval/val.seqmap)
-lists. The built-in profile uses `layout: sequence`, with `images` and
-`ground_truth` modalities pointing to the original image and instance
-directories. Every selected annotated image must have a matching
+lists. The built-in profile uses `layout: sequence`, with image and mask paths
+inside each sequence directory. Every selected annotated image must have a matching
 `<sequence>/<frame>.png` mask; the test split removes the ground-truth modality.
 Annotation content and dimensions participate in catalog validation and build
 identity. Native frame numbers start at zero, with timestamps at 10 Hz;
@@ -312,7 +246,7 @@ from boxmot.datasets.inputs import load_dataset_inputs
 inputs = load_dataset_inputs(
     "kitti-mots",
     split="train",
-    data_root=Path("datasets"),
+    data_root=Path("kitti-mots"),
     roles=("images", "ground_truth"),
 )
 dataset = ImageDataset.from_inputs(inputs)
@@ -362,8 +296,8 @@ independent of the tracker and detector models.
 
 `eval` and `tune` read these inputs through `--dataset ./my-sensor-dataset`.
 A folder resolves to its `dataset.yaml`; an explicit YAML path also works.
-The bare name `--dataset kitti-mots` selects the built-in image dataset profile
-above. Local sequence paths resolve beneath `storage.root`, relative to the
+The bare name `--dataset kitti-mots` selects the full built-in inventory.
+Use an experiment to select a subset of those inputs. Local sequence paths resolve beneath `storage.root`, relative to the
 containing YAML. This template uses `root: .` so the folder can move as a unit.
 
 ### Bring your own sensor dataset
@@ -380,7 +314,11 @@ Edit the copied `dataset.yaml` to set your dataset ID and input paths.
 Selecting the built-in `--dataset sensor-fusion` directly resolves its
 `root: .` beneath `datasets/mot` in the working directory. For another payload
 folder, use a local copy: its paths resolve relative to the containing folder.
-Saved sensor `eval` and `tune` do not accept `--data-root`.
+Saved sensor `eval` and `tune` accept `--data-root` to override the base folder
+containing `storage.root`. The `kitti-mots` dataset uses `storage.root: .`
+and the downloaded KITTI sequence layout. Select its
+[multimodal experiment](experiments.md#saved-multimodal-kitti-inputs) with
+`--data-root ./kitti-mots`; use `kitti-mots/2d` for saved boxes only.
 Populate these payloads for both `drive-001` and `drive-002`:
 
 ```text

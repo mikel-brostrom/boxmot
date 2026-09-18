@@ -532,7 +532,9 @@ def test_catalog_id_precedes_a_same_named_folder_and_explicit_paths_select_local
     path = _fixture(tmp_path / "kitti-mots")
     monkeypatch.chdir(tmp_path)
 
-    assert resolve_sensor_dataset_config_path("kitti-mots") is None
+    catalog = resolve_dataset_config_path("kitti-mots")
+    assert catalog != path.resolve()
+    assert resolve_sensor_dataset_config_path("kitti-mots") == catalog
     assert resolve_sensor_dataset_config_path("mot17") is None
     for reference in ("./kitti-mots", Path("kitti-mots"), "kitti-mots/dataset.yaml"):
         assert resolve_dataset_config_path(reference) == path.resolve()

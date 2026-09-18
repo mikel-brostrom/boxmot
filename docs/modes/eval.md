@@ -187,13 +187,21 @@ decisions, fusion, predictions, and metrics remain fresh for every run.
 
 ## Saved 2D detections
 
-The `kitti-mots-2d` dataset selects existing TrackR-CNN boxes, images, and
+For OC-SORT on the saved KITTI boxes:
+
+```bash
+boxmot eval --experiment kitti-mots/2d \
+  --data-root ./kitti-mots --tracker ocsort --cache-inputs --project runs/kitti-2d
+```
+
+The `kitti-mots/2d` and `kitti-mots/2d-lmbn-n-duke` experiments select
+existing TrackR-CNN boxes, images, and
 native KITTI tracking ground truth from a multimodal sequence folder.
-Use the shipped experiment to evaluate its validation split with OSNet:
+Use the shipped experiment to evaluate its validation split with LMBN:
 
 ```bash
 boxmot eval \
-  --experiment kitti-2d/val-trackrcnn-osnet \
+  --experiment kitti-mots/2d-lmbn-n-duke \
   --data-root ./kitti-mots \
   --tracker occluboost \
   --cache-inputs \
@@ -203,15 +211,13 @@ boxmot eval \
 The preset reads `sequences/{partition}/{sequence}/images`,
 `predictions/trackrcnn/{partition}/{sequence}.txt`, and
 `{partition}/label_02/{sequence}.txt` below `--data-root`.
-Choose `kitti-2d/train-trackrcnn-osnet` to evaluate the training split, or use
-`kitti-2d/val-trackrcnn` with `--tracker bytetrack` for motion-only tracking.
-The `*-yolo26n` experiments run fresh detector inference instead.
+Add `--split train` to evaluate the training split, or use
+`kitti-mots/2d` with `--tracker bytetrack` for motion-only tracking.
 
-Direct selection also works with `--dataset kitti-mots-2d --split val`
-and `--reid osnet-x0-25-msmt17`. The original KITTI directory layout uses
-`--dataset kitti-2d-detections`; other layouts can use a local YAML as described
-in the [saved 2D dataset presets](../config/datasets.md#existing-2d-detections).
-These configs explicitly disable mask loading and declare no spatial inputs.
+All KITTI experiments reference the same `kitti-mots` dataset inventory.
+The 2D presets select `dataset.modalities` to disable mask loading and exclude spatial
+inputs for 2D tracking. Other physical layouts can use a local dataset YAML as
+shown in the [dataset guide](../config/datasets.md#existing-2d-detections).
 This workflow generates ReID features from the images when appearance is enabled;
 `--cache-inputs` caches them together with parsed inputs and required image pixels.
 If decoded images would exceed available disk space, saved-box evaluation reads
@@ -236,6 +242,17 @@ masks without materializing a perception build. See the
 for the full command.
 
 ## EagerMOT with saved sensor inputs
+
+Use the multimodal experiment for the same local KITTI folder:
+
+```bash
+boxmot eval --experiment kitti-mots/full \
+  --data-root ./kitti-mots --tracker eagermot --cache-inputs --project runs/kitti-multimodal
+```
+
+This selects saved Track R-CNN masks and boxes, PointGNN 3D boxes, calibration,
+camera poses, and images. See [KITTI experiment selection](../config/experiments.md#saved-multimodal-kitti-inputs)
+for the matching 2D-only experiment and train split.
 
 Evaluate a [multimodal sequence dataset](../config/datasets.md#multimodal-sequence-datasets)
 through the same command:
@@ -291,13 +308,13 @@ Only that additional option requires object annotations and the official evaluat
 For image and box trackers, select the [KITTI 2D dataset](../config/datasets.md#kitti-2d-tracking):
 
 ```bash
-boxmot eval --dataset kitti-2d --tracker bytetrack --detector yolo26n \
+boxmot eval --experiment kitti-mots/2d --data-root ./kitti-mots --tracker bytetrack \
   --split val --cache-inputs
 ```
 
 It uses native `label_02` image boxes and BoxMOT's built-in 2D HOTA/MOTA/IDF1
 metrics, including KITTI preprocessing, without an external TrackEval dependency.
-Add `--reid osnet-x0-25-msmt17` when using BoT-SORT's appearance features.
+Use `kitti-mots/2d-lmbn-n-duke` when using BoT-SORT's appearance features.
 
 For your own recordings, copy the
 [sensor dataset template](../config/datasets.md#bring-your-own-sensor-dataset),

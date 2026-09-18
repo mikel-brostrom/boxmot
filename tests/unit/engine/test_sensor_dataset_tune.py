@@ -241,7 +241,6 @@ def test_tune_help_explains_sensor_class_profiles() -> None:
         ["--reid", "osnet"],
         ["--build", "existing-build"],
         ["--build-root", "builds"],
-        ["--data-root", "override"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
         ["--variable-dt"],

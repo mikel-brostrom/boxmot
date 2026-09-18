@@ -76,7 +76,7 @@ def test_kitti_2d_catalog_hashes_sequence_annotations_once_without_decoding(
 
     assert inspected == [*((path, True) for path in images), (annotation, False)]
     assert [sample.sample_id for sample in catalog.samples] == ["train:0000:0", "train:0000:1"]
-    assert catalog.samples[0].image_ref == "data_tracking_image_2/training/image_02/0000/000000.png"
+    assert catalog.samples[0].image_ref == "sequences/training/0000/images/000000.png"
     assert catalog.metadata["modalities"]["ground_truth"]["format"] == "kitti-tracking-labels"
 
 

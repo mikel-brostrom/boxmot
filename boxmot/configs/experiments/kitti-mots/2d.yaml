@@ -1,0 +1,10 @@
+dataset:
+  ref: kitti-mots
+  modalities:
+    images: {}
+    detections_2d:
+      options:
+        load_masks: false
+    ground_truth:
+      source: ground_truth_3d
+      options: {}

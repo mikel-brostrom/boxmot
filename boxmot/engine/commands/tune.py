@@ -36,6 +36,8 @@ from boxmot.engine.config.trackers import edgetam_checkpoint
 _SENSOR_OPTIONS = frozenset(
     {
         "dataset",
+        "experiment",
+        "data_root",
         "tracker",
         "tracker_backend",
         "split",
@@ -98,21 +100,47 @@ def _validate_sensor_options(ctx: click.Context, payload: Mapping[str, Any]) -> 
 
 def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> dict[str, Any] | None:
     """Normalize a declared sensor dataset before dispatch through the shared tuner."""
+    if payload.get("detector") and not payload.get("experiment"):
+        from boxmot.engine.config.trackers import validate_image_tracker
+
+        try:
+            validate_image_tracker(str(payload["tracker"]))
+        except ValueError as exc:
+            raise click.UsageError(f"--detector requires an image tracker: {exc}") from exc
+        return None
+
+    from boxmot.engine.config.experiments import resolve_sensor_experiment
+
+    try:
+        payload = resolve_sensor_experiment(payload, mode="tune")
+    except (ValueError, OSError) as exc:
+        raise click.UsageError(str(exc)) from exc
+
     reference = payload.get("dataset")
     if not reference:
         return None
 
-    from boxmot.datasets.inputs import resolve_sensor_dataset_config_path
-    from boxmot.engine.config.datasets import load_sensor_evaluation_inputs, validate_sensor_workflow_inputs
+    from boxmot.engine.config.datasets import (
+        load_sensor_evaluation_inputs,
+        resolve_sensor_workflow_config_path,
+        validate_sensor_workflow_inputs,
+    )
     from boxmot.trackers.common.specs import parse_tracker_spec
 
     try:
-        path = resolve_sensor_dataset_config_path(reference, split=payload.get("split"))
+        path = resolve_sensor_workflow_config_path(
+            reference, experiment=payload.get("experiment"), split=payload.get("split"), mode="tune"
+        )
         if path is None:
             return None
         spec = parse_tracker_spec(payload["tracker"], default_backend=payload["tracker_backend"])
         validate_sensor_workflow_inputs(
-            path, spec, mode="tune", split=payload.get("split"), calibrate_kf=bool(payload.get("calibrate_kf"))
+            path,
+            spec,
+            mode="tune",
+            split=payload.get("split"),
+            calibrate_kf=bool(payload.get("calibrate_kf")),
+            experiment=payload.get("experiment"),
         )
         _validate_sensor_options(ctx, payload)
         dataset = load_sensor_evaluation_inputs(
@@ -120,6 +148,8 @@ def _prepare_sensor_tuning(ctx: click.Context, payload: Mapping[str, Any]) -> di
             split=payload.get("split"),
             sequence_names=payload.get("sequence_names", ()),
             calibrate_kf=bool(payload.get("calibrate_kf")),
+            data_root=payload.get("data_root"),
+            experiment=payload.get("experiment"),
         )
         explicit = _explicit_cli_keys(ctx)
         sequence_workers = resolve_sequence_workers(

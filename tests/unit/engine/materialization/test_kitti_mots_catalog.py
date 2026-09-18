@@ -75,7 +75,7 @@ def test_kitti_catalog_uses_headers_and_hashes_without_decoding_pixels(
     assert sample.frame_index == 0
     assert sample.timestamp_s == 0.0
     assert sample.image_size == (4, 6)
-    assert sample.image_ref == "data_tracking_image_2/training/image_02/0000/000000.png"
+    assert sample.image_ref == "sequences/training/0000/images/000000.png"
     assert sample.source_uri == image_path.as_uri()
     assert sample.source_frame_index is None
     assert not hasattr(sample, "frame")
@@ -102,7 +102,7 @@ def test_kitti_catalog_identity_is_portable_and_tracks_mask_content(
     assert original.metadata["source_root_uri"] != relocated.metadata["source_root_uri"]
     assert original.samples[0].source_uri != relocated.samples[0].source_uri
 
-    mask_path = relocated_root / kitti_config["root"] / "instances" / "0000" / "000000.png"
+    mask_path = relocated_root / kitti_config["root"] / "sequences/training/0000/ground_truth/000000.png"
     changed_mask = np.zeros((4, 6), dtype=np.uint16)
     changed_mask[1:3, 2:5] = 1000
     assert cv2.imwrite(str(mask_path), changed_mask)
@@ -140,7 +140,7 @@ def test_kitti_test_split_never_uses_training_annotations_with_the_same_sequence
     assert mask_path is None
     first = catalog_mot_dataset(kitti_config, split="test", data_root=tmp_path)
 
-    training_mask = tmp_path / kitti_config["root"] / "instances" / "0000" / "000000.png"
+    training_mask = tmp_path / kitti_config["root"] / "sequences/training/0000/ground_truth/000000.png"
     training_mask.write_bytes(b"Unreadable training annotation must not affect the test split.")
     second = catalog_mot_dataset(kitti_config, split="test", data_root=tmp_path)
 

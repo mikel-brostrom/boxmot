@@ -134,7 +134,7 @@ def _modality_path(value: Any, context: str) -> str:
     return value
 
 
-def _modalities(value: Any, context: str, *, overrides: bool = False) -> dict[str, Any]:
+def normalize_modalities(value: Any, context: str, *, overrides: bool = False) -> dict[str, Any]:
     """Normalize each independently encoded input without selecting a reader."""
 
     if not isinstance(value, dict):
@@ -329,7 +329,7 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
         raise ConfigurationError(f"{context} fps must be a finite positive number.")
     if layout == "sequence" and fps is None:
         raise ConfigurationError(f"{context} sequence layout must define fps.")
-    modalities = _modalities(raw.get("modalities", {}), f"{context} modalities")
+    modalities = normalize_modalities(raw.get("modalities", {}), f"{context} modalities")
     if layout == "sequence" and not modalities:
         raise ConfigurationError(f"{context} sequence layout must define modalities.")
     try:
@@ -343,7 +343,9 @@ def load_dataset_config(reference: str | Path) -> dict[str, Any]:
             raise ConfigurationError(f'{context} split "{split_name}" must define path and has_ground_truth.')
         split_context = f'{context} split "{split_name}"'
         normalized_split = deepcopy(split_value)
-        overrides = _modalities(split_value.get("modalities", {}), f"{split_context} modalities", overrides=True)
+        overrides = normalize_modalities(
+            split_value.get("modalities", {}), f"{split_context} modalities", overrides=True
+        )
         if "modalities" in split_value:
             normalized_split["modalities"] = overrides
         if layout == "sequence":
@@ -443,6 +445,7 @@ __all__ = (
     "DATASET_CONFIGS_DIR",
     "MODALITY_ROLES",
     "dataset_modalities",
+    "normalize_modalities",
     "iter_dataset_config_paths",
     "load_dataset_config",
     "resolve_dataset_config_path",

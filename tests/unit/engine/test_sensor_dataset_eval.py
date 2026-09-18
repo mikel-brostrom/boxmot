@@ -157,7 +157,6 @@ def test_sensor_eval_uses_shared_dispatch_and_portable_dataset_defaults(
         ["--reid", "osnet"],
         ["--build", "existing-build"],
         ["--build-root", "builds"],
-        ["--data-root", "override"],
         ["--experiment", "experiment.yaml"],
         ["--tracker-config", "override.yaml"],
         ["--variable-dt"],

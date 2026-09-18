@@ -59,18 +59,33 @@ segmentations:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval \
-  --dataset kitti-mots \
-  --split val \
-  --data-root datasets \
+  --experiment /path/to/kitti-mots-val.yaml \
+  --data-root ./kitti-mots \
   --build runs/materializations/BUILD_ID \
   --tracker bytetrack
 ```
 
-Here `datasets/KITTI-MOTS` contains the extracted images and instance PNGs,
-and `BUILD_ID` is the ID returned by materializing your KITTI MOTS experiment.
-For automatic preparation, use `--experiment /path/to/kitti-mots-val.yaml`
-in place of `--dataset`, `--split`, and `--build`. The experiment must supply
-the detections needed by the tracker.
+The experiment selects images and instance annotations from the dataset inventory:
+
+```yaml
+dataset:
+  ref: kitti-mots
+  split: val
+  modalities:
+    images: {}
+    ground_truth: {}
+detector:
+  ref: yolo26n
+  checkpoint: default
+evaluation:
+  class_map:
+    car: car
+    pedestrian: person
+```
+
+For the original archive layout, reference the local dataset YAML described in
+the download guide. `BUILD_ID` is returned by materializing this same experiment;
+omit `--build` for automatic materialization.
 
 Box evaluation derives tight ground-truth boxes from the instance PNGs and
 writes standard one-based MOT box result rows. It evaluates boxes against
@@ -90,7 +105,7 @@ evaluation command:
 
 ```bash
 uv run --no-sync python -m boxmot.engine.cli eval \
-  --dataset kitti-mots --split val --data-root datasets \
+  --experiment /path/to/kitti-mots-val.yaml --data-root ./kitti-mots \
   --build runs/materializations/MASK_BUILD_ID \
   --tracker bytetrack --eval-masks
 ```

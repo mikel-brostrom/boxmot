@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from boxmot.datasets.config import dataset_modalities, load_dataset_config
+from boxmot.datasets.config import dataset_modalities
 from boxmot.datasets.inputs import DatasetInputs, resolve_dataset_inputs
 
 if TYPE_CHECKING:
@@ -21,9 +21,15 @@ _SENSOR_TRACKING_FORMATS = {
 }
 
 
+def is_sensor_dataset(config: Mapping[str, Any], split: str | None = None) -> bool:
+    """Identify declared spatial inputs independently of the selected tracker."""
+    modalities = dataset_modalities(config, split or config.get("split") or config["default_split"])
+    return bool({"detections_3d", "calibration", "poses"}.intersection(modalities))
+
+
 def is_saved_2d_dataset(config: Mapping[str, Any], split: str | None = None) -> bool:
     """Identify an explicit boxes-only view of saved image detections."""
-    modalities = dataset_modalities(config, split or config["default_split"])
+    modalities = dataset_modalities(config, split or config.get("split") or config["default_split"])
     detections = modalities.get("detections_2d", {})
     return (
         detections.get("format") == "trackrcnn"
@@ -32,16 +38,36 @@ def is_saved_2d_dataset(config: Mapping[str, Any], split: str | None = None) -> 
     )
 
 
+def resolve_sensor_workflow_config_path(
+    reference: str | Path,
+    *,
+    experiment: str | Path | None = None,
+    split: str | None = None,
+    mode: str = "eval",
+) -> Path | None:
+    """Recognize saved workflow inputs after applying experiment selection."""
+    from boxmot.engine.config.experiments import load_workflow_dataset
+
+    config = load_workflow_dataset(reference, experiment=experiment, split=split, mode=mode)
+    modalities = dataset_modalities(config, split or config.get("split") or config["default_split"])
+    if {"detections_2d", "detections_3d", "calibration", "poses"}.intersection(modalities):
+        return config["config_path"]
+    return None
+
+
 def load_saved_2d_evaluation_inputs(
     reference: str | Path,
     *,
     split: str | None = None,
     sequence_names: tuple[str, ...] = (),
     data_root: str | Path | None = None,
+    experiment: str | Path | None = None,
 ) -> DatasetInputs:
     """Resolve declared image observations and native KITTI box annotations."""
-    config = load_dataset_config(reference)
-    split_name = split or config["default_split"]
+    from boxmot.engine.config.experiments import load_workflow_dataset
+
+    config = load_workflow_dataset(reference, experiment=experiment, split=split)
+    split_name = split or config.get("split") or config["default_split"]
     if not is_saved_2d_dataset(config, split_name):
         raise ValueError("Saved 2D evaluation requires detections_2d with format: trackrcnn and load_masks: false.")
     modalities = dataset_modalities(config, split_name)
@@ -82,7 +108,7 @@ def validate_perception_dataset_inputs(config: Mapping[str, Any], split: str, *,
     if saved:
         raise ValueError(
             f"Perception experiments cannot consume dataset '{config['id']}' inputs: {', '.join(saved)}.\n"
-            "Replay the sensor dataset with --dataset, or explicitly select images and ground truth in another config."
+            "Select the required inputs through dataset.modalities in the experiment."
         )
 
 
@@ -148,15 +174,17 @@ def validate_sensor_workflow_inputs(
     calibrate_kf: bool = False,
     eval_3d: bool = False,
     eval_ap: bool = False,
+    experiment: str | Path | None = None,
 ) -> None:
     """Explain unsupported sensor selections before reading payloads or loading models."""
 
+    from boxmot.engine.config.experiments import load_workflow_dataset
     from boxmot.trackers.common.registry import get_tracker_definition
 
     if mode not in {"eval", "tune"}:
         raise ValueError(f"Unknown sensor workflow: {mode!r}.")
-    config = load_dataset_config(reference)
-    split_name = config["default_split"] if split is None else split
+    config = load_workflow_dataset(reference, experiment=experiment, split=split, mode=mode)
+    split_name = split or config.get("split") or config["default_split"]
     modalities = dataset_modalities(config, split_name)
     definition = get_tracker_definition(spec.name)
     if spec.backend == "cpp" and definition.native_class_path is None:
@@ -207,20 +235,26 @@ def load_sensor_evaluation_inputs(
     *,
     split: str | None = None,
     sequence_names: tuple[str, ...] = (),
+    data_root: str | Path | None = None,
     eval_3d: bool = False,
     eval_ap: bool = False,
     calibrate_kf: bool = False,
+    experiment: str | Path | None = None,
 ) -> DatasetInputs:
     """Resolve all tracking inputs and only annotations used by scoring or calibration."""
 
-    config = load_dataset_config(reference)
-    split_name = config["default_split"] if split is None else split
+    from boxmot.engine.config.experiments import load_workflow_dataset
+
+    config = load_workflow_dataset(reference, experiment=experiment, split=split)
+    split_name = split or config.get("split") or config["default_split"]
     modalities = dataset_modalities(config, split_name)
     _validate_sensor_3d_ground_truth(modalities, eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     formats = _sensor_evaluation_formats(eval_3d=eval_3d, eval_ap=eval_ap, calibrate_kf=calibrate_kf)
     annotation_roles = {"ground_truth", "ground_truth_3d", "ground_truth_objects"}
     roles = tuple(role for role in modalities if role not in annotation_roles or role in formats)
-    dataset = resolve_dataset_inputs(config, split=split_name, sequence_names=sequence_names, roles=roles)
+    dataset = resolve_dataset_inputs(
+        config, split=split_name, sequence_names=sequence_names, data_root=data_root, roles=roles
+    )
     scoring = "3D" if eval_3d else "mask"
     if eval_3d:
         targets = {

@@ -223,7 +223,7 @@ def _prepare_replay_build(
                     )
                 )
             except (ConfigurationError, FileNotFoundError) as exc:
-                raise click.UsageError(str(exc)) from exc
+                raise click.UsageError(f"--detector selection: {exc}") from exc
         dataset = None
 
     if build_ref is not None:
