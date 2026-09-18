@@ -181,9 +181,27 @@ class KalmanBoxTracker(SortBoxTrack):
         transform: np.ndarray,
         model,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Evaluate the full forward-difference XYSCR Jacobians in one batch."""
+        """Correct affine camera motion without coupling area and aspect uncertainty."""
         values = np.asarray(states, dtype=float)
         count, dimension = values.shape
+        matrix = np.asarray(transform, dtype=float)
+        projective = matrix.shape == (3, 3) and not np.array_equal(matrix[2], [0.0, 0.0, 1.0])
+        if not projective:
+            # XYSCR fits area (pixel squared) and aspect (dimensionless) from
+            # detections with independent noise priors. The enclosing AABB's
+            # nonlinear Jacobian mixes those units: even tiny camera rotation
+            # turns a small area residual into a large aspect correction.
+            # Keep the geometric mean warp, but apply the affine camera map
+            # only to center/velocity uncertainty. Propagate the complete
+            # covariance so cross terms remain valid and positive semidefinite.
+            jacobian = np.eye(dimension, dtype=float)
+            jacobian[:2, :2] = matrix[:2, :2]
+            jacobian[5:7, 5:7] = matrix[:2, :2]
+            covariance = jacobian @ np.asarray(covariances, dtype=float) @ jacobian.T
+            covariance = 0.5 * (covariance + covariance.swapaxes(1, 2))
+            return cls._map_camera_states(values, matrix, model), covariance
+
+        # Perspective transforms retain their full local state mapping.
         steps = 1e-5 * np.maximum(np.abs(values), 1.0)
         samples = np.repeat(values[:, None, :], dimension + 1, axis=1)
         indices = np.arange(dimension)
@@ -262,6 +280,7 @@ class KalmanBoxTracker(SortBoxTrack):
             transform,
             attributes=("velocity_lt", "velocity_rt", "velocity_lb", "velocity_rb"),
             invalid_to_zero=True,
+            preserve_magnitude=True,
         )
 
     def update(

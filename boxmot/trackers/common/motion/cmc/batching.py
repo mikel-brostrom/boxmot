@@ -114,8 +114,14 @@ def transform_directions(
     step: float = 1.0,
     invalid_to_zero: bool = False,
     zero_input_to_zero: bool = False,
+    preserve_magnitude: bool = False,
 ) -> None:
-    """Warp cached ``[dy, dx]`` directions with each track's original policy."""
+    """Warp cached ``[dy, dx]`` directions with each track's original policy.
+
+    HybridSORT sums direction cues over multiple observations, so their
+    magnitudes carry association evidence and must survive camera correction.
+    Other trackers retain the default unit-direction normalization.
+    """
     owners, vectors, origins = [], [], []
     for track, center in zip(tracks, centers):
         for name in attributes:
@@ -140,6 +146,8 @@ def transform_directions(
     valid = active & np.isfinite(transformed).all(axis=1) & np.isfinite(norms) & (norms > 1e-12)
     normalized = np.zeros_like(transformed)
     normalized[valid] = transformed[valid] / norms[valid, None]
+    if preserve_magnitude:
+        normalized[valid] *= input_norms[valid, None]
     for index, (owner, name) in enumerate(owners):
         if (
             valid[index]

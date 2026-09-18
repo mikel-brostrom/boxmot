@@ -138,6 +138,7 @@ def associate_hybrid(
     velocity_weight: float,
     association_function: SimilarityFunction,
     *,
+    use_motion_confidence: bool = True,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections using geometry, motion, and confidence consistency."""
@@ -151,16 +152,18 @@ def associate_hybrid(
     similarity = np.asarray(association_function(detections, tracks), dtype=float)
     if geometry_conditioner is not None:
         similarity = geometry_conditioner(similarity)
-    ranking_similarity = (
-        similarity
-        + _four_corner_motion_cost(
-            detections,
-            previous_observations,
-            corner_velocities,
-            velocity_weight,
+    ranking_similarity = similarity
+    if use_motion_confidence:
+        ranking_similarity = (
+            similarity
+            + _four_corner_motion_cost(
+                detections,
+                previous_observations,
+                corner_velocities,
+                velocity_weight,
+            )
+            - confidence_difference(detections, tracks, track_confidence_column=4)
         )
-        - confidence_difference(detections, tracks, track_confidence_column=4)
-    )
     candidates = _geometry_candidates(similarity, ranking_similarity, similarity_threshold)
     return _partition_matches(
         candidates,
@@ -186,6 +189,7 @@ def associate_hybrid_with_reid(
     longterm_embedding_weight: float = 0.0,
     correct_with_appearance: bool = False,
     appearance_threshold: float = 0.0,
+    use_motion_confidence: bool = True,
     geometry_conditioner: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Associate HybridSORT detections with geometry, motion, and appearance."""
@@ -197,12 +201,19 @@ def associate_hybrid_with_reid(
         )
 
     similarity = np.asarray(association_function(detections, tracks), dtype=float)
-    motion_and_confidence = _four_corner_motion_cost(
-        detections,
-        previous_observations,
-        corner_velocities,
-        velocity_weight,
-    ) - confidence_difference(detections, tracks, track_confidence_column=4)
+    confidence_cost = np.zeros_like(similarity)
+    motion_and_confidence = np.zeros_like(similarity)
+    if use_motion_confidence:
+        confidence_cost = confidence_difference(detections, tracks, track_confidence_column=4)
+        motion_and_confidence = (
+            _four_corner_motion_cost(
+                detections,
+                previous_observations,
+                corner_velocities,
+                velocity_weight,
+            )
+            - confidence_cost
+        )
     assignment_cost = geometry_weight * -(similarity + motion_and_confidence)
     assignment_cost += embedding_weight * embedding_cost
     if longterm_embedding_cost is not None:
@@ -213,11 +224,7 @@ def associate_hybrid_with_reid(
         similarity = guided_similarity
     candidates = solve_assignment(assignment_cost)
 
-    threshold_similarity = similarity - confidence_difference(
-        detections,
-        tracks,
-        track_confidence_column=4,
-    )
+    threshold_similarity = similarity - confidence_cost
 
     def accepted(detection_index: int, track_index: int) -> bool:
         geometry_is_weak = threshold_similarity[detection_index, track_index] < similarity_threshold

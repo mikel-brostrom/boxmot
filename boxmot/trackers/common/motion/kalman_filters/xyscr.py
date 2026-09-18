@@ -226,9 +226,8 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
             return
 
         new_history = list(deepcopy(self.history_obs))
-        self.__dict__ = self.attr_saved
-        retained_history = list(self.history_obs)[:-1]
-        self.history_obs = deque(retained_history, maxlen=self.max_obs)
+        saved = self.attr_saved
+        self.attr_saved = None
 
         occur = [int(obs is None) for obs in new_history]
         indices = np.where(np.array(occur) == 0)[0]
@@ -244,6 +243,12 @@ class KalmanFilterXYSCR(BaseKalmanFilter):
         box2 = np.asarray(new_history[index2], dtype=float).reshape(-1)
         if box1.size < self.dim_z or box2.size < self.dim_z:
             return
+
+        # A bounded history can lose the observation before the gap. Restore
+        # the first-missing-frame state only when interpolation is possible.
+        self.__dict__ = saved
+        retained_history = list(self.history_obs)[:-1]
+        self.history_obs = deque(retained_history, maxlen=self.max_obs)
 
         x1, y1, s1, c1, r1 = box1[:5]
         x2, y2, s2, c2, r2 = box2[:5]

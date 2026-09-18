@@ -187,10 +187,10 @@ def test_hybridsort_config_covers_constructor_and_conditionals() -> None:
     assert "longterm_bank_length" in tuning_config["use_embeddings"]["activates"]
 
 
-@pytest.mark.parametrize("custom_profile", [False, True])
-def test_hybridsort_resolved_config_roundtrips_through_spec_and_factory(tmp_path, custom_profile: bool) -> None:
-    config_path = None
-    if custom_profile:
+@pytest.mark.parametrize("profile", [None, "custom", "hybridsort-mot17-ablation"])
+def test_hybridsort_resolved_config_roundtrips_through_spec_and_factory(tmp_path, profile: str | None) -> None:
+    config_path = profile
+    if profile == "custom":
         config_path = tmp_path / "hybridsort.yaml"
         config_path.write_text(
             "eg_weight_high_score: 3.5\n"

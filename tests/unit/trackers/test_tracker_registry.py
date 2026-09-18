@@ -282,6 +282,7 @@ def test_create_tracker_dispatches_native_spec_without_model_options(monkeypatch
     ("tracker_name", "preset_name"),
     (
         ("botsort", "botsort-mot17-ablation"),
+        ("hybridsort", "hybridsort-mot17-ablation"),
         ("occluboost", "occluboost-mot17-ablation"),
         ("occluboost", "occluboost-mot17-test"),
     ),

@@ -249,10 +249,12 @@ def test_tune_calibration_rejects_conflicting_units_before_workflow(monkeypatch,
 
 
 @pytest.mark.parametrize("mode", ["track", "eval", "tune"])
-def test_tracker_config_selector_reaches_runtime_namespace(monkeypatch, mode) -> None:
+@pytest.mark.parametrize("tracker", ["botsort", "hybridsort"])
+def test_tracker_config_selector_reaches_runtime_namespace(monkeypatch, mode, tracker) -> None:
     captured = {}
     monkeypatch.setattr(_support, "_run_engine_workflow", lambda module, args: captured.setdefault("args", args))
-    argv = [mode, "--tracker", "botsort", "--tracker-config", "botsort-mot17-ablation"]
+    preset = f"{tracker}-mot17-ablation"
+    argv = [mode, "--tracker", tracker, "--tracker-config", preset]
     if mode == "track":
         argv += ["--source", "video.mp4"]
     else:
@@ -260,7 +262,7 @@ def test_tracker_config_selector_reaches_runtime_namespace(monkeypatch, mode) ->
     result = CliRunner().invoke(boxmot, argv)
 
     assert result.exit_code == 0, result.output
-    assert captured["args"].tracker_config == "botsort-mot17-ablation"
+    assert captured["args"].tracker_config == preset
 
 
 @pytest.mark.parametrize("mode", ["track", "eval"])

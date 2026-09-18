@@ -185,17 +185,16 @@ class HybridSort(BoxTracker):
 
         # ---- Predict step for existing tracks
         trks = np.zeros((len(self.active_tracks), 6))
-        to_del = []
         predictions = predict_tracks(self.active_tracks, dt=self._prediction_dt)
         for t in range(len(trks)):
             pos, kal_score, simple_score = predictions[t]
             x1, y1, x2, y2 = pos[0].tolist()
             trks[t] = [x1, y1, x2, y2, kal_score, simple_score]
-            if np.any(np.isnan(pos)):
-                to_del.append(t)
-        trks = np.ma.compress_rows(np.ma.masked_invalid(trks))
-        for t in reversed(to_del):
-            self.active_tracks.pop(t)
+        valid_predictions = np.isfinite(trks).all(axis=1)
+        trks = trks[valid_predictions]
+        self.active_tracks = [
+            track for track, valid in zip(self.active_tracks, valid_predictions, strict=True) if valid
+        ]
 
         # Prepare motion cues
         velocities_lt = np.array(
@@ -214,13 +213,7 @@ class HybridSort(BoxTracker):
         k_observations = np.array([k_previous_obs(t.observations, t.age, self.delta_t) for t in self.active_tracks])
 
         # ===== First association (optionally embedding-guided)
-        if (
-            self.use_embeddings
-            and self.eg_weight_high_score > 0
-            and self.tcm_first_step
-            and len(dets_first)
-            and len(trks)
-        ):
+        if self.use_embeddings and self.eg_weight_high_score > 0 and len(dets_first) and len(trks):
             track_features = np.asarray([t.smooth_feat for t in self.active_tracks], dtype=float)
             emb_dists = feature_distance(track_features, id_feature_keep).T
 
@@ -249,11 +242,12 @@ class HybridSort(BoxTracker):
                 longterm_embedding_weight=self.longterm_reid_weight,
                 correct_with_appearance=self.with_longterm_reid_correction,
                 appearance_threshold=self.longterm_reid_correction_thresh,
+                use_motion_confidence=self.tcm_first_step,
                 geometry_conditioner=lambda similarity: self._condition_similarity(
                     similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
                 ),
             )
-        elif self.tcm_first_step and len(dets_first) and len(trks):
+        elif len(dets_first) and len(trks):
             matched, unmatched_dets, unmatched_trks = associate_hybrid(
                 dets_first,
                 trks,
@@ -262,6 +256,7 @@ class HybridSort(BoxTracker):
                 k_observations,
                 self.inertia,
                 association_function,
+                use_motion_confidence=self.tcm_first_step,
                 geometry_conditioner=lambda similarity: self._condition_similarity(
                     similarity, self.active_tracks, high_batch.boxes, threshold=self.iou_threshold
                 ),

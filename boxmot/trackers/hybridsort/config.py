@@ -11,7 +11,9 @@ from boxmot.trackers.common.algorithm_config import TrackerConfig
 class HybridSortConfig(TrackerConfig):
     """Configure HybridSORT association, confidence prediction, and appearance memory.
 
-    Shared history and association settings are inherited from ``TrackerConfig``.
+    Defaults match the historical MOT17 baseline. Shared history and association
+    settings are inherited from ``TrackerConfig``; SportsMOT tuning is available
+    through the ``hybridsort-sportsmot-val`` preset.
 
     Args:
         cmc_method: Camera-motion compensation method; None disables CMC.
@@ -29,7 +31,8 @@ class HybridSortConfig(TrackerConfig):
             does not select input detections.
         eg_weight_high_score: Appearance-distance weight for high-confidence matches.
         eg_weight_low_score: Appearance-distance weight for low-confidence AABB matches.
-        tcm_first_step: Enable the first AABB association pass with motion-direction cues.
+        tcm_first_step: Include motion-direction and confidence-consistency cues in
+            the first AABB association pass; geometry and appearance remain active.
         tcm_byte_step: Add a confidence-difference penalty to low-score AABB matching.
         tcm_byte_step_weight: Weight of that low-score confidence-difference penalty.
         with_longterm_reid: Include the AABB long-term appearance bank during matching.
@@ -42,32 +45,27 @@ class HybridSortConfig(TrackerConfig):
         det_thresh: Minimum detection confidence for the shared tracking kernel.
     """
 
-    max_age: int = field(default=230, metadata={"ge": 0})
-    max_obs: int = field(default=90, metadata={"ge": 1})
-    min_hits: int = field(default=1, metadata={"ge": 0})
-    iou_threshold: float = 0.24623615333496582
-    asso_func: str = field(default="diou", metadata={"choices": ("iou", "giou", "diou", "ciou", "hmiou", "centroid")})
     cmc_method: str | None = field(default="ecc", metadata={"choices": ("ecc", "orb", "sof", "sift")})
     use_embeddings: bool = True
     low_thresh: float = field(default=0.1, metadata={"ge": 0.0, "le": 1.0})
-    delta_t: int = field(default=4, metadata={"gt": 0})
-    inertia: float = field(default=0.07385224556640951, metadata={"ge": 0})
-    use_byte: bool = False
-    longterm_bank_length: int = field(default=270, metadata={"gt": 0})
-    alpha: float = field(default=0.9189916764734039, metadata={"ge": 0.0, "le": 1.0})
-    adapfs: bool = True
-    track_thresh: float = field(default=0.3190991353484191, metadata={"ge": 0.0, "le": 1.0})
-    eg_weight_high_score: float = field(default=3.8961609177336562, metadata={"ge": 0})
-    eg_weight_low_score: float = field(default=0.5096125821683565, metadata={"ge": 0})
+    delta_t: int = field(default=3, metadata={"gt": 0})
+    inertia: float = field(default=0.05, metadata={"ge": 0})
+    use_byte: bool = True
+    longterm_bank_length: int = field(default=30, metadata={"gt": 0})
+    alpha: float = field(default=0.9, metadata={"ge": 0.0, "le": 1.0})
+    adapfs: bool = False
+    track_thresh: float = field(default=0.5, metadata={"ge": 0.0, "le": 1.0})
+    eg_weight_high_score: float = field(default=4.6, metadata={"ge": 0})
+    eg_weight_low_score: float = field(default=1.3, metadata={"ge": 0})
     tcm_first_step: bool = True
     tcm_byte_step: bool = True
     tcm_byte_step_weight: float = field(default=1.0, metadata={"ge": 0})
     with_longterm_reid: bool = True
-    longterm_reid_weight: float = field(default=1.9752492019041523, metadata={"ge": 0})
+    longterm_reid_weight: float = field(default=0.0, metadata={"ge": 0})
     with_longterm_reid_correction: bool = True
-    longterm_reid_correction_thresh: float = field(default=0.11310432273756706, metadata={"ge": 0})
-    longterm_reid_correction_thresh_low: float = field(default=0.3479740001301599, metadata={"ge": 0})
-    det_thresh: float = field(default=0.38633684113126876, metadata={"ge": 0.0, "le": 1.0})
+    longterm_reid_correction_thresh: float = field(default=0.4, metadata={"ge": 0})
+    longterm_reid_correction_thresh_low: float = field(default=0.4, metadata={"ge": 0})
+    det_thresh: float = field(default=0.3, metadata={"ge": 0.0, "le": 1.0})
 
 
 __all__ = ("HybridSortConfig",)

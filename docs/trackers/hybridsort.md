@@ -26,6 +26,26 @@ Tracker YAML profiles and Python construction use lowercase option names:
 `eg_weight_high_score`, `eg_weight_low_score`, `tcm_first_step`,
 `tcm_byte_step`, and `tcm_byte_step_weight`. Tuned profiles use these same names.
 
+In AABB mode, `tcm_first_step=False` disables the first-stage motion-direction
+and confidence cues while retaining geometry and appearance matching.
+
+## MOT17 ablation
+
+HybridSORT's defaults reproduce the historical MOT17 baseline settings, so
+the standard evaluation command uses them directly:
+
+```bash
+boxmot eval \
+  --experiment mot17/ablation-yolox-lmbn.yaml \
+  --tracker hybridsort --tracker-backend python
+```
+
+The `hybridsort-mot17-ablation` preset explicitly selects the same settings.
+The previous global defaults were SportsMOT validation tuning; select
+`--tracker-config hybridsort-sportsmot-val` to retain those settings, including
+for the `sportsmot/val-yolox-lmbn.yaml` experiment. This restoration also changes
+the defaults for direct Python construction, live tracking, and OBB tracking.
+
 ## Python API
 
 Pass algorithm settings through `HybridSortConfig`, for example
